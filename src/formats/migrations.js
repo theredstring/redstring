@@ -63,6 +63,157 @@ export const ensureCanonicalSections = (data) => {
 };
 
 /**
+ * Quarantine whitelists (decision D1). "Known" keys are the union of what the
+ * exporter emits and what the importer reads for each entity type, across both
+ * the semantic (redstring:/rdfs:/owl:) and legacy-flat spellings. Any top-level
+ * key on an entity that is NOT here is treated as unknown future data and moved
+ * verbatim into that entity's `_preserved[detectedVersion]` bag rather than
+ * dropped. Only top-level entity keys are inspected — nested objects are opaque.
+ *
+ * Append a key here when the exporter/importer starts consuming it; never remove
+ * one (that would start quarantining data older files legitimately carry).
+ */
+export const KNOWN_ROOT_KEYS = new Set([
+  '@context', '@type', 'format', 'metadata',
+  'prototypeSpace', 'spatialGraphs', 'relationships',
+  'graphs', 'nodePrototypes', 'edges',          // duplicate top-level mirrors (until P1.5)
+  'globalSpatialContext', 'userInterface', 'legacy',
+  'graphLayouts', 'graphSummaries', '_preserved'
+]);
+
+export const KNOWN_PROTOTYPE_KEYS = new Set([
+  // semantic (emitted)
+  '@type', '@id', 'rdfs:label', 'rdfs:comment', 'name', 'description',
+  'rdfs:seeAlso', 'rdfs:isDefinedBy', 'rdfs:subClassOf',
+  'owl:sameAs', 'owl:equivalentClass',
+  'redstring:spatialContext', 'redstring:visualProperties',
+  'redstring:definitionGraphIds', 'redstring:bio', 'redstring:conjugation',
+  'redstring:typeNodeId', 'redstring:citations', 'redstring:cognitiveProperties',
+  'redstring:abstractionChains', 'redstring:agentConfig', 'redstring:semanticMetadata',
+  // legacy flat (read)
+  'id', 'x', 'y', 'scale', 'color', 'imageSrc', 'thumbnailSrc', 'imageAspectRatio',
+  'semanticMetadata', 'externalLinks', 'equivalentClasses', 'citations',
+  'definitionGraphIds', 'bio', 'conjugation', 'typeNodeId', 'abstractionChains',
+  'personalMeaning', 'cognitiveAssociations', 'agentConfig',
+  // ancient legacy nested groupings (read via destructure)
+  'spatial', 'media', 'cognitive', 'semantic',
+  '_preserved'
+]);
+
+export const KNOWN_INSTANCE_KEYS = new Set([
+  // semantic (emitted)
+  '@type', '@id', 'rdf:type', 'rdfs:label', 'rdfs:comment',
+  'redstring:containedIn', 'redstring:spatialContext', 'redstring:visualProperties',
+  'redstring:prototypeId', 'redstring:isGroupAnchor', 'redstring:anchorForGroupId',
+  // legacy flat (read)
+  'id', 'prototypeId', 'name', 'description', 'x', 'y', 'scale',
+  'expanded', 'visible', 'isGroupAnchor', 'anchorForGroupId',
+  '_preserved'
+]);
+
+export const KNOWN_GRAPH_KEYS = new Set([
+  // semantic (emitted)
+  '@type', '@id', 'rdfs:label', 'rdfs:comment',
+  'redstring:definingNodeIds', 'redstring:edgeIds', 'redstring:panOffset',
+  'redstring:zoomLevel', 'redstring:instances', 'redstring:groups',
+  'redstring:visualProperties',
+  // legacy flat (read)
+  'id', 'name', 'description', 'definingNodeIds', 'edgeIds', 'instances',
+  'groups', 'panOffset', 'zoomLevel',
+  '_preserved'
+]);
+
+export const KNOWN_EDGE_KEYS = new Set([
+  // dual native+RDF format (emitted/read)
+  'id', 'sourceId', 'destinationId', 'name', 'description', 'typeNodeId',
+  'definitionNodeIds', 'directionality', 'rdfStatements',
+  'sourcePrototypeId', 'destinationPrototypeId', 'predicatePrototypeId',
+  // old RDF Statement format (read)
+  '@type', 'subject', 'predicate', 'object', 'originalSourceId', 'originalDestinationId',
+  '_preserved'
+]);
+
+/**
+ * Split one entity's top-level keys into known (kept) and unknown (moved into
+ * `_preserved[version]`). Returns the SAME reference when nothing is unknown;
+ * otherwise a new object sharing value references (no deep clone, so Infinity/
+ * NaN survive). Any pre-existing `_preserved` bag is merged, not overwritten.
+ */
+const quarantineKeys = (entity, knownKeys, version) => {
+  if (!entity || typeof entity !== 'object' || Array.isArray(entity)) return entity;
+
+  const kept = {};
+  const unknown = {};
+  let hasUnknown = false;
+  for (const [key, value] of Object.entries(entity)) {
+    if (key === '_preserved') continue; // handled below
+    if (knownKeys.has(key)) kept[key] = value;
+    else { unknown[key] = value; hasUnknown = true; }
+  }
+
+  const existing = entity._preserved && typeof entity._preserved === 'object' ? entity._preserved : null;
+  if (!hasUnknown) return entity; // nothing to move — leave verbatim
+
+  return {
+    ...kept,
+    _preserved: {
+      ...(existing || {}),
+      [version]: { ...((existing && existing[version]) || {}), ...unknown }
+    }
+  };
+};
+
+/**
+ * Walk the canonical structure and quarantine unknown top-level keys on the file
+ * root, every prototype, graph, instance, and edge. Pure: builds fresh container
+ * objects, never mutates the input, shares leaf values.
+ */
+export const quarantineUnknownFields = (data, version) => {
+  if (!data || typeof data !== 'object') return data;
+
+  let out = quarantineKeys(data, KNOWN_ROOT_KEYS, version);
+  if (out === data) out = { ...data }; // ensure we never mutate the caller's object
+
+  if (out.prototypeSpace?.prototypes && typeof out.prototypeSpace.prototypes === 'object') {
+    const next = {};
+    for (const [id, proto] of Object.entries(out.prototypeSpace.prototypes)) {
+      next[id] = quarantineKeys(proto, KNOWN_PROTOTYPE_KEYS, version);
+    }
+    out.prototypeSpace = { ...out.prototypeSpace, prototypes: next };
+  }
+
+  if (out.spatialGraphs?.graphs && typeof out.spatialGraphs.graphs === 'object') {
+    const nextGraphs = {};
+    for (const [gid, graph] of Object.entries(out.spatialGraphs.graphs)) {
+      let g = quarantineKeys(graph, KNOWN_GRAPH_KEYS, version);
+      for (const instKey of ['redstring:instances', 'instances']) {
+        const instances = g?.[instKey];
+        if (instances && typeof instances === 'object' && !Array.isArray(instances)) {
+          const nextInst = {};
+          for (const [iid, instance] of Object.entries(instances)) {
+            nextInst[iid] = quarantineKeys(instance, KNOWN_INSTANCE_KEYS, version);
+          }
+          if (g === graph) g = { ...graph }; // avoid mutating the input graph
+          g[instKey] = nextInst;
+        }
+      }
+      nextGraphs[gid] = g;
+    }
+    out.spatialGraphs = { ...out.spatialGraphs, graphs: nextGraphs };
+  }
+
+  if (out.relationships?.edges && typeof out.relationships.edges === 'object') {
+    const nextEdges = {};
+    for (const [eid, edge] of Object.entries(out.relationships.edges)) {
+      nextEdges[eid] = quarantineKeys(edge, KNOWN_EDGE_KEYS, version);
+    }
+    out.relationships = { ...out.relationships, edges: nextEdges };
+  }
+
+  return out;
+};
+
+/**
  * The migration ledger. ORDERED and append-only. Each step is pure and reshapes
  * data toward the next version's canonical shape.
  *
@@ -114,8 +265,11 @@ export function runMigrations(data, { now = null } = {}) {
   // reference when already canonical) WITHOUT cloning — this preserves the
   // input verbatim, including non-JSON values like Infinity/NaN that a clone
   // would coerce, and avoids cloning large current-version files on every load.
+  // Quarantine still runs so unknown future fields (e.g. a v4 file opened by an
+  // older install) survive instead of being dropped.
   if (steps.length === 0) {
-    return { data: ensureCanonicalSections(data), applied: [] };
+    const canonical = ensureCanonicalSections(data);
+    return { data: quarantineUnknownFields(canonical, startVersion), applied: [] };
   }
 
   // Migration path: clone first so step transforms and metadata stamping never
@@ -131,6 +285,7 @@ export function runMigrations(data, { now = null } = {}) {
   }
 
   working = ensureCanonicalSections(working);
+  working = quarantineUnknownFields(working, startVersion);
 
   working.metadata = { ...(working.metadata || {}) };
   working.metadata.version = finalTo;

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   runMigrations,
   ensureCanonicalSections,
+  quarantineUnknownFields,
   detectFormatVersion,
   MIGRATIONS
 } from '../../src/formats/migrations.js';
@@ -104,6 +105,40 @@ describe('Migration ledger', () => {
     const snapshot = JSON.stringify(input);
     runMigrations(input, { now: NOW });
     expect(JSON.stringify(input)).toBe(snapshot);
+  });
+
+  it('quarantines unknown keys at root, prototype, instance, and edge levels', () => {
+    const doc = {
+      format: 'redstring-v3.0.0',
+      metadata: { version: '3.0.0' },
+      xFutureRoot: { nested: true },
+      prototypeSpace: { prototypes: { p1: { id: 'p1', name: 'P', xFutureProto: 1 } } },
+      spatialGraphs: {
+        graphs: {
+          g1: {
+            id: 'g1',
+            'redstring:instances': { i1: { id: 'i1', prototypeId: 'p1', xFutureInst: 'x' } }
+          }
+        }
+      },
+      relationships: { edges: { e1: { id: 'e1', sourceId: 'i1', destinationId: 'i1', xFutureEdge: [9] } } }
+    };
+    const out = quarantineUnknownFields(doc, '3.0.0');
+    expect(out._preserved['3.0.0'].xFutureRoot).toEqual({ nested: true });
+    expect(out.prototypeSpace.prototypes.p1._preserved['3.0.0'].xFutureProto).toBe(1);
+    expect(out.spatialGraphs.graphs.g1['redstring:instances'].i1._preserved['3.0.0'].xFutureInst).toBe('x');
+    expect(out.relationships.edges.e1._preserved['3.0.0'].xFutureEdge).toEqual([9]);
+    // known keys stay put
+    expect(out.prototypeSpace.prototypes.p1.name).toBe('P');
+    expect(out.prototypeSpace.prototypes.p1.xFutureProto).toBeUndefined();
+  });
+
+  it('quarantine leaves a clean document untouched and never mutates input', () => {
+    const clean = v3File();
+    const snapshot = JSON.stringify(clean);
+    const out = quarantineUnknownFields(clean, '3.0.0');
+    expect(JSON.stringify(clean)).toBe(snapshot); // input unchanged
+    expect(out.prototypeSpace.prototypes.p1._preserved).toBeUndefined(); // nothing quarantined
   });
 
   it('ensureCanonicalSections is idempotent and leaves a canonical doc unchanged', () => {
