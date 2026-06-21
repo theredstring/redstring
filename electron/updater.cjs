@@ -419,7 +419,7 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
 
   autoUpdater.on('update-downloaded', (info) => {
     log('info', 'Update downloaded:', info.version);
-    pendingUpdateInfo = { version: info.version, releaseName: info.releaseName || '' };
+    pendingUpdateInfo = { version: info.version, releaseName: info.releaseName || '', downloadedFile: info.downloadedFile || null };
     downloadInProgress = false;
     downloadFailCountThisSession = 0;
 
@@ -476,6 +476,32 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
       }
     } catch (err) {
       log('warn', 'Could not read ShipItState.plist:', err.message);
+    }
+    if (!stagedBundlePath) {
+      // ShipIt didn't stage the bundle (unreliable on macOS 26+). Fall back to
+      // extracting the downloaded ZIP ourselves, mirroring the debug-downgrade path.
+      const zipPath = pendingUpdateInfo?.downloadedFile;
+      if (zipPath && fs.existsSync(zipPath)) {
+        log('info', 'ShipIt has no staged bundle — self-extracting downloaded ZIP:', zipPath);
+        const extractDir = path.join(macPaths.updaterCacheDir, 'manual-extract');
+        try {
+          fs.rmSync(extractDir, { recursive: true, force: true });
+          fs.mkdirSync(extractDir, { recursive: true });
+          execFileSync('/usr/bin/ditto', ['-x', '-k', zipPath, extractDir], { stdio: 'pipe' });
+          const entries = fs.readdirSync(extractDir);
+          const appDirName = entries.find((n) => n.endsWith('.app'));
+          if (appDirName) {
+            stagedBundlePath = path.join(extractDir, appDirName);
+            log('info', 'Self-extracted bundle at:', stagedBundlePath);
+          } else {
+            log('error', 'No .app found inside extracted ZIP');
+          }
+        } catch (extractErr) {
+          log('error', 'Failed to self-extract downloaded ZIP:', extractErr.message);
+        }
+      } else {
+        log('warn', 'No downloadedFile path available for self-extraction');
+      }
     }
     if (!stagedBundlePath) {
       log('error', 'No staged bundle path — cannot install');
