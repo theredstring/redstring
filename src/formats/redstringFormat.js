@@ -652,18 +652,28 @@ export const exportToRedstring = (storeState, userDomain = null) => {
     }
   });
 
+  // SKOS scheme IRI — the universe IS a skos:ConceptScheme; prototypes are the
+  // concepts in it. One scheme per file (self-contained). (P2.4)
+  const SCHEME_IRI = 'urn:redstring:scheme';
+
   // Three-Layer Architecture: Export Prototypes as Semantic Classes
   const prototypeSpace = {};
   nodePrototypes.forEach((prototype, id) => {
     prototypeSpace[id] = {
-      // RDF Schema typing - prototype is a class
-      "@type": ["redstring:Prototype", "rdfs:Class", "schema:Thing"],
+      // RDF Schema typing — prototype is a class AND a SKOS concept (P2.4).
+      // skos:Concept is the load-bearing standards type; the rest is overlay.
+      "@type": ["redstring:Prototype", "rdfs:Class", "schema:Thing", "skos:Concept"],
       "@id": toIri(id),
-      
+
       // RDF Schema standard properties (W3C compliant) - preserve original
       "rdfs:label": prototype.name,
       "rdfs:comment": prototype.description,
-      
+
+      // SKOS concept properties (P2.4) — the register that survives the strip test
+      "skos:prefLabel": prototype.name,
+      "skos:altLabel": prototype.conjugation || undefined,
+      "skos:inScheme": { "@id": SCHEME_IRI },
+
       // Redstring core properties (NEVER override these)
       "name": prototype.name,
       "description": prototype.description,
@@ -734,28 +744,31 @@ export const exportToRedstring = (storeState, userDomain = null) => {
     }
   });
 
-  // Process abstraction chains to add additional subClassOf relationships
+  // Project abstraction chains to skos:broader links (P2.4). A chain is ordered
+  // general → specific, so each more-specific concept is skos:broader its
+  // immediate more-general neighbor. SKOS is the correct register here: it
+  // carries NO logical entailment, matching Redstring's contested/interpretive
+  // hierarchies — unlike rdfs:subClassOf (audit #8), which this replaces. The
+  // native redstring:abstractionChains field is kept verbatim on each prototype.
   nodePrototypes.forEach((node, nodeId) => {
     if (node.abstractionChains) {
       for (const dimension in node.abstractionChains) {
         const chain = node.abstractionChains[dimension];
         if (chain && chain.length > 1) {
           for (let i = 1; i < chain.length; i++) {
-            const subClassId = chain[i];
-            const superClassId = chain[i - 1];
-            if (prototypeSpace[subClassId]) {
-              if (!prototypeSpace[subClassId]['rdfs:subClassOf']) {
-                prototypeSpace[subClassId]['rdfs:subClassOf'] = [];
+            const moreSpecificId = chain[i];
+            const moreGeneralId = chain[i - 1];
+            if (prototypeSpace[moreSpecificId]) {
+              if (!prototypeSpace[moreSpecificId]['skos:broader']) {
+                prototypeSpace[moreSpecificId]['skos:broader'] = [];
               }
-              // Add as an object to be expanded to a proper link by JSON-LD
-              const superClassRef = { "@id": toIri(superClassId) };
-              // Avoid duplicates
-              const existingSubClasses = Array.isArray(prototypeSpace[subClassId]['rdfs:subClassOf'])
-                ? prototypeSpace[subClassId]['rdfs:subClassOf']
-                : [prototypeSpace[subClassId]['rdfs:subClassOf']];
-              if (!existingSubClasses.some(item => item?.["@id"] === toIri(superClassId))) {
-                existingSubClasses.push(superClassRef);
-                prototypeSpace[subClassId]['rdfs:subClassOf'] = existingSubClasses;
+              const broaderRef = { "@id": toIri(moreGeneralId) };
+              const existing = Array.isArray(prototypeSpace[moreSpecificId]['skos:broader'])
+                ? prototypeSpace[moreSpecificId]['skos:broader']
+                : [prototypeSpace[moreSpecificId]['skos:broader']];
+              if (!existing.some(item => item?.["@id"] === toIri(moreGeneralId))) {
+                existing.push(broaderRef);
+                prototypeSpace[moreSpecificId]['skos:broader'] = existing;
               }
             }
           }
@@ -888,7 +901,10 @@ export const exportToRedstring = (storeState, userDomain = null) => {
   
   return {
     "@context": context,
-    "@type": "redstring:CognitiveSpace",
+    // The universe is both Redstring's CognitiveSpace and a SKOS ConceptScheme
+    // (P2.4); SCHEME_IRI is what every prototype's skos:inScheme points at.
+    "@id": SCHEME_IRI,
+    "@type": ["redstring:CognitiveSpace", "skos:ConceptScheme"],
     "format": `redstring-v${CURRENT_FORMAT_VERSION}`,
     "metadata": {
       "version": CURRENT_FORMAT_VERSION,

@@ -74,7 +74,7 @@ export const ensureCanonicalSections = (data) => {
  * one (that would start quarantining data older files legitimately carry).
  */
 export const KNOWN_ROOT_KEYS = new Set([
-  '@context', '@type', 'format', 'metadata',
+  '@context', '@type', '@id', 'format', 'metadata',
   'prototypeSpace', 'spatialGraphs', 'relationships',
   'graphs', 'nodePrototypes', 'edges',          // duplicate top-level mirrors (until P1.5)
   'globalSpatialContext', 'userInterface', 'legacy',
@@ -90,6 +90,10 @@ export const KNOWN_PROTOTYPE_KEYS = new Set([
   'redstring:definitionGraphIds', 'redstring:bio', 'redstring:conjugation',
   'redstring:typeNodeId', 'redstring:citations', 'redstring:cognitiveProperties',
   'redstring:abstractionChains', 'redstring:agentConfig', 'redstring:semanticMetadata',
+  // SKOS + PROV emitted by Phase 2 (P2.4/P2.5/P2.6) — recognized, not quarantined
+  'skos:prefLabel', 'skos:altLabel', 'skos:inScheme', 'skos:broader',
+  'skos:closeMatch', 'skos:exactMatch',
+  'prov:wasAttributedTo', 'prov:generatedAtTime',
   // legacy flat (read)
   'id', 'x', 'y', 'scale', 'color', 'imageSrc', 'thumbnailSrc', 'imageAspectRatio',
   'semanticMetadata', 'externalLinks', 'equivalentClasses', 'citations',
@@ -130,6 +134,8 @@ export const KNOWN_EDGE_KEYS = new Set([
   'sourcePrototypeId', 'destinationPrototypeId', 'predicatePrototypeId',
   // old RDF Statement format (read)
   '@type', 'subject', 'predicate', 'object', 'originalSourceId', 'originalDestinationId',
+  // PROV emitted by P2.6 for wizard-authored edges
+  'prov:wasAttributedTo', 'prov:generatedAtTime',
   '_preserved'
 ]);
 
