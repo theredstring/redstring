@@ -2,16 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { exportToRedstring, importFromRedstring } from '../../src/formats/redstringFormat.js';
 
 /**
- * Alien-field survival (P0.2) — pins audit finding #5 (data loss).
+ * Alien-field survival — audit finding #5 (data loss).
  *
  * Unknown fields injected at the file root, on a prototype, on an instance, and
- * on an edge must survive an import → export round trip. Today they are silently
- * dropped, so all four cases are pinned `it.fails`. Phase 1 flips them to passing:
- *   - root / prototype / edge   → P1.2 (quarantine in the migration ledger)
- *   - instance                  → P1.3 (carry `_preserved` through import/export)
+ * on an edge must survive an import → export round trip. Originally all four were
+ * pinned `it.fails`; P1.2 (quarantine into _preserved in the migration ledger) +
+ * P1.3 (carry _preserved through import/export) fixed it, so all four now pass.
  *
  * Assertion is intentionally "the marker appears ANYWHERE in the re-exported
- * JSON" — D1's exact `_preserved` location is enforced later; for now we only
+ * JSON" — the field lands in a `_preserved[version]` bag (D1); here we only
  * assert it is not lost.
  */
 
@@ -53,28 +52,28 @@ const roundTripWithInjection = (inject) => {
 };
 
 describe('Alien-field survival', () => {
-  it.fails('preserves an unknown field at the file root', () => {
+  it('preserves an unknown field at the file root', () => {
     const out = roundTripWithInjection((ex) => {
       ex.xFutureRootField = { __alien_root__: true };
     });
     expect(out).toContain('__alien_root__');
   });
 
-  it.fails('preserves an unknown field on a prototype', () => {
+  it('preserves an unknown field on a prototype', () => {
     const out = roundTripWithInjection((ex) => {
       ex.prototypeSpace.prototypes.pa.xFuturePrototypeField = '__alien_proto__';
     });
     expect(out).toContain('__alien_proto__');
   });
 
-  it.fails('preserves an unknown field on an instance', () => {
+  it('preserves an unknown field on an instance', () => {
     const out = roundTripWithInjection((ex) => {
       ex.spatialGraphs.graphs.g['redstring:instances'].ia.xFutureInstanceField = '__alien_inst__';
     });
     expect(out).toContain('__alien_inst__');
   });
 
-  it.fails('preserves an unknown field on an edge', () => {
+  it('preserves an unknown field on an edge', () => {
     const out = roundTripWithInjection((ex) => {
       ex.relationships.edges.e1.xFutureEdgeField = '__alien_edge__';
     });

@@ -561,6 +561,10 @@ export const exportToRedstring = (storeState, userDomain = null) => {
           "redstring:isGroupAnchor": instance.isGroupAnchor || false,
           "redstring:anchorForGroupId": instance.anchorForGroupId || null
         };
+        // Quarantined unknown fields ride back out verbatim (D1/P1.3)
+        if (instance._preserved) {
+          spatialInstances[instanceId]._preserved = instance._preserved;
+        }
       });
     }
     
@@ -615,6 +619,10 @@ export const exportToRedstring = (storeState, userDomain = null) => {
         "redstring:activeInContext": graphId === activeGraphId
       }
     };
+    // Quarantined unknown fields ride back out verbatim (D1/P1.3)
+    if (graph._preserved) {
+      spatialGraphs[graphId]._preserved = graph._preserved;
+    }
   });
 
   // Three-Layer Architecture: Export Prototypes as Semantic Classes
@@ -693,6 +701,10 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       // Critical for image re-fetching on reload and OOM prevention
       "redstring:semanticMetadata": prototype.semanticMetadata || null
     };
+    // Quarantined unknown fields ride back out verbatim (D1/P1.3)
+    if (prototype._preserved) {
+      prototypeSpace[id]._preserved = prototype._preserved;
+    }
   });
 
   // Process abstraction chains to add additional subClassOf relationships
@@ -827,7 +839,11 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       "destinationPrototypeId": destinationPrototypeId,
       "predicatePrototypeId": predicatePrototypeId,
     };
-    
+    // Quarantined unknown fields ride back out verbatim (D1/P1.3)
+    if (edge._preserved) {
+      edgesObj[id]._preserved = edge._preserved;
+    }
+
     //console.log('[DEBUG] Created dual-format edge:', id, edgesObj[id]);
   });
 
@@ -921,7 +937,11 @@ export const exportToRedstring = (storeState, userDomain = null) => {
 
     // Spatial metadata snapshots for agent/CLI workflows
     "graphLayouts": layoutSnapshot,
-    "graphSummaries": summarySnapshot
+    "graphSummaries": summarySnapshot,
+
+    // File-root quarantined unknown fields ride back out verbatim (D1/P1.3).
+    // undefined is dropped by JSON.stringify, so absent when there is none.
+    "_preserved": storeState._preserved
   };
   } catch (error) {
     console.error('[exportToRedstring] Error during export:', error);
@@ -1126,6 +1146,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
             });
           }
 
+          // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
+          if (instance._preserved) convertedInstance._preserved = instance._preserved;
+
           instancesMap.set(instanceId, convertedInstance);
         });
 
@@ -1168,6 +1191,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
             graphShape.zoomLevel = graph.zoomLevel;
           }
         }
+
+        // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
+        if (graph._preserved) graphShape._preserved = graph._preserved;
 
         graphsMap.set(id, graphShape);
       } catch (error) {
@@ -1347,6 +1373,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
           }
         });
 
+        // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
+        if (prototype._preserved) convertedPrototype._preserved = prototype._preserved;
+
         nodesMap.set(id, convertedPrototype);
         
         // Note: rdfs:subClassOf relationships are preserved in the semantic format
@@ -1436,6 +1465,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
           edgeData.directionality.arrowsToward = new Set();
         }
         
+        // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
+        if (edge._preserved) edgeData._preserved = edge._preserved;
+
         edgesMap.set(id, edgeData);
       } catch (error) {
         console.warn(`[importFromRedstring] Error processing edge ${id}:`, error);
@@ -1483,6 +1515,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
       savedGraphIds: new Set(Array.isArray(extractedSavedGraphIds) ? extractedSavedGraphIds : []),
       showConnectionNames: !!extractedShowConnectionNames
     };
+
+    // Carry the file-root quarantine bag through (opaque cargo, D1/P1.3)
+    if (processedData._preserved) storeState._preserved = processedData._preserved;
 
     const importedTabs = extractedRightPanelTabs;
 
