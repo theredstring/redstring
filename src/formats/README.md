@@ -221,6 +221,6 @@ Stable namespace: `https://w3id.org/redstring/` (pending w3id PR — see `src/fo
 
 ---
 
-## Version Flag
+## Status
 
-`EMIT_V4` in `src/formats/redstringFormat.js` gates the v4 file shape. It is `false` until all phases 3–6 are complete and smoke-tested against real universes. The final flip — `EMIT_V4 = true`, `CURRENT_FORMAT_VERSION = '4.0.0'`, ledger entry promoted from `STAGED_MIGRATIONS` to `MIGRATIONS` — is the very last step before release.
+`EMIT_V4 = true` and `CURRENT_FORMAT_VERSION = '4.0.0'` are live. All phases 3–6 are complete. New saves write v4 documents; existing v1/v2/v3 files are migrated automatically on load. The migration ledger in `src/formats/migrations.js` is append-only and contains all three steps.
