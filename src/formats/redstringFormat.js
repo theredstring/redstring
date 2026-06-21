@@ -369,7 +369,35 @@ export const REDSTRING_CONTEXT = {
   "pod": "https://www.w3.org/ns/solid/terms#pod",
   "webId": "http://xmlns.com/foaf/0.1/webId",
   "references": "redstring:references",
-  "linkedThinking": "redstring:linkedThinking"
+  "linkedThinking": "redstring:linkedThinking",
+
+  // ── RDF projection tuning (P2.2) ──────────────────────────────────────────
+  // These shape how jsonld.toRDF reads the document. They do NOT affect native
+  // import (which reads raw JSON, ignoring the context).
+  "xsd": "http://www.w3.org/2001/XMLSchema#",
+
+  // Entity maps are keyed by id → declare @container:@id so the map keys link
+  // each entity by its IRI instead of minting a junk predicate per key.
+  "prototypes": { "@id": "redstring:prototypes", "@container": "@id" },
+  "graphs": { "@id": "redstring:graphs", "@container": "@id" },
+  "edges": { "@id": "redstring:edges", "@container": "@id" },
+  "redstring:instances": { "@id": "redstring:instances", "@container": "@id" },
+  "redstring:groups": { "@id": "redstring:groups", "@container": "@id" },
+
+  // Datatype coercion for the prefixed forms the exporter actually emits.
+  "redstring:xCoordinate": { "@id": "redstring:xCoordinate", "@type": "xsd:decimal" },
+  "redstring:yCoordinate": { "@id": "redstring:yCoordinate", "@type": "xsd:decimal" },
+  "redstring:spatialScale": { "@id": "redstring:spatialScale", "@type": "xsd:decimal" },
+  "redstring:lastViewed": { "@id": "redstring:lastViewed", "@type": "xsd:dateTime" },
+  "created": { "@id": "http://purl.org/dc/terms/created", "@type": "xsd:dateTime" },
+  "modified": { "@id": "http://purl.org/dc/terms/modified", "@type": "xsd:dateTime" },
+
+  // Derived/regenerable snapshots (D7) and non-semantic UI state are excluded
+  // from the RDF projection — null drops them during JSON-LD expansion only.
+  "graphLayouts": null,
+  "graphSummaries": null,
+  "userInterface": null,
+  "globalSpatialContext": null
 };
 
 const coalesce = (value, fallback) => value ?? fallback;
