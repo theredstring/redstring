@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { exportToRedstring, importFromRedstring } from '../../src/formats/redstringFormat.js';
-import { STAGED_MIGRATIONS } from '../../src/formats/migrations.js';
+import { MIGRATIONS } from '../../src/formats/migrations.js';
 
 /**
  * Phase 3 — Dataset structure tests (P3.1 / P3.2 / P3.3)
@@ -79,24 +79,17 @@ describe('P3.1 — v4 export shape (emitV4: true)', () => {
     expect(e.rdfStatements).toHaveLength(1);
   });
 
-  it('v3 export (EMIT_V4=false default) still has relationships, no graph edges', () => {
-    const v3 = exportToRedstring(state);
-    expect(v3.relationships.edges.e1).toBeDefined();
-    expect(v3.format).toBe('redstring-v3.0.0');
-    const g = v3.spatialGraphs.graphs.g1;
+  it('emitV4: false still produces a legacy-structure export with relationships, no graph edges', () => {
+    // The default (EMIT_V4=true) now produces v4. Explicit false still emits v3 structure.
+    const legacy = exportToRedstring(state, null, { emitV4: false });
+    expect(legacy.relationships.edges.e1).toBeDefined();
+    const g = legacy.spatialGraphs.graphs.g1;
     expect(g['redstring:edges']).toBeUndefined();
   });
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-// Export a v4-shaped document and downgrade the format header to "v3.0.0" so
-// validateFormatVersion accepts it while CURRENT_FORMAT_VERSION is still 3.0.0.
-// This lets P3.2 tests exercise the importer's v4 reading path cleanly.
-const exportV4AsV3Header = (state) => {
-  const ex = exportToRedstring(state, null, { emitV4: true });
-  return { ...ex, format: 'redstring-v3.0.0', metadata: { ...ex.metadata, version: '3.0.0' } };
-};
+// EMIT_V4=true is now live, so the default export IS v4. No header-patching needed.
 
 // ── P3.2: import v4-shaped data ─────────────────────────────────────────────
 
@@ -104,7 +97,7 @@ describe('P3.2 — import reads edges from spatialGraph entries', () => {
   const state = buildState();
 
   it('round-trips through v4 export: edge count and directionality survive', () => {
-    const ex = exportV4AsV3Header(state);
+    const ex = exportToRedstring(state);
     const { storeState } = importFromRedstring(ex, {});
     expect(storeState.edges.size).toBe(1);
     const e = storeState.edges.get('e1');
@@ -129,21 +122,20 @@ describe('P3.2 — import reads edges from spatialGraph entries', () => {
       directionality: { arrowsToward: new Set() }
     });
 
-    const ex = exportToRedstring(s, null, { emitV4: true });
+    const ex = exportToRedstring(s); // default is now v4
     expect(ex.spatialGraphs.graphs.g1['redstring:edges'].e1).toBeDefined();
     expect(ex.spatialGraphs.graphs.g2['redstring:edges'].e2).toBeDefined();
     expect(ex.spatialGraphs.graphs.g1['redstring:edges'].e2).toBeUndefined();
 
-    const exWithV3Header = { ...ex, format: 'redstring-v3.0.0', metadata: { ...ex.metadata, version: '3.0.0' } };
-    const { storeState } = importFromRedstring(exWithV3Header, {});
+    const { storeState } = importFromRedstring(ex, {});
     expect(storeState.edges.size).toBe(2);
   });
 
-  it('v4-shaped doc with absent relationships → falls back to graph-embedded edges', () => {
-    // Build a minimal doc with no relationships section and edges in a graph.
+  it('v4-shaped doc with absent relationships → reads graph-embedded edges', () => {
+    // Build a minimal v4 doc with no relationships section and edges in a graph.
     const doc = {
-      format: 'redstring-v3.0.0',
-      metadata: { version: '3.0.0' },
+      format: 'redstring-v4.0.0',
+      metadata: { version: '4.0.0' },
       prototypeSpace: {
         prototypes: {
           dog: { '@type': ['redstring:Prototype'], '@id': 'urn:redstring:id:dog', name: 'Dog', description: '' }
@@ -178,12 +170,12 @@ describe('P3.2 — import reads edges from spatialGraph entries', () => {
   });
 });
 
-// ── P3.3: STAGED_MIGRATIONS['3.0.0→4.0.0'] ──────────────────────────────────
+// ── P3.3: MIGRATIONS['3.0.0→4.0.0'] (formerly STAGED_MIGRATIONS) ────────────
 
-describe('P3.3 — staged migration 3.0.0→4.0.0', () => {
-  const migrate = STAGED_MIGRATIONS.find((m) => m.from === '3.0.0' && m.to === '4.0.0');
+describe('P3.3 — migration 3.0.0→4.0.0', () => {
+  const migrate = MIGRATIONS.find((m) => m.from === '3.0.0' && m.to === '4.0.0');
 
-  it('migration entry exists in STAGED_MIGRATIONS', () => {
+  it('migration entry exists in MIGRATIONS', () => {
     expect(migrate).toBeDefined();
     expect(migrate.from).toBe('3.0.0');
     expect(migrate.to).toBe('4.0.0');
@@ -247,13 +239,9 @@ describe('P3.3 — staged migration 3.0.0→4.0.0', () => {
   it('full round-trip via migration: v3 doc → migrate → import → same edge state', () => {
     const v3Doc = makeV3Doc(true);
     const migrated = migrate.migrate(v3Doc);
-    // Manually canonicalize (as runMigrations would do after the ledger walk).
-    // For a v4-shaped doc ensureCanonicalSections returns early, so just import directly.
-    migrated.format = 'redstring-v4.0.0'; // mark as v4 so validator accepts it
-    // Patch version so validateFormatVersion doesn't reject it
-    // (in production this is handled by CURRENT_FORMAT_VERSION being 4.0.0)
-    const { storeState } = importFromRedstring({ ...migrated, format: 'redstring-v3.0.0' }, {});
-    // Even if validator sees v3, relationships is absent → importer falls back to graph edges.
+    // CURRENT_FORMAT_VERSION is now 4.0.0, so stamp the migrated doc as v4.
+    const v4Doc = { ...migrated, format: 'redstring-v4.0.0', metadata: { ...(migrated.metadata || {}), version: '4.0.0' } };
+    const { storeState } = importFromRedstring(v4Doc, {});
     expect(storeState.edges.size).toBe(1);
     expect(storeState.edges.get('e1').name).toBe('relates');
   });

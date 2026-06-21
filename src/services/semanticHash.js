@@ -18,9 +18,12 @@ import jsonld from 'jsonld';
 import { exportToRedstring } from '../formats/redstringFormat.js';
 
 // Fields excluded from tier-2 (presentation / viewport / derived cache).
+// 'created', 'modified', 'redstring:lastViewed' are call-time timestamps —
+// stripping them makes fullHash deterministic across multiple calls on the same content.
 const EXCLUDED_FULL = [
   'userInterface', 'graphLayouts', 'graphSummaries',
   'viewportX', 'viewportY', 'viewportScale', 'viewport',
+  'created', 'modified', 'redstring:lastViewed',
 ];
 
 async function sha256hex(str) {

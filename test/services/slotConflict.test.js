@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { slotsHaveEqualKnowledge } from '../../src/services/semanticHash.js';
 import { exportToRedstring, importFromRedstring } from '../../src/formats/redstringFormat.js';
-import { STAGED_MIGRATIONS } from '../../src/formats/migrations.js';
+import { MIGRATIONS } from '../../src/formats/migrations.js';
 
 /**
  * P4.3 — Slot matrix tests.
@@ -42,27 +42,25 @@ const buildState = (names = ['dog', 'cat']) => {
   };
 };
 
-// Simulate loading a state that was stored as a v3 file.
+// Simulate loading a state that was stored as a v3 file (explicit emitV4:false).
 const storeStateFromV3 = (state) => {
-  const doc = exportToRedstring(state);
+  const doc = exportToRedstring(state, null, { emitV4: false });
   return importFromRedstring(doc, {}).storeState;
 };
 
-// Simulate loading a state that was stored as a v4 file (header patched so
-// importFromRedstring accepts it while CURRENT_FORMAT_VERSION is still 3.0.0).
+// Simulate loading a state that was stored as a v4 file (default — EMIT_V4=true).
 const storeStateFromV4 = (state) => {
-  const v4doc = exportToRedstring(state, null, { emitV4: true });
-  const patched = { ...v4doc, format: 'redstring-v3.0.0', metadata: { ...v4doc.metadata, version: '3.0.0' } };
-  return importFromRedstring(patched, {}).storeState;
+  const v4doc = exportToRedstring(state);
+  return importFromRedstring(v4doc, {}).storeState;
 };
 
-// Simulate the STAGED_MIGRATIONS 3→4 path (what will happen at version flip).
+// Simulate the 3→4 migration path (now live in MIGRATIONS).
 const storeStateFromMigrated = (state) => {
-  const v3doc = exportToRedstring(state);
-  const migrate = STAGED_MIGRATIONS.find((m) => m.from === '3.0.0' && m.to === '4.0.0');
+  const v3doc = exportToRedstring(state, null, { emitV4: false });
+  const migrate = MIGRATIONS.find((m) => m.from === '3.0.0' && m.to === '4.0.0');
   const v4 = migrate.migrate(v3doc);
-  const patched = { ...v4, format: 'redstring-v3.0.0', metadata: { ...(v4.metadata || {}), version: '3.0.0' } };
-  return importFromRedstring(patched, {}).storeState;
+  const v4Doc = { ...v4, format: 'redstring-v4.0.0', metadata: { ...(v4.metadata || {}), version: '4.0.0' } };
+  return importFromRedstring(v4Doc, {}).storeState;
 };
 
 // ── Matrix: same knowledge ────────────────────────────────────────────────────
@@ -96,7 +94,7 @@ describe('P4.3 — slot matrix: same knowledge (→ in-sync)', () => {
     expect(await slotsHaveEqualKnowledge(local, git)).toBe(true);
   });
 
-  it('v3 git / migrated-v4 local — same knowledge (STAGED_MIGRATIONS path) → in-sync', async () => {
+  it('v3 git / migrated-v4 local — same knowledge (now live migration path) → in-sync', async () => {
     const state = buildState();
     const git = storeStateFromV3(state);
     const local = storeStateFromMigrated(state);

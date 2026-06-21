@@ -337,23 +337,24 @@ describe('Format Consistency', () => {
 
   it('should handle dual format edges correctly', () => {
     const redstringData = exportToRedstring(originalState);
-    
-    // Check that exported edges have both native and RDF format
-    // (canonical location after P1.5 removed the top-level `edges` mirror)
-    const edgeEntries = Object.entries(redstringData.relationships.edges);
-    expect(edgeEntries.length).toBeGreaterThan(0);
-    
-    for (const [edgeId, edgeData] of edgeEntries) {
+
+    // v4: edges are scoped inside spatialGraphs.graphs[g]['redstring:edges'], not
+    // in a top-level relationships.edges section. Collect from all graphs.
+    const allEdges = Object.values(redstringData.spatialGraphs?.graphs || {})
+      .flatMap((g) => Object.entries(g['redstring:edges'] || {}));
+    expect(allEdges.length).toBeGreaterThan(0);
+
+    for (const [, edgeData] of allEdges) {
       // Should have native format
       expect(edgeData.sourceId).toBeDefined();
       expect(edgeData.destinationId).toBeDefined();
       expect(edgeData.directionality).toBeDefined();
-      
+
       // Should have RDF metadata
       expect(edgeData.sourcePrototypeId).toBeDefined();
       expect(edgeData.destinationPrototypeId).toBeDefined();
     }
-    
+
     // Import should preserve both formats
     const { storeState } = importFromRedstring(redstringData, {});
     expect(storeState.edges.size).toEqual(originalState.edges.size);

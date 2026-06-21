@@ -135,7 +135,9 @@ describe('PROV stamping (P2.6)', () => {
       semanticMetadata: { provenance: PROV }
     });
     const ex = exportToRedstring(state);
-    expect(ex.relationships.edges.e1['prov:wasAttributedTo']).toEqual({ '@id': 'urn:redstring:agent:redstring-wizard' });
+    // v4: edges live inside spatialGraphs, not relationships.edges.
+    const exportedEdge = ex.spatialGraphs?.graphs?.g?.['redstring:edges']?.e1 || {};
+    expect(exportedEdge['prov:wasAttributedTo']).toEqual({ '@id': 'urn:redstring:agent:redstring-wizard' });
 
     const { storeState } = importFromRedstring(ex, {});
     expect(storeState.edges.get('e1').semanticMetadata.provenance).toEqual(PROV);

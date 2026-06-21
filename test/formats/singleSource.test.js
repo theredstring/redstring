@@ -2,13 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { exportToRedstring, importFromRedstring } from '../../src/formats/redstringFormat.js';
 
 /**
- * Single-source serialization (P1.5).
+ * Single-source serialization (P1.5 / P3.1).
  *
- * Each entity is serialized exactly once, under the canonical sections
- * (prototypeSpace / spatialGraphs / relationships). The historical duplicate
- * top-level mirrors (graphs / nodePrototypes / edges) and the `legacy` block are
- * no longer written. Old files that still contain them remain importable via the
- * migration ledger's ensureCanonicalSections fallback.
+ * Each entity is serialized exactly once under the canonical v4 sections
+ * (prototypeSpace / spatialGraphs). In v4, edges are scoped inside their
+ * spatial graph under `redstring:edges` — no top-level `relationships` section.
+ * Historical duplicate mirrors (graphs / nodePrototypes / edges) and `legacy`
+ * blocks are no longer written.
  */
 
 const buildState = () => {
@@ -40,7 +40,9 @@ describe('Single-source serialization', () => {
   it('writes the canonical sections', () => {
     expect(exported.prototypeSpace?.prototypes).toBeTruthy();
     expect(exported.spatialGraphs?.graphs).toBeTruthy();
-    expect(exported.relationships?.edges).toBeTruthy();
+    // v4: edges live inside the graph, not in a top-level relationships section.
+    expect(exported.spatialGraphs?.graphs?.g?.['redstring:edges']).toBeTruthy();
+    expect(exported.relationships).toBeUndefined();
   });
 
   it('does not write duplicate top-level mirrors or a legacy block', () => {
@@ -52,12 +54,10 @@ describe('Single-source serialization', () => {
 
   it('serializes each entity exactly once in the JSON text', () => {
     const json = JSON.stringify(exported);
-    // Each prototype/graph/edge id appears once as a key in its canonical map.
-    // (Ids also appear inside references, so assert the canonical maps are the
-    // only object containers keyed by them.)
     expect(Object.keys(exported.prototypeSpace.prototypes)).toEqual(['pa', 'pb']);
     expect(Object.keys(exported.spatialGraphs.graphs)).toEqual(['g']);
-    expect(Object.keys(exported.relationships.edges)).toEqual(['e1']);
+    // v4: edges are in the owning graph, not in a separate top-level section.
+    expect(Object.keys(exported.spatialGraphs.graphs.g['redstring:edges'])).toEqual(['e1']);
     expect(json).not.toContain('"legacy"');
   });
 

@@ -50,7 +50,9 @@ const buildState = (arrowsToward) => {
 // Returns the directed prototype pairs, e.g. ['pa->pb', 'pb->pa'].
 const directedPairs = (arrowsToward) => {
   const exported = exportToRedstring(buildState(arrowsToward));
-  const statements = exported.relationships.edges.e1.rdfStatements || [];
+  // v4: edges live inside their owning spatialGraph, not in relationships.edges.
+  const edge = exported.spatialGraphs?.graphs?.g?.['redstring:edges']?.e1 || {};
+  const statements = edge.rdfStatements || [];
   return statements.map((s) => `${fromIri(s.subject['@id'])}->${fromIri(s.object['@id'])}`);
 };
 

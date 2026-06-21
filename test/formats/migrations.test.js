@@ -52,36 +52,46 @@ describe('Migration ledger', () => {
   it('is an append-only ordered ledger of the known steps', () => {
     expect(MIGRATIONS.map((m) => `${m.from}→${m.to}`)).toEqual([
       '1.0.0→2.0.0-semantic',
-      '2.0.0-semantic→3.0.0'
+      '2.0.0-semantic→3.0.0',
+      '3.0.0→4.0.0',
     ]);
   });
 
-  it('walks v1 flat → canonical v3 shape, applying both steps', () => {
+  it('walks v1 flat → canonical v4 shape, applying all three steps', () => {
     const { data, applied } = runMigrations(v1FlatFile(), { now: NOW });
-    expect(applied).toEqual(['1.0.0→2.0.0-semantic', '2.0.0-semantic→3.0.0']);
+    expect(applied).toEqual([
+      '1.0.0→2.0.0-semantic',
+      '2.0.0-semantic→3.0.0',
+      '3.0.0→4.0.0',
+    ]);
     expect(data.prototypeSpace.prototypes.p1).toBeTruthy();
     expect(data.spatialGraphs.graphs.g1).toBeTruthy();
-    expect(data.relationships.edges.e1).toBeTruthy();
-    expect(data.format).toBe('redstring-v3.0.0');
-    expect(data.metadata.version).toBe('3.0.0');
+    // v4: edge relocated from relationships.edges → spatialGraph.redstring:edges
+    expect(data.spatialGraphs.graphs.g1['redstring:edges'].e1).toBeTruthy();
+    expect(data.relationships).toBeUndefined();
+    expect(data.format).toBe('redstring-v4.0.0');
+    expect(data.metadata.version).toBe('4.0.0');
     expect(data.metadata.originalVersion).toBe('1.0.0');
     expect(data.metadata.migrationDate).toBe(NOW);
     expect(data.metadata.migrationsApplied).toEqual(applied);
   });
 
-  it('walks v2 → v3 applying only the second step, preserving canonical sections', () => {
+  it('walks v2 → v4 applying the last two steps, preserving canonical sections', () => {
     const { data, applied } = runMigrations(v2CanonicalFile(), { now: NOW });
-    expect(applied).toEqual(['2.0.0-semantic→3.0.0']);
+    expect(applied).toEqual(['2.0.0-semantic→3.0.0', '3.0.0→4.0.0']);
     expect(data.prototypeSpace.prototypes.p1.name).toBe('P');
-    expect(data.format).toBe('redstring-v3.0.0');
+    expect(data.format).toBe('redstring-v4.0.0');
     expect(data.metadata.migrated).toBe(true);
+    expect(data.relationships).toBeUndefined();
   });
 
-  it('is a no-op for a current v3 file (no steps applied, no migrated stamp)', () => {
+  it('migrates a v3 file to v4 (v3 is no longer current)', () => {
     const { data, applied } = runMigrations(v3File(), { now: NOW });
-    expect(applied).toEqual([]);
-    expect(data.metadata.migrated).toBeUndefined();
+    expect(applied).toEqual(['3.0.0→4.0.0']);
+    expect(data.metadata.migrated).toBe(true);
     expect(data.prototypeSpace.prototypes.p1).toBeTruthy();
+    expect(data.format).toBe('redstring-v4.0.0');
+    expect(data.relationships).toBeUndefined();
   });
 
   it('canonicalizes a legacy-only file (no prototypeSpace) from the legacy block', () => {
@@ -97,7 +107,12 @@ describe('Migration ledger', () => {
     const { data } = runMigrations(legacyOnly, { now: NOW });
     expect(data.prototypeSpace.prototypes.p9.name).toBe('Legacy');
     expect(data.spatialGraphs.graphs.g9).toBeTruthy();
-    expect(data.relationships.edges.e9).toBeTruthy();
+    // e9 has no sourceId/destinationId and g9 has no edgeIds, so it goes
+    // to _preserved['3.0.0']._unownedEdges rather than a graph bucket.
+    expect(
+      data._preserved?.['3.0.0']?._unownedEdges?.e9 ??
+      Object.values(data.spatialGraphs?.graphs || {}).some(g => g['redstring:edges']?.e9)
+    ).toBeTruthy();
   });
 
   it('does not mutate its input (pure)', () => {

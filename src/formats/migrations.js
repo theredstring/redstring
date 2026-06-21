@@ -260,16 +260,7 @@ export const MIGRATIONS = [
       // Additive versioning only — metadata stamped by runMigrations.
       return data;
     }
-  }
-  // P3.3: 3.0.0→4.0.0 lives in STAGED_MIGRATIONS until the final version flip.
-];
-
-/**
- * Migrations written and tested but NOT yet active. They move into `MIGRATIONS`
- * in the same commit that bumps `CURRENT_FORMAT_VERSION` to 4.0.0 and flips
- * `EMIT_V4` (the final Phase 3 gate). Tests import from here directly.
- */
-export const STAGED_MIGRATIONS = [
+  },
   {
     from: '3.0.0',
     to: '4.0.0',
@@ -375,8 +366,10 @@ export function runMigrations(data, { now = null } = {}) {
   }
 
   // Migration path: clone first so step transforms and metadata stamping never
-  // mutate the caller's object.
-  let working = clone(data);
+  // mutate the caller's object. Canonicalize before the loop so legacy-block-only
+  // files (which use legacy.graphs / legacy.edges) are elevated to canonical
+  // sections before the 3→4 step tries to read spatialGraphs.graphs.
+  let working = ensureCanonicalSections(clone(data));
   const applied = [];
   let finalTo = startVersion;
 

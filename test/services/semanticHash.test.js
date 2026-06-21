@@ -7,7 +7,7 @@ import {
   slotsHaveEqualKnowledge,
 } from '../../src/services/semanticHash.js';
 import { exportToRedstring, importFromRedstring } from '../../src/formats/redstringFormat.js';
-import { STAGED_MIGRATIONS } from '../../src/formats/migrations.js';
+import { MIGRATIONS } from '../../src/formats/migrations.js';
 
 /**
  * P4.1 — semanticHash module tests (D5).
@@ -52,11 +52,8 @@ const buildState = ({ xOverride } = {}) => {
   };
 };
 
-// Helper: export as v4 but patch header so importFromRedstring accepts it.
-const exportV4AsV3Header = (state) => {
-  const ex = exportToRedstring(state, null, { emitV4: true });
-  return { ...ex, format: 'redstring-v3.0.0', metadata: { ...ex.metadata, version: '3.0.0' } };
-};
+// Helper: export as v3 (legacy path, now explicit).
+const exportAsV3 = (state) => exportToRedstring(state, null, { emitV4: false });
 
 // ── A: Order-independence (tier-1) ──────────────────────────────────────────
 
@@ -116,13 +113,13 @@ describe('P4.1-D — KEYSTONE: v3 and v4 representations of same knowledge hash 
   beforeAll(async () => {
     const state = buildState();
 
-    // v3 round-trip: export as v3 → import → get store state → hash
-    const v3doc = exportToRedstring(state);
+    // v3 round-trip: explicit emitV4:false → import (triggers 3→4 migration) → hash
+    const v3doc = exportAsV3(state);
     const { storeState: fromV3 } = importFromRedstring(v3doc, {});
     hashFromV3Store = await semanticHashFromStore(fromV3);
 
-    // v4 round-trip: export as v4 (patched header) → import → get store state → hash
-    const v4doc = exportV4AsV3Header(state);
+    // v4 round-trip: default export (EMIT_V4=true) → import (no migration needed) → hash
+    const v4doc = exportToRedstring(state);
     const { storeState: fromV4 } = importFromRedstring(v4doc, {});
     hashFromV4Store = await semanticHashFromStore(fromV4);
   });
@@ -131,17 +128,18 @@ describe('P4.1-D — KEYSTONE: v3 and v4 representations of same knowledge hash 
     expect(hashFromV3Store).toBe(hashFromV4Store);
   });
 
-  it('STAGED_MIGRATIONS 3.0.0→4.0.0 result also hashes equal after import', async () => {
+  it('MIGRATIONS 3.0.0→4.0.0 result also hashes equal after import', async () => {
     const state = buildState();
-    const migrate = STAGED_MIGRATIONS.find((m) => m.from === '3.0.0' && m.to === '4.0.0');
+    const migrate = MIGRATIONS.find((m) => m.from === '3.0.0' && m.to === '4.0.0');
 
-    const v3doc = exportToRedstring(state);
+    // Start from an explicit v3 doc, run the migration, import as v4.
+    const v3doc = exportAsV3(state);
     const migratedV4 = migrate.migrate(v3doc);
-    // Patch header so importFromRedstring accepts it.
-    const migratedPatched = { ...migratedV4, format: 'redstring-v3.0.0', metadata: { ...(migratedV4.metadata || {}), version: '3.0.0' } };
-    const { storeState: fromMigrated } = importFromRedstring(migratedPatched, {});
+    const v4Doc = { ...migratedV4, format: 'redstring-v4.0.0', metadata: { ...(migratedV4.metadata || {}), version: '4.0.0' } };
+    const { storeState: fromMigrated } = importFromRedstring(v4Doc, {});
 
-    const { storeState: fromOriginal } = importFromRedstring(v3doc, {});
+    // Fresh v4 export of the same state for reference.
+    const { storeState: fromOriginal } = importFromRedstring(exportToRedstring(state), {});
 
     expect(await semanticHashFromStore(fromMigrated)).toBe(await semanticHashFromStore(fromOriginal));
   });

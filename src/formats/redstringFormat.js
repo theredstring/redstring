@@ -13,17 +13,28 @@ import uriGenerator from '../services/uriGenerator.js';
 import { runMigrations } from './migrations.js';
 
 // Current format version
-export const CURRENT_FORMAT_VERSION = '3.0.0';
+export const CURRENT_FORMAT_VERSION = '4.0.0';
 
-// v4 dataset structure gate (D10). Tests force this on; the live app keeps
-// writing v3 until ALL phases are done and this is flipped to true.
-export const EMIT_V4 = false;
+// v4 dataset structure gate (D10). All phases 3–6 complete; v4 is live.
+export const EMIT_V4 = true;
 
 // Minimum supported version (older versions must be migrated)
 export const MIN_SUPPORTED_VERSION = '1.0.0';
 
 // Version history and breaking changes
 export const VERSION_HISTORY = {
+  '4.0.0': {
+    date: '2026-06',
+    changes: [
+      'D10: prototypeSpace/spatialGraphs top-level shape (default + named graphs)',
+      'Edges scoped inside their spatial graph (relationships section dissolved)',
+      'SKOS+PROV alignment: skos:Concept, prov:wasAttributedTo, sameness ladder',
+      'OWL context pruned to sameAs only (D9)',
+      'Vocabulary document published at public/vocab/redstring.ttl (P6.1)',
+      'TriG/N-Quads codecs (P5.2), lens table (P5.1), mergeUniverses (P5.4)',
+    ],
+    breaking: true
+  },
   '3.0.0': {
     date: '2025-01',
     changes: [
@@ -850,10 +861,14 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
   // Reverse index for v4 graph-scoped edge placement (D10). Built here so the
   // edge loop can populate graphEdgesMap without a second pass over graphs.
   const edgeToGraphId = new Map();
+  const instanceToGraphId = new Map(); // fallback when edgeIds is missing
   const graphEdgesMap = {};
   graphs.forEach((graph, graphId) => {
     graphEdgesMap[graphId] = {};
     (graph.edgeIds || []).forEach(edgeId => edgeToGraphId.set(edgeId, graphId));
+    if (graph.instances) {
+      graph.instances.forEach((_, instId) => instanceToGraphId.set(instId, graphId));
+    }
   });
 
   const edgesObj = {};
@@ -968,7 +983,13 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     }
 
     // v4: also stash the edge in its owning graph's bucket.
-    const _owningGraphId = edgeToGraphId.get(id);
+    // Primary: graph.edgeIds membership. Fallback: infer from sourceId/destinationId
+    // instance membership (handles states where edgeIds is absent/stale).
+    const _owningGraphId =
+      edgeToGraphId.get(id) ??
+      instanceToGraphId.get(edge.sourceId) ??
+      instanceToGraphId.get(edge.destinationId) ??
+      null;
     if (_owningGraphId != null && graphEdgesMap[_owningGraphId]) {
       graphEdgesMap[_owningGraphId][id] = edgesObj[id];
     }

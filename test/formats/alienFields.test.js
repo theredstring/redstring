@@ -75,7 +75,8 @@ describe('Alien-field survival', () => {
 
   it('preserves an unknown field on an edge', () => {
     const out = roundTripWithInjection((ex) => {
-      ex.relationships.edges.e1.xFutureEdgeField = '__alien_edge__';
+      // v4: edges live inside spatialGraphs.graphs.g['redstring:edges'], not relationships.edges.
+      ex.spatialGraphs.graphs.g['redstring:edges'].e1.xFutureEdgeField = '__alien_edge__';
     });
     expect(out).toContain('__alien_edge__');
   });
