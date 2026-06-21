@@ -337,24 +337,33 @@ describe('Format Consistency', () => {
 
   it('should handle dual format edges correctly', () => {
     const redstringData = exportToRedstring(originalState);
-    
-    // Check that exported edges have both native and RDF format
-    const edgeEntries = Object.entries(redstringData.edges);
-    expect(edgeEntries.length).toBeGreaterThan(0);
-    
-    for (const [edgeId, edgeData] of edgeEntries) {
+
+    // v4: edges are scoped inside spatialGraphs.graphs[g]['redstring:edges'], not
+    // in a top-level relationships.edges section. Collect from all graphs.
+    const allEdges = Object.values(redstringData.spatialGraphs?.graphs || {})
+      .flatMap((g) => Object.entries(g['redstring:edges'] || {}));
+    expect(allEdges.length).toBeGreaterThan(0);
+
+    for (const [, edgeData] of allEdges) {
       // Should have native format
       expect(edgeData.sourceId).toBeDefined();
       expect(edgeData.destinationId).toBeDefined();
       expect(edgeData.directionality).toBeDefined();
-      
+
       // Should have RDF metadata
       expect(edgeData.sourcePrototypeId).toBeDefined();
       expect(edgeData.destinationPrototypeId).toBeDefined();
     }
-    
+
     // Import should preserve both formats
     const { storeState } = importFromRedstring(redstringData, {});
     expect(storeState.edges.size).toEqual(originalState.edges.size);
+  });
+
+  it('emits no pseudo-scheme IRIs (P1.6 — URN identity)', () => {
+    const json = JSON.stringify(exportToRedstring(originalState));
+    // No @id value may use a legacy pseudo-scheme; ids are urn:uuid: / urn:redstring:.
+    const pseudo = json.match(/"@id"\s*:\s*"(prototype|instance|graph|node|group|type|space):[^"]*"/g);
+    expect(pseudo).toBeNull();
   });
 });

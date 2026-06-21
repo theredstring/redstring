@@ -4,13 +4,21 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import jsonld from 'jsonld';
 import { REDSTRING_CONTEXT } from './redstringFormat.js';
+import { applyLens } from './lens.js';
+
+// Attach provenance to any entity object (P5.3: common provenance path).
+const stamp = (entity, source) => ({
+  ...entity,
+  semanticMetadata: { provenance: { wasDerivedFrom: source } },
+});
 
 /**
  * Import from Obsidian Graph JSON Export
  * Maps Obsidian's note-linking structure to Redstring's recursive composition
  */
-export const importObsidian = (obsidianData) => {
+export const importObsidian = (obsidianData, { sourceName = 'Obsidian Import' } = {}) => {
   const { nodes: obsidianNodes = [], links: obsidianLinks = [] } = obsidianData;
   
   const graphs = new Map();
@@ -49,9 +57,10 @@ export const importObsidian = (obsidianData) => {
       imageAspectRatio: null,
       parentDefinitionNodeId: null,
       edgeIds: [],
-      definitionGraphIds: isMapOfContent ? [uuidv4()] : [] // Create definition for MOCs
+      definitionGraphIds: isMapOfContent ? [uuidv4()] : [], // Create definition for MOCs
+      semanticMetadata: { provenance: { wasDerivedFrom: sourceName } },
     };
-    
+
     nodes.set(nodeId, redstringNode);
     graphs.get(mainGraphId).nodeIds.push(nodeId);
     
@@ -108,7 +117,7 @@ export const importObsidian = (obsidianData) => {
  * Import from Cytoscape.js JSON
  * Handles hierarchical compound nodes as Redstring definitions
  */
-export const importCytoscape = (cytoscapeData) => {
+export const importCytoscape = (cytoscapeData, { sourceName = 'Cytoscape Import' } = {}) => {
   const { elements } = cytoscapeData;
   const cytoscapeNodes = elements.nodes || [];
   const cytoscapeEdges = elements.edges || [];
@@ -149,11 +158,12 @@ export const importCytoscape = (cytoscapeData) => {
       imageAspectRatio: null,
       parentDefinitionNodeId: nodeData.parent || null,
       edgeIds: [],
-      definitionGraphIds: []
+      definitionGraphIds: [],
+      semanticMetadata: { provenance: { wasDerivedFrom: sourceName } },
     };
-    
+
     nodes.set(nodeId, redstringNode);
-    
+
     // If this node has a parent, it belongs to that parent's definition graph
     if (nodeData.parent) {
       // We'll handle this in second pass
@@ -249,7 +259,7 @@ export const importCytoscape = (cytoscapeData) => {
  * Import from GraphML XML
  * Handles hierarchical data attributes and spatial positioning
  */
-export const importGraphML = async (graphMLString) => {
+export const importGraphML = async (graphMLString, { sourceName = 'GraphML Import' } = {}) => {
   // Parse XML (this would need a proper XML parser in real implementation)
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(graphMLString, "text/xml");
@@ -296,7 +306,8 @@ export const importGraphML = async (graphMLString) => {
       imageAspectRatio: null,
       parentDefinitionNodeId: null,
       edgeIds: [],
-      definitionGraphIds: []
+      definitionGraphIds: [],
+      semanticMetadata: { provenance: { wasDerivedFrom: sourceName } },
     };
     
     nodes.set(nodeId, redstringNode);
@@ -350,107 +361,63 @@ export const importGraphML = async (graphMLString) => {
 };
 
 /**
- * Import from JSON-LD with automatic semantic mapping
- * This is where the magic happens - automatic concept detection
+ * Import from JSON-LD via the lens table (P5.3).
+ * parse → jsonld.toRDF → applyLens → entities (all provenance-stamped).
  */
-export const importJSONLD = (jsonldData) => {
+export const importJSONLD = async (jsonldData, { sourceName = 'JSON-LD Import' } = {}) => {
   const graphs = new Map();
   const nodes = new Map();
   const edges = new Map();
-  
-  // Create main graph
+
   const mainGraphId = uuidv4();
   graphs.set(mainGraphId, {
     id: mainGraphId,
-    name: "Linked Data Concepts",
-    description: "Imported from JSON-LD",
+    name: 'Linked Data Concepts',
+    description: 'Imported from JSON-LD',
     nodeIds: [],
     edgeIds: [],
-    definingNodeIds: []
+    definingNodeIds: [],
   });
-  
-  // Recursive function to process JSON-LD entities
-  const processEntity = (entity, parentId = null) => {
-    if (!entity['@id']) return null;
-    
-    const nodeId = entity['@id'];
-    const nodeType = entity['@type'] || 'Concept';
-    
-    // Detect compositional relationships
-    const hasParts = entity['http://purl.org/dc/terms/hasPart'] || 
-                     entity['contains'] || 
-                     entity['schema:hasPart'] || [];
-    
-    const isPartOf = entity['http://purl.org/dc/terms/isPartOf'] || 
-                     entity['partOf'] || 
-                     entity['schema:isPartOf'];
-    
-    const redstringNode = {
-      id: nodeId,
-      name: entity['http://schema.org/name'] || 
-            entity['name'] || 
-            entity['rdfs:label'] || 
-            nodeId,
-      description: entity['http://schema.org/description'] || 
-                   entity['description'] || 
-                   entity['rdfs:comment'] || 
-                   "",
-      color: getColorForType(nodeType),
-      x: Math.random() * 800,
-      y: Math.random() * 600,
+
+  const quads = await jsonld.toRDF(jsonldData, { safe: false });
+  const { prototypes, abstractionLinks, compositionLinks, edges: lensEdges, mintedPredicates } = applyLens(quads);
+
+  // Nodes from all discovered entities (concepts + minted relation prototypes).
+  let col = 0;
+  const COL_W = 150;
+  const ROW_H = 120;
+  const COLS = 5;
+  for (const [iri, proto] of [...prototypes, ...mintedPredicates]) {
+    if (nodes.has(iri)) continue;
+    nodes.set(iri, {
+      id: iri,
+      name: proto.name,
+      description: '',
+      color: '#800000',
+      x: (col % COLS) * COL_W,
+      y: Math.floor(col / COLS) * ROW_H,
       scale: 1.0,
-      imageSrc: entity['http://schema.org/image'] || entity['image'],
+      imageSrc: null,
       thumbnailSrc: null,
       imageAspectRatio: null,
-      parentDefinitionNodeId: parentId,
       edgeIds: [],
-      definitionGraphIds: hasParts.length > 0 ? [uuidv4()] : []
-    };
-    
-    nodes.set(nodeId, redstringNode);
-    
-    // If this has parts, create a definition graph
-    if (hasParts.length > 0) {
-      const defGraphId = redstringNode.definitionGraphIds[0];
-      graphs.set(defGraphId, {
-        id: defGraphId,
-        name: `${redstringNode.name} Structure`,
-        description: `Components of ${redstringNode.name}`,
-        nodeIds: [],
-        edgeIds: [],
-        definingNodeIds: [nodeId]
-      });
-      
-      // Process parts recursively
-      hasParts.forEach(part => {
-        if (typeof part === 'object') {
-          const partNodeId = processEntity(part, nodeId);
-          if (partNodeId) {
-            graphs.get(defGraphId).nodeIds.push(partNodeId);
-          }
-        }
-      });
-    }
-    
-    // Add to appropriate graph
-    if (parentId) {
-      // This will be added to parent's definition graph
-    } else {
-      graphs.get(mainGraphId).nodeIds.push(nodeId);
-    }
-    
-    return nodeId;
-  };
-  
-  // Process the JSON-LD data
-  if (Array.isArray(jsonldData)) {
-    jsonldData.forEach(entity => processEntity(entity));
-  } else if (jsonldData['@graph']) {
-    jsonldData['@graph'].forEach(entity => processEntity(entity));
-  } else {
-    processEntity(jsonldData);
+      definitionGraphIds: [],
+      semanticMetadata: { provenance: { wasDerivedFrom: sourceName } },
+    });
+    graphs.get(mainGraphId).nodeIds.push(iri);
+    col++;
   }
-  
+
+  const addEdge = (sourceId, destinationId, name) => {
+    const edgeId = uuidv4();
+    edges.set(edgeId, { id: edgeId, sourceId, destinationId, name, description: '', color: '#333', definitionNodeIds: [] });
+    graphs.get(mainGraphId).edgeIds.push(edgeId);
+  };
+
+  for (const { narrower, broader } of abstractionLinks) addEdge(narrower, broader, 'is a');
+  for (const { whole, part } of compositionLinks) addEdge(whole, part, 'has part');
+  for (const { sourceIri, targetIri } of lensEdges) addEdge(sourceIri, targetIri, 'related');
+
   return {
     graphs,
     nodes,
@@ -458,7 +425,7 @@ export const importJSONLD = (jsonldData) => {
     openGraphIds: [mainGraphId],
     activeGraphId: mainGraphId,
     expandedGraphIds: [mainGraphId],
-    savedNodeIds: new Set()
+    savedNodeIds: new Set(),
   };
 };
 
@@ -493,7 +460,7 @@ export const autoImport = async (fileContent, filename) => {
       
       // Detect format by structure
       if (data['@context'] || data['@type'] || data['@graph']) {
-        return importJSONLD(data);
+        return await importJSONLD(data);
       } else if (data.elements && (data.elements.nodes || data.elements.edges)) {
         return importCytoscape(data);
       } else if (data.nodes && data.links) {

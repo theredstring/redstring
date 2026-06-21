@@ -1,31 +1,35 @@
 /**
- * RDF Export Handler
- * Handles export of the current graph state to RDF/Turtle format.
+ * RDF Export — delegates to codecs (P5.5).
+ *
+ * exportToRdfTurtle → N-Quads via the N-Quads codec (all quads, no named graphs).
+ * exportToTrig      → TriG via the TriG codec (named-graph-partitioned).
  */
 
-import { exportToRedstring } from './redstringFormat';
-import jsonld from 'jsonld';
-import * as $rdf from 'rdflib';
+import { toNQuads } from './codecs/nquads.js';
+import { toTriG }   from './codecs/trig.js';
 
 /**
- * Export current Zustand store state to RDF Turtle format
- * @param {object} storeState - The current state from the Zustand store.
- * @param {string} [userDomain] - User's domain for dynamic URI generation
- * @returns {Promise<string>} A promise that resolves with the RDF data in Turtle format.
+ * Export store state as N-Quads (flat, no named-graph partitioning).
+ * The function name is kept for backwards compatibility; output is N-Quads,
+ * not Turtle (the original implementation also returned N-Quads, mislabeled).
+ *
+ * @param {object} storeState
+ * @param {string|null} [_userDomain] - unused; kept for call-site compatibility
+ * @returns {Promise<string>} N-Quads text
  */
-export const exportToRdfTurtle = async (storeState, userDomain = null) => {
-  try {
-    // 1. Get the data in our native JSON-LD format with dynamic URIs
-    const redstringData = exportToRedstring(storeState, userDomain);
+export const exportToRdfTurtle = async (storeState, _userDomain = null) => {
+  return toNQuads(storeState);
+};
 
-    // 2. Convert JSON-LD to a canonical RDF dataset (N-Quads format)
-    const nquads = await jsonld.toRDF(redstringData, { format: 'application/n-quads' });
-
-    // 3. For now, return the N-Quads format which is valid RDF
-    // We can enhance this later with proper Turtle serialization
-    return nquads;
-  } catch (error) {
-    console.error("Error exporting to RDF:", error);
-    throw error;
-  }
-}; 
+/**
+ * Export store state as TriG with named-graph partitioning.
+ * One GRAPH block per Redstring spatial graph; prototype-space quads go to
+ * the default graph.
+ *
+ * @param {object} storeState
+ * @param {{ rdfStar?: boolean }} [opts]
+ * @returns {Promise<string>} TriG text
+ */
+export const exportToTrig = async (storeState, opts = {}) => {
+  return toTriG(storeState, opts);
+};

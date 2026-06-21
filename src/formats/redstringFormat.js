@@ -10,15 +10,31 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import uriGenerator from '../services/uriGenerator.js';
+import { runMigrations } from './migrations.js';
 
 // Current format version
-export const CURRENT_FORMAT_VERSION = '3.0.0';
+export const CURRENT_FORMAT_VERSION = '4.0.0';
+
+// v4 dataset structure gate (D10). All phases 3–6 complete; v4 is live.
+export const EMIT_V4 = true;
 
 // Minimum supported version (older versions must be migrated)
 export const MIN_SUPPORTED_VERSION = '1.0.0';
 
 // Version history and breaking changes
 export const VERSION_HISTORY = {
+  '4.0.0': {
+    date: '2026-06',
+    changes: [
+      'D10: prototypeSpace/spatialGraphs top-level shape (default + named graphs)',
+      'Edges scoped inside their spatial graph (relationships section dissolved)',
+      'SKOS+PROV alignment: skos:Concept, prov:wasAttributedTo, sameness ladder',
+      'OWL context pruned to sameAs only (D9)',
+      'Vocabulary document published at public/vocab/redstring.ttl (P6.1)',
+      'TriG/N-Quads codecs (P5.2), lens table (P5.1), mergeUniverses (P5.4)',
+    ],
+    breaking: true
+  },
   '3.0.0': {
     date: '2025-01',
     changes: [
@@ -155,51 +171,45 @@ export const validateFormatVersion = (redstringData) => {
 };
 
 /**
- * Migrate data from older format versions to current version
+ * Migrate data from older format versions to current version.
+ *
+ * @deprecated Retained for API compatibility. The real migration logic lives in
+ * the ledger (src/formats/migrations.js); this delegates to `runMigrations`,
+ * which detects the source version itself (the fromVersion/toVersion args are
+ * ignored). New code should call `runMigrations` directly.
  */
 export const migrateFormat = (redstringData, fromVersion, toVersion = CURRENT_FORMAT_VERSION) => {
-  console.log(`[Format Migration] Migrating from ${fromVersion} to ${toVersion}`);
-  
-  let migrated = { ...redstringData };
-  const migrations = [];
-  
-  // Migration from v1.0.0 -> v2.0.0-semantic
-  const compareV1 = compareVersions(fromVersion, '1.0.0');
-  const compareV2 = compareVersions(fromVersion, '2.0.0');
-  
-  if (compareV1 === 0 || (compareV1 === 1 && compareV2 === -1)) {
-    // File is v1.x, needs migration to v2
-    console.log('[Format Migration] Applying v1 -> v2 migration');
-    migrations.push('v1_to_v2');
-    
-    // v2 migration is handled by the existing import logic
-    // which checks for prototypeSpace vs legacy format
-    // Just ensure the format field is updated
-    migrated.format = 'redstring-v2.0.0-semantic';
+  const { data, applied } = runMigrations(redstringData, { now: new Date().toISOString() });
+  if (applied.length > 0) {
+    console.log('[Format Migration] Applied ledger migrations:', applied);
   }
-  
-  // Migration from v2.0.0-semantic -> v3.0.0
-  if (compareVersions(fromVersion, '3.0.0') === -1) {
-    console.log('[Format Migration] Applying v2 -> v3 migration');
-    migrations.push('v2_to_v3');
-    
-    // Add new version metadata
-    if (!migrated.metadata) {
-      migrated.metadata = {};
-    }
-    
-    migrated.metadata.version = CURRENT_FORMAT_VERSION;
-    migrated.metadata.migrated = true;
-    migrated.metadata.originalVersion = fromVersion;
-    migrated.metadata.migrationDate = new Date().toISOString();
-    migrated.metadata.migrationsApplied = migrations;
-    
-    // Update format string
-    migrated.format = `redstring-v${CURRENT_FORMAT_VERSION}`;
+  return data;
+};
+
+// IRI minting (decision D3). Internal IDs become resolvable, standards-friendly
+// URNs instead of pseudo-scheme compact IRIs (prototype:/instance:/graph:/etc):
+//   UUID id            → urn:uuid:{id}
+//   any other id       → urn:redstring:id:{encodeURIComponent(id)}
+// fromIri reverses both, AND accepts every legacy pseudo-scheme plus bare ids,
+// forever — so files written before P1.6 still import.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LEGACY_ID_PREFIXES = ['prototype:', 'instance:', 'graph:', 'node:', 'group:', 'type:', 'space:'];
+
+export const toIri = (id) => {
+  if (id === undefined || id === null) return id;
+  const s = String(id);
+  return UUID_RE.test(s) ? `urn:uuid:${s}` : `urn:redstring:id:${encodeURIComponent(s)}`;
+};
+
+export const fromIri = (iri) => {
+  if (iri === undefined || iri === null) return iri;
+  const s = String(iri);
+  if (s.startsWith('urn:uuid:')) return s.slice(9);
+  if (s.startsWith('urn:redstring:id:')) return decodeURIComponent(s.slice(17));
+  for (const prefix of LEGACY_ID_PREFIXES) {
+    if (s.startsWith(prefix)) return s.slice(prefix.length);
   }
-  
-  console.log(`[Format Migration] Applied ${migrations.length} migrations:`, migrations);
-  return migrated;
+  return s; // already a bare id
 };
 
 // Enhanced JSON-LD Context for Redstring with Full RDF Schema Support
@@ -271,19 +281,20 @@ export const REDSTRING_CONTEXT = {
   "rest": { "@id": "rdf:rest", "@type": "@id" },
   "nil": { "@id": "rdf:nil", "@type": "@id" },
 
-  // Complete OWL Vocabulary for Semantic Web Integration
+  // OWL: docking port only (D9). Redstring docks with OWL per-link via sameAs;
+  // it does not author axioms in its own voice, so the entailment toolkit
+  // (equivalentClass/disjointWith/inverseOf/functional/transitive/symmetric…)
+  // is intentionally NOT declared here.
   "owl": "http://www.w3.org/2002/07/owl#",
   "sameAs": { "@id": "owl:sameAs", "@type": "@id" },
-  "equivalentClass": { "@id": "owl:equivalentClass", "@type": "@id" },
   "equivalentProperty": { "@id": "owl:equivalentProperty", "@type": "@id" },
   "differentFrom": { "@id": "owl:differentFrom", "@type": "@id" },
-  "disjointWith": { "@id": "owl:disjointWith", "@type": "@id" },
-  "inverseOf": { "@id": "owl:inverseOf", "@type": "@id" },
-  "functionalProperty": "owl:FunctionalProperty",
-  "inverseFunctionalProperty": "owl:InverseFunctionalProperty",
-  "transitiveProperty": "owl:TransitiveProperty",
-  "symmetricProperty": "owl:SymmetricProperty",
-  
+
+  // SKOS + PROV: the registers Redstring actually speaks (concepts/categories
+  // and provenance). Added in P2.1; terms emitted in P2.4–P2.6.
+  "skos": "http://www.w3.org/2004/02/skos/core#",
+  "prov": "http://www.w3.org/ns/prov#",
+
   // External Knowledge Bases - Rosetta Stone Mappings
   "wd": "http://www.wikidata.org/entity/",
   "wdt": "http://www.wikidata.org/prop/direct/",
@@ -373,7 +384,35 @@ export const REDSTRING_CONTEXT = {
   "pod": "https://www.w3.org/ns/solid/terms#pod",
   "webId": "http://xmlns.com/foaf/0.1/webId",
   "references": "redstring:references",
-  "linkedThinking": "redstring:linkedThinking"
+  "linkedThinking": "redstring:linkedThinking",
+
+  // ── RDF projection tuning (P2.2) ──────────────────────────────────────────
+  // These shape how jsonld.toRDF reads the document. They do NOT affect native
+  // import (which reads raw JSON, ignoring the context).
+  "xsd": "http://www.w3.org/2001/XMLSchema#",
+
+  // Entity maps are keyed by id → declare @container:@id so the map keys link
+  // each entity by its IRI instead of minting a junk predicate per key.
+  "prototypes": { "@id": "redstring:prototypes", "@container": "@id" },
+  "graphs": { "@id": "redstring:graphs", "@container": "@id" },
+  "edges": { "@id": "redstring:edges", "@container": "@id" },
+  "redstring:instances": { "@id": "redstring:instances", "@container": "@id" },
+  "redstring:groups": { "@id": "redstring:groups", "@container": "@id" },
+
+  // Datatype coercion for the prefixed forms the exporter actually emits.
+  "redstring:xCoordinate": { "@id": "redstring:xCoordinate", "@type": "xsd:decimal" },
+  "redstring:yCoordinate": { "@id": "redstring:yCoordinate", "@type": "xsd:decimal" },
+  "redstring:spatialScale": { "@id": "redstring:spatialScale", "@type": "xsd:decimal" },
+  "redstring:lastViewed": { "@id": "redstring:lastViewed", "@type": "xsd:dateTime" },
+  "created": { "@id": "http://purl.org/dc/terms/created", "@type": "xsd:dateTime" },
+  "modified": { "@id": "http://purl.org/dc/terms/modified", "@type": "xsd:dateTime" },
+
+  // Derived/regenerable snapshots (D7) and non-semantic UI state are excluded
+  // from the RDF projection — null drops them during JSON-LD expansion only.
+  "graphLayouts": null,
+  "graphSummaries": null,
+  "userInterface": null,
+  "globalSpatialContext": null
 };
 
 const coalesce = (value, fallback) => value ?? fallback;
@@ -532,7 +571,7 @@ const buildGraphSummariesSnapshot = (graphs, nodePrototypes, edges) => {
  * @param {string} [userDomain] - User's domain for dynamic URI generation
  * @returns {Object} Redstring data with dynamic URIs
  */
-export const exportToRedstring = (storeState, userDomain = null) => {
+export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT_V4 } = {}) => {
   try {
     if (!storeState) {
       throw new Error('Store state is required for export');
@@ -562,15 +601,15 @@ export const exportToRedstring = (storeState, userDomain = null) => {
         spatialInstances[instanceId] = {
           // RDF Schema typing - instance is an individual
           "@type": "redstring:Instance",
-          "@id": `instance:${instanceId}`,
-          
+          "@id": toIri(instanceId),
+
           // RDF Schema: this individual belongs to prototype class
-          "rdf:type": { "@id": `prototype:${instance.prototypeId}` },
+          "rdf:type": { "@id": toIri(instance.prototypeId) },
           "rdfs:label": instance.name || null, // Don't generate fallback labels
           "rdfs:comment": instance.description || null,
-          
+
           // Redstring: this instance is contained within specific graph
-          "redstring:containedIn": { "@id": `graph:${graphId}` },
+          "redstring:containedIn": { "@id": toIri(graphId) },
           
           // Unique spatial positioning data (Redstring's contribution to semantic web)
           "redstring:spatialContext": {
@@ -592,12 +631,16 @@ export const exportToRedstring = (storeState, userDomain = null) => {
           "redstring:isGroupAnchor": instance.isGroupAnchor || false,
           "redstring:anchorForGroupId": instance.anchorForGroupId || null
         };
+        // Quarantined unknown fields ride back out verbatim (D1/P1.3)
+        if (instance._preserved) {
+          spatialInstances[instanceId]._preserved = instance._preserved;
+        }
       });
     }
     
     spatialGraphs[graphId] = {
-      "@type": "redstring:SpatialGraph", 
-      "@id": `graph:${graphId}`,
+      "@type": "redstring:SpatialGraph",
+      "@id": toIri(graphId),
       "rdfs:label": graph.name || `Graph ${graphId}`,
       "rdfs:comment": graph.description || "",
       
@@ -619,7 +662,7 @@ export const exportToRedstring = (storeState, userDomain = null) => {
           graph.groups.forEach((group, groupId) => {
             groupsObj[groupId] = {
               "@type": "redstring:Group",
-              "@id": `group:${groupId}`,
+              "@id": toIri(groupId),
               "rdfs:label": group.name,
               "rdfs:comment": group.description || "",
               "redstring:color": group.color,
@@ -632,7 +675,7 @@ export const exportToRedstring = (storeState, userDomain = null) => {
               "redstring:anchorInstanceId": group.anchorInstanceId,
               // RDF-style membership relationships
               "rdfs:member": (group.memberInstanceIds || []).map(memberId => ({
-                "@id": `instance:${memberId}`
+                "@id": toIri(memberId)
               }))
             };
           });
@@ -646,20 +689,34 @@ export const exportToRedstring = (storeState, userDomain = null) => {
         "redstring:activeInContext": graphId === activeGraphId
       }
     };
+    // Quarantined unknown fields ride back out verbatim (D1/P1.3)
+    if (graph._preserved) {
+      spatialGraphs[graphId]._preserved = graph._preserved;
+    }
   });
+
+  // SKOS scheme IRI — the universe IS a skos:ConceptScheme; prototypes are the
+  // concepts in it. One scheme per file (self-contained). (P2.4)
+  const SCHEME_IRI = 'urn:redstring:scheme';
 
   // Three-Layer Architecture: Export Prototypes as Semantic Classes
   const prototypeSpace = {};
   nodePrototypes.forEach((prototype, id) => {
     prototypeSpace[id] = {
-      // RDF Schema typing - prototype is a class
-      "@type": ["redstring:Prototype", "rdfs:Class", "schema:Thing"],
-      "@id": `prototype:${id}`,
-      
+      // RDF Schema typing — prototype is a class AND a SKOS concept (P2.4).
+      // skos:Concept is the load-bearing standards type; the rest is overlay.
+      "@type": ["redstring:Prototype", "rdfs:Class", "schema:Thing", "skos:Concept"],
+      "@id": toIri(id),
+
       // RDF Schema standard properties (W3C compliant) - preserve original
       "rdfs:label": prototype.name,
       "rdfs:comment": prototype.description,
-      
+
+      // SKOS concept properties (P2.4) — the register that survives the strip test
+      "skos:prefLabel": prototype.name,
+      "skos:altLabel": prototype.conjugation || undefined,
+      "skos:inScheme": { "@id": SCHEME_IRI },
+
       // Redstring core properties (NEVER override these)
       "name": prototype.name,
       "description": prototype.description,
@@ -667,11 +724,11 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       "rdfs:isDefinedBy": { "@id": "https://redstring.io" },
       
       // Type hierarchy - automatic rdfs:subClassOf relationships
-      "rdfs:subClassOf": prototype.typeNodeId ? 
-        { "@id": `type:${prototype.typeNodeId}` } : null,
+      "rdfs:subClassOf": prototype.typeNodeId ?
+        { "@id": toIri(prototype.typeNodeId) } : null,
       
-      // Rosetta Stone mechanism - core semantic web linking
-      "owl:sameAs": prototype.externalLinks || [],
+      // Sameness ladder (D8/P2.5) is appended after this literal so it can
+      // branch on auto-enrichment. owl:equivalentClass stays as-is.
       "owl:equivalentClass": prototype.equivalentClasses || [],
       
       // Redstring spatial properties (unique contribution to semantic web)
@@ -724,30 +781,65 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       // Critical for image re-fetching on reload and OOM prevention
       "redstring:semanticMetadata": prototype.semanticMetadata || null
     };
+
+    // Sameness ladder (decision D8/P2.5). External links climb the ladder by how
+    // strong the claim is. Auto-enrichment (e.g. a Wikipedia article matched to a
+    // concept) is alignment, not identity → skos:closeMatch only. User-asserted
+    // links are interchangeable → skos:exactMatch, and per the cumulative rule
+    // co-emit owl:sameAs (the OWL docking port). rdfs:seeAlso keeps the raw URLs.
+    const externalLinks = Array.isArray(prototype.externalLinks) ? prototype.externalLinks : [];
+    if (externalLinks.length > 0) {
+      const linkRefs = externalLinks.map((url) => ({ "@id": url }));
+      if (prototype.semanticMetadata?.autoEnriched) {
+        prototypeSpace[id]["skos:closeMatch"] = linkRefs;
+      } else {
+        prototypeSpace[id]["owl:sameAs"] = externalLinks;
+        prototypeSpace[id]["skos:exactMatch"] = linkRefs;
+      }
+    }
+
+    // PROV provenance (D/P2.6). Wizard-authored concepts carry provenance in
+    // semanticMetadata (which round-trips natively); project it to standard PROV
+    // on the entity. User-authored concepts have no provenance → no prov: terms.
+    const provenance = prototype.semanticMetadata?.provenance;
+    if (provenance?.wasAttributedTo) {
+      prototypeSpace[id]["prov:wasAttributedTo"] = { "@id": `urn:redstring:agent:${provenance.wasAttributedTo}` };
+    }
+    if (provenance?.generatedAtTime) {
+      prototypeSpace[id]["prov:generatedAtTime"] = provenance.generatedAtTime;
+    }
+
+    // Quarantined unknown fields ride back out verbatim (D1/P1.3)
+    if (prototype._preserved) {
+      prototypeSpace[id]._preserved = prototype._preserved;
+    }
   });
 
-  // Process abstraction chains to add additional subClassOf relationships
+  // Project abstraction chains to skos:broader links (P2.4). A chain is ordered
+  // general → specific, so each more-specific concept is skos:broader its
+  // immediate more-general neighbor. SKOS is the correct register here: it
+  // carries NO logical entailment, matching Redstring's contested/interpretive
+  // hierarchies — unlike rdfs:subClassOf (audit #8), which this replaces. The
+  // native redstring:abstractionChains field is kept verbatim on each prototype.
   nodePrototypes.forEach((node, nodeId) => {
     if (node.abstractionChains) {
       for (const dimension in node.abstractionChains) {
         const chain = node.abstractionChains[dimension];
         if (chain && chain.length > 1) {
           for (let i = 1; i < chain.length; i++) {
-            const subClassId = chain[i];
-            const superClassId = chain[i - 1];
-            if (prototypeSpace[subClassId]) {
-              if (!prototypeSpace[subClassId]['rdfs:subClassOf']) {
-                prototypeSpace[subClassId]['rdfs:subClassOf'] = [];
+            const moreSpecificId = chain[i];
+            const moreGeneralId = chain[i - 1];
+            if (prototypeSpace[moreSpecificId]) {
+              if (!prototypeSpace[moreSpecificId]['skos:broader']) {
+                prototypeSpace[moreSpecificId]['skos:broader'] = [];
               }
-              // Add as an object to be expanded to a proper link by JSON-LD
-              const superClassRef = { "@id": `prototype:${superClassId}` };
-              // Avoid duplicates
-              const existingSubClasses = Array.isArray(prototypeSpace[subClassId]['rdfs:subClassOf']) 
-                ? prototypeSpace[subClassId]['rdfs:subClassOf'] 
-                : [prototypeSpace[subClassId]['rdfs:subClassOf']];
-              if (!existingSubClasses.some(item => item?.["@id"] === `prototype:${superClassId}`)) {
-                existingSubClasses.push(superClassRef);
-                prototypeSpace[subClassId]['rdfs:subClassOf'] = existingSubClasses;
+              const broaderRef = { "@id": toIri(moreGeneralId) };
+              const existing = Array.isArray(prototypeSpace[moreSpecificId]['skos:broader'])
+                ? prototypeSpace[moreSpecificId]['skos:broader']
+                : [prototypeSpace[moreSpecificId]['skos:broader']];
+              if (!existing.some(item => item?.["@id"] === toIri(moreGeneralId))) {
+                existing.push(broaderRef);
+                prototypeSpace[moreSpecificId]['skos:broader'] = existing;
               }
             }
           }
@@ -763,6 +855,19 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       graph.instances.forEach(instance => {
         instanceToPrototypeMap.set(instance.id, instance.prototypeId);
       });
+    }
+  });
+
+  // Reverse index for v4 graph-scoped edge placement (D10). Built here so the
+  // edge loop can populate graphEdgesMap without a second pass over graphs.
+  const edgeToGraphId = new Map();
+  const instanceToGraphId = new Map(); // fallback when edgeIds is missing
+  const graphEdgesMap = {};
+  graphs.forEach((graph, graphId) => {
+    graphEdgesMap[graphId] = {};
+    (graph.edgeIds || []).forEach(edgeId => edgeToGraphId.set(edgeId, graphId));
+    if (graph.instances) {
+      graph.instances.forEach((_, instId) => instanceToGraphId.set(instId, graphId));
     }
   });
 
@@ -823,31 +928,34 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       
       // RDF format (for semantic web integration)
       "rdfStatements": sourcePrototypeId && destinationPrototypeId && predicatePrototypeId ? (() => {
-        const statements = [];
-        
-        // Always add the forward direction
-        statements.push({
+        // Project edge.directionality.arrowsToward (a Set of INSTANCE ids) to RDF.
+        // Correct mapping (see src/core/Edge.js and FORMAT_REFACTOR_PLAN.md §2):
+        //   empty            → two reciprocal triples (non-directed)
+        //   {destinationId}  → one triple  source → dest
+        //   {sourceId}       → one triple  dest → source
+        //   both             → two reciprocal triples (bidirectional)
+        // (node: prefix is a passthrough until P1.6 mints URNs.)
+        const arrows = edge.directionality?.arrowsToward;
+        const has = (instanceId) =>
+          arrows instanceof Set ? arrows.has(instanceId)
+          : Array.isArray(arrows) ? arrows.includes(instanceId)
+          : false;
+        const toDest = has(edge.destinationId);
+        const toSource = has(edge.sourceId);
+        const triple = (subjProtoId, objProtoId) => ({
           "@type": "Statement",
-          "subject": { "@id": `node:${sourcePrototypeId}` },
-          "predicate": { "@id": `node:${predicatePrototypeId}` },
-          "object": { "@id": `node:${destinationPrototypeId}` },
+          "subject": { "@id": toIri(subjProtoId) },
+          "predicate": { "@id": toIri(predicatePrototypeId) },
+          "object": { "@id": toIri(objProtoId) },
         });
-        
-        // For non-directional connections, add the reverse direction
-        if (edge.directionality && edge.directionality.arrowsToward && 
-            (edge.directionality.arrowsToward instanceof Set ? 
-             (edge.directionality.arrowsToward.size === 0) : 
-             Array.isArray(edge.directionality.arrowsToward) ? 
-             (edge.directionality.arrowsToward.length === 0) : true)) {
-          statements.push({
-            "@type": "Statement", 
-            "subject": { "@id": `node:${destinationPrototypeId}` },
-            "predicate": { "@id": `node:${predicatePrototypeId}` },
-            "object": { "@id": `node:${sourcePrototypeId}` },
-          });
-        }
-        
-        return statements;
+
+        if (toDest && !toSource) return [triple(sourcePrototypeId, destinationPrototypeId)];
+        if (toSource && !toDest) return [triple(destinationPrototypeId, sourcePrototypeId)];
+        // none (non-directed) or both (bidirectional): two reciprocal triples
+        return [
+          triple(sourcePrototypeId, destinationPrototypeId),
+          triple(destinationPrototypeId, sourcePrototypeId),
+        ];
       })() : null,
       
       // Metadata for both formats
@@ -855,9 +963,46 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       "destinationPrototypeId": destinationPrototypeId,
       "predicatePrototypeId": predicatePrototypeId,
     };
-    
+
+    // Edge semanticMetadata + PROV (P2.6). Wizard-authored edges carry provenance
+    // in semanticMetadata; round-trip it natively and project to standard PROV.
+    if (edge.semanticMetadata) {
+      edgesObj[id]["redstring:semanticMetadata"] = edge.semanticMetadata;
+      const edgeProv = edge.semanticMetadata.provenance;
+      if (edgeProv?.wasAttributedTo) {
+        edgesObj[id]["prov:wasAttributedTo"] = { "@id": `urn:redstring:agent:${edgeProv.wasAttributedTo}` };
+      }
+      if (edgeProv?.generatedAtTime) {
+        edgesObj[id]["prov:generatedAtTime"] = edgeProv.generatedAtTime;
+      }
+    }
+
+    // Quarantined unknown fields ride back out verbatim (D1/P1.3)
+    if (edge._preserved) {
+      edgesObj[id]._preserved = edge._preserved;
+    }
+
+    // v4: also stash the edge in its owning graph's bucket.
+    // Primary: graph.edgeIds membership. Fallback: infer from sourceId/destinationId
+    // instance membership (handles states where edgeIds is absent/stale).
+    const _owningGraphId =
+      edgeToGraphId.get(id) ??
+      instanceToGraphId.get(edge.sourceId) ??
+      instanceToGraphId.get(edge.destinationId) ??
+      null;
+    if (_owningGraphId != null && graphEdgesMap[_owningGraphId]) {
+      graphEdgesMap[_owningGraphId][id] = edgesObj[id];
+    }
+
     //console.log('[DEBUG] Created dual-format edge:', id, edgesObj[id]);
   });
+
+  // v4: attach graph-scoped edges inside each spatialGraph entry (D10).
+  if (emitV4) {
+    graphs.forEach((_, graphId) => {
+      spatialGraphs[graphId]['redstring:edges'] = graphEdgesMap[graphId] || {};
+    });
+  }
 
   // Note: abstractionChains are now stored directly on node prototypes
   // No separate abstraction axes needed
@@ -873,10 +1018,13 @@ export const exportToRedstring = (storeState, userDomain = null) => {
   
   return {
     "@context": context,
-    "@type": "redstring:CognitiveSpace",
-    "format": `redstring-v${CURRENT_FORMAT_VERSION}`,
+    // The universe is both Redstring's CognitiveSpace and a SKOS ConceptScheme
+    // (P2.4); SCHEME_IRI is what every prototype's skos:inScheme points at.
+    "@id": SCHEME_IRI,
+    "@type": ["redstring:CognitiveSpace", "skos:ConceptScheme"],
+    "format": emitV4 ? 'redstring-v4.0.0' : `redstring-v${CURRENT_FORMAT_VERSION}`,
     "metadata": {
-      "version": CURRENT_FORMAT_VERSION,
+      "version": emitV4 ? '4.0.0' : CURRENT_FORMAT_VERSION,
       "created": new Date().toISOString(),
       "modified": new Date().toISOString(),
       "title": (activeGraphId && graphs.get(activeGraphId)?.name) || "New Thing",
@@ -892,7 +1040,7 @@ export const exportToRedstring = (storeState, userDomain = null) => {
     // Separated Storage Architecture
     "prototypeSpace": {
       "@type": "redstring:PrototypeSpace",
-      "@id": "space:prototypes",
+      "@id": "urn:redstring:space:prototypes",
       "rdfs:label": "Redstring Prototype Space",
       "rdfs:comment": "Collection of semantic classes with spatial properties",
       "prototypes": prototypeSpace
@@ -900,25 +1048,23 @@ export const exportToRedstring = (storeState, userDomain = null) => {
     
     "spatialGraphs": {
       "@type": "redstring:SpatialGraphCollection", 
-      "@id": "space:graphs",
+      "@id": "urn:redstring:space:graphs",
       "rdfs:label": "Redstring Spatial Graphs",
       "rdfs:comment": "Collection of positioned instances within spatial graphs",
       "graphs": spatialGraphs
     },
     
-    // Relationships as RDF statements/properties
-    "relationships": {
-      "@type": "redstring:RelationshipCollection",
-      "@id": "space:relationships", 
-      "rdfs:label": "Redstring Relationships",
-      "rdfs:comment": "RDF statements representing connections between instances",
-      "edges": edgesObj
-    },
-    
-    // Direct accessors for backwards-compatibility with legacy tooling/tests
-    "graphs": spatialGraphs,
-    "nodePrototypes": prototypeSpace,
-    "edges": edgesObj,
+    // v3: edges in a global relationships section. v4 dissolves this — edges
+    // live inside their owning spatialGraph entries (D10, P3.1).
+    ...(emitV4 ? {} : {
+      "relationships": {
+        "@type": "redstring:RelationshipCollection",
+        "@id": "urn:redstring:space:relationships",
+        "rdfs:label": "Redstring Relationships",
+        "rdfs:comment": "RDF statements representing connections between instances",
+        "edges": edgesObj
+      }
+    }),
     
     // Global spatial context
     "globalSpatialContext": {
@@ -940,16 +1086,13 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       "redstring:showConnectionNames": !!showConnectionNames
     },
     
-    // Legacy compatibility (for backwards compatibility during transition)
-    "legacy": {
-      "graphs": spatialGraphs,
-      "nodePrototypes": prototypeSpace,
-      "edges": edgesObj
-    },
-
     // Spatial metadata snapshots for agent/CLI workflows
     "graphLayouts": layoutSnapshot,
-    "graphSummaries": summarySnapshot
+    "graphSummaries": summarySnapshot,
+
+    // File-root quarantined unknown fields ride back out verbatim (D1/P1.3).
+    // undefined is dropped by JSON.stringify, so absent when there is none.
+    "_preserved": storeState._preserved
   };
   } catch (error) {
     console.error('[exportToRedstring] Error during export:', error);
@@ -971,40 +1114,32 @@ export const importFromRedstring = (redstringData, storeActions) => {
       throw new Error(validation.error);
     }
     
-    // Step 2: Apply migrations if needed
-    let processedData = redstringData;
-    
-    if (validation.needsMigration && validation.canAutoMigrate) {
-      console.log(`[Import] Auto-migrating from ${validation.version} to ${validation.currentVersion}`);
-      processedData = migrateFormat(redstringData, validation.version, validation.currentVersion);
-      console.log('[Import] Migration complete');
+    // Step 2: Run the migration ledger. This walks any older file up to the
+    // current version AND guarantees the canonical top-level shape, so the
+    // section read below never has to branch (the historical "prototypeSpace vs
+    // legacy vs flat" three-way lives in migrations.js now). It is a near-no-op
+    // for current-version files.
+    const { data: processedData, applied } = runMigrations(redstringData, { now: new Date().toISOString() });
+    if (applied.length > 0) {
+      console.log('[Import] Migrations applied:', applied);
     }
-    
-    // Step 3: Handle both new separated storage format and legacy format
-    let graphsObj = {};
-    let nodesObj = {};
-    let edgesObj = {};
-    let userInterface = {};
-    
-    if (processedData.prototypeSpace && processedData.spatialGraphs) {
-      // New separated storage format (v2.0.0-semantic and v3.0.0)
-      nodesObj = processedData.prototypeSpace.prototypes || {};
-      graphsObj = processedData.spatialGraphs.graphs || {};
-      edgesObj = processedData.relationships?.edges || {};
-      userInterface = processedData.userInterface || {};
-    } else if (processedData.legacy) {
-      // Fallback to legacy section if available
-      graphsObj = processedData.legacy.graphs || {};
-      nodesObj = processedData.legacy.nodePrototypes || {};
-      edgesObj = processedData.legacy.edges || {};
-      userInterface = processedData.userInterface || {};
-    } else {
-      // Legacy format (v1.0.0)
-      graphsObj = processedData.graphs || {};
-      nodesObj = processedData.nodePrototypes || {};
-      edgesObj = processedData.edges || {};
-      userInterface = processedData.userInterface || {};
-    }
+
+    // Step 3: Single canonical shape — sections are guaranteed by the ledger.
+    const nodesObj = processedData.prototypeSpace?.prototypes || {};
+    const graphsObj = processedData.spatialGraphs?.graphs || {};
+    // v3: edges in top-level relationships; v4: embedded inside each spatialGraph (D10/P3.2).
+    // `!== undefined` distinguishes "absent" (v4) from "present but empty" (valid v3).
+    const edgesObj = (() => {
+      if (processedData.relationships?.edges !== undefined) {
+        return processedData.relationships.edges;
+      }
+      const collected = {};
+      for (const g of Object.values(processedData.spatialGraphs?.graphs || {})) {
+        Object.assign(collected, g['redstring:edges'] || {});
+      }
+      return collected;
+    })();
+    const userInterface = processedData.userInterface || {};
 
     //console.log('[DEBUG] Importing edges:', edgesObj);
 
@@ -1105,7 +1240,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
           const convertedInstance = { id: instanceId };
 
           if (instance['@type'] === 'redstring:Instance') {
-            const prototypeId = instance['redstring:prototypeId'] || instance['rdf:type']?.['@id']?.replace('prototype:', '');
+            const prototypeId = instance['redstring:prototypeId'] || fromIri(instance['rdf:type']?.['@id']);
             if (prototypeId) {
               convertedInstance.prototypeId = prototypeId;
             }
@@ -1173,6 +1308,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
             });
           }
 
+          // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
+          if (instance._preserved) convertedInstance._preserved = instance._preserved;
+
           instancesMap.set(instanceId, convertedInstance);
         });
 
@@ -1215,6 +1353,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
             graphShape.zoomLevel = graph.zoomLevel;
           }
         }
+
+        // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
+        if (graph._preserved) graphShape._preserved = graph._preserved;
 
         graphsMap.set(id, graphShape);
       } catch (error) {
@@ -1274,7 +1415,16 @@ export const importFromRedstring = (redstringData, storeActions) => {
           // (auto-enriched images are re-fetched from Wikipedia URLs in semanticMetadata)
           // Check multiple signals: semanticMetadata flag OR wikipedia URL in external links (old files)
           const smRaw = prototype['redstring:semanticMetadata'] ?? prototype.semanticMetadata;
-          const linksRaw = ensureArray(prototype['owl:sameAs'] ?? prototype.externalLinks);
+          // External links may sit on any sameness-ladder rung (D8/P2.5): owl:sameAs
+          // (bare URLs) or skos:exactMatch/closeMatch ({@id} refs). Flatten them to
+          // a plain URL list for both auto-enrich detection and link recovery.
+          const ladderUrl = (v) => (v && typeof v === 'object') ? v['@id'] : v;
+          const linksRaw = [
+            ...ensureArray(prototype['owl:sameAs']),
+            ...ensureArray(prototype['skos:exactMatch']),
+            ...ensureArray(prototype['skos:closeMatch']),
+            ...ensureArray(prototype.externalLinks)
+          ].map(ladderUrl).filter((u) => u !== undefined && u !== null && u !== '');
           const isAutoEnriched = smRaw?.autoEnriched
             || linksRaw.some(l => String(l).includes('wikipedia.org'));
 
@@ -1297,9 +1447,16 @@ export const importFromRedstring = (redstringData, storeActions) => {
             convertedPrototype.semanticMetadata = prototype['redstring:semanticMetadata'] ?? prototype.semanticMetadata ?? null;
           }
 
-          if (hasOwn(prototype, 'owl:sameAs') || hasOwn(prototype, 'externalLinks')) {
-            convertedPrototype.externalLinks = ensureArray(prototype['owl:sameAs'] ?? prototype.externalLinks);
-          }
+          // Recover external links from a single ladder rung (D8/P2.5), preferring
+          // owl:sameAs, then skos:exactMatch/closeMatch, then a legacy flat list.
+          // Reading one rung (not the union) avoids double-counting the same links
+          // emitted on two rungs, and preserves any duplicates the store held.
+          const sameAsRung =
+            hasOwn(prototype, 'owl:sameAs') ? prototype['owl:sameAs']
+            : hasOwn(prototype, 'skos:exactMatch') ? prototype['skos:exactMatch']
+            : hasOwn(prototype, 'skos:closeMatch') ? prototype['skos:closeMatch']
+            : prototype.externalLinks;
+          convertedPrototype.externalLinks = ensureArray(sameAsRung).map(ladderUrl);
 
           if (hasOwn(prototype, 'owl:equivalentClass') || hasOwn(prototype, 'equivalentClasses')) {
             convertedPrototype.equivalentClasses = ensureArray(prototype['owl:equivalentClass'] ?? prototype.equivalentClasses);
@@ -1326,7 +1483,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
               prototype['redstring:typeNodeId'],
               coalesce(
                 prototype.typeNodeId,
-                prototype['rdfs:subClassOf']?.['@id']?.replace('type:', '')
+                fromIri(prototype['rdfs:subClassOf']?.['@id'])
               )
             );
           }
@@ -1394,6 +1551,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
           }
         });
 
+        // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
+        if (prototype._preserved) convertedPrototype._preserved = prototype._preserved;
+
         nodesMap.set(id, convertedPrototype);
         
         // Note: rdfs:subClassOf relationships are preserved in the semantic format
@@ -1440,6 +1600,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
             definitionNodeIds: edge.definitionNodeIds,
             directionality: edge.directionality,
           };
+          // Edge provenance rides in semanticMetadata (P2.6)
+          const edgeSemMeta = edge['redstring:semanticMetadata'] ?? edge.semanticMetadata;
+          if (edgeSemMeta) edgeData.semanticMetadata = edgeSemMeta;
         }
         // Check if this is an old RDF statement format (legacy)
         else if (edge['@type'] === 'Statement' && edge.subject && edge.object) {
@@ -1449,9 +1612,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
             id,
             name: edge.name,
             description: edge.description,
-            sourceId: edge.originalSourceId || edge.subject['@id'].replace('node:', ''),
-            destinationId: edge.originalDestinationId || edge.object['@id'].replace('node:', ''),
-            typeNodeId: edge.predicate?.['@id'].replace('node:', ''),
+            sourceId: edge.originalSourceId || fromIri(edge.subject['@id']),
+            destinationId: edge.originalDestinationId || fromIri(edge.object['@id']),
+            typeNodeId: fromIri(edge.predicate?.['@id']),
           };
         }
         // This is the old format - use the edge data directly
@@ -1483,6 +1646,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
           edgeData.directionality.arrowsToward = new Set();
         }
         
+        // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
+        if (edge._preserved) edgeData._preserved = edge._preserved;
+
         edgesMap.set(id, edgeData);
       } catch (error) {
         console.warn(`[importFromRedstring] Error processing edge ${id}:`, error);
@@ -1530,6 +1696,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
       savedGraphIds: new Set(Array.isArray(extractedSavedGraphIds) ? extractedSavedGraphIds : []),
       showConnectionNames: !!extractedShowConnectionNames
     };
+
+    // Carry the file-root quarantine bag through (opaque cargo, D1/P1.3)
+    if (processedData._preserved) storeState._preserved = processedData._preserved;
 
     const importedTabs = extractedRightPanelTabs;
 
