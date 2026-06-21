@@ -467,10 +467,13 @@ class UniverseBackend {
       // Save file handles info
       const fileHandlesInfo = {};
       this.fileHandles.forEach((handle, slug) => {
+        // handle is a string path in Electron, FileSystemFileHandle in browser, or null
+        // null can be stored when a universe is created in browser mode (no file.path)
+        const handleName = handle && typeof handle === 'object' ? handle.name : undefined;
         fileHandlesInfo[slug] = {
-          path: handle.name || this.universes.get(slug)?.localFile?.path || `${slug}.redstring`,
-          displayPath: this.universes.get(slug)?.localFile?.displayPath || handle.name || `${slug}.redstring`,
-          hasHandle: true
+          path: handleName || this.universes.get(slug)?.localFile?.path || `${slug}.redstring`,
+          displayPath: this.universes.get(slug)?.localFile?.displayPath || handleName || `${slug}.redstring`,
+          hasHandle: !!handle
         };
       });
       storageWrapper.setItem(STORAGE_KEYS.UNIVERSE_FILE_HANDLES, JSON.stringify(fileHandlesInfo));
@@ -502,9 +505,14 @@ class UniverseBackend {
     const slug = rest.slug || universe.slug || 'universe';
     const name = rest.name || universe.name || 'Universe';
 
-    const sanitizedLocalPath = this.sanitizeFileName(
-      incomingLocalFile?.path || `${name}.redstring`
-    );
+    const rawLocalPath = incomingLocalFile?.path || `${name}.redstring`;
+    // Preserve absolute filesystem paths in Electron — sanitizeFileName replaces
+    // slashes and other path separators, corrupting "/Users/..." → "Users-..."
+    const isAbsolutePath = typeof rawLocalPath === 'string' &&
+      (rawLocalPath.startsWith('/') || /^[A-Z]:[\\\/]/i.test(rawLocalPath));
+    const sanitizedLocalPath = (isElectron() && isAbsolutePath)
+      ? rawLocalPath
+      : this.sanitizeFileName(rawLocalPath);
 
     const normalizedLocalFile = {
       enabled: incomingLocalFile?.enabled ?? true,
@@ -1949,7 +1957,7 @@ class UniverseBackend {
           const universe = slug ? this.getUniverse(slug) : null;
 
           if (universe?.localFile?.enabled) {
-            if (!this.fileHandles.has(slug)) {
+            if (!this.fileHandles.get(slug)) {
               // Gracefully handle disconnected file - log warning but don't crash
               umWarn(`[UniverseBackend] Local file disconnected for ${slug}. Skipping local save.`);
               return false;
@@ -2723,7 +2731,7 @@ class UniverseBackend {
     });
 
     if (!skipLocal) {
-      if (universe.localFile.enabled && this.fileHandles.has(universe.slug)) {
+      if (universe.localFile.enabled && !!this.fileHandles.get(universe.slug)) {
         try {
           umLog('[UniverseBackend] Saving to linked local file (autosave)');
           await this.saveToLinkedLocalFile(universe.slug, storeState, { suppressNotification });
@@ -3652,7 +3660,7 @@ class UniverseBackend {
     //    recent edits haven't been committed yet, or when previous sessions
     //    failed to commit (e.g. App-auth 404 before the OAuth fallback).
     const browserRes = resultsMap.get(SOURCE_OF_TRUTH.BROWSER);
-    const hasWritableLocalFile = !!universe.localFile?.enabled && this.fileHandles.has(universe.slug);
+    const hasWritableLocalFile = !!universe.localFile?.enabled && !!this.fileHandles.get(universe.slug);
     const browserIsRealPersistence = !hasWritableLocalFile;
     if (browserRes?.data && browserIsRealPersistence) {
       umLog('[UniverseBackend] Using Browser Storage fallback (git-only / no local file handle)');
@@ -4881,7 +4889,7 @@ class UniverseBackend {
 
     // Check what storage is enabled (local-first approach)
     let localConfig = universe.localFile || universe.raw?.localFile || {};
-    let hasLocalHandle = this.fileHandles.has(universeSlug);
+    let hasLocalHandle = !!this.fileHandles.get(universeSlug);
     let hasLocalFileEnabled = localConfig?.enabled !== false;
     let hasLocalFile = hasLocalFileEnabled && hasLocalHandle;
     const skipGit = options?.skipGit === true;
@@ -4912,7 +4920,7 @@ class UniverseBackend {
       }
       universe = this.getUniverse(universeSlug) || universe;
       localConfig = universe.localFile || universe.raw?.localFile || {};
-      hasLocalHandle = this.fileHandles.has(universeSlug);
+      hasLocalHandle = !!this.fileHandles.get(universeSlug);
       hasLocalFileEnabled = localConfig?.enabled !== false;
       hasLocalFile = hasLocalFileEnabled && hasLocalHandle;
     }
@@ -4926,7 +4934,7 @@ class UniverseBackend {
       let hasAnySuccess = false;
 
       // Save to local file if enabled and has handle
-      if (hasLocalFile && this.fileHandles.has(universeSlug)) {
+      if (hasLocalFile && !!this.fileHandles.get(universeSlug)) {
         umLog(`[UniverseBackend] Saving to local file`);
         try {
           const result = await this.saveToLinkedLocalFile(universeSlug, storeState);

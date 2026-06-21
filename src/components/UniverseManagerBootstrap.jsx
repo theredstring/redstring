@@ -148,7 +148,7 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
             result = await backend.switchActiveUniverse(payload.slug, payload.options);
             break;
           case 'createUniverse':
-            result = backend.createUniverse(payload.name, payload.options);
+            result = await backend.createUniverse(payload.name, payload.options);
             break;
           case 'deleteUniverse':
             result = await backend.deleteUniverse(payload.slug);

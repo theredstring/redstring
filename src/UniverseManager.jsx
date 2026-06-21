@@ -3147,7 +3147,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         fileName,
         suppressNotification: true
       });
-      await universeBackend.linkLocalFileToUniverse(slug, fileName, { displayPath });
+      // Use absolute path (fileHandle) in Electron so localFile.path is not
+      // overwritten with just the filename, which safeNormalizeUniverse would
+      // garble. In browser, fileHandle is null so fall back to fileName.
+      const linkPath = (isElectron() && fileHandle) ? fileHandle : fileName;
+      await universeBackend.linkLocalFileToUniverse(slug, linkPath, { displayPath });
 
       try {
         await universeManagerService.forceSave(slug, { skipGit: true });
