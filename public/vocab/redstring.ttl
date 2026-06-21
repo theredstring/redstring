@@ -1,0 +1,724 @@
+# Redstring Vocabulary
+# Namespace: https://redstring.io/vocab/
+# This document is bundled with the app; .redstring files remain
+# self-interpretable via their embedded @context even without network access.
+#
+# Design principle (from FORMAT_REFACTOR_PLAN §2):
+#   Strip every redstring: term from an export and what remains must still
+#   be a good SKOS+PROV dataset. The redstring: vocabulary is a presentation-
+#   and cognition-layer overlay; it is never load-bearing for the semantics.
+
+@prefix rdf:      <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:     <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:      <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:      <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos:     <http://www.w3.org/2004/02/skos/core#> .
+@prefix prov:     <http://www.w3.org/ns/prov#> .
+@prefix schema:   <http://schema.org/> .
+@prefix rs:       <https://redstring.io/vocab/> .
+
+# ---------------------------------------------------------------------------
+# Ontology declaration
+# ---------------------------------------------------------------------------
+
+<https://redstring.io/vocab/>
+  a owl:Ontology ;
+  rdfs:label "Redstring Vocabulary"@en ;
+  rdfs:comment "Spatial, visual, and cognitive overlay terms for the Redstring .redstring JSON-LD format. These terms augment (never replace) SKOS+PROV semantics."@en ;
+  owl:versionInfo "4.0" .
+
+# ---------------------------------------------------------------------------
+# Top-level structural classes
+# ---------------------------------------------------------------------------
+
+rs:CognitiveSpace
+  a owl:Class ;
+  rdfs:subClassOf skos:ConceptScheme ;
+  rdfs:label "Cognitive Space"@en ;
+  rdfs:comment "The root entity of a .redstring universe. Wraps a SKOS ConceptScheme with Redstring's prototype and spatial graph containers."@en .
+
+rs:PrototypeSpace
+  a owl:Class ;
+  rdfs:label "Prototype Space"@en ;
+  rdfs:comment "Container for all concept prototypes (node prototypes). Maps to the default named graph in the RDF 1.1 dataset. Each prototype is also a skos:Concept."@en .
+
+rs:SpatialGraphCollection
+  a owl:Class ;
+  rdfs:label "Spatial Graph Collection"@en ;
+  rdfs:comment "Container for all spatial graphs. Each member graph corresponds to one named graph in the RDF 1.1 dataset."@en .
+
+rs:SpatialGraph
+  a owl:Class ;
+  rdfs:label "Spatial Graph"@en ;
+  rdfs:comment "A navigational/spatial graph: a canvas on which instances of prototypes are placed and connected. Corresponds to one RDF named graph."@en .
+
+rs:Prototype
+  a owl:Class ;
+  rdfs:subClassOf skos:Concept, rdfs:Class, schema:Thing ;
+  rdfs:label "Prototype"@en ;
+  rdfs:comment "A concept prototype — the type-level entity. Every Prototype is simultaneously a skos:Concept (for SKOS compatibility), an rdfs:Class (for OWL docking), and a schema:Thing (for schema.org compatibility). Instances are placed in spatial graphs."@en .
+
+rs:Instance
+  a owl:Class ;
+  rdfs:label "Instance"@en ;
+  rdfs:comment "A positioned occurrence of a Prototype within a specific SpatialGraph. Carries spatial (x, y, scale) data. Not the same as rdf:type instantiation — this is spatial placement, not ontological membership."@en .
+
+rs:Group
+  a owl:Class ;
+  rdfs:label "Group"@en ;
+  rdfs:comment "A visual grouping of Instances within a SpatialGraph. Groups are presentation-layer only and carry no semantic weight."@en .
+
+rs:RelationshipCollection
+  a owl:Class ;
+  rdfs:label "Relationship Collection"@en ;
+  rdfs:comment "Container for edges (relationships) within a SpatialGraph. Edges connect Instance pairs and may carry a type Prototype."@en .
+
+rs:Edge
+  a owl:Class ;
+  rdfs:label "Edge"@en ;
+  rdfs:comment "A relationship between two Instances. May carry directionality, a type Prototype, and an rdf:Statement reification for its semantic content."@en .
+
+rs:SpatialContext
+  a owl:Class ;
+  rdfs:label "Spatial Context"@en ;
+  rdfs:comment "Viewport and canvas state for a SpatialGraph (presentation layer only; excluded from semantic hash)."@en .
+
+rs:UserInterfaceState
+  a owl:Class ;
+  rdfs:label "User Interface State"@en ;
+  rdfs:comment "Per-session UI state: open graphs, active graph, expanded graphs, panel tabs. Excluded from semantic hash and from RDF dataset projection."@en .
+
+# Legacy aliases (kept for import compatibility)
+rs:Graph
+  a owl:Class ;
+  owl:equivalentClass rs:SpatialGraph ;
+  rdfs:label "Graph"@en ;
+  rdfs:comment "Legacy alias for rs:SpatialGraph. Use rs:SpatialGraph in new exports."@en .
+
+rs:Node
+  a owl:Class ;
+  owl:equivalentClass rs:Prototype ;
+  rdfs:label "Node"@en ;
+  rdfs:comment "Legacy alias for rs:Prototype. Use rs:Prototype in new exports."@en .
+
+rs:SemanticType
+  a owl:Class ;
+  rdfs:label "Semantic Type"@en ;
+  rdfs:comment "A type annotation for prototypes (role assignment beyond skos:Concept)."@en .
+
+rs:CognitiveSpace
+  rdfs:seeAlso skos:ConceptScheme .
+
+# ---------------------------------------------------------------------------
+# Structural / graph-containment properties
+# ---------------------------------------------------------------------------
+
+rs:prototypes
+  a owl:ObjectProperty ;
+  rdfs:label "prototypes"@en ;
+  rdfs:domain rs:PrototypeSpace ;
+  rdfs:range rs:Prototype ;
+  rdfs:comment "Maps prototype IRIs to Prototype nodes within a PrototypeSpace. Uses @container:@id in JSON-LD."@en .
+
+rs:graphs
+  a owl:ObjectProperty ;
+  rdfs:label "graphs"@en ;
+  rdfs:domain rs:SpatialGraphCollection ;
+  rdfs:range rs:SpatialGraph ;
+  rdfs:comment "Maps graph IRIs to SpatialGraph nodes within a SpatialGraphCollection."@en .
+
+rs:edges
+  a owl:ObjectProperty ;
+  rdfs:label "edges"@en ;
+  rdfs:domain rs:RelationshipCollection ;
+  rdfs:range rs:Edge ;
+  rdfs:comment "Maps edge IRIs to Edge nodes within a RelationshipCollection."@en .
+
+rs:instances
+  a owl:ObjectProperty ;
+  rdfs:label "instances"@en ;
+  rdfs:domain rs:SpatialGraph ;
+  rdfs:range rs:Instance ;
+  rdfs:comment "Map of Instance IRIs to Instance nodes within a SpatialGraph. Quads about these instances appear in the SpatialGraph's named graph."@en .
+
+rs:groups
+  a owl:ObjectProperty ;
+  rdfs:label "groups"@en ;
+  rdfs:domain rs:SpatialGraph ;
+  rdfs:range rs:Group ;
+  rdfs:comment "Visual groupings of instances in a SpatialGraph (presentation layer)."@en .
+
+rs:instanceOf
+  a owl:ObjectProperty ;
+  rdfs:subPropertyOf rdf:type ;
+  rdfs:label "instance of"@en ;
+  rdfs:domain rs:Instance ;
+  rdfs:range rs:Prototype ;
+  rdfs:comment "Links a spatial Instance to its Prototype. Analogous to rdf:type but explicit in the Redstring model."@en .
+
+rs:prototypeId
+  a owl:ObjectProperty ;
+  rdfs:label "prototype ID"@en ;
+  rdfs:domain rs:Instance ;
+  rdfs:range rs:Prototype ;
+  rdfs:comment "IRI of the Prototype this Instance instantiates. Parallel to rs:instanceOf; may be merged with it in v5."@en .
+
+rs:containedIn
+  a owl:ObjectProperty ;
+  rdfs:label "contained in"@en ;
+  rdfs:domain rs:Instance ;
+  rdfs:range rs:SpatialGraph ;
+  rdfs:comment "The SpatialGraph that owns this Instance."@en .
+
+rs:definingNodeIds
+  a owl:DatatypeProperty ;
+  rdfs:label "defining node IDs"@en ;
+  rdfs:domain rs:SpatialGraph ;
+  rdfs:comment "IRIs of Prototype nodes whose definition this SpatialGraph provides."@en .
+
+rs:edgeIds
+  a owl:DatatypeProperty ;
+  rdfs:label "edge IDs"@en ;
+  rdfs:domain rs:SpatialGraph ;
+  rdfs:comment "IRIs of Edge nodes contained in this SpatialGraph."@en .
+
+# ---------------------------------------------------------------------------
+# Definition / conceptual-structure properties
+# ---------------------------------------------------------------------------
+
+rs:hasDefinition
+  a owl:ObjectProperty ;
+  rdfs:label "has definition"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:range rs:SpatialGraph ;
+  rdfs:seeAlso skos:definition ;
+  rdfs:comment "A Prototype may have one or more SpatialGraphs as its definition. This is a graph-valued definition (a network of related concepts) rather than a literal string. Contrast with skos:definition (plain-text) — they are complementary."@en .
+
+rs:definitionGraphIds
+  a owl:DatatypeProperty ;
+  rdfs:label "definition graph IDs"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "Ordered list of SpatialGraph IRIs that serve as definitions for this Prototype. Index tracked per (node, graph) context."@en .
+
+rs:defines
+  a owl:ObjectProperty ;
+  owl:inverseOf rs:hasDefinition ;
+  rdfs:label "defines"@en ;
+  rdfs:domain rs:SpatialGraph ;
+  rdfs:range rs:Prototype ;
+  rdfs:comment "Inverse of rs:hasDefinition. A SpatialGraph defines the Prototype it elaborates."@en .
+
+rs:definedBy
+  a owl:ObjectProperty ;
+  rdfs:label "defined by"@en ;
+  rdfs:comment "Alias for rs:defines (legacy)."@en .
+
+rs:expandsTo
+  a owl:ObjectProperty ;
+  rdfs:label "expands to"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:range rs:SpatialGraph ;
+  rdfs:comment "When a user expands a node, it reveals this SpatialGraph. Alias for rs:hasDefinition (legacy label from UX origin)."@en .
+
+rs:contractsFrom
+  a owl:ObjectProperty ;
+  rdfs:label "contracts from"@en ;
+  rdfs:comment "Inverse direction of rs:expandsTo (legacy)."@en .
+
+rs:contextualDefinition
+  a owl:DatatypeProperty ;
+  rdfs:label "contextual definition"@en ;
+  rdfs:comment "Which definition graph is active in a specific host-graph context. Tracked via the nodeDefinitionIndices store map."@en .
+
+rs:abstractionChains
+  a owl:DatatypeProperty ;
+  rdfs:label "abstraction chains"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "Encoded abstraction hierarchy chains for this Prototype (supplementary to skos:broader / rdfs:subClassOf, which are the canonical export form)."@en .
+
+rs:abstractionDimensions
+  a owl:DatatypeProperty ;
+  rdfs:label "abstraction dimensions"@en ;
+  rdfs:comment "Named abstraction axes for multi-dimensional concept hierarchies."@en .
+
+# ---------------------------------------------------------------------------
+# Spatial / positional properties (presentation layer)
+# ---------------------------------------------------------------------------
+
+rs:spatialContext
+  a owl:ObjectProperty ;
+  rdfs:label "spatial context"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:range rs:SpatialContext ;
+  rdfs:comment "Position and scale data for a Prototype's default spatial placement. Presentation layer only."@en .
+
+rs:xCoordinate
+  a owl:DatatypeProperty ;
+  rdfs:label "x coordinate"@en ;
+  rdfs:range xsd:double ;
+  rdfs:comment "Horizontal position of an Instance or Prototype on the canvas (SVG coordinate space)."@en .
+
+rs:yCoordinate
+  a owl:DatatypeProperty ;
+  rdfs:label "y coordinate"@en ;
+  rdfs:range xsd:double ;
+  rdfs:comment "Vertical position of an Instance or Prototype on the canvas (SVG coordinate space)."@en .
+
+rs:spatialScale
+  a owl:DatatypeProperty ;
+  rdfs:label "spatial scale"@en ;
+  rdfs:range xsd:double ;
+  rdfs:comment "Scale factor for an Instance or Prototype node on the canvas."@en .
+
+rs:panOffset
+  a owl:DatatypeProperty ;
+  rdfs:label "pan offset"@en ;
+  rdfs:domain rs:SpatialGraph ;
+  rdfs:comment "Current pan offset {x, y} for this graph's canvas viewport. Presentation layer; excluded from semantic hash."@en .
+
+rs:zoomLevel
+  a owl:DatatypeProperty ;
+  rdfs:label "zoom level"@en ;
+  rdfs:domain rs:SpatialGraph ;
+  rdfs:range xsd:double ;
+  rdfs:comment "Current zoom level for this graph's canvas viewport. Presentation layer; excluded from semantic hash."@en .
+
+rs:viewport
+  a owl:DatatypeProperty ;
+  rdfs:label "viewport"@en ;
+  rdfs:domain rs:SpatialContext ;
+  rdfs:comment "Viewport state {x, y, zoom} for the spatial context."@en .
+
+rs:canvasSize
+  a owl:DatatypeProperty ;
+  rdfs:label "canvas size"@en ;
+  rdfs:domain rs:SpatialContext ;
+  rdfs:comment "Logical canvas dimensions {width, height} in SVG units."@en .
+
+# ---------------------------------------------------------------------------
+# Visual / presentation properties (presentation layer)
+# ---------------------------------------------------------------------------
+
+rs:visualProperties
+  a owl:ObjectProperty ;
+  rdfs:label "visual properties"@en ;
+  rdfs:comment "Container node for all visual/presentation-layer properties of a Prototype or SpatialGraph."@en .
+
+rs:cognitiveColor
+  a owl:DatatypeProperty ;
+  rdfs:label "cognitive color"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "Hex color assigned to this Prototype in the Redstring UI. Not a semantic annotation; aids visual navigation."@en .
+
+rs:imageSrc
+  a owl:DatatypeProperty ;
+  rdfs:label "image source"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "User-uploaded image for this Prototype, stored as a data URL. Only populated for user-uploaded images (not auto-enriched). Auto-enriched thumbnails use rs:thumbnailSrc (URL, never data URL) to prevent OOM."@en .
+
+rs:thumbnailSrc
+  a owl:DatatypeProperty ;
+  rdfs:label "thumbnail source"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "URL of a thumbnail image for this Prototype. For auto-enriched nodes this is a Wikipedia image URL (never a data URL); loaded via the imageCache Zustand store rather than the main store."@en .
+
+rs:imageAspectRatio
+  a owl:DatatypeProperty ;
+  rdfs:label "image aspect ratio"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:range xsd:double ;
+  rdfs:comment "Aspect ratio (width ÷ height) of the Prototype's image. Stored in semanticMetadata.imageAspectRatio; survives save/load."@en .
+
+rs:expanded
+  a owl:DatatypeProperty ;
+  rdfs:label "expanded"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:comment "Whether a graph node is currently expanded (its definition graph is visible)."@en .
+
+rs:visible
+  a owl:DatatypeProperty ;
+  rdfs:label "visible"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:comment "Whether an entity is currently visible in the UI."@en .
+
+rs:color
+  a owl:DatatypeProperty ;
+  rdfs:label "color"@en ;
+  rdfs:comment "Generic color property used at the Group level. Prototype-level color uses rs:cognitiveColor."@en .
+
+# ---------------------------------------------------------------------------
+# Cognitive / meta properties
+# ---------------------------------------------------------------------------
+
+rs:cognitiveProperties
+  a owl:ObjectProperty ;
+  rdfs:label "cognitive properties"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "Container for cognitive-state properties (bookmarks, personal meaning, associations). Not included in the SKOS/PROV projection."@en .
+
+rs:bookmarked
+  a owl:DatatypeProperty ;
+  rdfs:label "bookmarked"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "Whether this Prototype is in the user's saved/bookmarked set."@en .
+
+rs:personalMeaning
+  a owl:DatatypeProperty ;
+  rdfs:label "personal meaning"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "User's personal annotation or meaning for this concept. Distinct from skos:definition (authoritative) and skos:note (editorial)."@en .
+
+rs:cognitiveAssociations
+  a owl:DatatypeProperty ;
+  rdfs:label "cognitive associations"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "Free-form associative links from this Prototype (not yet formalized as edges)."@en .
+
+rs:lastViewed
+  a owl:DatatypeProperty ;
+  rdfs:label "last viewed"@en ;
+  rdfs:range xsd:dateTime ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "ISO 8601 timestamp of when this Prototype was last viewed in the UI."@en .
+
+rs:activeInContext
+  a owl:DatatypeProperty ;
+  rdfs:label "active in context"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:comment "Whether a graph or entity is the currently active one in the user's session."@en .
+
+rs:currentDefinitionIndex
+  a owl:DatatypeProperty ;
+  rdfs:label "current definition index"@en ;
+  rdfs:range xsd:integer ;
+  rdfs:comment "Which definition graph index is currently active for a given (node, host-graph) context."@en .
+
+rs:contextKey
+  a owl:DatatypeProperty ;
+  rdfs:label "context key"@en ;
+  rdfs:comment "Composite key ('nodeId-graphId') for tracking context-specific definition indices."@en .
+
+# ---------------------------------------------------------------------------
+# Edge / relationship properties
+# ---------------------------------------------------------------------------
+
+rs:directionality
+  a owl:ObjectProperty ;
+  rdfs:label "directionality"@en ;
+  rdfs:domain rs:Edge ;
+  rdfs:comment "Directional metadata for an Edge: which endpoints arrows point toward."@en .
+
+rs:arrowsToward
+  a owl:ObjectProperty ;
+  rdfs:label "arrows toward"@en ;
+  rdfs:domain rs:Edge ;
+  rdfs:comment "Set of Instance IRIs that arrows on this Edge point toward."@en .
+
+rs:relationshipDirection
+  a owl:DatatypeProperty ;
+  rdfs:label "relationship direction"@en ;
+  rdfs:domain rs:Edge ;
+  rdfs:comment "Direction type of this relationship: 'unidirectional', 'bidirectional', etc."@en .
+
+rs:relationshipStrength
+  a owl:DatatypeProperty ;
+  rdfs:label "relationship strength"@en ;
+  rdfs:domain rs:Edge ;
+  rdfs:range xsd:double ;
+  rdfs:comment "Numeric strength or weight of this relationship (0.0–1.0)."@en .
+
+rs:bidirectional
+  a owl:DatatypeProperty ;
+  rdfs:label "bidirectional"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:domain rs:Edge ;
+  rdfs:comment "Whether this edge is visually bidirectional (arrows on both ends)."@en .
+
+rs:typeNodeId
+  a owl:ObjectProperty ;
+  rdfs:label "type node ID"@en ;
+  rdfs:domain rs:Edge ;
+  rdfs:range rs:Prototype ;
+  rdfs:comment "The Prototype that types (labels) this edge. Corresponds to the edge predicate in the rdf:Statement reification."@en .
+
+# ---------------------------------------------------------------------------
+# Provenance / enrichment properties
+# ---------------------------------------------------------------------------
+
+rs:semanticMetadata
+  a owl:ObjectProperty ;
+  rdfs:label "semantic metadata"@en ;
+  rdfs:comment "Container for enrichment metadata: Wikipedia links, Wikidata IDs, PROV provenance, auto-enrichment flag, image aspect ratio. Mapped to prov:Entity attributes on export."@en ;
+  rdfs:seeAlso prov:Entity .
+
+rs:agentConfig
+  a owl:ObjectProperty ;
+  rdfs:label "agent config"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "Configuration for AI wizard agent behaviour when operating in the context of this Prototype."@en .
+
+# ---------------------------------------------------------------------------
+# Descriptive / linguistic properties
+# ---------------------------------------------------------------------------
+
+rs:bio
+  a owl:DatatypeProperty ;
+  rdfs:label "bio"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "Extended biographical or descriptive text for this Prototype (beyond skos:definition)."@en .
+
+rs:conjugation
+  a owl:DatatypeProperty ;
+  rdfs:label "conjugation"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "Conjugation form for verb-like or relation-typed Prototypes (e.g. 'causes' → 'caused by')."@en .
+
+rs:externalLinks
+  a owl:DatatypeProperty ;
+  rdfs:label "external links"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "URLs to external resources for this Prototype. On export these become skos:exactMatch + owl:sameAs (user-asserted) or skos:closeMatch (auto-enriched), per the sameness-ladder rule (D8)."@en ;
+  rdfs:seeAlso skos:exactMatch, owl:sameAs, skos:closeMatch .
+
+rs:citations
+  a owl:DatatypeProperty ;
+  rdfs:label "citations"@en ;
+  rdfs:domain rs:Prototype ;
+  rdfs:comment "Bibliographic references associated with this Prototype."@en .
+
+rs:references
+  a owl:DatatypeProperty ;
+  rdfs:label "references"@en ;
+  rdfs:comment "Reference links (general, not bibliographic)."@en .
+
+rs:linkedThinking
+  a owl:DatatypeProperty ;
+  rdfs:label "linked thinking"@en ;
+  rdfs:comment "Links to connected thoughts or notes (e.g. from Obsidian import)."@en .
+
+# ---------------------------------------------------------------------------
+# Group properties (presentation layer)
+# ---------------------------------------------------------------------------
+
+rs:memberInstanceIds
+  a owl:ObjectProperty ;
+  rdfs:label "member instance IDs"@en ;
+  rdfs:domain rs:Group ;
+  rdfs:range rs:Instance ;
+  rdfs:comment "IRIs of Instances that belong to this Group."@en .
+
+rs:isGroupAnchor
+  a owl:DatatypeProperty ;
+  rdfs:label "is group anchor"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:domain rs:Instance ;
+  rdfs:comment "Whether this Instance serves as the spatial anchor for a Group."@en .
+
+rs:anchorForGroupId
+  a owl:ObjectProperty ;
+  rdfs:label "anchor for group ID"@en ;
+  rdfs:domain rs:Instance ;
+  rdfs:range rs:Group ;
+  rdfs:comment "The Group IRI for which this Instance is the spatial anchor."@en .
+
+rs:anchorInstanceId
+  a owl:ObjectProperty ;
+  rdfs:label "anchor instance ID"@en ;
+  rdfs:domain rs:Group ;
+  rdfs:range rs:Instance ;
+  rdfs:comment "The Instance that anchors this Group's spatial position."@en .
+
+rs:linkedNodePrototypeId
+  a owl:ObjectProperty ;
+  rdfs:label "linked node prototype ID"@en ;
+  rdfs:domain rs:Group ;
+  rdfs:range rs:Prototype ;
+  rdfs:comment "The Prototype this Group is conceptually linked to."@en .
+
+rs:linkedDefinitionIndex
+  a owl:DatatypeProperty ;
+  rdfs:label "linked definition index"@en ;
+  rdfs:domain rs:Group ;
+  rdfs:range xsd:integer ;
+  rdfs:comment "Which definition graph index this Group's linked Prototype uses in this context."@en .
+
+rs:hasCustomLayout
+  a owl:DatatypeProperty ;
+  rdfs:label "has custom layout"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:domain rs:Group ;
+  rdfs:comment "Whether this Group has a user-customised spatial layout."@en .
+
+# ---------------------------------------------------------------------------
+# UI state properties (excluded from semantic hash and RDF projection)
+# ---------------------------------------------------------------------------
+
+rs:openGraphIds
+  a owl:DatatypeProperty ;
+  rdfs:label "open graph IDs"@en ;
+  rdfs:domain rs:UserInterfaceState ;
+  rdfs:comment "Ordered list of SpatialGraph IRIs currently open in the UI."@en .
+
+rs:activeGraphId
+  a owl:ObjectProperty ;
+  rdfs:label "active graph ID"@en ;
+  rdfs:domain rs:UserInterfaceState ;
+  rdfs:range rs:SpatialGraph ;
+  rdfs:comment "The SpatialGraph currently focused in the UI."@en .
+
+rs:activeDefinitionNodeId
+  a owl:ObjectProperty ;
+  rdfs:label "active definition node ID"@en ;
+  rdfs:domain rs:UserInterfaceState ;
+  rdfs:range rs:Prototype ;
+  rdfs:comment "The Prototype whose definition graph is currently active."@en .
+
+rs:expandedGraphIds
+  a owl:DatatypeProperty ;
+  rdfs:label "expanded graph IDs"@en ;
+  rdfs:domain rs:UserInterfaceState ;
+  rdfs:comment "Set of SpatialGraph IRIs currently shown as expanded in the UI."@en .
+
+rs:rightPanelTabs
+  a owl:DatatypeProperty ;
+  rdfs:label "right panel tabs"@en ;
+  rdfs:domain rs:UserInterfaceState ;
+  rdfs:comment "Ordered list of tab identifiers open in the right panel."@en .
+
+rs:savedNodeIds
+  a owl:DatatypeProperty ;
+  rdfs:label "saved node IDs"@en ;
+  rdfs:domain rs:UserInterfaceState ;
+  rdfs:comment "IRIs of Prototypes the user has bookmarked/saved."@en .
+
+rs:savedGraphIds
+  a owl:DatatypeProperty ;
+  rdfs:label "saved graph IDs"@en ;
+  rdfs:domain rs:UserInterfaceState ;
+  rdfs:comment "IRIs of SpatialGraphs the user has bookmarked."@en .
+
+rs:showConnectionNames
+  a owl:DatatypeProperty ;
+  rdfs:label "show connection names"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:domain rs:UserInterfaceState ;
+  rdfs:comment "Whether edge labels are currently visible on the canvas."@en .
+
+# ---------------------------------------------------------------------------
+# Document-level metadata properties
+# ---------------------------------------------------------------------------
+
+rs:format
+  a owl:DatatypeProperty ;
+  rdfs:label "format"@en ;
+  rdfs:comment "Format identifier for this .redstring document (e.g. 'redstring/v3' or 'redstring/v4')."@en .
+
+rs:metadata
+  a owl:ObjectProperty ;
+  rdfs:label "metadata"@en ;
+  rdfs:comment "Container for document-level metadata: format version, history, OWL/RDF versions, title."@en .
+
+rs:prototypeSpace
+  a owl:ObjectProperty ;
+  rdfs:label "prototype space"@en ;
+  rdfs:domain rs:CognitiveSpace ;
+  rdfs:range rs:PrototypeSpace ;
+  rdfs:comment "Links a CognitiveSpace to its PrototypeSpace (the default graph in the RDF 1.1 dataset)."@en .
+
+rs:spatialGraphs
+  a owl:ObjectProperty ;
+  rdfs:label "spatial graphs"@en ;
+  rdfs:domain rs:CognitiveSpace ;
+  rdfs:range rs:SpatialGraphCollection ;
+  rdfs:comment "Links a CognitiveSpace to its SpatialGraphCollection."@en .
+
+rs:relationships
+  a owl:ObjectProperty ;
+  rdfs:label "relationships"@en ;
+  rdfs:domain rs:SpatialGraph ;
+  rdfs:range rs:RelationshipCollection ;
+  rdfs:comment "Links a SpatialGraph to its RelationshipCollection."@en .
+
+rs:formatHistory
+  a owl:ObjectProperty ;
+  rdfs:label "format history"@en ;
+  rdfs:domain rs:CognitiveSpace ;
+  rdfs:comment "Ordered list of format version entries documenting when and how this document was upgraded through the migration ledger."@en .
+
+rs:owlVersion
+  a owl:DatatypeProperty ;
+  rdfs:label "OWL version"@en ;
+  rdfs:comment "OWL version tag present in this document's metadata."@en .
+
+rs:rdfSchemaVersion
+  a owl:DatatypeProperty ;
+  rdfs:label "RDF Schema version"@en ;
+  rdfs:comment "RDFS version tag present in this document's metadata."@en .
+
+rs:semanticWebCompliant
+  a owl:DatatypeProperty ;
+  rdfs:label "semantic web compliant"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:comment "Flag indicating this document was exported with semantic web compliance checks passing."@en .
+
+rs:title
+  a owl:DatatypeProperty ;
+  rdfs:label "title"@en ;
+  rdfs:comment "Human-readable title of the CognitiveSpace (the universe name)."@en .
+
+rs:breaking
+  a owl:DatatypeProperty ;
+  rdfs:label "breaking"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:comment "Whether a format history entry represents a breaking change (requiring full migration)."@en .
+
+rs:changes
+  a owl:DatatypeProperty ;
+  rdfs:label "changes"@en ;
+  rdfs:comment "Human-readable description of changes in a format history migration entry."@en .
+
+rs:date
+  a owl:DatatypeProperty ;
+  rdfs:label "date"@en ;
+  rdfs:range xsd:dateTime ;
+  rdfs:comment "ISO 8601 date of a format version or history entry."@en .
+
+# ---------------------------------------------------------------------------
+# Coordinate sub-fields (inside panOffset / viewport objects)
+# ---------------------------------------------------------------------------
+
+rs:x
+  a owl:DatatypeProperty ;
+  rdfs:label "x"@en ;
+  rdfs:range xsd:double ;
+  rdfs:comment "Horizontal component of a coordinate pair. Used inside rs:panOffset and rs:viewport objects (presentation layer; excluded from semantic hash)."@en .
+
+rs:y
+  a owl:DatatypeProperty ;
+  rdfs:label "y"@en ;
+  rdfs:range xsd:double ;
+  rdfs:comment "Vertical component of a coordinate pair. Used inside rs:panOffset and rs:viewport objects (presentation layer; excluded from semantic hash)."@en .
+
+# ---------------------------------------------------------------------------
+# Semantic enrichment sub-fields
+# ---------------------------------------------------------------------------
+
+rs:autoEnriched
+  a owl:DatatypeProperty ;
+  rdfs:label "auto enriched"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:domain rs:semanticMetadata ;
+  rdfs:comment "Whether this Prototype was automatically enriched via Wikipedia / Wikidata. Auto-enriched nodes exclude imageSrc/thumbnailSrc from the save payload (URL-only persistence prevents OOM)."@en .
+
+rs:provenance
+  a owl:ObjectProperty ;
+  rdfs:label "provenance"@en ;
+  rdfs:seeAlso prov:Entity ;
+  rdfs:comment "Provenance sub-object inside rs:semanticMetadata: records import source and derivation chain."@en .
+
+rs:wasDerivedFrom
+  a owl:ObjectProperty ;
+  rdfs:subPropertyOf prov:wasDerivedFrom ;
+  rdfs:label "was derived from"@en ;
+  rdfs:comment "The source from which this entity was derived (e.g. 'Obsidian Import', 'Wikipedia Enrichment'). Sub-property of prov:wasDerivedFrom."@en .
