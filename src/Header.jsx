@@ -73,7 +73,12 @@ const Header = ({
   onNewUniverse,
   onOpenUniverse,
   onSaveUniverse,
+  onExportRedstring,
+  onExportJson,
   onExportRdf,
+  onExportTrig,
+  onExportTtl,
+  onExportTxt,
   onOpenRecentFile,
   onLoadFromExternalLink,
   onGenerateTestGraph,
@@ -612,7 +617,12 @@ const Header = ({
           onNewUniverse={onNewUniverse}
           onOpenUniverse={onOpenUniverse}
           onSaveUniverse={onSaveUniverse}
+          onExportRedstring={onExportRedstring}
+          onExportJson={onExportJson}
           onExportRdf={onExportRdf}
+          onExportTrig={onExportTrig}
+          onExportTtl={onExportTtl}
+          onExportTxt={onExportTxt}
           onOpenRecentFile={onOpenRecentFile}
           onLoadFromExternalLink={onLoadFromExternalLink}
           onGenerateTestGraph={onGenerateTestGraph}
@@ -707,7 +717,12 @@ const Header = ({
           onNewUniverse={onNewUniverse}
           onOpenUniverse={onOpenUniverse}
           onSaveUniverse={onSaveUniverse}
+          onExportRedstring={onExportRedstring}
+          onExportJson={onExportJson}
           onExportRdf={onExportRdf}
+          onExportTrig={onExportTrig}
+          onExportTtl={onExportTtl}
+          onExportTxt={onExportTxt}
           onOpenRecentFile={onOpenRecentFile}
           onLoadFromExternalLink={onLoadFromExternalLink}
           onGenerateTestGraph={onGenerateTestGraph}

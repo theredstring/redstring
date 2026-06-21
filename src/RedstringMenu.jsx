@@ -52,7 +52,12 @@ const RedstringMenu = ({
   onNewUniverse,
   onOpenUniverse,
   onSaveUniverse,
+  onExportRedstring,
+  onExportJson,
   onExportRdf,
+  onExportTrig,
+  onExportTtl,
+  onExportTxt,
   onOpenRecentFile,
   onLoadWikidataCatalog,
   onLoadFromExternalLink,
@@ -312,36 +317,54 @@ const RedstringMenu = ({
                         <div
                           className="submenu-item"
                           onMouseEnter={handleRegularSubmenuItemHover}
-                          onClick={() => {
-                            // console.log('[RedstringMenu] Export as RDF/Turtle clicked');
-                            onExportRdf?.();
-                          }}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <FileText size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
-                          Export as RDF/Turtle
-                        </div>
-                        {/* <div
-                          className="submenu-item"
-                          onMouseEnter={handleRegularSubmenuItemHover}
-                          onClick={() => {
-                            onLoadWikidataCatalog?.();
-                          }}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <Globe size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
-                          Load from Wikidata...
-                        </div> */}
-                        <div
-                          className="submenu-item"
-                          onMouseEnter={handleRegularSubmenuItemHover}
-                          onClick={() => {
-                            onLoadFromExternalLink?.();
-                          }}
+                          onClick={() => onLoadFromExternalLink?.()}
                           style={{ cursor: 'pointer' }}
                         >
                           <LinkIcon size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Load from External Link...
+                        </div>
+                        <div
+                          className={`submenu-item has-submenu ${isNestedSubmenuOpen('Export') ? 'active-submenu-parent' : ''}`}
+                          onMouseEnter={() => handleNestedSubmenuItemHover('Export')}
+                          onMouseLeave={handleNestedSubmenuItemLeave}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <FileText size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                          Export...
+                          <ChevronRight size={14} style={{ marginLeft: 'auto', opacity: 0.7 }} />
+
+                          {isNestedSubmenuOpen('Export') && (
+                            <div
+                              className="recent-files-submenu"
+                              onMouseEnter={handleNestedSubmenuEnter}
+                              onMouseLeave={handleNestedSubmenuItemLeave}
+                            >
+                              <button className="recent-file-item" onClick={(e) => { e.stopPropagation(); onExportRedstring?.(); }}>
+                                <span className="recent-file-name">Redstring (.redstring)</span>
+                                <span className="recent-file-time">Native</span>
+                              </button>
+                              <button className="recent-file-item" onClick={(e) => { e.stopPropagation(); onExportJson?.(); }}>
+                                <span className="recent-file-name">JSON (.json)</span>
+                                <span className="recent-file-time">Native</span>
+                              </button>
+                              <button className="recent-file-item" onClick={(e) => { e.stopPropagation(); onExportTxt?.(); }}>
+                                <span className="recent-file-name">Plain Text (.txt)</span>
+                                <span className="recent-file-time">Readable</span>
+                              </button>
+                              <button className="recent-file-item" onClick={(e) => { e.stopPropagation(); onExportTtl?.(); }}>
+                                <span className="recent-file-name">Turtle (.ttl)</span>
+                                <span className="recent-file-time">RDF</span>
+                              </button>
+                              <button className="recent-file-item" onClick={(e) => { e.stopPropagation(); onExportTrig?.(); }}>
+                                <span className="recent-file-name">TriG (.trig)</span>
+                                <span className="recent-file-time">RDF</span>
+                              </button>
+                              <button className="recent-file-item" onClick={(e) => { e.stopPropagation(); onExportRdf?.(); }}>
+                                <span className="recent-file-name">N-Quads (.nq)</span>
+                                <span className="recent-file-time">RDF</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
                         <div
                           className={`submenu-item has-submenu ${isNestedSubmenuOpen('RecentFiles') ? 'active-submenu-parent' : ''}`}

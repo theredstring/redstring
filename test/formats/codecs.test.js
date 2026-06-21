@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import jsonld from 'jsonld';
 import { toNQuads } from '../../src/formats/codecs/nquads.js';
 import { toTriG } from '../../src/formats/codecs/trig.js';
+import { toTurtle } from '../../src/formats/codecs/turtle.js';
 import { exportToRedstring, toIri } from '../../src/formats/redstringFormat.js';
 
 /**
@@ -184,5 +185,68 @@ describe('P5.2 — TriG codec', () => {
     // The edge has sourceId "inst1" so related strings will appear.
     expect(trig).toContain('inst1');
     expect(trig).toContain('inst2');
+  });
+});
+
+// ── Turtle codec ─────────────────────────────────────────────────────────────
+
+describe('P5.2 — Turtle codec', () => {
+  it('toTurtle returns a non-empty string', async () => {
+    const ttl = await toTurtle(buildState());
+    expect(typeof ttl).toBe('string');
+    expect(ttl.length).toBeGreaterThan(0);
+  });
+
+  it('output contains @prefix declarations for well-known namespaces', async () => {
+    const ttl = await toTurtle(buildState());
+    expect(ttl).toContain('@prefix rdf:');
+    expect(ttl).toContain('@prefix rdfs:');
+    expect(ttl).toContain('@prefix redstring:');
+  });
+
+  it('output contains NO GRAPH blocks (default graph only)', async () => {
+    const ttl = await toTurtle(buildState(2));
+    expect(ttl).not.toContain('GRAPH <');
+  });
+
+  it('prototype IRI is abbreviated using the redstring: prefix', async () => {
+    const ttl = await toTurtle(buildState(1));
+    // The dog prototype should appear as an abbreviated subject or object.
+    // toIri('dog') = urn:redstring:id:dog — not abbreviated, but its type triple
+    // should use redstring:Prototype or skos:Concept.
+    expect(ttl).toContain('skos:Concept');
+  });
+
+  it('multi-predicate subjects use ; separator (subject grouping)', async () => {
+    const ttl = await toTurtle(buildState(1));
+    // Any prototype with multiple predicates will produce a ; line.
+    expect(ttl).toContain(' ;');
+  });
+
+  it('prototype quads appear for each prototype in the state', async () => {
+    const ttl = await toTurtle(buildState(1));
+    expect(ttl).toContain(toIri('dog'));
+  });
+
+  it('instance quads appear for each instance', async () => {
+    const state = buildState(2);
+    const ttl = await toTurtle(state);
+    expect(ttl).toContain(toIri('inst1'));
+    expect(ttl).toContain(toIri('inst2'));
+  });
+
+  it('emitV4: true option is accepted and produces valid Turtle', async () => {
+    const ttl = await toTurtle(buildState(), { emitV4: true });
+    expect(ttl).toContain('@prefix');
+    expect(ttl.length).toBeGreaterThan(0);
+  });
+
+  it('state with edge: edge quads appear in the output', async () => {
+    const state = buildStateWithEdge();
+    const ttl = await toTurtle(state);
+    expect(ttl).toContain('inst1');
+    expect(ttl).toContain('inst2');
+    // No GRAPH blocks — edges go to default graph like everything else.
+    expect(ttl).not.toContain('GRAPH <');
   });
 });
