@@ -339,7 +339,8 @@ describe('Format Consistency', () => {
     const redstringData = exportToRedstring(originalState);
     
     // Check that exported edges have both native and RDF format
-    const edgeEntries = Object.entries(redstringData.edges);
+    // (canonical location after P1.5 removed the top-level `edges` mirror)
+    const edgeEntries = Object.entries(redstringData.relationships.edges);
     expect(edgeEntries.length).toBeGreaterThan(0);
     
     for (const [edgeId, edgeData] of edgeEntries) {

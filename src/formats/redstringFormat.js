@@ -903,11 +903,6 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       "edges": edgesObj
     },
     
-    // Direct accessors for backwards-compatibility with legacy tooling/tests
-    "graphs": spatialGraphs,
-    "nodePrototypes": prototypeSpace,
-    "edges": edgesObj,
-    
     // Global spatial context
     "globalSpatialContext": {
       "@type": "redstring:SpatialContext",
@@ -928,13 +923,6 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       "redstring:showConnectionNames": !!showConnectionNames
     },
     
-    // Legacy compatibility (for backwards compatibility during transition)
-    "legacy": {
-      "graphs": spatialGraphs,
-      "nodePrototypes": prototypeSpace,
-      "edges": edgesObj
-    },
-
     // Spatial metadata snapshots for agent/CLI workflows
     "graphLayouts": layoutSnapshot,
     "graphSummaries": summarySnapshot,
