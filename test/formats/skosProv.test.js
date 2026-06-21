@@ -59,3 +59,39 @@ describe('SKOS emission (P2.4)', () => {
     expect(reExported.prototypeSpace.prototypes.dog._preserved).toBeUndefined();
   });
 });
+
+describe('Sameness ladder (P2.5)', () => {
+  const LINKS = ['https://www.wikidata.org/wiki/Q144', 'https://dbpedia.org/page/Dog'];
+
+  it('user links export owl:sameAs AND skos:exactMatch (cumulative rule)', () => {
+    const ex = exportToRedstring(buildState({ externalLinks: LINKS }));
+    const dog = ex.prototypeSpace.prototypes.dog;
+    expect(dog['owl:sameAs']).toEqual(LINKS);
+    expect(dog['skos:exactMatch']).toEqual(LINKS.map((u) => ({ '@id': u })));
+    expect(dog['skos:closeMatch']).toBeUndefined();
+  });
+
+  it('auto-enriched links export skos:closeMatch only (alignment, not identity)', () => {
+    const ex = exportToRedstring(buildState({
+      externalLinks: ['https://en.wikipedia.org/wiki/Dog'],
+      semanticMetadata: { autoEnriched: true }
+    }));
+    const dog = ex.prototypeSpace.prototypes.dog;
+    expect(dog['skos:closeMatch']).toEqual([{ '@id': 'https://en.wikipedia.org/wiki/Dog' }]);
+    expect(dog['owl:sameAs']).toBeUndefined();
+    expect(dog['skos:exactMatch']).toBeUndefined();
+  });
+
+  it('round-trips external links from either rung back into the flat store list', () => {
+    const userRt = importFromRedstring(exportToRedstring(buildState({ externalLinks: LINKS })), {});
+    expect(userRt.storeState.nodePrototypes.get('dog').externalLinks).toEqual(LINKS);
+
+    const enrichedState = buildState({
+      externalLinks: ['https://en.wikipedia.org/wiki/Dog'],
+      semanticMetadata: { autoEnriched: true }
+    });
+    const enrichedRt = importFromRedstring(exportToRedstring(enrichedState), {});
+    expect(enrichedRt.storeState.nodePrototypes.get('dog').externalLinks)
+      .toEqual(['https://en.wikipedia.org/wiki/Dog']);
+  });
+});

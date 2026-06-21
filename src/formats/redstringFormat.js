@@ -684,8 +684,8 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       "rdfs:subClassOf": prototype.typeNodeId ?
         { "@id": toIri(prototype.typeNodeId) } : null,
       
-      // Rosetta Stone mechanism - core semantic web linking
-      "owl:sameAs": prototype.externalLinks || [],
+      // Sameness ladder (D8/P2.5) is appended after this literal so it can
+      // branch on auto-enrichment. owl:equivalentClass stays as-is.
       "owl:equivalentClass": prototype.equivalentClasses || [],
       
       // Redstring spatial properties (unique contribution to semantic web)
@@ -738,6 +738,23 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       // Critical for image re-fetching on reload and OOM prevention
       "redstring:semanticMetadata": prototype.semanticMetadata || null
     };
+
+    // Sameness ladder (decision D8/P2.5). External links climb the ladder by how
+    // strong the claim is. Auto-enrichment (e.g. a Wikipedia article matched to a
+    // concept) is alignment, not identity → skos:closeMatch only. User-asserted
+    // links are interchangeable → skos:exactMatch, and per the cumulative rule
+    // co-emit owl:sameAs (the OWL docking port). rdfs:seeAlso keeps the raw URLs.
+    const externalLinks = Array.isArray(prototype.externalLinks) ? prototype.externalLinks : [];
+    if (externalLinks.length > 0) {
+      const linkRefs = externalLinks.map((url) => ({ "@id": url }));
+      if (prototype.semanticMetadata?.autoEnriched) {
+        prototypeSpace[id]["skos:closeMatch"] = linkRefs;
+      } else {
+        prototypeSpace[id]["owl:sameAs"] = externalLinks;
+        prototypeSpace[id]["skos:exactMatch"] = linkRefs;
+      }
+    }
+
     // Quarantined unknown fields ride back out verbatim (D1/P1.3)
     if (prototype._preserved) {
       prototypeSpace[id]._preserved = prototype._preserved;
@@ -1284,7 +1301,16 @@ export const importFromRedstring = (redstringData, storeActions) => {
           // (auto-enriched images are re-fetched from Wikipedia URLs in semanticMetadata)
           // Check multiple signals: semanticMetadata flag OR wikipedia URL in external links (old files)
           const smRaw = prototype['redstring:semanticMetadata'] ?? prototype.semanticMetadata;
-          const linksRaw = ensureArray(prototype['owl:sameAs'] ?? prototype.externalLinks);
+          // External links may sit on any sameness-ladder rung (D8/P2.5): owl:sameAs
+          // (bare URLs) or skos:exactMatch/closeMatch ({@id} refs). Flatten them to
+          // a plain URL list for both auto-enrich detection and link recovery.
+          const ladderUrl = (v) => (v && typeof v === 'object') ? v['@id'] : v;
+          const linksRaw = [
+            ...ensureArray(prototype['owl:sameAs']),
+            ...ensureArray(prototype['skos:exactMatch']),
+            ...ensureArray(prototype['skos:closeMatch']),
+            ...ensureArray(prototype.externalLinks)
+          ].map(ladderUrl).filter((u) => u !== undefined && u !== null && u !== '');
           const isAutoEnriched = smRaw?.autoEnriched
             || linksRaw.some(l => String(l).includes('wikipedia.org'));
 
@@ -1307,9 +1333,16 @@ export const importFromRedstring = (redstringData, storeActions) => {
             convertedPrototype.semanticMetadata = prototype['redstring:semanticMetadata'] ?? prototype.semanticMetadata ?? null;
           }
 
-          if (hasOwn(prototype, 'owl:sameAs') || hasOwn(prototype, 'externalLinks')) {
-            convertedPrototype.externalLinks = ensureArray(prototype['owl:sameAs'] ?? prototype.externalLinks);
-          }
+          // Recover external links from a single ladder rung (D8/P2.5), preferring
+          // owl:sameAs, then skos:exactMatch/closeMatch, then a legacy flat list.
+          // Reading one rung (not the union) avoids double-counting the same links
+          // emitted on two rungs, and preserves any duplicates the store held.
+          const sameAsRung =
+            hasOwn(prototype, 'owl:sameAs') ? prototype['owl:sameAs']
+            : hasOwn(prototype, 'skos:exactMatch') ? prototype['skos:exactMatch']
+            : hasOwn(prototype, 'skos:closeMatch') ? prototype['skos:closeMatch']
+            : prototype.externalLinks;
+          convertedPrototype.externalLinks = ensureArray(sameAsRung).map(ladderUrl);
 
           if (hasOwn(prototype, 'owl:equivalentClass') || hasOwn(prototype, 'equivalentClasses')) {
             convertedPrototype.equivalentClasses = ensureArray(prototype['owl:equivalentClass'] ?? prototype.equivalentClasses);
