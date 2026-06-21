@@ -755,6 +755,17 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       }
     }
 
+    // PROV provenance (D/P2.6). Wizard-authored concepts carry provenance in
+    // semanticMetadata (which round-trips natively); project it to standard PROV
+    // on the entity. User-authored concepts have no provenance → no prov: terms.
+    const provenance = prototype.semanticMetadata?.provenance;
+    if (provenance?.wasAttributedTo) {
+      prototypeSpace[id]["prov:wasAttributedTo"] = { "@id": `urn:redstring:agent:${provenance.wasAttributedTo}` };
+    }
+    if (provenance?.generatedAtTime) {
+      prototypeSpace[id]["prov:generatedAtTime"] = provenance.generatedAtTime;
+    }
+
     // Quarantined unknown fields ride back out verbatim (D1/P1.3)
     if (prototype._preserved) {
       prototypeSpace[id]._preserved = prototype._preserved;
@@ -896,6 +907,20 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       "destinationPrototypeId": destinationPrototypeId,
       "predicatePrototypeId": predicatePrototypeId,
     };
+
+    // Edge semanticMetadata + PROV (P2.6). Wizard-authored edges carry provenance
+    // in semanticMetadata; round-trip it natively and project to standard PROV.
+    if (edge.semanticMetadata) {
+      edgesObj[id]["redstring:semanticMetadata"] = edge.semanticMetadata;
+      const edgeProv = edge.semanticMetadata.provenance;
+      if (edgeProv?.wasAttributedTo) {
+        edgesObj[id]["prov:wasAttributedTo"] = { "@id": `urn:redstring:agent:${edgeProv.wasAttributedTo}` };
+      }
+      if (edgeProv?.generatedAtTime) {
+        edgesObj[id]["prov:generatedAtTime"] = edgeProv.generatedAtTime;
+      }
+    }
+
     // Quarantined unknown fields ride back out verbatim (D1/P1.3)
     if (edge._preserved) {
       edgesObj[id]._preserved = edge._preserved;
@@ -1486,6 +1511,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
             definitionNodeIds: edge.definitionNodeIds,
             directionality: edge.directionality,
           };
+          // Edge provenance rides in semanticMetadata (P2.6)
+          const edgeSemMeta = edge['redstring:semanticMetadata'] ?? edge.semanticMetadata;
+          if (edgeSemMeta) edgeData.semanticMetadata = edgeSemMeta;
         }
         // Check if this is an old RDF statement format (legacy)
         else if (edge['@type'] === 'Statement' && edge.subject && edge.object) {

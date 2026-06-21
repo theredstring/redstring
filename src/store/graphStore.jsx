@@ -2576,7 +2576,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
               description: node.description || '',
               typeNodeId: node.typeNodeId || null,
               definitionGraphIds: [],
-              createdAt: new Date().toISOString()
+              createdAt: new Date().toISOString(),
+              // Carry provenance (and any other semanticMetadata) when supplied —
+              // e.g. wizard-authored nodes stamped with PROV (P2.6).
+              ...(node.semanticMetadata ? { semanticMetadata: node.semanticMetadata } : {})
             });
 
             // Save the new prototype by default

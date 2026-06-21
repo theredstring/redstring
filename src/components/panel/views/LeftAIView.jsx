@@ -384,6 +384,18 @@ function dispatchWizardToolFailed(tool, reason, result) {
   }
 }
 
+// PROV provenance context for wizard-authored entities (P2.6). Set by the
+// streaming handler right before tool results are applied (model + conversation
+// are in scope there); read when stamping created entities. The format layer
+// projects this to prov:wasAttributedTo / prov:generatedAtTime on export.
+let __wizardProvenance = null;
+export function setWizardProvenanceContext(ctx) {
+  __wizardProvenance = ctx
+    ? { wasAttributedTo: 'redstring-wizard', generatedAtTime: new Date().toISOString(), ...ctx }
+    : null;
+}
+const wizardSemanticMetadata = () => (__wizardProvenance ? { provenance: { ...__wizardProvenance } } : undefined);
+
 function applyToolResultToStore(toolName, result, toolCallId) {
   console.log('[Wizard] applyToolResultToStore called:', toolName, 'action:', result?.action, 'hasSpec:', !!result?.spec);
   if (!result || result.error) {
@@ -424,7 +436,9 @@ function applyToolResultToStore(toolName, result, toolCallId) {
         color: result.color || NODE_DEFAULT_COLOR,
         description: result.description || '',
         x: Math.random() * 600 + 200,
-        y: Math.random() * 500 + 200
+        y: Math.random() * 500 + 200,
+        // PROV stamp for wizard-authored nodes (P2.6); undefined for none
+        semanticMetadata: wizardSemanticMetadata()
       }]
     });
     console.log('[Wizard] Successfully created node:', result.name);
@@ -3707,7 +3721,13 @@ const LeftAIView = ({ compact = false,
 
                 // Apply tool results to store OUTSIDE the state updater
                 if (event.type === 'tool_result') {
+                  // Stamp wizard-authored entities with PROV provenance (P2.6)
+                  setWizardProvenanceContext({
+                    model: apiConfig?.model || undefined,
+                    conversationId: targetConversationId
+                  });
                   applyToolResultToStore(event.name, event.result, event.id || event.toolCallId);
+                  setWizardProvenanceContext(null);
                 }
 
                 // Pre-compute plan card decision BEFORE updateMsgInArray so both

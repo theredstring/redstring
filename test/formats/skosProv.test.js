@@ -95,3 +95,49 @@ describe('Sameness ladder (P2.5)', () => {
       .toEqual(['https://en.wikipedia.org/wiki/Dog']);
   });
 });
+
+describe('PROV stamping (P2.6)', () => {
+  const PROV = {
+    wasAttributedTo: 'redstring-wizard',
+    model: 'claude-opus-4-8',
+    conversationId: 'conv-123',
+    generatedAtTime: '2026-06-18T00:00:00.000Z'
+  };
+
+  it('wizard-authored prototypes export PROV; user-authored do not', () => {
+    const ex = exportToRedstring(buildState({ semanticMetadata: { provenance: PROV } }));
+    const dog = ex.prototypeSpace.prototypes.dog;
+    expect(dog['prov:wasAttributedTo']).toEqual({ '@id': 'urn:redstring:agent:redstring-wizard' });
+    expect(dog['prov:generatedAtTime']).toBe('2026-06-18T00:00:00.000Z');
+    // user-authored prototype (animal) has no provenance
+    expect(ex.prototypeSpace.prototypes.animal['prov:wasAttributedTo']).toBeUndefined();
+  });
+
+  it('round-trips provenance through semanticMetadata', () => {
+    const { storeState } = importFromRedstring(
+      exportToRedstring(buildState({ semanticMetadata: { provenance: PROV } })), {}
+    );
+    expect(storeState.nodePrototypes.get('dog').semanticMetadata.provenance).toEqual(PROV);
+  });
+
+  it('wizard-authored edges export PROV and round-trip semanticMetadata', () => {
+    const state = buildState();
+    state.nodePrototypes.set('cat', { id: 'cat', name: 'Cat', description: '', definitionGraphIds: [], abstractionChains: {} });
+    const instances = new Map([
+      ['i1', { id: 'i1', prototypeId: 'dog', x: 0, y: 0, scale: 1 }],
+      ['i2', { id: 'i2', prototypeId: 'cat', x: 10, y: 0, scale: 1 }]
+    ]);
+    state.graphs.set('g', { id: 'g', name: 'G', description: '', instances, edgeIds: ['e1'], definingNodeIds: [] });
+    state.edges.set('e1', {
+      id: 'e1', sourceId: 'i1', destinationId: 'i2',
+      typeNodeId: 'base-connection-prototype', definitionNodeIds: [],
+      directionality: { arrowsToward: new Set(['i2']) },
+      semanticMetadata: { provenance: PROV }
+    });
+    const ex = exportToRedstring(state);
+    expect(ex.relationships.edges.e1['prov:wasAttributedTo']).toEqual({ '@id': 'urn:redstring:agent:redstring-wizard' });
+
+    const { storeState } = importFromRedstring(ex, {});
+    expect(storeState.edges.get('e1').semanticMetadata.provenance).toEqual(PROV);
+  });
+});

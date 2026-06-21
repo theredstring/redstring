@@ -134,7 +134,8 @@ export const KNOWN_EDGE_KEYS = new Set([
   'sourcePrototypeId', 'destinationPrototypeId', 'predicatePrototypeId',
   // old RDF Statement format (read)
   '@type', 'subject', 'predicate', 'object', 'originalSourceId', 'originalDestinationId',
-  // PROV emitted by P2.6 for wizard-authored edges
+  // semanticMetadata + PROV emitted by P2.6 for wizard-authored edges
+  'redstring:semanticMetadata', 'semanticMetadata',
   'prov:wasAttributedTo', 'prov:generatedAtTime',
   '_preserved'
 ]);
