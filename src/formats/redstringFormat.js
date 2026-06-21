@@ -171,6 +171,32 @@ export const migrateFormat = (redstringData, fromVersion, toVersion = CURRENT_FO
   return data;
 };
 
+// IRI minting (decision D3). Internal IDs become resolvable, standards-friendly
+// URNs instead of pseudo-scheme compact IRIs (prototype:/instance:/graph:/etc):
+//   UUID id            → urn:uuid:{id}
+//   any other id       → urn:redstring:id:{encodeURIComponent(id)}
+// fromIri reverses both, AND accepts every legacy pseudo-scheme plus bare ids,
+// forever — so files written before P1.6 still import.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LEGACY_ID_PREFIXES = ['prototype:', 'instance:', 'graph:', 'node:', 'group:', 'type:', 'space:'];
+
+export const toIri = (id) => {
+  if (id === undefined || id === null) return id;
+  const s = String(id);
+  return UUID_RE.test(s) ? `urn:uuid:${s}` : `urn:redstring:id:${encodeURIComponent(s)}`;
+};
+
+export const fromIri = (iri) => {
+  if (iri === undefined || iri === null) return iri;
+  const s = String(iri);
+  if (s.startsWith('urn:uuid:')) return s.slice(9);
+  if (s.startsWith('urn:redstring:id:')) return decodeURIComponent(s.slice(17));
+  for (const prefix of LEGACY_ID_PREFIXES) {
+    if (s.startsWith(prefix)) return s.slice(prefix.length);
+  }
+  return s; // already a bare id
+};
+
 // Enhanced JSON-LD Context for Redstring with Full RDF Schema Support
 export const REDSTRING_CONTEXT = {
   "@version": 1.1,
@@ -531,15 +557,15 @@ export const exportToRedstring = (storeState, userDomain = null) => {
         spatialInstances[instanceId] = {
           // RDF Schema typing - instance is an individual
           "@type": "redstring:Instance",
-          "@id": `instance:${instanceId}`,
-          
+          "@id": toIri(instanceId),
+
           // RDF Schema: this individual belongs to prototype class
-          "rdf:type": { "@id": `prototype:${instance.prototypeId}` },
+          "rdf:type": { "@id": toIri(instance.prototypeId) },
           "rdfs:label": instance.name || null, // Don't generate fallback labels
           "rdfs:comment": instance.description || null,
-          
+
           // Redstring: this instance is contained within specific graph
-          "redstring:containedIn": { "@id": `graph:${graphId}` },
+          "redstring:containedIn": { "@id": toIri(graphId) },
           
           // Unique spatial positioning data (Redstring's contribution to semantic web)
           "redstring:spatialContext": {
@@ -569,8 +595,8 @@ export const exportToRedstring = (storeState, userDomain = null) => {
     }
     
     spatialGraphs[graphId] = {
-      "@type": "redstring:SpatialGraph", 
-      "@id": `graph:${graphId}`,
+      "@type": "redstring:SpatialGraph",
+      "@id": toIri(graphId),
       "rdfs:label": graph.name || `Graph ${graphId}`,
       "rdfs:comment": graph.description || "",
       
@@ -592,7 +618,7 @@ export const exportToRedstring = (storeState, userDomain = null) => {
           graph.groups.forEach((group, groupId) => {
             groupsObj[groupId] = {
               "@type": "redstring:Group",
-              "@id": `group:${groupId}`,
+              "@id": toIri(groupId),
               "rdfs:label": group.name,
               "rdfs:comment": group.description || "",
               "redstring:color": group.color,
@@ -605,7 +631,7 @@ export const exportToRedstring = (storeState, userDomain = null) => {
               "redstring:anchorInstanceId": group.anchorInstanceId,
               // RDF-style membership relationships
               "rdfs:member": (group.memberInstanceIds || []).map(memberId => ({
-                "@id": `instance:${memberId}`
+                "@id": toIri(memberId)
               }))
             };
           });
@@ -631,7 +657,7 @@ export const exportToRedstring = (storeState, userDomain = null) => {
     prototypeSpace[id] = {
       // RDF Schema typing - prototype is a class
       "@type": ["redstring:Prototype", "rdfs:Class", "schema:Thing"],
-      "@id": `prototype:${id}`,
+      "@id": toIri(id),
       
       // RDF Schema standard properties (W3C compliant) - preserve original
       "rdfs:label": prototype.name,
@@ -644,8 +670,8 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       "rdfs:isDefinedBy": { "@id": "https://redstring.io" },
       
       // Type hierarchy - automatic rdfs:subClassOf relationships
-      "rdfs:subClassOf": prototype.typeNodeId ? 
-        { "@id": `type:${prototype.typeNodeId}` } : null,
+      "rdfs:subClassOf": prototype.typeNodeId ?
+        { "@id": toIri(prototype.typeNodeId) } : null,
       
       // Rosetta Stone mechanism - core semantic web linking
       "owl:sameAs": prototype.externalLinks || [],
@@ -721,12 +747,12 @@ export const exportToRedstring = (storeState, userDomain = null) => {
                 prototypeSpace[subClassId]['rdfs:subClassOf'] = [];
               }
               // Add as an object to be expanded to a proper link by JSON-LD
-              const superClassRef = { "@id": `prototype:${superClassId}` };
+              const superClassRef = { "@id": toIri(superClassId) };
               // Avoid duplicates
-              const existingSubClasses = Array.isArray(prototypeSpace[subClassId]['rdfs:subClassOf']) 
-                ? prototypeSpace[subClassId]['rdfs:subClassOf'] 
+              const existingSubClasses = Array.isArray(prototypeSpace[subClassId]['rdfs:subClassOf'])
+                ? prototypeSpace[subClassId]['rdfs:subClassOf']
                 : [prototypeSpace[subClassId]['rdfs:subClassOf']];
-              if (!existingSubClasses.some(item => item?.["@id"] === `prototype:${superClassId}`)) {
+              if (!existingSubClasses.some(item => item?.["@id"] === toIri(superClassId))) {
                 existingSubClasses.push(superClassRef);
                 prototypeSpace[subClassId]['rdfs:subClassOf'] = existingSubClasses;
               }
@@ -820,9 +846,9 @@ export const exportToRedstring = (storeState, userDomain = null) => {
         const toSource = has(edge.sourceId);
         const triple = (subjProtoId, objProtoId) => ({
           "@type": "Statement",
-          "subject": { "@id": `node:${subjProtoId}` },
-          "predicate": { "@id": `node:${predicatePrototypeId}` },
-          "object": { "@id": `node:${objProtoId}` },
+          "subject": { "@id": toIri(subjProtoId) },
+          "predicate": { "@id": toIri(predicatePrototypeId) },
+          "object": { "@id": toIri(objProtoId) },
         });
 
         if (toDest && !toSource) return [triple(sourcePrototypeId, destinationPrototypeId)];
@@ -880,7 +906,7 @@ export const exportToRedstring = (storeState, userDomain = null) => {
     // Separated Storage Architecture
     "prototypeSpace": {
       "@type": "redstring:PrototypeSpace",
-      "@id": "space:prototypes",
+      "@id": "urn:redstring:space:prototypes",
       "rdfs:label": "Redstring Prototype Space",
       "rdfs:comment": "Collection of semantic classes with spatial properties",
       "prototypes": prototypeSpace
@@ -888,7 +914,7 @@ export const exportToRedstring = (storeState, userDomain = null) => {
     
     "spatialGraphs": {
       "@type": "redstring:SpatialGraphCollection", 
-      "@id": "space:graphs",
+      "@id": "urn:redstring:space:graphs",
       "rdfs:label": "Redstring Spatial Graphs",
       "rdfs:comment": "Collection of positioned instances within spatial graphs",
       "graphs": spatialGraphs
@@ -897,7 +923,7 @@ export const exportToRedstring = (storeState, userDomain = null) => {
     // Relationships as RDF statements/properties
     "relationships": {
       "@type": "redstring:RelationshipCollection",
-      "@id": "space:relationships", 
+      "@id": "urn:redstring:space:relationships", 
       "rdfs:label": "Redstring Relationships",
       "rdfs:comment": "RDF statements representing connections between instances",
       "edges": edgesObj
@@ -1066,7 +1092,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
           const convertedInstance = { id: instanceId };
 
           if (instance['@type'] === 'redstring:Instance') {
-            const prototypeId = instance['redstring:prototypeId'] || instance['rdf:type']?.['@id']?.replace('prototype:', '');
+            const prototypeId = instance['redstring:prototypeId'] || fromIri(instance['rdf:type']?.['@id']);
             if (prototypeId) {
               convertedInstance.prototypeId = prototypeId;
             }
@@ -1293,7 +1319,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
               prototype['redstring:typeNodeId'],
               coalesce(
                 prototype.typeNodeId,
-                prototype['rdfs:subClassOf']?.['@id']?.replace('type:', '')
+                fromIri(prototype['rdfs:subClassOf']?.['@id'])
               )
             );
           }
@@ -1419,9 +1445,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
             id,
             name: edge.name,
             description: edge.description,
-            sourceId: edge.originalSourceId || edge.subject['@id'].replace('node:', ''),
-            destinationId: edge.originalDestinationId || edge.object['@id'].replace('node:', ''),
-            typeNodeId: edge.predicate?.['@id'].replace('node:', ''),
+            sourceId: edge.originalSourceId || fromIri(edge.subject['@id']),
+            destinationId: edge.originalDestinationId || fromIri(edge.object['@id']),
+            typeNodeId: fromIri(edge.predicate?.['@id']),
           };
         }
         // This is the old format - use the edge data directly

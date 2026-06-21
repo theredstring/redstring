@@ -358,4 +358,11 @@ describe('Format Consistency', () => {
     const { storeState } = importFromRedstring(redstringData, {});
     expect(storeState.edges.size).toEqual(originalState.edges.size);
   });
+
+  it('emits no pseudo-scheme IRIs (P1.6 — URN identity)', () => {
+    const json = JSON.stringify(exportToRedstring(originalState));
+    // No @id value may use a legacy pseudo-scheme; ids are urn:uuid: / urn:redstring:.
+    const pseudo = json.match(/"@id"\s*:\s*"(prototype|instance|graph|node|group|type|space):[^"]*"/g);
+    expect(pseudo).toBeNull();
+  });
 });

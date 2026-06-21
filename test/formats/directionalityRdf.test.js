@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { exportToRedstring } from '../../src/formats/redstringFormat.js';
+import { exportToRedstring, fromIri } from '../../src/formats/redstringFormat.js';
 
 /**
  * Directionality → RDF projection (P0.3) — pins audit finding #3.
@@ -51,11 +51,7 @@ const buildState = (arrowsToward) => {
 const directedPairs = (arrowsToward) => {
   const exported = exportToRedstring(buildState(arrowsToward));
   const statements = exported.relationships.edges.e1.rdfStatements || [];
-  return statements.map((s) => {
-    const subj = String(s.subject['@id']).replace(/^node:/, '');
-    const obj = String(s.object['@id']).replace(/^node:/, '');
-    return `${subj}->${obj}`;
-  });
+  return statements.map((s) => `${fromIri(s.subject['@id'])}->${fromIri(s.object['@id'])}`);
 };
 
 describe('Directionality RDF projection', () => {
