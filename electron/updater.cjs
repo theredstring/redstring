@@ -505,7 +505,9 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
       if (zipPath && fs.existsSync(zipPath)) {
         const extractDir = path.join(macPaths.updaterCacheDir, 'manual-extract');
         try {
-          fs.rmSync(extractDir, { recursive: true, force: true });
+          // Use shell rm -rf instead of fs.rmSync — Electron patches fs to treat
+          // .asar files as directories, causing rmSync to throw ENOTDIR on app.asar.
+          execFileSync('rm', ['-rf', extractDir]);
           fs.mkdirSync(extractDir, { recursive: true });
           execFileSync('/usr/bin/ditto', ['-x', '-k', zipPath, extractDir], { stdio: 'pipe' });
           const entries = fs.readdirSync(extractDir);
