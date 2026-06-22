@@ -480,9 +480,29 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
     if (!stagedBundlePath) {
       // ShipIt didn't stage the bundle (unreliable on macOS 26+). Fall back to
       // extracting the downloaded ZIP ourselves, mirroring the debug-downgrade path.
-      const zipPath = pendingUpdateInfo?.downloadedFile;
+      // Try info.downloadedFile first, then scan the pending cache dir — electron-updater
+      // on macOS Squirrel doesn't always populate downloadedFile.
+      let zipPath = pendingUpdateInfo?.downloadedFile || null;
+      log('info', 'ShipIt has no staged bundle — attempting self-extraction. downloadedFile:', zipPath);
+      if (!zipPath || !fs.existsSync(zipPath)) {
+        const pendingDir = path.join(macPaths.updaterCacheDir, 'pending');
+        try {
+          if (fs.existsSync(pendingDir)) {
+            const zips = fs.readdirSync(pendingDir).filter((f) => f.endsWith('.zip'));
+            if (zips.length > 0) {
+              zipPath = path.join(pendingDir, zips[zips.length - 1]);
+              log('info', 'Found ZIP in pending dir:', zipPath);
+            } else {
+              log('warn', 'No ZIP files found in pending dir:', pendingDir);
+            }
+          } else {
+            log('warn', 'Pending dir does not exist:', pendingDir);
+          }
+        } catch (scanErr) {
+          log('warn', 'Could not scan pending dir:', scanErr.message);
+        }
+      }
       if (zipPath && fs.existsSync(zipPath)) {
-        log('info', 'ShipIt has no staged bundle — self-extracting downloaded ZIP:', zipPath);
         const extractDir = path.join(macPaths.updaterCacheDir, 'manual-extract');
         try {
           fs.rmSync(extractDir, { recursive: true, force: true });
@@ -494,13 +514,13 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
             stagedBundlePath = path.join(extractDir, appDirName);
             log('info', 'Self-extracted bundle at:', stagedBundlePath);
           } else {
-            log('error', 'No .app found inside extracted ZIP');
+            log('error', 'No .app found inside extracted ZIP. Contents:', entries.join(', '));
           }
         } catch (extractErr) {
           log('error', 'Failed to self-extract downloaded ZIP:', extractErr.message);
         }
       } else {
-        log('warn', 'No downloadedFile path available for self-extraction');
+        log('error', 'No usable ZIP found for self-extraction. zipPath:', zipPath);
       }
     }
     if (!stagedBundlePath) {
