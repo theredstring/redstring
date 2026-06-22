@@ -13,7 +13,9 @@
     "agent-server.bundle.cjs"
   ],
   "asarUnpack": [
-    "agent-server.bundle.cjs"
+    "agent-server.bundle.cjs",
+    "dist/assets/save.worker*.js",
+    "dist/assets/canvasWorker*.js"
   ],
   "mac": {
     "entitlements": "entitlements.mac.plist",
