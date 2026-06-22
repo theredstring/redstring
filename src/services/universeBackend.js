@@ -4083,7 +4083,16 @@ class UniverseBackend {
     const redstringData = await gitSyncEngine.loadFromGit();
     if (!redstringData) return null;
 
-    const { storeState } = importFromRedstring(redstringData);
+    const importResult = importFromRedstring(redstringData);
+    const { storeState } = importResult;
+    if (importResult.version?.migrated) {
+      try {
+        await gitSyncEngine.forceCommit(storeState);
+        umLog(`[UniverseBackend] Committed migrated data to git (${importResult.version.imported} → ${importResult.version.current})`);
+      } catch (writeErr) {
+        umWarn('[UniverseBackend] Failed to commit migrated data to git:', writeErr);
+      }
+    }
     return storeState;
   }
 
@@ -4332,7 +4341,17 @@ class UniverseBackend {
         return null;
       }
 
-      const { storeState } = importFromRedstring(redstringData);
+      const importResult = importFromRedstring(redstringData);
+      const { storeState } = importResult;
+      if (importResult.version?.migrated) {
+        try {
+          const migratedJson = JSON.stringify(exportToRedstring(storeState));
+          await provider.writeFileRaw(filePath, migratedJson);
+          umLog(`[UniverseBackend] Wrote migrated data back to git direct (${importResult.version.imported} → ${importResult.version.current})`);
+        } catch (writeErr) {
+          umWarn('[UniverseBackend] Failed to write migrated data back to git (direct):', writeErr);
+        }
+      }
       return storeState;
     } catch (error) {
       umWarn('[UniverseBackend] Direct Git read failed:', error);
@@ -4455,12 +4474,32 @@ class UniverseBackend {
       // no other safety net (git keeps history, browser storage keeps revisions; a freshly
       // opened local file does not). Best-effort — must never block the load.
       await this.backupBeforeMigrationIfNeeded(universe, fileHandle, text, redstringData);
-      const { storeState } = importFromRedstring(redstringData);
+      const importResult = importFromRedstring(redstringData);
+      const { storeState } = importResult;
       try {
         // Update file handle metadata after successful load
         await touchFileHandle(slug, fileHandle);
       } catch (touchError) {
         umWarn('[UniverseBackend] Failed to update file handle metadata after load:', touchError);
+      }
+      // Write migrated data back to all linked storages so the version on disk
+      // matches the current format — otherwise the migration re-runs on every reload.
+      if (importResult.version?.migrated) {
+        try {
+          await this.saveToLinkedLocalFile(slug, storeState, { suppressNotification: true });
+          umLog(`[UniverseBackend] Wrote migrated file back to disk (${importResult.version.imported} → ${importResult.version.current})`);
+        } catch (writeErr) {
+          umWarn('[UniverseBackend] Failed to write migrated file back to disk:', writeErr);
+        }
+        const gitEngine = this.gitSyncEngines.get(slug);
+        if (gitEngine) {
+          try {
+            await gitEngine.forceCommit(storeState);
+            umLog(`[UniverseBackend] Committed migrated data to git (${importResult.version.imported} → ${importResult.version.current})`);
+          } catch (writeErr) {
+            umWarn('[UniverseBackend] Failed to commit migrated data to git:', writeErr);
+          }
+        }
       }
       return storeState;
     } catch (error) {
@@ -4488,7 +4527,16 @@ class UniverseBackend {
 
       if (!result) return null;
 
-      const { storeState } = importFromRedstring(result.data);
+      const importResult = importFromRedstring(result.data);
+      const { storeState } = importResult;
+      if (importResult.version?.migrated) {
+        try {
+          await this.saveToBrowserStorage(universe, exportToRedstring(storeState));
+          umLog(`[UniverseBackend] Wrote migrated data back to browser storage (${importResult.version.imported} → ${importResult.version.current})`);
+        } catch (writeErr) {
+          umWarn('[UniverseBackend] Failed to write migrated data back to browser storage:', writeErr);
+        }
+      }
       return storeState;
     } catch (error) {
       umError('[UniverseBackend] Browser storage load failed:', error);
