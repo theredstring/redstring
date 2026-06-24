@@ -503,12 +503,17 @@ const Node = ({
       {/* --- Network Preview Container --- */}
       {isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 && (
         <g style={{ transition: 'opacity 0.3s ease', opacity: 1 }} >
-          <g clipPath={`url(#${innerClipPathId})`}>
+          {/* NOTE: do NOT wrap these foreignObjects in a <g clipPath> — iOS WebKit
+              fails to render foreignObject content under a clipPath ancestor (renders
+              blank). Rounded clipping is done with CSS overflow/borderRadius below. */}
+          <g>
             <rect
               x={nodeX + NODE_PADDING}
               y={contentAreaY}
               width={innerNetworkWidth}
               height={innerNetworkHeight}
+              rx={16}
+              ry={16}
               fill={theme.canvas.bg}
             />
 
@@ -524,7 +529,12 @@ const Node = ({
                 >
                   <div
                     xmlns="http://www.w3.org/1999/xhtml"
-                    style={{ width: '100%', height: '100%' }}
+                    style={{
+                      width: innerNetworkWidth,
+                      height: innerNetworkHeight,
+                      overflow: 'hidden',
+                      borderRadius: 16,
+                    }}
                   >
                     <UniversalNodeRenderer
                       nodes={currentGraphNodes.map(n => ({
@@ -592,8 +602,8 @@ const Node = ({
                 <div
                   data-decomp-button="true"
                   style={{
-                    width: '100%',
-                    height: '100%',
+                    width: innerNetworkWidth,
+                    height: innerNetworkHeight,
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
@@ -605,6 +615,8 @@ const Node = ({
                     textAlign: 'center',
                     padding: '20px',
                     boxSizing: 'border-box',
+                    borderRadius: 16,
+                    overflow: 'hidden',
                     transition: 'all 0.2s ease',
                   }}
                   onMouseEnter={(e) => {

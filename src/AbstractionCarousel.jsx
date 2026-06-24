@@ -990,6 +990,14 @@ const AbstractionCarousel = ({
   const handleNodeClick = useCallback((item) => {
     if (!isVisible) return;
 
+    // Clicking a node that isn't the currently focused (main) one moves the
+    // carousel, so dismiss the More/Less Specific hints just like a scroll does.
+    const currentLevel = Math.round(physicsStateRef.current.realPosition);
+    if (item.level !== currentLevel && !hintsDismissed) {
+      setHintsDismissed(true);
+      setHintOpacity(0);
+    }
+
     // Jump to clicked level and set it as target
     dispatchPhysics({ type: 'JUMP_TO_LEVEL', payload: item.level });
 
@@ -1003,7 +1011,7 @@ const AbstractionCarousel = ({
     if (item.type !== 'current') {
       // TODO: Handle navigation to other abstraction levels
     }
-  }, [isVisible, selectedNode]);
+  }, [isVisible, selectedNode, hintsDismissed]);
 
   // Double-click opens the node in the right panel, mirroring a normal canvas node.
   const handleNodeDoubleClick = useCallback((item) => {

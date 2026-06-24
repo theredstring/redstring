@@ -4058,7 +4058,10 @@ const LeftAIView = ({ compact = false,
     // Deferred: swap the message content in a transition so unmounting the old
     // conversation's (possibly heavy) list doesn't block the selection paint.
     // Old cards are React.memo'd, so the urgent commit above stays cheap.
-    lastMessagesRef.current = [];
+    // Keep lastMessagesRef on the CURRENT messages so the save-effect guard
+    // (lastMessagesRef.current === messages) stays true and doesn't write the
+    // old tab's messages into the new conversation before the transition fires.
+    lastMessagesRef.current = messages;
     React.startTransition(() => { setMessages([]); });
   };
 
