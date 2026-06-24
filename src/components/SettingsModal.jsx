@@ -62,6 +62,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
   const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
   const darkMode = useGraphStore(s => s.darkMode);
+  const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
+  const hoverPreviewSize = useGraphStore(s => s.hoverPreviewSize ?? 1.0);
 
   const isCompactLayout = viewportSize.width <= 768;
   const modalWidth = isCompactLayout
@@ -139,6 +141,28 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <Toggle
               checked={!!showEdgeGlowIndicators}
               onChange={() => useGraphStore.getState().toggleShowEdgeGlowIndicators?.()}
+            />
+          </div>
+          <div className="settings-row settings-row--attached">
+            <div className="settings-row-label">
+              Hover Preview
+              <div className="settings-row-description">Show a preview of the hovered Thing when hovering inside an expanded Thing's network.</div>
+            </div>
+            <Toggle
+              checked={!!showHoverPreview}
+              onChange={() => useGraphStore.getState().toggleShowHoverPreview?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Hover Preview Size"
+              value={hoverPreviewSize ?? 1.0}
+              min={0.5}
+              max={1.5}
+              step={0.05}
+              suffix="x"
+              disabled={!showHoverPreview}
+              onChange={(v) => useGraphStore.getState().setHoverPreviewSize?.(v)}
             />
           </div>
         </div>

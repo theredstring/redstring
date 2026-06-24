@@ -154,6 +154,7 @@ export const useCanvasKeyboard = ({
                 isHeaderEditing,
                 isRightPanelInputFocused,
                 isLeftPanelInputFocused,
+                abstractionCarouselVisible,
                 activeGraphId,
                 viewportSize,
                 canvasSize,
@@ -185,6 +186,7 @@ export const useCanvasKeyboard = ({
                 isHeaderEditing ||
                 isRightPanelInputFocused ||
                 isLeftPanelInputFocused ||
+                abstractionCarouselVisible || // carousel locks the canvas view
                 !activeGraphId;
 
             if (shouldDisableKeyboard) {

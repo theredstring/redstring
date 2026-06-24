@@ -2360,11 +2360,18 @@ function NodeCanvas() {
   // reactive effect below still invokes runCulling on data changes.
   const onTransformChangeRef = transform.onTransformChangeRef;
   useEffect(() => {
-    if (ENABLE_CULLING) {
-      onTransformChangeRef.current = runCulling;
-    } else {
-      onTransformChangeRef.current = () => { glowUpdateRef.current?.(); };
-    }
+    const base = ENABLE_CULLING ? runCulling : () => { glowUpdateRef.current?.(); };
+    onTransformChangeRef.current = () => {
+      base();
+      // Notify fixed-position overlays that anchor to live on-screen node
+      // coordinates (e.g. AbstractionCarousel). Pan/zoom write the DOM transform
+      // directly and only update settledPan/settledZoom ~150ms after the
+      // interaction stops, so these overlays must re-anchor off this signal to
+      // track the canvas live instead of jumping once panning settles.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('canvas-transform-change'));
+      }
+    };
     return () => { onTransformChangeRef.current = null; };
   }, [onTransformChangeRef, runCulling, ENABLE_CULLING]);
 
@@ -3805,6 +3812,82 @@ function NodeCanvas() {
   const [carouselFocusedNodeScale, setCarouselFocusedNodeScale] = useState(1.2);
   const [carouselFocusedNodeDimensions, setCarouselFocusedNodeDimensions] = useState(null);
   const [carouselFocusedNode, setCarouselFocusedNode] = useState(null); // Track which node is currently focused in carousel
+
+  // --- Carousel view-locking: on open, animate the canvas so the selected node
+  // is centered at a fixed reference zoom; while open, all user pan/zoom is
+  // blocked (see wheel/drag/pinch/keyboard guards). On close, the prior view is
+  // restored. This gives the carousel a stable, predictable frame to live in
+  // instead of fighting a moving canvas.
+  const CAROUSEL_REFERENCE_ZOOM = 1.0;
+  const preCarouselViewRef = useRef(null);
+  const prevCarouselVisibleRef = useRef(false);
+  const carouselViewAnimRef = useRef(null);
+  // Live ref mirror so closures (gesture handlers) can read the current value.
+  const abstractionCarouselVisibleRef = useRef(false);
+  useEffect(() => { abstractionCarouselVisibleRef.current = abstractionCarouselVisible; }, [abstractionCarouselVisible]);
+
+  // Smoothly animate the canvas to a target pan/zoom (easeOutCubic). Reuses the
+  // DOM-bypass transform path; the AbstractionCarousel re-anchors each frame off
+  // the 'canvas-transform-change' event so it tracks the motion cleanly.
+  const animateCanvasView = useCallback((targetPan, targetZoom, durationMs = 320) => {
+    if (carouselViewAnimRef.current) cancelAnimationFrame(carouselViewAnimRef.current);
+    const startPan = { ...panOffsetRef.current };
+    const startZoom = zoomLevelRef.current;
+    const startTime = performance.now();
+    isAnimatingZoomRef.current = true;
+    const ease = (t) => 1 - Math.pow(1 - t, 3);
+    const step = (now) => {
+      const t = Math.min(1, (now - startTime) / durationMs);
+      const e = ease(t);
+      const pan = {
+        x: startPan.x + (targetPan.x - startPan.x) * e,
+        y: startPan.y + (targetPan.y - startPan.y) * e,
+      };
+      const zoom = startZoom + (targetZoom - startZoom) * e;
+      setPanAndZoom(pan, zoom);
+      if (t < 1) {
+        carouselViewAnimRef.current = requestAnimationFrame(step);
+      } else {
+        carouselViewAnimRef.current = null;
+        isAnimatingZoomRef.current = false;
+      }
+    };
+    carouselViewAnimRef.current = requestAnimationFrame(step);
+  }, [setPanAndZoom, panOffsetRef, zoomLevelRef, isAnimatingZoomRef]);
+
+  // Center on open / restore on close.
+  useEffect(() => {
+    const was = prevCarouselVisibleRef.current;
+    prevCarouselVisibleRef.current = abstractionCarouselVisible;
+
+    if (!was && abstractionCarouselVisible) {
+      // Opening: remember where we were, then frame the node.
+      const node = abstractionCarouselNode;
+      if (!node) return;
+      preCarouselViewRef.current = {
+        pan: { ...panOffsetRef.current },
+        zoom: zoomLevelRef.current,
+      };
+      const dims = getNodeDimensions(node, false, null);
+      const centerX = node.x + dims.currentWidth / 2;
+      const centerY = node.y + dims.currentHeight / 2;
+      const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, CAROUSEL_REFERENCE_ZOOM));
+      const targetPanX = viewportSize.width / 2 - (centerX - canvasSize.offsetX) * tz;
+      const targetPanY = viewportSize.height / 2 - (centerY - canvasSize.offsetY) * tz;
+      const minPanX = viewportSize.width - canvasSize.width * tz;
+      const minPanY = viewportSize.height - canvasSize.height * tz;
+      const finalPan = {
+        x: Math.min(Math.max(targetPanX, minPanX), 0),
+        y: Math.min(Math.max(targetPanY, minPanY), 0),
+      };
+      animateCanvasView(finalPan, tz);
+    } else if (was && !abstractionCarouselVisible) {
+      // Closing: restore the pre-carousel view.
+      const prev = preCarouselViewRef.current;
+      preCarouselViewRef.current = null;
+      if (prev) animateCanvasView(prev.pan, prev.zoom);
+    }
+  }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM]);
 
   // Animation states for carousel
   const [carouselAnimationState, setCarouselAnimationState] = useState('hidden'); // 'hidden', 'entering', 'visible', 'exiting'
@@ -6010,6 +6093,7 @@ function NodeCanvas() {
     };
 
     const onGestureChange = (e) => {
+      if (abstractionCarouselVisibleRef.current) return; // pan/zoom locked while carousel is open
       if (trackpadZoomEnabled) return; // allow browser zoom if explicitly enabled
       if (!e || typeof e.scale !== 'number') return;
       // Skip gesture zoom during drag to prevent interference with drag zoom animation

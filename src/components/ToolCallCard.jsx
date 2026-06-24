@@ -525,4 +525,10 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
     );
 };
 
-export default ToolCallCard;
+// Memoized: the chat list re-renders on every store write (zoom-settle,
+// force-sim ticks) via its ancestor. Without memo, every card re-runs its
+// render on each of those commits even though its props are unchanged — the
+// dominant cost behind canvas jank on chat-heavy universes. Effective only
+// because LeftAIView passes a STABLE onUndo (see handleToolCallUndo there);
+// an inline closure would change identity every render and defeat this.
+export default React.memo(ToolCallCard);

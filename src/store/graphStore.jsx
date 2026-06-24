@@ -586,6 +586,23 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return false;
       }
     })(),
+    showHoverPreview: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_show_hover_preview');
+        return saved === null ? true : saved === 'true';
+      } catch (_) {
+        return true;
+      }
+    })(),
+    hoverPreviewSize: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_hover_preview_size');
+        const v = saved === null ? 1.0 : parseFloat(saved);
+        return Number.isFinite(v) ? v : 1.0;
+      } catch (_) {
+        return 1.0;
+      }
+    })(),
     // Grid visualization settings
     gridSettings: (() => {
       try {
@@ -3456,6 +3473,24 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.showEdgeGlowIndicators = !draft.showEdgeGlowIndicators;
       try {
         localStorage.setItem('redstring_show_edge_glow', draft.showEdgeGlowIndicators);
+      } catch (_) { }
+    })),
+    toggleShowHoverPreview: () => set(produce((draft) => {
+      draft.showHoverPreview = !draft.showHoverPreview;
+      try {
+        localStorage.setItem('redstring_show_hover_preview', draft.showHoverPreview);
+      } catch (_) { }
+    })),
+    setHoverPreviewSize: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v)) {
+        console.warn(`[setHoverPreviewSize] Invalid value: ${value}`);
+        return;
+      }
+      const clamped = Math.max(0.5, Math.min(1.5, v));
+      draft.hoverPreviewSize = clamped;
+      try {
+        localStorage.setItem('redstring_hover_preview_size', String(clamped));
       } catch (_) { }
     })),
     toggleDarkMode: () => {

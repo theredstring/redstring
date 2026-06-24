@@ -569,6 +569,27 @@ const AbstractionCarousel = ({
     }
   }, [isVisible]);
 
+  // Re-anchor to the node's live on-screen position during canvas pan/zoom.
+  // The canvas applies pan/zoom via direct DOM transforms (bypassing React) and
+  // only updates the panOffset/zoomLevel props ~150ms after the interaction
+  // settles. Without this, the carousel's fixed wrapper would stay put and then
+  // jump to the new position once panning ends, instead of tracking the canvas
+  // live like the PieMenu (which rides the transformed content group) does.
+  // getCarouselPosition() reads the SVG's live getScreenCTM(), so updating the
+  // wrapper's left/top imperatively here keeps it glued to the node every frame.
+  useEffect(() => {
+    if (!isVisible) return;
+    const reanchor = () => {
+      const el = carouselRef.current;
+      if (!el) return;
+      const { x, y } = getCarouselPosition();
+      el.style.left = `${x}px`;
+      el.style.top = `${y}px`;
+    };
+    window.addEventListener('canvas-transform-change', reanchor);
+    return () => window.removeEventListener('canvas-transform-change', reanchor);
+  }, [isVisible, getCarouselPosition]);
+
   // iOS URL-bar collapse/expand shifts the visual viewport but doesn't always
   // fire window resize — listen on visualViewport and window so the carousel
   // re-reads the SVG's screen CTM and re-anchors to the node when the address

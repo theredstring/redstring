@@ -2188,6 +2188,7 @@ function WizardLoadingText() {
 
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
 const LeftAIView = ({ compact = false,
+  active = true,
   activeGraphId,
   graphsMap,
   edgesMap,
@@ -2265,6 +2266,17 @@ const LeftAIView = ({ compact = false,
   const [activeConversationId, setActiveConversationId] = React.useState(
     conversationInit?.activeId || 'default'
   );
+  // Mirror live state into refs for the once-mounted telemetry listener
+  // (registered with [] deps) and the stable upsertToolCall callback, so they
+  // read current values instead of their first-render closure.
+  const activeConversationIdRef = React.useRef(activeConversationId);
+  React.useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
+  const messagesRef = React.useRef(messages);
+  React.useEffect(() => { messagesRef.current = messages; }, [messages]);
+  // Conversation that owns the in-flight agent run. Telemetry arrives as a
+  // GLOBAL window event with no conversation id, so without this a run started
+  // in tab A dumps its tool chips into tab B after a tab switch.
+  const telemetryConversationIdRef = React.useRef(null);
   const [editingTabId, setEditingTabId] = React.useState(null);
   const [editingTabTitle, setEditingTabTitle] = React.useState('');
   // On web, localStorage init above is sufficient — mark as hydrated immediately.
@@ -2997,7 +3009,8 @@ const LeftAIView = ({ compact = false,
     return html;
   };
 
-  const upsertToolCall = (toolUpdate, targetId = activeConversationId) => {
+  const upsertToolCall = React.useCallback((toolUpdate, targetId) => {
+    const resolvedTarget = targetId ?? activeConversationIdRef.current;
     const updateMsgArray = (currMessages) => {
       const updated = [...currMessages];
       let idx = updated.length - 1;
@@ -3026,17 +3039,24 @@ const LeftAIView = ({ compact = false,
 
     // Update global conversations ALWAYS
     setConversations(prev => prev.map(c =>
-      c.id === targetId ? { ...c, messages: updateMsgArray(c.messages || []), timestamp: new Date().toISOString() } : c
+      c.id === resolvedTarget ? { ...c, messages: updateMsgArray(c.messages || []), timestamp: new Date().toISOString() } : c
     ));
 
-    // Update active UI ONLY if we targets the active tab
+    // Update active UI ONLY if this targets the visible tab
     setMessages(prev => {
-      if (activeConversationId === targetId) {
+      if (activeConversationIdRef.current === resolvedTarget) {
         return updateMsgArray(prev);
       }
       return prev;
     });
-  };
+  }, []);
+
+  // Stable so React.memo(ToolCallCard) actually skips unchanged cards — an
+  // inline closure here would change identity every render and defeat the memo.
+  const handleToolCallUndo = React.useCallback((id) => {
+    useGraphStore.getState().revertWizardAction(id);
+    upsertToolCall({ id, isUndone: true });
+  }, [upsertToolCall]);
   React.useEffect(() => {
     const handler = (e) => {
       const items = Array.isArray(e.detail) ? e.detail : [];
@@ -3063,7 +3083,7 @@ const LeftAIView = ({ compact = false,
             timestamp: t.ts,
             cid: t.cid,
             isUndone: t.isUndone || false
-          });
+          }, telemetryConversationIdRef.current || activeConversationIdRef.current);
 
           // When tool completes successfully with a result, apply it to the store
           // Note: Telemetry events for completed tool calls send the result back
@@ -3075,16 +3095,16 @@ const LeftAIView = ({ compact = false,
           return;
         }
         if (t.type === 'agent_queued') {
-          if (messages.length > 0) upsertToolCall({ name: 'agent', status: 'queued', args: { queued: t.queued, graphId: t.graphId }, cid: t.cid });
+          if (messagesRef.current.length > 0) upsertToolCall({ name: 'agent', status: 'queued', args: { queued: t.queued, graphId: t.graphId }, cid: t.cid }, telemetryConversationIdRef.current || activeConversationIdRef.current);
           return;
         }
         if (t.type === 'info') {
-          upsertToolCall({ name: t.name || 'info', status: 'completed', result: t.message, cid: t.cid });
+          upsertToolCall({ name: t.name || 'info', status: 'completed', result: t.message, cid: t.cid }, telemetryConversationIdRef.current || activeConversationIdRef.current);
           return;
         }
         if (t.type === 'agent_answer') {
           const finalText = (t.text || '').trim();
-          const targetId = activeConversationId; // Default to active for telemetry since it's global
+          const targetId = telemetryConversationIdRef.current || activeConversationIdRef.current; // Route to the run's owning conversation, not whatever tab is active now
 
           const updateMsgs = (prev) => {
             const isDefault = /\bwhat will we (make|build) today\?/i.test(finalText);
@@ -3111,7 +3131,7 @@ const LeftAIView = ({ compact = false,
           ));
 
           setMessages(prev => {
-            if (activeConversationId === targetId) return updateMsgs(prev);
+            if (activeConversationIdRef.current === targetId) return updateMsgs(prev);
             return prev;
           });
           return;
@@ -3446,6 +3466,9 @@ const LeftAIView = ({ compact = false,
   const graphCount = graphsMap && typeof graphsMap.size === 'number' ? graphsMap.size : 0;
 
   const handleAutonomousAgent = async (question, persona = 'wizard') => {
+    // Bind this run's (globally-broadcast) telemetry to the conversation that
+    // started it, so its tool chips don't leak into a tab the user switches to.
+    telemetryConversationIdRef.current = activeConversationIdRef.current;
     const callId = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     console.log('[SSE Debug] handleAutonomousAgent CALLED:', callId, 'persona:', persona);
 
@@ -4542,7 +4565,12 @@ const LeftAIView = ({ compact = false,
                 <div style={{ color: 'var(--canvas-text-muted)', fontFamily: "'EmOne', sans-serif", fontSize: '14px' }}>What will we build today?</div>
               </div>
             )}
-            {messages.map((message, idx) => {
+            {/* Only emit the message-list DOM when this view is the active tab.
+                The agent loop, streaming, and `messages` state above keep running
+                while hidden — we just stop React from reconciling hundreds of
+                ToolCallCards into a display:none panel on every store write
+                (zoom-settle, force-sim ticks), which janks the canvas. */}
+            {active && messages.map((message, idx) => {
               const prevMessage = idx > 0 ? messages[idx - 1] : null;
               const isNewSection = prevMessage && prevMessage.sender !== message.sender;
 
@@ -4619,10 +4647,7 @@ const LeftAIView = ({ compact = false,
                               timestamp={block.timestamp}
                               executionTime={block.executionTime}
                               isUndone={block.isUndone}
-                              onUndo={(id) => {
-                                useGraphStore.getState().revertWizardAction(id);
-                                upsertToolCall({ id, isUndone: true });
-                              }}
+                              onUndo={handleToolCallUndo}
                             />
                           );
                         }

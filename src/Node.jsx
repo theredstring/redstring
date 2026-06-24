@@ -159,6 +159,8 @@ const Node = ({
   const edgesMap = useGraphStore((state) => isPreviewing ? state.edges : null);
   const textSettings = useGraphStore((state) => state.textSettings);
   const nodePrototypesMap = useGraphStore((state) => isPreviewing ? state.nodePrototypes : null);
+  const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
+  const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 1.0);
 
   // Determine display title: prefer current graph title in preview, else node name
   const currentGraphName = useMemo(() => {
@@ -690,12 +692,16 @@ const Node = ({
       )}
 
       {/* Hover Preview - Styled like HoverVisionAid for consistency */}
-      {isPreviewing && hoveredInnerNodeData && (
+      {isPreviewing && showHoverPreview && hoveredInnerNodeData && (() => {
+        // Base dimensions (smaller than before) scaled by the user's hover preview size setting
+        const hpWidth = Math.round(194 * hoverPreviewSize);
+        const hpHeight = Math.round(70 * hoverPreviewSize);
+        return (
         <foreignObject
-          x={nodeX + NODE_PADDING + (innerNetworkWidth / 2) - 114}
-          y={nodeY + textAreaHeight + 20}
-          width={228}
-          height={82}
+          x={nodeX + NODE_PADDING + (innerNetworkWidth / 2) - (hpWidth / 2)}
+          y={nodeY + textAreaHeight + 15}
+          width={hpWidth}
+          height={hpHeight}
           style={{
             pointerEvents: 'none',
             overflow: 'visible'
@@ -722,12 +728,12 @@ const Node = ({
                 }
               ]}
               connections={[]}
-              containerWidth={228}
-              containerHeight={82}
+              containerWidth={hpWidth}
+              containerHeight={hpHeight}
               padding={8}
               scaleMode="fixed"
-              minNodeSize={160}
-              maxNodeSize={240}
+              minNodeSize={Math.round(160 * hoverPreviewSize)}
+              maxNodeSize={Math.round(240 * hoverPreviewSize)}
               cornerRadiusMultiplier={32}
               nodeFontScale={1.0}
               interactive={false}
@@ -736,7 +742,8 @@ const Node = ({
             />
           </div>
         </foreignObject>
-      )}
+        );
+      })()}
 
       {/* Plus Button and Navigation Arrows - Positioned in title area like a name tag */}
       {isPreviewing && (
