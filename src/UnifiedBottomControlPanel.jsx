@@ -667,14 +667,15 @@ const UnifiedBottomControlPanel = ({
               );
 
               const calculatedHeight = isMobile
-                ? Math.min(150, Math.max(108, calculatedWidth * 0.30))
-                : Math.min(180, Math.max(120, calculatedWidth * 0.32));
+                ? Math.min(118, Math.max(78, calculatedWidth * 0.23))
+                : Math.min(138, Math.max(82, calculatedWidth * 0.25));
 
               return (
                 <UniversalNodeRenderer
                   {...RENDERER_PRESETS.CONNECTION_PANEL}
                   nodes={nodes}
                   connections={connections}
+                  padding={isMobile ? 6 : 6}
                   containerWidth={calculatedWidth}
                   containerHeight={calculatedHeight}
                   minHorizontalSpacing={dynamicMinHorizontalSpacing}

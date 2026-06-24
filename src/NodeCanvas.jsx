@@ -1808,6 +1808,7 @@ function NodeCanvas() {
     groupsByNodeIdRef,
     groupsByIdRef,
     childGroupIdsByGroupIdRef,
+    anchorPositionUpdatesRef,
   });
   // Aliases for 1:1 replacement of old local state/refs
   const draggingNodeInfo = nodeDrag.draggingNodeInfo;
@@ -10223,12 +10224,16 @@ function NodeCanvas() {
                         ? `translate(${centerX}, ${centerY}) scale(${groupScale}) translate(${-centerX}, ${-centerY})`
                         : '';
 
-                      // Sync anchor instance position to group title center
+                      // Sync anchor instance position to group title center. Also record the
+                      // group's full outer bounds (title tab + member box) so a connection label
+                      // can clip against the whole group box and center on the visible segment.
                       if (isNodeGroup && group.anchorInstanceId) {
+                        const vb = layout.visualBounds;
                         anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
                           x: labelX, y: labelY,
                           width: labelWidth, height: labelHeight,
-                          groupId: group.id
+                          groupId: group.id,
+                          outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null
                         });
                       }
 
@@ -10686,6 +10691,7 @@ function NodeCanvas() {
                           const eNodeDims = eAnchorInfo
                             ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
                             : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
+
                           const isSNodePreviewing = previewingNodeId === sourceNode.id;
                           const isENodePreviewing = previewingNodeId === destNode.id;
 
@@ -11086,13 +11092,19 @@ function NodeCanvas() {
                           const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
                           const useCurve = parallelPath.type === 'curve';
 
-                          // For label placement, always use the visible segment (edge-to-edge)
-                          // This ensures labels are centered on the visible portion, not the drawn portion
+                          // For label placement, always use the visible segment (edge-to-edge).
+                          // This ensures labels are centered on the visible portion, not the drawn
+                          // portion. When an endpoint is a thing-group anchor, clip against the
+                          // group's full outer box so the segment excludes the whole group (not just
+                          // the title tab) — the midpoint then sits centered on the truly-visible run.
                           const visibleEndpoints = getVisualConnectionEndpoints(
                             sourceNode, destNode,
                             sNodeDims, eNodeDims,
                             selectedInstanceIds.has(sourceNode.id),
-                            selectedInstanceIds.has(destNode.id)
+                            selectedInstanceIds.has(destNode.id),
+                            true,
+                            sAnchorInfo?.outerBounds || null,
+                            eAnchorInfo?.outerBounds || null
                           );
                           const labelPlacementPath = calculateParallelEdgePath(
                             visibleEndpoints.x1, visibleEndpoints.y1,
@@ -11995,6 +12007,13 @@ function NodeCanvas() {
                                 }
                                 // For straight/curved routing, midX/midY/angle are already set from parallelPath above
 
+                                // midX/midY already sit at the center of the visible segment —
+                                // getVisualConnectionEndpoints clipped against each endpoint's real
+                                // occluder (node hitbox, or a thing-group's full outer box), so the
+                                // label needs no further nudging off the group box.
+                                const labelRenderX = midX;
+                                const labelRenderY = midY;
+
                                 // Adjust angle to keep text readable (never upside down)
                                 const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
 
@@ -12002,14 +12021,14 @@ function NodeCanvas() {
                                   <g>
                                     {/* Canvas-colored text creating a "hole" effect in the connection */}
                                     <text
-                                      x={midX}
-                                      y={midY}
+                                      x={labelRenderX}
+                                      y={labelRenderY}
                                       fill={getLightHueText(edgeColor)}
                                       fontSize={connectionFontSize}
                                       fontWeight="bold"
                                       textAnchor="middle"
                                       dominantBaseline="middle"
-                                      transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
+                                      transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
                                       stroke={getDarkHueText(edgeColor)}
                                       strokeWidth="8"
                                       strokeLinecap="round"
@@ -12046,6 +12065,7 @@ function NodeCanvas() {
                           const eNodeDims = eAnchorInfo
                             ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
                             : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
+
                           const isSNodePreviewing = previewingNodeId === sourceNode.id;
                           const isENodePreviewing = previewingNodeId === destNode.id;
 
@@ -12446,13 +12466,19 @@ function NodeCanvas() {
                           const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
                           const useCurve = parallelPath.type === 'curve';
 
-                          // For label placement, always use the visible segment (edge-to-edge)
-                          // This ensures labels are centered on the visible portion, not the drawn portion
+                          // For label placement, always use the visible segment (edge-to-edge).
+                          // This ensures labels are centered on the visible portion, not the drawn
+                          // portion. When an endpoint is a thing-group anchor, clip against the
+                          // group's full outer box so the segment excludes the whole group (not just
+                          // the title tab) — the midpoint then sits centered on the truly-visible run.
                           const visibleEndpoints = getVisualConnectionEndpoints(
                             sourceNode, destNode,
                             sNodeDims, eNodeDims,
                             selectedInstanceIds.has(sourceNode.id),
-                            selectedInstanceIds.has(destNode.id)
+                            selectedInstanceIds.has(destNode.id),
+                            true,
+                            sAnchorInfo?.outerBounds || null,
+                            eAnchorInfo?.outerBounds || null
                           );
                           const labelPlacementPath = calculateParallelEdgePath(
                             visibleEndpoints.x1, visibleEndpoints.y1,
@@ -13220,6 +13246,13 @@ function NodeCanvas() {
                                 }
                                 // For straight/curved routing, midX/midY/angle are already set from parallelPath above
 
+                                // midX/midY already sit at the center of the visible segment —
+                                // getVisualConnectionEndpoints clipped against each endpoint's real
+                                // occluder (node hitbox, or a thing-group's full outer box), so the
+                                // label needs no further nudging off the group box.
+                                const labelRenderX = midX;
+                                const labelRenderY = midY;
+
                                 // Adjust angle to keep text readable (never upside down)
                                 const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
 
@@ -13227,14 +13260,14 @@ function NodeCanvas() {
                                   <g>
                                     {/* Canvas-colored text creating a "hole" effect in the connection */}
                                     <text
-                                      x={midX}
-                                      y={midY}
+                                      x={labelRenderX}
+                                      y={labelRenderY}
                                       fill={getLightHueText(edgeColor)}
                                       fontSize={connectionFontSize}
                                       fontWeight="bold"
                                       textAnchor="middle"
                                       dominantBaseline="middle"
-                                      transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
+                                      transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
                                       stroke={getDarkHueText(edgeColor)}
                                       strokeWidth="8"
                                       strokeLinecap="round"

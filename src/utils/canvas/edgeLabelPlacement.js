@@ -389,3 +389,8 @@ export const chooseLabelPlacement = (pathPoints, connectionName, nodes, visibleN
     // Fallback: midpoint with best available offset
     return getFallbackPlacement(pathPoints, textWidth, textHeight, allObstacles);
 };
+
+// NOTE: connection labels are now centered on the visible segment directly by
+// clipping each endpoint against its real occluder inside getVisualConnectionEndpoints
+// (node hitbox, or a thing-group's full outer box). The old slideLabelOffGroupBox
+// nudge-off-box hack was removed in favor of that.

@@ -126,8 +126,22 @@ export const getLineNodeIntersection = (x1, y1, x2, y2, hitbox, cornerRadius = 4
  * @param {boolean} applyInset - When true, each endpoint is pushed outward past
  *   the visual edge so the visible line terminates at the arrow/dot. When false,
  *   returns the raw visual-edge intersection (use this for label placement).
+ * @param {Object} sourceClipBounds - Optional {x, y, width, height} occluder box
+ *   to clip the source endpoint against instead of the node hitbox. Pass a
+ *   thing-group's full outer box (visualBounds) here so the visible segment
+ *   starts at the group box edge, not the tiny title-tab edge. The ray origin
+ *   stays at the anchor center (inside the box), so the exit point lands on the
+ *   drawn line where it emerges from the group box.
+ * @param {Object} targetClipBounds - Same, for the target endpoint.
  * @returns {Object} { x1, y1, x2, y2 } - Visual connection endpoints
  */
+const boundsToHitbox = (b) => ({
+  minX: b.x,
+  minY: b.y,
+  maxX: b.x + b.width,
+  maxY: b.y + b.height,
+});
+
 export const getVisualConnectionEndpoints = (
   sourceNode,
   targetNode,
@@ -135,7 +149,9 @@ export const getVisualConnectionEndpoints = (
   targetDims,
   sourceSelected = false,
   targetSelected = false,
-  applyInset = true
+  applyInset = true,
+  sourceClipBounds = null,
+  targetClipBounds = null
 ) => {
   // Calculate center-to-center line (conceptual connection)
   const centerX1 = sourceNode.x + sourceDims.currentWidth / 2;
@@ -143,9 +159,11 @@ export const getVisualConnectionEndpoints = (
   const centerX2 = targetNode.x + targetDims.currentWidth / 2;
   const centerY2 = targetNode.y + targetDims.currentHeight / 2;
 
-  // Get accurate hitboxes (includes selection stroke if selected)
-  const sourceHitbox = getNodeHitbox(sourceNode, sourceDims, sourceSelected);
-  const targetHitbox = getNodeHitbox(targetNode, targetDims, targetSelected);
+  // Get accurate hitboxes (includes selection stroke if selected). When an
+  // explicit occluder box is supplied (thing-group outer box), clip against it
+  // so the visible segment excludes the whole group box, not just the anchor tab.
+  const sourceHitbox = sourceClipBounds ? boundsToHitbox(sourceClipBounds) : getNodeHitbox(sourceNode, sourceDims, sourceSelected);
+  const targetHitbox = targetClipBounds ? boundsToHitbox(targetClipBounds) : getNodeHitbox(targetNode, targetDims, targetSelected);
 
   // Find intersection points where line exits source and enters target
   // From source center toward target center - where does it exit source?

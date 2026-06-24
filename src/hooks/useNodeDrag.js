@@ -85,6 +85,7 @@ export const useNodeDrag = ({
   groupsByNodeIdRef,
   groupsByIdRef,
   childGroupIdsByGroupIdRef,
+  anchorPositionUpdatesRef,
 }) => {
   // ---------------------------------------------------------------------------
   // State & Refs
@@ -422,11 +423,26 @@ export const useNodeDrag = ({
       const dStored = curNodeById.get(edge.destinationId);
       if (!sStored || !dStored) return;
 
-      const sPos = dragPos.get(edge.sourceId) || { x: sStored.x, y: sStored.y };
-      const dPos = dragPos.get(edge.destinationId) || { x: dStored.x, y: dStored.y };
+      let sPos = dragPos.get(edge.sourceId) || { x: sStored.x, y: sStored.y };
+      let dPos = dragPos.get(edge.destinationId) || { x: dStored.x, y: dStored.y };
 
-      const sDims = curBaseDims.get(edge.sourceId) || getNodeDimensions(sStored, false, null);
-      const dDims = curBaseDims.get(edge.destinationId) || getNodeDimensions(dStored, false, null);
+      let sDims = curBaseDims.get(edge.sourceId) || getNodeDimensions(sStored, false, null);
+      let dDims = curBaseDims.get(edge.destinationId) || getNodeDimensions(dStored, false, null);
+
+      // Thing-group anchors render as their title box (synced into anchorPositionUpdatesRef
+      // each React frame), NOT the stored instance position + default node dims. Mirror that
+      // here so the drag-time line and label exactly match the settled (drop) render — and so
+      // the label can be pushed off the group's outer bounds the same way.
+      const sAnchor = sStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.sourceId) : null;
+      const eAnchor = dStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.destinationId) : null;
+      if (sAnchor) {
+        sDims = { currentWidth: sAnchor.width, currentHeight: sAnchor.height };
+        if (!dragPos.has(edge.sourceId)) sPos = { x: sAnchor.x, y: sAnchor.y };
+      }
+      if (eAnchor) {
+        dDims = { currentWidth: eAnchor.width, currentHeight: eAnchor.height };
+        if (!dragPos.has(edge.destinationId)) dPos = { x: eAnchor.x, y: eAnchor.y };
+      }
 
       // Self-loop: recompute arc from the moving node's current drag position.
       if (edge.sourceId === edge.destinationId) {
@@ -570,14 +586,19 @@ export const useNodeDrag = ({
         // Centering must match the React render path exactly: place the label
         // at the apex of the VISIBLE (border-clipped) segment, not the
         // center-to-center line. Otherwise, on drop, the label snaps to the
-        // visible-segment apex and visibly shifts. NodeCanvas does this same
-        // calculation around line 9118: getVisualConnectionEndpoints +
-        // calculateParallelEdgePath on those visible endpoints.
+        // visible-segment apex and visibly shifts. When an endpoint is a
+        // thing-group anchor, clip against the group's full outer box (kept
+        // fresh in anchorPositionUpdatesRef by updateGroupBoundsInDOM, which
+        // runs earlier this frame) so the midpoint sits centered on the truly
+        // visible run — no separate slide-off-box step.
         if (texts.length > 0) {
           const visibleEndpoints = getVisualConnectionEndpoints(
             virtualSource, virtualDest, sDims, dDims,
             curSelectedIds.has(edge.sourceId),
-            curSelectedIds.has(edge.destinationId)
+            curSelectedIds.has(edge.destinationId),
+            true,
+            sAnchor?.outerBounds || null,
+            eAnchor?.outerBounds || null
           );
           const labelPlacementPath = calculateParallelEdgePath(
             visibleEndpoints.x1, visibleEndpoints.y1,
@@ -667,6 +688,20 @@ export const useNodeDrag = ({
       const rectX = rect.x, rectY = rect.y, rectW = rect.w, rectH = rect.h;
       const labelX = label.x, labelY = label.y;
       const groupLabelWidth = label.w, groupLabelHeight = label.h;
+
+      // Keep the anchor's synced title position AND full outer box fresh during
+      // the drag so connection labels on edges touching this thing-group clip
+      // against the live group box (not last-commit bounds). updateEdgesInDOM
+      // reads this for the same frame, so it must run after this pass.
+      if (layout.isNodeGroup && group.anchorInstanceId && anchorPositionUpdatesRef?.current) {
+        const vb = layout.visualBounds;
+        anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
+          x: labelX, y: labelY,
+          width: groupLabelWidth, height: groupLabelHeight,
+          groupId,
+          outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null,
+        });
+      }
 
       if (typeof window !== 'undefined' && window.__groupBoundsDebug) {
         const now = performance.now();
@@ -813,11 +848,14 @@ export const useNodeDrag = ({
       appliedPositionsRef.current.set(instanceId, { x, y });
     });
 
+    // Update group bounding boxes FIRST for ALL drag types (single, multi,
+    // group-label). This also refreshes each thing-group's live outer box into
+    // anchorPositionUpdatesRef, which updateEdgesInDOM reads below to center
+    // connection labels on the visible (outside-the-group) segment this frame.
+    updateGroupBoundsInDOM(movedNodeIds);
+
     // Update connected edges in DOM
     updateEdgesInDOM(movedNodeIds);
-
-    // Update group bounding boxes for ALL drag types (single, multi, group-label)
-    updateGroupBoundsInDOM(movedNodeIds);
   }, [containerRef, canvasSizeRef, placedLabelsRef, computePositionUpdates, nodeByIdRef, baseDimsByIdRef, updateEdgesInDOM, updateGroupBoundsInDOM]);
 
   // Ref to hold latest performDOMDragUpdate (avoids restarting edge panning effect)
