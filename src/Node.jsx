@@ -559,25 +559,16 @@ const Node = ({
                       containerHeight={innerNetworkHeight}
                       padding={14}
                       backgroundColor="transparent"
-                      interactive={true}
-                      showHoverEffects={true}
+                      interactive={false}
+                      showHoverEffects={false}
                       showConnectionDots={false}
                       routingStyle="straight"
                       scaleMode="fit"
-                      minNodeSize={60}
+                      minNodeSize={80}
                       renderContext="decomposition"
                       nodeFontScale={textSettings.fontSize}
                       nodeLineHeightScale={textSettings.lineSpacing}
                       cornerRadiusMultiplier={64}
-                      onNodeHover={(nodeData, isHovering) => {
-                        if (isHovering) {
-                          setHoveredInnerNodeId(nodeData?.id || null);
-                          setHoveredInnerNodeData(nodeData);
-                        } else {
-                          setHoveredInnerNodeId(null);
-                          setHoveredInnerNodeData(null);
-                        }
-                      }}
                     />
                   </div>
                 </foreignObject>

@@ -216,6 +216,25 @@ export const useNodeDrag = ({
       if (edges) edges.forEach(eid => affectedEdgeIds.add(eid));
     });
 
+    // A dragged member can resize its containing thing-group, which moves the
+    // group's outer box. External connections attach to the group's ANCHOR (not
+    // the dragged member), so cache the anchor's edges too — otherwise they only
+    // re-clip against the new box on drop, lagging the live resize.
+    const groupsByNodeForCache = groupsByNodeIdRef.current;
+    const groupsByIdForCache = groupsByIdRef?.current;
+    if (groupsByIdForCache) {
+      nodeIdSet.forEach(nodeId => {
+        const groups = groupsByNodeForCache.get(nodeId);
+        if (!groups) return;
+        groups.forEach(({ groupId }) => {
+          const anchorId = groupsByIdForCache.get(groupId)?.anchorInstanceId;
+          if (!anchorId || nodeIdSet.has(anchorId)) return;
+          const anchorEdges = edgesByNode.get(anchorId);
+          if (anchorEdges) anchorEdges.forEach(eid => affectedEdgeIds.add(eid));
+        });
+      });
+    }
+
     const edgeDataIndex = new Map();
     const allEdges = edgesRef.current;
     for (let i = 0; i < allEdges.length; i++) {
@@ -294,7 +313,7 @@ export const useNodeDrag = ({
         });
       }
     });
-  }, [containerRef, edgesByNodeIdRef, groupsByNodeIdRef]);
+  }, [containerRef, edgesByNodeIdRef, groupsByNodeIdRef, groupsByIdRef]);
 
   // Re-cache DOM elements after React re-renders for drag start.
   // The primary node moves to a separate JSX block (isDragging=true) on re-render,
@@ -640,7 +659,7 @@ export const useNodeDrag = ({
   // Update Group Bounds in DOM (recomputes bounding boxes for affected groups)
   // ---------------------------------------------------------------------------
   const updateGroupBoundsInDOM = useCallback((movedNodeIds) => {
-    if (dragGroupMetaRef.current.size === 0) return;
+    if (dragGroupMetaRef.current.size === 0) return null;
 
     const groupsByNode = groupsByNodeIdRef.current;
     const groupsById = groupsByIdRef?.current || new Map();
@@ -649,7 +668,12 @@ export const useNodeDrag = ({
       const groups = groupsByNode.get(nodeId);
       if (groups) groups.forEach(({ groupId }) => affectedGroupIds.add(groupId));
     });
-    if (affectedGroupIds.size === 0) return;
+    if (affectedGroupIds.size === 0) return null;
+
+    // Anchor instance IDs of node-groups whose box changed this frame. Returned so
+    // the caller can also refresh those groups' external connections (which attach
+    // to the anchor, not the dragged member).
+    const affectedAnchorIds = new Set();
 
     const curNodeById = nodeByIdRef.current;
     const curBaseDims = baseDimsByIdRef.current;
@@ -707,6 +731,7 @@ export const useNodeDrag = ({
           groupId,
           outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null,
         });
+        affectedAnchorIds.add(group.anchorInstanceId);
       }
 
       if (typeof window !== 'undefined' && window.__groupBoundsDebug) {
@@ -789,6 +814,8 @@ export const useNodeDrag = ({
         }
       });
     });
+
+    return affectedAnchorIds;
   }, [groupsByNodeIdRef, groupsByIdRef, nodeByIdRef, baseDimsByIdRef, gridSize]);
 
   // ---------------------------------------------------------------------------
@@ -858,10 +885,18 @@ export const useNodeDrag = ({
     // group-label). This also refreshes each thing-group's live outer box into
     // anchorPositionUpdatesRef, which updateEdgesInDOM reads below to center
     // connection labels on the visible (outside-the-group) segment this frame.
-    updateGroupBoundsInDOM(movedNodeIds);
+    // Returns the anchor IDs of any node-groups whose box changed — their
+    // external connections attach to the anchor (not the dragged member), so we
+    // fold them into the edge-update set to keep those edges tracking the resize.
+    const resizedAnchorIds = updateGroupBoundsInDOM(movedNodeIds);
 
     // Update connected edges in DOM
-    updateEdgesInDOM(movedNodeIds);
+    let edgeUpdateIds = movedNodeIds;
+    if (resizedAnchorIds && resizedAnchorIds.size > 0) {
+      edgeUpdateIds = new Set(movedNodeIds);
+      resizedAnchorIds.forEach(id => edgeUpdateIds.add(id));
+    }
+    updateEdgesInDOM(edgeUpdateIds);
   }, [containerRef, canvasSizeRef, placedLabelsRef, computePositionUpdates, nodeByIdRef, baseDimsByIdRef, updateEdgesInDOM, updateGroupBoundsInDOM]);
 
   // Ref to hold latest performDOMDragUpdate (avoids restarting edge panning effect)

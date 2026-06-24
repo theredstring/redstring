@@ -5,6 +5,29 @@ import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, he
 import { isValidColor } from './ai/palettes.js';
 import { NODE_DEFAULT_COLOR } from './constants.js';
 import { useTheme } from './hooks/useTheme.js';
+import { measureTextWidth } from './services/textMeasurement.js';
+
+/**
+ * Truncate `text` with an ellipsis so it fits on a single line within `maxWidth`
+ * (px) at the given canvas `fontString`. Uses Pretext-backed measurement (cached)
+ * to clip precisely instead of estimating characters — so labels never wrap or
+ * overflow the node in compact previews. Returns the original text if it fits.
+ */
+const truncateToWidth = (text, fontString, maxWidth) => {
+  if (!text || maxWidth <= 0) return text;
+  if (measureTextWidth(text, fontString) <= maxWidth) return text;
+  const ellipsis = '…';
+  // Binary search the longest prefix whose prefix+ellipsis still fits.
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    const candidate = text.slice(0, mid).trimEnd() + ellipsis;
+    if (measureTextWidth(candidate, fontString) <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo > 0 ? text.slice(0, lo).trimEnd() + ellipsis : ellipsis;
+};
 
 /**
  * Connection Text Component
@@ -544,12 +567,7 @@ const UniversalNodeRenderer = ({
         hasTargetArrow,
         strokeWidth: adaptiveStrokeWidth,
         color: getConnectionColor(conn),
-        // In the compact decomposition preview, honor an explicitly-passed null name and
-        // skip the prototype-name fallback — at preview scale the labels are unreadable
-        // clutter, and the connection color already conveys the relationship.
-        connectionName: renderContext === 'decomposition'
-          ? conn.connectionName
-          : (conn.connectionName || getConnectionName(conn, nodePrototypesMap))
+        connectionName: conn.connectionName || getConnectionName(conn, nodePrototypesMap)
       };
     }).filter(Boolean);
 
@@ -1024,9 +1042,10 @@ const UniversalNodeRenderer = ({
           // Improved corner radius calculation for decomposition view
           let cornerRadius;
           if (renderContext === 'decomposition') {
-            // For decomposition view, use a minimum corner radius to maintain visual clarity at small scales
+            // For decomposition view, keep corners generously rounded (up to half the
+            // node's short side → pill-like) to match the universal node representations.
             const scaledRadius = cornerRadiusMultiplier * transform.scale;
-            cornerRadius = Math.max(2, Math.min(scaledRadius, node.width * 0.3, node.height * 0.3));
+            cornerRadius = Math.max(2, Math.min(scaledRadius, node.width * 0.5, node.height * 0.5));
           } else {
             cornerRadius = Math.max(1, cornerRadiusMultiplier * transform.scale); // NODE_CORNER_RADIUS baseline
           }
@@ -1036,32 +1055,19 @@ const UniversalNodeRenderer = ({
           const charsPerLine = Math.max(1, Math.floor(availableTextWidth / averageCharWidth));
           // Single words should NEVER wrap, regardless of length
           const words = nameString.trim().split(/\s+/);
-          const isMultiline = words.length > 1 && nameString.length > charsPerLine;
-          if (node.isGroup && isMultiline) {
-            verticalPadding = Math.max(verticalPadding, (baseVerticalPadding + 6) * transform.scale);
+          let isMultiline = words.length > 1 && nameString.length > charsPerLine;
+
+          // Decomposition preview: keep every label to a single clipped line. Measure the
+          // text at its actual on-screen font and truncate with an ellipsis so it never
+          // wraps or overflows the (often small) node — clip sooner, don't reflow.
+          if (renderContext === 'decomposition' && !node.isGroup) {
+            isMultiline = false;
+            const fontString = `bold ${computedFontSize}px 'EmOne', sans-serif`;
+            nameString = truncateToWidth(nameString, fontString, availableTextWidth);
           }
 
-          // Smart truncation for decomposition view
-          if (renderContext === 'decomposition') {
-            // Calculate available characters more accurately
-            const availableWidth = node.width - (2 * (isMultiline ? multiLineSidePadding : singleLineSidePadding));
-            const maxChars = Math.max(3, Math.floor(availableWidth / averageCharWidth));
-
-            // For single words that are too long, always truncate
-            if (words.length === 1 && nameString.length > maxChars) {
-              nameString = nameString.substring(0, Math.max(1, maxChars - 1)) + '…';
-            }
-            // For multi-word names, truncate more aggressively at small scales
-            else if (words.length > 1) {
-              // At very small font sizes, prefer showing truncated single line
-              if (computedFontSize < 12 && nameString.length > maxChars) {
-                nameString = nameString.substring(0, Math.max(1, maxChars - 1)) + '…';
-              }
-              // At tiny scales, be very aggressive
-              else if (computedFontSize < 10 && nameString.length > maxChars * 0.7) {
-                nameString = nameString.substring(0, Math.max(1, Math.floor(maxChars * 0.7) - 1)) + '…';
-              }
-            }
+          if (node.isGroup && isMultiline) {
+            verticalPadding = Math.max(verticalPadding, (baseVerticalPadding + 6) * transform.scale);
           }
 
           return (
@@ -1165,9 +1171,9 @@ const UniversalNodeRenderer = ({
                         lineHeight: `${computedLineHeight}px`,
                         // Tighter letter spacing for decomposition view to fit more text
                         letterSpacing: renderContext === 'decomposition' ? '-0.3px' : '-0.2px',
-                        whiteSpace: node.isGroup ? 'normal' : (renderContext === 'decomposition' && words.length === 1 ? 'nowrap' : 'normal'),
-                        textOverflow: node.isGroup ? 'ellipsis' : undefined,
-                        overflow: node.isGroup ? 'hidden' : undefined,
+                        whiteSpace: node.isGroup ? 'normal' : (renderContext === 'decomposition' ? 'nowrap' : 'normal'),
+                        textOverflow: 'ellipsis',
+                        overflow: (node.isGroup || renderContext === 'decomposition') ? 'hidden' : undefined,
                         overflowWrap: 'break-word',
                         wordBreak: 'break-word',
                         textAlign: 'center',
