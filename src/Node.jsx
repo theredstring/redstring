@@ -501,8 +501,11 @@ const Node = ({
       {/* </g> */}
 
       {/* --- Network Preview Container --- */}
+      {/* NOTE: no opacity/transition on this <g>. Group-opacity forces iOS WebKit to
+          composite the group, which mispositions foreignObject children to the SVG
+          origin (top-left) — the cause of the blank/misplaced preview on mobile. */}
       {isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 && (
-        <g style={{ transition: 'opacity 0.3s ease', opacity: 1 }} >
+        <g>
           {/* NOTE: do NOT wrap these foreignObjects in a <g clipPath> — iOS WebKit
               fails to render foreignObject content under a clipPath ancestor (renders
               blank). Rounded clipping is done with CSS overflow/borderRadius below. */}
@@ -525,7 +528,9 @@ const Node = ({
                   y={contentAreaY}
                   width={Math.max(1, innerNetworkWidth)}
                   height={Math.max(1, innerNetworkHeight)}
-                  style={{ pointerEvents: 'auto' }}
+                  // Non-interactive preview — let touches pass through to the canvas so the
+                  // user can still pan/scroll while a node is expanded (was blocking touch).
+                  style={{ pointerEvents: 'none' }}
                 >
                   <div
                     xmlns="http://www.w3.org/1999/xhtml"
@@ -738,11 +743,11 @@ const Node = ({
       })()}
 
       {/* Plus Button and Navigation Arrows - Positioned in title area like a name tag */}
-      {isPreviewing && (
-        <g style={{
-          opacity: showArrows ? 1 : 0,
-          transition: 'opacity 0.2s ease-in'
-        }}>
+      {/* NOTE: no group opacity/transition here — it composites the <g> and mispositions
+          the foreignObject buttons to the SVG origin (top-left) on iOS WebKit. Buttons
+          fade/appearance is handled per-button; visibility is gated by showArrows. */}
+      {isPreviewing && showArrows && (
+        <g>
           {/* Plus Button - Left side of title area */}
           <foreignObject
             x={nodeX + 25} // Closer to title

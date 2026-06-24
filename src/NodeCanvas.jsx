@@ -14279,7 +14279,7 @@ function NodeCanvas() {
                 initialName={abstractionPrompt.name}
                 initialColor={abstractionPrompt.color}
                 title={`Add ${abstractionPrompt.direction === 'above' ? 'Above' : 'Below'}`}
-                subtitle={`Create a ${abstractionPrompt.direction === 'above' ? 'more abstract' : 'more specific'} node in the abstraction chain`}
+                subtitle={`Create a ${abstractionPrompt.direction === 'above' ? 'more specific' : 'more generic'} node in the abstraction chain`}
                 abstractionDirection={abstractionPrompt.direction}
               />
             );

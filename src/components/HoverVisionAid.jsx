@@ -29,6 +29,16 @@ const HoverVisionAid = ({
     return null;
   }
 
+  // On no-mouse (touch) devices there is no real hover — a tap would otherwise pop this
+  // preview up unexpectedly, so suppress the node/connection hover previews entirely.
+  // (The pie-menu item label is kept; it's driven by the pie menu, not stray hovers.)
+  const noHoverDevice = typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(hover: none)').matches;
+  if (noHoverDevice && !hasItem) {
+    return null;
+  }
+
   // Dimension standards from UnifiedBottomControlPanel.jsx
   const CONNECTION_PREVIEW_HEIGHT = 180;
   const NODE_PREVIEW_HEIGHT = 120;

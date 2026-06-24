@@ -1568,11 +1568,15 @@ const AbstractionCarousel = ({
             >
               More Specific
             </text>
+            {/* Gray halo behind, matching the text's stroke outline */}
+            <ChevronUp className="hint-arrow-up" x={-20} y={-34} size={40} color={theme.canvas?.textMuted || "#BDB5B5"} strokeWidth={6} />
             <ChevronUp className="hint-arrow-up" x={-20} y={-34} size={40} color="#260000" strokeWidth={3} />
           </g>
 
           {/* Bottom hint: down chevron, then text below */}
           <g transform={`translate(${bottomHintPos.x}, ${bottomHintPos.y})`}>
+            {/* Gray halo behind, matching the text's stroke outline */}
+            <ChevronDown className="hint-arrow-down" x={-20} y={-2} size={40} color={theme.canvas?.textMuted || "#BDB5B5"} strokeWidth={6} />
             <ChevronDown className="hint-arrow-down" x={-20} y={-2} size={40} color="#260000" strokeWidth={3} />
             <text
               x={0}
