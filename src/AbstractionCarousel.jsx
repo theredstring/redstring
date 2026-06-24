@@ -1110,20 +1110,6 @@ const AbstractionCarousel = ({
   const stackOffset = getStackOffset();
   const zoom = getLiveZoom(); // live canvas zoom for this render's geometry
 
-  console.log('[AbstractionCarousel] Render state:', {
-    isVisible,
-    selectedNodeId: selectedNode?.id,
-    carouselPosition,
-    stackOffset,
-    abstractionChainLength: abstractionChainWithDims.length,
-    physicsState: {
-      realPosition: physicsState.realPosition,
-      targetPosition: physicsState.targetPosition,
-      velocity: physicsState.velocity,
-      isSnapping: physicsState.isSnapping
-    }
-  });
-
   // Compute hint placement levels and positions
   const reachableChainLevels = useMemo(() => {
     return abstractionChainWithDims
@@ -1253,17 +1239,6 @@ const AbstractionCarousel = ({
 
         {/* Render all abstraction levels in a vertical stack */}
         {(() => {
-          console.log('[AbstractionCarousel] Rendering nodes:', {
-            totalNodes: abstractionChainWithDims.length,
-            physicsPosition: physicsState.realPosition,
-            nodes: abstractionChainWithDims.map(item => ({
-              id: item.id,
-              name: item.name,
-              level: item.level,
-              type: item.type
-            }))
-          });
-
           return [...abstractionChainWithDims]
             .sort((a, b) => {
               const distA = Math.abs(a.level - physicsState.realPosition);

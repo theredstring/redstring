@@ -3847,7 +3847,13 @@ function NodeCanvas() {
   // blocked (see wheel/drag/pinch/keyboard guards). On close, the framing is
   // left as-is. This gives the carousel a stable, predictable frame to live in
   // instead of fighting a moving canvas.
-  const CAROUSEL_REFERENCE_ZOOM = 0.8; // slightly zoomed out so more of the chain is visible
+  // Reference zoom scales with viewport width: on narrow/mobile screens 0.8 keeps
+  // the node large enough that the pie-menu buttons (which radiate to the right of
+  // the node) push off-screen and can't be reached, so zoom out more there.
+  const CAROUSEL_ZOOM_WIDE = 0.8;   // desktop
+  const CAROUSEL_ZOOM_NARROW = 0.5; // mobile — smaller node, buttons stay on-screen
+  const CAROUSEL_ZOOM_WIDTH_WIDE = 1200;   // px: at/above this, use WIDE
+  const CAROUSEL_ZOOM_WIDTH_NARROW = 480;  // px: at/below this, use NARROW
   const CAROUSEL_VERTICAL_BIAS = 0.10; // fraction of viewport height to nudge the node above center
   const prevCarouselVisibleRef = useRef(false);
   const carouselViewAnimRef = useRef(null);
@@ -3897,7 +3903,12 @@ function NodeCanvas() {
       const dims = getNodeDimensions(node, false, null);
       const centerX = node.x + dims.currentWidth / 2;
       const centerY = node.y + dims.currentHeight / 2;
-      const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, CAROUSEL_REFERENCE_ZOOM));
+      // 0 on wide screens → 1 on narrow screens, interpolated by viewport width.
+      const narrowness = Math.max(0, Math.min(1,
+        (CAROUSEL_ZOOM_WIDTH_WIDE - viewportSize.width) / (CAROUSEL_ZOOM_WIDTH_WIDE - CAROUSEL_ZOOM_WIDTH_NARROW)
+      ));
+      const referenceZoom = CAROUSEL_ZOOM_WIDE + (CAROUSEL_ZOOM_NARROW - CAROUSEL_ZOOM_WIDE) * narrowness;
+      const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
       // Frame the node slightly above the vertical center so the carousel stack
       // (and the control panel below it) has room to breathe.
       const verticalBias = viewportSize.height * CAROUSEL_VERTICAL_BIAS;
@@ -4093,6 +4104,15 @@ function NodeCanvas() {
   // The previewed node expands to show its inner graph, so we fit it to the
   // viewport (with padding) rather than using a fixed reference zoom.
   const DECOMPOSE_VIEW_PADDING = 120; // px of breathing room around the expanded node
+  // The framing scales with viewport width: on narrow/mobile screens the
+  // width-constrained fit lands too small and too centered, so zoom in harder and
+  // lift the node higher; on wide screens pull back and keep it near center.
+  const DECOMPOSE_ZOOM_FACTOR_WIDE = 0.7;   // pullback on desktop
+  const DECOMPOSE_ZOOM_FACTOR_NARROW = 1.0; // near-full fit on mobile
+  const DECOMPOSE_BIAS_WIDE = 0.08;          // fraction of viewport height above center on desktop
+  const DECOMPOSE_BIAS_NARROW = 0.16;        // more lift on mobile
+  const DECOMPOSE_WIDTH_WIDE = 1200;         // px: at/above this, use the WIDE values
+  const DECOMPOSE_WIDTH_NARROW = 480;        // px: at/below this, use the NARROW values
   const prevPreviewingNodeIdRef = useRef(null);
   useEffect(() => {
     const was = prevPreviewingNodeIdRef.current;
@@ -4107,13 +4127,24 @@ function NodeCanvas() {
     const centerX = node.x + dims.currentWidth / 2;
     const centerY = node.y + dims.currentHeight / 2;
 
-    // Zoom to fit the expanded node within the viewport, clamped to zoom bounds.
+    // 0 on wide screens → 1 on narrow screens, interpolated by viewport width.
+    const narrowness = Math.max(0, Math.min(1,
+      (DECOMPOSE_WIDTH_WIDE - viewportSize.width) / (DECOMPOSE_WIDTH_WIDE - DECOMPOSE_WIDTH_NARROW)
+    ));
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const zoomFactor = lerp(DECOMPOSE_ZOOM_FACTOR_WIDE, DECOMPOSE_ZOOM_FACTOR_NARROW, narrowness);
+    const biasFraction = lerp(DECOMPOSE_BIAS_WIDE, DECOMPOSE_BIAS_NARROW, narrowness);
+
+    // Zoom to fit the expanded node within the viewport, then pull back per the
+    // width-scaled factor. Clamp to zoom bounds.
     const fitX = viewportSize.width / (dims.currentWidth + DECOMPOSE_VIEW_PADDING * 2);
     const fitY = viewportSize.height / (dims.currentHeight + DECOMPOSE_VIEW_PADDING * 2);
-    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(fitX, fitY)));
+    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(fitX, fitY) * zoomFactor));
 
+    // Nudge the node above center so the control panel below has room.
+    const verticalBias = viewportSize.height * biasFraction;
     const targetPanX = viewportSize.width / 2 - (centerX - canvasSize.offsetX) * tz;
-    const targetPanY = viewportSize.height / 2 - (centerY - canvasSize.offsetY) * tz;
+    const targetPanY = (viewportSize.height / 2 - verticalBias) - (centerY - canvasSize.offsetY) * tz;
     const minPanX = viewportSize.width - canvasSize.width * tz;
     const minPanY = viewportSize.height - canvasSize.height * tz;
     const finalPan = {
@@ -8186,15 +8217,6 @@ function NodeCanvas() {
             x: carouselCenterX - dimensions.currentWidth / 2,
             y: carouselCenterY - dimensions.currentHeight / 2
           };
-
-          console.log(`[NodeCanvas] Final nodeForPieMenu for pie menu:`, {
-            id: nodeForPieMenu.id,
-            name: nodeForPieMenu.name,
-            prototypeId: nodeForPieMenu.prototypeId,
-            stage: carouselPieMenuStage,
-            focusedNodeId: carouselFocusedNode?.id,
-            focusedNodeName: carouselFocusedNode?.name
-          });
         }
 
 
