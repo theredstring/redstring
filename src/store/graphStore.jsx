@@ -904,7 +904,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // target. Idempotent: returns the existing anchor when present, repairs node-groups
     // that were created without one (legacy files, or paths that set linkedNodePrototypeId
     // directly without minting an anchor).
-    ensureGroupAnchor: (graphId, groupId, contextOptions = {}) => {
+    ensureGroupAnchor: (graphId, groupId, { preferredAnchorInstanceId, ...contextOptions } = {}) => {
       api.setChangeContext({ type: 'group_anchor_repair', target: 'group', groupId, ...contextOptions });
       let anchorId = null;
       set(produce((draft) => {
@@ -925,6 +925,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           return;
         }
         if (!graph.instances) graph.instances = new Map();
+
+        // Adopt an existing instance as the anchor when asked (node→node-group conversion
+        // reuses the original node so its edges survive instead of being deleted with it).
+        const preferred = preferredAnchorInstanceId ? graph.instances.get(preferredAnchorInstanceId) : null;
+        if (preferred && preferred.prototypeId === group.linkedNodePrototypeId) {
+          preferred.isGroupAnchor = true;
+          preferred.anchorForGroupId = groupId;
+          group.anchorInstanceId = preferredAnchorInstanceId;
+          anchorId = preferredAnchorInstanceId;
+          console.log(`[ensureGroupAnchor] Adopted instance ${anchorId} as anchor for node-group ${groupId}.`);
+          return;
+        }
 
         // Position the anchor at the member centroid (fall back to the group's own coords).
         let anchorX = group.x ?? 0, anchorY = group.y ?? 0;

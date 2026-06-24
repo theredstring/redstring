@@ -2439,7 +2439,14 @@ function NodeCanvas() {
       const positionUpdates = [];
       for (const [anchorId, pos] of updates.entries()) {
         const inst = graph.instances.get(anchorId);
-        if (inst && (Math.abs((inst.x ?? 0) - pos.x) > 1 || Math.abs((inst.y ?? 0) - pos.y) > 1)) {
+        // Drop stale entries whose instance is gone or no longer an anchor (e.g. the group
+        // was combined into a node or deleted). Otherwise this keeps snapping a now-free
+        // node back to where its old group title sat — the "pinned" bug.
+        if (!inst || !inst.isGroupAnchor) {
+          updates.delete(anchorId);
+          continue;
+        }
+        if (Math.abs((inst.x ?? 0) - pos.x) > 1 || Math.abs((inst.y ?? 0) - pos.y) > 1) {
           positionUpdates.push({ instanceId: anchorId, x: pos.x, y: pos.y });
         }
       }
@@ -4501,12 +4508,10 @@ function NodeCanvas() {
       group.linkedNodePrototypeId = prototypeId;
     });
 
-    // Mint the anchor instance so the new node-group is a usable connection target.
-    // Without this the group renders but can't be connected from/to (anchorInstanceId stays undefined).
-    storeActions.ensureGroupAnchor(activeGraphId, createdGroupId);
-
-    // Remove the original defining node instance
-    storeActions.removeNodeInstance(activeGraphId, instanceId);
+    // Reuse the original node instance as the group's anchor instead of deleting it.
+    // This keeps the group a usable connection target AND preserves every pre-existing
+    // edge to/from the original node (deleting it would take those edges with it).
+    storeActions.ensureGroupAnchor(activeGraphId, createdGroupId, { preferredAnchorInstanceId: instanceId });
 
     // Get the updated group data from store
     const currentState = useGraphStore.getState();

@@ -152,12 +152,12 @@ const AbstractionControlPanel = ({
             backgroundColor: theme.canvas.hover,
             border: 'none',
             borderRadius: '16px',
-            padding: '8px 16px',
+            padding: '6px 12px',
             color: theme.canvas.textSecondary,
             fontSize: '16px',
             fontWeight: 'bold',
             textAlign: 'center',
-            minHeight: '40px',
+            minHeight: '36px',
             outline: 'none',
             whiteSpace: 'normal',
             wordBreak: 'break-word',
@@ -172,9 +172,9 @@ const AbstractionControlPanel = ({
             justifyContent: 'center',
             backgroundColor: theme.canvas.hover,
             borderRadius: '16px',
-            padding: '8px 16px',
+            padding: '6px 12px',
             border: 'none',
-            minHeight: '40px',
+            minHeight: '36px',
             width: 'auto'
           }}
         >
