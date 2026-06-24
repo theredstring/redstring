@@ -4205,6 +4205,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
       }
 
+      // Add prototypes that are members of any abstraction chain. Chains can
+      // reference prototypes that exist only in the universe (no instance in any
+      // open graph) — e.g. a more-general/more-specific layer added via the
+      // carousel. Without this, those layers are swept as orphans the moment they
+      // are added, so "Add Above/Below" appears to do nothing.
+      for (const prototype of draft.nodePrototypes.values()) {
+        if (prototype.abstractionChains) {
+          for (const chain of Object.values(prototype.abstractionChains)) {
+            if (Array.isArray(chain)) {
+              chain.forEach(memberId => referencedPrototypeIds.add(memberId));
+            }
+          }
+        }
+      }
+
       // Recursively add prototypes from definition graphs
       const addDefinitionPrototypes = (prototypeId) => {
         const prototype = draft.nodePrototypes.get(prototypeId);

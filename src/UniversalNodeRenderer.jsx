@@ -61,22 +61,33 @@ const ConnectionText = ({
   const baseLineHeight = 26; // Tighter line height for connections
   const scaledLineHeight = baseLineHeight * transform.scale * fontScale * lineHeightScale;
 
-  // Wrapping logic: roughly 15-20 chars for connection labels
   const displayName = connection.connectionName;
-  const words = displayName.split(' ');
   const lines = [];
-  let currentLine = '';
-  const maxChars = 14; // Conservative wrap point for connection labels
 
-  words.forEach(word => {
-    if ((currentLine + word).length > maxChars && currentLine.length > 0) {
-      lines.push(currentLine.trim());
-      currentLine = word + ' ';
-    } else {
-      currentLine += word + ' ';
-    }
-  });
-  if (currentLine) lines.push(currentLine.trim());
+  if (renderContext === 'decomposition') {
+    // Compact preview: keep the label to a single clipped line that fits within the
+    // connection's span (measured at the on-screen font), so it never overflows the
+    // line into the nodes or arrowheads. Clip sooner, don't wrap.
+    const length = Math.sqrt(dx * dx + dy * dy);
+    const fontString = `bold ${fontSize}px 'EmOne', sans-serif`;
+    const available = Math.max(0, length * 0.62); // clip earlier; keep well clear of node ends/arrowheads
+    lines.push(truncateToWidth(displayName, fontString, available));
+  } else {
+    // Wrapping logic: roughly 15-20 chars for connection labels
+    const words = displayName.split(' ');
+    let currentLine = '';
+    const maxChars = 14; // Conservative wrap point for connection labels
+
+    words.forEach(word => {
+      if ((currentLine + word).length > maxChars && currentLine.length > 0) {
+        lines.push(currentLine.trim());
+        currentLine = word + ' ';
+      } else {
+        currentLine += word + ' ';
+      }
+    });
+    if (currentLine) lines.push(currentLine.trim());
+  }
 
   return (
     <g transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}>

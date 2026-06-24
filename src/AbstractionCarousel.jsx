@@ -194,7 +194,8 @@ const AbstractionCarousel = ({
   relativeMoveRequest, // 'up' | 'down' | null - request to move focus one level
   onRelativeMoveHandled, // callback to clear request once applied
   focusPrototypeRequest, // prototypeId | null - request to focus a specific node (e.g. a just-added layer)
-  onFocusPrototypeHandled // callback to clear the focus request once applied
+  onFocusPrototypeHandled, // callback to clear the focus request once applied
+  onOpenNodeInPanel // called with a carousel item when it's double-clicked, to open it in the right panel
 }) => {
   const theme = useTheme();
   const carouselRef = useRef(null);
@@ -1004,6 +1005,12 @@ const AbstractionCarousel = ({
     }
   }, [isVisible, selectedNode]);
 
+  // Double-click opens the node in the right panel, mirroring a normal canvas node.
+  const handleNodeDoubleClick = useCallback((item) => {
+    if (!isVisible) return;
+    onOpenNodeInPanel && onOpenNodeInPanel(item);
+  }, [isVisible, onOpenNodeInPanel]);
+
   // Handle external requests to move focus up/down one level
   useEffect(() => {
     if (!isVisible || !relativeMoveRequest || !abstractionChainWithDims.length) return;
@@ -1418,6 +1425,7 @@ const AbstractionCarousel = ({
                     ...animationStyles
                   }}
                   onClick={() => handleNodeClick(item)}
+                  onDoubleClick={(e) => { e.stopPropagation(); handleNodeDoubleClick(item); }}
                 >
                   {/* This group handles positioning and dynamic scaling, keeping contents stable */}
                   <g transform={`translate(${nodeX}, ${nodeY}) scale(${zoom * scale})`}>

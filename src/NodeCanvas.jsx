@@ -14417,6 +14417,12 @@ function NodeCanvas() {
             onRelativeMoveHandled={() => setCarouselRelativeMoveRequest(null)}
             focusPrototypeRequest={carouselFocusPrototypeRequest}
             onFocusPrototypeHandled={() => setCarouselFocusPrototypeRequest(null)}
+            onOpenNodeInPanel={(item) => {
+              const prototypeId = item?.prototypeId || item?.id;
+              if (prototypeId && typeof storeActions.openRightPanelNodeTab === 'function') {
+                storeActions.openRightPanelNodeTab(prototypeId, item?.name);
+              }
+            }}
             currentDimension={currentAbstractionDimension}
             availableDimensions={abstractionDimensions}
             onDimensionChange={handleAbstractionDimensionChange}
