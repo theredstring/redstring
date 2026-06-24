@@ -732,6 +732,24 @@ function NodeCanvas() {
   const activeGraph = graphsMap?.get(activeGraphId);
   const activeGraphInstances = activeGraph?.instances;
 
+  // Repair node-groups missing their anchor instance. Node-groups need an anchor (the
+  // invisible instance edges connect to) to be a usable connection target. Legacy files,
+  // and groups created via paths that set linkedNodePrototypeId without minting an anchor,
+  // load without one — making them impossible to connect from/to. ensureGroupAnchor is
+  // idempotent, so this settles after a single pass per graph.
+  useEffect(() => {
+    if (!activeGraphId || !activeGraph?.groups) return;
+    const brokenGroupIds = [];
+    activeGraph.groups.forEach((group, groupId) => {
+      if (group.linkedNodePrototypeId &&
+        (!group.anchorInstanceId || !activeGraphInstances?.has(group.anchorInstanceId))) {
+        brokenGroupIds.push(groupId);
+      }
+    });
+    if (brokenGroupIds.length === 0) return;
+    brokenGroupIds.forEach(groupId => storeActions.ensureGroupAnchor(activeGraphId, groupId));
+  }, [activeGraphId, activeGraph?.groups, activeGraphInstances, storeActions]);
+
   // Get hydrated nodes for the active graph
   // OPTIMIZED: Depend only on specific graph's instances, not entire graphsMap
   const hydratedNodes = useMemo(() => {
@@ -1797,6 +1815,7 @@ function NodeCanvas() {
   const dragPhaseRef = nodeDrag.dragPhaseRef;
   const isAnimatingZoomRef = nodeDrag.isAnimatingZoomRef;
   const longPressingInstanceId = nodeDrag.longPressingInstanceId;
+  const longPressingInstanceIdRef = nodeDrag.longPressingInstanceIdRef;
   const setLongPressingInstanceId = nodeDrag.setLongPressingInstanceId;
   const wasDraggingRef = nodeDrag.wasDraggingRef;
   const isEdgePanningRef = nodeDrag.isEdgePanningRef;
@@ -4482,6 +4501,10 @@ function NodeCanvas() {
       group.linkedNodePrototypeId = prototypeId;
     });
 
+    // Mint the anchor instance so the new node-group is a usable connection target.
+    // Without this the group renders but can't be connected from/to (anchorInstanceId stays undefined).
+    storeActions.ensureGroupAnchor(activeGraphId, createdGroupId);
+
     // Remove the original defining node instance
     storeActions.removeNodeInstance(activeGraphId, instanceId);
 
@@ -6605,8 +6628,13 @@ function NodeCanvas() {
         // Use the ref for draggingNodeInfo — state can be one commit stale relative to the
         // long-press timer's setDraggingNodeInfo, which lets a mousemove firing in the same
         // tick slip past `!draggingNodeInfo` and start a phantom connection from the node.
-        if (longPressingInstanceId && !draggingNodeInfo && !draggingNodeInfoRef.current && !pinchRef.current.active) {
-          const longPressNodeData = nodes.find(n => n.id === longPressingInstanceId); // Get data
+        // Read the armed instance from the ref, not state: setLongPressingInstanceId's
+        // React commit can lag a frame behind the mousedown that armed it (state now lives
+        // in the useNodeDrag hook), so a quick-drag mousemove firing in the same tick would
+        // otherwise see null and fail to start a connection — notably from thing-group titles.
+        const armedInstanceId = longPressingInstanceIdRef.current ?? longPressingInstanceId;
+        if (armedInstanceId && !draggingNodeInfo && !draggingNodeInfoRef.current && !pinchRef.current.active) {
+          const longPressNodeData = nodes.find(n => n.id === armedInstanceId); // Get data
           if (longPressNodeData) {
             const leftNodeArea = !isInsideNode(longPressNodeData, e.clientX, e.clientY);
             // Allow both patterns:
@@ -6644,7 +6672,7 @@ function NodeCanvas() {
               }
 
               const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
-              setDrawingConnectionFrom({ sourceInstanceId: longPressingInstanceId, startX: startPt.x, startY: startPt.y, currentX, currentY });
+              setDrawingConnectionFrom({ sourceInstanceId: armedInstanceId, startX: startPt.x, startY: startPt.y, currentX, currentY });
               connectionExitedSourceRef.current = false;
               setLongPressingInstanceId(null); // Clear ID
             }

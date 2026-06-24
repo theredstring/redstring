@@ -899,6 +899,64 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
+    // Ensure a node-group (one linked to a prototype) has an anchor instance — the
+    // invisible instance that edges connect to so the group is a usable connection
+    // target. Idempotent: returns the existing anchor when present, repairs node-groups
+    // that were created without one (legacy files, or paths that set linkedNodePrototypeId
+    // directly without minting an anchor).
+    ensureGroupAnchor: (graphId, groupId, contextOptions = {}) => {
+      api.setChangeContext({ type: 'group_anchor_repair', target: 'group', groupId, ...contextOptions });
+      let anchorId = null;
+      set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph?.groups) return;
+        const group = graph.groups.get(groupId);
+        if (!group) return;
+        // Only node-groups (linked to a prototype) get an anchor.
+        if (!group.linkedNodePrototypeId) return;
+        // Already has a valid anchor instance? Nothing to do (keeps this idempotent).
+        if (group.anchorInstanceId && graph.instances?.has(group.anchorInstanceId)) {
+          anchorId = group.anchorInstanceId;
+          return;
+        }
+        const prototype = draft.nodePrototypes.get(group.linkedNodePrototypeId);
+        if (!prototype) {
+          console.warn(`[ensureGroupAnchor] Prototype ${group.linkedNodePrototypeId} not found for group ${groupId}.`);
+          return;
+        }
+        if (!graph.instances) graph.instances = new Map();
+
+        // Position the anchor at the member centroid (fall back to the group's own coords).
+        let anchorX = group.x ?? 0, anchorY = group.y ?? 0;
+        const memberInstances = (group.memberInstanceIds || [])
+          .map(id => graph.instances.get(id))
+          .filter(Boolean);
+        if (memberInstances.length > 0) {
+          const totals = memberInstances.reduce((acc, inst) => {
+            acc.x += inst.x ?? 0;
+            acc.y += inst.y ?? 0;
+            return acc;
+          }, { x: 0, y: 0 });
+          anchorX = totals.x / memberInstances.length;
+          anchorY = totals.y / memberInstances.length;
+        }
+
+        anchorId = uuidv4();
+        graph.instances.set(anchorId, {
+          id: anchorId,
+          prototypeId: group.linkedNodePrototypeId,
+          x: anchorX,
+          y: anchorY,
+          scale: 1,
+          isGroupAnchor: true,
+          anchorForGroupId: groupId
+        });
+        group.anchorInstanceId = anchorId;
+        console.log(`[ensureGroupAnchor] Created anchor ${anchorId} for node-group ${groupId}.`);
+      }));
+      return anchorId;
+    },
+
     // Convert a regular group to a node-group (linked to a node prototype definition)
     convertGroupToNodeGroup: (graphId, groupId, nodePrototypeId, createNewPrototype = false, newPrototypeName = '', newPrototypeColor = '#8B0000', contextOptions = {}) => {
       api.setChangeContext({ type: 'group_convert', target: 'group', ...contextOptions });
