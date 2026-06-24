@@ -143,7 +143,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={() => useGraphStore.getState().toggleShowEdgeGlowIndicators?.()}
             />
           </div>
-          <div className="settings-row settings-row--attached">
+          <div className="settings-row">
             <div className="settings-row-label">
               Hover Preview
               <div className="settings-row-description">Show a preview of the hovered Thing when hovering inside an expanded Thing's network.</div>

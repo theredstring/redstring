@@ -3760,6 +3760,8 @@ function NodeCanvas() {
   const [isCarouselStageTransition, setIsCarouselStageTransition] = useState(false); // Flag to track internal stage transitions
   // Request for AbstractionCarousel to move focus relative to current (up/down)
   const [carouselRelativeMoveRequest, setCarouselRelativeMoveRequest] = useState(null); // 'up' | 'down' | null
+  // Request for AbstractionCarousel to focus a specific prototype by id (e.g. a freshly added layer)
+  const [carouselFocusPrototypeRequest, setCarouselFocusPrototypeRequest] = useState(null); // prototypeId | null
 
   // Add logging for carousel stage changes
   useEffect(() => {
@@ -3818,7 +3820,8 @@ function NodeCanvas() {
   // blocked (see wheel/drag/pinch/keyboard guards). On close, the prior view is
   // restored. This gives the carousel a stable, predictable frame to live in
   // instead of fighting a moving canvas.
-  const CAROUSEL_REFERENCE_ZOOM = 1.0;
+  const CAROUSEL_REFERENCE_ZOOM = 0.8; // slightly zoomed out so more of the chain is visible
+  const CAROUSEL_VERTICAL_BIAS = 0.10; // fraction of viewport height to nudge the node above center
   const preCarouselViewRef = useRef(null);
   const prevCarouselVisibleRef = useRef(false);
   const carouselViewAnimRef = useRef(null);
@@ -3872,8 +3875,11 @@ function NodeCanvas() {
       const centerX = node.x + dims.currentWidth / 2;
       const centerY = node.y + dims.currentHeight / 2;
       const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, CAROUSEL_REFERENCE_ZOOM));
+      // Frame the node slightly above the vertical center so the carousel stack
+      // (and the control panel below it) has room to breathe.
+      const verticalBias = viewportSize.height * CAROUSEL_VERTICAL_BIAS;
       const targetPanX = viewportSize.width / 2 - (centerX - canvasSize.offsetX) * tz;
-      const targetPanY = viewportSize.height / 2 - (centerY - canvasSize.offsetY) * tz;
+      const targetPanY = (viewportSize.height / 2 - verticalBias) - (centerY - canvasSize.offsetY) * tz;
       const minPanX = viewportSize.width - canvasSize.width * tz;
       const minPanY = viewportSize.height - canvasSize.height * tz;
       const finalPan = {
@@ -7429,22 +7435,16 @@ function NodeCanvas() {
 
 
 
-      // Close the abstraction prompt but keep pie menu in stage 2
-      // Ensure carousel stays visible by maintaining its state
-
+      // Close the abstraction prompt and keep the carousel visible.
       setAbstractionPrompt({ visible: false, name: '', color: null, direction: 'above', nodeId: null, carouselLevel: null });
-
-      // Explicitly maintain carousel visibility and stay in stage 2 (don't go back to stage 1)
       setAbstractionCarouselVisible(true); // Ensure carousel stays visible
-      // Keep carouselPieMenuStage at 2 so users can add more nodes without having to re-enter stage 2
 
-      // Ensure pie menu stays selected for the carousel node
-      if (abstractionCarouselNode && !selectedNodeIdForPieMenu) {
-
-        setSelectedNodeIdForPieMenu(abstractionCarouselNode.id);
-      }
-
-      setIsCarouselStageTransition(true);
+      // Move the carousel focus to the layer we just added so the user sees it,
+      // then drop straight back to stage 1 (the main Swap/Add/Delete/Expand menu)
+      // — like the plus button cycles you in and right back out after each add.
+      setCarouselFocusPrototypeRequest(newNodeId);
+      setCarouselPieMenuStage(1);
+      setIsCarouselStageTransition(false);
 
       // Ensure the carousel node is still selected for pie menu
       if (abstractionCarouselNode) {
@@ -14253,6 +14253,7 @@ function NodeCanvas() {
             selectedNode={abstractionCarouselNode}
             panOffset={panOffset}
             zoomLevel={zoomLevel}
+            liveZoomRef={zoomLevelRef}
             containerRef={containerRef}
             canvasSize={canvasSize}
             debugMode={debugMode}
@@ -14266,6 +14267,8 @@ function NodeCanvas() {
             onExitAnimationComplete={onCarouselExitAnimationComplete}
             relativeMoveRequest={carouselRelativeMoveRequest}
             onRelativeMoveHandled={() => setCarouselRelativeMoveRequest(null)}
+            focusPrototypeRequest={carouselFocusPrototypeRequest}
+            onFocusPrototypeHandled={() => setCarouselFocusPrototypeRequest(null)}
             currentDimension={currentAbstractionDimension}
             availableDimensions={abstractionDimensions}
             onDimensionChange={handleAbstractionDimensionChange}

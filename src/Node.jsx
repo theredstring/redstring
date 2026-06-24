@@ -699,7 +699,7 @@ const Node = ({
         return (
         <foreignObject
           x={nodeX + NODE_PADDING + (innerNetworkWidth / 2) - (hpWidth / 2)}
-          y={nodeY + textAreaHeight + 15}
+          y={nodeY + textAreaHeight + 8}
           width={hpWidth}
           height={hpHeight}
           style={{

@@ -172,6 +172,7 @@ const AbstractionCarousel = ({
   selectedNode,
   panOffset,
   zoomLevel,
+  liveZoomRef, // ref to the canvas's live (authoritative) zoom, ahead of the settled zoomLevel prop
   containerRef,
   canvasSize, // Canvas size with offsetX/offsetY for coordinate system alignment
   debugMode,
@@ -191,10 +192,21 @@ const AbstractionCarousel = ({
   onExpandDimension, // Called when user expands a dimension
   onOpenInPanel, // Called when user opens dimension in panel
   relativeMoveRequest, // 'up' | 'down' | null - request to move focus one level
-  onRelativeMoveHandled // callback to clear request once applied
+  onRelativeMoveHandled, // callback to clear request once applied
+  focusPrototypeRequest, // prototypeId | null - request to focus a specific node (e.g. a just-added layer)
+  onFocusPrototypeHandled // callback to clear the focus request once applied
 }) => {
   const theme = useTheme();
   const carouselRef = useRef(null);
+
+  // Prefer the canvas's live zoom ref over the settled `zoomLevel` prop, which
+  // lags ~150ms behind during pan/zoom animations (e.g. the open/close centering
+  // animation). Using the live value keeps the carousel's node sizes, stack
+  // offsets, and hint positions scaling in lockstep with the canvas.
+  const getLiveZoom = useCallback(() => {
+    const z = liveZoomRef?.current;
+    return (typeof z === 'number' && z > 0) ? z : zoomLevel;
+  }, [liveZoomRef, zoomLevel]);
 
 
   // Store bindings
@@ -536,6 +548,7 @@ const AbstractionCarousel = ({
 
   // Calculate the stack offset using real position and dynamic offsets
   const getStackOffset = useCallback(() => {
+    const zoom = getLiveZoom();
     const position = physicsState.realPosition;
     const floorLevel = Math.floor(position);
     const ceilLevel = Math.ceil(position);
@@ -545,14 +558,14 @@ const AbstractionCarousel = ({
 
     if (offsetA === undefined || offsetB === undefined) {
       // Fallback for out-of-bounds levels during animation
-      return -position * (NODE_HEIGHT + LEVEL_SPACING) * zoomLevel;
+      return -position * (NODE_HEIGHT + LEVEL_SPACING) * zoom;
     }
 
     const factor = position - floorLevel;
     const interpolatedOffset = offsetA + (offsetB - offsetA) * factor;
 
-    return -interpolatedOffset * zoomLevel;
-  }, [physicsState.realPosition, zoomLevel, levelOffsets]);
+    return -interpolatedOffset * zoom;
+  }, [physicsState.realPosition, getLiveZoom, levelOffsets]);
 
   // Hints: fade-in on open, fade-out on first scroll
   const [hintsDismissed, setHintsDismissed] = useState(false);
@@ -577,14 +590,20 @@ const AbstractionCarousel = ({
   // live like the PieMenu (which rides the transformed content group) does.
   // getCarouselPosition() reads the SVG's live getScreenCTM(), so updating the
   // wrapper's left/top imperatively here keeps it glued to the node every frame.
+  const [, setViewportTick] = useState(0);
   useEffect(() => {
     if (!isVisible) return;
     const reanchor = () => {
+      // Imperatively re-anchor the wrapper to the node's live screen position
+      // for this frame (no React lag), then force a re-render so the SVG node
+      // sizes/stack offsets recompute against the live zoom (getLiveZoom()).
       const el = carouselRef.current;
-      if (!el) return;
-      const { x, y } = getCarouselPosition();
-      el.style.left = `${x}px`;
-      el.style.top = `${y}px`;
+      if (el) {
+        const { x, y } = getCarouselPosition();
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+      }
+      setViewportTick(t => t + 1);
     };
     window.addEventListener('canvas-transform-change', reanchor);
     return () => window.removeEventListener('canvas-transform-change', reanchor);
@@ -594,7 +613,6 @@ const AbstractionCarousel = ({
   // fire window resize — listen on visualViewport and window so the carousel
   // re-reads the SVG's screen CTM and re-anchors to the node when the address
   // bar appears/disappears or the user scrolls/zooms.
-  const [, setViewportTick] = useState(0);
   useEffect(() => {
     if (!isVisible) return;
     const bump = () => setViewportTick(t => t + 1);
@@ -1012,6 +1030,23 @@ const AbstractionCarousel = ({
     onRelativeMoveHandled && onRelativeMoveHandled();
   }, [relativeMoveRequest, isVisible, abstractionChainWithDims]);
 
+  // Handle external request to focus a specific prototype (e.g. a freshly added
+  // layer). Resolving by prototypeId against the rebuilt chain is robust to the
+  // level re-indexing that happens when a node is inserted, unlike a relative
+  // up/down move.
+  useEffect(() => {
+    if (!isVisible || !focusPrototypeRequest || !abstractionChainWithDims.length) return;
+    const item = abstractionChainWithDims.find(n => n.prototypeId === focusPrototypeRequest);
+    if (item) {
+      dispatchPhysics({ type: 'JUMP_TO_LEVEL', payload: item.level });
+      if (!animationFrameRef.current) {
+        lastFrameTimeRef.current = performance.now();
+        animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
+      }
+    }
+    onFocusPrototypeHandled && onFocusPrototypeHandled();
+  }, [focusPrototypeRequest, isVisible, abstractionChainWithDims]);
+
   // Handle escape key and click-away to close
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1065,6 +1100,7 @@ const AbstractionCarousel = ({
 
   const carouselPosition = getCarouselPosition();
   const stackOffset = getStackOffset();
+  const zoom = getLiveZoom(); // live canvas zoom for this render's geometry
 
   console.log('[AbstractionCarousel] Render state:', {
     isVisible,
@@ -1098,8 +1134,8 @@ const AbstractionCarousel = ({
 
   const computeNodeCenterYForLevel = useCallback((level) => {
     const levelOffset = levelOffsets[level] ?? (level * (NODE_HEIGHT + LEVEL_SPACING));
-    return window.innerHeight * 2 + (levelOffset * zoomLevel);
-  }, [levelOffsets, zoomLevel]);
+    return window.innerHeight * 2 + (levelOffset * getLiveZoom());
+  }, [levelOffsets, getLiveZoom]);
 
   let topHintPos = null;
   let bottomHintPos = null;
@@ -1124,11 +1160,11 @@ const AbstractionCarousel = ({
 
     topHintPos = {
       x: nodeX,
-      y: topCenterY - (topHeight / 2) * zoomLevel - margin
+      y: topCenterY - (topHeight / 2) * zoom - margin
     };
     bottomHintPos = {
       x: nodeX,
-      y: bottomCenterY + (bottomHeight / 2) * zoomLevel + margin
+      y: bottomCenterY + (bottomHeight / 2) * zoom + margin
     };
   }
 
@@ -1315,7 +1351,7 @@ const AbstractionCarousel = ({
               const nodeX = window.innerWidth * 0.5;
               // Fix NaN issue by providing fallback for missing levelOffsets
               const levelOffset = levelOffsets[item.level] ?? (item.level * (NODE_HEIGHT + LEVEL_SPACING));
-              const nodeY = window.innerHeight * 2 + (levelOffset * zoomLevel);
+              const nodeY = window.innerHeight * 2 + (levelOffset * zoom);
 
               // Determine if this is the "main" node (closest to scroll position)
               const isMainNode = distanceFromMain < 0.5;
@@ -1383,7 +1419,7 @@ const AbstractionCarousel = ({
                   onClick={() => handleNodeClick(item)}
                 >
                   {/* This group handles positioning and dynamic scaling, keeping contents stable */}
-                  <g transform={`translate(${nodeX}, ${nodeY}) scale(${zoomLevel * scale})`}>
+                  <g transform={`translate(${nodeX}, ${nodeY}) scale(${zoom * scale})`}>
                     {/* Background rect - uses unscaled dimensions */}
                     <rect
                       x={-unscaledWidth / 2 + 6}

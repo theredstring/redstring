@@ -3,6 +3,7 @@ import UniversalNodeRenderer from '../UniversalNodeRenderer';
 import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
 import { getNodeDimensions } from '../utils.js';
 import { measureTextWidth } from '../services/textMeasurement.js';
+import useGraphStore from '../store/graphStore.jsx';
 
 /**
  * HoverVisionAid displays a high-fidelity preview of nodes or connections
@@ -15,13 +16,16 @@ const HoverVisionAid = ({
   hoveredConnection,
   activePieMenuItem,
   headerHeight = 60,
-  verticalOffset = -18
+  verticalOffset = -25
 }) => {
+  const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
+  const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 1.0);
+
   const hasConnection = Boolean(hoveredConnection?.source && hoveredConnection?.target);
   const hasNode = Boolean(!hasConnection && hoveredNode);
   const hasItem = Boolean(!hasConnection && !hasNode && activePieMenuItem);
 
-  if (!hasConnection && !hasNode && !hasItem) {
+  if (!showHoverPreview || (!hasConnection && !hasNode && !hasItem)) {
     return null;
   }
 
@@ -32,11 +36,17 @@ const HoverVisionAid = ({
 
   let content = null;
 
+  // Base scale makes the preview a bit smaller than its native size; the user's
+  // Hover Preview Size setting multiplies it (1.0 = default).
+  const BASE_PREVIEW_SCALE = 0.85;
+  const previewScale = BASE_PREVIEW_SCALE * hoverPreviewSize;
+
   const containerStyle = {
     position: 'absolute',
     top: headerHeight + verticalOffset,
     left: '50%',
-    transform: 'translateX(-50%)',
+    transform: `translateX(-50%) scale(${previewScale})`,
+    transformOrigin: 'top center',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
