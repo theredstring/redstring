@@ -238,6 +238,16 @@ const PieMenu = ({
             // Vertical stack on right side - bottom button
             bubbleX = nodeCenterX + currentNodeHalfWidth + padding;
             bubbleY = nodeCenterY + (BUBBLE_SIZE + BUBBLE_PADDING);
+          } else if (button.position === 'top') {
+            // Decomposition layout: a horizontal row of buttons across the node's top
+            // edge, right-aligned so the rightmost (compose) sits at the top-right corner.
+            // topIndex 0 = leftmost, topCount-1 = rightmost.
+            const step = BUBBLE_SIZE + BUBBLE_PADDING;
+            const nodeRight = nodeCenterX + currentNodeHalfWidth;
+            const nodeTop = nodeCenterY - nodeDimensions.currentHeight / 2;
+            const fromRight = (button.topCount - 1) - button.topIndex;
+            bubbleX = nodeRight - (BUBBLE_SIZE / 2) - fromRight * step;
+            bubbleY = nodeTop - padding;
           } else {
             // Fallback to center if no position specified
             bubbleX = nodeCenterX;

@@ -25,7 +25,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, MoveVertical } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, MoveVertical, ChevronLeft, ChevronRight } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -5329,24 +5329,95 @@ function NodeCanvas() {
         return []; // Return empty array to hide all buttons during carousel exit
       }
 
-      return [
+      // Decomposition radial menu: a horizontal row across the top of the node
+      // (Open, Add, Delete, Compose — compose pinned top-right), plus ◀ / ▶ definition
+      // navigation arrows flanking the node, each shown only when a definition exists in
+      // that direction. This replaces the old on-node foreignObject buttons and mirrors
+      // the same option set into the bottom control panel (decomposition mode).
+      const decompPrototypeId = selectedNode.prototypeId;
+      const decompState = useGraphStore.getState();
+      const decompProto = decompState.nodePrototypes.get(decompPrototypeId);
+      const decompDefIds = (decompProto?.definitionGraphIds) || [];
+      const decompContextKey = `${decompPrototypeId}-${activeGraphId}`;
+      const decompIndex = nodeDefinitionIndices.get(decompContextKey) || 0;
+      const decompCurrentGraphId = decompDefIds[decompIndex] || null;
+      const decompHasPrev = decompIndex > 0;
+      const decompHasNext = decompIndex < decompDefIds.length - 1;
+      const setDecompIndex = (idx) => setNodeDefinitionIndices(prev => new Map(prev).set(decompContextKey, idx));
+
+      const decompButtons = [
+        {
+          id: 'decomp-open',
+          label: 'Open',
+          icon: ArrowUpFromDot,
+          position: 'top', topIndex: 0, topCount: 4,
+          action: (instanceId) => {
+            if (decompCurrentGraphId) {
+              startHurtleAnimation(instanceId, decompCurrentGraphId, decompPrototypeId);
+            }
+          }
+        },
+        {
+          id: 'decomp-add',
+          label: 'Add Definition',
+          icon: Plus,
+          position: 'top', topIndex: 1, topCount: 4,
+          action: () => {
+            storeActions.createAndAssignGraphDefinitionWithoutActivation(decompPrototypeId);
+          }
+        },
+        {
+          id: 'decomp-delete',
+          label: 'Delete Definition',
+          icon: Trash2,
+          position: 'top', topIndex: 2, topCount: 4,
+          action: () => {
+            if (!decompCurrentGraphId) return;
+            // Adjust the active index before removal: if deleting the last item, step back.
+            const newLen = decompDefIds.length - 1;
+            if (newLen > 0 && decompIndex >= newLen) {
+              setDecompIndex(newLen - 1);
+            } else if (newLen <= 0) {
+              setDecompIndex(0);
+            }
+            storeActions.removeDefinitionFromNode(decompPrototypeId, decompCurrentGraphId);
+          }
+        },
         {
           id: 'compose-preview',
           label: 'Compose',
           icon: Package,
+          position: 'top', topIndex: 3, topCount: 4,
           action: (nodeId) => {
             // Prevent compose action during carousel transitions (only for non-carousel mode)
             if (!abstractionCarouselVisible && carouselAnimationState === 'exiting') {
-
               return;
             }
-
-            // 
-            setIsTransitioningPieMenu(true); // Start transition, current menu will hide
-            // setPreviewingNodeId(null); // This will be set after animation
+            setIsTransitioningPieMenu(true); // Start transition; previewingNodeId cleared after animation
           }
         }
       ];
+
+      if (decompHasPrev) {
+        decompButtons.push({
+          id: 'decomp-prev',
+          label: 'Previous Definition',
+          icon: ChevronLeft,
+          position: 'left-inner',
+          action: () => setDecompIndex(decompIndex - 1)
+        });
+      }
+      if (decompHasNext) {
+        decompButtons.push({
+          id: 'decomp-next',
+          label: 'Next Definition',
+          icon: ChevronRight,
+          position: 'right-inner',
+          action: () => setDecompIndex(decompIndex + 1)
+        });
+      }
+
+      return decompButtons;
     } else {
       // Default buttons: Expand, Decompose, Connect, Delete, Edit (swapped edit and expand positions)
       // But don't show buttons if the carousel is exiting (only for non-carousel mode)
@@ -5503,7 +5574,7 @@ function NodeCanvas() {
         }
       ];
     }
-  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, CornerUpLeft, CornerDownLeft, Palette, Orbit, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
 
   // Log button changes for debugging
   useEffect(() => {
