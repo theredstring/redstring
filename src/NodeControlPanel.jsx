@@ -3,6 +3,7 @@ import UnifiedBottomControlPanel from './UnifiedBottomControlPanel';
 import useGraphStore from './store/graphStore.jsx';
 
 const NodeControlPanel = ({
+  mode = 'nodes',
   selectedNodePrototypes = [],
   isVisible = true,
   typeListOpen = false,
@@ -18,6 +19,8 @@ const NodeControlPanel = ({
   onPalette,
   onOrbit,
   onGroup,
+  onCompose,
+  decompHasDefinitions = false,
   onLeftNav,
   onRightNav,
   hasLeftNav = false,
@@ -54,7 +57,7 @@ const NodeControlPanel = ({
 
   return (
     <UnifiedBottomControlPanel
-      mode="nodes"
+      mode={mode}
       isVisible={isVisible}
       typeListOpen={typeListOpen}
       onAnimationComplete={onAnimationComplete}
@@ -64,6 +67,8 @@ const NodeControlPanel = ({
       onAdd={onAdd}
       onUp={onUp}
       onOpenInPanel={onOpenInPanel}
+      onCompose={onCompose}
+      decompHasDefinitions={decompHasDefinitions}
       onDecompose={onDecompose}
       onAbstraction={onAbstraction}
       onEdit={onEdit}

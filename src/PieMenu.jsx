@@ -337,6 +337,8 @@ const PieMenu = ({
               e.stopPropagation();
               if (e.cancelable) e.preventDefault();
 
+              if (button.hidden) return; // collapsed/animating-out button is not interactive
+
               const isCarouselStageTransition = button.id === 'carousel-plus' || button.id === 'carousel-back' || button.id === 'carousel-back-stage2' || button.id === 'carousel-add-above' || button.id === 'carousel-add-below';
 
               if (animationState === 'shrinking' && !isCarouselStageTransition) return;
@@ -349,6 +351,7 @@ const PieMenu = ({
               button.action(node.id, buttonPosition);
             }}
             onClick={(e) => {
+              if (button.hidden) { e.stopPropagation(); return; } // collapsed/animating-out button is not interactive
               // Allow carousel stage transition buttons to work even during shrinking
               const isCarouselStageTransition = button.id === 'carousel-plus' || button.id === 'carousel-back' || button.id === 'carousel-back-stage2' || button.id === 'carousel-add-above' || button.id === 'carousel-add-below';
 
@@ -383,35 +386,48 @@ const PieMenu = ({
               button.action(node.id, buttonPosition);
             }}
           >
-            {/* Inner wrapper so CSS transform does not conflict with outer absolute positioning */}
+            {/* Visibility wrapper: animates per-button appear/disappear (e.g. the ◀/▶
+                definition-nav arrows toggling as you reach the first/last definition)
+                by scaling/fading rather than mounting/unmounting. Scales about the bubble
+                center (0,0), so it collapses to a point. */}
             <g
-              className={dynamicClassName}
               style={{
-                // Custom properties used by CSS keyframes to calculate initial offset
-                '--start-x': `${startDX}px`,
-                '--start-y': `${startDY}px`,
-                animationDelay: `${animationDelayMs}ms`,
+                transform: button.hidden ? 'scale(0)' : 'scale(1)',
+                opacity: button.hidden ? 0 : 1,
+                transition: 'transform 0.2s ease, opacity 0.2s ease',
+                pointerEvents: button.hidden ? 'none' : 'auto',
               }}
-              ref={bubbleRefs.current[index]} // Assign ref to the inner g
             >
-              <circle
-                cx="0"
-                cy="0"
-                r={BUBBLE_SIZE / 2}
-                fill="#DEDADA"
-                stroke="maroon"
-                strokeWidth={3}
-              />
-              {IconComponent && (
-                <IconComponent
-                  x={-ICON_SIZE / 2}
-                  y={-ICON_SIZE / 2}
-                  width={ICON_SIZE}
-                  height={ICON_SIZE}
-                  color="maroon"
-                  fill={button.fill || 'none'}
+              {/* Inner wrapper so CSS transform does not conflict with outer absolute positioning */}
+              <g
+                className={dynamicClassName}
+                style={{
+                  // Custom properties used by CSS keyframes to calculate initial offset
+                  '--start-x': `${startDX}px`,
+                  '--start-y': `${startDY}px`,
+                  animationDelay: `${animationDelayMs}ms`,
+                }}
+                ref={bubbleRefs.current[index]} // Assign ref to the inner g
+              >
+                <circle
+                  cx="0"
+                  cy="0"
+                  r={BUBBLE_SIZE / 2}
+                  fill="#DEDADA"
+                  stroke="maroon"
+                  strokeWidth={3}
                 />
-              )}
+                {IconComponent && (
+                  <IconComponent
+                    x={-ICON_SIZE / 2}
+                    y={-ICON_SIZE / 2}
+                    width={ICON_SIZE}
+                    height={ICON_SIZE}
+                    color="maroon"
+                    fill={button.fill || 'none'}
+                  />
+                )}
+              </g>
             </g>
           </g>
         );

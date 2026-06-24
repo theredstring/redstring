@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { Trash2, Plus, ArrowUpFromDot, ArrowRight, ChevronLeft, ChevronRight, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles } from 'lucide-react';
+import { Trash2, Plus, ArrowUpFromDot, ArrowRight, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles } from 'lucide-react';
 import UniversalNodeRenderer from './UniversalNodeRenderer';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
@@ -105,6 +105,10 @@ const UnifiedBottomControlPanel = ({
   onDiveIntoDefinition, // Navigate into the node-group's linked definition graph
   onOpenNodePrototypeInPanel, // Open the linked node prototype in right panel
   onCombineNodeGroup, // Replace group instances with the node-group prototype instance
+
+  // Decompose mode props (mirrors the decomposition pie-menu state)
+  onCompose, // Close the decomposition preview (compose back to a normal node)
+  decompHasDefinitions = false, // When false, only Add + Compose are shown (empty state)
 
   // Pie menu button handlers
   onDelete,
@@ -236,6 +240,7 @@ const UnifiedBottomControlPanel = ({
   const isAbstraction = mode === 'abstraction';
   const isGroup = mode === 'group';
   const isNodeGroup = mode === 'nodegroup';
+  const isDecompose = mode === 'decompose';
 
   const clearActionHover = useCallback(() => {
     onActionHoverChange?.(null);
@@ -246,7 +251,7 @@ const UnifiedBottomControlPanel = ({
   }, [onActionHoverChange]);
 
   const nodeDimensionEntries = useMemo(() => {
-    if (!isNodes || !Array.isArray(selectedNodes)) {
+    if (!(isNodes || isDecompose) || !Array.isArray(selectedNodes)) {
       return [];
     }
 
@@ -258,7 +263,7 @@ const UnifiedBottomControlPanel = ({
         height: dims.currentHeight
       };
     });
-  }, [isNodes, selectedNodes]);
+  }, [isNodes, isDecompose, selectedNodes]);
 
   // Mobile-responsive icon sizing
   const iconSize = mobileState.isMobile ? 14 : 18;
@@ -520,7 +525,7 @@ const UnifiedBottomControlPanel = ({
         />
         {/* Row 1: Interactive info */}
         <div className="info-row">
-          {isNodes ? (
+          {(isNodes || isDecompose) ? (
             <div className="arrow-group" style={{ marginRight: 6 }}>
               <div
                 className="piemenu-button"
@@ -535,7 +540,7 @@ const UnifiedBottomControlPanel = ({
             </div>
           ) : null}
 
-          {isNodes ? (
+          {(isNodes || isDecompose) ? (
             selectedNodes && selectedNodes.length > 0 ? (
               <UniversalNodeRenderer
                 nodes={nodeRendererMetrics.nodesForRenderer}
@@ -699,7 +704,7 @@ const UnifiedBottomControlPanel = ({
             })()
           )}
 
-          {isNodes ? (
+          {(isNodes || isDecompose) ? (
             <div className="arrow-group" style={{ marginLeft: 6 }}>
               <div
                 className="piemenu-button"
@@ -718,7 +723,80 @@ const UnifiedBottomControlPanel = ({
         {/* Row 2: Pie-menu buttons */}
         <div className="piemenu-row">
           <div className="piemenu-buttons">
-            {isNodes ? (
+            {isDecompose ? (
+              // Decompose mode: mirror the decomposition pie-menu options. With definitions:
+              // Open, Delete, Decompose Further, Compose. Empty state: Add, Compose.
+              decompHasDefinitions ? (
+                <>
+                  <div
+                    className="piemenu-button"
+                    onClick={onUp}
+                    title="Open"
+                    onMouseEnter={() => triggerActionHover('control-decomp-open', 'Open')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <ArrowUpFromDot size={iconSize} />
+                  </div>
+                  <div
+                    className="piemenu-button"
+                    onClick={onAdd}
+                    title="Add Definition"
+                    onMouseEnter={() => triggerActionHover('control-decomp-add', 'Add Definition')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Plus size={iconSize} />
+                  </div>
+                  <div
+                    className="piemenu-button"
+                    onClick={onDelete}
+                    title="Delete Definition"
+                    onMouseEnter={() => triggerActionHover('control-decomp-delete', 'Delete Definition')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Trash2 size={iconSize} />
+                  </div>
+                  <div
+                    className="piemenu-button"
+                    onClick={onDecompose}
+                    title="Decompose Further"
+                    onMouseEnter={() => triggerActionHover('control-decomp-further', 'Decompose Further')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <PackageOpen size={iconSize} />
+                  </div>
+                  <div
+                    className="piemenu-button"
+                    onClick={onCompose}
+                    title="Compose"
+                    onMouseEnter={() => triggerActionHover('control-decomp-compose', 'Compose')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Package size={iconSize} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div
+                    className="piemenu-button"
+                    onClick={onAdd}
+                    title="Add Definition"
+                    onMouseEnter={() => triggerActionHover('control-decomp-add', 'Add Definition')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Plus size={iconSize} />
+                  </div>
+                  <div
+                    className="piemenu-button"
+                    onClick={onCompose}
+                    title="Compose"
+                    onMouseEnter={() => triggerActionHover('control-decomp-compose', 'Compose')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Package size={iconSize} />
+                  </div>
+                </>
+              )
+            ) : isNodes ? (
               // Node mode: Show all available node actions
               <>
                 <div

@@ -4284,7 +4284,9 @@ function NodeCanvas() {
     const nodesSelected = selectedInstanceIds.size > 0;
     const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
     const isBoxSelecting = selectionStart !== null;
-    const shouldShow = Boolean(nodesSelected && !edgeSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible && !semanticOrbitActive && !isBoxSelecting);
+    // Also show while previewing/decomposing a node, even if it isn't in selectedInstanceIds —
+    // the panel switches to 'decompose' mode in that case (see NodeControlPanel render).
+    const shouldShow = Boolean((nodesSelected || previewingNodeId) && !edgeSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible && !semanticOrbitActive && !isBoxSelecting);
     if (shouldShow) {
       setNodeControlPanelShouldShow(true);
       setNodeControlPanelVisible(true);
@@ -4298,7 +4300,7 @@ function NodeCanvas() {
     } else if (!shouldShow && nodeControlPanelVisible) {
       setNodeControlPanelVisible(false);
     }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive, selectionStart]);
+  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive, selectionStart, previewingNodeId]);
 
   // --- Connection Control Panel Management ---
   useEffect(() => {
@@ -4346,6 +4348,14 @@ function NodeCanvas() {
     setAbstractionControlPanelVisible(false);
     setGroupControlPanelVisible(false);
     setSelectedGroup(null);
+    // End any decomposition preview — navigating into a definition (e.g. via the hurtle)
+    // leaves the previewed node behind in the old graph; clearing it lets the decompose
+    // control panel dismiss instead of re-showing in the newly opened graph.
+    setPreviewingNodeId(null);
+    // Selection is per-graph: clear the old graph's node selection so it doesn't ghost into
+    // the newly opened graph (and so the decompose/node control panel fully dismisses).
+    setSelectedInstanceIds(new Set());
+    setSelectedNodeIdForPieMenu(null);
   }, [activeGraphId]);
 
   const handleNodeControlPanelAnimationComplete = useCallback(() => {
@@ -5345,12 +5355,42 @@ function NodeCanvas() {
       const decompHasNext = decompIndex < decompDefIds.length - 1;
       const setDecompIndex = (idx) => setNodeDefinitionIndices(prev => new Map(prev).set(decompContextKey, idx));
 
+      const compose = {
+        id: 'compose-preview',
+        label: 'Compose',
+        icon: Package,
+        action: (nodeId) => {
+          // Prevent compose action during carousel transitions (only for non-carousel mode)
+          if (!abstractionCarouselVisible && carouselAnimationState === 'exiting') {
+            return;
+          }
+          setIsTransitioningPieMenu(true); // Start transition; previewingNodeId cleared after animation
+        }
+      };
+
+      // Empty state (node has no definitions yet): only offer "+" to create the first
+      // definition, with Compose pinned top-right.
+      if (decompDefIds.length === 0) {
+        return [
+          {
+            id: 'decomp-add',
+            label: 'Add Definition',
+            icon: Plus,
+            position: 'top', topIndex: 0, topCount: 2,
+            action: () => storeActions.createAndAssignGraphDefinitionWithoutActivation(decompPrototypeId)
+          },
+          { ...compose, position: 'top', topIndex: 1, topCount: 2 }
+        ];
+      }
+
+      // Has definitions: Open, Delete, Decompose Further (explode into a node-group in
+      // place), Compose — plus ◀ / ▶ definition-navigation arrows.
       const decompButtons = [
         {
           id: 'decomp-open',
           label: 'Open',
           icon: ArrowUpFromDot,
-          position: 'top', topIndex: 0, topCount: 4,
+          position: 'top', topIndex: 0, topCount: 5,
           action: (instanceId) => {
             if (decompCurrentGraphId) {
               startHurtleAnimation(instanceId, decompCurrentGraphId, decompPrototypeId);
@@ -5361,16 +5401,14 @@ function NodeCanvas() {
           id: 'decomp-add',
           label: 'Add Definition',
           icon: Plus,
-          position: 'top', topIndex: 1, topCount: 4,
-          action: () => {
-            storeActions.createAndAssignGraphDefinitionWithoutActivation(decompPrototypeId);
-          }
+          position: 'top', topIndex: 1, topCount: 5,
+          action: () => storeActions.createAndAssignGraphDefinitionWithoutActivation(decompPrototypeId)
         },
         {
           id: 'decomp-delete',
           label: 'Delete Definition',
           icon: Trash2,
-          position: 'top', topIndex: 2, topCount: 4,
+          position: 'top', topIndex: 2, topCount: 5,
           action: () => {
             if (!decompCurrentGraphId) return;
             // Adjust the active index before removal: if deleting the last item, step back.
@@ -5384,38 +5422,50 @@ function NodeCanvas() {
           }
         },
         {
-          id: 'compose-preview',
-          label: 'Compose',
-          icon: Package,
-          position: 'top', topIndex: 3, topCount: 4,
-          action: (nodeId) => {
-            // Prevent compose action during carousel transitions (only for non-carousel mode)
-            if (!abstractionCarouselVisible && carouselAnimationState === 'exiting') {
-              return;
+          id: 'decomp-further',
+          label: 'Decompose Further',
+          icon: PackageOpen,
+          position: 'top', topIndex: 3, topCount: 5,
+          action: () => {
+            // Use the dedicated store action (copies the definition's instances + edges and
+            // reuses the original node as the group anchor). The older handleNodeConvertToNodeGroup
+            // path reimplemented this manually and left the group empty.
+            const createdGroupId = storeActions.decomposeNodeToGroup(activeGraphId, decompPrototypeId, decompIndex);
+            if (!createdGroupId) return;
+            setPreviewingNodeId(null);
+            setIsTransitioningPieMenu(false);
+            const gs = useGraphStore.getState();
+            const newGroup = gs.graphs?.get(activeGraphId)?.groups?.get(createdGroupId);
+            if (newGroup) {
+              setSelectedGroup(newGroup);
+              setSelectedInstanceIds(new Set());
+              setGroupControlPanelShouldShow(true);
+              setNodeControlPanelShouldShow(false);
+              setNodeControlPanelVisible(false);
             }
-            setIsTransitioningPieMenu(true); // Start transition; previewingNodeId cleared after animation
           }
-        }
+        },
+        { ...compose, position: 'top', topIndex: 4, topCount: 5 }
       ];
 
-      if (decompHasPrev) {
-        decompButtons.push({
-          id: 'decomp-prev',
-          label: 'Previous Definition',
-          icon: ChevronLeft,
-          position: 'left-inner',
-          action: () => setDecompIndex(decompIndex - 1)
-        });
-      }
-      if (decompHasNext) {
-        decompButtons.push({
-          id: 'decomp-next',
-          label: 'Next Definition',
-          icon: ChevronRight,
-          position: 'right-inner',
-          action: () => setDecompIndex(decompIndex + 1)
-        });
-      }
+      // Always include both arrows so they stay mounted and can animate in/out as you
+      // reach the first/last definition; `hidden` collapses them (see PieMenu wrapper).
+      decompButtons.push({
+        id: 'decomp-prev',
+        label: 'Previous Definition',
+        icon: ChevronLeft,
+        position: 'left-inner',
+        hidden: !decompHasPrev,
+        action: () => { if (decompHasPrev) setDecompIndex(decompIndex - 1); }
+      });
+      decompButtons.push({
+        id: 'decomp-next',
+        label: 'Next Definition',
+        icon: ChevronRight,
+        position: 'right-inner',
+        hidden: !decompHasNext,
+        action: () => { if (decompHasNext) setDecompIndex(decompIndex + 1); }
+      });
 
       return decompButtons;
     } else {
@@ -5574,7 +5624,35 @@ function NodeCanvas() {
         }
       ];
     }
-  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+
+  // Data for the decomposition CONTROL PANEL (mirrors the decomposition pie-menu state).
+  // Non-null whenever a node is being previewed/decomposed; supplies the current definition
+  // index, nav availability, and a setter so the panel's options match the pie menu.
+  const decomposePanelInfo = useMemo(() => {
+    if (!previewingNodeId) return null;
+    const node = nodes.find(n => n.id === previewingNodeId);
+    if (!node) return null;
+    const prototypeId = node.prototypeId;
+    const proto = nodePrototypesMap.get(prototypeId);
+    if (!proto) return null;
+    const defIds = Array.isArray(proto.definitionGraphIds) ? proto.definitionGraphIds : [];
+    const contextKey = `${prototypeId}-${activeGraphId}`;
+    const index = nodeDefinitionIndices.get(contextKey) || 0;
+    const currentGraphId = defIds[index] || null;
+    return {
+      instanceId: previewingNodeId,
+      prototypeId,
+      prototype: { id: prototypeId, name: proto.name, color: proto.color },
+      defIds,
+      index,
+      currentGraphId,
+      hasDefs: defIds.length > 0,
+      hasPrev: index > 0,
+      hasNext: index < defIds.length - 1,
+      setIndex: (i) => setNodeDefinitionIndices(prev => new Map(prev).set(contextKey, i)),
+    };
+  }, [previewingNodeId, nodes, nodePrototypesMap, activeGraphId, nodeDefinitionIndices, setNodeDefinitionIndices]);
 
   // Log button changes for debugging
   useEffect(() => {
@@ -8650,32 +8728,46 @@ function NodeCanvas() {
     const containerElement = containerRef.current;
     if (!containerElement) return;
 
-    // Get the current pan/zoom from the actual SVG element to ensure accuracy
-    const svgElement = containerElement.querySelector('.canvas');
-    if (!svgElement) return;
+    // Current zoom (for orb sizing) from the authoritative ref.
+    const currentZoom = zoomLevelRef.current || 1;
 
-    const transform = svgElement.style.transform;
-    const translateMatch = transform.match(/translate\((-?\d+(?:\.\d+)?)px,\s*(-?\d+(?:\.\d+)?)px\)/);
-    const scaleMatch = transform.match(/scale\((-?\d+(?:\.\d+)?)\)/);
+    // Get node dimensions — use the EXPANDED size when this node is being previewed, so the
+    // hurtle launches from the expanded node's true center. Using the collapsed size here put
+    // the origin up-and-to-the-left (the small node's center sits near the expanded top-left).
+    const isNodePreviewing = nodeId === previewingNodeId;
+    const descriptionContent = isNodePreviewing ? getNodeDescriptionContent(nodeData, true) : null;
+    const nodeDimensions = getNodeDimensions(nodeData, isNodePreviewing, descriptionContent);
 
-    const currentPanX = translateMatch ? parseFloat(translateMatch[1]) : 0;
-    const currentPanY = translateMatch ? parseFloat(translateMatch[2]) : 0;
-    const currentZoom = scaleMatch ? parseFloat(scaleMatch[1]) : 1;
-
-    // Get node dimensions 
-    const nodeDimensions = getNodeDimensions(nodeData, false, null);
-
-    // Calculate node center in canvas coordinates
+    // Node center in canvas coordinates
     const nodeCenterCanvasX = nodeData.x + nodeDimensions.currentWidth / 2;
     const nodeCenterCanvasY = nodeData.y + nodeDimensions.currentHeight / 2;
 
-    // Apply current transformation
-    const nodeScreenX = nodeCenterCanvasX * currentZoom + currentPanX;
-    const nodeScreenY = nodeCenterCanvasY * currentZoom + currentPanY + HEADER_HEIGHT;
+    // Map canvas coords -> viewport (screen) coords via the content group's screen CTM.
+    // This is the robust path: it accounts for pan, zoom, header, side panels, and scroll,
+    // matching the position:fixed orb. The previous code regex-parsed `svgElement.style.transform`,
+    // but pan/zoom live on the <g> transform ATTRIBUTE (translate(x y) scale(z), space-separated,
+    // no px) — so the regex never matched and it always launched from pan=0/zoom=1 (wrong).
+    const svgElement = containerElement.querySelector('.canvas');
+    const contentG = contentGroupRef.current;
+    let nodeScreenX, nodeScreenY;
+    if (svgElement && contentG && typeof contentG.getScreenCTM === 'function' && contentG.getScreenCTM()) {
+      const ctm = contentG.getScreenCTM();
+      const pt = svgElement.createSVGPoint();
+      pt.x = nodeCenterCanvasX;
+      pt.y = nodeCenterCanvasY;
+      const sp = pt.matrixTransform(ctm);
+      nodeScreenX = sp.x;
+      nodeScreenY = sp.y;
+    } else {
+      // Fallback: approximate from refs (no CTM available).
+      const p = panOffsetRef.current || { x: 0, y: 0 };
+      nodeScreenX = nodeCenterCanvasX * currentZoom + p.x;
+      nodeScreenY = nodeCenterCanvasY * currentZoom + p.y + HEADER_HEIGHT;
+    }
 
-    // Target is header center
-    const screenWidth = containerElement.offsetWidth;
-    const headerCenterX = Math.round(screenWidth / 2);
+    // Target is the header center, in viewport coords (orb is position:fixed).
+    const containerRect = containerElement.getBoundingClientRect();
+    const headerCenterX = Math.round(containerRect.left + containerRect.width / 2);
     const headerCenterY = Math.round(HEADER_HEIGHT / 2);
 
     // Calculate orb size proportional to current zoom
@@ -8687,7 +8779,7 @@ function NodeCanvas() {
       definitionNodeId,
       startTime: performance.now(),
       duration: 400, // slower, more satisfying arc
-      startPos: { x: nodeScreenX, y: nodeScreenY - 15 },
+      startPos: { x: nodeScreenX, y: nodeScreenY },
       targetPos: { x: headerCenterX, y: headerCenterY },
       nodeColor: nodeData.color || NODE_DEFAULT_COLOR,
       orbSize,
@@ -8695,7 +8787,7 @@ function NodeCanvas() {
 
     setHurtleAnimation(animationData);
     runHurtleAnimation(animationData);
-  }, [containerRef, runHurtleAnimation]);
+  }, [containerRef, runHurtleAnimation, previewingNodeId]);
 
   const startHurtleAnimationFromPanel = useCallback((nodeId, targetGraphId, definitionNodeId, startRect) => {
     const currentState = useGraphStore.getState();
@@ -14413,23 +14505,53 @@ function NodeCanvas() {
       {
         (nodeControlPanelShouldShow || nodeControlPanelVisible) && (
           <NodeControlPanel
-            selectedNodePrototypes={nodePrototypesForPanel}
+            mode={decomposePanelInfo ? 'decompose' : 'nodes'}
+            selectedNodePrototypes={decomposePanelInfo ? [decomposePanelInfo.prototype] : nodePrototypesForPanel}
             isVisible={nodeControlPanelVisible}
             typeListOpen={typeListMode !== 'closed'}
             onAnimationComplete={handleNodeControlPanelAnimationComplete}
-            onDelete={handleNodePanelDelete}
-            onAdd={handleNodePanelAdd}
-            onUp={handleNodePanelUp}
+            decompHasDefinitions={decomposePanelInfo ? decomposePanelInfo.hasDefs : false}
+            onCompose={() => setPreviewingNodeId(null)}
+            onDelete={decomposePanelInfo ? () => {
+              const { defIds, index, currentGraphId, prototypeId, setIndex } = decomposePanelInfo;
+              if (!currentGraphId) return;
+              const newLen = defIds.length - 1;
+              if (newLen > 0 && index >= newLen) setIndex(newLen - 1);
+              else if (newLen <= 0) setIndex(0);
+              storeActions.removeDefinitionFromNode(prototypeId, currentGraphId);
+            } : handleNodePanelDelete}
+            onAdd={decomposePanelInfo
+              ? () => storeActions.createAndAssignGraphDefinitionWithoutActivation(decomposePanelInfo.prototypeId)
+              : handleNodePanelAdd}
+            onUp={decomposePanelInfo
+              ? () => { if (decomposePanelInfo.currentGraphId) startHurtleAnimation(decomposePanelInfo.instanceId, decomposePanelInfo.currentGraphId, decomposePanelInfo.prototypeId); }
+              : handleNodePanelUp}
             onOpenInPanel={handleNodePanelOpenInPanel}
-            onDecompose={handleNodePanelDecompose}
+            onDecompose={decomposePanelInfo ? () => {
+              const { instanceId, prototypeId, index } = decomposePanelInfo;
+              const createdGroupId = storeActions.decomposeNodeToGroup(activeGraphId, prototypeId, index);
+              if (!createdGroupId) return;
+              setPreviewingNodeId(null);
+              const gs = useGraphStore.getState();
+              const newGroup = gs.graphs?.get(activeGraphId)?.groups?.get(createdGroupId);
+              if (newGroup) {
+                setSelectedGroup(newGroup);
+                setSelectedInstanceIds(new Set());
+                setGroupControlPanelShouldShow(true);
+                setNodeControlPanelShouldShow(false);
+                setNodeControlPanelVisible(false);
+              }
+            } : handleNodePanelDecompose}
             onAbstraction={handleNodePanelAbstraction}
             onEdit={handleNodePanelEdit}
             onSave={handleNodePanelSave}
             onPalette={handleNodePanelPalette}
             onOrbit={handleNodePanelOrbit}
             onGroup={handleNodePanelGroup}
-            hasLeftNav={false}
-            hasRightNav={false}
+            onLeftNav={decomposePanelInfo ? () => { if (decomposePanelInfo.hasPrev) decomposePanelInfo.setIndex(decomposePanelInfo.index - 1); } : undefined}
+            onRightNav={decomposePanelInfo ? () => { if (decomposePanelInfo.hasNext) decomposePanelInfo.setIndex(decomposePanelInfo.index + 1); } : undefined}
+            hasLeftNav={decomposePanelInfo ? decomposePanelInfo.hasPrev : false}
+            hasRightNav={decomposePanelInfo ? decomposePanelInfo.hasNext : false}
             onActionHoverChange={handlePieMenuHoverChange}
             wizardEnabled={wizardEnabled}
             onDismiss={() => setSelectedInstanceIds(new Set())}

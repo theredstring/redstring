@@ -1345,6 +1345,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           return;
         }
 
+        // Offset the copied network so it lands where the original node was (top-left
+        // aligned) instead of at the definition graph's own coordinate origin (which is
+        // usually nowhere near the node — causing the group to spawn far down/right).
+        const origAnchorInst = graph.instances.get(originalInstanceId);
+        const origAnchorX = origAnchorInst?.x ?? 0;
+        const origAnchorY = origAnchorInst?.y ?? 0;
+        let offsetX = 0, offsetY = 0;
+        if (defGraph.instances && defGraph.instances.size > 0) {
+          const defInsts = Array.from(defGraph.instances.values());
+          const minX = Math.min(...defInsts.map(i => i.x ?? 0));
+          const minY = Math.min(...defInsts.map(i => i.y ?? 0));
+          offsetX = origAnchorX - minX;
+          offsetY = origAnchorY - minY;
+        }
+
         // Copy definition graph instances into the active graph as new member instances
         const instanceIdMap = new Map(); // defInstId -> newInstId
         const memberInstanceIds = [];
@@ -1355,15 +1370,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             const newInstId = uuidv4();
             instanceIdMap.set(defInstId, newInstId);
             memberInstanceIds.push(newInstId);
+            const mx = (defInst.x ?? 0) + offsetX;
+            const my = (defInst.y ?? 0) + offsetY;
             graph.instances.set(newInstId, {
               id: newInstId,
               prototypeId: defInst.prototypeId,
-              x: defInst.x ?? 0,
-              y: defInst.y ?? 0,
+              x: mx,
+              y: my,
               scale: defInst.scale ?? 1
             });
-            sumX += defInst.x ?? 0;
-            sumY += defInst.y ?? 0;
+            sumX += mx;
+            sumY += my;
             memberCount++;
           }
         }
@@ -1419,11 +1436,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         originalInstance.isGroupAnchor = true;
         originalInstance.anchorForGroupId = groupId;
 
-        // Position the anchor at the member centroid initially
-        if (memberCount > 0) {
-          originalInstance.x = sumX / memberCount;
-          originalInstance.y = sumY / memberCount;
-        }
+        // Keep the anchor exactly where the original node was — the members were offset to
+        // match, so the decomposed group appears in place rather than jumping elsewhere.
+        // (originalInstance.x/y are unchanged.)
 
         // Create the thing-group
         if (!graph.groups) graph.groups = new Map();
