@@ -544,7 +544,12 @@ const UniversalNodeRenderer = ({
         hasTargetArrow,
         strokeWidth: adaptiveStrokeWidth,
         color: getConnectionColor(conn),
-        connectionName: conn.connectionName || getConnectionName(conn, nodePrototypesMap)
+        // In the compact decomposition preview, honor an explicitly-passed null name and
+        // skip the prototype-name fallback — at preview scale the labels are unreadable
+        // clutter, and the connection color already conveys the relationship.
+        connectionName: renderContext === 'decomposition'
+          ? conn.connectionName
+          : (conn.connectionName || getConnectionName(conn, nodePrototypesMap))
       };
     }).filter(Boolean);
 

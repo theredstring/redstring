@@ -43,7 +43,7 @@ import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './serv
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS, buildChildGroupIdsIndex } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
 import { debugLogSync } from './utils/debugLogger.js';
-import { getNodeHitbox, getVisualConnectionEndpoints } from './utils/canvas/nodeHitbox.js';
+import { getNodeHitbox, getVisualConnectionEndpoints, getLineNodeIntersection } from './utils/canvas/nodeHitbox.js';
 import { stabilizeLabelPosition, clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
 
@@ -10769,12 +10769,18 @@ function NodeCanvas() {
                             const centerY2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
 
                             if (hasSourceArrow || hasDestArrow) {
-                              // Use edge-based calculation, then selectively apply results
+                              // Use edge-based calculation, then selectively apply results.
+                              // For thing-group endpoints, clip against the group's full outer box
+                              // so the arrow-side line terminates just outside the box (the anchor
+                              // tab sits inside it and the box paints on top, hiding a tab-edge end).
                               const endpoints = getVisualConnectionEndpoints(
                                 sourceNode, destNode,
                                 sNodeDims, eNodeDims,
                                 selectedInstanceIds.has(sourceNode.id),
-                                selectedInstanceIds.has(destNode.id)
+                                selectedInstanceIds.has(destNode.id),
+                                true,
+                                sAnchorInfo?.outerBounds || null,
+                                eAnchorInfo?.outerBounds || null
                               );
 
                               // Source: use edge if has arrow, otherwise center
@@ -10872,16 +10878,38 @@ function NodeCanvas() {
                               !closest || current.distance < closest.distance ? current : closest, null);
                           };
 
-                          // Calculate edge intersections
-                          const sourceIntersection = getNodeEdgeIntersection(
-                            sourceNode.x, sourceNode.y, sNodeDims.currentWidth, sNodeDims.currentHeight,
-                            dx / length, dy / length
-                          );
+                          // Calculate edge intersections. For thing-group anchors the arrow tip must
+                          // sit on the group's OUTER box edge, not the anchor tab (which hides under
+                          // the box). getNodeEdgeIntersection rays from the box CENTER, which is wrong
+                          // here because the line doesn't pass through the outer-box center (the title
+                          // tab is at the top). Use the actual center line's exit point from the box.
+                          const sCenterForArrow = sourceNode.x + sNodeDims.currentWidth / 2;
+                          const sCenterForArrowY = sourceNode.y + sNodeDims.currentHeight / 2;
+                          const dCenterForArrow = destNode.x + eNodeDims.currentWidth / 2;
+                          const dCenterForArrowY = destNode.y + eNodeDims.currentHeight / 2;
+                          const sourceIntersection = sAnchorInfo?.outerBounds
+                            ? getLineNodeIntersection(
+                                sCenterForArrow, sCenterForArrowY, dCenterForArrow, dCenterForArrowY,
+                                { minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
+                                  maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
+                                  maxY: sAnchorInfo.outerBounds.y + sAnchorInfo.outerBounds.height }
+                              )
+                            : getNodeEdgeIntersection(
+                                sourceNode.x, sourceNode.y, sNodeDims.currentWidth, sNodeDims.currentHeight,
+                                dx / length, dy / length
+                              );
 
-                          const destIntersection = getNodeEdgeIntersection(
-                            destNode.x, destNode.y, eNodeDims.currentWidth, eNodeDims.currentHeight,
-                            -dx / length, -dy / length
-                          );
+                          const destIntersection = eAnchorInfo?.outerBounds
+                            ? getLineNodeIntersection(
+                                dCenterForArrow, dCenterForArrowY, sCenterForArrow, sCenterForArrowY,
+                                { minX: eAnchorInfo.outerBounds.x, minY: eAnchorInfo.outerBounds.y,
+                                  maxX: eAnchorInfo.outerBounds.x + eAnchorInfo.outerBounds.width,
+                                  maxY: eAnchorInfo.outerBounds.y + eAnchorInfo.outerBounds.height }
+                              )
+                            : getNodeEdgeIntersection(
+                                destNode.x, destNode.y, eNodeDims.currentWidth, eNodeDims.currentHeight,
+                                -dx / length, -dy / length
+                              );
 
                           // Determine if each end of the edge should be shortened for arrows
                           // (arrowsToward already calculated earlier for endpoint logic)
@@ -10948,7 +10976,10 @@ function NodeCanvas() {
                               ? getVisualConnectionEndpoints(
                                 sourceNode, destNode, sNodeDims, eNodeDims,
                                 selectedInstanceIds.has(sourceNode.id),
-                                selectedInstanceIds.has(destNode.id)
+                                selectedInstanceIds.has(destNode.id),
+                                true,
+                                sAnchorInfo?.outerBounds || null,
+                                eAnchorInfo?.outerBounds || null
                               )
                               : null;
                             startX = shouldShortenSource ? (insetLineEndpoints?.x1 ?? sourceIntersection?.x ?? x1) : x1;
@@ -12143,12 +12174,18 @@ function NodeCanvas() {
                             const centerY2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
 
                             if (hasSourceArrow || hasDestArrow) {
-                              // Use edge-based calculation, then selectively apply results
+                              // Use edge-based calculation, then selectively apply results.
+                              // For thing-group endpoints, clip against the group's full outer box
+                              // so the arrow-side line terminates just outside the box (the anchor
+                              // tab sits inside it and the box paints on top, hiding a tab-edge end).
                               const endpoints = getVisualConnectionEndpoints(
                                 sourceNode, destNode,
                                 sNodeDims, eNodeDims,
                                 selectedInstanceIds.has(sourceNode.id),
-                                selectedInstanceIds.has(destNode.id)
+                                selectedInstanceIds.has(destNode.id),
+                                true,
+                                sAnchorInfo?.outerBounds || null,
+                                eAnchorInfo?.outerBounds || null
                               );
 
                               // Source: use edge if has arrow, otherwise center
@@ -12246,16 +12283,38 @@ function NodeCanvas() {
                               !closest || current.distance < closest.distance ? current : closest, null);
                           };
 
-                          // Calculate edge intersections
-                          const sourceIntersection = getNodeEdgeIntersection(
-                            sourceNode.x, sourceNode.y, sNodeDims.currentWidth, sNodeDims.currentHeight,
-                            dx / length, dy / length
-                          );
+                          // Calculate edge intersections. For thing-group anchors the arrow tip must
+                          // sit on the group's OUTER box edge, not the anchor tab (which hides under
+                          // the box). getNodeEdgeIntersection rays from the box CENTER, which is wrong
+                          // here because the line doesn't pass through the outer-box center (the title
+                          // tab is at the top). Use the actual center line's exit point from the box.
+                          const sCenterForArrow = sourceNode.x + sNodeDims.currentWidth / 2;
+                          const sCenterForArrowY = sourceNode.y + sNodeDims.currentHeight / 2;
+                          const dCenterForArrow = destNode.x + eNodeDims.currentWidth / 2;
+                          const dCenterForArrowY = destNode.y + eNodeDims.currentHeight / 2;
+                          const sourceIntersection = sAnchorInfo?.outerBounds
+                            ? getLineNodeIntersection(
+                                sCenterForArrow, sCenterForArrowY, dCenterForArrow, dCenterForArrowY,
+                                { minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
+                                  maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
+                                  maxY: sAnchorInfo.outerBounds.y + sAnchorInfo.outerBounds.height }
+                              )
+                            : getNodeEdgeIntersection(
+                                sourceNode.x, sourceNode.y, sNodeDims.currentWidth, sNodeDims.currentHeight,
+                                dx / length, dy / length
+                              );
 
-                          const destIntersection = getNodeEdgeIntersection(
-                            destNode.x, destNode.y, eNodeDims.currentWidth, eNodeDims.currentHeight,
-                            -dx / length, -dy / length
-                          );
+                          const destIntersection = eAnchorInfo?.outerBounds
+                            ? getLineNodeIntersection(
+                                dCenterForArrow, dCenterForArrowY, sCenterForArrow, sCenterForArrowY,
+                                { minX: eAnchorInfo.outerBounds.x, minY: eAnchorInfo.outerBounds.y,
+                                  maxX: eAnchorInfo.outerBounds.x + eAnchorInfo.outerBounds.width,
+                                  maxY: eAnchorInfo.outerBounds.y + eAnchorInfo.outerBounds.height }
+                              )
+                            : getNodeEdgeIntersection(
+                                destNode.x, destNode.y, eNodeDims.currentWidth, eNodeDims.currentHeight,
+                                -dx / length, -dy / length
+                              );
 
                           // Determine if each end of the edge should be shortened for arrows
                           // (arrowsToward already calculated earlier for endpoint logic)
@@ -12322,7 +12381,10 @@ function NodeCanvas() {
                               ? getVisualConnectionEndpoints(
                                 sourceNode, destNode, sNodeDims, eNodeDims,
                                 selectedInstanceIds.has(sourceNode.id),
-                                selectedInstanceIds.has(destNode.id)
+                                selectedInstanceIds.has(destNode.id),
+                                true,
+                                sAnchorInfo?.outerBounds || null,
+                                eAnchorInfo?.outerBounds || null
                               )
                               : null;
                             startX = shouldShortenSource ? (insetLineEndpoints?.x1 ?? sourceIntersection?.x ?? x1) : x1;

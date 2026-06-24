@@ -485,10 +485,16 @@ export const useNodeDrag = ({
       if (isManhattanOrClean) {
         endpoints = { x1: centerX1, y1: centerY1, x2: centerX2, y2: centerY2 };
       } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
+        // Clip arrow-side endpoints against a thing-group's full outer box (not the
+        // anchor tab) so the drag-time line + arrow terminate just outside the box,
+        // matching the settled render and keeping the arrowhead visible.
         const clipped = getVisualConnectionEndpoints(
           virtualSource, virtualDest, sDims, dDims,
           curSelectedIds.has(edge.sourceId),
-          curSelectedIds.has(edge.destinationId)
+          curSelectedIds.has(edge.destinationId),
+          true,
+          sAnchor?.outerBounds || null,
+          eAnchor?.outerBounds || null
         );
         endpoints = {
           x1: hasSourceArrow ? clipped.x1 : centerX1,
