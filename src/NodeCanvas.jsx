@@ -4088,6 +4088,41 @@ function NodeCanvas() {
   const projectBio = activeGraphDescription ?? '';
   const [previewingNodeId, setPreviewingNodeId] = useState(null);
 
+  // When a node is decomposed into its preview (decomposition view), frame it on
+  // the canvas with the same animated zoom-in used for the abstraction carousel.
+  // The previewed node expands to show its inner graph, so we fit it to the
+  // viewport (with padding) rather than using a fixed reference zoom.
+  const DECOMPOSE_VIEW_PADDING = 120; // px of breathing room around the expanded node
+  const prevPreviewingNodeIdRef = useRef(null);
+  useEffect(() => {
+    const was = prevPreviewingNodeIdRef.current;
+    prevPreviewingNodeIdRef.current = previewingNodeId;
+
+    // Only animate on spawn (null -> a node), not on un-decompose or node switches.
+    if (was || !previewingNodeId) return;
+    const node = nodes.find(n => n.id === previewingNodeId);
+    if (!node) return;
+
+    const dims = getNodeDimensions(node, true, null); // preview (expanded) dimensions
+    const centerX = node.x + dims.currentWidth / 2;
+    const centerY = node.y + dims.currentHeight / 2;
+
+    // Zoom to fit the expanded node within the viewport, clamped to zoom bounds.
+    const fitX = viewportSize.width / (dims.currentWidth + DECOMPOSE_VIEW_PADDING * 2);
+    const fitY = viewportSize.height / (dims.currentHeight + DECOMPOSE_VIEW_PADDING * 2);
+    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(fitX, fitY)));
+
+    const targetPanX = viewportSize.width / 2 - (centerX - canvasSize.offsetX) * tz;
+    const targetPanY = viewportSize.height / 2 - (centerY - canvasSize.offsetY) * tz;
+    const minPanX = viewportSize.width - canvasSize.width * tz;
+    const minPanY = viewportSize.height - canvasSize.height * tz;
+    const finalPan = {
+      x: Math.min(Math.max(targetPanX, minPanX), 0),
+      y: Math.min(Math.max(targetPanY, minPanY), 0),
+    };
+    animateCanvasView(finalPan, tz);
+  }, [previewingNodeId, nodes, animateCanvasView, viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM]);
+
   // Track current definition index for each node per graph context (nodeId-graphId -> index)
   const [nodeDefinitionIndices, setNodeDefinitionIndices] = useState(new Map());
 
