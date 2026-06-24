@@ -3926,10 +3926,18 @@ function NodeCanvas() {
   }, []);
 
   const onCarouselClose = useCallback(() => {
-    // Use the same logic as the back button for a smooth transition
-    // Mark that this closure was initiated by a click-away so we can avoid reopening PieMenu
-    carouselClosedByClickAwayRef.current = true;
-    setSelectedNodeIdForPieMenu(null);
+    // Behave EXACTLY like the Stage-1 "Back" button: run the normal pie-menu
+    // shrink → onExitAnimationComplete → carousel-exit chain, and let the pie
+    // menu reopen on the node afterward.
+    //
+    // Do NOT null selectedNodeIdForPieMenu or flag a click-away dismissal here.
+    // Nulling the selection unmounts the pie menu before its exit animation can
+    // fire, so onExitAnimationComplete never runs and isTransitioningPieMenu gets
+    // stuck true — which permanently disables the pie menu until refresh.
+    setIsCarouselStageTransition(false); // ensure this resolves as a carousel exit, not a stage swap
+    setJustCompletedCarouselExit(true);  // protect restored state from graph-change cleanup
+    setIsPieMenuActionInProgress(true);
+    setTimeout(() => setIsPieMenuActionInProgress(false), 100);
     setIsTransitioningPieMenu(true);
   }, []);
 
@@ -8139,6 +8147,27 @@ function NodeCanvas() {
       setActivePieMenuItemForVision(null);
     }
   }, [isPieMenuRendered]);
+
+  // Watchdog: isTransitioningPieMenu is only ever meant to be true briefly while a
+  // rendered pie menu plays its shrink animation; PieMenu.onExitAnimationComplete
+  // (and, for carousel exits, onCarouselExitAnimationComplete) clears it. But if
+  // the flag is set true when there is no pie menu actually animating out — e.g. a
+  // race where the selection changed or the menu wasn't rendered — that callback
+  // never fires and the flag stays stuck true, which permanently blocks every
+  // future pie menu from rendering (see the gate at `selectedNodeIdForPieMenu &&
+  // !isTransitioningPieMenu`). This timeout is well beyond any real transition
+  // (~400-600ms) and is cleared by the effect cleanup the instant the flag flips
+  // back to false through the normal chain, so it only ever fires in the stuck
+  // case — recovering the pie menu instead of requiring a refresh.
+  useEffect(() => {
+    if (!isTransitioningPieMenu) return;
+    const watchdog = setTimeout(() => {
+      console.warn('[NodeCanvas] Pie-menu transition watchdog fired — clearing stuck isTransitioningPieMenu.');
+      setIsTransitioningPieMenu(false);
+      setIsCarouselStageTransition(false);
+    }, 1200);
+    return () => clearTimeout(watchdog);
+  }, [isTransitioningPieMenu]);
 
   // Sync semanticOrbitActive ref for RAF callbacks
   useEffect(() => {

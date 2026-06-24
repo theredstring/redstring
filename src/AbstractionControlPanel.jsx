@@ -153,7 +153,7 @@ const AbstractionControlPanel = ({
             border: 'none',
             borderRadius: '16px',
             padding: '8px 16px',
-            color: '#000000',
+            color: theme.canvas.textSecondary,
             fontSize: '16px',
             fontWeight: 'bold',
             textAlign: 'center',
@@ -178,8 +178,8 @@ const AbstractionControlPanel = ({
             width: 'auto'
           }}
         >
-          <span style={{ 
-            color: '#000000',
+          <span style={{
+            color: theme.canvas.textSecondary,
             fontSize: '16px',
             fontWeight: 'bold',
             textAlign: 'center',

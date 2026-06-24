@@ -156,7 +156,10 @@ html.dark-mode .wizard-loading-text {
   border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Animate only the hover lift — background/box-shadow (the active selection
+     ring) apply instantly so selecting a tab reads as immediate, not a 200ms
+     fade-in. */
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   font-size: 13px;
   color: rgba(38, 0, 0, 0.6);
   font-weight: 500;

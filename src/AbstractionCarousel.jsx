@@ -1071,15 +1071,16 @@ const AbstractionCarousel = ({
         // Also check if the click was on the abstraction control panel
         const isOnControlPanel = e.target.closest('.abstraction-control-panel');
         const isOnPieMenu = e.target.closest('.pie-menu');
-        const isOnCanvas = e.target.closest('.canvas');
         // When a UnifiedSelector dialog (e.g. Add-Above/Add-Below) is open over
         // the carousel, its backdrop covers the screen. On iOS Chrome the
         // pie-menu tap's delayed synthetic mousedown can land on that backdrop
         // after re-render, triggering this handler and dismissing the carousel.
         const isOnModalOverlay = e.target.closest('.unified-selector-overlay');
 
-        // Only close if the click is not on any of these elements
-        if (!isOnControlPanel && !isOnPieMenu && !isOnCanvas && !isOnModalOverlay) {
+        // Clicking off the carousel — including the canvas background — closes it
+        // (via onClose, which mirrors the Stage-1 Back button). Only the pie menu,
+        // control panel, and any open modal overlay are exempt.
+        if (!isOnControlPanel && !isOnPieMenu && !isOnModalOverlay) {
           onClose();
         }
       }
@@ -1571,7 +1572,7 @@ const AbstractionCarousel = ({
               fontFamily="'EmOne', sans-serif"
               fill="#260000"
               stroke={theme.canvas?.textMuted || "#BDB5B5"}
-              strokeWidth={2}
+              strokeWidth={5}
               style={{ paintOrder: 'stroke fill' }}
             >
               More Specific
@@ -1590,9 +1591,8 @@ const AbstractionCarousel = ({
               fontSize={30}
               fontFamily="'EmOne', sans-serif"
               fill="#260000"
-              stroke={theme.canvas.text}
-
-              strokeWidth={2}
+              stroke={theme.canvas?.textMuted || "#BDB5B5"}
+              strokeWidth={5}
               style={{ paintOrder: 'stroke fill' }}
             >
               Less Specific

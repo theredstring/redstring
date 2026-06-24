@@ -4051,12 +4051,15 @@ const LeftAIView = ({ compact = false,
       timestamp: new Date().toISOString()
     };
 
-    setConversations(prev => [...prev, newConv]);
-
-    // Use handleTabSwitch logic but since it's a new tab, we just clear
-    lastMessagesRef.current = [];
-    setMessages([]);
+    // Urgent: insert the tab and move the selection so they paint immediately.
+    setConversations(prev => [newConv, ...prev]);
     setActiveConversationId(newId);
+
+    // Deferred: swap the message content in a transition so unmounting the old
+    // conversation's (possibly heavy) list doesn't block the selection paint.
+    // Old cards are React.memo'd, so the urgent commit above stays cheap.
+    lastMessagesRef.current = [];
+    React.startTransition(() => { setMessages([]); });
   };
 
   const handleCloseConversation = (id, e) => {
