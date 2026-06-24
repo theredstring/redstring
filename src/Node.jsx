@@ -178,11 +178,15 @@ const Node = ({
   const safeColor = useMemo(() => isValidColor(node.color) ? node.color : NODE_DEFAULT_COLOR, [node.color]);
   const nodeTextColor = useMemo(() => getTextColor(safeColor, theme.darkMode), [safeColor, theme.darkMode]);
 
-  // For previewing, we want text to wrap exactly as it did when unexpanded
+  // We want the title to wrap exactly as it does when unexpanded — in ALL states,
+  // not just while previewing. Pinning the text box width to the unexpanded
+  // wrapping width keeps the wrapping identical throughout the expand/contract
+  // animation. (If this were only applied while isPreviewing, the instant boolean
+  // flip would un-pin maxWidth mid-contraction while the container is still wide,
+  // causing the title to reflow during the animation.)
   const unexpandedDims = React.useMemo(() => {
-    // Pass a dummy descriptionContent if needed, or null if getNodeDimensions doesn't use it for unexpanded
-    return isPreviewing ? getNodeDimensions(node, false, null) : null;
-  }, [node, isPreviewing]);
+    return getNodeDimensions(node, false, null);
+  }, [node]);
   const previewTextMaxWidth = unexpandedDims ? unexpandedDims.currentWidth - 60 : undefined; // 60px = 2 * 30px (multi-line padding for consistent wrapping)
 
   // Determine if text will be multiline for conditional padding
@@ -450,7 +454,7 @@ const Node = ({
                 minWidth: 0,
                 display: 'inline-block',
                 width: '100%',
-                maxWidth: isPreviewing && previewTextMaxWidth ? `${previewTextMaxWidth}px` : '100%',
+                maxWidth: previewTextMaxWidth ? `${previewTextMaxWidth}px` : '100%',
                 transition: 'color 0.3s ease',
                 hyphens: 'auto',
               }}
@@ -572,22 +576,6 @@ const Node = ({
                     />
                   </div>
                 </foreignObject>
-
-                {/* Definition indicator - show current definition index if multiple exist */}
-                {hasMultipleDefinitions && (
-                  <text
-                    x={nodeX + currentWidth - 20} // Position in bottom-right corner
-                    y={contentAreaY + innerNetworkHeight - 10}
-                    fontSize="12"
-                    fill={nodeTextColor}
-                    textAnchor="end"
-                    style={{ opacity: 0.7 }}
-                  >
-                    {currentDefinitionIndex + 1}/{definitionGraphIds.length}
-                  </text>
-                )}
-
-
               </>
             ) : (
               // Show "Create Definition" interface when no definitions exist

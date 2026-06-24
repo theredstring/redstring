@@ -70,7 +70,7 @@ const ConnectionText = ({
     // line into the nodes or arrowheads. Clip sooner, don't wrap.
     const length = Math.sqrt(dx * dx + dy * dy);
     const fontString = `bold ${fontSize}px 'EmOne', sans-serif`;
-    const available = Math.max(0, length * 0.62); // clip earlier; keep well clear of node ends/arrowheads
+    const available = Math.max(0, length * 0.45); // clip earlier; keep well clear of node ends/arrowheads
     lines.push(truncateToWidth(displayName, fontString, available));
   } else {
     // Wrapping logic: roughly 15-20 chars for connection labels

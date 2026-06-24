@@ -3349,6 +3349,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           isActive: true
         });
       }
+
+      // Ensure the right panel is open so the navigated-to node is visible.
+      // Centralizes the "open panel on double-click navigation" behavior for
+      // all call sites (carousel, canvas nodes, panel lists, etc.).
+      draft.rightPanelExpanded = true;
     })),
 
     activateRightPanelTab: (index) => set(produce((draft) => {

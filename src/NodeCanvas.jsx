@@ -7401,24 +7401,35 @@ function NodeCanvas() {
         return;
       }
 
-      // Resolve the correct chain owner: if selected node belongs to another node's chain for
-      // this dimension, modify that owner's chain; otherwise, use the selected node as owner.
+      // Resolve the chain owner EXACTLY the way the carousel does, anchored on the
+      // carousel's own node (abstractionCarouselNode), NOT the focused node. The
+      // carousel displays the anchor's chain: its own chain if it owns one, else
+      // the chain that contains the anchor. If we instead searched by the focused
+      // node's prototype (as before), it could match a *different*, pre-existing
+      // axis chain that happens to contain that prototype — so the add would land
+      // in an axis you're not looking at and never appear in the open carousel.
+      // We still insert relative to the focused node (targetPrototypeId) within
+      // that resolved chain.
       const currentStateForChain = useGraphStore.getState();
       const allPrototypes = currentStateForChain.nodePrototypes;
-      const targetProtoForMembership = targetPrototypeId; // the prototype relative to which we insert
-      let chainOwnerPrototypeId = abstractionCarouselNode.prototypeId;
+      const anchorPrototypeId = abstractionCarouselNode.prototypeId;
+      let chainOwnerPrototypeId = anchorPrototypeId;
       try {
-        // If the selected/target prototype appears inside some other prototype's chain
-        // for the current dimension, that prototype is the chain owner we should modify
-        for (const [protoId, proto] of allPrototypes.entries()) {
-          const chain = proto?.abstractionChains?.[currentAbstractionDimension];
-          if (chain && Array.isArray(chain) && chain.includes(targetProtoForMembership)) {
-            chainOwnerPrototypeId = protoId;
-            break;
+        const anchorProto = allPrototypes.get(anchorPrototypeId);
+        const anchorOwnsChain = anchorProto?.abstractionChains?.[currentAbstractionDimension]?.length > 0;
+        if (!anchorOwnsChain) {
+          // Anchor doesn't own a chain for this dimension — find the chain that
+          // contains it (matching AbstractionCarousel's resolution, first match).
+          for (const [protoId, proto] of allPrototypes.entries()) {
+            const chain = proto?.abstractionChains?.[currentAbstractionDimension];
+            if (chain && Array.isArray(chain) && chain.includes(anchorPrototypeId)) {
+              chainOwnerPrototypeId = protoId;
+              break;
+            }
           }
         }
       } catch (_) {
-        // Fall back to the current carousel node as owner
+        // Fall back to the carousel node as owner
       }
 
       // Determine the node to insert into the chain: existing or new
