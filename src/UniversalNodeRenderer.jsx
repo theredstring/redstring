@@ -662,8 +662,9 @@ const UniversalNodeRenderer = ({
               const unitX = dx / length;
               const unitY = dy / length;
 
-              // Calculate dot/arrow positions (8% from nodes)
-              const dotOffset = 0.08 * length;
+              // Calculate dot/arrow positions (8% from nodes; more inset in the compact
+              // decomposition preview so arrowheads clear the node edges instead of overlapping).
+              const dotOffset = (renderContext === 'decomposition' ? 0.13 : 0.08) * length;
 
               // Only shorten the line on sides where there are arrows or when hovering to show dots.
               // forceShowConnectionDots keeps dots visible without hover (touch mode).
@@ -742,8 +743,10 @@ const UniversalNodeRenderer = ({
                 const dy = conn.targetPoint.y - conn.sourcePoint.y;
                 const sourceArrowAngle = Math.atan2(-dy, -dx) * 180 / Math.PI; // Point toward the source node
 
-                // Calculate arrow scale based on stroke width (maintains proportions)
-                const arrowScale = Math.max(0.5, conn.strokeWidth / 6); // Base arrow size is for strokeWidth=6
+                // Calculate arrow scale based on stroke width (maintains proportions).
+                // Trim arrowheads in the compact decomposition preview so they read at
+                // node scale instead of dominating the small inner nodes.
+                const arrowScale = Math.max(0.5, conn.strokeWidth / 6) * (renderContext === 'decomposition' ? 0.8 : 1);
 
                 return (
                   <g
@@ -790,8 +793,10 @@ const UniversalNodeRenderer = ({
                 const dy = conn.targetPoint.y - conn.sourcePoint.y;
                 const destArrowAngle = Math.atan2(dy, dx) * 180 / Math.PI; // Point toward the target node
 
-                // Calculate arrow scale based on stroke width (maintains proportions)
-                const arrowScale = Math.max(0.5, conn.strokeWidth / 6); // Base arrow size is for strokeWidth=6
+                // Calculate arrow scale based on stroke width (maintains proportions).
+                // Trim arrowheads in the compact decomposition preview so they read at
+                // node scale instead of dominating the small inner nodes.
+                const arrowScale = Math.max(0.5, conn.strokeWidth / 6) * (renderContext === 'decomposition' ? 0.8 : 1);
 
                 return (
                   <g
@@ -984,9 +989,11 @@ const UniversalNodeRenderer = ({
           let baseFontSize, baseLineHeight, baseVerticalPadding, baseSingleLineSidePadding, baseMultiLineSidePadding, baseAverageCharWidth;
 
           if (renderContext === 'decomposition') {
-            // Decomposition view: tighter spacing, optimized for readability at small scales
+            // Decomposition view: tighter spacing, optimized for readability at small scales.
+            // Line height kept near 1.0× the font size so preview labels match the tight
+            // spacing of real nodes (which use fontSize 28 / lineHeight 28).
             baseFontSize = node.isGroup ? 22 : 20;
-            baseLineHeight = node.isGroup ? 28 : 24; // Tighter line height for compact display
+            baseLineHeight = node.isGroup ? 24 : 20; // ~1.0× font: tight line spacing like real nodes
             baseVerticalPadding = node.isGroup ? 8 : 6; // Minimal vertical padding to maximize text space
             baseSingleLineSidePadding = node.isGroup ? 16 : 12; // Tight side padding for small nodes
             baseMultiLineSidePadding = node.isGroup ? 20 : 16; // Still compact for wrapped text

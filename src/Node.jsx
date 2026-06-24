@@ -505,7 +505,7 @@ const Node = ({
               y={contentAreaY}
               width={innerNetworkWidth}
               height={innerNetworkHeight}
-              fill="#BEB5B5"
+              fill={theme.canvas.bg}
             />
 
             {hasAnyDefinitions ? (
@@ -557,7 +557,7 @@ const Node = ({
                       })}
                       containerWidth={innerNetworkWidth}
                       containerHeight={innerNetworkHeight}
-                      padding={25}
+                      padding={14}
                       backgroundColor="transparent"
                       interactive={true}
                       showHoverEffects={true}
@@ -566,7 +566,7 @@ const Node = ({
                       scaleMode="fit"
                       minNodeSize={60}
                       renderContext="decomposition"
-                      nodeFontScale={1.4 * textSettings.fontSize}
+                      nodeFontScale={textSettings.fontSize}
                       nodeLineHeightScale={textSettings.lineSpacing}
                       cornerRadiusMultiplier={64}
                       onNodeHover={(nodeData, isHovering) => {
@@ -620,7 +620,7 @@ const Node = ({
                     alignItems: 'center',
                     justifyContent: 'center',
                     backgroundColor: 'transparent',
-                    color: '#716C6C',
+                    color: theme.canvas.textSecondary,
                     fontSize: '16px',
                     fontWeight: 'bold',
                     textAlign: 'center',
@@ -629,7 +629,7 @@ const Node = ({
                     transition: 'all 0.2s ease',
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.1)';
+                    e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.1)';
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = 'transparent';
@@ -670,7 +670,7 @@ const Node = ({
             style={{
               width: '100%',
               height: '100%',
-              padding: '4px 8px',
+              padding: '12px 8px 4px',
               boxSizing: 'border-box',
               fontFamily: "'EmOne', sans-serif",
               fontSize: `${18 * textSettings.fontSize}px`,
