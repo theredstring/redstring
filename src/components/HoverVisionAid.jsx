@@ -36,8 +36,10 @@ const HoverVisionAid = ({
 
   let content = null;
 
-  // Hover Preview Size setting is the direct scale (default 0.75x).
-  const previewScale = hoverPreviewSize;
+  // Hover Preview Size setting is the direct scale (default 0.75x) for node and
+  // connection previews. The pie-menu item label is a fixed text pill, not a node
+  // preview, so it renders at its original full size (1.0) and ignores the slider.
+  const previewScale = hasItem ? 1.0 : hoverPreviewSize;
 
   const containerStyle = {
     position: 'absolute',
@@ -133,7 +135,7 @@ const HoverVisionAid = ({
       )
     );
 
-    containerStyle.marginTop = -8;
+    containerStyle.marginTop = -20;
     content = (
       <div style={{ display: 'inline-flex', padding: 0, borderRadius: '44px', background: 'transparent', overflow: 'visible' }}>
         <UniversalNodeRenderer
@@ -162,7 +164,7 @@ const HoverVisionAid = ({
     const nodeContainerWidth = Math.max(340, nodeWidth + 80);
     const nodeContainerHeight = Math.max(120, nodeHeight + 40);
     
-    containerStyle.marginTop = -6;
+    containerStyle.marginTop = -18;
     content = (
       <div style={{ display: 'inline-flex', padding: 0, borderRadius: '36px', background: 'transparent', overflow: 'visible' }}>
         <UniversalNodeRenderer

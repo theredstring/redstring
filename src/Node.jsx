@@ -672,10 +672,11 @@ const Node = ({
               height: '100%',
               padding: '4px 8px',
               boxSizing: 'border-box',
-              fontSize: `${20 * textSettings.fontSize}px`,
+              fontFamily: "'EmOne', sans-serif",
+              fontSize: `${18 * textSettings.fontSize}px`,
               color: nodeTextColor,
               fontWeight: 'normal',
-              lineHeight: `${24 * textSettings.lineSpacing}px`, // Tighter for description
+              lineHeight: `${23.4 * textSettings.lineSpacing}px`, // Smaller font, ~1.3 line spacing for description
               textAlign: 'center',
               wordWrap: 'break-word',
               overflowWrap: 'break-word',
