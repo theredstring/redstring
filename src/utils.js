@@ -136,7 +136,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
       // Cap at maximum 3 lines but use actual height if smaller
       const maxAllowedHeight = DESCRIPTION_MAX_LINES * DESCRIPTION_LINE_HEIGHT;
       const contentHeight = Math.min(actualHeight, maxAllowedHeight);
-      descriptionAreaHeight = contentHeight + 8; // Minimal padding (4px top + 4px bottom)
+      descriptionAreaHeight = contentHeight + 16; // Padding (12px top + 4px bottom, matches Node.jsx)
     } else {
       // If no description, set height to 0
       descriptionAreaHeight = 0;
