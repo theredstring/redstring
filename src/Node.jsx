@@ -160,7 +160,7 @@ const Node = ({
   const textSettings = useGraphStore((state) => state.textSettings);
   const nodePrototypesMap = useGraphStore((state) => isPreviewing ? state.nodePrototypes : null);
   const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
-  const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 1.0);
+  const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 0.75);
 
   // Determine display title: prefer current graph title in preview, else node name
   const currentGraphName = useMemo(() => {

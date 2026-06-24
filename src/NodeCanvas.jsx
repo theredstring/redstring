@@ -3817,12 +3817,11 @@ function NodeCanvas() {
 
   // --- Carousel view-locking: on open, animate the canvas so the selected node
   // is centered at a fixed reference zoom; while open, all user pan/zoom is
-  // blocked (see wheel/drag/pinch/keyboard guards). On close, the prior view is
-  // restored. This gives the carousel a stable, predictable frame to live in
+  // blocked (see wheel/drag/pinch/keyboard guards). On close, the framing is
+  // left as-is. This gives the carousel a stable, predictable frame to live in
   // instead of fighting a moving canvas.
   const CAROUSEL_REFERENCE_ZOOM = 0.8; // slightly zoomed out so more of the chain is visible
   const CAROUSEL_VERTICAL_BIAS = 0.10; // fraction of viewport height to nudge the node above center
-  const preCarouselViewRef = useRef(null);
   const prevCarouselVisibleRef = useRef(false);
   const carouselViewAnimRef = useRef(null);
   // Live ref mirror so closures (gesture handlers) can read the current value.
@@ -3858,19 +3857,16 @@ function NodeCanvas() {
     carouselViewAnimRef.current = requestAnimationFrame(step);
   }, [setPanAndZoom, panOffsetRef, zoomLevelRef, isAnimatingZoomRef]);
 
-  // Center on open / restore on close.
+  // Center on open. On close we intentionally leave the canvas where it is —
+  // the carousel framing becomes the new resting view rather than snapping back.
   useEffect(() => {
     const was = prevCarouselVisibleRef.current;
     prevCarouselVisibleRef.current = abstractionCarouselVisible;
 
     if (!was && abstractionCarouselVisible) {
-      // Opening: remember where we were, then frame the node.
+      // Opening: frame the node.
       const node = abstractionCarouselNode;
       if (!node) return;
-      preCarouselViewRef.current = {
-        pan: { ...panOffsetRef.current },
-        zoom: zoomLevelRef.current,
-      };
       const dims = getNodeDimensions(node, false, null);
       const centerX = node.x + dims.currentWidth / 2;
       const centerY = node.y + dims.currentHeight / 2;
@@ -3887,11 +3883,6 @@ function NodeCanvas() {
         y: Math.min(Math.max(targetPanY, minPanY), 0),
       };
       animateCanvasView(finalPan, tz);
-    } else if (was && !abstractionCarouselVisible) {
-      // Closing: restore the pre-carousel view.
-      const prev = preCarouselViewRef.current;
-      preCarouselViewRef.current = null;
-      if (prev) animateCanvasView(prev.pan, prev.zoom);
     }
   }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM]);
 

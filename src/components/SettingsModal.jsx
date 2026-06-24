@@ -63,7 +63,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
   const darkMode = useGraphStore(s => s.darkMode);
   const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
-  const hoverPreviewSize = useGraphStore(s => s.hoverPreviewSize ?? 1.0);
+  const hoverPreviewSize = useGraphStore(s => s.hoverPreviewSize ?? 0.75);
 
   const isCompactLayout = viewportSize.width <= 768;
   const modalWidth = isCompactLayout
@@ -156,7 +156,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-slider-row">
             <MaroonSlider
               label="Hover Preview Size"
-              value={hoverPreviewSize ?? 1.0}
+              value={hoverPreviewSize ?? 0.75}
               min={0.5}
               max={1.5}
               step={0.05}

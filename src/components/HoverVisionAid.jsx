@@ -19,7 +19,7 @@ const HoverVisionAid = ({
   verticalOffset = -25
 }) => {
   const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
-  const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 1.0);
+  const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 0.75);
 
   const hasConnection = Boolean(hoveredConnection?.source && hoveredConnection?.target);
   const hasNode = Boolean(!hasConnection && hoveredNode);
@@ -36,10 +36,8 @@ const HoverVisionAid = ({
 
   let content = null;
 
-  // Base scale makes the preview a bit smaller than its native size; the user's
-  // Hover Preview Size setting multiplies it (1.0 = default).
-  const BASE_PREVIEW_SCALE = 0.85;
-  const previewScale = BASE_PREVIEW_SCALE * hoverPreviewSize;
+  // Hover Preview Size setting is the direct scale (default 0.75x).
+  const previewScale = hoverPreviewSize;
 
   const containerStyle = {
     position: 'absolute',
