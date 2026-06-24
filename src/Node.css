@@ -6,9 +6,10 @@
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: none;
-  will-change: transform;
-  /* Remove transitions handled by inline styles in Node.jsx */
-  /* transition: transform 0.05s ease, filter 0.1s ease; */
+  /* NOTE: will-change:transform removed from default state — it creates a GPU
+     compositing layer for every node <g>, which on iOS WebKit mispositions
+     foreignObject children to the SVG origin (blank inner preview). Applied only
+     during drag via inline style in Node.jsx. */
 }
 
 /* Inherit the suppression for node descendants (SVG children) */

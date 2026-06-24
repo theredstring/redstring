@@ -292,10 +292,17 @@ const Node = ({
       data-instance-id={instanceId}
       data-has-context-menu="true"
       /* Disable default touch gestures on node group */
-      style={{
-        // Apply only scaling transform, position is handled by element attributes
-        transform: isDragging ? `scale(${nodeScale})` : 'scale(1)',
-        transformOrigin: `${nodeX + currentWidth / 2}px ${nodeY + currentHeight / 2}px`, // Use absolute coords for origin
+      style={isDragging ? {
+        // CSS transform + will-change only during drag — either property on a parent <g>
+        // creates a GPU compositing layer on iOS WebKit, which mispositions foreignObject
+        // children to the SVG origin and causes a blank inner preview. Leave both absent
+        // when not dragging so no compositing layer is created.
+        transform: `scale(${nodeScale})`,
+        transformOrigin: `${nodeX + currentWidth / 2}px ${nodeY + currentHeight / 2}px`,
+        willChange: 'transform',
+        cursor: 'pointer',
+        touchAction: 'none'
+      } : {
         cursor: 'pointer',
         touchAction: 'none'
       }}

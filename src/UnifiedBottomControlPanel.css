@@ -121,7 +121,8 @@
     border-radius: 14px;
   }
 
-  .unified-bottom-panel.mode-nodes .unified-bottom-content {
+  .unified-bottom-panel.mode-nodes .unified-bottom-content,
+  .unified-bottom-panel.mode-decompose .unified-bottom-content {
     width: min(calc(100vw - 16px), 460px);
     padding: 4px 16px 12px;
     gap: 8px;
@@ -143,7 +144,8 @@
     padding: 0 4px;
   }
 
-  .unified-bottom-panel.mode-nodes .piemenu-buttons {
+  .unified-bottom-panel.mode-nodes .piemenu-buttons,
+  .unified-bottom-panel.mode-decompose .piemenu-buttons {
     width: 100%;
     padding: 0;
     gap: 8px;

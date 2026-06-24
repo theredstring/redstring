@@ -3810,19 +3810,24 @@ function NodeCanvas() {
   const [hoveredNodeForVision, setHoveredNodeForVision] = useState(null);
   const [hoveredConnectionForVision, setHoveredConnectionForVision] = useState(null);
   const [activePieMenuItemForVision, setActivePieMenuItemForVision] = useState(null);
+  const activePieMenuItemRef = useRef(null);
 
   const clearVisionAid = useCallback(() => {
     setHoveredNodeForVision(null);
     setHoveredConnectionForVision(null);
     setActivePieMenuItemForVision(null);
+    activePieMenuItemRef.current = null;
     setHoveredEdgeInfo(null);
   }, []);
 
   const handlePieMenuHoverChange = useCallback((button) => {
     if (button?.label) {
-      setActivePieMenuItemForVision({ id: button.id, label: button.label });
+      const item = { id: button.id, label: button.label };
+      setActivePieMenuItemForVision(item);
+      activePieMenuItemRef.current = item;
     } else {
       setActivePieMenuItemForVision(null);
+      activePieMenuItemRef.current = null;
     }
   }, []);
 
@@ -4108,7 +4113,8 @@ function NodeCanvas() {
   // width-constrained fit lands too small and too centered, so zoom in harder and
   // lift the node higher; on wide screens pull back and keep it near center.
   const DECOMPOSE_ZOOM_FACTOR_WIDE = 0.7;   // pullback on desktop
-  const DECOMPOSE_ZOOM_FACTOR_NARROW = 1.0; // near-full fit on mobile
+  const DECOMPOSE_ZOOM_FACTOR_NARROW = 0.75; // leave margin on mobile so neighbouring nodes
+                                             // stay visible/draggable and there's empty canvas to pan from
   const DECOMPOSE_BIAS_WIDE = 0.08;          // fraction of viewport height above center on desktop
   const DECOMPOSE_BIAS_NARROW = 0.16;        // more lift on mobile
   const DECOMPOSE_WIDTH_WIDE = 1200;         // px: at/above this, use the WIDE values
@@ -6574,6 +6580,14 @@ function NodeCanvas() {
           // the user is interacting via touch (touchscreens fire hover events
           // inconsistently and the vision-aid preview gets stuck on tap).
           if (semanticOrbitActiveRef.current || inputModeRef.current === 'touch') {
+            setHoveredNodeForVision(null);
+            setHoveredConnectionForVision(null);
+            setHoveredEdgeInfo(null);
+            return;
+          }
+
+          // PieMenu buttons take priority over nodes and connections.
+          if (activePieMenuItemRef.current) {
             setHoveredNodeForVision(null);
             setHoveredConnectionForVision(null);
             setHoveredEdgeInfo(null);
