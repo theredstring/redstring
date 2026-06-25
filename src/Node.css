@@ -86,17 +86,6 @@
     min-height: 44px;
   }
 
-  /* Add visual feedback for touch interactions */
-  .node:active {
-    transform: scale(0.95);
-    transition: transform 0.1s ease;
-  }
-
-  /* Enhanced touch feedback for selected nodes */
-  .node.selected:active {
-    transform: scale(0.98);
-  }
-
   /* Touch-specific drag feedback */
   .node.dragging {
     transform: scale(1.05);
