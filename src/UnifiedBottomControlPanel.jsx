@@ -162,15 +162,15 @@ const UnifiedBottomControlPanel = ({
   const handleDismissPointerMove = useCallback((e) => {
     if (!isDragging) return;
     const delta = e.clientY - dragStartYRef.current;
-    setDragOffset(Math.max(0, delta));
+    setDragOffset(delta);
   }, [isDragging]);
 
   const handleDismissPointerUp = useCallback((e) => {
     if (!isDragging) return;
     setIsDragging(false);
     try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch {}
-    if (dragOffset > dismissThresholdPx) {
-      setDragOffset(320);
+    if (Math.abs(dragOffset) > dismissThresholdPx) {
+      setDragOffset(dragOffset < 0 ? -320 : 320);
       setTimeout(() => {
         onDismiss?.();
       }, 220);
@@ -187,8 +187,9 @@ const UnifiedBottomControlPanel = ({
   }, [isVisible]);
 
   const dragStyle = useMemo(() => {
-    const scale = Math.max(0.55, 1 - dragOffset / 500);
-    const opacity = Math.max(0, 1 - dragOffset / 260);
+    const absDrag = Math.abs(dragOffset);
+    const scale = Math.max(0.55, 1 - absDrag / 500);
+    const opacity = Math.max(0, 1 - absDrag / 260);
     return {
       transform: `translateY(${dragOffset}px) scale(${scale})`,
       opacity,

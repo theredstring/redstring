@@ -7490,7 +7490,12 @@ function NodeCanvas() {
   const handleCanvasClick = (e) => {
     // Suppress canvas taps that arrive inside the post-pinch dead zone — otherwise
     // a finger lifting onto bare canvas after a multi-touch gesture spawns a stray PlusSign.
-    if (gestureBlockRef.current) return;
+    // Allow deselection through even within the dead zone: the block was designed to suppress
+    // plus-sign spawn, not to block deliberate click-off-to-deselect.
+    if (gestureBlockRef.current) {
+      if (selectedInstanceIds.size === 0) return;
+      // Fall through so the selection-clear code below can run.
+    }
     // Exit semantic orbit mode on canvas click — but not after a pan.
     // ignoreCanvasClick is set true by handleMouseUp when a pan occurred.
     if (semanticOrbitActive) {

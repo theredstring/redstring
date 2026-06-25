@@ -1345,6 +1345,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
 
         const defGraphId = definitionGraphIds[definitionIndex];
+        if (defGraphId === graphId) {
+          console.warn(`[decomposeNodeToGroup] Definition graph is the same as the target graph — would cause infinite Map iteration. Aborting.`);
+          return;
+        }
         const defGraph = draft.graphs.get(defGraphId);
         if (!defGraph) {
           console.warn(`[decomposeNodeToGroup] Definition graph ${defGraphId} not found.`);
@@ -1385,7 +1389,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         let sumX = 0, sumY = 0, memberCount = 0;
 
         if (defGraph.instances) {
-          for (const [defInstId, defInst] of defGraph.instances.entries()) {
+          for (const [defInstId, defInst] of Array.from(defGraph.instances.entries())) {
             const newInstId = uuidv4();
             instanceIdMap.set(defInstId, newInstId);
             memberInstanceIds.push(newInstId);
