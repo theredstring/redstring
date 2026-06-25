@@ -2,7 +2,8 @@ import React, { useMemo, useState, useEffect, useRef, memo } from 'react';
 // Import base constants used
 import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_PADDING, NODE_DEFAULT_COLOR } from './constants';
 import './Node.css';
-import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Import UniversalNodeRenderer for faithful representations
+import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Used for hover preview
+import InnerNetwork from './InnerNetwork.jsx'; // Pure SVG — used for the main inner network preview (avoids foreignObject iOS issues)
 import { getNodeDimensions } from './utils.js'; // Import needed for node dims
 import { getTextColor } from './utils/colorUtils.js';
 import { isValidColor } from './ai/palettes.js';
@@ -514,8 +515,8 @@ const Node = ({
       {isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 && (
         <g>
           {/* NOTE: do NOT wrap these foreignObjects in a <g clipPath> — iOS WebKit
-              fails to render foreignObject content under a clipPath ancestor (renders
-              blank). Rounded clipping is done with CSS overflow/borderRadius below. */}
+              fails to render foreignObject content under a clipPath ancestor (blank).
+              Visual rounding is done via rx/ry on the background rect only. */}
           <g>
             <rect
               x={nodeX + NODE_PADDING}
@@ -528,77 +529,20 @@ const Node = ({
             />
 
             {hasAnyDefinitions ? (
-              // Show existing graph definition with UniversalNodeRenderer for faithful representations
-              <>
-                <foreignObject
-                  x={nodeX + NODE_PADDING}
-                  y={contentAreaY}
-                  width={Math.max(1, innerNetworkWidth)}
-                  height={Math.max(1, innerNetworkHeight)}
-                  // Non-interactive preview — let touches pass through to the canvas so the
-                  // user can still pan/scroll while a node is expanded (was blocking touch).
-                  style={{ pointerEvents: 'none' }}
-                >
-                  <div
-                    xmlns="http://www.w3.org/1999/xhtml"
-                    style={{
-                      width: innerNetworkWidth,
-                      height: innerNetworkHeight,
-                      overflow: 'hidden',
-                      borderRadius: 16,
-                    }}
-                  >
-                    <UniversalNodeRenderer
-                      nodes={currentGraphNodes.map(n => ({
-                        ...n,
-                        isSelected: false, // Prevent inherited selection ring
-                        width: getNodeDimensions(n, false, null).currentWidth,
-                        height: getNodeDimensions(n, false, null).currentHeight,
-                        imageSrc: n.thumbnailSrc, // Pass image source for display
-                        color: n.color // Ensure color carries over
-                      }))}
-                      connections={currentGraphEdges.map(e => {
-                        // Get color from definition node if it exists
-                        let connectionColor = e.color || '#000000';
-                        if (e.definitionNodeIds && e.definitionNodeIds.length > 0) {
-                          const defNodeId = e.definitionNodeIds[0];
-                          const defNode = nodePrototypesMap.get(defNodeId);
-                          if (defNode?.color) {
-                            connectionColor = defNode.color;
-                          }
-                        }
-
-                        return {
-                          id: e.id,
-                          sourceId: e.sourceId,
-                          destinationId: e.destinationId,
-                          targetId: e.destinationId,
-                          connectionName: null, // Hide connection names in compact view
-                          color: connectionColor,
-                          directionality: e.directionality,
-                          definitionNodeIds: e.definitionNodeIds,
-                          typeNodeId: e.typeNodeId,
-                          edgePrototype: e.edgePrototype
-                        };
-                      })}
-                      containerWidth={innerNetworkWidth}
-                      containerHeight={innerNetworkHeight}
-                      padding={14}
-                      backgroundColor="transparent"
-                      interactive={false}
-                      showHoverEffects={false}
-                      showConnectionDots={false}
-                      routingStyle="straight"
-                      scaleMode="fit"
-                      minNodeSize={80}
-                      renderContext="decomposition"
-                      nodeFontScale={textSettings.fontSize}
-                      nodeLineHeightScale={textSettings.lineSpacing}
-                      cornerRadiusMultiplier={64}
-                    />
-                  </div>
-                </foreignObject>
-              </>
+              // Pure SVG inner network — no foreignObject, no HTML nesting.
+              // UniversalNodeRenderer (HTML inside SVG inside SVG) reliably fails on iOS
+              // WebKit when the parent SVG canvas has a scale transform. InnerNetwork is
+              // a plain <g> that renders directly into the existing SVG coordinate space,
+              // so it works on all platforms without any foreignObject workarounds.
+              <g transform={`translate(${nodeX + NODE_PADDING}, ${contentAreaY})`} pointerEvents="none">
+                <InnerNetwork
+                  nodes={currentGraphNodes}
+                  edges={currentGraphEdges}
+                  width={innerNetworkWidth}
+                  height={innerNetworkHeight}
+                  padding={14}
+                />
+              </g>
             ) : (
               // Show "Create Definition" interface when no definitions exist
               <foreignObject
@@ -614,8 +558,8 @@ const Node = ({
                 <div
                   data-decomp-button="true"
                   style={{
-                    width: innerNetworkWidth,
-                    height: innerNetworkHeight,
+                    width: '100%',
+                    height: '100%',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
@@ -627,8 +571,6 @@ const Node = ({
                     textAlign: 'center',
                     padding: '20px',
                     boxSizing: 'border-box',
-                    borderRadius: 16,
-                    overflow: 'hidden',
                     transition: 'all 0.2s ease',
                   }}
                   onMouseEnter={(e) => {
