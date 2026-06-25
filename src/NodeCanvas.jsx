@@ -662,6 +662,11 @@ function NodeCanvas() {
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
   const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
+  const showNodeControlPanel = useGraphStore(state => state.showNodeControlPanel ?? false);
+  const showMultipleNodesControlPanel = useGraphStore(state => state.showMultipleNodesControlPanel ?? true);
+  const showConnectionControlPanel = useGraphStore(state => state.showConnectionControlPanel ?? false);
+  const showGroupControlPanel = useGraphStore(state => state.showGroupControlPanel ?? true);
+  const showAbstractionControlPanel = useGraphStore(state => state.showAbstractionControlPanel ?? true);
   const darkMode = useGraphStore(state => state.darkMode);
   const inputMode = useGraphStore(state => state.inputMode);
   useEffect(() => { inputModeRef.current = inputMode; }, [inputMode]);
@@ -4307,7 +4312,7 @@ function NodeCanvas() {
 
   // --- Abstraction Control Panel Management ---
   useEffect(() => {
-    const shouldShow = Boolean(abstractionCarouselVisible && abstractionCarouselNode);
+    const shouldShow = Boolean(abstractionCarouselVisible && abstractionCarouselNode && showAbstractionControlPanel);
 
     if (shouldShow) {
       // Show the panel immediately when carousel is visible and hide others
@@ -4324,7 +4329,7 @@ function NodeCanvas() {
       // Other cases where panel should be hidden
       setAbstractionControlPanelVisible(false);
     }
-  }, [abstractionCarouselVisible, abstractionCarouselNode, abstractionControlPanelVisible]);
+  }, [abstractionCarouselVisible, abstractionCarouselNode, abstractionControlPanelVisible, showAbstractionControlPanel]);
 
   // --- Node Control Panel Management ---
   useEffect(() => {
@@ -4333,7 +4338,11 @@ function NodeCanvas() {
     const isBoxSelecting = selectionStart !== null;
     // Also show while previewing/decomposing a node, even if it isn't in selectedInstanceIds —
     // the panel switches to 'decompose' mode in that case (see NodeControlPanel render).
-    const shouldShow = Boolean((nodesSelected || previewingNodeId) && !edgeSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible && !semanticOrbitActive && !isBoxSelecting);
+    const multipleSelected = selectedInstanceIds.size > 1;
+    const panelAllowed = nodesSelected
+      ? (multipleSelected ? showMultipleNodesControlPanel : showNodeControlPanel)
+      : (previewingNodeId ? showNodeControlPanel : false);
+    const shouldShow = Boolean(panelAllowed && (nodesSelected || previewingNodeId) && !edgeSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible && !semanticOrbitActive && !isBoxSelecting);
     if (shouldShow) {
       setNodeControlPanelShouldShow(true);
       setNodeControlPanelVisible(true);
@@ -4347,13 +4356,13 @@ function NodeCanvas() {
     } else if (!shouldShow && nodeControlPanelVisible) {
       setNodeControlPanelVisible(false);
     }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive, selectionStart, previewingNodeId]);
+  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive, selectionStart, previewingNodeId, showNodeControlPanel, showMultipleNodesControlPanel]);
 
   // --- Connection Control Panel Management (multi-edge selection only) ---
   useEffect(() => {
     const nodesSelected = selectedInstanceIds.size > 0;
     const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
-    const shouldShow = Boolean(edgeSelected && !nodesSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
+    const shouldShow = Boolean(showConnectionControlPanel && edgeSelected && !nodesSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
     if (shouldShow) {
       setConnectionControlPanelShouldShow(true);
       setConnectionControlPanelVisible(true);
@@ -4367,7 +4376,7 @@ function NodeCanvas() {
     } else if (!shouldShow && connectionControlPanelVisible) {
       setConnectionControlPanelVisible(false);
     }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, connectionControlPanelVisible]);
+  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, connectionControlPanelVisible, showConnectionControlPanel]);
 
   // --- Edge Pie Menu Management (single edge selection) ---
   useEffect(() => {
@@ -4384,7 +4393,7 @@ function NodeCanvas() {
 
   // --- Group Control Panel Management ---
   useEffect(() => {
-    const shouldShow = Boolean(selectedGroup && !abstractionCarouselVisible && !connectionNamePrompt.visible);
+    const shouldShow = Boolean(showGroupControlPanel && selectedGroup && !abstractionCarouselVisible && !connectionNamePrompt.visible);
     if (shouldShow) {
       setGroupControlPanelShouldShow(true);
       setGroupControlPanelVisible(true);
@@ -4398,7 +4407,7 @@ function NodeCanvas() {
     } else if (!shouldShow && groupControlPanelVisible) {
       setGroupControlPanelVisible(false);
     }
-  }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelVisible]);
+  }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelVisible, showGroupControlPanel]);
 
   // --- Close all control panels on page/graph change ---
   useEffect(() => {
@@ -14776,21 +14785,6 @@ function NodeCanvas() {
             onActionHoverChange={handlePieMenuHoverChange}
             wizardEnabled={wizardEnabled}
             onDismiss={() => setSelectedInstanceIds(new Set())}
-            onAskWizardDefineNode={(prototype) => {
-              const pref = (() => {
-                try { return debugConfig.getWizardNodePref(); } catch { return 'ask'; }
-              })();
-              if (pref === 'new') {
-                openNodeWizardWithPrompt(prototype, { newConversation: true });
-                return;
-              }
-              if (pref === 'current') {
-                openNodeWizardWithPrompt(prototype, { newConversation: false });
-                return;
-              }
-              setAskWizardNodeDontAskAgain(false);
-              setAskWizardNodeDialog({ prototype });
-            }}
           />
         )
       }

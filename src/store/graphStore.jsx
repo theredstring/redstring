@@ -594,6 +594,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return true;
       }
     })(),
+    showNodeControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_node_cp'); return s === null ? false : s === 'true'; } catch (_) { return false; } })(),
+    showMultipleNodesControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_multi_node_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
+    showConnectionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_connection_cp'); return s === null ? false : s === 'true'; } catch (_) { return false; } })(),
+    showGroupControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_group_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
+    showAbstractionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_abstraction_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     hoverPreviewSize: (() => {
       try {
         const saved = localStorage.getItem('redstring_hover_preview_size');
@@ -3584,6 +3589,26 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       try {
         localStorage.setItem('redstring_show_hover_preview', draft.showHoverPreview);
       } catch (_) { }
+    })),
+    toggleShowNodeControlPanel: () => set(produce((draft) => {
+      draft.showNodeControlPanel = !draft.showNodeControlPanel;
+      try { localStorage.setItem('redstring_show_node_cp', draft.showNodeControlPanel); } catch (_) { }
+    })),
+    toggleShowMultipleNodesControlPanel: () => set(produce((draft) => {
+      draft.showMultipleNodesControlPanel = !draft.showMultipleNodesControlPanel;
+      try { localStorage.setItem('redstring_show_multi_node_cp', draft.showMultipleNodesControlPanel); } catch (_) { }
+    })),
+    toggleShowConnectionControlPanel: () => set(produce((draft) => {
+      draft.showConnectionControlPanel = !draft.showConnectionControlPanel;
+      try { localStorage.setItem('redstring_show_connection_cp', draft.showConnectionControlPanel); } catch (_) { }
+    })),
+    toggleShowGroupControlPanel: () => set(produce((draft) => {
+      draft.showGroupControlPanel = !draft.showGroupControlPanel;
+      try { localStorage.setItem('redstring_show_group_cp', draft.showGroupControlPanel); } catch (_) { }
+    })),
+    toggleShowAbstractionControlPanel: () => set(produce((draft) => {
+      draft.showAbstractionControlPanel = !draft.showAbstractionControlPanel;
+      try { localStorage.setItem('redstring_show_abstraction_cp', draft.showAbstractionControlPanel); } catch (_) { }
     })),
     setHoverPreviewSize: (value) => set(produce((draft) => {
       const v = Number(value);

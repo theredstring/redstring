@@ -67,6 +67,11 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const darkMode = useGraphStore(s => s.darkMode);
   const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
   const hoverPreviewSize = useGraphStore(s => s.hoverPreviewSize ?? 0.75);
+  const showNodeControlPanel = useGraphStore(s => s.showNodeControlPanel ?? false);
+  const showMultipleNodesControlPanel = useGraphStore(s => s.showMultipleNodesControlPanel ?? true);
+  const showConnectionControlPanel = useGraphStore(s => s.showConnectionControlPanel ?? false);
+  const showGroupControlPanel = useGraphStore(s => s.showGroupControlPanel ?? true);
+  const showAbstractionControlPanel = useGraphStore(s => s.showAbstractionControlPanel ?? true);
 
   const isCompactLayout = viewportSize.width <= 768;
   const modalWidth = isCompactLayout
@@ -166,6 +171,57 @@ const SettingsModal = ({ isVisible, onClose }) => {
               suffix="x"
               disabled={!showHoverPreview}
               onChange={(v) => useGraphStore.getState().setHoverPreviewSize?.(v)}
+            />
+          </div>
+          <div className="settings-section-subtitle">Control Panels</div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Thing Panel
+              <div className="settings-row-description">Show the bottom control panel when a single Thing is selected</div>
+            </div>
+            <Toggle
+              checked={showNodeControlPanel}
+              onChange={() => useGraphStore.getState().toggleShowNodeControlPanel?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Multiple Things Panel
+              <div className="settings-row-description">Show the bottom control panel when multiple Things are selected</div>
+            </div>
+            <Toggle
+              checked={showMultipleNodesControlPanel}
+              onChange={() => useGraphStore.getState().toggleShowMultipleNodesControlPanel?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Connection Panel
+              <div className="settings-row-description">Show the bottom control panel when a connection is selected</div>
+            </div>
+            <Toggle
+              checked={showConnectionControlPanel}
+              onChange={() => useGraphStore.getState().toggleShowConnectionControlPanel?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Group Panel
+              <div className="settings-row-description">Show the bottom control panel when a group is selected</div>
+            </div>
+            <Toggle
+              checked={showGroupControlPanel}
+              onChange={() => useGraphStore.getState().toggleShowGroupControlPanel?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Abstraction Panel
+              <div className="settings-row-description">Show the bottom control panel when the abstraction carousel is open</div>
+            </div>
+            <Toggle
+              checked={showAbstractionControlPanel}
+              onChange={() => useGraphStore.getState().toggleShowAbstractionControlPanel?.()}
             />
           </div>
         </div>

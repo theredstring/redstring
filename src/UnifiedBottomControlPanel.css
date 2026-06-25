@@ -65,7 +65,7 @@
 }
 
 .unified-bottom-handle {
-  display: none;
+  display: block;
   width: 56px;
   height: 16px;
   margin: 0 auto;
@@ -97,12 +97,6 @@
 
 .unified-bottom-handle:active {
   cursor: grabbing;
-}
-
-@media (max-width: 768px) {
-  .unified-bottom-panel .unified-bottom-handle {
-    display: block;
-  }
 }
 
 /* Structural overrides that clamp() can't express */

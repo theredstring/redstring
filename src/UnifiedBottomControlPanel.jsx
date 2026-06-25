@@ -120,10 +120,6 @@ const UnifiedBottomControlPanel = ({
   onAskWizard,
   wizardEnabled = false,
 
-  // Node-mode wizard handler (only relevant for nodes mode and when the selected node has no/empty definition)
-  onAskWizardDefineNode,
-  askWizardDefineNodeEligible = false,
-
   // Additional node action handlers
   onDecompose,
   onAbstraction,
@@ -895,17 +891,6 @@ const UnifiedBottomControlPanel = ({
                 >
                   <Orbit size={iconSize} />
                 </div>
-                {wizardEnabled && askWizardDefineNodeEligible && onAskWizardDefineNode && (
-                  <div
-                    className="piemenu-button"
-                    onClick={onAskWizardDefineNode}
-                    title="Ask The Wizard"
-                    onMouseEnter={() => triggerActionHover('control-ask-wizard-define', 'Ask The Wizard')}
-                    onMouseLeave={clearActionHover}
-                  >
-                    <Sparkles size={iconSize} />
-                  </div>
-                )}
               </>
             ) : isNodeGroup ? (
               // Node-group mode: Show node-group actions (dive into definition, open in panel, edit, color, ungroup)
