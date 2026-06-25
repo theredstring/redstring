@@ -593,7 +593,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
                 padding: '10px',
                 borderRadius: '6px',
                 border: `1px solid ${theme.canvas.border}`,
-                backgroundColor: theme.darkMode ? theme.canvas.hover : 'white',
+                backgroundColor: theme.canvas.bg,
                 fontSize: '0.9rem',
                 fontFamily: "'EmOne', sans-serif",
                 color: theme.canvas.textPrimary

@@ -877,14 +877,19 @@ export const useCanvasTouch = ({
             }
         }
 
-        // Drive shared move logic for both node-drag and connection-draw
-        const synthetic = {
-            clientX: touch.clientX,
-            clientY: touch.clientY,
-            stopPropagation: () => e.stopPropagation(),
-            preventDefault: () => e.preventDefault()
-        };
-        handleMouseMove(synthetic);
+        // Drive shared move logic only once we're past threshold or a gesture is active.
+        // Calling handleMouseMove unconditionally feeds every touchmove into the mouse
+        // handler, which uses a 3px threshold — far below the 12px touch threshold —
+        // and prematurely starts a connection draw on natural finger wobble.
+        if (drawingConnectionFrom || touchState.current.hasMovedPastThreshold) {
+            const synthetic = {
+                clientX: touch.clientX,
+                clientY: touch.clientY,
+                stopPropagation: () => e.stopPropagation(),
+                preventDefault: () => e.preventDefault()
+            };
+            handleMouseMove(synthetic);
+        }
     };
 
     const handleNodeTouchCancel = (nodeData, e) => {

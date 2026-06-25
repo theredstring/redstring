@@ -395,10 +395,10 @@
   padding: 10px;
   border: 1px solid #260000;
   border-radius: 0;
-  background: #fff;
+  background: var(--canvas-bg);
   font-size: 14px;
   font-family: 'EmOne', sans-serif;
-  color: #260000;
+  color: var(--canvas-text);
 }
 
 .key-edit-toggle {
