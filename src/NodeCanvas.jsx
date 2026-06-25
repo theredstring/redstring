@@ -3997,6 +3997,7 @@ function NodeCanvas() {
   const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useState(false);
   const [edgePieMenuVisible, setEdgePieMenuVisible] = useState(false);
   const [edgePieMenuRendered, setEdgePieMenuRendered] = useState(false);
+  const edgePieMenuAnchorRef = useRef(null); // frozen on show, held through exit animation
 
   // Pending swap operation state
   const [pendingSwapOperation, setPendingSwapOperation] = useState(null);
@@ -4384,12 +4385,13 @@ function NodeCanvas() {
     const singleEdgeSelected = selectedEdgeId !== null && selectedEdgeIds.size === 0;
     const shouldShow = Boolean(singleEdgeSelected && !nodesSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
     if (shouldShow) {
+      if (selectedEdgeMidpoint) edgePieMenuAnchorRef.current = selectedEdgeMidpoint;
       setEdgePieMenuVisible(true);
       setEdgePieMenuRendered(true);
     } else if (!shouldShow && edgePieMenuVisible) {
       setEdgePieMenuVisible(false);
     }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, edgePieMenuVisible]);
+  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, edgePieMenuVisible, selectedEdgeMidpoint]);
 
   // --- Group Control Panel Management ---
   useEffect(() => {
@@ -7471,8 +7473,10 @@ function NodeCanvas() {
         ignoreCanvasClick.current = true;
         // Arm the post-gesture dead zone so a synthetic pointerup/click on PlusSign
         // (lifting finger lands on the button) is also rejected, not just the canvas tap.
+        // Mouse pans use a shorter dead zone (150ms) — ignoreCanvasClick already handles
+        // the first post-pan click; 350ms creates noticeable plus-sign spawn delay.
         armGestureBlock();
-        scheduleGestureBlockClear();
+        scheduleGestureBlockClear(150);
       }
       // Reset mouseMoved.current immediately after mouse up logic is done
       // This prevents race condition with canvas click handler
@@ -7493,8 +7497,8 @@ function NodeCanvas() {
     // Allow deselection through even within the dead zone: the block was designed to suppress
     // plus-sign spawn, not to block deliberate click-off-to-deselect.
     if (gestureBlockRef.current) {
-      if (selectedInstanceIds.size === 0) return;
-      // Fall through so the selection-clear code below can run.
+      if (selectedInstanceIds.size === 0 && !plusSign) return;
+      // Fall through so selection-clear or plus-sign-dismiss code below can run.
     }
     // Exit semantic orbit mode on canvas click — but not after a pan.
     // ignoreCanvasClick is set true by handleMouseUp when a pan occurred.
@@ -7549,9 +7553,9 @@ function NodeCanvas() {
     }
     if (ignoreCanvasClick.current) {
       ignoreCanvasClick.current = false;
-      // Only bail if there's nothing to deselect — otherwise fall through so the
+      // Only bail if there's nothing to dismiss — otherwise fall through so the
       // first click after a pan/glide doesn't waste itself just clearing the flag.
-      if (selectedInstanceIds.size === 0) return;
+      if (selectedInstanceIds.size === 0 && !plusSign) return;
     }
 
     // Close Group panel on click-off like other panels
@@ -14045,7 +14049,8 @@ function NodeCanvas() {
 
                         {/* Edge pie menu — rendered inline at the edge midpoint */}
                         {(() => {
-                          if (!edgePieMenuRendered || !selectedEdgeMidpoint || edgePieMenuButtons.length === 0) return null;
+                          const anchor = edgePieMenuAnchorRef.current;
+                          if (!edgePieMenuRendered || !anchor || edgePieMenuButtons.length === 0) return null;
 
                           // Space check: does the full button row fit on screen?
                           // Use correct canvas→screen conversion: (canvasX - offsetX) * zoom + pan + rectLeft
@@ -14054,7 +14059,7 @@ function NodeCanvas() {
                           const pan = panOffsetRef.current;
                           const rect = containerRef.current?.getBoundingClientRect();
                           const screenX = rect
-                            ? (selectedEdgeMidpoint.x - canvasSize.offsetX) * zoom + pan.x + rect.left
+                            ? (anchor.x - canvasSize.offsetX) * zoom + pan.x + rect.left
                             : window.innerWidth / 2;
                           const n = edgePieMenuButtons.length;
                           // Full row extent: center ± half of ((n-1)*step + bubbleSize)
@@ -14077,7 +14082,7 @@ function NodeCanvas() {
                                   }));
                                   showContextMenu(
                                     buttonPosition?.x ?? screenX,
-                                    buttonPosition?.y ?? (rect ? (selectedEdgeMidpoint.y - canvasSize.offsetY) * zoom + pan.y + rect.top : 100),
+                                    buttonPosition?.y ?? (rect ? (anchor.y - canvasSize.offsetY) * zoom + pan.y + rect.top : 100),
                                     menuOptions
                                   );
                                 },
@@ -14086,12 +14091,15 @@ function NodeCanvas() {
 
                           return (
                             <PieMenu
-                              anchor={selectedEdgeMidpoint}
-                              anchorAngle={selectedEdgeMidpoint?.angle ?? 0}
+                              anchor={anchor}
+                              anchorAngle={anchor.angle ?? 0}
                               buttons={displayButtons}
                               isVisible={edgePieMenuVisible}
                               onHoverChange={handlePieMenuHoverChange}
-                              onExitAnimationComplete={() => setEdgePieMenuRendered(false)}
+                              onExitAnimationComplete={() => {
+                                edgePieMenuAnchorRef.current = null;
+                                setEdgePieMenuRendered(false);
+                              }}
                             />
                           );
                         })()}

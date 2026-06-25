@@ -1443,7 +1443,6 @@ const SharedPanelContent = ({
   // Secondary row: Save toggle + Text Search to open Semantic Discovery
   const savedNodeIds = useGraphStore((state) => state.savedNodeIds);
   const toggleSavedNode = useGraphStore((state) => state.toggleSavedNode);
-  const graphsMap = useGraphStore((state) => state.graphs);
   const isSaved = !!(savedNodeIds && nodeData?.id && savedNodeIds.has(nodeData.id));
 
   const handleSemanticDiscoverySearch = () => {
@@ -1458,19 +1457,6 @@ const SharedPanelContent = ({
       }
     } catch { }
   };
-
-  // Eligible when node has no definition graphs, or all definition graphs are empty
-  const askWizardEligible = !isHomeTab && wizardEnabled && !!nodeData?.id && (() => {
-    const defIds = Array.isArray(nodeData.definitionGraphIds) ? nodeData.definitionGraphIds : [];
-    if (defIds.length === 0) return true;
-    for (const gid of defIds) {
-      const g = graphsMap?.get?.(gid);
-      if (!g) continue;
-      const instCount = g.instances instanceof Map ? g.instances.size : (g.instances ? Object.keys(g.instances).length : 0);
-      if (instCount > 0) return false;
-    }
-    return true;
-  })();
 
   const handleAskWizard = () => {
     try {
@@ -1502,7 +1488,7 @@ const SharedPanelContent = ({
         onClick={handleSemanticDiscoverySearch}
         title="Search this in Semantic Discovery"
       />
-      {askWizardEligible && (
+      {!isHomeTab && nodeData?.id && (
         <PanelIconButton
           icon={Sparkles}
           onClick={handleAskWizard}
