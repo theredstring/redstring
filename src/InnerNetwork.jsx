@@ -132,8 +132,7 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
     // Apply calculated transform to the parent group
     <g transform={`translate(${translateX}, ${translateY}) scale(${scale})`} pointerEvents="none">
       <defs>
-        {nodes.map(node => {
-          if (!node.thumbnailSrc) return null;
+        {nodes.filter(node => node.thumbnailSrc).map(node => {
           const dimensions = getNodeDimensions(node, false, null);
           return (
             <clipPath key={`inner-node-clip-${node.id}`} id={`inner-node-clip-${node.id}`}>
@@ -327,23 +326,37 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
                 />
              )}
 
-             {/* Node title text */}
-             <text
-               x={node.x + dimensions.currentWidth / 2}
-               y={node.y + titleHeight / 2}
-               textAnchor="middle"
-               dominantBaseline="central"
-               fontSize={Math.max(8, 12 / scale)} // Scale font size but keep readable
-               fill={getTextColor(node.color || NODE_DEFAULT_COLOR || 'maroon')}
-               fontWeight="bold"
-               fontFamily="'EmOne', sans-serif"
-               style={{
-                 pointerEvents: 'none',
-                 userSelect: 'none'
-               }}
-             >
-               {node.name || 'Untitled'}
-             </text>
+             {/* Node title text — left-aligned so truncation shows the start, not the middle */}
+             {(() => {
+               // Target ~11 screen-px font size regardless of the fitting scale.
+               // canvas-coord font size × scale = screen px.
+               const TARGET_PX = 13;
+               const fontSize = Math.min(Math.max(TARGET_PX / scale, 10), 22);
+               const availableCanvasW = dimensions.currentWidth - NODE_PADDING * 2;
+               // Approximate char width for EmOne bold (~0.58× em)
+               const avgCharW = fontSize * 0.58;
+               const maxChars = Math.floor(availableCanvasW / avgCharW);
+               const rawName = node.name || 'Untitled';
+               const displayName =
+                 maxChars > 3 && rawName.length > maxChars
+                   ? rawName.slice(0, maxChars - 1) + '…'
+                   : rawName;
+               return (
+                 <text
+                   x={node.x + dimensions.currentWidth / 2}
+                   y={node.y + titleHeight / 2}
+                   textAnchor="middle"
+                   dominantBaseline="central"
+                   fontSize={fontSize}
+                   fill={getTextColor(node.color || NODE_DEFAULT_COLOR || 'maroon')}
+                   fontWeight="bold"
+                   fontFamily="'EmOne', sans-serif"
+                   style={{ pointerEvents: 'none', userSelect: 'none' }}
+                 >
+                   {displayName}
+                 </text>
+               );
+             })()}
            </g>
          );
       })}

@@ -7516,6 +7516,7 @@ function NodeCanvas() {
 
 
       setSelectedInstanceIds(new Set());
+      setPreviewingNodeId(null);
       // Pie menu will be handled by useEffect on selectedInstanceIds, no direct setShowPieMenu here
       return;
     }
