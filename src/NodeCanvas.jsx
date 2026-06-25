@@ -60,7 +60,6 @@ import useImageCache, { queueThumbnailFetch } from './services/imageCache.js';
 import {
   NODE_WIDTH,
   NODE_HEIGHT,
-  LONG_PRESS_DURATION,
   LERP_SPEED,
   HEADER_HEIGHT,
   MOVEMENT_THRESHOLD,
@@ -330,7 +329,6 @@ function NodeCanvas() {
 
   // Touch interaction constants
   const TOUCH_MOVEMENT_THRESHOLD = 10; // pixels
-  // Use imported LONG_PRESS_DURATION from './constants'
   const [isHoveringLeftResizer, setIsHoveringLeftResizer] = useState(false);
   const [isHoveringRightResizer, setIsHoveringRightResizer] = useState(false);
   const [resizersVisible, setResizersVisible] = useState(false);
