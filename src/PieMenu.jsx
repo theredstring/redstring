@@ -215,11 +215,12 @@ const PieMenu = ({
         let bubbleX, bubbleY;
 
         if (isLineMode) {
-          // Line mode: horizontal row centered on anchor point
+          // Line mode: horizontal row centered on anchor point, offset above it
           const step = BUBBLE_SIZE + BUBBLE_PADDING;
           const totalWidth = (buttons.length - 1) * step;
           bubbleX = nodeCenterX - totalWidth / 2 + index * step;
-          bubbleY = nodeCenterY - BUBBLE_SIZE / 2 - BUBBLE_PADDING;
+          // Offset perpendicular (upward): bubble center is 2× bubble sizes above anchor
+          bubbleY = nodeCenterY - BUBBLE_SIZE - BUBBLE_PADDING * 2;
         } else if (isCarouselMode) {
           // Carousel mode: position buttons based on actual current node dimensions
           // nodeDimensions now contains the actual current scaled dimensions from AbstractionCarousel

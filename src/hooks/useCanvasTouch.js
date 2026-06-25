@@ -86,6 +86,7 @@ export const useCanvasTouch = ({
     armGestureBlock,
     scheduleGestureBlockClear,
     touchSettings,
+    nodeLiftDelay,
 }) => {
     // --- Refs moved to hook ---
     const lastTouchRef = useRef({ x: 0, y: 0 });
@@ -769,7 +770,9 @@ export const useCanvasTouch = ({
                     } catch (e) { }
                 }
             }
-        }, LONG_PRESS_DURATION);
+        // Scale the touch delay proportionally from the mouse delay (ratio 450/250 = 1.8),
+        // but floor at NODE_DOUBLE_TAP_MS so a double-tap can't accidentally trigger drag.
+        }, nodeLiftDelay != null ? Math.max(NODE_DOUBLE_TAP_MS, Math.round(nodeLiftDelay * 1.8)) : LONG_PRESS_DURATION);
     };
 
     const handleNodeTouchMove = (nodeData, e) => {

@@ -56,6 +56,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const mouseGlideEnabled = useGraphStore(s => s.mouseSettings?.glideEnabled ?? true);
   const touchGlideEnabled = useGraphStore(s => s.touchSettings?.glideEnabled ?? true);
   const mouseGlideStrength = useGraphStore(s => s.mouseSettings?.glideStrength ?? 0.1);
+  const nodeLiftDelay = useGraphStore(s => s.mouseSettings?.nodeLiftDelay ?? 250);
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
   const routingStyle = useGraphStore(s => s.routingStyle);
   const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
@@ -270,6 +271,21 @@ const SettingsModal = ({ isVisible, onClose }) => {
               checked={!!connectionDrawEdgePanEnabled}
               onChange={() => useGraphStore.getState().toggleConnectionDrawEdgePan?.()}
             />
+          </div>
+
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Lift Delay"
+              value={nodeLiftDelay ?? 250}
+              min={50}
+              max={600}
+              step={25}
+              suffix="ms"
+              onChange={(v) => useGraphStore.getState().setNodeLiftDelay?.(v)}
+            />
+          </div>
+          <div className="settings-row-description" style={{ marginTop: '-8px', marginBottom: '12px', fontSize: '0.78em', color: 'var(--text-secondary, #888)' }}>
+            How long to hold before a node is picked up for dragging
           </div>
 
           <div className="settings-section-subtitle">Keyboard</div>

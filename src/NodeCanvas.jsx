@@ -688,6 +688,7 @@ function NodeCanvas() {
   const forceLayoutIterationPreset = forceTunerSettings.layoutIterations || 'balanced';
   const keyboardSettings = useGraphStore(state => state.keyboardSettings || { zoomSensitivity: 0.5 });
   const middleMouseZoomEnabled = useGraphStore(state => state.mouseSettings?.middleMouseZoomEnabled ?? false);
+  const nodeLiftDelay = useGraphStore(state => state.mouseSettings?.nodeLiftDelay ?? 250);
   const touchSettings = useGraphStore(state => state.touchSettings || { zoomSensitivity: 0.7, panSensitivity: 0.5 });
   const touchSettingsRef = useRef(touchSettings);
   useEffect(() => { touchSettingsRef.current = touchSettings; }, [touchSettings]);
@@ -6249,7 +6250,7 @@ function NodeCanvas() {
           startDragForNodeRef.current(nodeData, e.clientX, e.clientY);
         }
         setLongPressingInstanceId(null);
-      }, LONG_PRESS_DURATION);
+      }, nodeLiftDelay);
     }
   };
 
@@ -6503,6 +6504,7 @@ function NodeCanvas() {
     armGestureBlock,
     scheduleGestureBlockClear,
     touchSettings,
+    nodeLiftDelay,
   });
 
   // Prevent native long-press context menu on touch devices (iOS/Android)
@@ -10682,7 +10684,7 @@ function NodeCanvas() {
                                 }
                               }
                               nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
-                            }, LONG_PRESS_DURATION);
+                            }, nodeLiftDelay);
                           }}
                           onMouseUp={() => {
                             clearTimeout(groupLongPressTimeout.current);
@@ -10793,7 +10795,7 @@ function NodeCanvas() {
                               if (typeof navigator !== 'undefined' && navigator.vibrate) {
                                 try { navigator.vibrate(50); } catch { }
                               }
-                            }, LONG_PRESS_DURATION);
+                            }, nodeLiftDelay);
                           }}
                           onTouchEnd={() => {
                             // Document-level endListener handles the real cleanup;
@@ -14012,48 +14014,46 @@ function NodeCanvas() {
                           if (!edgePieMenuRendered || !selectedEdgeMidpoint || edgePieMenuButtons.length === 0) return null;
 
                           // Space check: does the full button row fit on screen?
-                          const BUBBLE_TOTAL = 60 + 16; // BUBBLE_SIZE + BUBBLE_PADDING
+                          // Use correct canvas→screen conversion: (canvasX - offsetX) * zoom + pan + rectLeft
+                          const BUBBLE_STEP = 60 + 16; // BUBBLE_SIZE + BUBBLE_PADDING
                           const zoom = zoomLevelRef.current;
                           const pan = panOffsetRef.current;
                           const rect = containerRef.current?.getBoundingClientRect();
-                          const screenX = rect ? selectedEdgeMidpoint.x * zoom + pan.x + rect.left : 0;
-                          const rowWidth = edgePieMenuButtons.length * BUBBLE_TOTAL * zoom;
-                          const isCompact = rect ? (screenX - rowWidth / 2 < 16 || screenX + rowWidth / 2 > rect.width - 16) : false;
+                          const screenX = rect
+                            ? (selectedEdgeMidpoint.x - canvasSize.offsetX) * zoom + pan.x + rect.left
+                            : window.innerWidth / 2;
+                          const n = edgePieMenuButtons.length;
+                          // Full row extent: center ± half of ((n-1)*step + bubbleSize)
+                          const halfRowPx = ((n - 1) * BUBBLE_STEP / 2 + 30) * zoom;
+                          const isCompact = rect
+                            ? (screenX - halfRowPx < 16 || screenX + halfRowPx > rect.width - 16)
+                            : false;
 
-                          if (isCompact) {
-                            // Single "..." bubble — onClick opens context menu
-                            const handleDotsClick = (e) => {
-                              e.stopPropagation();
-                              const menuOptions = edgePieMenuButtons.map(btn => ({
-                                label: btn.label,
-                                icon: btn.icon ? <btn.icon size={16} color="maroon" /> : null,
-                                action: () => btn.action(null, null),
-                              }));
-                              showContextMenu(e.clientX, e.clientY, menuOptions);
-                            };
-                            return (
-                              <g
-                                transform={`translate(${selectedEdgeMidpoint.x}, ${selectedEdgeMidpoint.y - 30 - 8})`}
-                                style={{ cursor: 'pointer' }}
-                                onMouseDown={e => e.stopPropagation()}
-                                onClick={handleDotsClick}
-                                className="pie-menu"
-                              >
-                                <g className={`pie-menu-bubble-inner ${edgePieMenuVisible ? 'is-visible-steady' : 'is-shrinking'}`}
-                                  style={{ '--start-x': '0px', '--start-y': '0px' }}
-                                  onAnimationEnd={() => { if (!edgePieMenuVisible) setEdgePieMenuRendered(false); }}
-                                >
-                                  <circle cx="0" cy="0" r="30" fill="#DEDADA" stroke="maroon" strokeWidth={3} />
-                                  <MoreHorizontal x={-15} y={-15} width={30} height={30} color="maroon" />
-                                </g>
-                              </g>
-                            );
-                          }
+                          // In compact mode, swap to a single "..." button that opens context menu
+                          const displayButtons = isCompact
+                            ? [{
+                                id: 'edge-more',
+                                label: 'More',
+                                icon: MoreHorizontal,
+                                action: (_id, buttonPosition) => {
+                                  const menuOptions = edgePieMenuButtons.map(btn => ({
+                                    label: btn.label,
+                                    icon: btn.icon ? React.createElement(btn.icon, { size: 16, color: 'maroon' }) : null,
+                                    action: () => btn.action(null, null),
+                                  }));
+                                  showContextMenu(
+                                    buttonPosition?.x ?? screenX,
+                                    buttonPosition?.y ?? (rect ? (selectedEdgeMidpoint.y - canvasSize.offsetY) * zoom + pan.y + rect.top : 100),
+                                    menuOptions
+                                  );
+                                },
+                              }]
+                            : edgePieMenuButtons;
 
                           return (
                             <PieMenu
                               anchor={selectedEdgeMidpoint}
-                              buttons={edgePieMenuButtons}
+                              buttons={displayButtons}
                               isVisible={edgePieMenuVisible}
                               onHoverChange={handlePieMenuHoverChange}
                               onExitAnimationComplete={() => setEdgePieMenuRendered(false)}

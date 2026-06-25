@@ -682,9 +682,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         let glideStrength = glideStrengthRaw !== null ? parseFloat(glideStrengthRaw) : 0.1;
         if (!Number.isFinite(glideStrength)) glideStrength = 0.1;
         glideStrength = Math.max(0.0, Math.min(1.0, glideStrength));
-        return { middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength };
+        const liftDelayRaw = localStorage.getItem('redstring_node_lift_delay');
+        let nodeLiftDelay = liftDelayRaw !== null ? parseFloat(liftDelayRaw) : 250;
+        if (!Number.isFinite(nodeLiftDelay)) nodeLiftDelay = 250;
+        nodeLiftDelay = Math.max(50, Math.min(1000, nodeLiftDelay));
+        return { middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay };
       } catch (_) {
-        return { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.1 };
+        return { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.1, nodeLiftDelay: 250 };
       }
     })(),
 
@@ -3838,6 +3842,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.mouseSettings.glideStrength = v;
       try {
         localStorage.setItem('redstring_mouse_glide_strength', String(v));
+      } catch (_) { }
+    })),
+
+    // How long (ms) to hold before a node is considered lifted for dragging
+    setNodeLiftDelay: (value) => set(produce((draft) => {
+      const v = Math.round(Number(value));
+      if (!Number.isFinite(v) || v < 50 || v > 1000) {
+        console.warn(`[setNodeLiftDelay] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.1, nodeLiftDelay: 250 };
+      draft.mouseSettings.nodeLiftDelay = v;
+      try {
+        localStorage.setItem('redstring_node_lift_delay', String(v));
       } catch (_) { }
     })),
 
