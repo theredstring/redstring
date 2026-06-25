@@ -10938,9 +10938,6 @@ function NodeCanvas() {
                             ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
                             : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
 
-                          const isSNodePreviewing = previewingNodeId === sourceNode.id;
-                          const isENodePreviewing = previewingNodeId === destNode.id;
-
                           if (edge.sourceId === edge.destinationId) {
                             const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
                             const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
@@ -11003,16 +11000,16 @@ function NodeCanvas() {
                           if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
                             // Port-based routing - use centers as base (ports will override later)
                             x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                            y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                            y1 = sourceNode.y + sNodeDims.currentHeight / 2;
                             x2 = destNode.x + eNodeDims.currentWidth / 2;
-                            y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                            y2 = destNode.y + eNodeDims.currentHeight / 2;
                           } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
                             // Directed connections: calculate each endpoint based on whether it has an arrow
                             // Sides with arrows draw to edge, sides without arrows draw to center
                             const centerX1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                            const centerY1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                            const centerY1 = sourceNode.y + sNodeDims.currentHeight / 2;
                             const centerX2 = destNode.x + eNodeDims.currentWidth / 2;
-                            const centerY2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                            const centerY2 = destNode.y + eNodeDims.currentHeight / 2;
 
                             if (hasSourceArrow || hasDestArrow) {
                               // Use edge-based calculation, then selectively apply results.
@@ -11046,9 +11043,9 @@ function NodeCanvas() {
                           } else {
                             // Non-directed connections: use centers for traditional appearance
                             x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                            y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                            y1 = sourceNode.y + sNodeDims.currentHeight / 2;
                             x2 = destNode.x + eNodeDims.currentWidth / 2;
-                            y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                            y2 = destNode.y + eNodeDims.currentHeight / 2;
                           }
 
                           // Suppress edge hover (connection dots, hover-widened arrows, etc.)
@@ -12343,9 +12340,6 @@ function NodeCanvas() {
                             ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
                             : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
 
-                          const isSNodePreviewing = previewingNodeId === sourceNode.id;
-                          const isENodePreviewing = previewingNodeId === destNode.id;
-
                           if (edge.sourceId === edge.destinationId) {
                             const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
                             const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
@@ -12408,16 +12402,16 @@ function NodeCanvas() {
                           if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
                             // Port-based routing - use centers as base (ports will override later)
                             x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                            y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                            y1 = sourceNode.y + sNodeDims.currentHeight / 2;
                             x2 = destNode.x + eNodeDims.currentWidth / 2;
-                            y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                            y2 = destNode.y + eNodeDims.currentHeight / 2;
                           } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
                             // Directed connections: calculate each endpoint based on whether it has an arrow
                             // Sides with arrows draw to edge, sides without arrows draw to center
                             const centerX1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                            const centerY1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                            const centerY1 = sourceNode.y + sNodeDims.currentHeight / 2;
                             const centerX2 = destNode.x + eNodeDims.currentWidth / 2;
-                            const centerY2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                            const centerY2 = destNode.y + eNodeDims.currentHeight / 2;
 
                             if (hasSourceArrow || hasDestArrow) {
                               // Use edge-based calculation, then selectively apply results.
@@ -12451,9 +12445,9 @@ function NodeCanvas() {
                           } else {
                             // Non-directed connections: use centers for traditional appearance
                             x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                            y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                            y1 = sourceNode.y + sNodeDims.currentHeight / 2;
                             x2 = destNode.x + eNodeDims.currentWidth / 2;
-                            y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                            y2 = destNode.y + eNodeDims.currentHeight / 2;
                           }
 
                           // Suppress edge hover (connection dots, hover-widened arrows, etc.)
