@@ -278,9 +278,9 @@ const AISection = () => {
     setError('');
     setSuccess('');
 
-    const { bridgeFetch } = await import('../../services/bridgeConfig.js');
-
+    let bridgeFetch = null;
     try {
+      ({ bridgeFetch } = await import('../../services/bridgeConfig.js'));
       const storedKey = await apiKeyManager.getAPIKey();
       if (!storedKey) {
         throw new Error('No API key found');
@@ -329,17 +329,19 @@ const AISection = () => {
     } catch (error) {
       setError(`API key test failed: ${error.message}`);
 
-      try {
-        await bridgeFetch('/api/bridge/chat/append', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            role: 'system',
-            text: `API Key Test Failed: ${error.message}`,
-            channel: 'agent'
-          })
-        }).catch(e => console.warn('Failed to send error to chat:', e));
-      } catch { }
+      if (bridgeFetch) {
+        try {
+          await bridgeFetch('/api/bridge/chat/append', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              role: 'system',
+              text: `API Key Test Failed: ${error.message}`,
+              channel: 'agent'
+            })
+          }).catch(e => console.warn('Failed to send error to chat:', e));
+        } catch { }
+      }
     } finally {
       setIsValidating(false);
     }

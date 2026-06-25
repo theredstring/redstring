@@ -1449,7 +1449,16 @@ function NodeCanvas() {
             await backend.initialize();
           }
           const existing = backend?.getAllUniverses?.() || [];
-          if (existing.length > 0) {
+          // A placeholder universe created by createSafeDefaultUniverse() has
+          // hadFileHandle=false, no lastSaved, and no git link. Only treat as
+          // "user has data" when at least one universe has real evidence of setup.
+          const hasRealUniverse = existing.some(u =>
+            u.localFile?.hadFileHandle ||
+            u.localFile?.lastSaved ||
+            u.metadata?.lastSaved ||
+            u.gitRepo?.enabled
+          );
+          if (hasRealUniverse) {
             hasCompletedOnboarding = true;
             // Self-heal: write both scoped + unscoped so future cold starts
             // short-circuit regardless of session/test-mode state.
