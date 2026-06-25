@@ -16,25 +16,27 @@ function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
             ? Array.from(targetGraph.instances.values())
             : Object.values(targetGraph.instances || {});
 
-    // Try exact match first
+    // Exact match — take LAST match so newly created instances win over stale duplicates.
+    let exactMatch = null;
     for (const inst of instances) {
         const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
         const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
         if (nodeName === queryLower) {
-            return { instanceId: inst.id, prototypeId: proto.id, name: nodeName };
+            exactMatch = { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
         }
     }
+    if (exactMatch) return exactMatch;
 
-    // Try partial match
+    // Substring fallback — also LAST match.
+    let substringMatch = null;
     for (const inst of instances) {
         const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
         const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
-        if (nodeName.includes(queryLower) || queryLower.includes(nodeName)) {
-            return { instanceId: inst.id, prototypeId: proto.id, name: nodeName };
+        if (nodeName && (nodeName.includes(queryLower) || queryLower.includes(nodeName))) {
+            substringMatch = { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
         }
     }
-
-    return null;
+    return substringMatch;
 }
 
 /**

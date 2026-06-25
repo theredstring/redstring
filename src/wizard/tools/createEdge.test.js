@@ -14,6 +14,21 @@ vi.mock('../../services/queue/Queue.js', () => ({
   }
 }));
 
+const makeGraphState = () => ({
+  activeGraphId: 'graph-1',
+  graphs: [{
+    id: 'graph-1',
+    instances: [
+      { id: 'inst-1', prototypeId: 'proto-1', name: 'Node A' },
+      { id: 'inst-2', prototypeId: 'proto-2', name: 'Node B' }
+    ]
+  }],
+  nodePrototypes: [
+    { id: 'proto-1', name: 'Node A' },
+    { id: 'proto-2', name: 'Node B' }
+  ]
+});
+
 describe('createEdge', () => {
   const mockEnsureSchedulerStarted = vi.fn();
   const mockCid = 'test-cid-123';
@@ -22,42 +37,30 @@ describe('createEdge', () => {
     vi.clearAllMocks();
   });
 
-  it('returns direct action payload with correct args', async () => {
-    const graphState = {
-      activeGraphId: 'graph-1',
-      graphs: [],
-      nodePrototypes: []
-    };
-
+  it('returns direct action payload when nodes exist', async () => {
     const result = await createEdge(
-      { sourceId: 'inst-1', targetId: 'inst-2', type: 'connects' },
-      graphState,
+      { sourceId: 'Node A', targetId: 'Node B', type: 'connects' },
+      makeGraphState(),
       mockCid,
       mockEnsureSchedulerStarted
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       action: 'createEdge',
       graphId: 'graph-1',
-      sourceName: 'inst-1',
-      targetName: 'inst-2',
-      sourceInstanceId: null,
-      targetInstanceId: null,
+      sourceName: 'Node A',
+      targetName: 'Node B',
+      sourceInstanceId: 'inst-1',
+      targetInstanceId: 'inst-2',
       type: 'connects',
       created: true
     });
   });
 
   it('handles missing type (empty string)', async () => {
-    const graphState = {
-      activeGraphId: 'graph-1',
-      graphs: [],
-      nodePrototypes: []
-    };
-
     const result = await createEdge(
-      { sourceId: 'inst-1', targetId: 'inst-2' },
-      graphState,
+      { sourceId: 'Node A', targetId: 'Node B' },
+      makeGraphState(),
       mockCid,
       mockEnsureSchedulerStarted
     );
@@ -65,12 +68,26 @@ describe('createEdge', () => {
     expect(result.type).toBe('');
   });
 
+  it('throws when source node not found in graph', async () => {
+    await expect(
+      createEdge({ sourceId: 'Nonexistent', targetId: 'Node B' }, makeGraphState(), mockCid, mockEnsureSchedulerStarted)
+    ).rejects.toThrow('Source node "Nonexistent" not found in graph');
+  });
+
+  it('throws when target node not found in graph', async () => {
+    await expect(
+      createEdge({ sourceId: 'Node A', targetId: 'Nonexistent' }, makeGraphState(), mockCid, mockEnsureSchedulerStarted)
+    ).rejects.toThrow('Target node "Nonexistent" not found in graph');
+  });
+
+  it('error message includes available node names', async () => {
+    await expect(
+      createEdge({ sourceId: 'Ghost', targetId: 'Node B' }, makeGraphState(), mockCid, mockEnsureSchedulerStarted)
+    ).rejects.toThrow('Node A');
+  });
+
   it('throws error when sourceId or targetId is missing', async () => {
-    const graphState = {
-      activeGraphId: 'graph-1',
-      graphs: [],
-      nodePrototypes: []
-    };
+    const graphState = { activeGraphId: 'graph-1', graphs: [], nodePrototypes: [] };
 
     await expect(
       createEdge({ targetId: 'inst-2' }, graphState, mockCid, mockEnsureSchedulerStarted)
@@ -82,16 +99,8 @@ describe('createEdge', () => {
   });
 
   it('throws error when no active graph', async () => {
-    const graphState = {
-      graphs: [],
-      nodePrototypes: []
-    };
-
     await expect(
-      createEdge({ sourceId: 'inst-1', targetId: 'inst-2' }, graphState, mockCid, mockEnsureSchedulerStarted)
+      createEdge({ sourceId: 'inst-1', targetId: 'inst-2' }, { graphs: [], nodePrototypes: [] }, mockCid, mockEnsureSchedulerStarted)
     ).rejects.toThrow('No target graph specified and no active graph available');
   });
-
-  // Removed ensureSchedulerStarted test as direct UI tools no longer call it
 });
-
