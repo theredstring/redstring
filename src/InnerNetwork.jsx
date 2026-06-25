@@ -330,8 +330,8 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
              {(() => {
                // Target ~11 screen-px font size regardless of the fitting scale.
                // canvas-coord font size × scale = screen px.
-               const TARGET_PX = 13;
-               const fontSize = Math.min(Math.max(TARGET_PX / scale, 10), 22);
+               const TARGET_PX = 18;
+               const fontSize = Math.min(Math.max(TARGET_PX / scale, 13), 28);
                const availableCanvasW = dimensions.currentWidth - NODE_PADDING * 2;
                // Approximate char width for EmOne bold (~0.58× em)
                const avgCharW = fontSize * 0.58;
