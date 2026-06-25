@@ -2561,7 +2561,6 @@ const LeftAIView = ({ compact = false,
       // Added check for activeConv.messages?.length > 0 to prevent infinite loop with empty [] arrays
       if (isTabSwitch || (isHydrated && messages.length === 0 && activeConv.messages?.length > 0)) {
         setMessages(activeConv.messages || []);
-        lastMessagesRef.current = activeConv.messages || []; // Update ref to prevent immediate re-save
       }
     }
     lastActiveIdRef.current = activeConversationId;
