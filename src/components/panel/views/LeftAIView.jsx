@@ -2237,6 +2237,9 @@ const LeftAIView = ({ compact = false,
   // On Electron, this provides a fast initial load; the mount effect below may override with workspace data.
   const [conversationInit] = React.useState(() => {
     try {
+      // Assign legacy (unscoped) conversations to the current graph so they only appear there,
+      // not in every definition graph the user navigates to.
+      const initGraphId = useGraphStore.getState().activeGraphId || null;
       const manifestStr = localStorage.getItem('rs.aiChat.manifest');
       if (manifestStr) {
         const manifest = JSON.parse(manifestStr);
@@ -2246,10 +2249,10 @@ const LeftAIView = ({ compact = false,
               const localData = localStorage.getItem(`rs.aiChat.messages.${c.id}`);
               if (localData) {
                 const data = JSON.parse(localData);
-                return { ...c, messages: data.messages || [] };
+                return { ...c, messages: data.messages || [], graphId: c.graphId || initGraphId };
               }
             } catch { }
-            return { ...c, messages: [] };
+            return { ...c, messages: [], graphId: c.graphId || initGraphId };
           });
           return {
             conversations: hydrated,
@@ -2273,6 +2276,11 @@ const LeftAIView = ({ compact = false,
   React.useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
   const messagesRef = React.useRef(messages);
   React.useEffect(() => { messagesRef.current = messages; }, [messages]);
+  // Stable refs for graph-scoped conversation switching (avoid stale closures in effects).
+  const conversationsRef = React.useRef(conversations);
+  React.useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
+  const graphsMapRef = React.useRef(graphsMap);
+  React.useEffect(() => { graphsMapRef.current = graphsMap; }, [graphsMap]);
   // Conversation that owns the in-flight agent run. Telemetry arrives as a
   // GLOBAL window event with no conversation id, so without this a run started
   // in tab A dumps its tool chips into tab B after a tab switch.
@@ -2452,7 +2460,11 @@ const LeftAIView = ({ compact = false,
         }
 
         if (manifest && manifest.conversations) {
+          // Legacy conversations (no graphId) get assigned to the current graph at load time
+          // so they don't bleed into every definition graph the user navigates to.
+          const loadGraphId = activeGraphId || null;
           const hydratedConversations = await Promise.all(manifest.conversations.map(async (c) => {
+            const resolvedGraphId = c.graphId || loadGraphId;
             try {
               const projectDir = await fileStorage.getProjectDirectory();
               if (projectDir) {
@@ -2462,7 +2474,7 @@ const LeftAIView = ({ compact = false,
                   const content = typeof fileRes === 'string' ? fileRes : fileRes.content;
                   if (content) {
                     const data = JSON.parse(content);
-                    return { ...c, messages: data.messages || [] };
+                    return { ...c, messages: data.messages || [], graphId: resolvedGraphId };
                   }
                 }
               }
@@ -2470,7 +2482,7 @@ const LeftAIView = ({ compact = false,
               const localData = localStorage.getItem(`rs.aiChat.messages.${c.id}`);
               if (localData) {
                 const data = JSON.parse(localData);
-                return { ...c, messages: data.messages || [] };
+                return { ...c, messages: data.messages || [], graphId: resolvedGraphId };
               }
             } catch (e) {
               console.warn(`[AI Collaboration] Failed to hydrate conversation ${c.id}:`, e);
@@ -2478,11 +2490,11 @@ const LeftAIView = ({ compact = false,
                 const localData = localStorage.getItem(`rs.aiChat.messages.${c.id}`);
                 if (localData) {
                   const data = JSON.parse(localData);
-                  return { ...c, messages: data.messages || [] };
+                  return { ...c, messages: data.messages || [], graphId: resolvedGraphId };
                 }
               } catch { }
             }
-            return { ...c, messages: [] };
+            return { ...c, messages: [], graphId: resolvedGraphId };
           }));
 
           setConversations(hydratedConversations);
@@ -2496,6 +2508,48 @@ const LeftAIView = ({ compact = false,
     };
     loadConversations();
   }, []); // Electron only; component remounts on file switch
+
+  // When the active graph changes (e.g. navigating into a definition graph), switch to the most
+  // recent conversation for that graph, or auto-create a fresh one if none exist yet.
+  // This prevents tabs from a parent graph "loading in" to a definition graph context.
+  const prevActiveGraphIdRef = React.useRef(activeGraphId);
+  React.useEffect(() => {
+    if (!isHydrated) return;
+    if (prevActiveGraphIdRef.current === activeGraphId) return;
+    prevActiveGraphIdRef.current = activeGraphId;
+    if (!activeGraphId) return;
+
+    const convs = conversationsRef.current;
+    const currentId = activeConversationIdRef.current;
+
+    const visibleConvs = convs.filter(c => !c.graphId || c.graphId === activeGraphId);
+    const currentIsVisible = visibleConvs.some(c => c.id === currentId);
+
+    if (!currentIsVisible) {
+      if (visibleConvs.length > 0) {
+        // Switch to the most recent conversation for this graph
+        const mostRecent = [...visibleConvs].sort((a, b) =>
+          new Date(b.timestamp || 0) - new Date(a.timestamp || 0)
+        )[0];
+        setActiveConversationId(mostRecent.id);
+        // Sync effect will load mostRecent.messages into the display
+      } else {
+        // No conversations for this graph yet — auto-create a scoped one
+        const newId = `conv_${Date.now()}`;
+        const graphData = graphsMapRef.current?.get(activeGraphId);
+        const title = graphData?.name || 'New Chat';
+        const newConv = {
+          id: newId, title, messages: [],
+          timestamp: new Date().toISOString(),
+          graphId: activeGraphId
+        };
+        lastMessagesRef.current = messagesRef.current; // guard: prevent save effect writing old msgs
+        setConversations(prev => [newConv, ...prev]);
+        setActiveConversationId(newId);
+        React.startTransition(() => setMessages([]));
+      }
+    }
+  }, [activeGraphId, isHydrated]);
 
   // Sync messages with active conversation
   const lastActiveIdRef = React.useRef(activeConversationId);
@@ -2535,7 +2589,7 @@ const LeftAIView = ({ compact = false,
 
       // Save manifest to localStorage
       const manifest = {
-        conversations: updated.map(c => ({ id: c.id, title: c.title, timestamp: c.timestamp })),
+        conversations: updated.map(c => ({ id: c.id, title: c.title, timestamp: c.timestamp, graphId: c.graphId || null })),
         activeConversationId
       };
       localStorage.setItem('rs.aiChat.manifest', JSON.stringify(manifest));
@@ -2753,7 +2807,10 @@ const LeftAIView = ({ compact = false,
   React.useEffect(() => {
     // These need to re-bind when state changes so they have access to latest state
     // but the `useEffect` above for SSE only runs once. We'll use refs or simply update these getters
-    window.__rs_getTabs = () => ({ conversations, activeConversationId });
+    window.__rs_getTabs = () => ({
+      conversations: conversations.filter(c => !c.graphId || c.graphId === activeGraphId),
+      activeConversationId
+    });
     window.__rs_getWizardStatus = () => ({ hasAPIKey, isConnected, isProcessing, activeGraphId });
     // Lets dispatchers (e.g., NodeCanvas Ask The Wizard) check whether this conversation
     // already saw a wizard-action-chip of a given action so they can ship a shorter prompt
@@ -4048,7 +4105,8 @@ const LeftAIView = ({ compact = false,
       id: newId,
       title: defaultTitle,
       messages: [],
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      graphId: activeGraphId || null
     };
 
     // Urgent: insert the tab and move the selection so they paint immediately.
@@ -4067,12 +4125,16 @@ const LeftAIView = ({ compact = false,
 
   const handleCloseConversation = (id, e) => {
     if (e) e.stopPropagation();
-    if (conversations.length <= 1) return;
+    // Prevent closing the last visible tab for this graph
+    const currentVisible = conversations.filter(c => !c.graphId || c.graphId === activeGraphId);
+    if (currentVisible.length <= 1) return;
 
     setConversations(prev => {
       const filtered = prev.filter(c => c.id !== id);
       if (activeConversationId === id) {
-        handleTabSwitch(filtered[0].id);
+        // Switch to the most recent VISIBLE conversation after removing this one
+        const nextVisible = filtered.filter(c => !c.graphId || c.graphId === activeGraphId);
+        if (nextVisible.length > 0) handleTabSwitch(nextVisible[0].id);
       }
       return filtered;
     });
@@ -4139,6 +4201,13 @@ const LeftAIView = ({ compact = false,
       addMessage('system', '❌ Failed to copy conversation');
     });
   };
+
+  // Only show conversations that belong to the active graph (or legacy unscoped ones).
+  // This prevents tabs from a parent graph from bleeding into a definition graph context.
+  const visibleConversations = React.useMemo(
+    () => conversations.filter(c => !c.graphId || c.graphId === activeGraphId),
+    [conversations, activeGraphId]
+  );
 
   const headerActionsEl = (
     <div className="ai-header-actions">
@@ -4399,7 +4468,7 @@ const LeftAIView = ({ compact = false,
             }
           }}
         >
-          {conversations.map(conv => (
+          {visibleConversations.map(conv => (
             <div
               key={conv.id}
               className={`ai-tab ${activeConversationId === conv.id ? 'active' : ''}`}
@@ -4420,7 +4489,7 @@ const LeftAIView = ({ compact = false,
               ) : (
                 <span className="ai-tab-title">{conv.title}</span>
               )}
-              {conversations.length > 1 && (
+              {visibleConversations.length > 1 && (
                 <button
                   className="ai-tab-close"
                   onClick={(e) => handleCloseConversation(conv.id, e)}
