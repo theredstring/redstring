@@ -75,7 +75,6 @@ import {
   WRAPPED_NODE_HEIGHT,
   LINE_HEIGHT_ESTIMATE,
   EDGE_MARGIN,
-  TRACKPAD_ZOOM_SENSITIVITY,
   PAN_DRAG_SENSITIVITY,
   SMOOTH_MOUSE_WHEEL_ZOOM_SENSITIVITY,
   MIDDLE_MOUSE_ZOOM_SENSITIVITY,
@@ -688,6 +687,12 @@ function NodeCanvas() {
   const middleMouseZoomEnabled = useGraphStore(state => state.mouseSettings?.middleMouseZoomEnabled ?? false);
   const nodeLiftDelay = useGraphStore(state => state.mouseSettings?.nodeLiftDelay ?? 250);
   const touchSettings = useGraphStore(state => state.touchSettings || { zoomSensitivity: 0.7, panSensitivity: 0.5 });
+  const trackpadZoomSensitivity = useGraphStore(state => state.touchSettings?.trackpadZoomSensitivity ?? 0.5);
+  const trackpadZoomSensitivityRef = useRef(trackpadZoomSensitivity);
+  useEffect(() => { trackpadZoomSensitivityRef.current = trackpadZoomSensitivity; }, [trackpadZoomSensitivity]);
+  const trackpadPanSensitivity = useGraphStore(state => state.touchSettings?.trackpadPanSensitivity ?? 0.5);
+  const trackpadPanSensitivityRef = useRef(trackpadPanSensitivity);
+  useEffect(() => { trackpadPanSensitivityRef.current = trackpadPanSensitivity; }, [trackpadPanSensitivity]);
   const touchSettingsRef = useRef(touchSettings);
   useEffect(() => { touchSettingsRef.current = touchSettings; }, [touchSettings]);
   const edgesMap = useGraphStore(state => state.edges);
@@ -1210,7 +1215,7 @@ function NodeCanvas() {
   // --- Local UI State (Keep these) ---
   const [selectedInstanceIds, setSelectedInstanceIds] = useState(new Set());
 
-  // Midpoint of the selected edge in SVG canvas coordinates (straight-line average of node centers)
+  // Midpoint and angle of the selected edge in SVG canvas coordinates
   const selectedEdgeMidpoint = useMemo(() => {
     const edgeId = selectedEdgeId || (selectedEdgeIds.size === 1 ? [...selectedEdgeIds][0] : null);
     if (!edgeId) return null;
@@ -1221,9 +1226,18 @@ function NodeCanvas() {
     if (!srcNode || !dstNode) return null;
     const sDims = baseDimsById.get(edge.sourceId) || { currentWidth: 120, currentHeight: 40 };
     const dDims = baseDimsById.get(edge.destinationId || edge.targetId) || { currentWidth: 120, currentHeight: 40 };
+    const srcCX = srcNode.x + sDims.currentWidth / 2;
+    const srcCY = srcNode.y + sDims.currentHeight / 2;
+    const dstCX = dstNode.x + dDims.currentWidth / 2;
+    const dstCY = dstNode.y + dDims.currentHeight / 2;
+    // Normalize direction to always go left-to-right so button order is stable
+    let dx = dstCX - srcCX;
+    let dy = dstCY - srcCY;
+    if (dx < 0 || (dx === 0 && dy < 0)) { dx = -dx; dy = -dy; }
     return {
-      x: (srcNode.x + sDims.currentWidth / 2 + dstNode.x + dDims.currentWidth / 2) / 2,
-      y: (srcNode.y + sDims.currentHeight / 2 + dstNode.y + dDims.currentHeight / 2) / 2,
+      x: (srcCX + dstCX) / 2,
+      y: (srcCY + dstCY) / 2,
+      angle: Math.atan2(dy, dx),
     };
   }, [selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById]);
 
@@ -4338,9 +4352,8 @@ function NodeCanvas() {
   // --- Connection Control Panel Management (multi-edge selection only) ---
   useEffect(() => {
     const nodesSelected = selectedInstanceIds.size > 0;
-    // ConnectionControlPanel only for multi-edge; single edge uses the inline edge pie menu
-    const multiEdgeSelected = selectedEdgeId === null && selectedEdgeIds.size > 0;
-    const shouldShow = Boolean(multiEdgeSelected && !nodesSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
+    const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
+    const shouldShow = Boolean(edgeSelected && !nodesSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
     if (shouldShow) {
       setConnectionControlPanelShouldShow(true);
       setConnectionControlPanelVisible(true);
@@ -6278,9 +6291,10 @@ function NodeCanvas() {
     // (from trackpad pinch) also counts — it's how pinch-to-zoom works.
     const isZoom = isMac ? (e.metaKey || e.ctrlKey) : e.ctrlKey;
     // Pinch vs. modifier+wheel is discriminated by delta magnitude, not by
-    // ctrlKey alone — real Ctrl+mouse-wheel on Mac also sets ctrlKey but
-    // emits large deltas. Pinch gestures emit |deltaY| ~1-10 per event.
-    const isPinch = isMac && e.ctrlKey && !e.metaKey && Math.abs(deltaY) < 20;
+    // ctrlKey alone — real Ctrl+mouse-wheel on any platform also sets ctrlKey but
+    // emits large deltas. Pinch gestures (Mac and Windows precision touchpads)
+    // emit |deltaY| ~1-10 per event, so small-delta Ctrl+scroll = trackpad pinch.
+    const isPinch = e.ctrlKey && !e.metaKey && Math.abs(deltaY) < 20;
 
     if (abstractionCarouselVisible) return;
 
@@ -6288,7 +6302,9 @@ function NodeCanvas() {
       if (draggingNodeInfo || isAnimatingZoomRef.current) return;
       e.stopPropagation();
       isPanningOrZooming.current = true;
-      const zoomDelta = deltaY * (isPinch ? TRACKPAD_ZOOM_SENSITIVITY : SMOOTH_MOUSE_WHEEL_ZOOM_SENSITIVITY);
+      // Slider 0.5 = default (maps to the original TRACKPAD_ZOOM_SENSITIVITY = 6.5).
+      const trackpadSensitivity = (trackpadZoomSensitivityRef.current ?? 0.5) * 13;
+      const zoomDelta = deltaY * (isPinch ? trackpadSensitivity : SMOOTH_MOUSE_WHEEL_ZOOM_SENSITIVITY);
       const opId = ++zoomOpIdRef.current;
       try {
         const result = await canvasWorker.calculateZoom({
@@ -6328,8 +6344,9 @@ function NodeCanvas() {
     e.stopPropagation();
     isPanningOrZooming.current = true;
     panSourceRef.current = 'wheel';
-    const dx = e.altKey ? -deltaY * PAN_DRAG_SENSITIVITY : -deltaX * PAN_DRAG_SENSITIVITY;
-    const dy = e.altKey ? 0 : -deltaY * PAN_DRAG_SENSITIVITY;
+    const wheelPanSensitivity = (trackpadPanSensitivityRef.current ?? 0.5) * 2.4;
+    const dx = e.altKey ? -deltaY * wheelPanSensitivity : -deltaX * wheelPanSensitivity;
+    const dy = e.altKey ? 0 : -deltaY * wheelPanSensitivity;
     const currentCanvasWidth = canvasSize.width * zoomLevelRef.current;
     const currentCanvasHeight = canvasSize.height * zoomLevelRef.current;
     const minX = viewportSize.width - currentCanvasWidth;
@@ -7516,7 +7533,12 @@ function NodeCanvas() {
       setLastInteractionType('blocked_click');
       return;
     }
-    if (ignoreCanvasClick.current) { ignoreCanvasClick.current = false; return; }
+    if (ignoreCanvasClick.current) {
+      ignoreCanvasClick.current = false;
+      // Only bail if there's nothing to deselect — otherwise fall through so the
+      // first click after a pan/glide doesn't waste itself just clearing the flag.
+      if (selectedInstanceIds.size === 0) return;
+    }
 
     // Close Group panel on click-off like other panels
     if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
@@ -8929,8 +8951,8 @@ function NodeCanvas() {
       },
       {
         id: 'edge-add',
-        label: 'Rename',
-        icon: Plus,
+        label: 'Define',
+        icon: Edit3,
         action: () => {
           setEdgePieMenuVisible(false);
           setConnectionNamePrompt({ visible: true, name: '', color: CONNECTION_DEFAULT_COLOR, edgeId: edge.id });
@@ -8938,7 +8960,7 @@ function NodeCanvas() {
       },
       {
         id: 'edge-open-def',
-        label: 'Open definition',
+        label: 'Open Definition',
         icon: ArrowUpFromDot,
         action: () => {
           const defNodeId = getDefinitionNodeId();
@@ -8962,7 +8984,7 @@ function NodeCanvas() {
       },
       {
         id: 'edge-open-panel',
-        label: 'Open in panel',
+        label: 'Open in Panel',
         icon: ArrowRight,
         action: () => {
           const defNodeId = getDefinitionNodeId();
@@ -8979,7 +9001,7 @@ function NodeCanvas() {
     if (wizardEnabled) {
       buttons.push({
         id: 'edge-wizard',
-        label: 'Ask wizard',
+        label: 'Ask The Wizard',
         icon: Sparkles,
         action: () => {
           const pref = (() => { try { return debugConfig.getWizardConnectionPref(); } catch { return 'ask'; } })();
@@ -14051,6 +14073,7 @@ function NodeCanvas() {
                           return (
                             <PieMenu
                               anchor={selectedEdgeMidpoint}
+                              anchorAngle={selectedEdgeMidpoint?.angle ?? 0}
                               buttons={displayButtons}
                               isVisible={edgePieMenuVisible}
                               onHoverChange={handlePieMenuHoverChange}

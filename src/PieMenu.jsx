@@ -24,6 +24,7 @@ const PieMenu = ({
   onHoverChange = () => {},
   onAutoClose = () => {},
   anchor = null, // { x, y } in SVG canvas coords — alternative to node+nodeDimensions
+  anchorAngle = 0, // radians — rotates line mode to match edge slope
 }) => {
   // animationState can be: null (initial/hidden), 'popping', 'visible_steady', 'shrinking'
   const [animationState, setAnimationState] = useState(null);
@@ -215,12 +216,23 @@ const PieMenu = ({
         let bubbleX, bubbleY;
 
         if (isLineMode) {
-          // Line mode: horizontal row centered on anchor point, offset above it
+          // Line mode: buttons along the edge slope, offset perpendicular (upward side)
           const step = BUBBLE_SIZE + BUBBLE_PADDING;
-          const totalWidth = (buttons.length - 1) * step;
-          bubbleX = nodeCenterX - totalWidth / 2 + index * step;
-          // Offset perpendicular (upward): bubble center is 2× bubble sizes above anchor
-          bubbleY = nodeCenterY - BUBBLE_SIZE - BUBBLE_PADDING * 2;
+          const n = buttons.length;
+          const t = index - (n - 1) / 2; // centered index: -1.5, -0.5, 0.5, 1.5 for n=4
+
+          // Along-edge unit vector
+          const alongX = Math.cos(anchorAngle);
+          const alongY = Math.sin(anchorAngle);
+
+          // Perpendicular unit vector pointing upward (angle is always in [-π/2, π/2] so this is guaranteed)
+          const perpX = Math.sin(anchorAngle);
+          const perpY = -Math.cos(anchorAngle);
+
+          const PERP_OFFSET = BUBBLE_SIZE + BUBBLE_PADDING * 2; // 92 units away from edge
+
+          bubbleX = nodeCenterX + t * step * alongX + PERP_OFFSET * perpX;
+          bubbleY = nodeCenterY + t * step * alongY + PERP_OFFSET * perpY;
         } else if (isCarouselMode) {
           // Carousel mode: position buttons based on actual current node dimensions
           // nodeDimensions now contains the actual current scaled dimensions from AbstractionCarousel

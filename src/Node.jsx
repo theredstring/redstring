@@ -305,7 +305,12 @@ const Node = ({
         touchAction: 'none'
       } : {
         cursor: 'pointer',
-        touchAction: 'none'
+        touchAction: 'none',
+        // Anchor CSS class transforms (e.g. .touch-active { scale(0.95) }) to the
+        // node's visual center. Without this, SVG <g> elements default to transform-
+        // origin: 0 0 (canvas origin), so any CSS scale pulls the node toward the
+        // top-left corner instead of shrinking it in place.
+        transformOrigin: `${nodeX + currentWidth / 2}px ${nodeY + currentHeight / 2}px`
       }}
       onMouseDown={(e) => {
         onMouseDown?.(e);

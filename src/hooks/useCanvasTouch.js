@@ -584,7 +584,16 @@ export const useCanvasTouch = ({
         // here when touchend bubbled to the canvas). Leave the flag set so
         // the synthesized click that follows also bails in handleCanvasClick.
         if (isTap && ignoreCanvasClick && ignoreCanvasClick.current) {
+            // Always clear the flag — without this, touch's e.preventDefault() suppresses
+            // the synthesized click that would normally clear it via handleCanvasClick, so
+            // it stays true forever and every subsequent tap is blocked until refresh.
+            ignoreCanvasClick.current = false;
             touchMultiPanRef.current = false;
+            // Still allow deselection on this tap (only plus-sign spawn should be blocked).
+            if (!isPaused && !draggingNodeInfo && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId && selectedInstanceIds.size > 0) {
+                setSelectedInstanceIds(new Set());
+                if (selectedNodeIdForPieMenu) setSelectedNodeIdForPieMenu(null);
+            }
             return;
         }
 
@@ -747,19 +756,9 @@ export const useCanvasTouch = ({
             if (isMouseDown.current && ts.dragNodeId === instanceId && !ts.isDragging) {
                 // Set flag BEFORE starting drag to enable early exit path immediately
                 ts.isDragging = true;
-                // Recompute dragOffset from the CURRENT finger position so the node
-                // doesn't jump when the finger drifted slightly during the hold.
-                // The touchstart offset is stale: if the finger moved 5px left, using it
-                // places the node 5px left on the first drag frame. Using the current
-                // position as the new grip-lock prevents this while keeping the feel
-                // of instant pickup (< TOUCH_MOVEMENT_THRESHOLD drift, so the user
-                // wasn't intentionally moving — just natural hand wobble).
-                const liveRect = containerRef.current?.getBoundingClientRect();
-                const liveOffset = liveRect ? {
-                    x: (ts.currentPosition.x - liveRect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX - nodeData.x,
-                    y: (ts.currentPosition.y - liveRect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY - nodeData.y,
-                } : ts.dragOffset;
-                const started = startDragForNode(nodeData, ts.currentPosition.x, ts.currentPosition.y, liveOffset);
+                // Pass touchstart-captured offset so the grip-point is locked to where
+                // the finger first landed (not where it drifted to during the 500ms wait).
+                const started = startDragForNode(nodeData, ts.currentPosition.x, ts.currentPosition.y, ts.dragOffset);
                 if (started) {
                     ts.longPressReady = false;
                     setSelectedNodeIdForPieMenu(null);

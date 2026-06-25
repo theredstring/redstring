@@ -55,6 +55,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const connectionDrawEdgePanEnabled = useGraphStore(s => s.mouseSettings?.connectionDrawEdgePanEnabled ?? true);
   const mouseGlideEnabled = useGraphStore(s => s.mouseSettings?.glideEnabled ?? true);
   const touchGlideEnabled = useGraphStore(s => s.touchSettings?.glideEnabled ?? true);
+  const trackpadZoomSensitivity = useGraphStore(s => s.touchSettings?.trackpadZoomSensitivity ?? 0.5);
+  const trackpadPanSensitivity = useGraphStore(s => s.touchSettings?.trackpadPanSensitivity ?? 0.5);
   const mouseGlideStrength = useGraphStore(s => s.mouseSettings?.glideStrength ?? 0.1);
   const nodeLiftDelay = useGraphStore(s => s.mouseSettings?.nodeLiftDelay ?? 250);
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
@@ -220,6 +222,32 @@ const SettingsModal = ({ isVisible, onClose }) => {
 
           <hr className="settings-section-divider" />
 
+          <div className="settings-section-subtitle">Trackpad</div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Zoom Sensitivity"
+              value={trackpadZoomSensitivity ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setTrackpadZoomSensitivity?.(v)}
+              suffix=""
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Pan Sensitivity"
+              value={trackpadPanSensitivity ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setTrackpadPanSensitivity?.(v)}
+              suffix=""
+            />
+          </div>
+
+          <hr className="settings-section-divider" />
+
           <div className="settings-section-subtitle">Mouse</div>
           <div className="settings-row settings-row--attached">
             <div className="settings-row-label">
@@ -252,42 +280,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={() => useGraphStore.getState().toggleMiddleMouseZoom?.()}
             />
           </div>
-          <div className="settings-row">
-            <div className="settings-row-label">
-              Edge Pan While Dragging Nodes
-              <div className="settings-row-description">Automatically pan the canvas when the pointer reaches the viewport edge while moving a Thing. Applies to mouse and touch.</div>
-            </div>
-            <Toggle
-              checked={!!nodeDragEdgePanEnabled}
-              onChange={() => useGraphStore.getState().toggleNodeDragEdgePan?.()}
-            />
-          </div>
-          <div className="settings-row">
-            <div className="settings-row-label">
-              Edge Pan While Drawing Connections
-              <div className="settings-row-description">Automatically pan the canvas when the pointer reaches the viewport edge while drawing a connection. Applies to mouse and touch.</div>
-            </div>
-            <Toggle
-              checked={!!connectionDrawEdgePanEnabled}
-              onChange={() => useGraphStore.getState().toggleConnectionDrawEdgePan?.()}
-            />
-          </div>
-
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Lift Delay"
-              value={nodeLiftDelay ?? 250}
-              min={50}
-              max={600}
-              step={25}
-              suffix="ms"
-              onChange={(v) => useGraphStore.getState().setNodeLiftDelay?.(v)}
-            />
-          </div>
-          <div className="settings-row-description" style={{ marginTop: '-8px', marginBottom: '12px', fontSize: '0.78em', color: 'var(--text-secondary, #888)' }}>
-            How long to hold before a node is picked up for dragging
-          </div>
-
           <div className="settings-section-subtitle">Keyboard</div>
           <div className="settings-slider-row">
             <MaroonSlider
@@ -314,10 +306,44 @@ const SettingsModal = ({ isVisible, onClose }) => {
 
           <hr className="settings-section-divider" />
 
-          <div className="settings-section-subtitle">Zoom on Drag</div>
+          <div className="settings-section-subtitle">Dragging</div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Lift Delay"
+              value={nodeLiftDelay ?? 250}
+              min={50}
+              max={600}
+              step={25}
+              suffix="ms"
+              onChange={(v) => useGraphStore.getState().setNodeLiftDelay?.(v)}
+            />
+          </div>
+          <div className="settings-row-description" style={{ marginTop: '-8px', marginBottom: '12px', fontSize: '0.78em', color: 'var(--text-secondary, #888)' }}>
+            How long to hold before a node is picked up for dragging
+          </div>
           <div className="settings-row">
             <div className="settings-row-label">
-              Enable Zoom on Drag
+              Edge Pan While Dragging Nodes
+              <div className="settings-row-description">Automatically pan the canvas when the pointer reaches the viewport edge while moving a Thing. Applies to mouse and touch.</div>
+            </div>
+            <Toggle
+              checked={!!nodeDragEdgePanEnabled}
+              onChange={() => useGraphStore.getState().toggleNodeDragEdgePan?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Edge Pan While Drawing Connections
+              <div className="settings-row-description">Automatically pan the canvas when the pointer reaches the viewport edge while drawing a connection. Applies to mouse and touch.</div>
+            </div>
+            <Toggle
+              checked={!!connectionDrawEdgePanEnabled}
+              onChange={() => useGraphStore.getState().toggleConnectionDrawEdgePan?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Zoom on Drag
               <div className="settings-row-description">Zoom out when dragging a node</div>
             </div>
             <Toggle

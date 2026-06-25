@@ -721,9 +721,19 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!Number.isFinite(glideStrength)) glideStrength = 0.5;
         glideStrength = Math.max(0.0, Math.min(1.0, glideStrength));
 
-        return { zoomSensitivity, panSensitivity, glideEnabled, glideStrength };
+        const trackpadZoomRaw = localStorage.getItem('redstring_trackpad_zoom_sensitivity');
+        let trackpadZoomSensitivity = trackpadZoomRaw !== null ? parseFloat(trackpadZoomRaw) : 0.5;
+        if (!Number.isFinite(trackpadZoomSensitivity)) trackpadZoomSensitivity = 0.5;
+        trackpadZoomSensitivity = Math.max(0.1, Math.min(1.0, trackpadZoomSensitivity));
+
+        const trackpadPanRaw = localStorage.getItem('redstring_trackpad_pan_sensitivity');
+        let trackpadPanSensitivity = trackpadPanRaw !== null ? parseFloat(trackpadPanRaw) : 0.5;
+        if (!Number.isFinite(trackpadPanSensitivity)) trackpadPanSensitivity = 0.5;
+        trackpadPanSensitivity = Math.max(0.1, Math.min(1.0, trackpadPanSensitivity));
+
+        return { zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity };
       } catch (_) {
-        return { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5 };
+        return { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomSensitivity: 0.5, trackpadPanSensitivity: 0.5 };
       }
     })(),
 
@@ -3906,6 +3916,32 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.touchSettings.glideStrength = v;
       try {
         localStorage.setItem('redstring_touch_glide_strength', String(v));
+      } catch (_) { }
+    })),
+
+    setTrackpadZoomSensitivity: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.1 || v > 1.0) {
+        console.warn(`[setTrackpadZoomSensitivity] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomSensitivity: 0.5, trackpadPanSensitivity: 0.5 };
+      draft.touchSettings.trackpadZoomSensitivity = v;
+      try {
+        localStorage.setItem('redstring_trackpad_zoom_sensitivity', String(v));
+      } catch (_) { }
+    })),
+
+    setTrackpadPanSensitivity: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.1 || v > 1.0) {
+        console.warn(`[setTrackpadPanSensitivity] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomSensitivity: 0.5, trackpadPanSensitivity: 0.5 };
+      draft.touchSettings.trackpadPanSensitivity = v;
+      try {
+        localStorage.setItem('redstring_trackpad_pan_sensitivity', String(v));
       } catch (_) { }
     })),
 

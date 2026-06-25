@@ -1069,17 +1069,17 @@ const UnifiedBottomControlPanel = ({
                 <div
                   className="piemenu-button"
                   onClick={onAdd}
-                  title="Add"
-                  onMouseEnter={() => triggerActionHover('control-add', 'Add')}
+                  title="Define"
+                  onMouseEnter={() => triggerActionHover('control-add', 'Define')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Plus size={iconSize} />
+                  <Edit3 size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
                   onClick={onUp}
-                  title="Open definition"
-                  onMouseEnter={() => triggerActionHover('control-open-definition', 'Open definition')}
+                  title="Open Definition"
+                  onMouseEnter={() => triggerActionHover('control-open-definition', 'Open Definition')}
                   onMouseLeave={clearActionHover}
                 >
                   <ArrowUpFromDot size={iconSize} />
@@ -1087,8 +1087,8 @@ const UnifiedBottomControlPanel = ({
                 <div
                   className="piemenu-button"
                   onClick={onOpenInPanel}
-                  title="Open in panel"
-                  onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in panel')}
+                  title="Open in Panel"
+                  onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
                   onMouseLeave={clearActionHover}
                 >
                   <ArrowRight size={iconSize} />
