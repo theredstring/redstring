@@ -25,7 +25,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, MoveVertical, ChevronLeft, ChevronRight } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, ArrowRight, Sparkles } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -1210,6 +1210,23 @@ function NodeCanvas() {
 
   // --- Local UI State (Keep these) ---
   const [selectedInstanceIds, setSelectedInstanceIds] = useState(new Set());
+
+  // Midpoint of the selected edge in SVG canvas coordinates (straight-line average of node centers)
+  const selectedEdgeMidpoint = useMemo(() => {
+    const edgeId = selectedEdgeId || (selectedEdgeIds.size === 1 ? [...selectedEdgeIds][0] : null);
+    if (!edgeId) return null;
+    const edge = edgesMap.get(edgeId);
+    if (!edge) return null;
+    const srcNode = nodeById.get(edge.sourceId);
+    const dstNode = nodeById.get(edge.destinationId || edge.targetId);
+    if (!srcNode || !dstNode) return null;
+    const sDims = baseDimsById.get(edge.sourceId) || { currentWidth: 120, currentHeight: 40 };
+    const dDims = baseDimsById.get(edge.destinationId || edge.targetId) || { currentWidth: 120, currentHeight: 40 };
+    return {
+      x: (srcNode.x + sDims.currentWidth / 2 + dstNode.x + dDims.currentWidth / 2) / 2,
+      y: (srcNode.y + sDims.currentHeight / 2 + dstNode.y + dDims.currentHeight / 2) / 2,
+    };
+  }, [selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById]);
 
   // Refs for DOM-bypass drag (declared early so useNodeDrag can receive them)
   // Values sync'd via useEffect after the corresponding memos are computed
@@ -3960,6 +3977,8 @@ function NodeCanvas() {
   const [lastSelectedGroup, setLastSelectedGroup] = useState(null);
   const [connectionControlPanelVisible, setConnectionControlPanelVisible] = useState(false);
   const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useState(false);
+  const [edgePieMenuVisible, setEdgePieMenuVisible] = useState(false);
+  const [edgePieMenuRendered, setEdgePieMenuRendered] = useState(false);
 
   // Pending swap operation state
   const [pendingSwapOperation, setPendingSwapOperation] = useState(null);
@@ -4317,11 +4336,12 @@ function NodeCanvas() {
     }
   }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive, selectionStart, previewingNodeId]);
 
-  // --- Connection Control Panel Management ---
+  // --- Connection Control Panel Management (multi-edge selection only) ---
   useEffect(() => {
     const nodesSelected = selectedInstanceIds.size > 0;
-    const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
-    const shouldShow = Boolean(edgeSelected && !nodesSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
+    // ConnectionControlPanel only for multi-edge; single edge uses the inline edge pie menu
+    const multiEdgeSelected = selectedEdgeId === null && selectedEdgeIds.size > 0;
+    const shouldShow = Boolean(multiEdgeSelected && !nodesSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
     if (shouldShow) {
       setConnectionControlPanelShouldShow(true);
       setConnectionControlPanelVisible(true);
@@ -4336,6 +4356,19 @@ function NodeCanvas() {
       setConnectionControlPanelVisible(false);
     }
   }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, connectionControlPanelVisible]);
+
+  // --- Edge Pie Menu Management (single edge selection) ---
+  useEffect(() => {
+    const nodesSelected = selectedInstanceIds.size > 0;
+    const singleEdgeSelected = selectedEdgeId !== null && selectedEdgeIds.size === 0;
+    const shouldShow = Boolean(singleEdgeSelected && !nodesSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
+    if (shouldShow) {
+      setEdgePieMenuVisible(true);
+      setEdgePieMenuRendered(true);
+    } else if (!shouldShow && edgePieMenuVisible) {
+      setEdgePieMenuVisible(false);
+    }
+  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, edgePieMenuVisible]);
 
   // --- Group Control Panel Management ---
   useEffect(() => {
@@ -7089,12 +7122,16 @@ function NodeCanvas() {
       potentialClickNodeRef.current = null;
     }
 
-    // Explicitly close Connection Panel on any canvas interaction (click, pan start, etc.)
-    // This ensures that even if you drag slightly (panning), the panel closes.
+    // Explicitly close Connection Panel / Edge Pie Menu on any canvas interaction (click, pan start, etc.)
+    // This ensures that even if you drag slightly (panning), the panel/menu closes.
     if ((connectionControlPanelVisible || connectionControlPanelShouldShow) && !isPaused) {
       setConnectionControlPanelVisible(false);
       storeActions.setSelectedEdgeId(null);
       storeActions.clearSelectedEdgeIds();
+    }
+    if (edgePieMenuVisible && !isPaused) {
+      setEdgePieMenuVisible(false);
+      storeActions.setSelectedEdgeId(null);
     }
 
     isMouseDown.current = true;
@@ -7442,9 +7479,12 @@ function NodeCanvas() {
 
     // Priority: Check related control panels FIRST before any other checks (like ignoreCanvasClick)
     // This ensures clicking off always dismisses the panel even if a slight drag occurred
-    if (connectionControlPanelShouldShow || connectionControlPanelVisible || selectedEdgeId || selectedEdgeIds.size > 0) {
+    if (connectionControlPanelShouldShow || connectionControlPanelVisible || edgePieMenuVisible || edgePieMenuRendered || selectedEdgeId || selectedEdgeIds.size > 0) {
       if (connectionControlPanelShouldShow || connectionControlPanelVisible) {
         setConnectionControlPanelVisible(false);
+      }
+      if (edgePieMenuVisible || edgePieMenuRendered) {
+        setEdgePieMenuVisible(false);
       }
       storeActions.setSelectedEdgeId(null);
       storeActions.clearSelectedEdgeIds();
@@ -8865,6 +8905,94 @@ function NodeCanvas() {
     setHurtleAnimation(animationData);
     runHurtleAnimation(animationData);
   }, [containerRef, runHurtleAnimation]);
+
+  // Edge pie menu button definitions
+  const edgePieMenuButtons = useMemo(() => {
+    const edge = edgesMap.get(selectedEdgeId);
+    if (!edge) return [];
+
+    const getDefinitionNodeId = () => {
+      if (edge.definitionNodeIds?.length > 0) return edge.definitionNodeIds[0];
+      return edge.typeNodeId || null;
+    };
+
+    const buttons = [
+      {
+        id: 'edge-delete',
+        label: 'Delete',
+        icon: Trash2,
+        action: () => {
+          storeActions.removeEdge(edge.id);
+          storeActions.setSelectedEdgeId(null);
+          setEdgePieMenuVisible(false);
+        },
+      },
+      {
+        id: 'edge-add',
+        label: 'Rename',
+        icon: Plus,
+        action: () => {
+          setEdgePieMenuVisible(false);
+          setConnectionNamePrompt({ visible: true, name: '', color: CONNECTION_DEFAULT_COLOR, edgeId: edge.id });
+        },
+      },
+      {
+        id: 'edge-open-def',
+        label: 'Open definition',
+        icon: ArrowUpFromDot,
+        action: () => {
+          const defNodeId = getDefinitionNodeId();
+          if (!defNodeId) return;
+          const prototype = nodePrototypesMap.get(defNodeId);
+          const mockRect = { left: window.innerWidth / 2, top: window.innerHeight / 2, width: 40, height: 40 };
+          if (prototype?.definitionGraphIds?.length > 0) {
+            startHurtleAnimationFromPanel(defNodeId, prototype.definitionGraphIds[0], defNodeId, mockRect);
+          } else {
+            const { createAndAssignGraphDefinitionWithoutActivation } = useGraphStore.getState();
+            createAndAssignGraphDefinitionWithoutActivation(defNodeId);
+            setTimeout(() => {
+              const updated = useGraphStore.getState().nodePrototypes.get(defNodeId);
+              if (updated?.definitionGraphIds?.length > 0) {
+                startHurtleAnimationFromPanel(defNodeId, updated.definitionGraphIds[updated.definitionGraphIds.length - 1], defNodeId, mockRect);
+              }
+            }, 50);
+          }
+          setEdgePieMenuVisible(false);
+        },
+      },
+      {
+        id: 'edge-open-panel',
+        label: 'Open in panel',
+        icon: ArrowRight,
+        action: () => {
+          const defNodeId = getDefinitionNodeId();
+          if (defNodeId) {
+            const prototype = nodePrototypesMap.get(defNodeId);
+            storeActions.openRightPanelNodeTab(defNodeId, prototype?.name || 'Connection');
+            if (!rightPanelExpanded) storeActions.setRightPanelExpanded(true);
+          }
+          setEdgePieMenuVisible(false);
+        },
+      },
+    ];
+
+    if (wizardEnabled) {
+      buttons.push({
+        id: 'edge-wizard',
+        label: 'Ask wizard',
+        icon: Sparkles,
+        action: () => {
+          const pref = (() => { try { return debugConfig.getWizardConnectionPref(); } catch { return 'ask'; } })();
+          if (pref === 'new') { openWizardWithPrompt([edge], { newConversation: true }); }
+          else if (pref === 'current') { openWizardWithPrompt([edge], { newConversation: false }); }
+          else { setAskWizardDontAskAgain(false); setAskWizardDialog({ edges: [edge] }); }
+          setEdgePieMenuVisible(false);
+        },
+      });
+    }
+
+    return buttons;
+  }, [selectedEdgeId, edgesMap, nodePrototypesMap, wizardEnabled, storeActions, startHurtleAnimationFromPanel, openWizardWithPrompt, rightPanelExpanded]);
 
   // Callback for activating semantic orbit from control panel
   const activateSemanticOrbit = useCallback(() => {
@@ -13878,6 +14006,60 @@ function NodeCanvas() {
                         )}
 
 
+
+                        {/* Edge pie menu — rendered inline at the edge midpoint */}
+                        {(() => {
+                          if (!edgePieMenuRendered || !selectedEdgeMidpoint || edgePieMenuButtons.length === 0) return null;
+
+                          // Space check: does the full button row fit on screen?
+                          const BUBBLE_TOTAL = 60 + 16; // BUBBLE_SIZE + BUBBLE_PADDING
+                          const zoom = zoomLevelRef.current;
+                          const pan = panOffsetRef.current;
+                          const rect = containerRef.current?.getBoundingClientRect();
+                          const screenX = rect ? selectedEdgeMidpoint.x * zoom + pan.x + rect.left : 0;
+                          const rowWidth = edgePieMenuButtons.length * BUBBLE_TOTAL * zoom;
+                          const isCompact = rect ? (screenX - rowWidth / 2 < 16 || screenX + rowWidth / 2 > rect.width - 16) : false;
+
+                          if (isCompact) {
+                            // Single "..." bubble — onClick opens context menu
+                            const handleDotsClick = (e) => {
+                              e.stopPropagation();
+                              const menuOptions = edgePieMenuButtons.map(btn => ({
+                                label: btn.label,
+                                icon: btn.icon ? <btn.icon size={16} color="maroon" /> : null,
+                                action: () => btn.action(null, null),
+                              }));
+                              showContextMenu(e.clientX, e.clientY, menuOptions);
+                            };
+                            return (
+                              <g
+                                transform={`translate(${selectedEdgeMidpoint.x}, ${selectedEdgeMidpoint.y - 30 - 8})`}
+                                style={{ cursor: 'pointer' }}
+                                onMouseDown={e => e.stopPropagation()}
+                                onClick={handleDotsClick}
+                                className="pie-menu"
+                              >
+                                <g className={`pie-menu-bubble-inner ${edgePieMenuVisible ? 'is-visible-steady' : 'is-shrinking'}`}
+                                  style={{ '--start-x': '0px', '--start-y': '0px' }}
+                                  onAnimationEnd={() => { if (!edgePieMenuVisible) setEdgePieMenuRendered(false); }}
+                                >
+                                  <circle cx="0" cy="0" r="30" fill="#DEDADA" stroke="maroon" strokeWidth={3} />
+                                  <MoreHorizontal x={-15} y={-15} width={30} height={30} color="maroon" />
+                                </g>
+                              </g>
+                            );
+                          }
+
+                          return (
+                            <PieMenu
+                              anchor={selectedEdgeMidpoint}
+                              buttons={edgePieMenuButtons}
+                              isVisible={edgePieMenuVisible}
+                              onHoverChange={handlePieMenuHoverChange}
+                              onExitAnimationComplete={() => setEdgePieMenuRendered(false)}
+                            />
+                          );
+                        })()}
 
                         {/* Dim overlay for semantic orbit mode.
                             Plain SVG rect (not foreignObject) so it stays in proper paint order

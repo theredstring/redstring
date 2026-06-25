@@ -91,25 +91,38 @@ export async function createEdge(args, graphState, cid, ensureSchedulerStarted) 
   const resolvedSource = resolveNodeByName(sourceId, nodePrototypes, graphs, graphId);
   const resolvedTarget = resolveNodeByName(targetId, nodePrototypes, graphs, graphId);
 
-  if (resolvedSource) {
-    console.error('[createEdge] Resolved source:', sourceId, '→', resolvedSource.instanceId);
-  } else {
-    console.warn('[createEdge] Source not found in graphState, delegating to client:', sourceId);
+  if (!resolvedSource) {
+    const graph = graphs.find(g => g.id === graphId);
+    const instances = Array.isArray(graph?.instances) ? graph.instances : Object.values(graph?.instances || {});
+    const available = instances
+      .map(i => nodePrototypes.find(p => p.id === i.prototypeId)?.name || i.name)
+      .filter(Boolean)
+      .slice(0, 8)
+      .join(', ');
+    throw new Error(`Source node "${sourceId}" not found in graph. Available nodes: ${available || '(none)'}. Use readGraph to see all nodes.`);
   }
 
-  if (resolvedTarget) {
-    console.error('[createEdge] Resolved target:', targetId, '→', resolvedTarget.instanceId);
-  } else {
-    console.warn('[createEdge] Target not found in graphState, delegating to client:', targetId);
+  if (!resolvedTarget) {
+    const graph = graphs.find(g => g.id === graphId);
+    const instances = Array.isArray(graph?.instances) ? graph.instances : Object.values(graph?.instances || {});
+    const available = instances
+      .map(i => nodePrototypes.find(p => p.id === i.prototypeId)?.name || i.name)
+      .filter(Boolean)
+      .slice(0, 8)
+      .join(', ');
+    throw new Error(`Target node "${targetId}" not found in graph. Available nodes: ${available || '(none)'}. Use readGraph to see all nodes.`);
   }
+
+  console.error('[createEdge] Resolved source:', sourceId, '→', resolvedSource.instanceId);
+  console.error('[createEdge] Resolved target:', targetId, '→', resolvedTarget.instanceId);
 
   return {
     action: 'createEdge',
     graphId,
-    sourceName: resolvedSource?.name || sourceId,
-    targetName: resolvedTarget?.name || targetId,
-    sourceInstanceId: resolvedSource?.instanceId || null,
-    targetInstanceId: resolvedTarget?.instanceId || null,
+    sourceName: resolvedSource.name,
+    targetName: resolvedTarget.name,
+    sourceInstanceId: resolvedSource.instanceId,
+    targetInstanceId: resolvedTarget.instanceId,
     type: type || '',
     created: true
   };

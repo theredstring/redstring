@@ -64,10 +64,24 @@ export async function updateEdge(args, graphState, cid, ensureSchedulerStarted) 
     const resolvedTarget = resolveNodeByName(targetName, nodePrototypes, graphs, graphId);
 
     if (!resolvedSource) {
-        console.warn('[updateEdge] Source not found in graphState, delegating to client:', sourceName);
+        const graph = graphs.find(g => g.id === graphId);
+        const instances = Array.isArray(graph?.instances) ? graph.instances : Object.values(graph?.instances || {});
+        const available = instances
+            .map(i => nodePrototypes.find(p => p.id === i.prototypeId)?.name || i.name)
+            .filter(Boolean)
+            .slice(0, 8)
+            .join(', ');
+        throw new Error(`Source node "${sourceName}" not found in graph. Available nodes: ${available || '(none)'}. Use readGraph to see all nodes.`);
     }
     if (!resolvedTarget) {
-        console.warn('[updateEdge] Target not found in graphState, delegating to client:', targetName);
+        const graph = graphs.find(g => g.id === graphId);
+        const instances = Array.isArray(graph?.instances) ? graph.instances : Object.values(graph?.instances || {});
+        const available = instances
+            .map(i => nodePrototypes.find(p => p.id === i.prototypeId)?.name || i.name)
+            .filter(Boolean)
+            .slice(0, 8)
+            .join(', ');
+        throw new Error(`Target node "${targetName}" not found in graph. Available nodes: ${available || '(none)'}. Use readGraph to see all nodes.`);
     }
 
     const updates = {};
@@ -77,10 +91,10 @@ export async function updateEdge(args, graphState, cid, ensureSchedulerStarted) 
     return {
         action: 'updateEdge',
         graphId,
-        sourceName: resolvedSource?.name || sourceName,
-        targetName: resolvedTarget?.name || targetName,
-        sourceInstanceId: resolvedSource?.instanceId || null,
-        targetInstanceId: resolvedTarget?.instanceId || null,
+        sourceName: resolvedSource.name,
+        targetName: resolvedTarget.name,
+        sourceInstanceId: resolvedSource.instanceId,
+        targetInstanceId: resolvedTarget.instanceId,
         updates,
         updated: true
     };

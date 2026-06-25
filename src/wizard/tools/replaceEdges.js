@@ -8,6 +8,23 @@
 
 import { resolveGraphId } from './resolveGraphId.js';
 
+function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
+    const queryLower = (name || '').toLowerCase().trim();
+    if (!queryLower) return null;
+    const targetGraph = graphs.find(g => g.id === graphId);
+    if (!targetGraph) return null;
+    const instances = Array.isArray(targetGraph.instances)
+        ? targetGraph.instances
+        : Object.values(targetGraph.instances || {});
+    let match = null;
+    for (const inst of instances) {
+        const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
+        const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
+        if (nodeName === queryLower) match = inst.name || proto?.name;
+    }
+    return match;
+}
+
 /**
  * Convert string to Title Case
  */
@@ -45,7 +62,7 @@ export async function replaceEdges(args, graphState, cid, ensureSchedulerStarted
         throw new Error('At least one edge is required');
     }
 
-    const { activeGraphId, graphs = [] } = graphState;
+    const { activeGraphId, graphs = [], nodePrototypes = [] } = graphState;
     // Resolve targetGraphId tolerantly — the model frequently passes a graph NAME
     // here. Disambiguation favors the active graph and parent-graph lineage.
     const resolved = targetGraphId ? resolveGraphId(targetGraphId, graphs, { activeGraphId }) : null;
@@ -53,6 +70,28 @@ export async function replaceEdges(args, graphState, cid, ensureSchedulerStarted
 
     if (!graphId) {
         throw new Error('No target graph specified and no active graph available.');
+    }
+
+    // Validate all source/target names before building specs — fail explicitly
+    // so the model gets actionable feedback rather than silent no-ops on the client.
+    const unresolvable = [];
+    for (const e of edges) {
+        if (!resolveNodeByName(e.source, nodePrototypes, graphs, graphId)) {
+            unresolvable.push(`"${e.source}" (source)`);
+        }
+        if (!resolveNodeByName(e.target, nodePrototypes, graphs, graphId)) {
+            unresolvable.push(`"${e.target}" (target)`);
+        }
+    }
+    if (unresolvable.length > 0) {
+        const graph = graphs.find(g => g.id === graphId);
+        const instances = Array.isArray(graph?.instances) ? graph.instances : Object.values(graph?.instances || {});
+        const available = instances
+            .map(i => nodePrototypes.find(p => p.id === i.prototypeId)?.name || i.name)
+            .filter(Boolean)
+            .slice(0, 8)
+            .join(', ');
+        throw new Error(`Could not resolve nodes: ${[...new Set(unresolvable)].join(', ')}. Available nodes: ${available || '(none)'}. Use readGraph to see all nodes.`);
     }
 
     // Build edge specs with proper title casing and definition nodes

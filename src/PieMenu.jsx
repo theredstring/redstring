@@ -22,7 +22,8 @@ const PieMenu = ({
   onExitAnimationComplete,
   focusedNode,
   onHoverChange = () => {},
-  onAutoClose = () => {}
+  onAutoClose = () => {},
+  anchor = null, // { x, y } in SVG canvas coords — alternative to node+nodeDimensions
 }) => {
   // animationState can be: null (initial/hidden), 'popping', 'visible_steady', 'shrinking'
   const [animationState, setAnimationState] = useState(null);
@@ -140,7 +141,8 @@ const PieMenu = ({
   // }, [animationState, isVisible, onAutoClose]);
 
   // Render null if essential data is missing
-  if (!node || !buttons || !buttons.length || !nodeDimensions) {
+  const hasAnchorMode = anchor !== null;
+  if (!buttons || !buttons.length || (!hasAnchorMode && (!node || !nodeDimensions))) {
     ////console.log("[PieMenu] Render: Rendering NULL due to missing essential data.");
     // If we were previously visible and now hiding due to missing data,
     // ensure exit animation callback is called if it hasn't been.
@@ -170,14 +172,23 @@ const PieMenu = ({
     return null;
   }
 
-  const { x, y } = node;
-  const { currentWidth, currentHeight } = nodeDimensions;
-
-  const nodeCenterX = x + currentWidth / 2;
-  const nodeCenterY = y + currentHeight / 2;
-
-  const totalVisualOffset = BUBBLE_PADDING + BUBBLE_SIZE / 2;
-  const cornerRadius = NODE_CORNER_RADIUS;
+  let nodeCenterX, nodeCenterY, totalVisualOffset, cornerRadius, currentWidth, currentHeight;
+  if (hasAnchorMode) {
+    nodeCenterX = anchor.x;
+    nodeCenterY = anchor.y;
+    totalVisualOffset = BUBBLE_PADDING + BUBBLE_SIZE / 2;
+    cornerRadius = NODE_CORNER_RADIUS;
+    currentWidth = 0;
+    currentHeight = 0;
+  } else {
+    const { x, y } = node;
+    currentWidth = nodeDimensions.currentWidth;
+    currentHeight = nodeDimensions.currentHeight;
+    nodeCenterX = x + currentWidth / 2;
+    nodeCenterY = y + currentHeight / 2;
+    totalVisualOffset = BUBBLE_PADDING + BUBBLE_SIZE / 2;
+    cornerRadius = NODE_CORNER_RADIUS;
+  }
 
   let dynamicClassName = 'pie-menu-bubble-inner';
   if (animationState === 'popping') {
@@ -195,14 +206,21 @@ const PieMenu = ({
   //console.log(`[PieMenu] Render: Rendering PieMenu. isVisible=${isVisible}, animationState=${animationState}`);
   
   // Check if this is a carousel mode (buttons have position property)
-  const isCarouselMode = buttons.some(button => button.position);
-  
+  const isCarouselMode = !hasAnchorMode && buttons.some(button => button.position);
+  const isLineMode = hasAnchorMode; // anchor mode = horizontal line of buttons
+
   return (
     <g className="pie-menu">
       {buttons.map((button, index) => {
         let bubbleX, bubbleY;
-        
-        if (isCarouselMode) {
+
+        if (isLineMode) {
+          // Line mode: horizontal row centered on anchor point
+          const step = BUBBLE_SIZE + BUBBLE_PADDING;
+          const totalWidth = (buttons.length - 1) * step;
+          bubbleX = nodeCenterX - totalWidth / 2 + index * step;
+          bubbleY = nodeCenterY - BUBBLE_SIZE / 2 - BUBBLE_PADDING;
+        } else if (isCarouselMode) {
           // Carousel mode: position buttons based on actual current node dimensions
           // nodeDimensions now contains the actual current scaled dimensions from AbstractionCarousel
           const currentNodeHalfWidth = nodeDimensions.currentWidth / 2;
@@ -348,7 +366,7 @@ const PieMenu = ({
               const touch = e.changedTouches && e.changedTouches[0];
               const buttonPosition = touch ? { x: touch.clientX, y: touch.clientY } : null;
 
-              button.action(node.id, buttonPosition);
+              button.action(node?.id ?? null, buttonPosition);
             }}
             onClick={(e) => {
               if (button.hidden) { e.stopPropagation(); return; } // collapsed/animating-out button is not interactive
@@ -383,7 +401,7 @@ const PieMenu = ({
               }
 
               // Execute the button action - pass buttonPosition as second parameter for actions that need it
-              button.action(node.id, buttonPosition);
+              button.action(node?.id ?? null, buttonPosition);
             }}
           >
             {/* Visibility wrapper: animates per-button appear/disappear (e.g. the ◀/▶
