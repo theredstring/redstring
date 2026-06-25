@@ -3997,7 +3997,8 @@ function NodeCanvas() {
   const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useState(false);
   const [edgePieMenuVisible, setEdgePieMenuVisible] = useState(false);
   const [edgePieMenuRendered, setEdgePieMenuRendered] = useState(false);
-  const edgePieMenuAnchorRef = useRef(null); // frozen on show, held through exit animation
+  const edgePieMenuAnchorRef = useRef(null);   // frozen on show, held through exit animation
+  const edgePieMenuButtonsRef = useRef(null);  // frozen on show, held through exit animation
 
   // Pending swap operation state
   const [pendingSwapOperation, setPendingSwapOperation] = useState(null);
@@ -9034,6 +9035,13 @@ function NodeCanvas() {
     return buttons;
   }, [selectedEdgeId, edgesMap, nodePrototypesMap, wizardEnabled, storeActions, startHurtleAnimationFromPanel, openWizardWithPrompt, rightPanelExpanded]);
 
+  // Freeze edge pie menu buttons when visible so they survive edge deselection during exit animation
+  useEffect(() => {
+    if (edgePieMenuVisible && edgePieMenuButtons.length > 0) {
+      edgePieMenuButtonsRef.current = edgePieMenuButtons;
+    }
+  }, [edgePieMenuVisible, edgePieMenuButtons]);
+
   // Callback for activating semantic orbit from control panel
   const activateSemanticOrbit = useCallback(() => {
     setSemanticOrbitActive(true);
@@ -14050,7 +14058,8 @@ function NodeCanvas() {
                         {/* Edge pie menu — rendered inline at the edge midpoint */}
                         {(() => {
                           const anchor = edgePieMenuAnchorRef.current;
-                          if (!edgePieMenuRendered || !anchor || edgePieMenuButtons.length === 0) return null;
+                          const frozenButtons = edgePieMenuButtonsRef.current;
+                          if (!edgePieMenuRendered || !anchor || !frozenButtons || frozenButtons.length === 0) return null;
 
                           // Space check: does the full button row fit on screen?
                           // Use correct canvas→screen conversion: (canvasX - offsetX) * zoom + pan + rectLeft
@@ -14061,7 +14070,7 @@ function NodeCanvas() {
                           const screenX = rect
                             ? (anchor.x - canvasSize.offsetX) * zoom + pan.x + rect.left
                             : window.innerWidth / 2;
-                          const n = edgePieMenuButtons.length;
+                          const n = frozenButtons.length;
                           // Full row extent: center ± half of ((n-1)*step + bubbleSize)
                           const halfRowPx = ((n - 1) * BUBBLE_STEP / 2 + 30) * zoom;
                           const isCompact = rect
@@ -14075,7 +14084,7 @@ function NodeCanvas() {
                                 label: 'More',
                                 icon: MoreHorizontal,
                                 action: (_id, buttonPosition) => {
-                                  const menuOptions = edgePieMenuButtons.map(btn => ({
+                                  const menuOptions = frozenButtons.map(btn => ({
                                     label: btn.label,
                                     icon: btn.icon ? React.createElement(btn.icon, { size: 16, color: 'maroon' }) : null,
                                     action: () => btn.action(null, null),
@@ -14087,7 +14096,7 @@ function NodeCanvas() {
                                   );
                                 },
                               }]
-                            : edgePieMenuButtons;
+                            : frozenButtons;
 
                           return (
                             <PieMenu
@@ -14098,6 +14107,7 @@ function NodeCanvas() {
                               onHoverChange={handlePieMenuHoverChange}
                               onExitAnimationComplete={() => {
                                 edgePieMenuAnchorRef.current = null;
+                                edgePieMenuButtonsRef.current = null;
                                 setEdgePieMenuRendered(false);
                               }}
                             />
