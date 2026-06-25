@@ -19,7 +19,7 @@ const HoverVisionAid = ({
   verticalOffset = -25
 }) => {
   const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
-  const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 0.75);
+  const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 0.6);
 
   const hasConnection = Boolean(hoveredConnection?.source && hoveredConnection?.target);
   const hasNode = Boolean(!hasConnection && hoveredNode);
@@ -46,7 +46,7 @@ const HoverVisionAid = ({
 
   let content = null;
 
-  // Hover Preview Size setting is the direct scale (default 0.75x) for node and
+  // Hover Preview Size setting is the direct scale (default 0.6x) for node and
   // connection previews. The pie-menu item label is a fixed text pill, not a node
   // preview, so it renders at its original full size (1.0) and ignores the slider.
   const previewScale = hasItem ? 1.0 : hoverPreviewSize;
