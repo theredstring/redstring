@@ -110,11 +110,6 @@
   }
 }
 
-/* Enhanced touch feedback for all devices */
-.node.touch-active {
-  transform: scale(0.95);
-  transition: transform 0.1s ease;
-}
 
 
 
