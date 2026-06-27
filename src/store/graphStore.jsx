@@ -660,10 +660,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           nodeScale: parseFloat(localStorage.getItem('redstring_node_scale')) || 1.0,
           connectionWidth: parseFloat(localStorage.getItem('redstring_connection_width')) || 1.0,
           plusSignScale: parseFloat(localStorage.getItem('redstring_plus_sign_scale')) || 1.0,
-          pieMenuScale: parseFloat(localStorage.getItem('redstring_pie_menu_scale')) || 1.3,
+          pieMenuScale: parseFloat(localStorage.getItem('redstring_pie_menu_scale')) || 1.0,
         };
       } catch (_) {
-        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0, plusSignScale: 1.0, pieMenuScale: 1.3 };
+        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0, plusSignScale: 1.0, pieMenuScale: 1.0 };
       }
     })(),
 

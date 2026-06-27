@@ -190,7 +190,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-slider-row">
             <MaroonSlider
               label="Pie Menu Size"
-              value={textSettings?.pieMenuScale ?? 1.3}
+              value={textSettings?.pieMenuScale ?? 1.0}
               min={0.25}
               max={3.0}
               step={0.05}

@@ -404,7 +404,7 @@ const PlusSign = ({
         ry={cornerRadius}
         fill={color}
         stroke={strokeColor}
-        strokeWidth={Math.max(1, 5 * plusSignScale)}
+        strokeWidth={Math.max(1, 10 * plusSignScale)}
       />
       <line
         x1={-halfCross}
@@ -412,7 +412,7 @@ const PlusSign = ({
         x2={halfCross}
         y2={0}
         stroke="maroon"
-        strokeWidth={Math.max(1, 5 * plusSignScale)}
+        strokeWidth={Math.max(1, 10 * plusSignScale)}
         opacity={lineOpacity}
       />
       <line
@@ -421,7 +421,7 @@ const PlusSign = ({
         x2={0}
         y2={halfCross}
         stroke="maroon"
-        strokeWidth={Math.max(1, 5 * plusSignScale)}
+        strokeWidth={Math.max(1, 10 * plusSignScale)}
         opacity={lineOpacity}
       />
 

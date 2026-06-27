@@ -10,7 +10,7 @@ export const EXCLUSIVE_PANEL_MODE_THRESHOLD = 1100;
 export const MAX_ZOOM = 1000;
 export const MOVEMENT_THRESHOLD = 3;
 export const SCROLL_SENSITIVITY = 0.5;
-export const PLUS_SIGN_SIZE = 80;
+export const PLUS_SIGN_SIZE = 160;
 export const PLUS_LINE_SIZE = PLUS_SIGN_SIZE / 2;
 export const PLUS_SIGN_ANIMATION_DURATION = 150;
 

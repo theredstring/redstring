@@ -14072,8 +14072,8 @@ function NodeCanvas() {
 
                           // Space check: does the full button row fit on screen?
                           // Use correct canvas→screen conversion: (canvasX - offsetX) * zoom + pan + rectLeft
-                          const ns = textSettings?.nodeScale ?? 1.0;
-                          const BUBBLE_STEP = (60 + 16) * ns; // BUBBLE_SIZE + BUBBLE_PADDING, scaled
+                          const ns = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
+                          const BUBBLE_STEP = (120 + 32) * ns; // BUBBLE_SIZE + BUBBLE_PADDING, scaled
                           const zoom = zoomLevelRef.current;
                           const pan = panOffsetRef.current;
                           const rect = containerRef.current?.getBoundingClientRect();
@@ -14082,7 +14082,7 @@ function NodeCanvas() {
                             : window.innerWidth / 2;
                           const n = frozenButtons.length;
                           // Full row extent: center ± half of ((n-1)*step + bubbleSize)
-                          const halfRowPx = ((n - 1) * BUBBLE_STEP / 2 + 30) * zoom;
+                          const halfRowPx = ((n - 1) * BUBBLE_STEP / 2 + 60 * ns) * zoom;
                           const isCompact = rect
                             ? (screenX - halfRowPx < 16 || screenX + halfRowPx > rect.width - 16)
                             : false;

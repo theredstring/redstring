@@ -3,9 +3,9 @@ import { NODE_CORNER_RADIUS } from './constants'; // Import node corner radius
 import './PieMenu.css'; // Animation styles
 import useGraphStore from './store/graphStore.jsx';
 
-const BUBBLE_SIZE = 60; // Diameter of the bubble (1.5x original 40)
-const BUBBLE_PADDING = 16; // Slightly further from node than original 10
-const ICON_SIZE = 30; // Icon size (1.5x original 20)
+const BUBBLE_SIZE = 120; // Diameter of the bubble
+const BUBBLE_PADDING = 32; // Gap between node edge and bubble
+const ICON_SIZE = 60; // Icon size
 const NUM_FIXED_POSITIONS = 8;
 const FIXED_ANGLE_STEP = (2 * Math.PI) / NUM_FIXED_POSITIONS; // PI/4 or 45 degrees
 const START_ANGLE_OFFSET = -Math.PI / 2; // Start at the top position (North)
@@ -28,7 +28,7 @@ const PieMenu = ({
   anchorAngle = 0, // radians — rotates line mode to match edge slope
   nodeScale = 1.0, // global node scale — bubbles and icons scale proportionally
 }) => {
-  const pieMenuScale = useGraphStore(s => s.textSettings?.pieMenuScale ?? 1.3);
+  const pieMenuScale = useGraphStore(s => s.textSettings?.pieMenuScale ?? 1.0);
 
   // animationState can be: null (initial/hidden), 'popping', 'visible_steady', 'shrinking'
   const [animationState, setAnimationState] = useState(null);
@@ -181,7 +181,7 @@ const PieMenu = ({
   const bSize = BUBBLE_SIZE * scale;
   const bPad = BUBBLE_PADDING * scale;
   const iSize = ICON_SIZE * scale;
-  const strokeWidth = Math.max(1, 3 * scale);
+  const strokeWidth = Math.max(1, 6 * scale);
 
   let nodeCenterX, nodeCenterY, totalVisualOffset, cornerRadius, currentWidth, currentHeight;
   if (hasAnchorMode) {
