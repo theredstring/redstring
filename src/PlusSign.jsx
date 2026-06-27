@@ -9,6 +9,7 @@ const PlusSign = ({
   onDisappearDone,
   targetWidth = NODE_WIDTH,
   targetHeight = NODE_HEIGHT,
+  targetCornerRadius,
   gestureBlockRef,
   isPanningOrZoomingRef
 }) => {
@@ -205,7 +206,7 @@ const PlusSign = ({
       endRot = 0;
       endWidth = targetWidth;
       endHeight = targetHeight;
-      endCorner = Math.min(targetWidth, targetHeight) / 4; // node-like corner radius for morph target
+      endCorner = targetCornerRadius ?? Math.min(targetWidth, targetHeight) / 4; // match actual node corner radius
       endColor = plusSign.selectedColor || 'maroon'; // Use selected color if available
       /*
       console.log('Morph setup:', { 

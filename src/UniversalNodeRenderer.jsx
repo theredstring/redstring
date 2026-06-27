@@ -706,9 +706,9 @@ const UniversalNodeRenderer = ({
               const unitX = dx / length;
               const unitY = dy / length;
 
-              // Calculate dot/arrow positions (8% from nodes; more inset in the compact
+              // Calculate dot/arrow positions (13% from nodes; more inset in the compact
               // decomposition preview so arrowheads clear the node edges instead of overlapping).
-              const dotOffset = (renderContext === 'decomposition' ? 0.13 : 0.08) * length;
+              const dotOffset = (renderContext === 'decomposition' ? 0.17 : 0.13) * length;
 
               // Only shorten the line on sides where there are arrows or when hovering to show dots.
               // forceShowConnectionDots keeps dots visible without hover (touch mode).
@@ -916,7 +916,7 @@ const UniversalNodeRenderer = ({
                         <circle
                           cx={dotX}
                           cy={dotY}
-                          r={Math.max(3, 10 * dotScale)}
+                          r={Math.max(4, 14 * dotScale)}
                           fill={conn.color || '#000000'}
                           opacity={1}
                           filter={`url(#dot-glow-${conn.id}-source)`}
@@ -936,7 +936,7 @@ const UniversalNodeRenderer = ({
                         <circle
                           cx={dotX}
                           cy={dotY}
-                          r={Math.max(6, 18 * dotScale)}
+                          r={Math.max(8, 24 * dotScale)}
                           fill="transparent"
                           stroke="transparent"
                           style={{
@@ -977,7 +977,7 @@ const UniversalNodeRenderer = ({
                         <circle
                           cx={dotX}
                           cy={dotY}
-                          r={Math.max(3, 10 * dotScale)}
+                          r={Math.max(4, 14 * dotScale)}
                           fill={conn.color || '#000000'}
                           opacity={1}
                           filter={`url(#dot-glow-${conn.id}-target)`}
@@ -997,7 +997,7 @@ const UniversalNodeRenderer = ({
                         <circle
                           cx={dotX}
                           cy={dotY}
-                          r={Math.max(6, 18 * dotScale)}
+                          r={Math.max(8, 24 * dotScale)}
                           fill="transparent"
                           stroke="transparent"
                           style={{

@@ -1229,8 +1229,7 @@ const AbstractionCarousel = ({
             const nodeDimensions = item.baseDimensions;
             const { currentWidth, currentHeight, textAreaHeight, imageWidth, calculatedImageHeight } = nodeDimensions;
 
-            // Use simple corner radius to match Node.jsx
-            const imageCornerRadius = NODE_CORNER_RADIUS;
+            const imageCornerRadius = nodeDimensions.scaledCornerRadius ?? NODE_CORNER_RADIUS * 1.4 * nodeScaleGlobal;
 
             return (
               <clipPath key={`clip-image-${item.id}`} id={`carousel-image-clip-${item.id}`}>
@@ -1362,7 +1361,7 @@ const AbstractionCarousel = ({
 
               // Unscaled border and corner radius
               const borderWidth = isMainNode ? 12 : 0; // Match NodeCanvas: 12 for centered, 0 for others
-              const cornerRadius = NODE_CORNER_RADIUS;
+              const cornerRadius = item.baseDimensions.scaledCornerRadius ?? NODE_CORNER_RADIUS * 1.4 * nodeScaleGlobal;
 
               const borderColor = isMainNode ? 'black' : 'none'; // Match NodeCanvas: black for centered, none for others
               const nodeColor = item.color || NODE_DEFAULT_COLOR;

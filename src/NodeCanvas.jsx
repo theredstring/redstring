@@ -11921,8 +11921,8 @@ function NodeCanvas() {
 
                                 // For curved edges, calculate arrow/dot positions along the curve
                                 if (useCurve && parallelPath.ctrlX !== null) {
-                                  const tSource = 0.08; // Position near source (8% along curve)
-                                  const tDest = 0.92;   // Position near dest (92% along curve)
+                                  const tSource = 0.13; // Position near source (13% along curve)
+                                  const tDest = 0.87;   // Position near dest (87% along curve)
 
                                   // Get positions along the curve
                                   const sourcePoint = getPointOnQuadraticBezier(
@@ -12307,7 +12307,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={sourceArrowX}
                                               cy={sourceArrowY}
-                                              r="20"
+                                              r={Math.round(20 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => handleArrowClick(sourceNode.id, e)}
@@ -12316,7 +12316,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={sourceArrowX}
                                               cy={sourceArrowY}
-                                              r="16"
+                                              r={Math.round(16 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
                                             />
@@ -12329,7 +12329,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={destArrowX}
                                               cy={destArrowY}
-                                              r="20"
+                                              r={Math.round(20 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => handleArrowClick(destNode.id, e)}
@@ -12338,7 +12338,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={destArrowX}
                                               cy={destArrowY}
-                                              r="16"
+                                              r={Math.round(16 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
                                             />
@@ -13188,8 +13188,8 @@ function NodeCanvas() {
 
                                 // For curved edges, calculate arrow/dot positions along the curve
                                 if (useCurve && parallelPath.ctrlX !== null) {
-                                  const tSource = 0.08; // Position near source (8% along curve)
-                                  const tDest = 0.92;   // Position near dest (92% along curve)
+                                  const tSource = 0.13; // Position near source (13% along curve)
+                                  const tDest = 0.87;   // Position near dest (87% along curve)
 
                                   // Get positions along the curve
                                   const sourcePoint = getPointOnQuadraticBezier(
@@ -13574,7 +13574,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={sourceArrowX}
                                               cy={sourceArrowY}
-                                              r="20"
+                                              r={Math.round(20 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => handleArrowClick(sourceNode.id, e)}
@@ -13583,7 +13583,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={sourceArrowX}
                                               cy={sourceArrowY}
-                                              r="16"
+                                              r={Math.round(16 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
                                             />
@@ -13596,7 +13596,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={destArrowX}
                                               cy={destArrowY}
-                                              r="20"
+                                              r={Math.round(20 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => handleArrowClick(destNode.id, e)}
@@ -13605,7 +13605,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={destArrowX}
                                               cy={destArrowY}
-                                              r="16"
+                                              r={Math.round(16 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
                                             />
@@ -14427,6 +14427,11 @@ function NodeCanvas() {
                         // Make the PlusSign slightly smaller so the final node feels like an expansion
                         return dims.currentHeight * 0.9;
                       })() : NODE_HEIGHT}
+                      targetCornerRadius={plusSign.tempName ? (() => {
+                        const mockNode = { name: plusSign.tempName };
+                        const dims = getNodeDimensions(mockNode, false, null);
+                        return dims.scaledCornerRadius;
+                      })() : NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0)}
                     />
                   )}
 
