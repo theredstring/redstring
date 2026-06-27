@@ -655,13 +655,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     textSettings: (() => {
       try {
         return {
-          fontSize: parseFloat(localStorage.getItem('redstring_text_font_size')) || 1.4,
+          fontSize: parseFloat(localStorage.getItem('redstring_text_font_size')) || 1.0,
           lineSpacing: parseFloat(localStorage.getItem('redstring_text_line_spacing')) || 1.0,
           nodeScale: parseFloat(localStorage.getItem('redstring_node_scale')) || 1.0,
           connectionWidth: parseFloat(localStorage.getItem('redstring_connection_width')) || 1.0,
         };
       } catch (_) {
-        return { fontSize: 1.4, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0 };
+        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0 };
       }
     })(),
 

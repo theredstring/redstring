@@ -1061,6 +1061,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // Model called tools — reset nudge counter since it's back on track
       consecutiveNudges = 0;
 
+      // Track sparse definition graphs for a post-loop nudge
+      const sparseDefinitionGraphs = [];
+
       // Execute tools sequentially
       for (const toolCall of iterationToolCalls) {
         if (abortSignal?.aborted) break;
@@ -1093,6 +1096,15 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             tool_call_id: toolCall.id,
             content: JSON.stringify(sanitizeResultForLLM(result))
           });
+
+          // Collect sparse definition graphs so we can nudge the model to expand them
+          if (toolCall.name === 'populateDefinitionGraph' && typeof result.nodeCount === 'number' && result.nodeCount < 5 && result.graphId) {
+            sparseDefinitionGraphs.push({
+              graphId: result.graphId,
+              nodeName: result.nodeName || toolCall.args?.nodeName || '(unknown)',
+              nodeCount: result.nodeCount
+            });
+          }
         } catch (error) {
           console.error(`[AgentLoop] Tool "${toolCall.name}" failed:`, error.message);
           console.error('[AgentLoop] Failed tool args:', JSON.stringify(toolCall.args, null, 2));
@@ -1114,14 +1126,28 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         }
       }
 
-      // If the plan just reached 100% via planTask, tell the model to stop calling tools.
-      // Without this, small models keep calling expandGraph/populateDefinitionGraph after
-      // the plan is complete because they receive no explicit "you're done" signal.
+      // If any definition graph was just populated sparsely (< 5 nodes), nudge the model
+      // to expand it before declaring the step done. Takes priority over the plan-complete
+      // stop — a plan can't be truly done if its definition graphs are stubs.
+      if (sparseDefinitionGraphs.length > 0) {
+        const details = sparseDefinitionGraphs.map(d =>
+          `"${d.nodeName}" (targetGraphId: "${d.graphId}", only ${d.nodeCount} node${d.nodeCount !== 1 ? 's' : ''})`
+        ).join('; ');
+        console.error('[AgentLoop] ⚠️ Sparse definition graph(s):', sparseDefinitionGraphs.map(d => d.nodeName).join(', '));
+        messages.push({
+          role: 'user',
+          content: `⚠️ Thin definition graph: ${details}. A definition graph needs at least 5 nodes to meaningfully describe what a concept is made of — what are its sub-components, aspects, stages, or processes? Call expandGraph now with targetGraphId set to the ID shown above to add more. Do NOT respond to the user until every definition graph has at least 5 nodes.`
+        });
+      }
+
+      // If the plan just reached 100% via planTask AND no sparse definition graphs need work,
+      // tell the model to stop calling tools.
+      // Without this, small models keep calling tools after the plan is complete.
       {
         const plan = graphState._currentPlan;
         const planAllDone = plan && plan.length > 0 && plan.every(s => s.status === 'done');
         const calledPlanTask = iterationToolCalls.some(tc => tc.name === 'planTask');
-        if (planAllDone && calledPlanTask) {
+        if (planAllDone && calledPlanTask && sparseDefinitionGraphs.length === 0) {
           console.error('[AgentLoop] ✓ Plan is 100% complete. Injecting stop message.');
           messages.push({
             role: 'user',

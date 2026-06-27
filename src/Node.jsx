@@ -351,8 +351,8 @@ const Node = ({
             y={contentAreaY + 0.01}
             width={innerNetworkWidth}
             height={innerNetworkHeight}
-            rx={16 * globalNodeScale}
-            ry={16 * globalNodeScale}
+            rx={22 * globalNodeScale}
+            ry={22 * globalNodeScale}
           />
         </clipPath>
 
@@ -365,8 +365,8 @@ const Node = ({
               y={contentAreaY + 0.01}
               width={innerNetworkWidth}
               height={innerNetworkHeight}
-              rx={16 * globalNodeScale}
-              ry={16 * globalNodeScale}
+              rx={22 * globalNodeScale}
+              ry={22 * globalNodeScale}
               fill="black"
             />
           </mask>
@@ -411,9 +411,9 @@ const Node = ({
             height: '100%',
             padding: (() => {
               if (nodeThumbnailSrc) {
-                return `${22 * globalNodeScale}px ${effPadding}px ${18 * globalNodeScale}px`;
+                return `${31 * globalNodeScale}px ${effPadding}px ${25 * globalNodeScale}px`;
               }
-              return `${24 * globalNodeScale}px ${effPadding}px`;
+              return `${34 * globalNodeScale}px ${effPadding}px`;
             })(),
             boxSizing: 'border-box',
             pointerEvents: isEditingOnCanvas ? 'auto' : 'none',
@@ -436,10 +436,10 @@ const Node = ({
             <span
               className="node-name-text"
               style={{
-                fontSize: `${20 * textSettings.fontSize * globalNodeScale}px`,
+                fontSize: `${45 * textSettings.fontSize * globalNodeScale}px`,
                 fontWeight: 'bold',
                 color: nodeTextColor,
-                lineHeight: `${28 * textSettings.lineSpacing * globalNodeScale}px`,
+                lineHeight: `${39 * textSettings.lineSpacing * globalNodeScale}px`,
                 whiteSpace: 'normal',
                 overflowWrap: 'break-word',
                 wordBreak: 'break-word',
@@ -508,8 +508,8 @@ const Node = ({
               y={contentAreaY}
               width={innerNetworkWidth}
               height={innerNetworkHeight}
-              rx={16 * globalNodeScale}
-              ry={16 * globalNodeScale}
+              rx={22 * globalNodeScale}
+              ry={22 * globalNodeScale}
               fill={theme.canvas.bg}
             />
 
@@ -603,10 +603,10 @@ const Node = ({
               padding: '12px 8px 4px',
               boxSizing: 'border-box',
               fontFamily: "'EmOne', sans-serif",
-              fontSize: `${18 * textSettings.fontSize * globalNodeScale}px`,
+              fontSize: `${40 * textSettings.fontSize * globalNodeScale}px`,
               color: nodeTextColor,
               fontWeight: 'normal',
-              lineHeight: `${23.4 * textSettings.lineSpacing * globalNodeScale}px`,
+              lineHeight: `${33 * textSettings.lineSpacing * globalNodeScale}px`,
               textAlign: 'center',
               wordWrap: 'break-word',
               overflowWrap: 'break-word',

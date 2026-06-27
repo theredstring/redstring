@@ -187,6 +187,11 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
     // Analyze graph quality for LLM feedback
     const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs);
 
+    // Warn when the definition graph is sparse — a good definition should have 5-8 nodes
+    const sparseWarning = nodeSpecs.length < 5
+        ? `NOTE: This definition graph only has ${nodeSpecs.length} node(s). Definition graphs should describe the internal sub-components, aspects, or processes of "${prototype.name}" — aim for 5-8 nodes with connections between them. Call expandGraph with targetGraphId: "${newGraphId}" to add more sub-components before marking this step done.`
+        : null;
+
     return {
         action: 'populateDefinitionGraph',
         prototypeId: prototype.id,
@@ -199,6 +204,8 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
         nodeCount: nodeSpecs.length,
         edgeCount: edgeSpecs.length,
         groupCount: groupSpecs.length,
+        // Warn when definition graph is sparse
+        sparseWarning,
         // Warn when the model calls populateDefinitionGraph a second time for the same node
         alreadyPopulated,
         alreadyPopulatedWarning: alreadyPopulated

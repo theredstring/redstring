@@ -11148,7 +11148,7 @@ function NodeCanvas() {
                                 }
                               }
                             }
-                            const selfFontSize = 24 * (textSettings?.fontSize || 1) * connectionLabelSize;
+                            const selfFontSize = 54 * (textSettings?.fontSize || 1) * connectionLabelSize;
                             return (
                               <SelfLoopEdge
                                 key={`edge-${edge.id}`}
@@ -11602,7 +11602,7 @@ function NodeCanvas() {
                                     })()}
                                     fill="none"
                                     stroke={edgeColor}
-                                    strokeWidth={12 * connectionWidth}
+                                    strokeWidth={20 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
                                     style={{
                                       filter: `drop-shadow(0 0 8px ${edgeColor})`
@@ -11614,7 +11614,7 @@ function NodeCanvas() {
                                     d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                     fill="none"
                                     stroke={edgeColor}
-                                    strokeWidth={12 * connectionWidth}
+                                    strokeWidth={20 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
                                     style={{
                                       filter: `drop-shadow(0 0 8px ${edgeColor})`
@@ -11628,7 +11628,7 @@ function NodeCanvas() {
                                     x2={endX}
                                     y2={endY}
                                     stroke={edgeColor}
-                                    strokeWidth={12 * connectionWidth}
+                                    strokeWidth={20 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
                                     style={{
                                       filter: `drop-shadow(0 0 8px ${edgeColor})`
@@ -11640,10 +11640,10 @@ function NodeCanvas() {
                               {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
                                 <>
                                   {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
-                                    <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={16 * connectionWidth} strokeLinecap="round" />
+                                    <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={27 * connectionWidth} strokeLinecap="round" />
                                   )}
                                   {routingStyle === 'manhattan' && !arrowsToward.has(destNode.id) && (
-                                    <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={16 * connectionWidth} strokeLinecap="round" />
+                                    <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={27 * connectionWidth} strokeLinecap="round" />
                                   )}
                                   <path
                                     d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
@@ -11653,7 +11653,7 @@ function NodeCanvas() {
                                     })()}
                                     fill="none"
                                     stroke={edgeColor}
-                                    strokeWidth={16 * connectionWidth}
+                                    strokeWidth={27 * connectionWidth}
                                     style={{ transition: 'stroke 0.2s ease' }}
                                     strokeLinecap="round"
                                   />
@@ -11663,7 +11663,7 @@ function NodeCanvas() {
                                   d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                   fill="none"
                                   stroke={edgeColor}
-                                  strokeWidth={16 * connectionWidth}
+                                  strokeWidth={27 * connectionWidth}
                                   style={{ transition: 'stroke 0.2s ease' }}
                                   strokeLinecap="round"
                                 />
@@ -11674,7 +11674,7 @@ function NodeCanvas() {
                                   x2={endX}
                                   y2={endY}
                                   stroke={edgeColor}
-                                  strokeWidth={16 * connectionWidth}
+                                  strokeWidth={27 * connectionWidth}
                                   style={{ transition: 'stroke 0.2s ease' }}
                                 />
                               )}
@@ -12349,7 +12349,7 @@ function NodeCanvas() {
 
                               {/* Connection name text — rendered after arrows so labels appear on top */}
                               {showConnectionNames && (() => {
-                                const connectionFontSize = 24 * (textSettings?.fontSize || 1) * connectionLabelSize;
+                                const connectionFontSize = 54 * (textSettings?.fontSize || 1) * connectionLabelSize;
                                 let midX;
                                 let midY;
                                 let angle;
@@ -12550,7 +12550,7 @@ function NodeCanvas() {
                                 }
                               }
                             }
-                            const selfFontSize = 24 * (textSettings?.fontSize || 1) * connectionLabelSize;
+                            const selfFontSize = 54 * (textSettings?.fontSize || 1) * connectionLabelSize;
                             return (
                               <SelfLoopEdge
                                 key={`edge-${edge.id}`}
@@ -13004,7 +13004,7 @@ function NodeCanvas() {
                                     })()}
                                     fill="none"
                                     stroke={edgeColor}
-                                    strokeWidth={12 * connectionWidth}
+                                    strokeWidth={20 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
                                     style={{
                                       filter: `drop-shadow(0 0 8px ${edgeColor})`
@@ -13016,7 +13016,7 @@ function NodeCanvas() {
                                     d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                     fill="none"
                                     stroke={edgeColor}
-                                    strokeWidth={12 * connectionWidth}
+                                    strokeWidth={20 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
                                     style={{
                                       filter: `drop-shadow(0 0 8px ${edgeColor})`
@@ -13030,7 +13030,7 @@ function NodeCanvas() {
                                     x2={endX}
                                     y2={endY}
                                     stroke={edgeColor}
-                                    strokeWidth={12 * connectionWidth}
+                                    strokeWidth={20 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
                                     style={{
                                       filter: `drop-shadow(0 0 8px ${edgeColor})`
@@ -13042,10 +13042,10 @@ function NodeCanvas() {
                               {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
                                 <>
                                   {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
-                                    <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={16 * connectionWidth} strokeLinecap="round" />
+                                    <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={27 * connectionWidth} strokeLinecap="round" />
                                   )}
                                   {routingStyle === 'manhattan' && !arrowsToward.has(destNode.id) && (
-                                    <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={16 * connectionWidth} strokeLinecap="round" />
+                                    <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={27 * connectionWidth} strokeLinecap="round" />
                                   )}
                                   <path
                                     d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
@@ -13055,7 +13055,7 @@ function NodeCanvas() {
                                     })()}
                                     fill="none"
                                     stroke={edgeColor}
-                                    strokeWidth={16 * connectionWidth}
+                                    strokeWidth={27 * connectionWidth}
                                     style={{ transition: 'stroke 0.2s ease' }}
                                     strokeLinecap="round"
                                   />
@@ -13065,7 +13065,7 @@ function NodeCanvas() {
                                   d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                   fill="none"
                                   stroke={edgeColor}
-                                  strokeWidth={16 * connectionWidth}
+                                  strokeWidth={27 * connectionWidth}
                                   style={{ transition: 'stroke 0.2s ease' }}
                                   strokeLinecap="round"
                                 />
@@ -13076,7 +13076,7 @@ function NodeCanvas() {
                                   x2={endX}
                                   y2={endY}
                                   stroke={edgeColor}
-                                  strokeWidth={16 * connectionWidth}
+                                  strokeWidth={27 * connectionWidth}
                                   style={{ transition: 'stroke 0.2s ease' }}
                                 />
                               )}
@@ -13616,7 +13616,7 @@ function NodeCanvas() {
 
                               {/* Connection name text — rendered after arrows so labels appear on top */}
                               {showConnectionNames && (() => {
-                                const connectionFontSize = 24 * (textSettings?.fontSize || 1) * connectionLabelSize;
+                                const connectionFontSize = 54 * (textSettings?.fontSize || 1) * connectionLabelSize;
                                 let midX;
                                 let midY;
                                 let angle;
@@ -13787,7 +13787,7 @@ function NodeCanvas() {
                       x2={drawingConnectionFrom.currentX}
                       y2={drawingConnectionFrom.currentY}
                       stroke="black"
-                      strokeWidth={16 * connectionWidth}
+                      strokeWidth={27 * connectionWidth}
                     />
                   )}
                   {drawingConnectionFrom && !draggingNodeInfo && connectionExitedSourceRef.current && (() => {
@@ -13806,7 +13806,7 @@ function NodeCanvas() {
                         d={loop.path}
                         fill="none"
                         stroke="black"
-                        strokeWidth={6 * connectionWidth}
+                        strokeWidth={10 * connectionWidth}
                         strokeDasharray="6 6"
                         strokeLinecap="round"
                         opacity="0.7"

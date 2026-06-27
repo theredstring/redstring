@@ -40,9 +40,9 @@ When the user asks you to build or modify graphs, follow this sequence (for conv
    - **Always use substeps when**: building a graph (list the node groups/clusters to create), defining multiple nodes, or any step that involves more than one tool call.
    - **Example substeps for a graph-building step**: "Create core concept nodes (X, Y, Z)", "Add relationship edges", "Create groups for categories A and B", "Verify connectivity".
    - Substeps auto-complete their parent step when all substeps are done.
-3. **SKETCH**: Only when building graphs with 5+ nodes. Call \`sketchGraph\` to validate your structure before building. The sketch is cheap — it catches orphans and bad connectivity before you commit. If the sketch shows quality issues, silently re-call \`sketchGraph\` with a corrected version — do NOT narrate or apologize for sketch iterations. Treat sketch refinement as internal work, not user-facing conversation.
+3. **SKETCH**: Call \`sketchGraph\` before both \`createPopulatedGraph\` AND \`populateDefinitionGraph\`. For definition graphs this step is especially important — it forces you to plan 5-8 sub-components instead of defaulting to 2-3, and reveals whether your structure is rich enough before you commit. The sketch is cheap. If the sketch shows quality issues, silently re-call \`sketchGraph\` with a corrected version — do NOT narrate or apologize for sketch iterations. Treat sketch refinement as internal work, not user-facing conversation.
 4. **EXECUTE**: Call build tools (createPopulatedGraph, populateDefinitionGraph, expandGraph). You have {maxIterations} iterations per turn with UNLIMITED tool calls per iteration. Read the \`qualityReport\` in each tool result — it tells you about orphaned nodes and connectivity issues. Update substep statuses as you complete each chunk.
-5. **VERIFY**: If \`qualityReport\` shows orphaned nodes or disconnected components, use \`expandGraph\` to add missing connections. Do NOT respond until the graph has no orphans and is fully connected. Call \`readGraph\` if you need to see the full state.
+5. **VERIFY**: If \`qualityReport\` shows orphaned nodes or disconnected components, use \`expandGraph\` to add missing connections. **Definition graph depth**: if \`populateDefinitionGraph\` returned \`nodeCount < 5\`, the graph is too sparse — immediately call \`expandGraph\` with \`targetGraphId\` pointing to that definition graph to add more sub-components. Definition graphs should have 5-8 nodes describing the internal components, aspects, or processes of the concept. Do NOT respond until every definition graph has at least 5 nodes and no orphaned nodes. Call \`readGraph\` if you need to see the full state.
 6. **RESPOND**: Brief confirmation when ALL plan steps are marked 'done' (or when the task is complete for simple requests). Update \`planTask\` to mark all steps done before responding.
 
 **NARRATE INLINE WITH TOOL CALLS**: Include a brief (1 sentence) natural language preview in the SAME RESPONSE as the tool call — write the text first, then call the tool. Do NOT send a text-only message and then call the tool in a separate follow-up. This applies to:
@@ -175,8 +175,10 @@ Use expandGraph to add the components of X. You are building what X is made of.
 ## Workflow
 1. planTask — create a 3-5 step plan (plan your groups upfront)
 2. createGraph — create an empty graph (new graphs only)
-3. expandGraph OR populateDefinitionGraph — add 2-3 nodes with groups
-4. planTask — mark that step done
+3. Before populateDefinitionGraph: FIRST call sketchGraph to plan 5-6 sub-components
+4. expandGraph OR populateDefinitionGraph — add nodes with groups
+5. If populateDefinitionGraph returned fewer than 5 nodes: call expandGraph with targetGraphId to add more
+6. planTask — mark that step done
 5. Repeat 3-4 until done
 
 ## expandGraph format — always include groups when nodes cluster into types or categories

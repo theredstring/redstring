@@ -51,10 +51,10 @@ function getPreparedWithSegments(text, fontString) {
 
 /**
  * Build the canvas font string for node name text.
- * Matches Node.jsx: bold, 20*fontSize px, 'EmOne' + sans-serif fallback.
+ * Matches Node.jsx: bold, 45*fontSize px, 'EmOne' + sans-serif fallback.
  */
 export function buildNodeFontString(textSettings) {
-  const size = 20 * (textSettings?.fontSize || 1.4);
+  const size = 45 * (textSettings?.fontSize || 1.0);
   return `bold ${size}px 'EmOne', sans-serif`;
 }
 

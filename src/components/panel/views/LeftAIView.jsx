@@ -4828,6 +4828,19 @@ const LeftAIView = ({ compact = false,
                 );
               }
 
+              const hasDefinitiveContent = (() => {
+                if (message.contentBlocks && message.contentBlocks.length > 0) {
+                  return message.contentBlocks.some(b =>
+                    (b.type === 'text' && b.content) ||
+                    (b.type === 'tool_call' && b.name !== 'planTask') ||
+                    b.type === 'plan' ||
+                    (b.type === 'thinking' && b.content) ||
+                    (b.type === 'system_note' && b.content)
+                  );
+                }
+                return !!message.content;
+              })();
+
               return (
                 <div
                   key={message.id}
@@ -4922,8 +4935,12 @@ const LeftAIView = ({ compact = false,
                         style={{ userSelect: 'text', cursor: 'text' }}
                         dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
                       />
+                    ) : message.isStreaming ? (
+                      <span className="ai-thinking-dots">
+                        <span>•</span><span>•</span><span>•</span>
+                      </span>
                     ) : null}
-                    <div className="ai-message-timestamp" style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: message.sender === 'user' ? 'flex-end' : 'flex-start' }}>
+                    {hasDefinitiveContent && <div className="ai-message-timestamp" style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: message.sender === 'user' ? 'flex-end' : 'flex-start' }}>
                       {new Date(message.timestamp).toLocaleTimeString()}
                       {message.sender === 'user' && (
                         <button
@@ -4985,7 +5002,7 @@ const LeftAIView = ({ compact = false,
                           <Copy size={16} />
                         </button>
                       )}
-                    </div>
+                    </div>}
                   </div>
                 </div>
               );
