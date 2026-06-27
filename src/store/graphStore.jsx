@@ -659,9 +659,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           lineSpacing: parseFloat(localStorage.getItem('redstring_text_line_spacing')) || 1.0,
           nodeScale: parseFloat(localStorage.getItem('redstring_node_scale')) || 1.0,
           connectionWidth: parseFloat(localStorage.getItem('redstring_connection_width')) || 1.0,
+          plusSignScale: parseFloat(localStorage.getItem('redstring_plus_sign_scale')) || 1.0,
+          pieMenuScale: parseFloat(localStorage.getItem('redstring_pie_menu_scale')) || 1.3,
         };
       } catch (_) {
-        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0 };
+        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0, plusSignScale: 1.0, pieMenuScale: 1.3 };
       }
     })(),
 
@@ -3850,6 +3852,30 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.textSettings.connectionWidth = v;
       try {
         localStorage.setItem('redstring_connection_width', String(v));
+      } catch (_) { }
+    })),
+
+    setPlusSignScale: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.25 || v > 3.0) {
+        console.warn(`[setPlusSignScale] Invalid value: ${value}`);
+        return;
+      }
+      draft.textSettings.plusSignScale = v;
+      try {
+        localStorage.setItem('redstring_plus_sign_scale', String(v));
+      } catch (_) { }
+    })),
+
+    setPieMenuScale: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.25 || v > 3.0) {
+        console.warn(`[setPieMenuScale] Invalid value: ${value}`);
+        return;
+      }
+      draft.textSettings.pieMenuScale = v;
+      try {
+        localStorage.setItem('redstring_pie_menu_scale', String(v));
       } catch (_) { }
     })),
 

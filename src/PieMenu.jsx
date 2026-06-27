@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NODE_CORNER_RADIUS } from './constants'; // Import node corner radius
 import './PieMenu.css'; // Animation styles
+import useGraphStore from './store/graphStore.jsx';
 
 const BUBBLE_SIZE = 60; // Diameter of the bubble (1.5x original 40)
 const BUBBLE_PADDING = 16; // Slightly further from node than original 10
@@ -25,7 +26,10 @@ const PieMenu = ({
   onAutoClose = () => {},
   anchor = null, // { x, y } in SVG canvas coords — alternative to node+nodeDimensions
   anchorAngle = 0, // radians — rotates line mode to match edge slope
+  nodeScale = 1.0, // global node scale — bubbles and icons scale proportionally
 }) => {
+  const pieMenuScale = useGraphStore(s => s.textSettings?.pieMenuScale ?? 1.3);
+
   // animationState can be: null (initial/hidden), 'popping', 'visible_steady', 'shrinking'
   const [animationState, setAnimationState] = useState(null);
 
@@ -173,11 +177,17 @@ const PieMenu = ({
     return null;
   }
 
+  const scale = nodeScale * pieMenuScale;
+  const bSize = BUBBLE_SIZE * scale;
+  const bPad = BUBBLE_PADDING * scale;
+  const iSize = ICON_SIZE * scale;
+  const strokeWidth = Math.max(1, 3 * scale);
+
   let nodeCenterX, nodeCenterY, totalVisualOffset, cornerRadius, currentWidth, currentHeight;
   if (hasAnchorMode) {
     nodeCenterX = anchor.x;
     nodeCenterY = anchor.y;
-    totalVisualOffset = BUBBLE_PADDING + BUBBLE_SIZE / 2;
+    totalVisualOffset = bPad + bSize / 2;
     cornerRadius = NODE_CORNER_RADIUS;
     currentWidth = 0;
     currentHeight = 0;
@@ -187,7 +197,7 @@ const PieMenu = ({
     currentHeight = nodeDimensions.currentHeight;
     nodeCenterX = x + currentWidth / 2;
     nodeCenterY = y + currentHeight / 2;
-    totalVisualOffset = BUBBLE_PADDING + BUBBLE_SIZE / 2;
+    totalVisualOffset = bPad + bSize / 2;
     cornerRadius = NODE_CORNER_RADIUS;
   }
 
@@ -217,7 +227,7 @@ const PieMenu = ({
 
         if (isLineMode) {
           // Line mode: buttons along the edge slope, offset perpendicular (upward side)
-          const step = BUBBLE_SIZE + BUBBLE_PADDING;
+          const step = bSize + bPad;
           const n = buttons.length;
           const t = index - (n - 1) / 2; // centered index: -1.5, -0.5, 0.5, 1.5 for n=4
 
@@ -229,7 +239,7 @@ const PieMenu = ({
           const perpX = Math.sin(anchorAngle);
           const perpY = -Math.cos(anchorAngle);
 
-          const PERP_OFFSET = BUBBLE_SIZE + BUBBLE_PADDING * 2; // 92 units away from edge
+          const PERP_OFFSET = bSize + bPad * 2; // perpendicular offset from edge
 
           bubbleX = nodeCenterX + t * step * alongX + PERP_OFFSET * perpX;
           bubbleY = nodeCenterY + t * step * alongY + PERP_OFFSET * perpY;
@@ -237,9 +247,9 @@ const PieMenu = ({
           // Carousel mode: position buttons based on actual current node dimensions
           // nodeDimensions now contains the actual current scaled dimensions from AbstractionCarousel
           const currentNodeHalfWidth = nodeDimensions.currentWidth / 2;
-          const padding = BUBBLE_PADDING + BUBBLE_SIZE / 2;
-          const outerOffset = BUBBLE_SIZE + BUBBLE_PADDING; // Additional offset for outer buttons
-          
+          const padding = bPad + bSize / 2;
+          const outerOffset = bSize + bPad; // Additional offset for outer buttons
+
           if (button.position === 'left-outer') {
             bubbleX = nodeCenterX - currentNodeHalfWidth - padding - outerOffset;
             bubbleY = nodeCenterY;
@@ -264,20 +274,20 @@ const PieMenu = ({
           } else if (button.position === 'right-top') {
             // Vertical stack on right side - top button
             bubbleX = nodeCenterX + currentNodeHalfWidth + padding;
-            bubbleY = nodeCenterY - (BUBBLE_SIZE + BUBBLE_PADDING);
+            bubbleY = nodeCenterY - (bSize + bPad);
           } else if (button.position === 'right-bottom') {
             // Vertical stack on right side - bottom button
             bubbleX = nodeCenterX + currentNodeHalfWidth + padding;
-            bubbleY = nodeCenterY + (BUBBLE_SIZE + BUBBLE_PADDING);
+            bubbleY = nodeCenterY + (bSize + bPad);
           } else if (button.position === 'top') {
             // Decomposition layout: a horizontal row of buttons across the node's top
             // edge, right-aligned so the rightmost (compose) sits at the top-right corner.
             // topIndex 0 = leftmost, topCount-1 = rightmost.
-            const step = BUBBLE_SIZE + BUBBLE_PADDING;
+            const step = bSize + bPad;
             const nodeRight = nodeCenterX + currentNodeHalfWidth;
             const nodeTop = nodeCenterY - nodeDimensions.currentHeight / 2;
             const fromRight = (button.topCount - 1) - button.topIndex;
-            bubbleX = nodeRight - (BUBBLE_SIZE / 2) - fromRight * step;
+            bubbleX = nodeRight - (bSize / 2) - fromRight * step;
             bubbleY = nodeTop - padding;
           } else {
             // Fallback to center if no position specified
@@ -443,17 +453,17 @@ const PieMenu = ({
                 <circle
                   cx="0"
                   cy="0"
-                  r={BUBBLE_SIZE / 2}
+                  r={bSize / 2}
                   fill="#DEDADA"
                   stroke="maroon"
-                  strokeWidth={3}
+                  strokeWidth={strokeWidth}
                 />
                 {IconComponent && (
                   <IconComponent
-                    x={-ICON_SIZE / 2}
-                    y={-ICON_SIZE / 2}
-                    width={ICON_SIZE}
-                    height={ICON_SIZE}
+                    x={-iSize / 2}
+                    y={-iSize / 2}
+                    width={iSize}
+                    height={iSize}
                     color="maroon"
                     fill={button.fill || 'none'}
                   />

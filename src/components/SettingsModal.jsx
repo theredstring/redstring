@@ -164,6 +164,40 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={(v) => useGraphStore.getState().setHoverPreviewSize?.(v)}
             />
           </div>
+          <div className="settings-section-subtitle">Size</div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Node Size"
+              value={textSettings?.nodeScale ?? 1.0}
+              min={0.5}
+              max={2.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setNodeScale?.(v)}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Plus Sign Size"
+              value={textSettings?.plusSignScale ?? 1.0}
+              min={0.25}
+              max={3.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setPlusSignScale?.(v)}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Pie Menu Size"
+              value={textSettings?.pieMenuScale ?? 1.3}
+              min={0.25}
+              max={3.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setPieMenuScale?.(v)}
+            />
+          </div>
           <div className="settings-section-subtitle">Control Panels</div>
           <div className="settings-row">
             <div className="settings-row-label">

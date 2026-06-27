@@ -1104,6 +1104,26 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     }
   });
 
+  // Deduplicate edges by node pair (undirected) so parallel edges between the
+  // same two nodes don't compound spring forces or constraint corrections.
+  // For each pair, keep the edge with the longest label to preserve the
+  // tightest spacing requirement.
+  const _uniqueEdgePairMap = new Map();
+  edges.forEach(edge => {
+    const key = edge.sourceId < edge.destinationId
+      ? `${edge.sourceId}|${edge.destinationId}`
+      : `${edge.destinationId}|${edge.sourceId}`;
+    const existing = _uniqueEdgePairMap.get(key);
+    if (!existing) {
+      _uniqueEdgePairMap.set(key, edge);
+    } else {
+      const existingW = estimateEdgeLabelWidth(existing.name || '');
+      const newW = estimateEdgeLabelWidth(edge.name || '');
+      if (newW > existingW) _uniqueEdgePairMap.set(key, edge);
+    }
+  });
+  const uniqueEdges = Array.from(_uniqueEdgePairMap.values());
+
   // Identify clusters
   const clusters = getGraphClusters(nodes, adjacency);
   const clusterMap = new Map();
@@ -1434,8 +1454,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       }
     }
 
-    // Spring forces (edges)
-    edges.forEach(edge => {
+    // Spring forces (edges — deduplicated so parallel edges don't compound)
+    uniqueEdges.forEach(edge => {
       const p1 = positions.get(edge.sourceId);
       const p2 = positions.get(edge.destinationId);
       if (!p1 || !p2) return;
@@ -1821,7 +1841,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     if (config.stiffness > 0) {
       // 1. Rigid Edge Constraints (Springs are not enough for stiffness)
       enforceEdgeConstraints(
-        positions, edges, nodeById, getNodeRadius,
+        positions, uniqueEdges, nodeById, getNodeRadius,
         finalTargetLinkDistance, 1, config.stiffness * alpha
       );
 
@@ -1839,7 +1859,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   // Multi-stage constraint enforcement for rigidity (Final Polish)
   // Stage 1: Enforce edge constraints (connected nodes stay at target distance)
   // Pass group info so cross-group edges use weaker correction
-  enforceEdgeConstraints(positions, edges, nodeById, getNodeRadius,
+  enforceEdgeConstraints(positions, uniqueEdges, nodeById, getNodeRadius,
     finalTargetLinkDistance, 5, 0.8, nodeGroupsMap, config.minGroupDistance || 800);
 
   // Stage 2: Resolve all overlaps
@@ -1847,7 +1867,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     config.width, config.height, 10);
 
   // Stage 3: Re-enforce edge constraints (maintain connectivity after overlap resolution)
-  enforceEdgeConstraints(positions, edges, nodeById, getNodeRadius,
+  enforceEdgeConstraints(positions, uniqueEdges, nodeById, getNodeRadius,
     finalTargetLinkDistance, 3, 0.8, nodeGroupsMap, config.minGroupDistance || 800);
 
   // Stage 4: Final gentle overlap check
@@ -1869,7 +1889,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   // ── Final label-aware edge correction ──────────────────────────────
   // Hard clamp: ensure condensation + crossing reduction didn't compress
   // labeled edges below their label width
-  edges.forEach(edge => {
+  uniqueEdges.forEach(edge => {
     if (!edge.name) return;
     const p1 = positions.get(edge.sourceId);
     const p2 = positions.get(edge.destinationId);
@@ -1895,7 +1915,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   });
 
   // Enforce clearance between label midpoints of different labeled edges
-  enforceEdgeLabelClearance(positions, edges, nodeById, getNodeRadius, config);
+  enforceEdgeLabelClearance(positions, uniqueEdges, nodeById, getNodeRadius, config);
 
   // Final group separation enforcement (after condensation and edge crossing
   // adjustments may have moved nodes closer again)

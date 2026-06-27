@@ -13956,6 +13956,7 @@ function NodeCanvas() {
                             node={currentPieMenuData.node}
                             buttons={currentPieMenuData.buttons}
                             nodeDimensions={currentPieMenuData.nodeDimensions}
+                            nodeScale={textSettings?.nodeScale ?? 1.0}
                             focusedNode={carouselFocusedNode}
                             isVisible={(
                               currentPieMenuData?.node?.id === selectedNodeIdForPieMenu &&
@@ -14071,7 +14072,8 @@ function NodeCanvas() {
 
                           // Space check: does the full button row fit on screen?
                           // Use correct canvas→screen conversion: (canvasX - offsetX) * zoom + pan + rectLeft
-                          const BUBBLE_STEP = 60 + 16; // BUBBLE_SIZE + BUBBLE_PADDING
+                          const ns = textSettings?.nodeScale ?? 1.0;
+                          const BUBBLE_STEP = (60 + 16) * ns; // BUBBLE_SIZE + BUBBLE_PADDING, scaled
                           const zoom = zoomLevelRef.current;
                           const pan = panOffsetRef.current;
                           const rect = containerRef.current?.getBoundingClientRect();
@@ -14111,6 +14113,7 @@ function NodeCanvas() {
                               anchor={anchor}
                               anchorAngle={anchor.angle ?? 0}
                               buttons={displayButtons}
+                              nodeScale={textSettings?.nodeScale ?? 1.0}
                               isVisible={edgePieMenuVisible}
                               onHoverChange={handlePieMenuHoverChange}
                               onExitAnimationComplete={() => {

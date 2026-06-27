@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { NODE_WIDTH, NODE_HEIGHT, PLUS_SIGN_SIZE, PLUS_SIGN_ANIMATION_DURATION } from './constants';
+import useGraphStore from './store/graphStore.jsx';
 
 const PlusSign = ({
   plusSign,
@@ -11,6 +12,9 @@ const PlusSign = ({
   gestureBlockRef,
   isPanningOrZoomingRef
 }) => {
+  const plusSignScale = useGraphStore(s => s.textSettings?.plusSignScale ?? 1.0);
+  const scaledPlusSize = PLUS_SIGN_SIZE * plusSignScale;
+
   const animationFrameRef = useRef(null);
   const plusRef = useRef({
     rotation: -90,
@@ -54,6 +58,16 @@ const PlusSign = ({
       }
     };
   }, [plusSign.mode]);
+
+  // Snap to new size immediately when scale changes (while in steady 'appear' state)
+  useEffect(() => {
+    if (plusSign.mode === 'appear' && !animationFrameRef.current) {
+      plusRef.current.width = scaledPlusSize;
+      plusRef.current.height = scaledPlusSize;
+      plusRef.current.cornerRadius = scaledPlusSize / 2;
+      forceUpdate();
+    }
+  }, [scaledPlusSize]);
 
   const lerp = (a, b, t) => a + (b - a) * t;
   
@@ -164,18 +178,18 @@ const PlusSign = ({
     } = plusRef.current;
 
     let endRot = 0;
-    let endWidth = PLUS_SIGN_SIZE;
-    let endHeight = PLUS_SIGN_SIZE;
-    let endCorner = 40;
+    let endWidth = scaledPlusSize;
+    let endHeight = scaledPlusSize;
+    let endCorner = scaledPlusSize / 2;
     let endColor = '#DEDADA';
     let endLineOp = 1;
     let endTextOp = 0;
 
     if (mode === 'appear') {
       endRot = 0;
-      endWidth = PLUS_SIGN_SIZE;
-      endHeight = PLUS_SIGN_SIZE;
-      endCorner = 40;
+      endWidth = scaledPlusSize;
+      endHeight = scaledPlusSize;
+      endCorner = scaledPlusSize / 2;
       endColor = '#DEDADA';
       endLineOp = 1;
       endTextOp = 0;
@@ -183,7 +197,7 @@ const PlusSign = ({
       endRot = -90;
       endWidth = 0;
       endHeight = 0;
-      endCorner = 40;
+      endCorner = scaledPlusSize / 2;
       endColor = '#DEDADA';
       endLineOp = 1;
       endTextOp = 0;
@@ -191,7 +205,7 @@ const PlusSign = ({
       endRot = 0;
       endWidth = targetWidth;
       endHeight = targetHeight;
-      endCorner = 40;
+      endCorner = Math.min(targetWidth, targetHeight) / 4; // node-like corner radius for morph target
       endColor = plusSign.selectedColor || 'maroon'; // Use selected color if available
       /*
       console.log('Morph setup:', { 
@@ -390,7 +404,7 @@ const PlusSign = ({
         ry={cornerRadius}
         fill={color}
         stroke={strokeColor}
-        strokeWidth={5}
+        strokeWidth={Math.max(1, 5 * plusSignScale)}
       />
       <line
         x1={-halfCross}
@@ -398,7 +412,7 @@ const PlusSign = ({
         x2={halfCross}
         y2={0}
         stroke="maroon"
-        strokeWidth={5}
+        strokeWidth={Math.max(1, 5 * plusSignScale)}
         opacity={lineOpacity}
       />
       <line
@@ -407,7 +421,7 @@ const PlusSign = ({
         x2={0}
         y2={halfCross}
         stroke="maroon"
-        strokeWidth={5}
+        strokeWidth={Math.max(1, 5 * plusSignScale)}
         opacity={lineOpacity}
       />
 
