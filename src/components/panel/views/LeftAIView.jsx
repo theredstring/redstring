@@ -3908,6 +3908,9 @@ const LeftAIView = ({ compact = false,
                   if (event.type === 'tool_call_start') {
                     const now = Date.now();
                     console.log('[Wizard] tool_call_start received:', event.name, event.id, 'at', now);
+                    // Collapse any open thinking block when a tool call starts
+                    const openThinkIdx = blocks.findLastIndex(b => b.type === 'thinking' && !b.collapsed);
+                    if (openThinkIdx >= 0) blocks[openThinkIdx] = { ...blocks[openThinkIdx], collapsed: true };
                     const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (existingIndex >= 0) {
                       if (event.name) blocks[existingIndex] = { ...blocks[existingIndex], name: event.name };
@@ -3981,6 +3984,8 @@ const LeftAIView = ({ compact = false,
                   } else if (event.type === 'done') {
                     msg.isStreaming = false;
                     msg.iterations = event.iterations;
+                    // Collapse any thinking blocks still open when run ends
+                    blocks.forEach((b, i) => { if (b.type === 'thinking' && !b.collapsed) blocks[i] = { ...b, collapsed: true }; });
                     const lastTextIdx = blocks.length - 1;
                     if (lastTextIdx >= 0 && blocks[lastTextIdx].type === 'text' && blocks[lastTextIdx].content) {
                       blocks[lastTextIdx] = { ...blocks[lastTextIdx], content: blocks[lastTextIdx].content.trimEnd() };

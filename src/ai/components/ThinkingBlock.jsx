@@ -1,29 +1,32 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme.js';
 
-export default function ThinkingBlock({ content, collapsed: initialCollapsed = false }) {
-  const [expanded, setExpanded] = useState(false);
+export default function ThinkingBlock({ content, collapsed }) {
+  const theme = useTheme();
+  const [isOpen, setIsOpen] = useState(false);
 
-  // While streaming (not yet collapsed), always show live content
-  // Once collapsed (response started), default to hidden
-  const isVisible = initialCollapsed ? expanded : true;
+  // When thinking completes (collapsed becomes true), reset to closed
+  useEffect(() => {
+    if (collapsed) setIsOpen(false);
+  }, [collapsed]);
+
+  const showContent = collapsed ? isOpen : true;
 
   return (
     <div style={{
-      margin: '4px 0',
-      borderLeft: '2px solid rgba(255,255,255,0.15)',
-      paddingLeft: '8px',
-      opacity: 0.6,
-      fontSize: '11px',
+      margin: '4px 0 6px',
+      borderLeft: `2px solid ${theme.border}`,
+      paddingLeft: '10px',
     }}>
       <button
-        onClick={() => setExpanded(e => !e)}
+        onClick={() => { if (collapsed) setIsOpen(o => !o); }}
         style={{
           background: 'none',
           border: 'none',
-          cursor: 'pointer',
-          color: 'inherit',
-          opacity: 0.7,
-          padding: '0',
+          cursor: collapsed ? 'pointer' : 'default',
+          color: theme.textSecondary,
+          padding: '2px 0',
           display: 'flex',
           alignItems: 'center',
           gap: '4px',
@@ -31,17 +34,27 @@ export default function ThinkingBlock({ content, collapsed: initialCollapsed = f
           fontFamily: 'inherit',
         }}
       >
-        <span style={{ transform: isVisible ? 'rotate(90deg)' : 'none', display: 'inline-block', transition: 'transform 0.15s' }}>▶</span>
-        {initialCollapsed ? 'Thought' : 'Thinking…'}
+        {collapsed && (
+          <ChevronDown
+            size={12}
+            style={{
+              transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
+              transition: 'transform 0.15s ease',
+              flexShrink: 0,
+            }}
+          />
+        )}
+        <span>{collapsed ? 'Thought' : 'Thinking…'}</span>
       </button>
-      {isVisible && (
+      {showContent && (
         <div style={{
-          marginTop: '4px',
-          whiteSpace: 'pre-wrap',
+          fontSize: '11px',
           lineHeight: '1.5',
-          maxHeight: '200px',
+          color: theme.textSecondary,
+          maxHeight: '160px',
           overflowY: 'auto',
-          color: 'inherit',
+          whiteSpace: 'pre-wrap',
+          marginTop: '2px',
         }}>
           {content}
         </div>

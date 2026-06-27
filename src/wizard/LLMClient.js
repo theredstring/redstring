@@ -795,11 +795,6 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
 
             const delta = choice.delta;
 
-            // DEBUG: log delta keys to help diagnose thinking token format
-            if (delta && Object.keys(delta).some(k => k.includes('think') || k.includes('reason') || (delta.content && delta.content.includes('<think')))) {
-              console.error('[LLMClient:OpenAI DEBUG] thinking delta keys:', Object.keys(delta), 'thinking_content:', delta.thinking_content?.slice?.(0,50), 'content snippet:', delta.content?.slice?.(0,80));
-            }
-
             // Tool calls
             if (delta?.tool_calls) {
               for (const toolCall of delta.tool_calls) {
@@ -859,14 +854,17 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
               }
             }
 
-            // Thinking content — three formats depending on provider/model:
+            // Thinking content — four formats depending on provider/model:
             // 1. delta.thinking_content (Ollama native thinking field)
             // 2. delta.reasoning_content (DeepSeek API)
-            // 3. <think>...</think> tags embedded in delta.content (common Ollama format)
+            // 3. delta.reasoning (Gemma 4 via Ollama)
+            // 4. <think>...</think> tags embedded in delta.content (common fallback)
             if (delta?.thinking_content) {
               yield { type: 'thinking', content: delta.thinking_content };
             } else if (delta?.reasoning_content) {
               yield { type: 'thinking', content: delta.reasoning_content };
+            } else if (delta?.reasoning) {
+              yield { type: 'thinking', content: delta.reasoning };
             }
 
             // Text content — parse out any embedded <think>...</think> blocks
