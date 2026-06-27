@@ -24,7 +24,7 @@ export async function themeGraph(args, graphState, cid, ensureSchedulerStarted) 
   const { palette, baseColor, targetGraphId } = args;
   
   const { activeGraphId, graphs, nodePrototypes, edges = [] } = graphState;
-  const graphId = resolveGraphId(targetGraphId, graphs) || activeGraphId;
+  const graphId = resolveGraphId(targetGraphId, graphs, { activeGraphId }) || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');

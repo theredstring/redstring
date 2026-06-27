@@ -13,7 +13,7 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
 
     const { edges = [], nodePrototypes = [], graphs = [], activeGraphId } = graphState;
 
-    const targetGraphId = resolveGraphId(args.targetGraphId, graphs) || activeGraphId;
+    const targetGraphId = resolveGraphId(args.targetGraphId, graphs, { activeGraphId }) || activeGraphId;
 
     // Build a node name lookup (by ID) for resolving edge endpoints
     const nodeNameById = new Map();

@@ -11,7 +11,7 @@ import { resolveGraphId } from './resolveGraphId.js';
 export async function readGraph(args, graphState) {
     const { nodePrototypes = [], graphs = [], edges = [], activeGraphId } = graphState;
 
-    let targetGraphId = resolveGraphId(args.targetGraphId, graphs) || activeGraphId;
+    let targetGraphId = resolveGraphId(args.targetGraphId, graphs, { activeGraphId }) || activeGraphId;
 
     if (!targetGraphId) {
         return { error: 'No graph specified. Create or open a graph first.' };

@@ -952,9 +952,12 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             .join('\n');
 
           console.error(`[AgentLoop] ⚠️ Model returned text-only but plan is incomplete (${doneCount}/${plan.length} done). Nudge ${consecutiveNudges}/${MAX_CONSECUTIVE_NUDGES}.`);
+          const availableToolList = modelTier === 'small'
+            ? '- expandGraph — add 2-3 nodes or edges to the existing graph\n- planTask — mark a step done once you\'ve finished it'
+            : '- createPopulatedGraph — build a new graph with nodes and edges\n- expandGraph — add nodes or edges to an existing graph\n- populateDefinitionGraph — define the internals of a node\n- planTask — update a step\'s status to \'done\' once you\'ve finished it';
           messages.push({
             role: 'user',
-            content: `Your plan is NOT complete (${doneCount}/${plan.length} steps done). These steps still need work:\n${stepList}\n\nDo NOT respond to the user yet. You MUST call a tool to make progress. Use one of these:\n- createPopulatedGraph — build a new graph with nodes and edges\n- expandGraph — add nodes or edges to an existing graph\n- populateDefinitionGraph — define the internals of a node\n- planTask — update a step's status to 'done' once you've finished it\n\nPick the first incomplete step and call the appropriate tool now.`
+            content: `Your plan is NOT complete (${doneCount}/${plan.length} steps done). These steps still need work:\n${stepList}\n\nDo NOT respond to the user yet. You MUST call a tool to make progress. Use one of these:\n${availableToolList}\n\nPick the first incomplete step and call the appropriate tool now.`
           });
           continue; // Skip termination, continue the loop
         }
@@ -968,9 +971,12 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         if (!hasNudgedFirstIteration && iteration === 0 && iterationContent.trim().length > 0 && userMsgIsTaskLike) {
           hasNudgedFirstIteration = true;
           console.error(`[AgentLoop] ⚠️ Text-only response on first iteration — nudging model to call tools if applicable.`);
+          const firstIterToolHint = modelTier === 'small'
+            ? 'call planTask to create a plan, then expandGraph to start building'
+            : 'call planTask, createPopulatedGraph, or other tools';
           messages.push({
             role: 'user',
-            content: `If you intended to perform actions to complete this task (e.g., call planTask, createPopulatedGraph, or other tools), please call them now. If your previous response fully answered the user's question, no further action is needed.`
+            content: `If you intended to perform actions to complete this task (e.g., ${firstIterToolHint}), please call them now. If your previous response fully answered the user's question, no further action is needed.`
           });
           continue;
         }

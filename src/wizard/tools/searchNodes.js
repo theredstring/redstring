@@ -13,7 +13,7 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
 
   const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
 
-  const targetGraphId = resolveGraphId(args.targetGraphId, graphs) || activeGraphId;
+  const targetGraphId = resolveGraphId(args.targetGraphId, graphs, { activeGraphId }) || activeGraphId;
 
   // Build a combined node list from prototypes + active graph instances
   // This ensures we find nodes even if prototypes list is incomplete

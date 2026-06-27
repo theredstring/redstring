@@ -56,7 +56,7 @@ export async function mergeNodes(args, graphState) {
   }
 
   const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
-  const graphId = resolveGraphId(targetGraphId, graphs) || activeGraphId;
+  const graphId = resolveGraphId(targetGraphId, graphs, { activeGraphId }) || activeGraphId;
 
   // Resolve primary: prefer ID, fall back to name
   const resolvedPrimary = primaryPrototypeId

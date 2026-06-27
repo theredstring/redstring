@@ -16,7 +16,7 @@ export async function inspectWorkspace(args, graphState) {
   const { graphId, includeAllGraphs } = args || {};
 
   const { graphs = [], nodePrototypes = [], edges = [], activeGraphId } = graphState;
-  const targetGraphId = resolveGraphId(graphId, graphs) || activeGraphId;
+  const targetGraphId = resolveGraphId(graphId, graphs, { activeGraphId }) || activeGraphId;
 
   // Build prototype lookup
   const protoMap = new Map();

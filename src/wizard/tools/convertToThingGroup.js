@@ -46,7 +46,7 @@ export async function convertToThingGroup(args, graphState, cid, ensureScheduler
   } = args;
 
   const { activeGraphId, graphs = [] } = graphState;
-  const graphId = resolveGraphId(targetGraphId, graphs) || activeGraphId;
+  const graphId = resolveGraphId(targetGraphId, graphs, { activeGraphId }) || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');

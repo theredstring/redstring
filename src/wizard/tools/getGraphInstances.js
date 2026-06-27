@@ -12,8 +12,8 @@ import { resolveGraphId } from './resolveGraphId.js';
 export async function getGraphInstances(args, graphState) {
   const { graphId } = args;
   
-  const { graphs = [], nodePrototypes = [] } = graphState;
-  const targetGraphId = resolveGraphId(graphId, graphs) || graphState.activeGraphId;
+  const { graphs = [], nodePrototypes = [], activeGraphId } = graphState;
+  const targetGraphId = resolveGraphId(graphId, graphs, { activeGraphId }) || activeGraphId;
 
   if (!targetGraphId) {
     throw new Error('No target graph specified, and no active graph available.');

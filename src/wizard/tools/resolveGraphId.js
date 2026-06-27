@@ -25,6 +25,12 @@
 export function resolveGraphId(idOrName, graphs, opts = {}) {
   if (!idOrName || !graphs) return idOrName;
 
+  // "active" / "current" are sentinel values models use to mean the active graph
+  const sentinel = String(idOrName).toLowerCase().trim();
+  if (sentinel === 'active' || sentinel === 'current') {
+    return opts.activeGraphId || idOrName;
+  }
+
   // Normalize the graphs collection into an Array of graph objects.
   const graphList = Array.isArray(graphs)
     ? graphs
