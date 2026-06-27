@@ -542,6 +542,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     savedNodeIds: new Set(), // This now refers to prototype IDs
     savedGraphIds: new Set(), // This is based on the defining prototype ID
 
+    // Durable wizard plan — persists across LLM context clears for small model resume
+    activeWizardPlan: null,    // Array<{ description, status, substeps? }> | null
+    wizardPlanGraphId: null,   // string | null — which graphId this plan targets
+
     // Universe file state
     isUniverseLoaded: false,
     isUniverseLoading: true, // Start in loading state
@@ -5080,6 +5084,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     // Apply Immer patches to the state (used by Undo/Redo)
     applyPatches: (patches) => set((state) => applyPatches(state, patches)),
+
+    // Durable wizard plan actions — used by small model atomic execution mode
+    setActiveWizardPlan: (plan, graphId) => set({ activeWizardPlan: plan, wizardPlanGraphId: graphId || null }),
+    clearActiveWizardPlan: () => set({ activeWizardPlan: null, wizardPlanGraphId: null }),
 
     revertWizardAction: (actionId) => {
       const historyStore = useHistoryStore.getState();

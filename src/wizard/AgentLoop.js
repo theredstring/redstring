@@ -7,10 +7,10 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
-import { buildContext, buildPersistentContextHeader, buildPlanContext } from './ContextBuilder.js';
+import { buildContext, buildPersistentContextHeader, buildPlanContext, truncateContext } from './ContextBuilder.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
 import { selectToolsForTurn } from './tools/schemas.js';
-import { WIZARD_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
+import { WIZARD_SYSTEM_PROMPT, SMALL_MODEL_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 
 // Safe for both ESM and CJS (esbuild bundle) contexts
@@ -733,7 +733,15 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     contextPreview: initialContext.substring(0, 300)
   });
 
-  const baseSystemPrompt = config.systemPrompt || SYSTEM_PROMPT || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
+  const modelTier = config.modelTier || 'large';
+  const baseSystemPrompt = config.systemPrompt
+    || (modelTier === 'small' ? SMALL_MODEL_SYSTEM_PROMPT : SYSTEM_PROMPT)
+    || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
+
+  // Truncate context for small models — they have limited context budgets
+  if (modelTier === 'small') {
+    initialContext = truncateContext(initialContext, 2000);
+  }
 
   const hasTabularData = Array.isArray(graphState?._tabularData) && graphState._tabularData.length > 0;
   const maxIterations = config.maxIterations || DEFAULT_MAX_ITERATIONS;
@@ -772,16 +780,28 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   // Track consecutive text-only nudges to prevent infinite nudge loops
   let consecutiveNudges = 0;
   const MAX_CONSECUTIVE_NUDGES = 3;
+  let consecutiveEmptyResponses = 0;
+  const MAX_CONSECUTIVE_EMPTY = 3;
   // One-time nudge for local/small models that announce their plan as text
   // on iteration 0 without calling any tools (they can't mix text + tool calls)
   let hasNudgedFirstIteration = false;
+  // Track whether any text has been yielded across iterations so we can add
+  // a paragraph separator between iteration text chunks
+  let yieldedAnyText = false;
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     // Rebuild context from (potentially mutated) graphState so LLM sees current state
     {
-      const freshContext = iteration > 0 ? buildPersistentContextHeader(graphState, contextItems) + attachmentContextSuffix : initialContext;
+      let freshContext = iteration > 0 ? buildPersistentContextHeader(graphState, contextItems) + attachmentContextSuffix : initialContext;
+      if (modelTier === 'small') freshContext = truncateContext(freshContext, 2000);
       const planCtx = graphState._currentPlan ? buildPlanContext(graphState._currentPlan, iteration, maxIterations) : '';
       messages[0] = { role: 'system', content: systemPromptTemplate.replace('{context}', freshContext + planCtx) };
+    }
+    // Small models have limited context windows — trim conversation history to prevent
+    // the model from returning empty responses due to context overflow.
+    // Keep: system message [0], original user message [1], last 8 messages.
+    if (modelTier === 'small' && messages.length > 11) {
+      messages = [messages[0], messages[1], ...messages.slice(-8)];
     }
     if (abortSignal?.aborted) {
       console.error(`[AgentLoop] ✓ Abort signal detected at iteration ${iteration}. Stopping.`);
@@ -796,19 +816,26 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       const userMessageText = typeof userMessage === 'string'
         ? userMessage
         : (Array.isArray(userMessage) ? userMessage.filter(b => b.type === 'text').map(b => b.text).join(' ') : '');
-      const tools = selectToolsForTurn({ graphState, userMessage: userMessageText, hasTabularData });
+      const tools = selectToolsForTurn({ graphState, userMessage: userMessageText, hasTabularData, modelTier });
 
       // Stream LLM response for this iteration
       // Track what we've yielded to prevent duplicates
       let yieldedChars = 0;
       const emittedToolStarts = new Set();  // Deduplicate tool_call_start events
 
+      let iterationHasYieldedText = false;
       for await (const chunk of streamLLM(messages, tools, config, abortSignal)) {
         if (chunk.type === 'text') {
           // Only yield new content (dedupe in case of stream issues)
           const newContent = chunk.content;
           if (newContent) {
+            // Insert paragraph separator between text blocks from different iterations
+            if (yieldedAnyText && !iterationHasYieldedText) {
+              yield { type: 'response', content: '\n\n' };
+            }
             iterationContent += newContent;
+            iterationHasYieldedText = true;
+            yieldedAnyText = true;
             console.error('[AgentLoop] Yielding text chunk:', JSON.stringify(newContent));
             yield { type: 'response', content: newContent };
           }
@@ -876,15 +903,23 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         });
       }
 
-      // Empty response (no text AND no tools) — always nudge regardless of plan state
+      // Empty response (no text AND no tools) — nudge, but bail after too many consecutive empties
+      // (local models hit their context window and return nothing; looping burns iterations)
       if (iterationContent.length === 0 && iterationToolCalls.length === 0) {
-        console.error(`[AgentLoop] ⚠️ Model returned empty response (no text, no tools) at iteration ${iteration}. Nudging.`);
+        consecutiveEmptyResponses++;
+        if (consecutiveEmptyResponses >= MAX_CONSECUTIVE_EMPTY) {
+          console.error(`[AgentLoop] ✗ Model returned empty ${consecutiveEmptyResponses} times in a row. Stopping to avoid burning iterations.`);
+          yield { type: 'done', iterations: iteration + 1, reason: 'empty_response_limit' };
+          return;
+        }
+        console.error(`[AgentLoop] ⚠️ Model returned empty response (${consecutiveEmptyResponses}/${MAX_CONSECUTIVE_EMPTY}) at iteration ${iteration}. Nudging.`);
         messages.push({
           role: 'user',
           content: 'Your previous response was empty. Please continue — either respond to the user or call the appropriate tools.'
         });
         continue;
       }
+      consecutiveEmptyResponses = 0;
 
       // No tool calls — check if the model should keep going or if it's truly done
       if (iterationToolCalls.length === 0) {
@@ -921,7 +956,10 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         // First-iteration nudge: local/small models often return a planning statement
         // as text on iteration 0 without calling tools (they can't mix text + tool calls
         // in one response). Give them one chance to follow through with tool calls.
-        if (!hasNudgedFirstIteration && iteration === 0 && iterationContent.trim().length > 0) {
+        // Only fires for task-like messages (not greetings or short conversational inputs).
+        const userMsgIsTaskLike = userMessageText.trim().length > 15
+          || /build|create|map|graph|make|design|show|add|define|populate|explore|generate|construct|plan/i.test(userMessageText);
+        if (!hasNudgedFirstIteration && iteration === 0 && iterationContent.trim().length > 0 && userMsgIsTaskLike) {
           hasNudgedFirstIteration = true;
           console.error(`[AgentLoop] ⚠️ Text-only response on first iteration — nudging model to call tools if applicable.`);
           messages.push({

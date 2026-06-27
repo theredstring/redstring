@@ -144,10 +144,11 @@ app.post('/api/wizard', async (req, res) => {
       model: apiConfig.model,
       temperature: apiConfig.settings?.temperature,
       maxTokens: apiConfig.settings?.max_tokens,
+      modelTier: apiConfig.modelTier || 'large',
       cid: config?.cid || `wizard-${Date.now()}`,
       conversationHistory: conversationHistory || [],
       systemPrompt: config?.systemPrompt,
-      maxIterations: 77,
+      maxIterations: apiConfig.modelTier === 'small' ? 15 : 77,
       contextItems: req.body.contextItems || []
     };
 

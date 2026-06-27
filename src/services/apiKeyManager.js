@@ -96,6 +96,18 @@ class APIKeyManager {
   }
 
   /**
+   * Compute model tier based on provider, endpoint, and model name.
+   * 'small' = local/small-context models that use atomic execution mode.
+   * 'large' = cloud models with full wizard capabilities.
+   */
+  _computeModelTier(provider, endpoint, model) {
+    if (provider === 'local') return 'small';
+    if (/localhost|127\.0\.0\.1/.test(endpoint || '')) return 'small';
+    if (/gemma|phi[^a-z]|llama[-\s]?\d|qwen[-\s]?\d+b|mistral[-\s]?\d+b|deepseek|falcon/i.test(model || '')) return 'small';
+    return 'large';
+  }
+
+  /**
    * Get API key info (provider, endpoint, model, timestamp, etc.)
    * @returns {object|null} Key information or null if not found
    */
@@ -106,15 +118,19 @@ class APIKeyManager {
 
       // Handle legacy format (version 1.0)
       if (keyData.version === '1.0') {
+        const provider = keyData.provider;
+        const endpoint = this.getDefaultEndpoint(provider);
+        const model = this.getDefaultModel(provider);
         return {
-          provider: keyData.provider,
-          endpoint: this.getDefaultEndpoint(keyData.provider),
-          model: this.getDefaultModel(keyData.provider),
+          provider,
+          endpoint,
+          model,
           settings: { temperature: 0.7, max_tokens: 8192 },
           timestamp: keyData.timestamp,
           version: keyData.version,
           hasKey: true,
-          isLegacy: true
+          isLegacy: true,
+          modelTier: this._computeModelTier(provider, endpoint, model)
         };
       }
 
@@ -128,7 +144,8 @@ class APIKeyManager {
         timestamp: keyData.timestamp,
         version: keyData.version,
         hasKey: true,
-        activeProfileId: localStorage.getItem(this.ACTIVE_PROFILE) || null
+        activeProfileId: localStorage.getItem(this.ACTIVE_PROFILE) || null,
+        modelTier: this._computeModelTier(keyData.provider, keyData.endpoint, keyData.model)
       };
     } catch (error) {
       console.error('[API Key Manager] Failed to get API key info:', error);

@@ -81,20 +81,19 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   const existingNodeNames = (graphState.nodePrototypes || []).map(p => p.name).filter(Boolean);
   const { validEdges, droppedEdges } = validateEdges(nodeSpecs, edges || [], existingNodeNames);
 
-  // Strict validation: require definitionNode on all edges
+  // Accept either definitionNode object OR a plain type string (like createPopulatedGraph allows).
+  // Auto-construct definitionNode from type string so small models can use simple edge format.
   for (let i = 0; i < validEdges.length; i++) {
     const e = validEdges[i];
-    if (!e.definitionNode || typeof e.definitionNode !== 'object') {
-      throw new Error(
-        `Edge ${i + 1} (${e.source} → ${e.target}) is missing required field 'definitionNode'. ` +
-        `Check for typos in your JSON - did you write 'definition,Node' or 'definitionnode' instead of 'definitionNode'?`
-      );
-    }
-    if (!e.definitionNode.name) {
-      throw new Error(
-        `Edge ${i + 1} (${e.source} → ${e.target}): definitionNode must have a 'name' property. ` +
-        `Example: definitionNode: { name: "Connects To", description: "..." }`
-      );
+    if (!e.definitionNode || typeof e.definitionNode !== 'object' || !e.definitionNode.name) {
+      if (e.type && typeof e.type === 'string' && e.type.trim()) {
+        e.definitionNode = { name: e.type.trim() };
+      } else {
+        throw new Error(
+          `Edge ${i + 1} (${e.source} → ${e.target}) needs either a 'definitionNode: { name: "..." }' object ` +
+          `or a 'type: "..."' string. Example: { source: "A", target: "B", type: "Connects To" }`
+        );
+      }
     }
   }
 

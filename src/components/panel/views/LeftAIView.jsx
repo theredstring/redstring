@@ -409,6 +409,16 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     store.setChangeContext({ type: 'wizard_action', target: 'wizard', actionId: toolCallId, isWizard: true });
   }
 
+  // Handle planTask — persist plan durably so small models can resume after context clears
+  if (result.action === 'planTask' && result.steps) {
+    if (result.allComplete) {
+      store.clearActiveWizardPlan();
+    } else {
+      store.setActiveWizardPlan(result.steps, store.activeGraphId);
+    }
+    return;
+  }
+
   // Handle createGraph (empty graph)
   if (result.action === 'createGraph') {
     console.log('[Wizard] Applying createGraph to store:', result.graphName);
@@ -3718,7 +3728,15 @@ const LeftAIView = ({ compact = false,
             };
           }).filter(Boolean);
         })() : [],
-        activeGraphId: effectiveActiveGraphId || null
+        activeGraphId: effectiveActiveGraphId || null,
+        // Seed durable wizard plan so small models can resume after context clears
+        _currentPlan: (() => {
+          const st = useGraphStore.getState();
+          if (st.activeWizardPlan && st.wizardPlanGraphId === effectiveActiveGraphId) {
+            return st.activeWizardPlan;
+          }
+          return undefined;
+        })()
       };
 
       console.log('[Wizard] Starting request to /api/wizard', {
@@ -3763,7 +3781,8 @@ const LeftAIView = ({ compact = false,
               provider: effectiveProvider || apiConfig.provider,
               endpoint: apiConfig.endpoint,
               model: apiConfig.model,
-              settings: apiConfig.settings
+              settings: apiConfig.settings,
+              modelTier: apiConfig.modelTier || 'large'
             } : null
           }
         }),
@@ -4894,8 +4913,12 @@ const LeftAIView = ({ compact = false,
               //   executing a tool and is now thinking about what to do next (between iterations).
               const hasStreamingText = streamingMsg?.contentBlocks?.some(b => b.type === 'text' && b.content);
               const lastContentBlock = streamingMsg?.contentBlocks?.[streamingMsg.contentBlocks.length - 1];
-              const awaitingNextIteration = lastContentBlock?.type === 'tool_call' &&
-                (lastContentBlock?.status === 'completed' || lastContentBlock?.status === 'failed');
+              // Show dots when the last block is a completed tool_call OR a plan card —
+              // plan cards are always pushed after planTask completes, so they signal the
+              // same "model finished something, now thinking about the next step" state.
+              const awaitingNextIteration =
+                (lastContentBlock?.type === 'tool_call' && (lastContentBlock?.status === 'completed' || lastContentBlock?.status === 'failed')) ||
+                lastContentBlock?.type === 'plan';
               const showDots = viewMode === 'wizard'
                 ? (!hasStreamingText || awaitingNextIteration)
                 : !hasStreamingContent;

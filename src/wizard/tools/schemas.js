@@ -966,8 +966,14 @@ const TOOL_TIERS = {
  * contains relevant keywords. This reduces tool count from ~42 to ~15-25,
  * improving accuracy for small models and staying within Gemini's state limit.
  */
-export function selectToolsForTurn({ graphState, userMessage, hasTabularData = false }) {
+export function selectToolsForTurn({ graphState, userMessage, hasTabularData = false, modelTier = 'large' }) {
     const allTools = getToolDefinitions();
+
+    // Small model whitelist: only the atomic ops they can reliably generate
+    if (modelTier === 'small') {
+        const SMALL_MODEL_TOOLS = new Set(['planTask', 'createGraph', 'expandGraph', 'readGraph', 'updateNode', 'askMultipleChoice']);
+        return allTools.filter(t => SMALL_MODEL_TOOLS.has(t.name));
+    }
 
     // If listTools was called, all tools are unlocked for the rest of this turn
     if (graphState?._unlockAllTools) {
