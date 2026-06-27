@@ -1025,11 +1025,11 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
           console.error(`[AgentLoop] ⚠️ Model returned text-only but plan is incomplete (${doneCount}/${plan.length} done). Nudge ${consecutiveNudges}/${MAX_CONSECUTIVE_NUDGES}.`);
           const availableToolList = modelTier === 'small'
-            ? '- expandGraph — add 2-3 nodes or edges to the current graph\n- populateDefinitionGraph — go inside an existing node to define what it is made of (use when asked to "define", "go deeper", or "elaborate on" a node)\n- planTask — mark a step done once you\'ve finished it'
-            : '- createPopulatedGraph — build a new graph with nodes and edges\n- expandGraph — add nodes or edges to an existing graph\n- populateDefinitionGraph — define the internals of a node\n- planTask — update a step\'s status to \'done\' once you\'ve finished it';
+            ? '- sketchGraph — plan structure before building (required before expandGraph/populateDefinitionGraph)\n- expandGraph — add 2-3 nodes or edges to the current graph\n- populateDefinitionGraph — go inside an existing node to define what it is made of\n- planTask — mark a step done once you\'ve finished it'
+            : '- sketchGraph — plan graph structure before building (call this first, then createPopulatedGraph)\n- createPopulatedGraph — build a new graph with nodes and edges\n- expandGraph — add nodes or edges to an existing graph\n- populateDefinitionGraph — define the internals of a node\n- planTask — update a step\'s status to \'done\' once you\'ve finished it';
           messages.push({
             role: 'user',
-            content: `Your plan is NOT complete (${doneCount}/${plan.length} steps done). These steps still need work:\n${stepList}\n\nDo NOT respond to the user yet. You MUST call a tool to make progress. Use one of these:\n${availableToolList}\n\nPick the first incomplete step and call the appropriate tool now.`
+            content: `Your plan is NOT complete (${doneCount}/${plan.length} steps done). These steps still need work:\n${stepList}\n\nYou MUST call a tool right now — do NOT write a text-only response. Call one of these immediately:\n${availableToolList}\n\nStart with the first incomplete step. Call the tool — do not announce it first, do not explain — just call it.`
           });
           continue; // Skip termination, continue the loop
         }

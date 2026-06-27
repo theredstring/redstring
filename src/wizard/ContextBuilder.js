@@ -255,7 +255,7 @@ export function buildPlanContext(plan, iteration, maxIterations) {
   const allDone = done === plan.length;
   const planDirective = allDone
     ? 'All steps are DONE. Respond to the user now with a brief summary. Do NOT call any more tools.'
-    : 'Do NOT respond to the user until ALL steps are marked [DONE].';
+    : 'Steps remain. You MUST call a tool right now — do NOT write a text-only response. Pick the first incomplete step and call the appropriate tool (sketchGraph, createPopulatedGraph, expandGraph, populateDefinitionGraph, or planTask to update status).';
   return `\n\n## Active Plan (${done}/${plan.length} complete)${iterInfo}\n${lines.join('\n')}\nIMPORTANT: ${planDirective}`;
 }
 

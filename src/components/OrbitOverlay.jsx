@@ -248,13 +248,14 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
     color: candidate.color || NODE_DEFAULT_COLOR,
     definitionGraphIds: []
   };
-  const { currentWidth, currentHeight } = getNodeDimensions(tempNode, false, null);
+  const { currentWidth, currentHeight, scaledCornerRadius } = getNodeDimensions(tempNode, false, null);
+  const effectiveCornerRadius = scaledCornerRadius || NODE_CORNER_RADIUS;
 
-  // Text sizing constants (match UniversalNodeRenderer full canvas context)
-  const baseFontSize = 24;
-  const baseLineHeight = 24;
-  const baseVerticalPadding = 10;
-  const baseSingleLineSidePadding = 22;
+  // Text sizing constants (match Node.jsx: 45px font, 39px lineHeight, 42px side padding)
+  const baseFontSize = 45;
+  const baseLineHeight = 39;
+  const baseVerticalPadding = 14;
+  const baseSingleLineSidePadding = 42;
 
   // Text contrast
   const textColor = getTextColor(fill, theme.darkMode);
@@ -313,8 +314,8 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
               y={y}
               width={currentWidth}
               height={currentHeight}
-              rx={NODE_CORNER_RADIUS}
-              ry={NODE_CORNER_RADIUS}
+              rx={effectiveCornerRadius}
+              ry={effectiveCornerRadius}
             />
           </clipPath>
         </defs>

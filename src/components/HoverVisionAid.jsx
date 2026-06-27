@@ -39,10 +39,7 @@ const HoverVisionAid = ({
     return null;
   }
 
-  // Dimension standards from UnifiedBottomControlPanel.jsx
-  const CONNECTION_PREVIEW_HEIGHT = 180;
   const NODE_PREVIEW_HEIGHT = 120;
-  const connectionLabelFont = '28px "EmOne", sans-serif';
 
   let content = null;
 
@@ -114,36 +111,33 @@ const HoverVisionAid = ({
       }
     ];
 
-    // 2. Port sizing formulas EXACTLY from UnifiedBottomControlPanel.jsx
-    // Self-loops render as two side-by-side copies inside UniversalNodeRenderer,
-    // so budget width for a 2-node layout even though `nodes` holds one entry.
-    const baseSpacing = 200;
-    const layoutNodeCount = isSelfLoop ? 2 : nodes.length;
-    const nodeSpacing = nodes.reduce((sum, n) => sum + (n.width * 0.4), 0) * (isSelfLoop ? 2 : 1)
-                      + (layoutNodeCount * 90);
-    
-    const longestConnectionLabelWidth = connections.reduce((max, conn) => {
-      const width = measureTextWidth(conn.connectionName, connectionLabelFont);
-      return Math.max(max, width);
+    // 2. Size the container so the internal fit-scale is exactly 1.0.
+    //    hoverPreviewSize CSS scale is then the single reliable size knob.
+    //
+    //    The renderer applies 0.8× to minHorizontalSpacing for 2-3 node layouts.
+    //    To get a target ACTUAL gap, we pre-compensate: connectionGap = targetGap / 0.8.
+    //
+    //    Labels wrap on word boundaries (14-char threshold in ConnectionText), so the
+    //    gap needs to fit the longest individual WORD at the 24px render font.
+    const renderFont = '24px "EmOne", sans-serif';
+    const longestWordWidth = connections.reduce((max, conn) => {
+      const name = conn.connectionName || 'Connection';
+      const wordMax = name.split(' ').reduce((wmax, w) => Math.max(wmax, measureTextWidth(w, renderFont)), 0);
+      return Math.max(max, wordMax);
     }, 0);
 
-    const connectionLabelSpace = Math.max(
-      320,
-      Math.ceil(longestConnectionLabelWidth + 220)
-    );
+    // Actual gap we want between nodes: at least 220px for breathing room, or 1.5× the longest word.
+    // connectionGap is the minHorizontalSpacing we pass; the renderer will apply 0.8× to it.
+    const targetGap = Math.max(220, longestWordWidth * 1.5);
+    const connectionGap = Math.ceil(targetGap / 0.8);
 
-    const calculatedWidth = Math.min(
-      1800,
-      baseSpacing + nodeSpacing + connectionLabelSpace
-    );
+    // Height: node height + 40px padding ensures availableHeight == maxNodeHeight → nodeScale = 1.0.
+    const maxNodeHeight = Math.max(...nodes.map(n => n.height));
+    const connectionContainerHeight = maxNodeHeight + 40;
 
-    const dynamicMinHorizontalSpacing = Math.max(
-      120,
-      Math.min(
-        connectionLabelSpace - 80,
-        400
-      )
-    );
+    // Width: total node widths + requested gap + 80px side margin.
+    const totalNodeWidth = nodes.reduce((sum, n) => sum + n.width, 0) * (isSelfLoop ? 2 : 1);
+    const calculatedWidth = Math.max(600, totalNodeWidth + connectionGap + 80);
 
     containerStyle.marginTop = -20;
     content = (
@@ -154,9 +148,9 @@ const HoverVisionAid = ({
           nodes={nodes}
           connections={connections}
           containerWidth={calculatedWidth}
-          containerHeight={CONNECTION_PREVIEW_HEIGHT}
-          minHorizontalSpacing={dynamicMinHorizontalSpacing}
-          cornerRadiusMultiplier={44}
+          containerHeight={connectionContainerHeight}
+          minHorizontalSpacing={connectionGap}
+          cornerRadiusMultiplier={56}
           interactive={false}
           showHoverEffects={false}
           showConnectionDots={true}
@@ -169,10 +163,11 @@ const HoverVisionAid = ({
     const dims = getNodeDimensions(hoveredNode, false);
     const nodeWidth = Math.max(dims.currentWidth, 220);
     const nodeHeight = Math.max(dims.currentHeight, 96);
-    
-    // 2. Calculate container to fit (sync with Control Panel logic)
-    const nodeContainerWidth = Math.max(340, nodeWidth + 80);
-    const nodeContainerHeight = Math.max(120, nodeHeight + 40);
+
+    // 2. Tight container — nodes are now ~252px wide at 1x so we cap height to
+    //    prevent the preview growing proportionally with the larger baseline.
+    const nodeContainerWidth = Math.max(300, nodeWidth + 48);
+    const nodeContainerHeight = Math.max(100, Math.min(200, nodeHeight + 24));
     
     containerStyle.marginTop = -18;
     content = (
@@ -193,7 +188,7 @@ const HoverVisionAid = ({
           containerHeight={nodeContainerHeight}
           padding={16}
           scaleMode="fit"
-          cornerRadiusMultiplier={44}
+          cornerRadiusMultiplier={56}
           interactive={false}
           showHoverEffects={false}
           backgroundColor="transparent"

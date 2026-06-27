@@ -5012,6 +5012,18 @@ const LeftAIView = ({ compact = false,
               const streamingMsg = messages.find(m => m.isStreaming);
               const hasStreamingContent = streamingMsg && (streamingMsg.contentBlocks?.length > 0);
 
+              // Definitive content = something visible is already rendered in the bubble.
+              // When there's no definitive content, the bubble itself shows inline dots —
+              // suppress the external dots row to avoid duplication.
+              const streamingMsgHasDefinitiveContent = streamingMsg?.contentBlocks?.some(b =>
+                (b.type === 'text' && b.content) ||
+                (b.type === 'tool_call' && b.name !== 'planTask') ||
+                b.type === 'plan' ||
+                (b.type === 'thinking' && b.content) ||
+                (b.type === 'system_note' && b.content)
+              ) || !!streamingMsg?.content;
+              const hasInlineDots = streamingMsg && !streamingMsgHasDefinitiveContent;
+
               // Show thinking dots:
               // - Chat/druid: when no streaming content yet (original behavior)
               // - Wizard: hide only when text is actively streaming back (tool calls still show dots)
@@ -5026,11 +5038,12 @@ const LeftAIView = ({ compact = false,
               const awaitingNextIteration =
                 (lastContentBlock?.type === 'tool_call' && (lastContentBlock?.status === 'completed' || lastContentBlock?.status === 'failed')) ||
                 lastContentBlock?.type === 'plan';
+              // Suppress external dots when inline bubble dots are already showing.
               // Hide dots while thinking is actively streaming — the thinking block itself
               // shows progress. Show once thinking collapses (response is starting).
-              const showDots = viewMode === 'wizard'
+              const showDots = !hasInlineDots && (viewMode === 'wizard'
                 ? (!hasStreamingText || awaitingNextIteration) && !hasActiveThinking
-                : !hasStreamingContent;
+                : !hasStreamingContent);
 
               if (viewMode === 'wizard') {
                 // Always render in wizard mode to keep WizardLoadingText mounted

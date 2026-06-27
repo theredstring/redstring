@@ -58,8 +58,9 @@ const ConnectionText = ({
   const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
   const fontSize = Math.max(8, 24 * transform.scale * fontScale);
   const strokeWidth = Math.max(2, (connection.strokeWidth || 6 * transform.scale) * fontScale);
-  const baseLineHeight = 26; // Tighter line height for connections
-  const scaledLineHeight = baseLineHeight * transform.scale * fontScale * lineHeightScale;
+  const baseLineHeight = 30;
+  // Floor at 130% of font size so wrapped lines never overlap when transform.scale is small
+  const scaledLineHeight = Math.max(fontSize * 1.3, baseLineHeight * transform.scale * fontScale * lineHeightScale);
 
   const displayName = connection.connectionName;
   const lines = [];
@@ -170,7 +171,7 @@ const UniversalNodeRenderer = ({
   renderContext = 'full', // 'full' | 'decomposition' | 'preview' - affects stroke/text rendering
 
   // Styling tweaks
-  cornerRadiusMultiplier = 44
+  cornerRadiusMultiplier = 56
 }) => {
   const theme = useTheme();
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
@@ -1026,22 +1027,23 @@ const UniversalNodeRenderer = ({
 
           if (renderContext === 'decomposition') {
             // Decomposition view: tighter spacing, optimized for readability at small scales.
-            // Line height kept near 1.0× the font size so preview labels match the tight
-            // spacing of real nodes (which use fontSize 28 / lineHeight 28).
-            baseFontSize = node.isGroup ? 22 : 20;
-            baseLineHeight = node.isGroup ? 24 : 20; // ~1.0× font: tight line spacing like real nodes
-            baseVerticalPadding = node.isGroup ? 8 : 6; // Minimal vertical padding to maximize text space
-            baseSingleLineSidePadding = node.isGroup ? 16 : 12; // Tight side padding for small nodes
-            baseMultiLineSidePadding = node.isGroup ? 20 : 16; // Still compact for wrapped text
-            baseAverageCharWidth = node.isGroup ? 13 : 11; // Slightly narrower estimation for compact view
+            // Values are ~1.4× the pre-bake constants to match the new 1x node size baseline.
+            baseFontSize = node.isGroup ? 31 : 28;
+            baseLineHeight = node.isGroup ? 34 : 28;
+            baseVerticalPadding = node.isGroup ? 11 : 8;
+            baseSingleLineSidePadding = node.isGroup ? 22 : 17;
+            baseMultiLineSidePadding = node.isGroup ? 28 : 22;
+            baseAverageCharWidth = node.isGroup ? 18 : 15;
           } else {
-            // Full canvas view: use Node.jsx's proportions
-            baseFontSize = node.isGroup ? 30 : 24;
-            baseLineHeight = node.isGroup ? 24 : 24; // Tightened line height (isolated to previews/renderer)
-            baseVerticalPadding = node.isGroup ? 10 : 10;
-            baseSingleLineSidePadding = node.isGroup ? 30 : 22; // Match Node.jsx side padding
-            baseMultiLineSidePadding = node.isGroup ? 36 : 30; // Match Node.jsx multiline padding
-            baseAverageCharWidth = node.isGroup ? 14 : 12; // Match Node.jsx char width
+            // Full canvas view: match Node.jsx proportions exactly.
+            // Node.jsx renders 45px font in a ~252px wide node; these values must
+            // produce the same ratio so scaled-down previews look proportional.
+            baseFontSize = 45;
+            baseLineHeight = 39;
+            baseVerticalPadding = 14;
+            baseSingleLineSidePadding = 42; // NODE_PADDING * 1.4
+            baseMultiLineSidePadding = 42;
+            baseAverageCharWidth = 17;
           }
 
           // Apply transform scale to all measurements
@@ -1128,8 +1130,8 @@ const UniversalNodeRenderer = ({
                 y={node.y}
                 width={node.width}
                 height={node.height}
-                rx={node.isGroup ? 20 * transform.scale : cornerRadius}
-                ry={node.isGroup ? 20 * transform.scale : cornerRadius}
+                rx={node.isGroup ? 28 * transform.scale : cornerRadius}
+                ry={node.isGroup ? 28 * transform.scale : cornerRadius}
                 fill={node.isGroup ? theme.canvas.bg : safeColor}
                 stroke={node.isGroup ? safeColor : (hasImage ? safeColor : 'none')}
                 strokeWidth={
@@ -1176,7 +1178,7 @@ const UniversalNodeRenderer = ({
                   >
                     <span
                       style={{
-                        fontSize: node.isGroup ? `${Math.min(24, Math.max(14, 18 * transform.scale))}px` : `${computedFontSize}px`,
+                        fontSize: `${computedFontSize}px`,
                         fontWeight: 'bold',
                         color: node.isGroup
                           ? getTextColor(theme.canvas.bg, theme.darkMode)
