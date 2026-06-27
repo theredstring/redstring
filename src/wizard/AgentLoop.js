@@ -772,6 +772,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   // Track consecutive text-only nudges to prevent infinite nudge loops
   let consecutiveNudges = 0;
   const MAX_CONSECUTIVE_NUDGES = 3;
+  // One-time nudge for local/small models that announce their plan as text
+  // on iteration 0 without calling any tools (they can't mix text + tool calls)
+  let hasNudgedFirstIteration = false;
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     // Rebuild context from (potentially mutated) graphState so LLM sees current state
@@ -910,9 +913,22 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           console.error(`[AgentLoop] ⚠️ Model returned text-only but plan is incomplete (${doneCount}/${plan.length} done). Nudge ${consecutiveNudges}/${MAX_CONSECUTIVE_NUDGES}.`);
           messages.push({
             role: 'user',
-            content: `Your plan is NOT complete (${doneCount}/${plan.length} steps done). These steps still need work:\n${stepList}\n\nUnless you need to ask the user a clarifying question to proceed, do NOT respond to the user yet. Pick up the next incomplete step and call the appropriate tools to complete it. Update the plan with planTask as you go.`
+            content: `Your plan is NOT complete (${doneCount}/${plan.length} steps done). These steps still need work:\n${stepList}\n\nDo NOT respond to the user yet. You MUST call a tool to make progress. Use one of these:\n- createPopulatedGraph — build a new graph with nodes and edges\n- expandGraph — add nodes or edges to an existing graph\n- populateDefinitionGraph — define the internals of a node\n- planTask — update a step's status to 'done' once you've finished it\n\nPick the first incomplete step and call the appropriate tool now.`
           });
           continue; // Skip termination, continue the loop
+        }
+
+        // First-iteration nudge: local/small models often return a planning statement
+        // as text on iteration 0 without calling tools (they can't mix text + tool calls
+        // in one response). Give them one chance to follow through with tool calls.
+        if (!hasNudgedFirstIteration && iteration === 0 && iterationContent.trim().length > 0) {
+          hasNudgedFirstIteration = true;
+          console.error(`[AgentLoop] ⚠️ Text-only response on first iteration — nudging model to call tools if applicable.`);
+          messages.push({
+            role: 'user',
+            content: `If you intended to perform actions to complete this task (e.g., call planTask, createPopulatedGraph, or other tools), please call them now. If your previous response fully answered the user's question, no further action is needed.`
+          });
+          continue;
         }
 
         console.error(`[AgentLoop] ✓ Model returned text-only with no active plan. Stopping. (iteration ${iteration + 1})`);

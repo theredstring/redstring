@@ -7,6 +7,8 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   animation: slideUpFade 0.3s ease-out;
   font-family: 'EmOne', sans-serif;
+  user-select: text;
+  cursor: text;
 }
 
 .plan-card-header {

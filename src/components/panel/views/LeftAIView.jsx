@@ -2626,6 +2626,22 @@ const LeftAIView = ({ compact = false,
     }
   }, [currentInput]);
 
+  // Recalculate textarea height when panel width changes (e.g. resizing the panel narrow then wide)
+  React.useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    let prevWidth = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth !== prevWidth) {
+        prevWidth = el.clientWidth;
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const handleChatUndo = (targetMessageId) => {
     const messageIndex = messages.findIndex(m => m.id === targetMessageId);
     if (messageIndex === -1) return;
@@ -4164,6 +4180,20 @@ const LeftAIView = ({ compact = false,
               lines.push(`       Error: ${block.error}`);
             }
             parts.push(lines.join('\n'));
+          } else if (block.type === 'plan' && block.steps) {
+            const stepLines = block.steps.map((step, i) => {
+              const status = step.status ? step.status.toUpperCase() : 'TODO';
+              let line = `  ${i + 1}. [${status}] ${step.description || ''}`;
+              if (Array.isArray(step.substeps) && step.substeps.length > 0) {
+                const subLines = step.substeps.map(sub => {
+                  const subStatus = sub.status ? sub.status.toUpperCase() : 'TODO';
+                  return `       - [${subStatus}] ${sub.description || ''}`;
+                });
+                line += '\n' + subLines.join('\n');
+              }
+              return line;
+            });
+            parts.push(`  [Plan]\n${stepLines.join('\n')}`);
           }
         }
       } else if (msg.content) {
@@ -4226,6 +4256,47 @@ const LeftAIView = ({ compact = false,
           }));
         }}
         title={hasAPIKey ? 'Manage API Key' : 'Setup API Key'}
+      />
+      <PanelIconButton
+        icon={Copy}
+        size={18}
+        onClick={() => {
+          const formatPlanSteps = (steps) => {
+            const lines = [];
+            const done = steps.filter(s => s.status === 'done').length;
+            lines.push(`Plan (${done}/${steps.length})`);
+            for (const step of steps) {
+              const icon = step.status === 'done' ? '✓' : step.status === 'in_progress' ? '▸' : '○';
+              lines.push(`${icon} ${step.description}`);
+              if (step.substeps) {
+                for (const sub of step.substeps) {
+                  const si = sub.status === 'done' ? '✓' : sub.status === 'in_progress' ? '▸' : '○';
+                  lines.push(`  ${si} ${sub.description}`);
+                }
+              }
+            }
+            return lines.join('\n');
+          };
+          const lines = [];
+          for (const msg of messages) {
+            if (msg.metadata?.kind === 'wizard-action-chip') continue;
+            const sender = msg.sender === 'user' ? 'User' : msg.sender === 'ai' ? 'AI' : 'System';
+            const time = new Date(msg.timestamp).toLocaleTimeString();
+            lines.push(`[${sender}] ${time}`);
+            if (msg.contentBlocks && msg.contentBlocks.length > 0) {
+              for (const block of msg.contentBlocks) {
+                if (block.type === 'text' && block.content) lines.push(block.content);
+                else if (block.type === 'plan' && block.steps) lines.push(formatPlanSteps(block.steps));
+                else if (block.type === 'tool_call' && block.error) lines.push(`Error: ${typeof block.error === 'string' ? block.error : JSON.stringify(block.error)}`);
+              }
+            } else if (msg.content) {
+              lines.push(msg.content);
+            }
+            lines.push('');
+          }
+          navigator.clipboard.writeText(lines.join('\n').trim());
+        }}
+        title="Copy conversation"
       />
       <PanelIconButton
         icon={RotateCcw}
@@ -4762,6 +4833,50 @@ const LeftAIView = ({ compact = false,
                           <Undo2 size={16} />
                         </button>
                       )}
+                      {message.sender === 'ai' && (
+                        <button
+                          onClick={() => {
+                            const formatPlanSteps = (steps) => {
+                              const done = steps.filter(s => s.status === 'done').length;
+                              const lines = [`Plan (${done}/${steps.length})`];
+                              for (const step of steps) {
+                                const icon = step.status === 'done' ? '✓' : step.status === 'in_progress' ? '▸' : '○';
+                                lines.push(`${icon} ${step.description}`);
+                                if (step.substeps) {
+                                  for (const sub of step.substeps) {
+                                    const si = sub.status === 'done' ? '✓' : sub.status === 'in_progress' ? '▸' : '○';
+                                    lines.push(`  ${si} ${sub.description}`);
+                                  }
+                                }
+                              }
+                              return lines.join('\n');
+                            };
+                            const parts = [];
+                            if (message.contentBlocks && message.contentBlocks.length > 0) {
+                              for (const block of message.contentBlocks) {
+                                if (block.type === 'text' && block.content) {
+                                  parts.push(block.content);
+                                } else if (block.type === 'plan' && block.steps) {
+                                  parts.push(formatPlanSteps(block.steps));
+                                } else if (block.type === 'tool_call' && block.error) {
+                                  parts.push(`Error: ${typeof block.error === 'string' ? block.error : JSON.stringify(block.error)}`);
+                                }
+                              }
+                            } else if (message.content) {
+                              parts.push(message.content);
+                            }
+                            navigator.clipboard.writeText(parts.join('\n\n'));
+                          }}
+                          style={{
+                            background: 'transparent', border: 'none', color: theme.canvas.textPrimary,
+                            padding: '0', cursor: 'pointer', opacity: 0.8, display: 'flex', alignItems: 'center',
+                            marginTop: '-2px'
+                          }}
+                          title="Copy message"
+                        >
+                          <Copy size={16} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -4775,8 +4890,15 @@ const LeftAIView = ({ compact = false,
               // Show thinking dots:
               // - Chat/druid: when no streaming content yet (original behavior)
               // - Wizard: hide only when text is actively streaming back (tool calls still show dots)
+              //   Also show when the last block is a completed tool call — the model just finished
+              //   executing a tool and is now thinking about what to do next (between iterations).
               const hasStreamingText = streamingMsg?.contentBlocks?.some(b => b.type === 'text' && b.content);
-              const showDots = viewMode === 'wizard' ? !hasStreamingText : !hasStreamingContent;
+              const lastContentBlock = streamingMsg?.contentBlocks?.[streamingMsg.contentBlocks.length - 1];
+              const awaitingNextIteration = lastContentBlock?.type === 'tool_call' &&
+                (lastContentBlock?.status === 'completed' || lastContentBlock?.status === 'failed');
+              const showDots = viewMode === 'wizard'
+                ? (!hasStreamingText || awaitingNextIteration)
+                : !hasStreamingContent;
 
               if (viewMode === 'wizard') {
                 // Always render in wizard mode to keep WizardLoadingText mounted

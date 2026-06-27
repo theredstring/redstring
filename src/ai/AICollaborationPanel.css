@@ -282,7 +282,7 @@ html.dark-mode .ai-tab.active {
 /* Header actions - 3x2 grid layout matching right panel buttons */
 .ai-header-actions {
   display: grid;
-  grid-template-columns: repeat(3, auto);
+  grid-template-columns: repeat(4, auto);
   gap: 6px;
   align-items: center;
   justify-self: end;
@@ -870,7 +870,7 @@ html.dark-mode .ai-context-usage-label {
   border-top: 1px solid #260000;
   display: flex;
   gap: 12px;
-  align-items: stretch;
+  align-items: flex-end;
 }
 
 html.dark-mode .ai-input-container {

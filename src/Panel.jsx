@@ -2181,7 +2181,7 @@ const Panel = memo(forwardRef(
             {enableWizard && side === 'left' && (
               <div style={{ display: leftViewActive === 'ai' ? 'contents' : 'none' }}>
                 <LeftAIView
-                  compact={panelWidth < 300}
+                  compact={panelWidth < 360}
                   active={leftViewActive === 'ai'}
                   activeGraphId={activeGraphId}
                   graphsMap={graphsMap}
