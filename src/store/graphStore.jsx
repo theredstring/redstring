@@ -565,6 +565,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     thingNodeId: 'base-thing-prototype',
 
     // UI Settings
+    connectionLabelSize: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_connection_label_size');
+        return saved === null ? 1.0 : parseFloat(saved);
+      } catch (_) {
+        return 1.0;
+      }
+    })(),
     showConnectionNames: (() => {
       try {
         const saved = localStorage.getItem('redstring_show_connection_names');
@@ -3578,6 +3586,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.savedNodeIds = new Set(draft.savedNodeIds);
     })),
 
+    setConnectionLabelSize: (size) => set(produce((draft) => {
+      draft.connectionLabelSize = size;
+      try {
+        localStorage.setItem('redstring_connection_label_size', size);
+      } catch (_) { }
+    })),
+
     // Toggle connection names visibility
     toggleShowConnectionNames: () => set(produce((draft) => {
       draft.showConnectionNames = !draft.showConnectionNames;
@@ -3790,7 +3805,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // Text appearance settings
     setTextFontSize: (value) => set(produce((draft) => {
       const v = Number(value);
-      if (!Number.isFinite(v) || v < 0.7 || v > 1.4) {
+      if (!Number.isFinite(v) || v < 0.7 || v > 2.0) {
         console.warn(`[setTextFontSize] Invalid value: ${value}`);
         return;
       }
@@ -3802,7 +3817,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     setTextLineSpacing: (value) => set(produce((draft) => {
       const v = Number(value);
-      if (!Number.isFinite(v) || v < 0.7 || v > 1.0) {
+      if (!Number.isFinite(v) || v < 0.7 || v > 2.0) {
         console.warn(`[setTextLineSpacing] Invalid value: ${value}`);
         return;
       }

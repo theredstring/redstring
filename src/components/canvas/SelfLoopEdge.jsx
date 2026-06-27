@@ -2,6 +2,7 @@ import React from 'react';
 import { calculateSelfLoopPath } from '../../utils/canvas/selfLoopUtils.js';
 import { estimateTextWidth } from '../../utils/canvas/edgeLabelPlacement.js';
 import { getLightHueText, getDarkHueText } from '../../utils/colorUtils.js';
+import useGraphStore from '../../store/graphStore.jsx';
 
 const SelfLoopEdge = ({
   edge,
@@ -22,6 +23,7 @@ const SelfLoopEdge = ({
   connectionFontSize,
   placedLabelsRef,
 }) => {
+  const darkMode = useGraphStore(state => state.darkMode);
   const arrowsToward = edge.directionality?.arrowsToward instanceof Set
     ? edge.directionality.arrowsToward
     : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
@@ -211,12 +213,12 @@ const SelfLoopEdge = ({
             <text
               x={lx}
               y={ly}
-              fill={getLightHueText(edgeColor)}
+              fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
               fontSize={fontSize}
               fontWeight="bold"
               textAnchor="middle"
               dominantBaseline="middle"
-              stroke={getDarkHueText(edgeColor)}
+              stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
               strokeWidth="8"
               strokeLinecap="round"
               strokeLinejoin="round"

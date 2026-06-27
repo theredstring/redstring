@@ -28,7 +28,8 @@ const AISection = () => {
   const [allowKeyEdit, setAllowKeyEdit] = useState(true);
   const [localPresets] = useState(() => apiKeyManager.getLocalProviderPresets());
   const [selectedPreset, setSelectedPreset] = useState(null);
-  const [maxIterations, setMaxIterations] = useState(0); // 0 = infinite
+  const [maxIterationsLocal, setMaxIterationsLocal] = useState(() => Number(localStorage.getItem('rs.wizard.maxIterationsLocal') ?? 177) || 177);
+  const [maxIterationsCloud, setMaxIterationsCloud] = useState(() => Number(localStorage.getItem('rs.wizard.maxIterationsCloud') ?? 77) || 77);
   const [connectionTestResult, setConnectionTestResult] = useState(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [wizardConnectionPref, setWizardConnectionPref] = useState(() => {
@@ -83,7 +84,6 @@ const AISection = () => {
         setProvider(keyInfo.provider);
         setEndpoint(keyInfo.endpoint || '');
         setModel(keyInfo.model || '');
-        setMaxIterations(keyInfo.settings?.maxIterations ?? 0);
         setIsEditingExisting(false);
         setAllowKeyEdit(false);
       } else {
@@ -224,7 +224,6 @@ const AISection = () => {
         settings: {
           temperature: 0.7,
           max_tokens: 8192,
-          maxIterations: Number(maxIterations) || 0
         }
       });
 
@@ -561,23 +560,6 @@ const AISection = () => {
                 </div>
               )}
 
-              <div className="settings-row">
-                <div className="settings-row-label">
-                  Max Iterations
-                  <div className="settings-row-description">Wizard tool calls per turn. 0 = unlimited</div>
-                </div>
-                <input
-                  type="number"
-                  min="0"
-                  max="9999"
-                  value={maxIterations}
-                  onChange={(e) => setMaxIterations(Number(e.target.value) || 0)}
-                  disabled={isLoading}
-                  className="ai-input"
-                  style={{ width: '80px' }}
-                />
-              </div>
-
               <div className="settings-row" style={{ borderBottom: 'none' }}>
                 <div className="settings-row-label">Test Connection</div>
                 <button
@@ -700,22 +682,6 @@ const AISection = () => {
                   disabled={isLoading}
                   className="ai-input"
                   style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
-                />
-              </div>
-              <div className="settings-row">
-                <div className="settings-row-label">
-                  Max Iterations
-                  <div className="settings-row-description">Wizard tool calls per turn. 0 = unlimited</div>
-                </div>
-                <input
-                  type="number"
-                  min="0"
-                  max="9999"
-                  value={maxIterations}
-                  onChange={(e) => setMaxIterations(Number(e.target.value) || 0)}
-                  disabled={isLoading}
-                  className="ai-input"
-                  style={{ width: '80px' }}
                 />
               </div>
             </>
@@ -889,6 +855,49 @@ const AISection = () => {
 
       {/* Wizard Behavior */}
       <div className="settings-section-subtitle">Wizard Behavior</div>
+
+      <div className="settings-row">
+        <div className="settings-row-label">
+          Local model iterations
+          <div className="settings-row-description">Max tool calls per turn for local/small models. 0 = unlimited</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <input
+            type="range"
+            min="0"
+            max="500"
+            step="1"
+            value={maxIterationsLocal}
+            onChange={(e) => { const v = Number(e.target.value); setMaxIterationsLocal(v); localStorage.setItem('rs.wizard.maxIterationsLocal', v); }}
+            style={{ flex: 1, minWidth: '100px' }}
+          />
+          <span style={{ minWidth: '32px', textAlign: 'right', fontSize: '0.8rem' }}>
+            {maxIterationsLocal === 0 ? '∞' : maxIterationsLocal}
+          </span>
+        </div>
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-label">
+          Cloud model iterations
+          <div className="settings-row-description">Max tool calls per turn for cloud models. 0 = unlimited</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <input
+            type="range"
+            min="0"
+            max="200"
+            step="1"
+            value={maxIterationsCloud}
+            onChange={(e) => { const v = Number(e.target.value); setMaxIterationsCloud(v); localStorage.setItem('rs.wizard.maxIterationsCloud', v); }}
+            style={{ flex: 1, minWidth: '100px' }}
+          />
+          <span style={{ minWidth: '32px', textAlign: 'right', fontSize: '0.8rem' }}>
+            {maxIterationsCloud === 0 ? '∞' : maxIterationsCloud}
+          </span>
+        </div>
+      </div>
+
       <div className="settings-row">
         <div className="settings-row-label">
           Connection Wizard

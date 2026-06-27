@@ -356,13 +356,13 @@ function EdgeRenderer({
           <text
             x={useCurve ? parallelPath.apexX : midX}
             y={useCurve ? parallelPath.apexY : midY}
-            fill={getLightHueText(edgeColor || '#800000')}
+            fill={theme.darkMode ? getDarkHueText(edgeColor || '#800000') : getLightHueText(edgeColor || '#800000')}
             fontSize={connectionFontSize}
             fontWeight="bold"
             textAnchor="middle"
             dominantBaseline="middle"
             transform={`rotate(${angle > 90 || angle < -90 ? angle + 180 : angle}, ${useCurve ? parallelPath.apexX : midX}, ${useCurve ? parallelPath.apexY : midY})`}
-            stroke={getDarkHueText(edgeColor || '#800000')}
+            stroke={theme.darkMode ? getLightHueText(edgeColor || '#800000') : getDarkHueText(edgeColor || '#800000')}
             strokeWidth={Math.max(2, connectionFontSize * 0.33)}
             strokeLinecap="round"
             strokeLinejoin="round"

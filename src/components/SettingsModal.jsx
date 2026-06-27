@@ -63,6 +63,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const routingStyle = useGraphStore(s => s.routingStyle);
   const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
+  const connectionLabelSize = useGraphStore(s => s.connectionLabelSize ?? 1.0);
   const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
   const darkMode = useGraphStore(s => s.darkMode);
   const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
@@ -129,16 +130,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <Toggle
               checked={!!darkMode}
               onChange={() => useGraphStore.getState().toggleDarkMode?.()}
-            />
-          </div>
-          <div className="settings-row">
-            <div className="settings-row-label">
-              Show Connection Names
-              <div className="settings-row-description">Display labels on connections</div>
-            </div>
-            <Toggle
-              checked={!!showConnectionNames}
-              onChange={() => useGraphStore.getState().toggleShowConnectionNames?.()}
             />
           </div>
           <div className="settings-row">
@@ -457,6 +448,28 @@ const SettingsModal = ({ isVisible, onClose }) => {
       content: (
         <div>
           <div className="settings-row">
+            <div className="settings-row-label">
+              Show Connection Names
+              <div className="settings-row-description">Display labels on connections</div>
+            </div>
+            <Toggle
+              checked={!!showConnectionNames}
+              onChange={() => useGraphStore.getState().toggleShowConnectionNames?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Label Size"
+              value={connectionLabelSize}
+              min={0.5}
+              max={2.0}
+              step={0.05}
+              suffix="x"
+              disabled={!showConnectionNames}
+              onChange={(v) => useGraphStore.getState().setConnectionLabelSize?.(v)}
+            />
+          </div>
+          <div className="settings-row">
             <div className="settings-row-label">Routing Style</div>
             <OptionGroup
               options={[
@@ -493,7 +506,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
               label="Font Size"
               value={textSettings?.fontSize ?? 1.0}
               min={0.7}
-              max={1.4}
+              max={2.0}
               step={0.05}
               suffix="x"
               onChange={(v) => useGraphStore.getState().setTextFontSize?.(v)}
@@ -504,7 +517,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
               label="Line Spacing"
               value={textSettings?.lineSpacing ?? 0.85}
               min={0.7}
-              max={1.0}
+              max={2.0}
               step={0.05}
               suffix="x"
               onChange={(v) => useGraphStore.getState().setTextLineSpacing?.(v)}

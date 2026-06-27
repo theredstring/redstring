@@ -3026,6 +3026,7 @@ const LeftAIView = ({ compact = false,
   // Simple markdown renderer for chat messages
   const renderMarkdown = (text) => {
     if (!text) return text;
+    text = text.trimStart();
 
     const escapeHtml = (str) =>
       str
@@ -3794,7 +3795,11 @@ const LeftAIView = ({ compact = false,
               provider: effectiveProvider || apiConfig.provider,
               endpoint: apiConfig.endpoint,
               model: apiConfig.model,
-              settings: apiConfig.settings,
+              settings: {
+                ...apiConfig.settings,
+                maxIterationsLocal: Number(localStorage.getItem('rs.wizard.maxIterationsLocal')) || 177,
+                maxIterationsCloud: Number(localStorage.getItem('rs.wizard.maxIterationsCloud')) || 77,
+              },
               modelTier: apiConfig.modelTier || 'large'
             } : null
           }

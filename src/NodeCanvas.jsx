@@ -678,6 +678,7 @@ function NodeCanvas() {
   const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
   const cleanLaneSpacing = useGraphStore(state => state.autoLayoutSettings?.cleanLaneSpacing || 24);
   const textSettings = useGraphStore(state => state.textSettings);
+  const connectionLabelSize = useGraphStore(state => state.connectionLabelSize ?? 1.0);
   const groupLayoutAlgorithm = useGraphStore(state => state.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven');
   const showClusterHulls = useGraphStore(state => state.autoLayoutSettings?.showClusterHulls || false);
   const layoutScalePreset = useGraphStore(state => state.autoLayoutSettings?.layoutScale || 'balanced');
@@ -11145,7 +11146,7 @@ function NodeCanvas() {
                                 }
                               }
                             }
-                            const selfFontSize = 24 * (textSettings?.fontSize || 1);
+                            const selfFontSize = 24 * (textSettings?.fontSize || 1) * connectionLabelSize;
                             return (
                               <SelfLoopEdge
                                 key={`edge-${edge.id}`}
@@ -12346,7 +12347,7 @@ function NodeCanvas() {
 
                               {/* Connection name text — rendered after arrows so labels appear on top */}
                               {showConnectionNames && (() => {
-                                const connectionFontSize = 24 * (textSettings?.fontSize || 1);
+                                const connectionFontSize = 24 * (textSettings?.fontSize || 1) * connectionLabelSize;
                                 let midX;
                                 let midY;
                                 let angle;
@@ -12482,13 +12483,13 @@ function NodeCanvas() {
                                     <text
                                       x={labelRenderX}
                                       y={labelRenderY}
-                                      fill={getLightHueText(edgeColor)}
+                                      fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
                                       fontSize={connectionFontSize}
                                       fontWeight="bold"
                                       textAnchor="middle"
                                       dominantBaseline="middle"
                                       transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
-                                      stroke={getDarkHueText(edgeColor)}
+                                      stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
                                       strokeWidth="8"
                                       strokeLinecap="round"
                                       strokeLinejoin="round"
@@ -12547,7 +12548,7 @@ function NodeCanvas() {
                                 }
                               }
                             }
-                            const selfFontSize = 24 * (textSettings?.fontSize || 1);
+                            const selfFontSize = 24 * (textSettings?.fontSize || 1) * connectionLabelSize;
                             return (
                               <SelfLoopEdge
                                 key={`edge-${edge.id}`}
@@ -13613,7 +13614,7 @@ function NodeCanvas() {
 
                               {/* Connection name text — rendered after arrows so labels appear on top */}
                               {showConnectionNames && (() => {
-                                const connectionFontSize = 24 * (textSettings?.fontSize || 1);
+                                const connectionFontSize = 24 * (textSettings?.fontSize || 1) * connectionLabelSize;
                                 let midX;
                                 let midY;
                                 let angle;
@@ -13749,13 +13750,13 @@ function NodeCanvas() {
                                     <text
                                       x={labelRenderX}
                                       y={labelRenderY}
-                                      fill={getLightHueText(edgeColor)}
+                                      fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
                                       fontSize={connectionFontSize}
                                       fontWeight="bold"
                                       textAnchor="middle"
                                       dominantBaseline="middle"
                                       transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
-                                      stroke={getDarkHueText(edgeColor)}
+                                      stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
                                       strokeWidth="8"
                                       strokeLinecap="round"
                                       strokeLinejoin="round"
