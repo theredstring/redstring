@@ -113,3 +113,26 @@
     opacity: 0.8;
   }
 }
+
+.node.node-deleting {
+  animation: node-delete-out 300ms ease-in forwards;
+  pointer-events: none;
+}
+
+/* Shrink the background rect independently — safe because <rect> has no foreignObject children */
+.node.node-deleting .node-background {
+  animation: node-bg-shrink 300ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  transform-box: fill-box;
+  transform-origin: center center;
+}
+
+@keyframes node-delete-out {
+  0%   { opacity: 1; }
+  30%  { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+
+@keyframes node-bg-shrink {
+  0%   { transform: scale(1); }
+  100% { transform: scale(0); }
+}

@@ -52,6 +52,7 @@ export const useCanvasKeyboard = ({
     isLeftPanelInputFocused,
     abstractionCarouselVisible,
     keyboardSettings,
+    onDeleteNodes,
 }) => {
     // Remember panel state for toggle behavior
     const panelStateBeforeHide = useRef({ left: true, right: true });
@@ -102,6 +103,7 @@ export const useCanvasKeyboard = ({
         isLeftPanelInputFocused,
         abstractionCarouselVisible,
         keyboardSettings,
+        onDeleteNodes,
     };
     const paramsRef = useRef(props);
     paramsRef.current = props;
@@ -535,7 +537,11 @@ export const useCanvasKeyboard = ({
 
             if (isDeleteKey && nodesSelected) {
                 e.preventDefault();
-                storeActions.removeMultipleNodeInstances(activeGraphId, selectedInstanceIds);
+                if (onDeleteNodes) {
+                    onDeleteNodes(selectedInstanceIds);
+                } else {
+                    storeActions.removeMultipleNodeInstances(activeGraphId, selectedInstanceIds);
+                }
                 setSelectedInstanceIds(new Set());
             } else if (isDeleteKey && edgeSelected) {
                 console.log('[useCanvasKeyboard] Delete key pressed with edge selected:', {
@@ -584,6 +590,7 @@ export const useCanvasKeyboard = ({
         canvasSize,
         clipboardRef,
         mousePositionRef, // Ensure ref is up to date (it is stable)
-        setSelectedInstanceIds
+        setSelectedInstanceIds,
+        onDeleteNodes,
     ]);
 };

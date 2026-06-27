@@ -60,7 +60,9 @@ const Node = ({
   onConvertToNodeGroup,
   // --- Add navigation props for definition control ---
   currentDefinitionIndex = 0,
-  onNavigateDefinition
+  onNavigateDefinition,
+  isDeleting = false,
+  onDeleteAnimationEnd,
 }) => {
   const theme = useTheme();
   const textSettings = useGraphStore(state => state.textSettings);
@@ -276,7 +278,7 @@ const Node = ({
 
   return (
     <g
-      className={`node ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isPreviewing ? 'previewing' : ''}`}
+      className={`node ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isPreviewing ? 'previewing' : ''} ${isDeleting ? 'node-deleting' : ''}`}
       data-instance-id={instanceId}
       data-has-context-menu="true"
       /* Disable default touch gestures on node group */
@@ -293,6 +295,11 @@ const Node = ({
       } : {
         cursor: 'pointer',
         touchAction: 'none'
+      }}
+      onAnimationEnd={(e) => {
+        if (isDeleting && e.animationName === 'node-delete-out') {
+          onDeleteAnimationEnd?.();
+        }
       }}
       onMouseDown={(e) => {
         onMouseDown?.(e);
@@ -699,5 +706,6 @@ export default memo(Node, (prev, next) => {
     prev.innerNetworkWidth === next.innerNetworkWidth &&
     prev.innerNetworkHeight === next.innerNetworkHeight &&
     prev.descriptionAreaHeight === next.descriptionAreaHeight &&
-    prev.idPrefix === next.idPrefix;
+    prev.idPrefix === next.idPrefix &&
+    prev.isDeleting === next.isDeleting;
 });

@@ -3885,6 +3885,45 @@ function NodeCanvas() {
   // New states for PieMenu transition
   const [selectedNodeIdForPieMenu, setSelectedNodeIdForPieMenu] = useState(null);
   const [isTransitioningPieMenu, setIsTransitioningPieMenu] = useState(false);
+  const [deletingNodeIds, setDeletingNodeIds] = useState(new Set());
+  // Map<instanceId, {graphId, timeoutId}> — tracks in-flight deletions for onAnimationEnd + fallback
+  const pendingDeletionsRef = useRef(new Map());
+
+  const _commitDeletion = (instanceId) => {
+    const entry = pendingDeletionsRef.current.get(instanceId);
+    if (!entry) return; // already committed
+    clearTimeout(entry.timeoutId);
+    pendingDeletionsRef.current.delete(instanceId);
+    storeActions.removeNodeInstance(entry.graphId, instanceId);
+    setDeletingNodeIds(prev => { const s = new Set(prev); s.delete(instanceId); return s; });
+  };
+
+  const deleteNodeWithAnimation = (instanceId) => {
+    const graphId = activeGraphId;
+    // Fallback: delete after 500ms in case onAnimationEnd doesn't fire (reduced-motion, etc.)
+    const timeoutId = setTimeout(() => _commitDeletion(instanceId), 500);
+    pendingDeletionsRef.current.set(instanceId, { graphId, timeoutId });
+    setDeletingNodeIds(prev => { const s = new Set(prev); s.add(instanceId); return s; });
+  };
+
+  const deleteMultipleNodesWithAnimation = (instanceIds) => {
+    const graphId = activeGraphId;
+    const ids = instanceIds instanceof Set ? instanceIds : new Set(instanceIds);
+    // Batch delete via timeout — onAnimationEnd handles individual nodes for single-delete
+    const timeoutId = setTimeout(() => {
+      ids.forEach(id => {
+        const entry = pendingDeletionsRef.current.get(id);
+        if (entry) {
+          clearTimeout(entry.timeoutId);
+          pendingDeletionsRef.current.delete(id);
+        }
+      });
+      storeActions.removeMultipleNodeInstances(graphId, ids);
+      setDeletingNodeIds(prev => { const s = new Set(prev); ids.forEach(id => s.delete(id)); return s; });
+    }, 350);
+    ids.forEach(id => pendingDeletionsRef.current.set(id, { graphId, timeoutId }));
+    setDeletingNodeIds(prev => { const s = new Set(prev); ids.forEach(id => s.add(id)); return s; });
+  };
 
   // Abstraction Carousel states
   const [abstractionCarouselVisible, setAbstractionCarouselVisible] = useState(false);
@@ -5643,10 +5682,9 @@ function NodeCanvas() {
         },
         {
           id: 'delete', label: 'Delete', icon: Trash2, action: (instanceId) => {
-            storeActions.removeNodeInstance(activeGraphId, instanceId);
-
-            setSelectedInstanceIds(new Set()); // Deselect after deleting
-            setSelectedNodeIdForPieMenu(null); // Ensure pie menu hides
+            deleteNodeWithAnimation(instanceId);
+            setSelectedInstanceIds(new Set());
+            setSelectedNodeIdForPieMenu(null);
           }
         },
         {
@@ -8331,6 +8369,7 @@ function NodeCanvas() {
     isLeftPanelInputFocused,
     abstractionCarouselVisible,
     keyboardSettings,
+    onDeleteNodes: deleteMultipleNodesWithAnimation,
   });
 
   const handleProjectTitleChange = (newTitle) => {
@@ -9293,7 +9332,7 @@ function NodeCanvas() {
         label: 'Delete',
         icon: <Trash2 size={14} />,
         action: () => {
-          storeActions.removeNodeInstance(activeGraphId, instanceId);
+          deleteNodeWithAnimation(instanceId);
           setSelectedInstanceIds(new Set());
           setSelectedNodeIdForPieMenu(null);
         }
@@ -13879,6 +13918,8 @@ function NodeCanvas() {
                           innerNetworkHeight={dimensions.innerNetworkHeight}
                           descriptionAreaHeight={dimensions.descriptionAreaHeight}
                           isSelected={selectedInstanceIds.has(node.id)}
+                          isDeleting={deletingNodeIds.has(node.id)}
+                          onDeleteAnimationEnd={deletingNodeIds.has(node.id) ? () => _commitDeletion(node.id) : undefined}
                           isDragging={false}
                           onMouseDown={(e) => handleNodeMouseDown(node, e)}
                           onPointerDown={(e) => touch.handleNodePointerDown(node, e)}

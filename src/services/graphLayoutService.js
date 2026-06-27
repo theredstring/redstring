@@ -1142,6 +1142,33 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     });
   });
 
+  // Precompute nested-group metadata for hierarchy-aware forces.
+  // nestedGroupPairs: Set of "smallerId|largerId" for every ancestor-descendant pair.
+  // innermostGroupOf: nodeId -> the smallest (deepest) group the node belongs to.
+  // Only meaningful when 2+ groups exist; single-group graphs skip all this.
+  const nestedGroupPairs = new Set();
+  const innermostGroupOf = new Map();
+  if (groups.length > 1) {
+    const hier = buildGroupContainmentHierarchy(groups);
+    for (const [childId] of hier.directParentOf) {
+      let cur = childId;
+      while (hier.directParentOf.has(cur)) {
+        const parentId = hier.directParentOf.get(cur);
+        const pairKey = childId < parentId ? `${childId}|${parentId}` : `${parentId}|${childId}`;
+        nestedGroupPairs.add(pairKey);
+        cur = parentId;
+      }
+    }
+    nodeGroupsMap.forEach((groupIds, nodeId) => {
+      let smallest = null, smallestSize = Infinity;
+      for (const gid of groupIds) {
+        const sz = hier.memberSets.get(gid)?.size ?? 0;
+        if (sz < smallestSize) { smallest = gid; smallestSize = sz; }
+      }
+      if (smallest) innermostGroupOf.set(nodeId, smallest);
+    });
+  }
+
   // Apply cluster scaling - more clusters need more space, but keep link stretch tight
   const totalClusters = clusters.length;
   const clusterDistanceFactor = totalClusters > 1
@@ -1573,8 +1600,13 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
           const force = forces.get(node.id);
           if (!pos || !force) return;
 
-          // Pull toward EVERY group this node belongs to
-          groupIds.forEach(groupId => {
+          // For nested groups, only pull toward the innermost group so a node
+          // inside G_inner (which also belongs to G_outer) isn't split between
+          // two competing centroids. Peer-conflict nodes fall back to all groups.
+          const targetGroupIds = innermostGroupOf.has(node.id)
+            ? [innermostGroupOf.get(node.id)]
+            : [...groupIds];
+          targetGroupIds.forEach(groupId => {
             const centroid = groupCentroids.get(groupId);
             if (!centroid) return;
 
@@ -1584,8 +1616,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
             if (dist < 0.1) return;
 
             const strength = groupAttractionStrength * alpha;
-            // Scale attraction by number of groups to avoid explosive forces
-            const scaledStrength = strength / groupIds.size;
+            const scaledStrength = strength / targetGroupIds.length;
             // Use floor of 50px equivalent so nodes near centroid still feel a pull
             const pullDist = Math.max(dist, 50);
             force.fx += (dx / dist) * scaledStrength * pullDist;
@@ -1744,6 +1775,16 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
 
       for (let i = 0; i < groupIds.length; i++) {
         for (let j = i + 1; j < groupIds.length; j++) {
+          // Nested groups (parent contains child) must not repel each other —
+          // their centroids are always close by design, so the force fires at
+          // max strength every tick and tears the inner group out of its parent.
+          if (nestedGroupPairs.size > 0) {
+            const pk = groupIds[i] < groupIds[j]
+              ? `${groupIds[i]}|${groupIds[j]}`
+              : `${groupIds[j]}|${groupIds[i]}`;
+            if (nestedGroupPairs.has(pk)) continue;
+          }
+
           const c1 = groupCentroids.get(groupIds[i]);
           const c2 = groupCentroids.get(groupIds[j]);
           if (!c1 || !c2) continue;
