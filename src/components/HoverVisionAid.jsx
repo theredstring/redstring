@@ -109,6 +109,10 @@ const HoverVisionAid = ({
     const targetGap = Math.max(300, longestWordWidth * 2.0);
     const connectionGap = Math.ceil(targetGap / 0.8);
 
+    // Size container generously so nodeScale would be 1.0 without the cap.
+    // maxNodeScale={0.8} on the renderer then explicitly scales nodes — and
+    // proportionally their fonts, padding, and corner radii — to 80%, freeing
+    // the remaining space as additional gap for the connection label.
     const maxNodeHeight = Math.max(...nodes.map(n => n.height));
     const connectionContainerHeight = maxNodeHeight + 40;
     const totalNodeWidth = nodes.reduce((sum, n) => sum + n.width, 0) * (isSelfLoop ? 2 : 1);
@@ -126,6 +130,8 @@ const HoverVisionAid = ({
           containerHeight={connectionContainerHeight}
           minHorizontalSpacing={connectionGap}
           cornerRadiusMultiplier={56}
+          maxNodeScale={0.7}
+          connectionFontScale={1.6}
           interactive={false}
           showHoverEffects={false}
           showConnectionDots={true}

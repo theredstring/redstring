@@ -171,7 +171,14 @@ const UniversalNodeRenderer = ({
   renderContext = 'full', // 'full' | 'decomposition' | 'preview' - affects stroke/text rendering
 
   // Styling tweaks
-  cornerRadiusMultiplier = 56
+  cornerRadiusMultiplier = 56,
+
+  // Cap how large nodes can render relative to their natural canvas size.
+  // In alignNodesHorizontally layouts the internal nodeScale is normally 1.0
+  // (nodes fill the container). Pass e.g. 0.8 to render nodes at 80% — fonts,
+  // padding, and corner radii all scale proportionally since they multiply by
+  // the same nodeScale. The freed space goes to the connection gap.
+  maxNodeScale = 1.0
 }) => {
   const theme = useTheme();
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
@@ -440,7 +447,7 @@ const UniversalNodeRenderer = ({
       const widthForNodes = Math.max(1, availableWidth - gaps * spacing);
       const scaleByWidth = Math.min(1, widthForNodes / Math.max(1, sumWidths));
       const scaleByHeight = Math.min(1, availableHeight / Math.max(1, maxHeight));
-      const nodeScale = Math.min(scaleByWidth, scaleByHeight);
+      const nodeScale = Math.min(scaleByWidth, scaleByHeight, maxNodeScale);
 
       // Lay out nodes centered horizontally with proportional spacing, scaling proportionally
       const scaledWidths = baseWidths.map(w => w * nodeScale);
