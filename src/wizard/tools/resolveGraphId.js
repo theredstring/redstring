@@ -25,12 +25,6 @@
 export function resolveGraphId(idOrName, graphs, opts = {}) {
   if (!idOrName || !graphs) return idOrName;
 
-  // "active" / "current" are sentinel values models use to mean the active graph
-  const sentinel = String(idOrName).toLowerCase().trim();
-  if (sentinel === 'active' || sentinel === 'current') {
-    return opts.activeGraphId || idOrName;
-  }
-
   // Normalize the graphs collection into an Array of graph objects.
   const graphList = Array.isArray(graphs)
     ? graphs
@@ -49,6 +43,12 @@ export function resolveGraphId(idOrName, graphs, opts = {}) {
   const partialMatches = graphList.filter(g => g && nameOf(g) !== nameLower && nameOf(g).includes(nameLower));
 
   if (exactMatches.length === 0 && partialMatches.length === 0) {
+    // No real graph matched — treat "active"/"current" as sentinels for the active graph.
+    // Only falls through to here if no actual graph has that name, avoiding false matches.
+    const lower = String(idOrName).toLowerCase().trim();
+    if ((lower === 'active' || lower === 'current') && opts.activeGraphId) {
+      return opts.activeGraphId;
+    }
     return idOrName;
   }
 
