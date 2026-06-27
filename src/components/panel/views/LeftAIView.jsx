@@ -396,7 +396,7 @@ export function setWizardProvenanceContext(ctx) {
 }
 const wizardSemanticMetadata = () => (__wizardProvenance ? { provenance: { ...__wizardProvenance } } : undefined);
 
-function applyToolResultToStore(toolName, result, toolCallId) {
+function applyToolResultToStore(toolName, result, toolCallId, conversationId) {
   console.log('[Wizard] applyToolResultToStore called:', toolName, 'action:', result?.action, 'hasSpec:', !!result?.spec);
   if (!result || result.error) {
     console.warn('[Wizard] applyToolResultToStore: skipping — no result or error:', result?.error);
@@ -409,12 +409,12 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     store.setChangeContext({ type: 'wizard_action', target: 'wizard', actionId: toolCallId, isWizard: true });
   }
 
-  // Handle planTask — persist plan durably so small models can resume after context clears
-  if (result.action === 'planTask' && result.steps) {
+  // Handle planTask — persist plan per conversation/tab so small models can resume
+  if (result.action === 'planTask' && result.steps && conversationId) {
     if (result.allComplete) {
-      store.clearActiveWizardPlan();
+      store.clearWizardPlanForConversation(conversationId);
     } else {
-      store.setActiveWizardPlan(result.steps, store.activeGraphId);
+      store.setWizardPlanForConversation(conversationId, result.steps, store.activeGraphId);
     }
     return;
   }
@@ -3548,6 +3548,10 @@ const LeftAIView = ({ compact = false,
   const graphCount = graphsMap && typeof graphsMap.size === 'number' ? graphsMap.size : 0;
 
   const handleAutonomousAgent = async (question, persona = 'wizard') => {
+    // Clear this tab's durable plan at the start of each new request — plans from prior
+    // turns shouldn't contaminate new tasks. The conversation ID is stable per tab.
+    useGraphStore.getState().clearWizardPlanForConversation(activeConversationIdRef.current);
+
     // Bind this run's (globally-broadcast) telemetry to the conversation that
     // started it, so its tool chips don't leak into a tab the user switches to.
     telemetryConversationIdRef.current = activeConversationIdRef.current;
@@ -3729,11 +3733,13 @@ const LeftAIView = ({ compact = false,
           }).filter(Boolean);
         })() : [],
         activeGraphId: effectiveActiveGraphId || null,
-        // Seed durable wizard plan so small models can resume after context clears
+        // Seed durable wizard plan so small models can resume after context clears.
+        // Plans are keyed by conversation/tab ID so tabs don't contaminate each other.
         _currentPlan: (() => {
           const st = useGraphStore.getState();
-          if (st.activeWizardPlan && st.wizardPlanGraphId === effectiveActiveGraphId) {
-            return st.activeWizardPlan;
+          const entry = st.wizardPlansByConversation?.[activeConversationIdRef.current];
+          if (entry?.steps && entry.graphId === effectiveActiveGraphId) {
+            return entry.steps;
           }
           return undefined;
         })()
@@ -3840,7 +3846,7 @@ const LeftAIView = ({ compact = false,
                     model: apiConfig?.model || undefined,
                     conversationId: targetConversationId
                   });
-                  applyToolResultToStore(event.name, event.result, event.id || event.toolCallId);
+                  applyToolResultToStore(event.name, event.result, event.id || event.toolCallId, targetConversationId);
                   setWizardProvenanceContext(null);
                 }
 

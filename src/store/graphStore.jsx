@@ -542,9 +542,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     savedNodeIds: new Set(), // This now refers to prototype IDs
     savedGraphIds: new Set(), // This is based on the defining prototype ID
 
-    // Durable wizard plan — persists across LLM context clears for small model resume
-    activeWizardPlan: null,    // Array<{ description, status, substeps? }> | null
-    wizardPlanGraphId: null,   // string | null — which graphId this plan targets
+    // Durable wizard plans keyed by conversation/tab ID — persists across LLM context clears
+    wizardPlansByConversation: {},  // { [conversationId]: { steps, graphId } }
 
     // Universe file state
     isUniverseLoaded: false,
@@ -5085,9 +5084,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // Apply Immer patches to the state (used by Undo/Redo)
     applyPatches: (patches) => set((state) => applyPatches(state, patches)),
 
-    // Durable wizard plan actions — used by small model atomic execution mode
-    setActiveWizardPlan: (plan, graphId) => set({ activeWizardPlan: plan, wizardPlanGraphId: graphId || null }),
-    clearActiveWizardPlan: () => set({ activeWizardPlan: null, wizardPlanGraphId: null }),
+    // Durable wizard plan actions — keyed by conversation/tab ID
+    setWizardPlanForConversation: (conversationId, plan, graphId) => set((state) => ({
+      wizardPlansByConversation: {
+        ...state.wizardPlansByConversation,
+        [conversationId]: { steps: plan, graphId: graphId || null }
+      }
+    })),
+    clearWizardPlanForConversation: (conversationId) => set((state) => {
+      const next = { ...state.wizardPlansByConversation };
+      delete next[conversationId];
+      return { wizardPlansByConversation: next };
+    }),
 
     revertWizardAction: (actionId) => {
       const historyStore = useHistoryStore.getState();

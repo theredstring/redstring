@@ -589,8 +589,7 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       savedNodeIds = new Set(),
       savedGraphIds = new Set(),
       showConnectionNames = false,
-      activeWizardPlan = null,
-      wizardPlanGraphId = null
+      wizardPlansByConversation = {}
     } = storeState;
 
   // Three-Layer Architecture: Export Spatial Graphs with Instance Collections
@@ -1086,8 +1085,7 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       "redstring:savedNodeIds": [...savedNodeIds],
       "redstring:savedGraphIds": [...savedGraphIds],
       "redstring:showConnectionNames": !!showConnectionNames,
-      "redstring:activeWizardPlan": activeWizardPlan || null,
-      "redstring:wizardPlanGraphId": wizardPlanGraphId || null
+      "redstring:wizardPlansByConversation": (typeof wizardPlansByConversation === 'object' && wizardPlansByConversation) ? wizardPlansByConversation : {}
     },
     
     // Spatial metadata snapshots for agent/CLI workflows
@@ -1685,8 +1683,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
     const extractedSavedNodeIds = uiState['redstring:savedNodeIds'] || uiState.savedNodeIds || [];
     const extractedSavedGraphIds = uiState['redstring:savedGraphIds'] || uiState.savedGraphIds || [];
     const extractedShowConnectionNames = uiState['redstring:showConnectionNames'] ?? uiState.showConnectionNames ?? true;
-    const extractedActiveWizardPlan = uiState['redstring:activeWizardPlan'] || null;
-    const extractedWizardPlanGraphId = uiState['redstring:wizardPlanGraphId'] || null;
+    const extractedWizardPlansByConversation = uiState['redstring:wizardPlansByConversation'] || {};
 
     // Return the converted state for file storage to use
     const storeState = {
@@ -1701,8 +1698,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
       savedNodeIds: new Set(Array.isArray(extractedSavedNodeIds) ? extractedSavedNodeIds : []),
       savedGraphIds: new Set(Array.isArray(extractedSavedGraphIds) ? extractedSavedGraphIds : []),
       showConnectionNames: !!extractedShowConnectionNames,
-      activeWizardPlan: extractedActiveWizardPlan,
-      wizardPlanGraphId: extractedWizardPlanGraphId
+      wizardPlansByConversation: extractedWizardPlansByConversation
     };
 
     // Carry the file-root quarantine bag through (opaque cargo, D1/P1.3)

@@ -768,7 +768,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   console.error('[AgentLoop] Conversation history:', historyMessages.length, 'messages');
 
-  const messages = [
+  let messages = [
     { role: 'system', content: systemPromptTemplate.replace('{context}', initialContext) },
     ...historyMessages, // Include prior conversation for context
     { role: 'user', content: userMessage }
