@@ -3566,9 +3566,11 @@ const LeftAIView = ({ compact = false,
     const callId = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     console.log('[SSE Debug] handleAutonomousAgent CALLED:', callId, 'persona:', persona);
 
-    // Message ID for streaming updates - message will be created on first SSE event
-    // Defined outside try/catch so it's available in error handler
+    // Message ID for streaming updates — defined before try/catch so error handler can reference it
     const streamingMessageId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const _preCreatedConvId = activeConversationId;
+    // _preCreated tracks whether we've added the AI bubble yet (set just before fetch)
+    let _preCreated = false;
 
     try {
       const apiConfig = await apiKeyManager.getAPIKeyInfo();
@@ -3583,6 +3585,15 @@ const LeftAIView = ({ compact = false,
         setShowAPIKeySetup(true);
         return;
       }
+      // Pre-create the AI message so telemetry tool_call events (which fire after the
+      // fetch starts) land in this bubble rather than creating a second AI message bubble.
+      const _preCreatedMsg = { id: streamingMessageId, sender: 'ai', content: '', timestamp: new Date().toISOString(), contentBlocks: [], isStreaming: true };
+      setMessages(prev => [...prev, _preCreatedMsg]);
+      setConversations(prev => prev.map(c => c.id === _preCreatedConvId
+        ? { ...c, messages: [...(c.messages || []), _preCreatedMsg], timestamp: new Date().toISOString() }
+        : c
+      ));
+      _preCreated = true;
       const abortController = new AbortController();
       setCurrentAgentRequest(abortController);
 
@@ -4032,9 +4043,32 @@ const LeftAIView = ({ compact = false,
       }
       setIsConnected(true);
     } catch (error) {
-      if (error.name !== 'AbortError') {
+      if (error.name === 'AbortError') {
+        if (!_preCreated) return; // bailed before pre-creation (no API key) — nothing to clean up
+        // On cancel: remove the pre-created message if still empty, otherwise mark done
+        setMessages(prev => {
+          const idx = prev.findIndex(m => m.id === streamingMessageId);
+          if (idx < 0) return prev;
+          const hasContent = prev[idx].contentBlocks?.some(b => b.content);
+          if (!hasContent) return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+          const updated = [...prev];
+          updated[idx] = { ...updated[idx], isStreaming: false };
+          return updated;
+        });
+        setConversations(prev => prev.map(c => c.id === _preCreatedConvId
+          ? { ...c, messages: (() => {
+              const msgs = c.messages || [];
+              const idx = msgs.findIndex(m => m.id === streamingMessageId);
+              if (idx < 0) return msgs;
+              const hasContent = msgs[idx].contentBlocks?.some(b => b.content);
+              if (!hasContent) return [...msgs.slice(0, idx), ...msgs.slice(idx + 1)];
+              return msgs.map((m, i) => i === idx ? { ...m, isStreaming: false } : m);
+            })() }
+          : c
+        ));
+      } else {
         console.error('[AI Collaboration] Autonomous agent failed:', error);
-        // Update or create streaming message with error
+        // Update the pre-created streaming message with the error
         setMessages(prev => {
           const updated = [...prev];
           const idx = updated.findIndex(m => m.id === streamingMessageId);
@@ -4048,7 +4082,6 @@ const LeftAIView = ({ compact = false,
             updated[idx] = msg;
             return updated;
           }
-          // If no streaming message yet, create one with the error
           return [...prev, { id: streamingMessageId, sender: 'ai', content: `Error: ${error.message}`, timestamp: new Date().toISOString(), contentBlocks: [errorBlock], isStreaming: false }];
         });
       }
@@ -4868,6 +4901,7 @@ const LeftAIView = ({ compact = false,
                             <ThinkingBlock
                               key={`think-${i}`}
                               content={block.content}
+                              contentHtml={block.collapsed ? renderMarkdown(block.content) : undefined}
                               collapsed={!!block.collapsed}
                             />
                           );

@@ -194,20 +194,25 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     const textWidthWithBuffer = textWidth * 1.1;
     currentWidth = Math.max(NODE_WIDTH, Math.min(textWidthWithBuffer + 2 * NODE_PADDING, EXPANDED_NODE_WIDTH));
 
+    // Line height must scale with font size. lineHeightBase=28 was calibrated for the
+    // original default fontSize=1.4 (28px font). At larger sizes the budget is too small
+    // and multi-line nodes end up shorter than the rendered text.
+    const fontSizeScaledLineHeight = 20 * textSettings.fontSize * textSettings.lineSpacing;
+
     let textBlockHeight;
     // If it's a single word and not at max width, don't let it wrap.
     if (isSingleWord && currentWidth < EXPANDED_NODE_WIDTH) {
-      textBlockHeight = scaledLineHeightShared;
+      textBlockHeight = fontSizeScaledLineHeight;
     } else {
       // Use multi-line padding (30px per side = 60px total) for conservative measurement.
       // This guarantees height is always sufficient even when text wraps to multiline.
       const actualTextWidth = currentWidth - 60;
-      textBlockHeight = measureTextBlockHeight(nodeName, actualTextWidth, textSettings, lineHeightBase);
+      textBlockHeight = measureTextBlockHeight(nodeName, actualTextWidth, textSettings, 20 * textSettings.fontSize);
     }
 
-    // Total height is the text block height plus padding, with a minimum of NODE_HEIGHT
-    // For non-preview nodes, use symmetric padding (20px top + 20px bottom = 40px total)
-    currentHeight = Math.max(NODE_HEIGHT, textBlockHeight + 40);
+    // Total height is the text block height plus padding, with a minimum of NODE_HEIGHT.
+    // 48px = 24px top + 24px bottom.
+    currentHeight = Math.max(NODE_HEIGHT, textBlockHeight + 48);
 
     // The text area itself now effectively is the full height to allow vertical centering.
     textAreaHeight = currentHeight;

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
-export default function ThinkingBlock({ content, collapsed }) {
+export default function ThinkingBlock({ content, contentHtml, collapsed }) {
   const theme = useTheme();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -51,12 +51,13 @@ export default function ThinkingBlock({ content, collapsed }) {
           fontSize: '11px',
           lineHeight: '1.5',
           color: theme.textSecondary,
-          maxHeight: '160px',
+          maxHeight: '200px',
           overflowY: 'auto',
-          whiteSpace: 'pre-wrap',
           marginTop: '2px',
         }}>
-          {content}
+          {contentHtml
+            ? <div dangerouslySetInnerHTML={{ __html: contentHtml }} />
+            : <div style={{ whiteSpace: 'pre-wrap' }}>{content}</div>}
         </div>
       )}
     </div>

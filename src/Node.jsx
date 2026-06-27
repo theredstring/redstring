@@ -424,11 +424,8 @@ const Node = ({
             height: '100%',
             padding: (() => {
               const baseSidePadding = (isMultiline ? 30 : 22);
-              if (!isPreviewing) {
-                return `20px ${baseSidePadding}px`;
-              }
-              // Symmetrical padding for exact vertical center
-              return `20px ${baseSidePadding}px`;
+              const verticalPadding = nodeThumbnailSrc ? 20 : 24;
+              return `${verticalPadding}px ${baseSidePadding}px`;
             })(),
             boxSizing: 'border-box',
             pointerEvents: isEditingOnCanvas ? 'auto' : 'none',
