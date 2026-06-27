@@ -40,6 +40,7 @@ import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
+import { applyOffscreenLayout } from './services/offscreenLayout.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS, buildChildGroupIdsIndex } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
 import { debugLogSync } from './utils/debugLogger.js';
@@ -9641,20 +9642,22 @@ function NodeCanvas() {
     const handleTriggerAutoLayout = (event) => {
       const { graphId } = event.detail || {};
 
-      // Only trigger if this is the active graph
       if (!graphId || graphId === activeGraphId) {
-        // Clear existing timer (debounce mechanism)
+        // Active graph: use DOM-aware layout with debounce to batch rapid mutations
         if (debounceTimer) {
           clearTimeout(debounceTimer);
         }
-
-        // Debounce for 500ms to batch rapid mutations
-        // This prevents layout thrashing during quick wizard operations
         debounceTimer = setTimeout(() => {
-          clearLabelStabilization(); // Clear label cache before layout change
+          clearLabelStabilization();
           triggerAutoLayout();
           debounceTimer = null;
         }, 500);
+      } else {
+        // Non-active graph: apply offscreen layout so wizard-created graphs are
+        // laid out even when the user isn't watching
+        try { applyOffscreenLayout(graphId); } catch (e) {
+          console.error('[NodeCanvas] Offscreen layout failed for non-active graph', graphId, e);
+        }
       }
     };
 

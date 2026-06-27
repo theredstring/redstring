@@ -65,37 +65,22 @@ const HoverVisionAid = ({
   };
 
   if (hasConnection) {
-    // 1. Prepare nodes with REAL dimensions (sync with Control Panel)
-    // Use isPreviewing=false to get standard node geometry
     const isSelfLoop = hoveredConnection.source.id === hoveredConnection.target.id;
     const sourceDims = getNodeDimensions(hoveredConnection.source, false);
     const targetDims = getNodeDimensions(hoveredConnection.target, false);
 
+    // Use natural node widths (252px+ from canvas) but cap height so tall image
+    // nodes don't make the preview excessively tall.
+    const sourceW = Math.max(sourceDims.currentWidth, 220);
+    const sourceH = Math.min(Math.max(sourceDims.currentHeight, 96), 200);
+    const targetW = Math.max(targetDims.currentWidth, 220);
+    const targetH = Math.min(Math.max(targetDims.currentHeight, 96), 200);
+
     const nodes = isSelfLoop
-      ? [
-          {
-            ...hoveredConnection.source,
-            x: 0,
-            y: 0,
-            width: Math.max(sourceDims.currentWidth, 220),
-            height: Math.max(sourceDims.currentHeight, 96)
-          }
-        ]
+      ? [{ ...hoveredConnection.source, x: 0, y: 0, width: sourceW, height: sourceH }]
       : [
-          {
-            ...hoveredConnection.source,
-            x: 0,
-            y: 0,
-            width: Math.max(sourceDims.currentWidth, 220),
-            height: Math.max(sourceDims.currentHeight, 96)
-          },
-          {
-            ...hoveredConnection.target,
-            x: 0,
-            y: 0,
-            width: Math.max(targetDims.currentWidth, 220),
-            height: Math.max(targetDims.currentHeight, 96)
-          }
+          { ...hoveredConnection.source, x: 0, y: 0, width: sourceW, height: sourceH },
+          { ...hoveredConnection.target, x: 0, y: 0, width: targetW, height: targetH }
         ];
 
     const connections = [
@@ -111,14 +96,9 @@ const HoverVisionAid = ({
       }
     ];
 
-    // 2. Size the container so the internal fit-scale is exactly 1.0.
-    //    hoverPreviewSize CSS scale is then the single reliable size knob.
-    //
-    //    The renderer applies 0.8× to minHorizontalSpacing for 2-3 node layouts.
-    //    To get a target ACTUAL gap, we pre-compensate: connectionGap = targetGap / 0.8.
-    //
-    //    Labels wrap on word boundaries (14-char threshold in ConnectionText), so the
-    //    gap needs to fit the longest individual WORD at the 24px render font.
+    // The renderer applies 0.8× to minHorizontalSpacing for 2-3 node layouts.
+    // Pre-compensate: connectionGap = targetGap / 0.8 → actual SVG gap = targetGap.
+    // Target at least 300px (225px visible at CSS 0.75) or 2× the longest label word.
     const renderFont = '24px "EmOne", sans-serif';
     const longestWordWidth = connections.reduce((max, conn) => {
       const name = conn.connectionName || 'Connection';
@@ -126,18 +106,13 @@ const HoverVisionAid = ({
       return Math.max(max, wordMax);
     }, 0);
 
-    // Actual gap we want between nodes: at least 220px for breathing room, or 1.5× the longest word.
-    // connectionGap is the minHorizontalSpacing we pass; the renderer will apply 0.8× to it.
-    const targetGap = Math.max(220, longestWordWidth * 1.5);
+    const targetGap = Math.max(300, longestWordWidth * 2.0);
     const connectionGap = Math.ceil(targetGap / 0.8);
 
-    // Height: node height + 40px padding ensures availableHeight == maxNodeHeight → nodeScale = 1.0.
     const maxNodeHeight = Math.max(...nodes.map(n => n.height));
     const connectionContainerHeight = maxNodeHeight + 40;
-
-    // Width: total node widths + requested gap + 80px side margin.
     const totalNodeWidth = nodes.reduce((sum, n) => sum + n.width, 0) * (isSelfLoop ? 2 : 1);
-    const calculatedWidth = Math.max(600, totalNodeWidth + connectionGap + 80);
+    const calculatedWidth = Math.max(700, totalNodeWidth + connectionGap + 80);
 
     containerStyle.marginTop = -20;
     content = (

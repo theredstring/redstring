@@ -540,6 +540,7 @@ export const FORCE_LAYOUT_DEFAULTS = {
   labelAwareLinkPadding: 30,
   labelAwareLinkReduction: 1,
   edgeLabelPadding: 60,           // total horizontal padding for edge label minimum (30px per side)
+  edgeLabelClearancePadding: 30,  // extra gap between midpoints of different labeled edges
 
   // Advanced forces
   enableEdgeRepulsion: true, // Triplet repulsion
@@ -1893,6 +1894,9 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     }
   });
 
+  // Enforce clearance between label midpoints of different labeled edges
+  enforceEdgeLabelClearance(positions, edges, nodeById, getNodeRadius, config);
+
   // Final group separation enforcement (after condensation and edge crossing
   // adjustments may have moved nodes closer again)
   if (groups.length > 0) {
@@ -2087,6 +2091,69 @@ function resolveOverlaps(positions, nodes, getRadius, padding, width, height, pa
 }
 
 /**
+ * Enforce minimum clearance between the label midpoints of different edges.
+ * Two labeled edges whose midpoints are too close will have their endpoint
+ * nodes pushed apart so the labels don't visually collide.
+ * Only acts on edge pairs that share no endpoint nodes.
+ */
+function enforceEdgeLabelClearance(positions, edges, nodeById, getNodeRadius, config, passes = 3) {
+  const padding = config.edgeLabelClearancePadding || 30;
+  const labeled = edges.filter(e => e.name && e.sourceId && e.destinationId);
+  if (labeled.length < 2) return;
+
+  for (let pass = 0; pass < passes; pass++) {
+    for (let i = 0; i < labeled.length; i++) {
+      for (let j = i + 1; j < labeled.length; j++) {
+        const eA = labeled[i];
+        const eB = labeled[j];
+        // Skip pairs that share an endpoint — handled by per-edge constraints
+        if (eA.sourceId === eB.sourceId || eA.sourceId === eB.destinationId ||
+            eA.destinationId === eB.sourceId || eA.destinationId === eB.destinationId) continue;
+
+        const pA1 = positions.get(eA.sourceId);
+        const pA2 = positions.get(eA.destinationId);
+        const pB1 = positions.get(eB.sourceId);
+        const pB2 = positions.get(eB.destinationId);
+        if (!pA1 || !pA2 || !pB1 || !pB2) continue;
+
+        // Label midpoints are the geometric centers of each edge
+        const midAx = (pA1.x + pA2.x) / 2;
+        const midAy = (pA1.y + pA2.y) / 2;
+        const midBx = (pB1.x + pB2.x) / 2;
+        const midBy = (pB1.y + pB2.y) / 2;
+
+        const wA = estimateEdgeLabelWidth(eA.name);
+        const wB = estimateEdgeLabelWidth(eB.name);
+        const minClearance = (wA + wB) / 2 + padding;
+
+        const dx = midBx - midAx; // vector from A's midpoint to B's midpoint
+        const dy = midBy - midAy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist >= minClearance || dist < 0.1) continue;
+
+        const deficit = minClearance - dist;
+        const ux = dx / dist;
+        const uy = dy / dist;
+        const push = deficit * 0.5;
+
+        // Shift the shorter-labeled edge's endpoints away from the longer one
+        if (wB <= wA) {
+          pB1.x += ux * push;
+          pB1.y += uy * push;
+          pB2.x += ux * push;
+          pB2.y += uy * push;
+        } else {
+          pA1.x -= ux * push;
+          pA1.y -= uy * push;
+          pA2.x -= ux * push;
+          pA2.y -= uy * push;
+        }
+      }
+    }
+  }
+}
+
+/**
  * Pull clusters closer to center after layout so we undo overly distant placement.
  * When user-defined groups exist, skip clusters that span multiple groups
  * to avoid collapsing separated groups toward center.
@@ -2095,7 +2162,7 @@ function condenseClusters(positions, clusters, centerX, centerY, config, nodeGro
   if (clusters.length <= 1) return;
 
   // Use gentler condensation when user-defined groups exist to preserve group separation
-  const shrinkFactor = config._hasUserGroups ? 0.97 : 0.9;
+  const shrinkFactor = 0.97;
   const minDistanceFromCenter = 90;
 
   clusters.forEach(cluster => {
