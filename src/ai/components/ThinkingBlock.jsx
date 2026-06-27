@@ -16,7 +16,7 @@ export default function ThinkingBlock({ content, contentHtml, collapsed }) {
   return (
     <div style={{
       margin: '4px 0 6px',
-      borderLeft: `2px solid ${theme.border}`,
+      borderLeft: `2px solid ${theme.canvas.border}`,
       paddingLeft: '10px',
     }}>
       <button
@@ -25,7 +25,7 @@ export default function ThinkingBlock({ content, contentHtml, collapsed }) {
           background: 'none',
           border: 'none',
           cursor: collapsed ? 'pointer' : 'default',
-          color: theme.textSecondary,
+          color: theme.canvas.textSecondary,
           padding: '2px 0',
           display: 'flex',
           alignItems: 'center',
@@ -50,7 +50,7 @@ export default function ThinkingBlock({ content, contentHtml, collapsed }) {
         <div style={{
           fontSize: '11px',
           lineHeight: '1.5',
-          color: theme.textSecondary,
+          color: theme.canvas.textSecondary,
           maxHeight: '200px',
           overflowY: 'auto',
           marginTop: '2px',
