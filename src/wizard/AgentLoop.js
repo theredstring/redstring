@@ -756,6 +756,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const MAX_HISTORY_MESSAGES = 20;
   const historyMessages = conversationHistory
     .filter(msg => {
+      // Exclude system messages — they're context annotations that don't belong in
+      // turn history (the graph context is already in the system prompt via {context})
+      if (msg.role === 'system') return false;
       const hasContent = Array.isArray(msg.content) ? msg.content.length > 0 : (msg.content && msg.content.trim());
       return hasContent || (msg.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0);
     })
@@ -768,9 +771,17 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   console.error('[AgentLoop] Conversation history:', historyMessages.length, 'messages');
 
+  // For small/local models, insert a priming assistant turn immediately after the system
+  // prompt. Many local models (Gemma, Phi, etc.) merge system role into the first user
+  // turn via their chat template, so the model reads the instructions as the user's
+  // request and responds *to* them. A priming "Understood." separates instructions from
+  // the actual user message and establishes the correct role boundary.
+  const primingMessages = modelTier === 'small' ? [{ role: 'assistant', content: 'Understood.' }] : [];
+
   let messages = [
     { role: 'system', content: systemPromptTemplate.replace('{context}', initialContext) },
-    ...historyMessages, // Include prior conversation for context
+    ...primingMessages,
+    ...historyMessages,
     { role: 'user', content: userMessage }
   ];
 
@@ -799,7 +810,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     }
     // Small models have limited context windows — trim conversation history to prevent
     // the model from returning empty responses due to context overflow.
-    // Keep: system message [0], original user message [1], last 8 messages.
+    // Keep: system [0], priming turn [1], last 8 messages.
     if (modelTier === 'small' && messages.length > 11) {
       messages = [messages[0], messages[1], ...messages.slice(-8)];
     }
@@ -824,26 +835,80 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       const emittedToolStarts = new Set();  // Deduplicate tool_call_start events
 
       let iterationHasYieldedText = false;
+      // State for parsing <think>...</think> blocks emitted by local reasoning models
+      // (Qwen, DeepSeek-R1 distills, etc. wrap their chain-of-thought in these tags)
+      let inThinkTag = false;
+      let tagBuf = ''; // partial tag detection buffer
       for await (const chunk of streamLLM(messages, tools, config, abortSignal)) {
         if (chunk.type === 'thinking') {
-          // Pass thinking tokens straight through — don't count as iterationContent
-          // (thinking is internal monologue, not the model's final response)
+          // Native thinking tokens (Anthropic extended thinking) — pass straight through
           yield { type: 'thinking', content: chunk.content };
           continue;
         }
         if (chunk.type === 'text') {
-          // Only yield new content (dedupe in case of stream issues)
           const newContent = chunk.content;
-          if (newContent) {
-            // Insert paragraph separator between text blocks from different iterations
-            if (yieldedAnyText && !iterationHasYieldedText) {
-              yield { type: 'response', content: '\n\n' };
+          if (!newContent) continue;
+
+          // Parse <think>...</think> tags from local reasoning models.
+          // Content inside tags is routed to ThinkingBlock; content outside goes to response.
+          let remaining = tagBuf + newContent;
+          tagBuf = '';
+
+          while (remaining.length > 0) {
+            if (inThinkTag) {
+              const closeIdx = remaining.indexOf('</think>');
+              if (closeIdx >= 0) {
+                if (closeIdx > 0) yield { type: 'thinking', content: remaining.slice(0, closeIdx) };
+                inThinkTag = false;
+                remaining = remaining.slice(closeIdx + '</think>'.length);
+              } else {
+                // Buffer trailing chars that could be start of '</think>'
+                const partial = '</think>';
+                let keep = 0;
+                for (let i = 1; i <= Math.min(partial.length, remaining.length); i++) {
+                  if (remaining.endsWith(partial.slice(0, i))) keep = i;
+                }
+                if (keep > 0) {
+                  yield { type: 'thinking', content: remaining.slice(0, remaining.length - keep) };
+                  tagBuf = remaining.slice(remaining.length - keep);
+                } else {
+                  yield { type: 'thinking', content: remaining };
+                }
+                remaining = '';
+              }
+            } else {
+              const openIdx = remaining.indexOf('<think>');
+              if (openIdx >= 0) {
+                const before = remaining.slice(0, openIdx);
+                if (before) {
+                  if (yieldedAnyText && !iterationHasYieldedText) yield { type: 'response', content: '\n\n' };
+                  iterationContent += before;
+                  iterationHasYieldedText = true;
+                  yieldedAnyText = true;
+                  yield { type: 'response', content: before };
+                }
+                inThinkTag = true;
+                remaining = remaining.slice(openIdx + '<think>'.length);
+              } else {
+                // Buffer trailing chars that could be start of '<think>'
+                const partial = '<think>';
+                let keep = 0;
+                for (let i = 1; i <= Math.min(partial.length, remaining.length); i++) {
+                  if (remaining.endsWith(partial.slice(0, i))) keep = i;
+                }
+                const text = keep > 0 ? remaining.slice(0, remaining.length - keep) : remaining;
+                if (text) {
+                  if (yieldedAnyText && !iterationHasYieldedText) yield { type: 'response', content: '\n\n' };
+                  iterationContent += text;
+                  iterationHasYieldedText = true;
+                  yieldedAnyText = true;
+                  console.error('[AgentLoop] Yielding text chunk:', JSON.stringify(text));
+                  yield { type: 'response', content: text };
+                }
+                if (keep > 0) tagBuf = remaining.slice(remaining.length - keep);
+                remaining = '';
+              }
             }
-            iterationContent += newContent;
-            iterationHasYieldedText = true;
-            yieldedAnyText = true;
-            console.error('[AgentLoop] Yielding text chunk:', JSON.stringify(newContent));
-            yield { type: 'response', content: newContent };
           }
         } else if (chunk.type === 'tool_call_start') {
           // Deduplicate tool_call_start events (LLMClient may emit duplicates during streaming)
@@ -953,7 +1018,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
           console.error(`[AgentLoop] ⚠️ Model returned text-only but plan is incomplete (${doneCount}/${plan.length} done). Nudge ${consecutiveNudges}/${MAX_CONSECUTIVE_NUDGES}.`);
           const availableToolList = modelTier === 'small'
-            ? '- expandGraph — add 2-3 nodes or edges to the existing graph\n- planTask — mark a step done once you\'ve finished it'
+            ? '- expandGraph — add 2-3 nodes or edges to the current graph\n- populateDefinitionGraph — go inside an existing node to define what it is made of (use when asked to "define", "go deeper", or "elaborate on" a node)\n- planTask — mark a step done once you\'ve finished it'
             : '- createPopulatedGraph — build a new graph with nodes and edges\n- expandGraph — add nodes or edges to an existing graph\n- populateDefinitionGraph — define the internals of a node\n- planTask — update a step\'s status to \'done\' once you\'ve finished it';
           messages.push({
             role: 'user',
@@ -972,7 +1037,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           hasNudgedFirstIteration = true;
           console.error(`[AgentLoop] ⚠️ Text-only response on first iteration — nudging model to call tools if applicable.`);
           const firstIterToolHint = modelTier === 'small'
-            ? 'call planTask to create a plan, then expandGraph to start building'
+            ? 'call planTask to create a plan, then expandGraph to add nodes or populateDefinitionGraph to go inside an existing node'
             : 'call planTask, createPopulatedGraph, or other tools';
           messages.push({
             role: 'user',

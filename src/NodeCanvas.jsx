@@ -678,6 +678,7 @@ function NodeCanvas() {
   const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
   const cleanLaneSpacing = useGraphStore(state => state.autoLayoutSettings?.cleanLaneSpacing || 24);
   const textSettings = useGraphStore(state => state.textSettings);
+  const connectionWidth = textSettings?.connectionWidth ?? 1.0;
   const connectionLabelSize = useGraphStore(state => state.connectionLabelSize ?? 1.0);
   const groupLayoutAlgorithm = useGraphStore(state => state.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven');
   const showClusterHulls = useGraphStore(state => state.autoLayoutSettings?.showClusterHulls || false);
@@ -1183,11 +1184,12 @@ function NodeCanvas() {
     // Include textSettings in cache key so dimensions recalculate when text size changes
     const tsFontSize = textSettings?.fontSize || 1;
     const tsLineSpacing = textSettings?.lineSpacing || 1;
+    const tsNodeScale = textSettings?.nodeScale || 1;
 
     for (const n of nodes) {
       // Create a stable key based only on properties that affect dimensions
       // (not position x/y or scale which change during drag)
-      const cacheKey = `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${tsFontSize}-${tsLineSpacing}`;
+      const cacheKey = `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}`;
 
       // Check if we have cached dimensions for this node's dimensional properties
       let dims = cache.get(cacheKey);
@@ -1202,7 +1204,7 @@ function NodeCanvas() {
     }
 
     // Clean up cache entries for nodes that no longer exist
-    const currentCacheKeys = new Set(nodes.map(n => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${tsFontSize}-${tsLineSpacing}`));
+    const currentCacheKeys = new Set(nodes.map(n => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}`));
     for (const key of cache.keys()) {
       if (!currentCacheKeys.has(key)) {
         cache.delete(key);
@@ -1210,7 +1212,7 @@ function NodeCanvas() {
     }
 
     return map;
-  }, [nodes, textSettings?.fontSize, textSettings?.lineSpacing]);
+  }, [nodes, textSettings?.fontSize, textSettings?.lineSpacing, textSettings?.nodeScale]);
   // Defer viewport-dependent culling until pan/zoom state is initialized below
   const [visibleNodeIds, setVisibleNodeIds] = useState(() => new Set());
   const [visibleEdges, setVisibleEdges] = useState(() => []);
@@ -2560,7 +2562,7 @@ function NodeCanvas() {
         }
 
         // Calculate port positions on the non-rounded edge segments
-        const cornerRadius = NODE_CORNER_RADIUS || 8;
+        const cornerRadius = (NODE_CORNER_RADIUS * (textSettings?.nodeScale ?? 1.0)) || 8;
         const sourcePortPos = getPortPosition(s, sDims, sourceSide, cornerRadius);
         const destPortPos = getPortPosition(d, dDims, destSide, cornerRadius);
 
@@ -11600,7 +11602,7 @@ function NodeCanvas() {
                                     })()}
                                     fill="none"
                                     stroke={edgeColor}
-                                    strokeWidth="12"
+                                    strokeWidth={12 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
                                     style={{
                                       filter: `drop-shadow(0 0 8px ${edgeColor})`
@@ -11612,7 +11614,7 @@ function NodeCanvas() {
                                     d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                     fill="none"
                                     stroke={edgeColor}
-                                    strokeWidth="12"
+                                    strokeWidth={12 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
                                     style={{
                                       filter: `drop-shadow(0 0 8px ${edgeColor})`
@@ -11626,7 +11628,7 @@ function NodeCanvas() {
                                     x2={endX}
                                     y2={endY}
                                     stroke={edgeColor}
-                                    strokeWidth="12"
+                                    strokeWidth={12 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
                                     style={{
                                       filter: `drop-shadow(0 0 8px ${edgeColor})`
@@ -11638,10 +11640,10 @@ function NodeCanvas() {
                               {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
                                 <>
                                   {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
-                                    <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
+                                    <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={16 * connectionWidth} strokeLinecap="round" />
                                   )}
                                   {routingStyle === 'manhattan' && !arrowsToward.has(destNode.id) && (
-                                    <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
+                                    <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={16 * connectionWidth} strokeLinecap="round" />
                                   )}
                                   <path
                                     d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
@@ -11651,7 +11653,7 @@ function NodeCanvas() {
                                     })()}
                                     fill="none"
                                     stroke={edgeColor}
-                                    strokeWidth="16"
+                                    strokeWidth={16 * connectionWidth}
                                     style={{ transition: 'stroke 0.2s ease' }}
                                     strokeLinecap="round"
                                   />
@@ -11661,7 +11663,7 @@ function NodeCanvas() {
                                   d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                   fill="none"
                                   stroke={edgeColor}
-                                  strokeWidth="16"
+                                  strokeWidth={16 * connectionWidth}
                                   style={{ transition: 'stroke 0.2s ease' }}
                                   strokeLinecap="round"
                                 />
@@ -11672,7 +11674,7 @@ function NodeCanvas() {
                                   x2={endX}
                                   y2={endY}
                                   stroke={edgeColor}
-                                  strokeWidth="16"
+                                  strokeWidth={16 * connectionWidth}
                                   style={{ transition: 'stroke 0.2s ease' }}
                                 />
                               )}
@@ -12225,7 +12227,7 @@ function NodeCanvas() {
                                     {arrowsToward.has(sourceNode.id) && (
                                       <g
                                         data-arrow="source"
-                                        transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}
+                                        transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90}) scale(${connectionWidth})`}
                                         style={{ cursor: 'pointer' }}
                                         onClick={(e) => handleArrowClick(sourceNode.id, e)}
                                         onMouseDown={(e) => e.stopPropagation()}
@@ -12261,7 +12263,7 @@ function NodeCanvas() {
                                     {arrowsToward.has(destNode.id) && (
                                       <g
                                         data-arrow="dest"
-                                        transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}
+                                        transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90}) scale(${connectionWidth})`}
                                         style={{ cursor: 'pointer' }}
                                         onClick={(e) => handleArrowClick(destNode.id, e)}
                                         onMouseDown={(e) => e.stopPropagation()}
@@ -13002,7 +13004,7 @@ function NodeCanvas() {
                                     })()}
                                     fill="none"
                                     stroke={edgeColor}
-                                    strokeWidth="12"
+                                    strokeWidth={12 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
                                     style={{
                                       filter: `drop-shadow(0 0 8px ${edgeColor})`
@@ -13014,7 +13016,7 @@ function NodeCanvas() {
                                     d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                     fill="none"
                                     stroke={edgeColor}
-                                    strokeWidth="12"
+                                    strokeWidth={12 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
                                     style={{
                                       filter: `drop-shadow(0 0 8px ${edgeColor})`
@@ -13028,7 +13030,7 @@ function NodeCanvas() {
                                     x2={endX}
                                     y2={endY}
                                     stroke={edgeColor}
-                                    strokeWidth="12"
+                                    strokeWidth={12 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
                                     style={{
                                       filter: `drop-shadow(0 0 8px ${edgeColor})`
@@ -13040,10 +13042,10 @@ function NodeCanvas() {
                               {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
                                 <>
                                   {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
-                                    <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
+                                    <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={16 * connectionWidth} strokeLinecap="round" />
                                   )}
                                   {routingStyle === 'manhattan' && !arrowsToward.has(destNode.id) && (
-                                    <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
+                                    <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={16 * connectionWidth} strokeLinecap="round" />
                                   )}
                                   <path
                                     d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
@@ -13053,7 +13055,7 @@ function NodeCanvas() {
                                     })()}
                                     fill="none"
                                     stroke={edgeColor}
-                                    strokeWidth="16"
+                                    strokeWidth={16 * connectionWidth}
                                     style={{ transition: 'stroke 0.2s ease' }}
                                     strokeLinecap="round"
                                   />
@@ -13063,7 +13065,7 @@ function NodeCanvas() {
                                   d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                   fill="none"
                                   stroke={edgeColor}
-                                  strokeWidth="16"
+                                  strokeWidth={16 * connectionWidth}
                                   style={{ transition: 'stroke 0.2s ease' }}
                                   strokeLinecap="round"
                                 />
@@ -13074,7 +13076,7 @@ function NodeCanvas() {
                                   x2={endX}
                                   y2={endY}
                                   stroke={edgeColor}
-                                  strokeWidth="16"
+                                  strokeWidth={16 * connectionWidth}
                                   style={{ transition: 'stroke 0.2s ease' }}
                                 />
                               )}
@@ -13492,7 +13494,7 @@ function NodeCanvas() {
                                     {arrowsToward.has(sourceNode.id) && (
                                       <g
                                         data-arrow="source"
-                                        transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}
+                                        transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90}) scale(${connectionWidth})`}
                                         style={{ cursor: 'pointer' }}
                                         onClick={(e) => handleArrowClick(sourceNode.id, e)}
                                         onMouseDown={(e) => e.stopPropagation()}
@@ -13528,7 +13530,7 @@ function NodeCanvas() {
                                     {arrowsToward.has(destNode.id) && (
                                       <g
                                         data-arrow="dest"
-                                        transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}
+                                        transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90}) scale(${connectionWidth})`}
                                         style={{ cursor: 'pointer' }}
                                         onClick={(e) => handleArrowClick(destNode.id, e)}
                                         onMouseDown={(e) => e.stopPropagation()}
@@ -13785,7 +13787,7 @@ function NodeCanvas() {
                       x2={drawingConnectionFrom.currentX}
                       y2={drawingConnectionFrom.currentY}
                       stroke="black"
-                      strokeWidth="16"
+                      strokeWidth={16 * connectionWidth}
                     />
                   )}
                   {drawingConnectionFrom && !draggingNodeInfo && connectionExitedSourceRef.current && (() => {
@@ -13804,7 +13806,7 @@ function NodeCanvas() {
                         d={loop.path}
                         fill="none"
                         stroke="black"
-                        strokeWidth="6"
+                        strokeWidth={6 * connectionWidth}
                         strokeDasharray="6 6"
                         strokeLinecap="round"
                         opacity="0.7"
@@ -13868,6 +13870,8 @@ function NodeCanvas() {
                           textAreaHeight={dimensions.textAreaHeight}
                           imageWidth={dimensions.imageWidth}
                           imageHeight={dimensions.calculatedImageHeight}
+                          scaledPadding={dimensions.scaledPadding}
+                          scaledCornerRadius={dimensions.scaledCornerRadius}
                           innerNetworkWidth={dimensions.innerNetworkWidth}
                           innerNetworkHeight={dimensions.innerNetworkHeight}
                           descriptionAreaHeight={dimensions.descriptionAreaHeight}
@@ -14205,6 +14209,8 @@ function NodeCanvas() {
                                   textAreaHeight={dimensions.textAreaHeight}
                                   imageWidth={dimensions.imageWidth}
                                   imageHeight={dimensions.calculatedImageHeight}
+                                  scaledPadding={dimensions.scaledPadding}
+                                  scaledCornerRadius={dimensions.scaledCornerRadius}
                                   innerNetworkWidth={dimensions.innerNetworkWidth}
                                   innerNetworkHeight={dimensions.innerNetworkHeight}
                                   descriptionAreaHeight={dimensions.descriptionAreaHeight}
@@ -14303,6 +14309,8 @@ function NodeCanvas() {
                                 textAreaHeight={dimensions.textAreaHeight}
                                 imageWidth={dimensions.imageWidth}
                                 imageHeight={dimensions.calculatedImageHeight}
+                                scaledPadding={dimensions.scaledPadding}
+                                scaledCornerRadius={dimensions.scaledCornerRadius}
                                 innerNetworkWidth={dimensions.innerNetworkWidth}
                                 innerNetworkHeight={dimensions.innerNetworkHeight}
                                 descriptionAreaHeight={dimensions.descriptionAreaHeight}

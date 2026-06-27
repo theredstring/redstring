@@ -215,6 +215,9 @@ const AbstractionCarousel = ({
   const imageCacheMap = useImageCache(state => state.images);
   const thingNodeId = useGraphStore((state) => state.thingNodeId);
   const textSettings = useGraphStore((state) => state.textSettings);
+  const nodeScaleGlobal = textSettings?.nodeScale ?? 1.0;
+  // Shadow the module-level constant so carousel spacing scales with node size
+  const LEVEL_SPACING = -30 * nodeScaleGlobal;
 
   // Pre-calculate the abstraction chain and base dimensions for each node
   const abstractionChainWithDims = useMemo(() => {
@@ -471,14 +474,14 @@ const AbstractionCarousel = ({
       const nodeAbove = abstractionChainWithDims.find(n => n.level === i + 1);
       if (!nodeCurrent) {
         // If no node at this level, use fallback spacing
-        upY -= (NODE_HEIGHT + LEVEL_SPACING);
+        upY -= (NODE_HEIGHT * nodeScaleGlobal + LEVEL_SPACING);
         offsets[i] = upY;
         continue;
       }
       if (!nodeAbove) break;
 
-      const hCurrent = nodeCurrent.baseDimensions?.currentHeight || NODE_HEIGHT;
-      const hAbove = nodeAbove.baseDimensions?.currentHeight || NODE_HEIGHT;
+      const hCurrent = nodeCurrent.baseDimensions?.currentHeight || NODE_HEIGHT * nodeScaleGlobal;
+      const hAbove = nodeAbove.baseDimensions?.currentHeight || NODE_HEIGHT * nodeScaleGlobal;
 
       upY -= ((hAbove / 2) + (hCurrent / 2) + LEVEL_SPACING);
       offsets[i] = upY;
@@ -491,20 +494,20 @@ const AbstractionCarousel = ({
       const nodeBelow = abstractionChainWithDims.find(n => n.level === i - 1);
       if (!nodeCurrent) {
         // If no node at this level, use fallback spacing
-        downY += (NODE_HEIGHT + LEVEL_SPACING);
+        downY += (NODE_HEIGHT * nodeScaleGlobal + LEVEL_SPACING);
         offsets[i] = downY;
         continue;
       }
       if (!nodeBelow) break;
 
-      const hCurrent = nodeCurrent.baseDimensions?.currentHeight || NODE_HEIGHT;
-      const hBelow = nodeBelow.baseDimensions?.currentHeight || NODE_HEIGHT;
+      const hCurrent = nodeCurrent.baseDimensions?.currentHeight || NODE_HEIGHT * nodeScaleGlobal;
+      const hBelow = nodeBelow.baseDimensions?.currentHeight || NODE_HEIGHT * nodeScaleGlobal;
 
       downY += ((hBelow / 2) + (hCurrent / 2) + LEVEL_SPACING);
       offsets[i] = downY;
     }
     return offsets;
-  }, [abstractionChainWithDims]);
+  }, [abstractionChainWithDims, nodeScaleGlobal]);
 
   // Calculate the center position where the carousel should be anchored.
   //
@@ -559,7 +562,7 @@ const AbstractionCarousel = ({
 
     if (offsetA === undefined || offsetB === undefined) {
       // Fallback for out-of-bounds levels during animation
-      return -position * (NODE_HEIGHT + LEVEL_SPACING) * zoom;
+      return -position * (NODE_HEIGHT * nodeScaleGlobal + LEVEL_SPACING) * zoom;
     }
 
     const factor = position - floorLevel;
@@ -899,7 +902,7 @@ const AbstractionCarousel = ({
     // Drag finger up to reveal nodes below (higher level index) — opposite of wheel deltaY sign convention
     // TOUCH_SENSITIVITY > 1 means MORE finger travel per level (less sensitive).
     const TOUCH_SENSITIVITY = 5;
-    const pixelsPerLevel = (NODE_HEIGHT + LEVEL_SPACING) * zoomLevel * TOUCH_SENSITIVITY;
+    const pixelsPerLevel = (NODE_HEIGHT * nodeScaleGlobal + LEVEL_SPACING) * zoomLevel * TOUCH_SENSITIVITY;
     const safePixels = Math.max(Math.abs(pixelsPerLevel), 1) * Math.sign(pixelsPerLevel || 1);
     const levelDelta = -deltaY / safePixels;
 
@@ -1135,7 +1138,7 @@ const AbstractionCarousel = ({
   }, [reachableChainLevels]);
 
   const computeNodeCenterYForLevel = useCallback((level) => {
-    const levelOffset = levelOffsets[level] ?? (level * (NODE_HEIGHT + LEVEL_SPACING));
+    const levelOffset = levelOffsets[level] ?? (level * (NODE_HEIGHT * nodeScaleGlobal + LEVEL_SPACING));
     return window.innerHeight * 2 + (levelOffset * getLiveZoom());
   }, [levelOffsets, getLiveZoom]);
 
@@ -1341,7 +1344,7 @@ const AbstractionCarousel = ({
               // Position calculation - uses dynamic offsets now
               const nodeX = window.innerWidth * 0.5;
               // Fix NaN issue by providing fallback for missing levelOffsets
-              const levelOffset = levelOffsets[item.level] ?? (item.level * (NODE_HEIGHT + LEVEL_SPACING));
+              const levelOffset = levelOffsets[item.level] ?? (item.level * (NODE_HEIGHT * nodeScaleGlobal + LEVEL_SPACING));
               const nodeY = window.innerHeight * 2 + (levelOffset * zoom);
 
               // Determine if this is the "main" node (closest to scroll position)
@@ -1464,14 +1467,7 @@ const AbstractionCarousel = ({
                           height: '100%',
                           // Match Node.jsx single-line padding for non-preview nodes
                           // Node.jsx uses `20px ${isMultiline ? 30 : 22}px` when not previewing
-                          padding: `20px ${(() => {
-                            const singleLineSidePadding = 22;
-                            const availableWidth = unscaledWidth - (2 * singleLineSidePadding);
-                            const averageCharWidth = 12 * textSettings.fontSize; // Scale with font size
-                            const charsPerLine = Math.floor(availableWidth / averageCharWidth);
-                            const isMultiline = (item.name || '').length > charsPerLine;
-                            return isMultiline ? 30 : 22;
-                          })()}px`,
+                          padding: `${20 * nodeScaleGlobal}px ${30 * nodeScaleGlobal}px`,
                           boxSizing: 'border-box',
                           userSelect: 'none',
                           minWidth: 0
@@ -1479,11 +1475,11 @@ const AbstractionCarousel = ({
                       >
                         <span
                           style={{
-                            fontSize: `${20 * textSettings.fontSize}px`,
+                            fontSize: `${20 * textSettings.fontSize * nodeScaleGlobal}px`,
                             fontWeight: 'bold',
                             fontFamily: "'EmOne', sans-serif",
                             color: item.textColor || getTextColor(nodeColor),
-                            lineHeight: `${28 * textSettings.lineSpacing}px`, // Base changed from 32 to 28
+                            lineHeight: `${28 * textSettings.lineSpacing * nodeScaleGlobal}px`,
                             whiteSpace: 'normal',
                             overflowWrap: 'break-word',
                             wordBreak: 'break-word',

@@ -54,6 +54,8 @@ export default function ThinkingBlock({ content, contentHtml, collapsed }) {
           maxHeight: '200px',
           overflowY: 'auto',
           marginTop: '2px',
+          userSelect: 'text',
+          cursor: 'text',
         }}>
           {contentHtml
             ? <div dangerouslySetInnerHTML={{ __html: contentHtml }} />

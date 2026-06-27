@@ -971,7 +971,7 @@ export function selectToolsForTurn({ graphState, userMessage, hasTabularData = f
 
     // Small model whitelist: only the atomic ops they can reliably generate
     if (modelTier === 'small') {
-        const SMALL_MODEL_TOOLS = new Set(['planTask', 'createGraph', 'expandGraph', 'readGraph', 'updateNode', 'askMultipleChoice']);
+        const SMALL_MODEL_TOOLS = new Set(['planTask', 'createGraph', 'expandGraph', 'populateDefinitionGraph', 'readGraph', 'updateNode', 'askMultipleChoice', 'switchToGraph']);
         return allTools.filter(t => SMALL_MODEL_TOOLS.has(t.name));
     }
 

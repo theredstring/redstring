@@ -20,6 +20,7 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
   // Access store for prototype data to determine edge colors
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
+  const nodeScaleGlobal = useGraphStore(state => state.textSettings?.nodeScale ?? 1.0);
 
   // Helper function to get edge color based on type hierarchy
   const getEdgeColor = (edge, destNode) => {
@@ -65,8 +66,8 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
   const BOUNDING_BOX_PADDING = 20; // Pixels in original coordinates
 
   // Calculate base network dimensions from bounding box
-  const baseNetworkWidth = nodes.length > 0 ? Math.max(maxX - minX, NODE_WIDTH) : NODE_WIDTH;
-  const baseNetworkHeight = nodes.length > 0 ? Math.max(maxY - minY, NODE_HEIGHT) : NODE_HEIGHT;
+  const baseNetworkWidth = nodes.length > 0 ? Math.max(maxX - minX, NODE_WIDTH * nodeScaleGlobal) : NODE_WIDTH * nodeScaleGlobal;
+  const baseNetworkHeight = nodes.length > 0 ? Math.max(maxY - minY, NODE_HEIGHT * nodeScaleGlobal) : NODE_HEIGHT * nodeScaleGlobal;
 
   // Add padding to the dimensions before scaling
   const networkWidth = baseNetworkWidth + 2 * BOUNDING_BOX_PADDING;
@@ -137,12 +138,12 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
           return (
             <clipPath key={`inner-node-clip-${node.id}`} id={`inner-node-clip-${node.id}`}>
               <rect
-                x={node.x + NODE_PADDING}
+                x={node.x + (dimensions.scaledPadding ?? NODE_PADDING)}
                 y={node.y + dimensions.textAreaHeight}
                 width={dimensions.imageWidth}
                 height={dimensions.calculatedImageHeight}
-                rx={NODE_CORNER_RADIUS}
-                ry={NODE_CORNER_RADIUS}
+                rx={dimensions.scaledCornerRadius ?? NODE_CORNER_RADIUS}
+                ry={dimensions.scaledCornerRadius ?? NODE_CORNER_RADIUS}
               />
             </clipPath>
           );
@@ -307,8 +308,8 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
                y={node.y + 3}
                width={dimensions.currentWidth - 6}
                height={dimensions.currentHeight - 6}
-               rx={NODE_CORNER_RADIUS - 3}
-               ry={NODE_CORNER_RADIUS - 3}
+               rx={(dimensions.scaledCornerRadius ?? NODE_CORNER_RADIUS) - 3}
+               ry={(dimensions.scaledCornerRadius ?? NODE_CORNER_RADIUS) - 3}
                fill={node.color || NODE_DEFAULT_COLOR || 'maroon'}
                stroke="rgba(0,0,0,0.3)"
                strokeWidth={Math.max(0.5, 1 / scale)}
@@ -317,7 +318,7 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
              {hasThumbnail && (
                 <image
                     href={node.thumbnailSrc}
-                    x={node.x + NODE_PADDING}
+                    x={node.x + (dimensions.scaledPadding ?? NODE_PADDING)}
                     y={node.y + dimensions.textAreaHeight}
                     width={dimensions.imageWidth}
                     height={dimensions.calculatedImageHeight}
@@ -332,7 +333,7 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
                // canvas-coord font size × scale = screen px.
                const TARGET_PX = 18;
                const fontSize = Math.min(Math.max(TARGET_PX / scale, 13), 28);
-               const availableCanvasW = dimensions.currentWidth - NODE_PADDING * 2;
+               const availableCanvasW = dimensions.currentWidth - (dimensions.scaledPadding ?? NODE_PADDING) * 2;
                // Approximate char width for EmOne bold (~0.58× em)
                const avgCharW = fontSize * 0.58;
                const maxChars = Math.floor(availableCanvasW / avgCharW);

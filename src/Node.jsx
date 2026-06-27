@@ -27,6 +27,8 @@ const Node = ({
   textAreaHeight,
   imageWidth,
   imageHeight,
+  scaledPadding,
+  scaledCornerRadius,
   // --- Add preview-related props ---
   isPreviewing,
   innerNetworkWidth,
@@ -61,12 +63,19 @@ const Node = ({
   onNavigateDefinition
 }) => {
   const theme = useTheme();
+  const textSettings = useGraphStore(state => state.textSettings);
+  const globalNodeScale = textSettings?.nodeScale ?? 1.0;
+
+  // Fallback to unscaled constants if NodeCanvas didn't pass scaled values
+  const effPadding = scaledPadding ?? NODE_PADDING * globalNodeScale;
+  const effCornerRadius = scaledCornerRadius ?? NODE_CORNER_RADIUS * globalNodeScale;
+
   // Destructure properties from the hydrated node object
   // Instance-specific properties
   const instanceId = node.id;
   const nodeX = node.x ?? 0;
   const nodeY = node.y ?? 0;
-  const nodeScale = node.scale ?? 1;
+  const instanceScale = node.scale ?? 1;
   const prototypeId = node.prototypeId;
 
   // Prototype properties
@@ -158,7 +167,6 @@ const Node = ({
   // when the store changes (e.g. during drag position updates).
   const graphsMap = useGraphStore((state) => isPreviewing ? state.graphs : null);
   const edgesMap = useGraphStore((state) => isPreviewing ? state.edges : null);
-  const textSettings = useGraphStore((state) => state.textSettings);
   const nodePrototypesMap = useGraphStore((state) => isPreviewing ? state.nodePrototypes : null);
   const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
   const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 0.75);
@@ -191,27 +199,6 @@ const Node = ({
   const previewTextMaxWidth = unexpandedDims ? unexpandedDims.currentWidth - 60 : undefined; // 60px = 2 * 30px (multi-line padding for consistent wrapping)
 
   // Determine if text will be multiline for conditional padding
-  const isMultiline = useMemo(() => {
-    if (!displayTitle) return false;
-
-    // Single words should NEVER wrap, regardless of length
-    const words = displayTitle.trim().split(/\s+/);
-    if (words.length === 1) return false;
-
-    // Use multi-line padding (30px per side) for consistent estimation that
-    // matches the conservative measurement in getNodeDimensions.
-    const multiLineSidePadding = isPreviewing
-      ? (hasAnyDefinitions ? 140 : 30)
-      : 30;
-    const availableWidth = currentWidth - (2 * multiLineSidePadding);
-
-    // Quick character-based estimation
-    // Account for font size scaling when calculating char width
-    const averageCharWidth = 12 * textSettings.fontSize; // Scale with font size
-    const charsPerLine = Math.floor(availableWidth / averageCharWidth);
-
-    return displayTitle.length > charsPerLine;
-  }, [displayTitle, currentWidth, isPreviewing, hasAnyDefinitions, textSettings.fontSize]);
 
   // Get the currently displayed graph ID
   const currentGraphId = definitionGraphIds[currentDefinitionIndex] || definitionGraphIds[0];
@@ -298,7 +285,7 @@ const Node = ({
         // creates a GPU compositing layer on iOS WebKit, which mispositions foreignObject
         // children to the SVG origin and causes a blank inner preview. Leave both absent
         // when not dragging so no compositing layer is created.
-        transform: `scale(${nodeScale})`,
+        transform: `scale(${instanceScale})`,
         transformOrigin: `${nodeX + currentWidth / 2}px ${nodeY + currentHeight / 2}px`,
         willChange: 'transform',
         cursor: 'pointer',
@@ -349,23 +336,23 @@ const Node = ({
         {/* FIX: Revert clipPath definition to use absolute coordinates */}
         <clipPath id={clipPathId}>
           <rect
-            x={nodeX + NODE_PADDING - 1} // Use absolute coords
+            x={nodeX + effPadding - 1}
             y={contentAreaY - 1}
             width={imageWidth + 2}
             height={imageHeight + 2}
-            rx={NODE_CORNER_RADIUS}
-            ry={NODE_CORNER_RADIUS}
+            rx={effCornerRadius}
+            ry={effCornerRadius}
           />
         </clipPath>
         {/* Clip path for the inner network area - Use absolute coords */}
         <clipPath id={innerClipPathId}>
           <rect
-            x={nodeX + NODE_PADDING} // Use absolute nodeX
-            y={contentAreaY + 0.01} // Use calculated absolute contentAreaY + offset
+            x={nodeX + effPadding}
+            y={contentAreaY + 0.01}
             width={innerNetworkWidth}
             height={innerNetworkHeight}
-            rx={16}
-            ry={16}
+            rx={16 * globalNodeScale}
+            ry={16 * globalNodeScale}
           />
         </clipPath>
 
@@ -374,12 +361,12 @@ const Node = ({
           <mask id={`${idPrefix}node-mask-${instanceId}`}>
             <rect x={nodeX - 200} y={nodeY - 200} width={currentWidth + 400} height={currentHeight + 400} fill="white" />
             <rect
-              x={nodeX + NODE_PADDING}
+              x={nodeX + effPadding}
               y={contentAreaY + 0.01}
               width={innerNetworkWidth}
               height={innerNetworkHeight}
-              rx={16}
-              ry={16}
+              rx={16 * globalNodeScale}
+              ry={16 * globalNodeScale}
               fill="black"
             />
           </mask>
@@ -391,8 +378,8 @@ const Node = ({
         className="node-background"
         x={nodeX + 6} // Use absolute nodeX
         y={nodeY + 6} // Use absolute nodeY
-        rx={NODE_CORNER_RADIUS - 6}
-        ry={NODE_CORNER_RADIUS - 6}
+        rx={effCornerRadius - 6}
+        ry={effCornerRadius - 6}
         width={currentWidth - 12}
         height={currentHeight - 12}
         fill={safeColor}
@@ -423,9 +410,10 @@ const Node = ({
             width: '100%',
             height: '100%',
             padding: (() => {
-              const baseSidePadding = (isMultiline ? 30 : 22);
-              const verticalPadding = nodeThumbnailSrc ? 20 : 24;
-              return `${verticalPadding}px ${baseSidePadding}px`;
+              if (nodeThumbnailSrc) {
+                return `${22 * globalNodeScale}px ${effPadding}px ${18 * globalNodeScale}px`;
+              }
+              return `${24 * globalNodeScale}px ${effPadding}px`;
             })(),
             boxSizing: 'border-box',
             pointerEvents: isEditingOnCanvas ? 'auto' : 'none',
@@ -448,10 +436,10 @@ const Node = ({
             <span
               className="node-name-text"
               style={{
-                fontSize: `${20 * textSettings.fontSize}px`,
+                fontSize: `${20 * textSettings.fontSize * globalNodeScale}px`,
                 fontWeight: 'bold',
                 color: nodeTextColor,
-                lineHeight: `${28 * textSettings.lineSpacing}px`, // Base line height changed from 32 to 28
+                lineHeight: `${28 * textSettings.lineSpacing * globalNodeScale}px`,
                 whiteSpace: 'normal',
                 overflowWrap: 'break-word',
                 wordBreak: 'break-word',
@@ -479,7 +467,7 @@ const Node = ({
       > */}
       {hasThumbnail && (
         <foreignObject
-          x={nodeX + NODE_PADDING}
+          x={nodeX + effPadding}
           y={contentAreaY}
           width={imageWidth}
           height={imageHeight}
@@ -516,12 +504,12 @@ const Node = ({
               Visual rounding is done via rx/ry on the background rect only. */}
           <g>
             <rect
-              x={nodeX + NODE_PADDING}
+              x={nodeX + effPadding}
               y={contentAreaY}
               width={innerNetworkWidth}
               height={innerNetworkHeight}
-              rx={16}
-              ry={16}
+              rx={16 * globalNodeScale}
+              ry={16 * globalNodeScale}
               fill={theme.canvas.bg}
             />
 
@@ -531,19 +519,19 @@ const Node = ({
               // WebKit when the parent SVG canvas has a scale transform. InnerNetwork is
               // a plain <g> that renders directly into the existing SVG coordinate space,
               // so it works on all platforms without any foreignObject workarounds.
-              <g transform={`translate(${nodeX + NODE_PADDING}, ${contentAreaY})`} pointerEvents="none">
+              <g transform={`translate(${nodeX + effPadding}, ${contentAreaY})`} pointerEvents="none">
                 <InnerNetwork
                   nodes={currentGraphNodes}
                   edges={currentGraphEdges}
                   width={innerNetworkWidth}
                   height={innerNetworkHeight}
-                  padding={14}
+                  padding={14 * globalNodeScale}
                 />
               </g>
             ) : (
               // Show "Create Definition" interface when no definitions exist
               <foreignObject
-                x={nodeX + NODE_PADDING}
+                x={nodeX + effPadding}
                 y={contentAreaY}
                 width={innerNetworkWidth}
                 height={innerNetworkHeight}
@@ -599,7 +587,7 @@ const Node = ({
       {/* Description Area - Below InnerNetwork when previewing */}
       {isPreviewing && actualDescriptionHeight > 0 && currentGraphDescription && currentGraphDescription.trim() && currentGraphDescription !== 'No description.' && (
         <foreignObject
-          x={nodeX + NODE_PADDING}
+          x={nodeX + effPadding}
           y={descriptionAreaY}
           width={innerNetworkWidth}
           height={actualDescriptionHeight}
@@ -615,10 +603,10 @@ const Node = ({
               padding: '12px 8px 4px',
               boxSizing: 'border-box',
               fontFamily: "'EmOne', sans-serif",
-              fontSize: `${18 * textSettings.fontSize}px`,
+              fontSize: `${18 * textSettings.fontSize * globalNodeScale}px`,
               color: nodeTextColor,
               fontWeight: 'normal',
-              lineHeight: `${23.4 * textSettings.lineSpacing}px`, // Smaller font, ~1.3 line spacing for description
+              lineHeight: `${23.4 * textSettings.lineSpacing * globalNodeScale}px`,
               textAlign: 'center',
               wordWrap: 'break-word',
               overflowWrap: 'break-word',
@@ -641,7 +629,7 @@ const Node = ({
         const hpHeight = Math.round(70 * hoverPreviewSize);
         return (
         <foreignObject
-          x={nodeX + NODE_PADDING + (innerNetworkWidth / 2) - (hpWidth / 2)}
+          x={nodeX + effPadding + (innerNetworkWidth / 2) - (hpWidth / 2)}
           y={nodeY + textAreaHeight + 8}
           width={hpWidth}
           height={hpHeight}

@@ -56,7 +56,7 @@ export function isInsideNode(nodeData, clientX, clientY, containerRect, panOffse
   const scaledY = (clientY - containerRect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
 
   // Get base dimensions
-  const { currentWidth, currentHeight, textAreaHeight, innerNetworkWidth, innerNetworkHeight } = getNodeDimensions(nodeData, previewingNodeId === nodeData.id, null);
+  const { currentWidth, currentHeight, textAreaHeight, innerNetworkWidth, innerNetworkHeight, scaledPadding } = getNodeDimensions(nodeData, previewingNodeId === nodeData.id, null);
 
   // Apply node scale if it exists (for dragged nodes)
   const nodeScale = nodeData.scale || 1;
@@ -85,10 +85,9 @@ export function isInsideNode(nodeData, clientX, clientY, containerRect, panOffse
   if (!isInsideBounds) return false;
 
   // If this node is in preview mode, exclude the inner network area from hover detection
-  const NODE_PADDING = 30;
   if (previewingNodeId === nodeData.id && innerNetworkWidth > 0 && innerNetworkHeight > 0) {
     const contentAreaY = nodeY + textAreaHeight;
-    const innerNetworkX = nodeX + NODE_PADDING;
+    const innerNetworkX = nodeX + (scaledPadding ?? 30);
     const innerNetworkY = contentAreaY;
 
     // Check if we're inside the inner network area

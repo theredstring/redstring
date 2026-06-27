@@ -181,6 +181,8 @@ const UniversalNodeRenderer = ({
   const graphsMap = useGraphStore((state) => state.graphs);
   const activeGraphId = useGraphStore((state) => state.activeGraphId);
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
+  const nodeScaleGlobal = useGraphStore((state) => state.textSettings?.nodeScale ?? 1.0);
+  const connectionWidthGlobal = useGraphStore((state) => state.textSettings?.connectionWidth ?? 1.0);
 
   // Get actual node instances if not provided
   const instances = useMemo(() => {
@@ -481,7 +483,7 @@ const UniversalNodeRenderer = ({
         // Calculate adaptive stroke width based on average node size
         const avgNodeSize = (sourceNode.width + sourceNode.height + targetNode.width + targetNode.height) / 4;
         const baseStrokeMultiplier = Math.max(0.02, Math.min(0.08, avgNodeSize / 1000)); // Scales with node size
-        const adaptiveStrokeWidth = Math.max(1.5, avgNodeSize * baseStrokeMultiplier * connectionStrokeScale);
+        const adaptiveStrokeWidth = Math.max(1.5, avgNodeSize * baseStrokeMultiplier * connectionStrokeScale * connectionWidthGlobal);
 
         return {
           ...conn,
@@ -562,11 +564,11 @@ const UniversalNodeRenderer = ({
         // Outer stroke means the stroke extends outward from the path, not scaling with node size
         const baseStroke = 2.5; // Base stroke width in pixels for decomposition
         const scaleFactor = Math.max(0.8, Math.min(2.0, avgNodeSize / 30)); // Scale moderately with node size
-        adaptiveStrokeWidth = Math.max(2.0, baseStroke * scaleFactor * connectionStrokeScale);
+        adaptiveStrokeWidth = Math.max(2.0, baseStroke * scaleFactor * connectionStrokeScale * connectionWidthGlobal);
       } else {
         // For full canvas view: use existing formula
         const baseStrokeMultiplier = Math.max(0.02, Math.min(0.08, avgNodeSize / 1000)); // Scales with node size
-        adaptiveStrokeWidth = Math.max(1.5, avgNodeSize * baseStrokeMultiplier * connectionStrokeScale);
+        adaptiveStrokeWidth = Math.max(1.5, avgNodeSize * baseStrokeMultiplier * connectionStrokeScale * connectionWidthGlobal);
       }
 
       return {
@@ -587,7 +589,7 @@ const UniversalNodeRenderer = ({
       scaledConnections,
       transform: { scale, offsetX, offsetY }
     };
-  }, [nodes, connections, instances, containerWidth, containerHeight, scaleMode, minNodeSize, maxNodeSize, padding, routingStyle, alignNodesHorizontally, calculateConnectionPath, connectionStrokeScale, renderContext, nodePrototypesMap, getConnectionName, getConnectionColor]);
+  }, [nodes, connections, instances, containerWidth, containerHeight, scaleMode, minNodeSize, maxNodeSize, padding, routingStyle, alignNodesHorizontally, calculateConnectionPath, connectionStrokeScale, connectionWidthGlobal, renderContext, nodePrototypesMap, getConnectionName, getConnectionColor]);
 
   // Event handlers
   const handleNodeMouseEnter = (node) => {
@@ -780,7 +782,7 @@ const UniversalNodeRenderer = ({
                 // Calculate arrow scale based on stroke width (maintains proportions).
                 // Trim arrowheads in the compact decomposition preview so they read at
                 // node scale instead of dominating the small inner nodes.
-                const arrowScale = Math.max(0.5, conn.strokeWidth / 6) * (renderContext === 'decomposition' ? 0.8 : 1);
+                const arrowScale = Math.max(0.5, conn.strokeWidth / 6) * (renderContext === 'decomposition' ? 0.8 : 1) * nodeScaleGlobal;
 
                 return (
                   <g
@@ -830,7 +832,7 @@ const UniversalNodeRenderer = ({
                 // Calculate arrow scale based on stroke width (maintains proportions).
                 // Trim arrowheads in the compact decomposition preview so they read at
                 // node scale instead of dominating the small inner nodes.
-                const arrowScale = Math.max(0.5, conn.strokeWidth / 6) * (renderContext === 'decomposition' ? 0.8 : 1);
+                const arrowScale = Math.max(0.5, conn.strokeWidth / 6) * (renderContext === 'decomposition' ? 0.8 : 1) * nodeScaleGlobal;
 
                 return (
                   <g
@@ -890,7 +892,7 @@ const UniversalNodeRenderer = ({
                     const dotY = adjustedSourcePoint.y;
 
                     // Calculate dot scale based on stroke width (maintains proportions)
-                    const dotScale = Math.max(0.5, conn.strokeWidth / 6); // Base dot size is for strokeWidth=6
+                    const dotScale = Math.max(0.5, conn.strokeWidth / 6) * nodeScaleGlobal; // Base dot size is for strokeWidth=6
 
                     return (
                       <g>
@@ -951,7 +953,7 @@ const UniversalNodeRenderer = ({
                     const dotY = adjustedTargetPoint.y;
 
                     // Calculate dot scale based on stroke width (maintains proportions)
-                    const dotScale = Math.max(0.5, conn.strokeWidth / 6); // Base dot size is for strokeWidth=6
+                    const dotScale = Math.max(0.5, conn.strokeWidth / 6) * nodeScaleGlobal; // Base dot size is for strokeWidth=6
 
                     return (
                       <g>

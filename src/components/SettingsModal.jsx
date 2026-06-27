@@ -469,6 +469,17 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={(v) => useGraphStore.getState().setConnectionLabelSize?.(v)}
             />
           </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Connection Width"
+              value={textSettings?.connectionWidth ?? 1.0}
+              min={0.25}
+              max={4.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setConnectionWidth?.(v)}
+            />
+          </div>
           <div className="settings-row">
             <div className="settings-row-label">Routing Style</div>
             <OptionGroup
@@ -521,6 +532,17 @@ const SettingsModal = ({ isVisible, onClose }) => {
               step={0.05}
               suffix="x"
               onChange={(v) => useGraphStore.getState().setTextLineSpacing?.(v)}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Node Size"
+              value={textSettings?.nodeScale ?? 1.0}
+              min={0.5}
+              max={2.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setNodeScale?.(v)}
             />
           </div>
         </div>

@@ -177,9 +177,14 @@ app.post('/api/wizard', async (req, res) => {
     });
 
     const abortController = new AbortController();
-    req.on('aborted', () => {
-      console.log('[Wizard] Client request aborted, canceling agent loop');
-      abortController.abort();
+    // req.on('aborted') is deprecated in Node 17+ — use res.on('close') instead.
+    // Fires when the client disconnects or aborts the fetch; writableEnded guards
+    // against triggering on normal completion.
+    res.on('close', () => {
+      if (!res.writableEnded) {
+        console.log('[Wizard] Client disconnected, canceling agent loop');
+        abortController.abort();
+      }
     });
 
     try {

@@ -54,19 +54,45 @@ All graph-mutating and read-only tools accept optional \`targetGraphId\`. If omi
 4. Limit each tool call to ~8-12 nodes for reliability. Use multiple calls for larger requests.
 
 ## Edge Rules
-- Connection names must be plain English in Title Case: "Part Of", "Created By", "Influenced".
-- If you are thinking of doing a "Composed Of" connection, rethink how you are doing things. Instead, use a **Thing-Group** more often than not, or a **Group** if it doesn't warrant assigning a definitional node.
+- Connection names must be plain English in Title Case: "Created By", "Influenced", "Orbits".
+- **NEVER create "Composed Of", "Made Of", "Contains", "Part Of", or "Has" edges** — membership/composition belongs in a Thing-Group or definition graph, never as an edge.
 - Never use camelCase (isPartOf), snake_case (is_part_of), or code-style names.
 - Every edge \`source\` and \`target\` MUST match a node name in your \`nodes\` array. Unmatched edges are dropped.
 - Always include the nested \`definitionNode\` object on edges. Do not collapse or omit it.
 
 ## Groups and Thing-Groups
 
-- **Groups**: Visual containers for loose categorization. No semantic meaning. Use these for sets that don't warrant assigning a definitional node.
-- **Thing-Groups**: Formal composition — a Group backed by a node. Members become that node's components. The group visually represents the "inside" of that node.
-- For "X is made of Y, Z" relationships or if you are considering a "Composed Of" connection → use a Thing-Group (add \`definedBy\` to the group), or a regular Group, not edges.
-- For peer relationships (X influences Y, X created Y) → use edges.
-- In bulk tools, set \`definedBy\` on a group to make it a Thing-Group in one step.
+**Use groups in nearly every graph.** They add a layer of composition without creating edges.
+
+### Regular Group — visual label, no node
+Use when nodes share a theme but the category itself isn't a concept worth connecting to.
+\`\`\`json
+{ "name": "Background Concepts", "color": "gray", "memberNames": ["Node A", "Node B"] }
+\`\`\`
+
+### Thing-Group — the cluster IS also a node (use this constantly)
+Add \`definedBy\` to make the group backed by a node. The node is auto-created.
+\`\`\`json
+{
+  "name": "Inner Planets",
+  "color": "orange",
+  "memberNames": ["Mercury", "Venus", "Earth", "Mars"],
+  "definedBy": { "name": "Inner Planets", "description": "Rocky planets in the inner Solar System" }
+}
+\`\`\`
+
+**Use a Thing-Group whenever ANY of these are true:**
+- The cluster has a proper name that itself means something ("Inner Planets", "House Stark", "The Three Branches")
+- The members ARE what that named concept is made of
+- You'd want to draw an edge TO the category from somewhere else in the graph
+- You're tempted to create a "Composed Of" or "Made Of" edge — stop, make a Thing-Group instead
+
+**Examples across domains:**
+- Tectonic plates: Thing-Group "Convergent Boundary Types" containing Oceanic-Continental, Continental-Continental, Oceanic-Oceanic
+- Solar system: Thing-Group "Inner Planets" containing Mercury, Venus, Earth, Mars
+- History: Thing-Group "Allied Powers" containing USA, UK, France, USSR
+- Biology: Thing-Group "Eukaryotic Organelles" containing Mitochondria, Nucleus, Golgi Apparatus
+- Government: Thing-Group "The Three Branches" containing Legislature, Executive, Judiciary
 
 ## Graph Scale & Composition Strategy
 
@@ -75,7 +101,7 @@ Keep any single graph to **~10-15 nodes maximum**. Larger graphs become unreadab
 When given complex material (documents, broad topics, large datasets):
 1. **Top-level graph**: Create ~8-12 high-level category/concept nodes
 2. **Use \`populateDefinitionGraph\`** to push detail INTO those nodes rather than alongside them
-3. **Use Thing-Groups** (groups with \`definedBy\`) when a cluster of nodes represents the "inside" of a concept
+3. **Use Thing-Groups** (groups with \`definedBy\`) whenever a named cluster's members define what that concept is made of — see Groups section above
 4. **Use \`condenseToNode\`** to package existing clusters into new concepts with definition graphs
 
 **Anti-pattern:** 50 flat nodes in one graph. **Correct pattern:** 10 nodes at top level, each defined by a 5-8 node definition graph.
@@ -96,7 +122,7 @@ When a user attaches a PDF or asks you to adapt a document into a graph, **alway
 2. **Plan the hierarchy with \`planTask\`**: Map document structure to Redstring composition. Each major section or theme becomes a top-level node. Sub-sections become definition graph content. Cross-cutting relationships become edges at the appropriate level.
 3. **Choose the right container for each cluster** (most documents need a MIX of these — don't default everything to definition graphs):
    - **Groups** (no \`definedBy\`): DEFAULT for visual categories. Use when nodes share a theme but the category itself isn't a concept worth decomposing — e.g., "Pro" vs "Con" arguments, "Background" vs "Original Work" sections, "Internal" vs "External" factors. Most document sections map to Groups.
-   - **Thing-Groups** (groups with \`definedBy\`): When the cluster IS a named concept AND its members define that concept — e.g., "The Three Branches" with Legislature, Executive, Judiciary inside. The group and its backing node are one thing.
+   - **Thing-Groups** (groups with \`definedBy: { name: "..." }\`): When the cluster IS a named concept whose members define it — e.g., \`definedBy: { name: "The Three Branches" }\` containing Legislature, Executive, Judiciary. Gives you the category node AND the visual cluster in one call.
    - **Definition graphs** (via \`populateDefinitionGraph\`): ONLY when a concept has rich internal structure worth navigating separately — e.g., a "Methodology" with 5+ steps, tools, and data sources. If a node can be fully described in a sentence, it doesn't need a definition graph.
 4. **Build in layers**: Top-level graph first with Groups and Thing-Groups in the same \`createPopulatedGraph\` call, then selectively populate definition graphs for nodes that truly need decomposition. Each layer should be 8-12 nodes max.
 5. **Preserve the document's relational structure**: Don't just decompose — connect. If Chapter 2 builds on Chapter 1's conclusions, that's an edge. If the same entity appears across multiple sections, reuse the node rather than duplicating it.

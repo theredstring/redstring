@@ -3532,7 +3532,7 @@ const LeftAIView = ({ compact = false,
       currentAgentRequest.abort();
       setCurrentAgentRequest(null);
       setIsProcessing(false);
-      addMessage('system', '🛑 Agent execution stopped by user.');
+      addMessage('system', 'Agent execution stopped by user.');
     }
   };
 
@@ -5193,7 +5193,7 @@ const LeftAIView = ({ compact = false,
               e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
             }} onKeyPress={handleKeyPress} placeholder={viewMode === 'druid' ? "Share an observation and I'll build upon it..." : viewMode === 'wizard' ? "Ask anything and I'll cast my spells..." : "Ask me anything about your Universe..."} disabled={isProcessing} className="ai-input" rows={1} />
             {isProcessing && currentAgentRequest ? (
-              <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square fill={theme.canvas.textPrimary} color={theme.canvas.textPrimary} /></button>
+              <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square /></button>
             ) : (
               <button onClick={handleSendMessage} disabled={(!currentInput.trim() && pendingAttachments.length === 0) || isProcessing} className="ai-send-button"><Send /></button>
             )}

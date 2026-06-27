@@ -657,9 +657,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return {
           fontSize: parseFloat(localStorage.getItem('redstring_text_font_size')) || 1.4,
           lineSpacing: parseFloat(localStorage.getItem('redstring_text_line_spacing')) || 1.0,
+          nodeScale: parseFloat(localStorage.getItem('redstring_node_scale')) || 1.0,
+          connectionWidth: parseFloat(localStorage.getItem('redstring_connection_width')) || 1.0,
         };
       } catch (_) {
-        return { fontSize: 1.4, lineSpacing: 1.0 };
+        return { fontSize: 1.4, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0 };
       }
     })(),
 
@@ -3824,6 +3826,30 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.textSettings.lineSpacing = v;
       try {
         localStorage.setItem('redstring_text_line_spacing', String(v));
+      } catch (_) { }
+    })),
+
+    setNodeScale: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.5 || v > 2.0) {
+        console.warn(`[setNodeScale] Invalid value: ${value}`);
+        return;
+      }
+      draft.textSettings.nodeScale = v;
+      try {
+        localStorage.setItem('redstring_node_scale', String(v));
+      } catch (_) { }
+    })),
+
+    setConnectionWidth: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.25 || v > 4.0) {
+        console.warn(`[setConnectionWidth] Invalid value: ${value}`);
+        return;
+      }
+      draft.textSettings.connectionWidth = v;
+      try {
+        localStorage.setItem('redstring_connection_width', String(v));
       } catch (_) { }
     })),
 

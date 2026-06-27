@@ -3,6 +3,7 @@ import {
   NODE_HEIGHT,
   NODE_PADDING,
   EXPANDED_NODE_WIDTH,
+  NODE_CORNER_RADIUS,
   NAME_AREA_FACTOR
 } from './constants'; // Import necessary constants
 import useGraphStore from './store/graphStore.jsx'; // Import store for textSettings
@@ -65,7 +66,8 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // Create cache key based on all properties that affect dimensions
   // Include text settings to invalidate cache when text size changes
   const textSettings = useGraphStore.getState().textSettings;
-  const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}-${lineHeightBase}`;
+  const nodeScale = textSettings.nodeScale ?? 1.0;
+  const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}-${nodeScale}-${lineHeightBase}`;
 
   const cached = dimensionCache.get(cacheKey);
   if (cached) {
@@ -80,8 +82,22 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // const hasValidImageDimensions = hasImage && node.image.naturalWidth > 0; // This needs re-evaluation
   const hasValidImageDimensions = hasImage; // Simplification for now
 
+  // Scaled geometry constants — all node geometry scales proportionally with nodeScale
+  const sW   = NODE_WIDTH * nodeScale;
+  const sH   = NODE_HEIGHT * nodeScale;
+  const sP   = NODE_PADDING * nodeScale;
+  const sEW  = EXPANDED_NODE_WIDTH * nodeScale;
+  const sCR  = NODE_CORNER_RADIUS * nodeScale;
+  const sPW  = PREVIEW_NODE_WIDTH * nodeScale;
+  const sPMH = PREVIEW_NODE_MIN_HEIGHT * nodeScale;
+  const sPTA = PREVIEW_TEXT_AREA_HEIGHT * nodeScale;
+  const sICP = 24 * nodeScale; // INNER_CANVAS_PADDING
+
+  // Augment textSettings so font measurement uses the proportionally scaled font size
+  const augTs = { ...textSettings, fontSize: textSettings.fontSize * nodeScale };
+
   // --- Text Measurement (via Pretext — no DOM reflow) ---
-  const fontString = buildNodeFontString(textSettings);
+  const fontString = buildNodeFontString(augTs);
   const textWidth = measureTextWidth(nodeName, fontString);
 
   // Set up font-load listener to clear dimension cache when custom font loads
@@ -95,66 +111,60 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // --- Determine base dimensions based on state ---
   let baseWidth, baseHeight, textWidthTarget;
   if (isPreviewing) {
-    baseWidth = PREVIEW_NODE_WIDTH;
-    baseHeight = PREVIEW_NODE_MIN_HEIGHT;
+    baseWidth = sPW;
+    baseHeight = sPMH;
     // We want the text to wrap EXACTLY as it did in the unexpanded node.
     const textWidthWithBuffer = textWidth + 20;
-    const unexpandedWidth = Math.max(NODE_WIDTH, Math.min(textWidthWithBuffer + 2 * NODE_PADDING, EXPANDED_NODE_WIDTH));
-    textWidthTarget = unexpandedWidth - 60; // Use multi-line padding (30px per side) for conservative measurement
+    const unexpandedWidth = Math.max(sW, Math.min(textWidthWithBuffer + 2 * sP, sEW));
+    textWidthTarget = unexpandedWidth - 2 * sP;
   } else if (hasImage) {
-    baseWidth = EXPANDED_NODE_WIDTH;
-    baseHeight = NODE_HEIGHT; // Start with base, image adds later
-    textWidthTarget = baseWidth - 60; // Use multi-line padding (30px per side) for conservative measurement
+    baseWidth = sEW;
+    baseHeight = sH; // Start with base, image adds later
+    textWidthTarget = baseWidth - 2 * sP;
   } else {
-    baseWidth = NODE_WIDTH;
-    baseHeight = NODE_HEIGHT;
-    textWidthTarget = baseWidth - 60; // Use multi-line padding (30px per side) for conservative measurement
+    baseWidth = sW;
+    baseHeight = sH;
+    textWidthTarget = baseWidth - 2 * sP;
   }
 
   // --- Shared Constant ---
-  const TEXT_V_PADDING_TOTAL = 56; // Total vertical padding for preview mode
+  const TEXT_V_PADDING_TOTAL = Math.round(56 * nodeScale); // Total vertical padding for preview mode
 
   // --- Calculate Dimensions Based on State ---
   let currentWidth, currentHeight, textAreaHeight, imageWidth, calculatedImageHeight, innerNetworkWidth, innerNetworkHeight, descriptionAreaHeight;
 
   // Shared: compute scaled line height
-  const scaledLineHeightShared = (lineHeightBase || 28) * textSettings.lineSpacing;
+  const scaledLineHeightShared = (lineHeightBase || 28) * nodeScale * augTs.lineSpacing;
 
   if (isPreviewing) {
     currentWidth = baseWidth;
     // Calculate textAreaHeight dynamically based on actual text wrapping with correct width
-    const textBlockHeight = measureTextBlockHeight(nodeName, textWidthTarget, textSettings, lineHeightBase);
-    textAreaHeight = Math.max(PREVIEW_TEXT_AREA_HEIGHT, textBlockHeight + TEXT_V_PADDING_TOTAL);
+    const textBlockHeight = measureTextBlockHeight(nodeName, textWidthTarget, augTs, lineHeightBase * nodeScale);
+    textAreaHeight = Math.max(sPTA, textBlockHeight + TEXT_V_PADDING_TOTAL);
 
-    innerNetworkWidth = currentWidth - 2 * NODE_PADDING;
+    innerNetworkWidth = currentWidth - 2 * sP;
 
     // Calculate description area height dynamically based on actual content
     if (descriptionContent && descriptionContent.trim() && descriptionContent !== 'No description.') {
       // Measure actual text to determine how many lines we need
-      const actualHeight = measureTextBlockHeight(descriptionContent, innerNetworkWidth, textSettings, DESCRIPTION_LINE_HEIGHT);
+      const actualHeight = measureTextBlockHeight(descriptionContent, innerNetworkWidth, augTs, DESCRIPTION_LINE_HEIGHT * nodeScale);
 
       // Cap at maximum 3 lines but use actual height if smaller
-      const maxAllowedHeight = DESCRIPTION_MAX_LINES * DESCRIPTION_LINE_HEIGHT;
+      const maxAllowedHeight = DESCRIPTION_MAX_LINES * DESCRIPTION_LINE_HEIGHT * nodeScale;
       const contentHeight = Math.min(actualHeight, maxAllowedHeight);
-      descriptionAreaHeight = contentHeight + 16; // Padding (12px top + 4px bottom, matches Node.jsx)
+      descriptionAreaHeight = contentHeight + 16 * nodeScale; // Padding (12px top + 4px bottom, matches Node.jsx)
     } else {
       // If no description, set height to 0
       descriptionAreaHeight = 0;
     }
     // Calculate network height based on dynamic textAreaHeight and description area, ensuring minimum height
-    // Use consistent 24px padding for inner canvas (matching left/right padding from colored border)
-    const INNER_CANVAS_PADDING = 24;
-    // Don't reduce available height by padding - we'll add padding to total height instead
-    const availableHeightForNetwork = PREVIEW_NODE_MIN_HEIGHT - textAreaHeight - descriptionAreaHeight;
-    const minNetworkHeight = 300; // Increased minimum height for better readability and faithful node representations
+    const availableHeightForNetwork = sPMH - textAreaHeight - descriptionAreaHeight;
+    const minNetworkHeight = 300 * nodeScale;
     innerNetworkHeight = Math.max(minNetworkHeight, availableHeightForNetwork);
 
-    // Final node height: text area + top padding + network + description spacing + description + bottom padding
-    // Add 6px to account for colored border inset (rect is inset by 6px on all sides)
-    // Add 8px for spacing between inner canvas and description only if description exists (matches Node.jsx descriptionAreaY calculation)
-    // This makes the colored border rectangle physically taller to accommodate the padding
-    const DESCRIPTION_SPACING = descriptionAreaHeight > 0 ? 8 : 0;
-    currentHeight = textAreaHeight + innerNetworkHeight + DESCRIPTION_SPACING + descriptionAreaHeight + INNER_CANVAS_PADDING + 6;
+    // Final node height: text area + network + description spacing + description + inner canvas padding + border inset
+    const DESCRIPTION_SPACING = descriptionAreaHeight > 0 ? 8 * nodeScale : 0;
+    currentHeight = textAreaHeight + innerNetworkHeight + DESCRIPTION_SPACING + descriptionAreaHeight + sICP + 6;
 
     // Reset image dimensions
     imageWidth = 0;
@@ -162,12 +172,12 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   } else if (hasImage) {
     currentWidth = baseWidth;
     // Calculate text block height based on expanded width
-    const textBlockHeight = measureTextBlockHeight(nodeName, textWidthTarget, textSettings, lineHeightBase);
+    const textBlockHeight = measureTextBlockHeight(nodeName, textWidthTarget, augTs, lineHeightBase * nodeScale);
     // Text area height is text height + vertical padding, with a minimum.
-    textAreaHeight = Math.max(NODE_HEIGHT, textBlockHeight + TEXT_V_PADDING_TOTAL);
+    textAreaHeight = Math.max(sH, textBlockHeight + TEXT_V_PADDING_TOTAL);
 
     // Calculate image dimensions
-    imageWidth = currentWidth - 2 * NODE_PADDING;
+    imageWidth = currentWidth - 2 * sP;
     if (hasValidImageDimensions) {
       // Get stored aspect ratio or use a default (e.g., 1 for square)
       const aspectRatio = node.getImageAspectRatio ? node.getImageAspectRatio() : 1;
@@ -177,7 +187,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
 
       // Adjust overall node height to accommodate image
       // Height = Text Area + Image Area + Bottom Padding
-      currentHeight = textAreaHeight + calculatedImageHeight + NODE_PADDING;
+      currentHeight = textAreaHeight + calculatedImageHeight + sP;
     } else {
       calculatedImageHeight = 0; // Handle invalid image data
       currentHeight = textAreaHeight; // Just the text area height
@@ -190,29 +200,44 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     // --- Node WITHOUT Image ---
     const isSingleWord = !nodeName.includes(' ');
 
-    // Determine width based on text length, clamped between NODE_WIDTH and EXPANDED_NODE_WIDTH
+    // Determine width based on text length, clamped between sW and sEW
     const textWidthWithBuffer = textWidth * 1.1;
-    currentWidth = Math.max(NODE_WIDTH, Math.min(textWidthWithBuffer + 2 * NODE_PADDING, EXPANDED_NODE_WIDTH));
+    currentWidth = Math.max(sW, Math.min(textWidthWithBuffer + 2 * sP, sEW));
 
-    // Line height must scale with font size. lineHeightBase=28 was calibrated for the
-    // original default fontSize=1.4 (28px font). At larger sizes the budget is too small
-    // and multi-line nodes end up shorter than the rendered text.
-    const fontSizeScaledLineHeight = 20 * textSettings.fontSize * textSettings.lineSpacing;
+    // Line height scales with both font size and nodeScale (augTs.fontSize already includes nodeScale)
+    const fontSizeScaledLineHeight = 20 * augTs.fontSize * augTs.lineSpacing;
 
     let textBlockHeight;
     // If it's a single word and not at max width, don't let it wrap.
-    if (isSingleWord && currentWidth < EXPANDED_NODE_WIDTH) {
+    if (isSingleWord && currentWidth < sEW) {
       textBlockHeight = fontSizeScaledLineHeight;
     } else {
-      // Use multi-line padding (30px per side = 60px total) for conservative measurement.
-      // This guarantees height is always sufficient even when text wraps to multiline.
-      const actualTextWidth = currentWidth - 60;
-      textBlockHeight = measureTextBlockHeight(nodeName, actualTextWidth, textSettings, 20 * textSettings.fontSize);
+      const actualTextWidth = currentWidth - 2 * sP;
+      textBlockHeight = measureTextBlockHeight(nodeName, actualTextWidth, augTs, 20 * augTs.fontSize);
+
+      // For multi-line nodes at max width, try to find a narrower width that still
+      // fits the same number of lines — avoids wide rectangular nodes with excess side space.
+      if (currentWidth >= sEW) {
+        const effectiveLineHeight = 20 * augTs.fontSize * augTs.lineSpacing;
+        const numLines = Math.round(textBlockHeight / effectiveLineHeight);
+        if (numLines > 1) {
+          // Candidate: average line width * 1.3 buffer
+          const candidateTextWidth = Math.ceil((textWidth / numLines) * 1.3);
+          const candidateWidth = Math.max(sW, Math.min(candidateTextWidth + 2 * sP, currentWidth));
+          if (candidateWidth < currentWidth) {
+            const candidateHeight = measureTextBlockHeight(nodeName, candidateTextWidth, augTs, 20 * augTs.fontSize);
+            const candidateLines = Math.round(candidateHeight / effectiveLineHeight);
+            if (candidateLines <= numLines) {
+              currentWidth = candidateWidth;
+              textBlockHeight = candidateHeight;
+            }
+          }
+        }
+      }
     }
 
-    // Total height is the text block height plus padding, with a minimum of NODE_HEIGHT.
-    // 48px = 24px top + 24px bottom.
-    currentHeight = Math.max(NODE_HEIGHT, textBlockHeight + 48);
+    // Total height = text block + vertical padding, minimum sH.
+    currentHeight = Math.max(sH, textBlockHeight + Math.round(48 * nodeScale));
 
     // The text area itself now effectively is the full height to allow vertical centering.
     textAreaHeight = currentHeight;
@@ -226,12 +251,12 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   }
 
   // Ensure minimum height (redundant check, but safe)
-  currentHeight = Math.max(currentHeight, NODE_HEIGHT);
+  currentHeight = Math.max(currentHeight, sH);
 
   // Ensure all return values are numbers (prevent NaN)
-  currentWidth = Number(currentWidth) || NODE_WIDTH;
-  currentHeight = Number(currentHeight) || NODE_HEIGHT;
-  textAreaHeight = Number(textAreaHeight) || NODE_HEIGHT;
+  currentWidth = Number(currentWidth) || sW;
+  currentHeight = Number(currentHeight) || sH;
+  textAreaHeight = Number(textAreaHeight) || sH;
   imageWidth = Number(imageWidth) || 0;
   calculatedImageHeight = Number(calculatedImageHeight) || 0;
   innerNetworkWidth = Number(innerNetworkWidth) || 0;
@@ -241,12 +266,14 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   const result = {
     currentWidth,
     currentHeight,
-    textAreaHeight: textAreaHeight, // Return calculated text area height
+    textAreaHeight,
     imageWidth,
-    calculatedImageHeight, // Return calculated image height
-    innerNetworkWidth, // Add inner network dimensions
-    innerNetworkHeight, // Add inner network dimensions
-    descriptionAreaHeight // Add description area height
+    calculatedImageHeight,
+    innerNetworkWidth,
+    innerNetworkHeight,
+    descriptionAreaHeight,
+    scaledPadding: sP,
+    scaledCornerRadius: sCR,
   };
 
   // PERFORMANCE: Store in cache with LRU eviction
