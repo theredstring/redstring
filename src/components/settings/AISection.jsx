@@ -28,6 +28,7 @@ const AISection = () => {
   const [allowKeyEdit, setAllowKeyEdit] = useState(true);
   const [localPresets] = useState(() => apiKeyManager.getLocalProviderPresets());
   const [selectedPreset, setSelectedPreset] = useState(null);
+  const [maxIterations, setMaxIterations] = useState(0); // 0 = infinite
   const [connectionTestResult, setConnectionTestResult] = useState(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [wizardConnectionPref, setWizardConnectionPref] = useState(() => {
@@ -82,6 +83,7 @@ const AISection = () => {
         setProvider(keyInfo.provider);
         setEndpoint(keyInfo.endpoint || '');
         setModel(keyInfo.model || '');
+        setMaxIterations(keyInfo.settings?.maxIterations ?? 0);
         setIsEditingExisting(false);
         setAllowKeyEdit(false);
       } else {
@@ -221,7 +223,8 @@ const AISection = () => {
         model: model.trim(),
         settings: {
           temperature: 0.7,
-          max_tokens: 8192
+          max_tokens: 8192,
+          maxIterations: Number(maxIterations) || 0
         }
       });
 
@@ -558,6 +561,23 @@ const AISection = () => {
                 </div>
               )}
 
+              <div className="settings-row">
+                <div className="settings-row-label">
+                  Max Iterations
+                  <div className="settings-row-description">Wizard tool calls per turn. 0 = unlimited</div>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  max="9999"
+                  value={maxIterations}
+                  onChange={(e) => setMaxIterations(Number(e.target.value) || 0)}
+                  disabled={isLoading}
+                  className="ai-input"
+                  style={{ width: '80px' }}
+                />
+              </div>
+
               <div className="settings-row" style={{ borderBottom: 'none' }}>
                 <div className="settings-row-label">Test Connection</div>
                 <button
@@ -680,6 +700,22 @@ const AISection = () => {
                   disabled={isLoading}
                   className="ai-input"
                   style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
+                />
+              </div>
+              <div className="settings-row">
+                <div className="settings-row-label">
+                  Max Iterations
+                  <div className="settings-row-description">Wizard tool calls per turn. 0 = unlimited</div>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  max="9999"
+                  value={maxIterations}
+                  onChange={(e) => setMaxIterations(Number(e.target.value) || 0)}
+                  disabled={isLoading}
+                  className="ai-input"
+                  style={{ width: '80px' }}
                 />
               </div>
             </>

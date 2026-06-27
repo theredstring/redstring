@@ -1057,10 +1057,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   }
 
   // Max iterations reached
-  const planStatus = graphState._currentPlan
-    ? `Plan: ${graphState._currentPlan.filter(s => s.status === 'done').length}/${graphState._currentPlan.length} done.`
-    : '';
-  console.error(`[AgentLoop] ✗ Max iterations (${maxIterations}) reached. ${planStatus}`);
-  yield { type: 'response', content: `Reached maximum iterations (${maxIterations}). ${planStatus} Task may be incomplete.` };
-  yield { type: 'done', iterations: maxIterations, reason: 'max_iterations' };
+  const plan = graphState._currentPlan;
+  const planDone = plan ? plan.filter(s => s.status === 'done').length : 0;
+  const planTotal = plan ? plan.length : 0;
+  console.error(`[AgentLoop] ✗ Max iterations (${maxIterations}) reached. Plan: ${planDone}/${planTotal} done.`);
+  yield { type: 'done', iterations: maxIterations, reason: 'max_iterations', planDone, planTotal };
 }

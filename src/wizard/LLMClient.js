@@ -766,6 +766,9 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
   const decoder = new TextDecoder();
   let buffer = '';
   let currentToolCall = null;
+  // State for parsing <think>...</think> tags embedded in delta.content
+  let thinkTagBuffer = '';
+  let inThinkTag = false;
 
   try {
     while (true) {
@@ -851,15 +854,47 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
               }
             }
 
-            // Thinking content (Ollama thinking models: deepseek-r1, qwq, gemma3, etc.)
-            // Ollama sends thinking in delta.thinking_content, separate from delta.content
+            // Thinking content — three formats depending on provider/model:
+            // 1. delta.thinking_content (Ollama native thinking field)
+            // 2. delta.reasoning_content (DeepSeek API)
+            // 3. <think>...</think> tags embedded in delta.content (common Ollama format)
             if (delta?.thinking_content) {
               yield { type: 'thinking', content: delta.thinking_content };
+            } else if (delta?.reasoning_content) {
+              yield { type: 'thinking', content: delta.reasoning_content };
             }
 
-            // Text content
+            // Text content — parse out any embedded <think>...</think> blocks
             if (delta?.content) {
-              yield { type: 'text', content: delta.content };
+              thinkTagBuffer += delta.content;
+              // Process buffer, splitting on <think>/<\/think> boundaries
+              while (thinkTagBuffer.length > 0) {
+                if (inThinkTag) {
+                  const closeIdx = thinkTagBuffer.indexOf('</think>');
+                  if (closeIdx >= 0) {
+                    if (closeIdx > 0) yield { type: 'thinking', content: thinkTagBuffer.slice(0, closeIdx) };
+                    thinkTagBuffer = thinkTagBuffer.slice(closeIdx + 8);
+                    inThinkTag = false;
+                  } else {
+                    // Keep last 8 chars in buffer (partial </think> might span chunks)
+                    const safe = Math.max(0, thinkTagBuffer.length - 8);
+                    if (safe > 0) { yield { type: 'thinking', content: thinkTagBuffer.slice(0, safe) }; thinkTagBuffer = thinkTagBuffer.slice(safe); }
+                    break;
+                  }
+                } else {
+                  const openIdx = thinkTagBuffer.indexOf('<think>');
+                  if (openIdx >= 0) {
+                    if (openIdx > 0) yield { type: 'text', content: thinkTagBuffer.slice(0, openIdx) };
+                    thinkTagBuffer = thinkTagBuffer.slice(openIdx + 7);
+                    inThinkTag = true;
+                  } else {
+                    // Keep last 7 chars in buffer (partial <think> might span chunks)
+                    const safe = Math.max(0, thinkTagBuffer.length - 7);
+                    if (safe > 0) { yield { type: 'text', content: thinkTagBuffer.slice(0, safe) }; thinkTagBuffer = thinkTagBuffer.slice(safe); }
+                    break;
+                  }
+                }
+              }
             }
 
             // Finish tool call if done
@@ -891,6 +926,11 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
           }
         }
       }
+    }
+
+    // Flush any remaining think tag buffer content
+    if (thinkTagBuffer.length > 0) {
+      yield { type: inThinkTag ? 'thinking' : 'text', content: thinkTagBuffer };
     }
 
     // Flush remaining tool call

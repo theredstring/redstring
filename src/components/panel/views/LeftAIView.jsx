@@ -2977,6 +2977,12 @@ const LeftAIView = ({ compact = false,
   }, [viewMode, druidInstance]);
 
   const addMessage = (sender, content, metadata = {}, targetId = activeConversationId) => {
+    // Strip trailing newlines/whitespace from user messages (users often add them after tool calls)
+    const normalizedContent = sender === 'user' && typeof content === 'string'
+      ? content.trimEnd()
+      : content;
+    content = normalizedContent;
+
     // Shared logic to build the message object
     const buildMessage = (prevMessages) => {
       const isDuplicate = prevMessages.some(m =>
@@ -3975,6 +3981,10 @@ const LeftAIView = ({ compact = false,
                       blocks[lastTextIdx] = { ...blocks[lastTextIdx], content: blocks[lastTextIdx].content.trimEnd() };
                     }
                     if (msg.content) msg.content = msg.content.trimEnd();
+                    // Show a subtle system note for incomplete plans, not as AI text
+                    if (event.reason === 'max_iterations' && event.planTotal > 0 && event.planDone < event.planTotal) {
+                      blocks.push({ type: 'system_note', content: `Reached iteration limit — plan ${event.planDone}/${event.planTotal} complete. Try "continue" to pick up where this left off.` });
+                    }
 
                     if (persona === 'druid' && druidInstance) {
                       druidInstance.processMessage(msg.content, [...updated, msg].map(m => ({
@@ -4850,6 +4860,13 @@ const LeftAIView = ({ compact = false,
                               content={block.content}
                               collapsed={!!block.collapsed}
                             />
+                          );
+                        }
+                        if (block.type === 'system_note' && block.content) {
+                          return (
+                            <div key={`note-${i}`} style={{ fontSize: '11px', opacity: 0.5, fontStyle: 'italic', padding: '4px 0', userSelect: 'text' }}>
+                              {block.content}
+                            </div>
                           );
                         }
                         return null;

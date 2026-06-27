@@ -149,7 +149,16 @@ app.post('/api/wizard', async (req, res) => {
       cid: config?.cid || `wizard-${Date.now()}`,
       conversationHistory: conversationHistory || [],
       systemPrompt: config?.systemPrompt,
-      maxIterations: apiConfig.modelTier === 'small' ? 15 : 77,
+      // Use user-configured maxIterations if set; 0 means infinite (9999).
+      // Defaults: 50 for small/local models, 77 for large models.
+      maxIterations: (() => {
+        const configured = apiConfig.settings?.maxIterations;
+        if (configured != null && Number.isFinite(Number(configured))) {
+          const n = Number(configured);
+          return n === 0 ? 9999 : n;
+        }
+        return apiConfig.modelTier === 'small' ? 177 : 77;
+      })(),
       contextItems: req.body.contextItems || []
     };
 
