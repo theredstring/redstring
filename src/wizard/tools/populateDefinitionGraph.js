@@ -108,9 +108,18 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
 
     // Generate or reuse a predictive ID for the definition graph
     let newGraphId;
+    let alreadyPopulated = false;
     if (prototype.definitionGraphIds && prototype.definitionGraphIds.length > 0) {
         newGraphId = prototype.definitionGraphIds[0];
-        console.error('[populateDefinitionGraph] Reusing existing definition graph for', nodeName, '→', newGraphId);
+        // Check if this graph already has nodes in graphState
+        const existingGraph = graphState.graphs && graphState.graphs.find
+            ? graphState.graphs.find(g => g.id === newGraphId)
+            : null;
+        const existingNodeCount = existingGraph
+            ? (Array.isArray(existingGraph.instances) ? existingGraph.instances.length : Object.keys(existingGraph.instances || {}).length)
+            : 0;
+        alreadyPopulated = existingNodeCount > 0;
+        console.error('[populateDefinitionGraph] Reusing existing definition graph for', nodeName, '→', newGraphId, `(already has ${existingNodeCount} nodes)`);
     } else {
         newGraphId = `graph-def-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
         console.error('[populateDefinitionGraph] Creating new definition graph for', nodeName, '→', newGraphId);
@@ -190,6 +199,11 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
         nodeCount: nodeSpecs.length,
         edgeCount: edgeSpecs.length,
         groupCount: groupSpecs.length,
+        // Warn when the model calls populateDefinitionGraph a second time for the same node
+        alreadyPopulated,
+        alreadyPopulatedWarning: alreadyPopulated
+            ? `WARNING: "${prototype.name}" already has a definition graph with existing nodes. You called populateDefinitionGraph twice for the same node — this is almost always a mistake. Do NOT call populateDefinitionGraph again for this node. If you need to add more content to this definition graph, use expandGraph instead.`
+            : null,
         // Edge validation feedback for LLM
         droppedEdges,
         edgeWarning: droppedEdges.length > 0

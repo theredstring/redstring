@@ -390,26 +390,33 @@ function updateGraphState(graphState, _toolName, _args, result) {
 
     console.error('[updateGraphState] addDefinitionGraph: created', result.graphId, 'for', result.nodeName, '| activeGraphId unchanged');
   } else if (result.action === 'populateDefinitionGraph' && result.spec) {
-    // 1. Add new definition graph for a node
     graphState.graphs = graphState.graphs || [];
-    graphState.graphs.push({
-      id: result.graphId,
-      name: result.nodeName || 'Definition',
-      instances: [],
-      edgeIds: [],
-      groups: [],
-      definingNodeIds: [result.prototypeId]
-    });
 
-    // 2. Update prototype's definitionGraphIds array
+    // 1. Reuse existing graph entry if it already exists (prevents duplicate entries when
+    //    the tool is called twice for the same node — it returns the same graphId both times).
+    let targetGraph = graphState.graphs.find(g => g.id === result.graphId);
+    if (!targetGraph) {
+      targetGraph = {
+        id: result.graphId,
+        name: result.nodeName || 'Definition',
+        instances: [],
+        edgeIds: [],
+        groups: [],
+        definingNodeIds: [result.prototypeId]
+      };
+      graphState.graphs.push(targetGraph);
+    }
+
+    // 2. Update prototype's definitionGraphIds array (idempotent)
     const defProto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId);
     if (defProto) {
       defProto.definitionGraphIds = defProto.definitionGraphIds || [];
-      defProto.definitionGraphIds.push(result.graphId);
+      if (!defProto.definitionGraphIds.includes(result.graphId)) {
+        defProto.definitionGraphIds.push(result.graphId);
+      }
     }
 
-    // 3. Add nodes + edges to this new graph
-    const targetGraph = graphState.graphs[graphState.graphs.length - 1];
+    // 3. Add nodes + edges to this graph
     const counts = applyBulkSpecToInternalState(graphState, targetGraph, result.spec);
 
     console.error('[updateGraphState] populateDefinitionGraph: created', result.graphId, 'with', counts.nodesAdded, 'nodes +', counts.edgesAdded, 'edges');
@@ -1103,6 +1110,22 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             role: 'tool',
             tool_call_id: toolCall.id,
             content: JSON.stringify({ error: error.message })
+          });
+        }
+      }
+
+      // If the plan just reached 100% via planTask, tell the model to stop calling tools.
+      // Without this, small models keep calling expandGraph/populateDefinitionGraph after
+      // the plan is complete because they receive no explicit "you're done" signal.
+      {
+        const plan = graphState._currentPlan;
+        const planAllDone = plan && plan.length > 0 && plan.every(s => s.status === 'done');
+        const calledPlanTask = iterationToolCalls.some(tc => tc.name === 'planTask');
+        if (planAllDone && calledPlanTask) {
+          console.error('[AgentLoop] ✓ Plan is 100% complete. Injecting stop message.');
+          messages.push({
+            role: 'user',
+            content: 'All plan steps are done. Respond to the user now with one sentence summarizing what you built. Do NOT call any more tools.'
           });
         }
       }

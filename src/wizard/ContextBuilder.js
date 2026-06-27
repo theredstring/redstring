@@ -32,6 +32,26 @@ export function buildContext(graphState) {
       const nodeNames = definingNodes.map(p => p.name).join(', ');
       context += `\n⚡ This web is a DEFINITION GRAPH for: ${nodeNames}`;
       context += '\n   (You are inside a node, viewing/editing what it is made of)';
+
+      // Show nodes from all OTHER graphs so the model doesn't re-add them here.
+      // This is the most common mistake: the model populates a definition graph with
+      // nodes that already exist as siblings in the parent web.
+      const otherGraphNodeNames = new Set();
+      for (const g of graphs) {
+        if (g.id === activeGraphId) continue;
+        const gInsts = g.instances instanceof Map
+          ? Array.from(g.instances.values())
+          : Array.isArray(g.instances) ? g.instances : Object.values(g.instances || {});
+        for (const inst of gInsts) {
+          const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
+          const name = inst.name || proto?.name;
+          if (name) otherGraphNodeNames.add(name);
+        }
+      }
+      if (otherGraphNodeNames.size > 0) {
+        const existingList = Array.from(otherGraphNodeNames).slice(0, 12).join(', ');
+        context += `\n   ⚠ Nodes that already exist in other webs (DO NOT duplicate them here): ${existingList}${otherGraphNodeNames.size > 12 ? ` (+${otherGraphNodeNames.size - 12} more)` : ''}`;
+      }
     }
 
     // Extract instances
@@ -232,7 +252,11 @@ export function buildPlanContext(plan, iteration, maxIterations) {
     }
     return line;
   });
-  return `\n\n## Active Plan (${done}/${plan.length} complete)${iterInfo}\n${lines.join('\n')}\nIMPORTANT: Do NOT respond to the user until ALL steps are marked done.`;
+  const allDone = done === plan.length;
+  const planDirective = allDone
+    ? 'All steps are DONE. Respond to the user now with a brief summary. Do NOT call any more tools.'
+    : 'Do NOT respond to the user until ALL steps are marked [DONE].';
+  return `\n\n## Active Plan (${done}/${plan.length} complete)${iterInfo}\n${lines.join('\n')}\nIMPORTANT: ${planDirective}`;
 }
 
 /**

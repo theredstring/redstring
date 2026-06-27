@@ -127,6 +127,22 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     } : undefined
   }));
 
+  // Detect nodes that are being added to a non-active (definition) graph but already exist
+  // as prototypes in the universe. This catches the common mistake where a model adds
+  // e.g. "Qin State" into the definition graph of "Warring States Period China" even though
+  // "Qin State" already exists as a sibling node in the parent graph.
+  const isTargetingOtherGraph = graphId !== activeGraphId;
+  let duplicateNodeWarning = null;
+  if (isTargetingOtherGraph && nodeSpecs.length > 0) {
+    const allProtoNames = new Set(
+      (graphState.nodePrototypes || []).map(p => (p.name || '').toLowerCase().trim()).filter(Boolean)
+    );
+    const duplicates = nodeSpecs.filter(n => allProtoNames.has((n.name || '').toLowerCase().trim()));
+    if (duplicates.length > 0) {
+      duplicateNodeWarning = `WARNING: The following nodes already exist in this universe and will create duplicates: ${duplicates.map(n => `"${n.name}"`).join(', ')}. These nodes were added to the parent graph. You are now inside a definition graph — add sub-components that describe the INTERNALS of the concept, not the sibling nodes from the parent web.`;
+    }
+  }
+
   // Analyze graph quality for LLM feedback
   const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs);
 
@@ -141,6 +157,8 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     nodeCount: nodeSpecs.length,
     edgeCount: edgeSpecs.length,
     groupCount: groupSpecs.length,
+    // Duplicate node warning (when adding nodes that already exist elsewhere in the universe)
+    duplicateNodeWarning,
     // Edge validation feedback for LLM
     droppedEdges,
     edgeWarning: droppedEdges.length > 0
