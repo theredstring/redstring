@@ -795,6 +795,11 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
 
             const delta = choice.delta;
 
+            // DEBUG: log delta keys to help diagnose thinking token format
+            if (delta && Object.keys(delta).some(k => k.includes('think') || k.includes('reason') || (delta.content && delta.content.includes('<think')))) {
+              console.error('[LLMClient:OpenAI DEBUG] thinking delta keys:', Object.keys(delta), 'thinking_content:', delta.thinking_content?.slice?.(0,50), 'content snippet:', delta.content?.slice?.(0,80));
+            }
+
             // Tool calls
             if (delta?.tool_calls) {
               for (const toolCall of delta.tool_calls) {
