@@ -825,6 +825,12 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
       let iterationHasYieldedText = false;
       for await (const chunk of streamLLM(messages, tools, config, abortSignal)) {
+        if (chunk.type === 'thinking') {
+          // Pass thinking tokens straight through — don't count as iterationContent
+          // (thinking is internal monologue, not the model's final response)
+          yield { type: 'thinking', content: chunk.content };
+          continue;
+        }
         if (chunk.type === 'text') {
           // Only yield new content (dedupe in case of stream issues)
           const newContent = chunk.content;

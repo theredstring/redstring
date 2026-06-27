@@ -5,6 +5,7 @@ import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
 import MultipleChoiceOverlay from '../../../ai/components/MultipleChoiceOverlay.jsx';
 import PlanCard from '../../../ai/components/PlanCard.jsx';
+import ThinkingBlock from '../../../ai/components/ThinkingBlock.jsx';
 import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.js';
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from '../../../constants.js';
@@ -3942,7 +3943,19 @@ const LeftAIView = ({ compact = false,
                         }
                       }
                     }
+                  } else if (event.type === 'thinking') {
+                    // Thinking tokens from reasoning models (Ollama: delta.thinking_content)
+                    // Accumulate into a single thinking block; collapse once response starts
+                    const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
+                    if (lastBlock && lastBlock.type === 'thinking') {
+                      blocks[blocks.length - 1] = { ...lastBlock, content: (lastBlock.content || '') + (event.content || '') };
+                    } else {
+                      blocks.push({ type: 'thinking', content: event.content || '' });
+                    }
                   } else if (event.type === 'response') {
+                    // Collapse any open thinking block when the real response starts
+                    const thinkIdx = blocks.findIndex(b => b.type === 'thinking' && !b.collapsed);
+                    if (thinkIdx >= 0) blocks[thinkIdx] = { ...blocks[thinkIdx], collapsed: true };
                     const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
                     if (lastBlock && lastBlock.type === 'text') {
                       blocks[blocks.length - 1] = { ...lastBlock, content: (lastBlock.content || '') + (event.content || '') };
@@ -4830,6 +4843,15 @@ const LeftAIView = ({ compact = false,
                             />
                           );
                         }
+                        if (block.type === 'thinking' && block.content) {
+                          return (
+                            <ThinkingBlock
+                              key={`think-${i}`}
+                              content={block.content}
+                              collapsed={!!block.collapsed}
+                            />
+                          );
+                        }
                         return null;
                       })
                     ) : message.content ? (
@@ -4918,6 +4940,7 @@ const LeftAIView = ({ compact = false,
               //   Also show when the last block is a completed tool call — the model just finished
               //   executing a tool and is now thinking about what to do next (between iterations).
               const hasStreamingText = streamingMsg?.contentBlocks?.some(b => b.type === 'text' && b.content);
+              const hasActiveThinking = streamingMsg?.contentBlocks?.some(b => b.type === 'thinking' && !b.collapsed);
               const lastContentBlock = streamingMsg?.contentBlocks?.[streamingMsg.contentBlocks.length - 1];
               // Show dots when the last block is a completed tool_call OR a plan card —
               // plan cards are always pushed after planTask completes, so they signal the
@@ -4925,8 +4948,10 @@ const LeftAIView = ({ compact = false,
               const awaitingNextIteration =
                 (lastContentBlock?.type === 'tool_call' && (lastContentBlock?.status === 'completed' || lastContentBlock?.status === 'failed')) ||
                 lastContentBlock?.type === 'plan';
+              // Hide dots while thinking is actively streaming — the thinking block itself
+              // shows progress. Show once thinking collapses (response is starting).
               const showDots = viewMode === 'wizard'
-                ? (!hasStreamingText || awaitingNextIteration)
+                ? (!hasStreamingText || awaitingNextIteration) && !hasActiveThinking
                 : !hasStreamingContent;
 
               if (viewMode === 'wizard') {

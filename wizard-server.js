@@ -136,6 +136,7 @@ app.post('/api/wizard', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+    res.flushHeaders(); // Send headers immediately so browser knows stream is open
 
     const llmConfig = {
       apiKey,

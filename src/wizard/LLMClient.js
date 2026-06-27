@@ -851,6 +851,12 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
               }
             }
 
+            // Thinking content (Ollama thinking models: deepseek-r1, qwq, gemma3, etc.)
+            // Ollama sends thinking in delta.thinking_content, separate from delta.content
+            if (delta?.thinking_content) {
+              yield { type: 'thinking', content: delta.thinking_content };
+            }
+
             // Text content
             if (delta?.content) {
               yield { type: 'text', content: delta.content };
