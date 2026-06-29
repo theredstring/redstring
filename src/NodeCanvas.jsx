@@ -3885,44 +3885,37 @@ function NodeCanvas() {
   // New states for PieMenu transition
   const [selectedNodeIdForPieMenu, setSelectedNodeIdForPieMenu] = useState(null);
   const [isTransitioningPieMenu, setIsTransitioningPieMenu] = useState(false);
-  const [deletingNodeIds, setDeletingNodeIds] = useState(new Set());
-  // Map<instanceId, {graphId, timeoutId}> — tracks in-flight deletions for onAnimationEnd + fallback
-  const pendingDeletionsRef = useRef(new Map());
+  // Ghost rects rendered after node deletion so the shrink animation plays on a decoupled element
+  const [deletionAnimations, setDeletionAnimations] = useState([]);
 
-  const _commitDeletion = (instanceId) => {
-    const entry = pendingDeletionsRef.current.get(instanceId);
-    if (!entry) return; // already committed
-    clearTimeout(entry.timeoutId);
-    pendingDeletionsRef.current.delete(instanceId);
-    storeActions.removeNodeInstance(entry.graphId, instanceId);
-    setDeletingNodeIds(prev => { const s = new Set(prev); s.delete(instanceId); return s; });
+  const _captureGhost = (instanceId) => {
+    const node = nodes.find(n => n.id === instanceId);
+    if (!node) return null;
+    const dims = baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
+    const rx = Math.max(0, (dims.scaledCornerRadius ?? NODE_CORNER_RADIUS * (textSettings?.nodeScale ?? 1)) - 6);
+    return {
+      id: instanceId,
+      x: node.x + 6,
+      y: node.y + 6,
+      width: dims.currentWidth - 12,
+      height: dims.currentHeight - 12,
+      rx,
+      color: node.color || NODE_DEFAULT_COLOR,
+    };
   };
 
   const deleteNodeWithAnimation = (instanceId) => {
-    const graphId = activeGraphId;
-    // Fallback: delete after 500ms in case onAnimationEnd doesn't fire (reduced-motion, etc.)
-    const timeoutId = setTimeout(() => _commitDeletion(instanceId), 500);
-    pendingDeletionsRef.current.set(instanceId, { graphId, timeoutId });
-    setDeletingNodeIds(prev => { const s = new Set(prev); s.add(instanceId); return s; });
+    const ghost = _captureGhost(instanceId);
+    if (ghost) setDeletionAnimations(prev => [...prev, ghost]);
+    storeActions.removeNodeInstance(activeGraphId, instanceId);
   };
 
   const deleteMultipleNodesWithAnimation = (instanceIds) => {
-    const graphId = activeGraphId;
     const ids = instanceIds instanceof Set ? instanceIds : new Set(instanceIds);
-    // Batch delete via timeout — onAnimationEnd handles individual nodes for single-delete
-    const timeoutId = setTimeout(() => {
-      ids.forEach(id => {
-        const entry = pendingDeletionsRef.current.get(id);
-        if (entry) {
-          clearTimeout(entry.timeoutId);
-          pendingDeletionsRef.current.delete(id);
-        }
-      });
-      storeActions.removeMultipleNodeInstances(graphId, ids);
-      setDeletingNodeIds(prev => { const s = new Set(prev); ids.forEach(id => s.delete(id)); return s; });
-    }, 350);
-    ids.forEach(id => pendingDeletionsRef.current.set(id, { graphId, timeoutId }));
-    setDeletingNodeIds(prev => { const s = new Set(prev); ids.forEach(id => s.add(id)); return s; });
+    const ghosts = [];
+    ids.forEach(id => { const g = _captureGhost(id); if (g) ghosts.push(g); });
+    if (ghosts.length) setDeletionAnimations(prev => [...prev, ...ghosts]);
+    storeActions.removeMultipleNodeInstances(activeGraphId, ids);
   };
 
   // Abstraction Carousel states
@@ -13918,8 +13911,6 @@ function NodeCanvas() {
                           innerNetworkHeight={dimensions.innerNetworkHeight}
                           descriptionAreaHeight={dimensions.descriptionAreaHeight}
                           isSelected={selectedInstanceIds.has(node.id)}
-                          isDeleting={deletingNodeIds.has(node.id)}
-                          onDeleteAnimationEnd={deletingNodeIds.has(node.id) ? () => _commitDeletion(node.id) : undefined}
                           isDragging={false}
                           onMouseDown={(e) => handleNodeMouseDown(node, e)}
                           onPointerDown={(e) => touch.handleNodePointerDown(node, e)}
@@ -13990,6 +13981,25 @@ function NodeCanvas() {
 
                         {/* Groups Phase 3: Thing-group titles (above member nodes, below active/dragging) */}
                         {nodeGroupTitlesRef.current}
+
+                        {/* Delete ghost rects — plain <rect> elements safe for CSS transform animation */}
+                        {deletionAnimations.map(ghost => (
+                          <rect
+                            key={ghost.id}
+                            className="node-delete-ghost"
+                            x={ghost.x}
+                            y={ghost.y}
+                            width={ghost.width}
+                            height={ghost.height}
+                            rx={ghost.rx}
+                            ry={ghost.rx}
+                            fill={ghost.color}
+                            style={{ pointerEvents: 'none' }}
+                            onAnimationEnd={() =>
+                              setDeletionAnimations(prev => prev.filter(a => a.id !== ghost.id))
+                            }
+                          />
+                        ))}
 
                         {/* Render The PieMenu next (it will be visually under the active node) */}
                         {isPieMenuRendered && currentPieMenuData && (

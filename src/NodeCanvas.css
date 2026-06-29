@@ -1,3 +1,14 @@
+.node-delete-ghost {
+  animation: node-delete-ghost 280ms ease-in forwards;
+  transform-box: fill-box;
+  transform-origin: center center;
+}
+
+@keyframes node-delete-ghost {
+  0%   { transform: scale(1);   opacity: 1; }
+  100% { transform: scale(0);   opacity: 0; }
+}
+
 html,
 body {
   overflow: hidden;

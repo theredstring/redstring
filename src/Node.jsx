@@ -61,8 +61,6 @@ const Node = ({
   // --- Add navigation props for definition control ---
   currentDefinitionIndex = 0,
   onNavigateDefinition,
-  isDeleting = false,
-  onDeleteAnimationEnd,
 }) => {
   const theme = useTheme();
   const textSettings = useGraphStore(state => state.textSettings);
@@ -278,7 +276,7 @@ const Node = ({
 
   return (
     <g
-      className={`node ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isPreviewing ? 'previewing' : ''} ${isDeleting ? 'node-deleting' : ''}`}
+      className={`node ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isPreviewing ? 'previewing' : ''}`}
       data-instance-id={instanceId}
       data-has-context-menu="true"
       /* Disable default touch gestures on node group */
@@ -295,11 +293,6 @@ const Node = ({
       } : {
         cursor: 'pointer',
         touchAction: 'none'
-      }}
-      onAnimationEnd={(e) => {
-        if (isDeleting && e.animationName === 'node-delete-out') {
-          onDeleteAnimationEnd?.();
-        }
       }}
       onMouseDown={(e) => {
         onMouseDown?.(e);
@@ -706,6 +699,5 @@ export default memo(Node, (prev, next) => {
     prev.innerNetworkWidth === next.innerNetworkWidth &&
     prev.innerNetworkHeight === next.innerNetworkHeight &&
     prev.descriptionAreaHeight === next.descriptionAreaHeight &&
-    prev.idPrefix === next.idPrefix &&
-    prev.isDeleting === next.isDeleting;
+    prev.idPrefix === next.idPrefix;
 });
