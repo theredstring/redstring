@@ -12270,7 +12270,7 @@ function NodeCanvas() {
                                         {/* Glow effect for arrow - only when selected or hovered */}
                                         {(isSelected || isHovered) && (
                                           <polygon
-                                            points="-12,15 12,15 0,-15"
+                                            points="-18,23 18,23 0,-23"
                                             fill={edgeColor}
                                             stroke={edgeColor}
                                             strokeWidth="8"
@@ -12283,7 +12283,7 @@ function NodeCanvas() {
                                           />
                                         )}
                                         <polygon
-                                          points="-18,22 18,22 0,-22"
+                                          points="-26,34 26,34 0,-34"
                                           fill={edgeColor}
                                           stroke={edgeColor}
                                           strokeWidth="6"
@@ -12306,7 +12306,7 @@ function NodeCanvas() {
                                         {/* Glow effect for arrow - only when selected or hovered */}
                                         {(isSelected || isHovered) && (
                                           <polygon
-                                            points="-12,15 12,15 0,-15"
+                                            points="-18,23 18,23 0,-23"
                                             fill={edgeColor}
                                             stroke={edgeColor}
                                             strokeWidth="8"
@@ -12319,7 +12319,7 @@ function NodeCanvas() {
                                           />
                                         )}
                                         <polygon
-                                          points="-18,22 18,22 0,-22"
+                                          points="-26,34 26,34 0,-34"
                                           fill={edgeColor}
                                           stroke={edgeColor}
                                           strokeWidth="6"
@@ -13537,7 +13537,7 @@ function NodeCanvas() {
                                         {/* Glow effect for arrow - only when selected or hovered */}
                                         {(isSelected || isHovered) && (
                                           <polygon
-                                            points="-12,15 12,15 0,-15"
+                                            points="-18,23 18,23 0,-23"
                                             fill={edgeColor}
                                             stroke={edgeColor}
                                             strokeWidth="8"
@@ -13550,7 +13550,7 @@ function NodeCanvas() {
                                           />
                                         )}
                                         <polygon
-                                          points="-18,22 18,22 0,-22"
+                                          points="-26,34 26,34 0,-34"
                                           fill={edgeColor}
                                           stroke={edgeColor}
                                           strokeWidth="6"
@@ -13573,7 +13573,7 @@ function NodeCanvas() {
                                         {/* Glow effect for arrow - only when selected or hovered */}
                                         {(isSelected || isHovered) && (
                                           <polygon
-                                            points="-12,15 12,15 0,-15"
+                                            points="-18,23 18,23 0,-23"
                                             fill={edgeColor}
                                             stroke={edgeColor}
                                             strokeWidth="8"
@@ -13586,7 +13586,7 @@ function NodeCanvas() {
                                           />
                                         )}
                                         <polygon
-                                          points="-18,22 18,22 0,-22"
+                                          points="-26,34 26,34 0,-34"
                                           fill={edgeColor}
                                           stroke={edgeColor}
                                           strokeWidth="6"
