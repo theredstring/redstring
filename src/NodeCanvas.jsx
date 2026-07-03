@@ -12152,7 +12152,7 @@ function NodeCanvas() {
                                   }
                                 } else {
                                   // Manhattan-aware arrow placement; falls back to straight orientation
-                                  const offset = 6;
+                                  const offset = 12;
                                   if (enableAutoRouting && routingStyle === 'manhattan') {
                                     // Destination arrow aligns to terminal segment into destination
                                     const horizontalTerminal = Math.abs(endX - startX) > Math.abs(endY - startY);
@@ -12194,7 +12194,7 @@ function NodeCanvas() {
 
                                 // Override arrow orientation deterministically by Manhattan sides
                                 if (enableAutoRouting && routingStyle === 'manhattan') {
-                                  const sideOffset = 6;
+                                  const sideOffset = 12;
                                   // Destination arrow strictly based on destination side
                                   if (manhattanDestSide === 'left') {
                                     destArrowAngle = 0; // rightwards
@@ -12339,7 +12339,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={sourceArrowX}
                                               cy={sourceArrowY}
-                                              r={Math.round(20 * connectionWidth)}
+                                              r={Math.round(26 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => handleArrowClick(sourceNode.id, e)}
@@ -12348,7 +12348,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={sourceArrowX}
                                               cy={sourceArrowY}
-                                              r={Math.round(16 * connectionWidth)}
+                                              r={Math.round(22 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
                                             />
@@ -12361,7 +12361,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={destArrowX}
                                               cy={destArrowY}
-                                              r={Math.round(20 * connectionWidth)}
+                                              r={Math.round(26 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => handleArrowClick(destNode.id, e)}
@@ -12370,7 +12370,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={destArrowX}
                                               cy={destArrowY}
-                                              r={Math.round(16 * connectionWidth)}
+                                              r={Math.round(22 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
                                             />
@@ -13419,7 +13419,7 @@ function NodeCanvas() {
                                   }
                                 } else {
                                   // Manhattan-aware arrow placement; falls back to straight orientation
-                                  const offset = 6;
+                                  const offset = 12;
                                   if (enableAutoRouting && routingStyle === 'manhattan') {
                                     // Destination arrow aligns to terminal segment into destination
                                     const horizontalTerminal = Math.abs(endX - startX) > Math.abs(endY - startY);
@@ -13461,7 +13461,7 @@ function NodeCanvas() {
 
                                 // Override arrow orientation deterministically by Manhattan sides
                                 if (enableAutoRouting && routingStyle === 'manhattan') {
-                                  const sideOffset = 6;
+                                  const sideOffset = 12;
                                   // Destination arrow strictly based on destination side
                                   if (manhattanDestSide === 'left') {
                                     destArrowAngle = 0; // rightwards
@@ -13606,7 +13606,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={sourceArrowX}
                                               cy={sourceArrowY}
-                                              r={Math.round(20 * connectionWidth)}
+                                              r={Math.round(26 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => handleArrowClick(sourceNode.id, e)}
@@ -13615,7 +13615,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={sourceArrowX}
                                               cy={sourceArrowY}
-                                              r={Math.round(16 * connectionWidth)}
+                                              r={Math.round(22 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
                                             />
@@ -13628,7 +13628,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={destArrowX}
                                               cy={destArrowY}
-                                              r={Math.round(20 * connectionWidth)}
+                                              r={Math.round(26 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => handleArrowClick(destNode.id, e)}
@@ -13637,7 +13637,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={destArrowX}
                                               cy={destArrowY}
-                                              r={Math.round(16 * connectionWidth)}
+                                              r={Math.round(22 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
                                             />

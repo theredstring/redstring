@@ -198,7 +198,7 @@ export const getVisualConnectionEndpoints = (
   // portion. 14px lands the endpoint inside the arrow polygon at sides AND at
   // corners (verified for both axis-aligned and ~45° rays on a 200x80 node),
   // so the cap is hidden by the arrowhead and no stub pokes through.
-  const VISIBLE_LINE_OUTSET = 14;
+  const VISIBLE_LINE_OUTSET = 20;
 
   const dirX = centerX2 - centerX1;
   const dirY = centerY2 - centerY1;
