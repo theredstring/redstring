@@ -1,6 +1,6 @@
 import useGraphStore from '../store/graphStore.js';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from './graphLayoutService.js';
-import { getNodeDimensions } from '../utils';
+import { getNodeDimensions } from '../utils.js';
 
 /**
  * Compute and persist a force-directed layout for any graph, active or not.

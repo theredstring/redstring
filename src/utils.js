@@ -5,7 +5,7 @@ import {
   EXPANDED_NODE_WIDTH,
   NODE_CORNER_RADIUS,
   NAME_AREA_FACTOR
-} from './constants'; // Import necessary constants
+} from './constants.js'; // Import necessary constants
 import useGraphStore from './store/graphStore.js'; // Import store for textSettings
 import { measureTextBlockHeight, measureTextWidth, buildNodeFontString } from './services/textMeasurement.js';
 
