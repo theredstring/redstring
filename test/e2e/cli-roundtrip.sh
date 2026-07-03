@@ -21,6 +21,13 @@ trap cleanup EXIT
 
 jqget() { echo "$1" | jq -r "$2"; }
 
+echo "== CLI E2E: init (onboarding, non-interactive) =="
+INIT_WS="$TMP/init-ws"
+$CLI init --workspace "$INIT_WS" --name "Astro" --json >/dev/null 2>&1 && pass "init sets up a workspace" || fail "init failed"
+$CLI -w "$INIT_WS" --json list | jq -e '.[] | select(.name=="Astro")' >/dev/null && pass "init created the named universe" || fail "init universe missing"
+[ -f "$HOME/.redstring/config.json" ] && grep -q "init-ws" "$HOME/.redstring/config.json" && pass "init remembered the workspace" || fail "init did not persist workspace"
+
+echo
 echo "== CLI E2E: DIRECT mode (no background) =="
 # auto-default universe
 $CLI -w "$WS" --json list >/dev/null 2>&1 && pass "list boots + auto-default" || fail "list failed"
@@ -62,6 +69,19 @@ $CLI status --json | jq -e '.activeUniverse=="physics"' >/dev/null && pass "run 
 $CLI --json node create "Newton" --graph "$GID" >/dev/null 2>&1 && pass "HTTP node create" || fail "HTTP node create"
 $CLI stop >/dev/null 2>&1 && pass "stop" || fail "stop"
 grep -q "Newton" "$WS/Physics.redstring" && pass "HTTP node persisted to file" || fail "HTTP node not persisted"
+
+echo
+echo "== CLI E2E: GitHub pull/push (gated) =="
+# Opt-in: needs a scratch repo + BYOK token. Set REDSTRING_E2E_REPO=user/repo
+# and REDSTRING_GITHUB_TOKEN to exercise a real round-trip; otherwise skipped.
+if [ -n "${REDSTRING_E2E_REPO:-}" ] && [ -n "${REDSTRING_GITHUB_TOKEN:-}" ]; then
+  $CLI -w "$WS" use physics >/dev/null 2>&1
+  $CLI -w "$WS" push physics "$REDSTRING_E2E_REPO" -m "e2e push" >/dev/null 2>&1 && pass "push to $REDSTRING_E2E_REPO" || fail "push failed"
+  PULLED="$($CLI -w "$TMP/pull-ws" --json pull "$REDSTRING_E2E_REPO" 2>/dev/null)"
+  echo "$PULLED" | jq -e '.ok==true and (.universe.gitRepo.enabled==true)' >/dev/null && pass "pull registers a git universe" || fail "pull failed: $PULLED"
+else
+  echo "  (skipped — set REDSTRING_E2E_REPO + REDSTRING_GITHUB_TOKEN to run)"
+fi
 
 echo
 if [ "$FAIL" -eq 0 ]; then printf '\033[32mALL CLI E2E CHECKS PASSED\033[0m\n'; else printf '\033[31mCLI E2E FAILURES\033[0m\n'; fi
