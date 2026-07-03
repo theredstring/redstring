@@ -49,6 +49,8 @@
     "deploy:gcp:oauth:test": "./deployment/gcp/deploy_oauth_test.sh",
     "setup:gcp": "./deployment/gcp/setup.sh",
     "test": "vitest",
+    "test:headless": "vitest run test/headless/",
+    "test:e2e": "bash test/e2e/daemon-smoke.sh && bash test/e2e/cli-roundtrip.sh && node test/e2e/mcp-daemon-smoke.mjs",
     "test:format": "vitest test/formats/ --run",
     "test:consistency": "vitest test/formats/consistency.test.js --run",
     "test:roundtrip": "vitest test/formats/roundtrip.test.js --run",
