@@ -2,7 +2,7 @@
 /**
  * daemonRuntime: the headless store + universe + executor the wizard-server
  * mounts. Verifies executeAction runs both dispatch paths (storeActions and the
- * applyToolResultToStore fallback), persists to disk, and builds the daemon
+ * applyToolResultToStore fallback), persists to disk, and builds the runtime
  * bridge-state payload.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -16,10 +16,10 @@ let tmpDir;
 let universePath;
 
 beforeAll(async () => {
-  tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rs-daemon-'));
-  universePath = path.join(tmpDir, 'daemon.redstring');
-  const { initDaemonRuntime } = await import('../../src/headless/daemonRuntime.js');
-  runtime = await initDaemonRuntime({ universePath, debounceMs: 20, log: () => {} });
+  tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rs-runtime-'));
+  universePath = path.join(tmpDir, 'runtime.redstring');
+  const { initRuntime } = await import('../../src/headless/runtime.js');
+  runtime = await initRuntime({ universePath, debounceMs: 20, log: () => {} });
 });
 
 afterAll(async () => {
@@ -59,9 +59,9 @@ describe('daemonRuntime persistence + payload', () => {
     expect(JSON.stringify(json)).toContain('Daemon Graph');
   });
 
-  it('builds a daemon-tagged bridge-state payload', () => {
+  it('builds a runtime-tagged bridge-state payload', () => {
     const payload = runtime.buildBridgeStatePayload();
-    expect(payload.storeMode).toBe('daemon');
+    expect(payload.storeMode).toBe('runtime');
     expect(typeof payload.stateVersion).toBe('number');
     expect(Array.isArray(payload.graphs)).toBe(true);
     expect(payload.graphs.some(g => g.id === 'g-d')).toBe(true);

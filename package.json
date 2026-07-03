@@ -23,7 +23,6 @@
     "agent-server:start": "node agent-server.js",
     "wizard": "node wizard-server.js",
     "wizard:start": "node wizard-server.js",
-    "daemon": "node wizard-server.js",
     "oauth": "node oauth-server.js",
     "oauth:start": "node oauth-server.js",
     "bump-version": "node scripts/bump-version.js",

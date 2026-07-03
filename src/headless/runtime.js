@@ -1,5 +1,5 @@
 /**
- * daemonRuntime.js
+ * runtime.js
  *
  * Wires the headless store + persistent universe + shared action modules into a
  * single runtime the wizard-server mounts when a universe is configured. This is
@@ -19,13 +19,13 @@ import { openHeadlessUniverse } from './HeadlessUniverse.js';
 import { buildBridgeState } from '../services/bridgeStateSerializer.js';
 import { exportToRedstring } from '../formats/redstringFormat.js';
 // NOTE: storeActions and toolResultApplier statically import graphStore, so they
-// are dynamic-imported inside initDaemonRuntime AFTER createHeadlessStore installs
+// are dynamic-imported inside initRuntime AFTER createHeadlessStore installs
 // the localStorage shim (ordering is load-bearing).
 
 /**
  * Resolve the universe file path from (in order): --universe flag, the
- * REDSTRING_UNIVERSE env var, or ~/.redstring/daemon.json { "universe": "..." }.
- * Returns an absolute path or null if none configured (daemon stays in the
+ * REDSTRING_UNIVERSE env var, or ~/.redstring/config.json { "universe": "..." }.
+ * Returns an absolute path or null if none configured (runtime stays in the
  * legacy browser-relay mode).
  */
 export function resolveUniversePath(argv = process.argv) {
@@ -42,7 +42,7 @@ export function resolveUniversePath(argv = process.argv) {
   if (process.env.REDSTRING_UNIVERSE) return path.resolve(process.env.REDSTRING_UNIVERSE);
 
   try {
-    const cfgPath = path.join(os.homedir(), '.redstring', 'daemon.json');
+    const cfgPath = path.join(os.homedir(), '.redstring', 'runtime.json');
     if (fs.existsSync(cfgPath)) {
       const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
       if (cfg?.universe) return path.resolve(cfg.universe);
@@ -59,8 +59,8 @@ export function resolveUniversePath(argv = process.argv) {
  * @param {number} [opts.debounceMs=1000]
  * @param {function} [opts.log=console.error]
  */
-export async function initDaemonRuntime({ universePath, debounceMs = 1000, log = console.error }) {
-  if (!universePath) throw new Error('initDaemonRuntime requires a universePath');
+export async function initRuntime({ universePath, debounceMs = 1000, log = console.error }) {
+  if (!universePath) throw new Error('initRuntime requires a universePath');
 
   // Shim-before-store ordering is handled inside createHeadlessStore.
   const { useGraphStore } = await createHeadlessStore();
@@ -74,7 +74,7 @@ export async function initDaemonRuntime({ universePath, debounceMs = 1000, log =
   const universe = await openHeadlessUniverse({ filePath: universePath, useGraphStore, debounceMs, log });
 
   // All browser-only injections default to no-ops in Node. bridgeStateFetch's
-  // default ({ok:false}) is correct here: the daemon IS the canonical store, so
+  // default ({ok:false}) is correct here: the runtime IS the canonical store, so
   // the applyMutations ensurePrototype HTTP fallback is unnecessary — mutation
   // ordering via priority() ensures prototypes exist before instances.
   const storeActions = createStoreActions({ useGraphStore });
@@ -110,20 +110,20 @@ export async function initDaemonRuntime({ universePath, debounceMs = 1000, log =
     priority,
     executeAction,
     getState: () => useGraphStore.getState(),
-    /** Full bridge-state payload (+ daemon metadata) for GET /api/bridge/state. */
+    /** Full bridge-state payload (+ runtime metadata) for GET /api/bridge/state. */
     buildBridgeStatePayload: () => ({
       ...buildBridgeState(useGraphStore.getState(), { fileStatus: null }),
-      storeMode: 'daemon',
+      storeMode: 'runtime',
       stateVersion: universe.stateVersion,
       pendingActions: [],
-      source: 'wizard-server-daemon'
+      source: 'wizard-server-runtime'
     }),
     get stateVersion() { return universe.stateVersion; },
     get universePath() { return universe.filePath; },
-    /** Full lossless universe JSON (the daemon↔browser sync format). */
+    /** Full lossless universe JSON (the runtime↔browser sync format). */
     exportRedstring: () => exportToRedstring(useGraphStore.getState()),
     /**
-     * Replace the store with an incoming universe (browser→daemon forward-edit).
+     * Replace the store with an incoming universe (browser→runtime forward-edit).
      * Returns true if loadUniverseFromFile accepted it. The autosave subscriber
      * bumps stateVersion + persists as a side effect.
      */

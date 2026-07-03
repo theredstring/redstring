@@ -63,7 +63,7 @@ echo "-- boot --"
 start_daemon
 HEALTH="$(curl -sf "${BASE}/api/bridge/health")"
 [ "$(echo "$HEALTH" | jq -r '.headless')" = "true" ] && pass "health reports headless" || fail "health not headless: $HEALTH"
-[ "$(echo "$HEALTH" | jq -r '.storeMode')" = "daemon" ] && pass "storeMode=daemon" || fail "storeMode wrong"
+[ "$(echo "$HEALTH" | jq -r '.storeMode')" = "runtime" ] && pass "storeMode=runtime" || fail "storeMode wrong"
 
 echo "-- create graph --"
 RESP="$(enqueue '{"actions":[{"action":"createNewGraph","params":[{"id":"g-e2e","name":"E2E Graph"}]}]}')"
@@ -78,7 +78,7 @@ await_action "$AID" && pass "applyMutations completed" || fail "applyMutations d
 
 echo "-- read bridge state --"
 STATE="$(curl -sf "${BASE}/api/bridge/state")"
-[ "$(echo "$STATE" | jq -r '.storeMode')" = "daemon" ] && pass "state storeMode=daemon" || fail "state storeMode wrong"
+[ "$(echo "$STATE" | jq -r '.storeMode')" = "runtime" ] && pass "state storeMode=runtime" || fail "state storeMode wrong"
 echo "$STATE" | jq -e '.graphs[] | select(.id=="g-e2e")' >/dev/null && pass "graph g-e2e in state" || fail "graph missing from state"
 echo "$STATE" | jq -e '.nodePrototypes[] | select(.id=="p-e2e")' >/dev/null && pass "prototype p-e2e in state" || fail "prototype missing"
 

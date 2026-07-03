@@ -1,7 +1,7 @@
 /**
  * wizard-server.js - Clean, focused server for The Wizard
  * 
- * This replaces the 5000+ line bridge-daemon-legacy.js with a minimal
+ * This replaces the 5000+ line the legacy bridge daemon with a minimal
  * server that only handles wizard functionality.
  * 
  * Run with: node wizard-server.js
@@ -17,31 +17,31 @@ import { callLLM } from './src/wizard/LLMClient.js';
 import { debugLogSync } from './src/utils/debugLogger.js';
 import { enrichBatch, enrichSingle } from './src/wizard/services/wikipediaEnrichment.js';
 import SchedulerModule from './src/services/orchestrator/Scheduler.js';
-import { resolveUniversePath, initDaemonRuntime } from './src/headless/daemonRuntime.js';
+import { resolveUniversePath, initRuntime } from './src/headless/runtime.js';
 
 const app = express();
 
 // ─────────────────────────────────────────────────────────────
-// Headless daemon runtime (optional). When a universe file is configured
-// (--universe / REDSTRING_UNIVERSE / ~/.redstring/daemon.json), the server owns
+// Headless runtime (optional). When a universe file is configured
+// (--universe / REDSTRING_UNIVERSE / ~/.redstring/config.json), the server owns
 // a live store and executes mutations in-process — no browser required. When
 // absent, the server behaves exactly as before (browser-relay mode).
 // ─────────────────────────────────────────────────────────────
-let daemon = null;
-const isHeadless = () => !!daemon;
+let runtime = null;
+const isHeadless = () => !!runtime;
 
 // Flush + release the lock on shutdown so the .redstring file is never left
-// stale and another daemon can take over cleanly.
-let daemonShutdownInstalled = false;
-function installDaemonShutdownHandlers() {
-  if (daemonShutdownInstalled) return;
-  daemonShutdownInstalled = true;
+// stale and another runtime can take over cleanly.
+let shutdownInstalled = false;
+function installShutdownHandlers() {
+  if (shutdownInstalled) return;
+  shutdownInstalled = true;
   let shuttingDown = false;
   const shutdown = async (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
     console.error(`[Wizard] ${signal} — flushing universe and releasing lock`);
-    try { if (daemon) await daemon.shutdown(); } catch (err) { console.error('[Wizard] Shutdown flush failed:', err.message); }
+    try { if (runtime) await runtime.shutdown(); } catch (err) { console.error('[Wizard] Shutdown flush failed:', err.message); }
     process.exit(0);
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
@@ -127,12 +127,12 @@ app.get('/api/bridge/health', (req, res) => {
     source: 'wizard-server',
     timestamp: new Date().toISOString(),
     scheduler: scheduler?.status() || { enabled: false },
-    // Headless daemon status — the browser (BridgeClient) reads `headless` to
-    // switch into daemon-authoritative mode (Phase 6).
+    // Headless runtime status — the browser (BridgeClient) reads `headless` to
+    // switch into runtime-authoritative mode (Phase 6).
     headless: isHeadless(),
-    storeMode: isHeadless() ? 'daemon' : 'browser',
-    universe: isHeadless() ? daemon.universePath : null,
-    stateVersion: isHeadless() ? daemon.stateVersion : null
+    storeMode: isHeadless() ? 'runtime' : 'browser',
+    universe: isHeadless() ? runtime.universePath : null,
+    stateVersion: isHeadless() ? runtime.stateVersion : null
   });
 });
 
@@ -373,7 +373,7 @@ app.get('/api/bridge/state', (req, res) => {
   // Headless: serve the live store directly (canonical). The MCP server reads
   // the same shape it reads from the browser (buildBridgeState contract).
   if (isHeadless()) {
-    return res.json(daemon.buildBridgeStatePayload());
+    return res.json(runtime.buildBridgeStatePayload());
   }
   if (latestBridgeState) {
     res.json(latestBridgeState);
@@ -388,14 +388,14 @@ app.get('/api/bridge/state', (req, res) => {
 });
 
 app.post('/api/bridge/state', (req, res) => {
-  // Headless: the daemon owns the store, so an inbound bridge snapshot is not
+  // Headless: the runtime owns the store, so an inbound bridge snapshot is not
   // authoritative — ignore it (log once) rather than clobbering live state.
   if (isHeadless()) {
     if (!warnedIgnoredStatePost) {
-      console.log('[Wizard] Headless mode: ignoring POST /api/bridge/state (daemon owns the store)');
+      console.log('[Wizard] Headless mode: ignoring POST /api/bridge/state (runtime owns the store)');
       warnedIgnoredStatePost = true;
     }
-    return res.json({ ok: true, ignored: true, storeMode: 'daemon' });
+    return res.json({ ok: true, ignored: true, storeMode: 'runtime' });
   }
   // Store state updates from BridgeClient.jsx so MCP server can read them
   latestBridgeState = req.body || null;
@@ -404,13 +404,13 @@ app.post('/api/bridge/state', (req, res) => {
 
 // ─────────────────────────────────────────────────────────────
 // Store endpoints (headless only) — full lossless universe access for the CLI
-// and, later, browser↔daemon sync (Phase 6).
+// and, later, browser↔runtime sync (Phase 6).
 // ─────────────────────────────────────────────────────────────
 
 app.get('/api/store/export', (req, res) => {
-  if (!isHeadless()) return res.status(409).json({ error: 'not-headless', message: 'No daemon universe loaded' });
+  if (!isHeadless()) return res.status(409).json({ error: 'not-headless', message: 'No runtime universe loaded' });
   try {
-    res.json(daemon.exportRedstring());
+    res.json(runtime.exportRedstring());
   } catch (err) {
     res.status(500).json({ error: String(err?.message || err) });
   }
@@ -418,11 +418,11 @@ app.get('/api/store/export', (req, res) => {
 
 app.get('/api/store/status', (req, res) => {
   if (!isHeadless()) return res.json({ headless: false });
-  const state = daemon.getState();
+  const state = runtime.getState();
   res.json({
     headless: true,
-    universe: daemon.universePath,
-    stateVersion: daemon.stateVersion,
+    universe: runtime.universePath,
+    stateVersion: runtime.stateVersion,
     graphs: state.graphs.size,
     prototypes: state.nodePrototypes.size,
     edges: state.edges?.size || 0,
@@ -433,30 +433,30 @@ app.get('/api/store/status', (req, res) => {
 app.post('/api/store/save', async (req, res) => {
   if (!isHeadless()) return res.status(409).json({ error: 'not-headless' });
   try {
-    await daemon.flush();
-    res.json({ ok: true, stateVersion: daemon.stateVersion, universe: daemon.universePath });
+    await runtime.flush();
+    res.json({ ok: true, stateVersion: runtime.stateVersion, universe: runtime.universePath });
   } catch (err) {
     res.status(500).json({ error: String(err?.message || err) });
   }
 });
 
-// Browser → daemon forward-edit (Phase 6 coexistence). Optimistic concurrency:
-// the browser sends the stateVersion it last observed; if the daemon has since
+// Browser → runtime forward-edit (Phase 6 coexistence). Optimistic concurrency:
+// the browser sends the stateVersion it last observed; if the runtime has since
 // advanced (e.g. an MCP mutation landed), reject with 409 so the browser
 // re-hydrates instead of clobbering. Body: { baseVersion?, redstring }.
 app.post('/api/store/import', (req, res) => {
   if (!isHeadless()) return res.status(409).json({ error: 'not-headless' });
   const { baseVersion, redstring } = req.body || {};
-  if (typeof baseVersion === 'number' && baseVersion !== daemon.stateVersion) {
-    return res.status(409).json({ error: 'version-conflict', stateVersion: daemon.stateVersion });
+  if (typeof baseVersion === 'number' && baseVersion !== runtime.stateVersion) {
+    return res.status(409).json({ error: 'version-conflict', stateVersion: runtime.stateVersion });
   }
   if (!redstring || typeof redstring !== 'object') {
     return res.status(400).json({ error: 'missing-redstring' });
   }
   try {
-    const ok = daemon.importRedstring(redstring);
+    const ok = runtime.importRedstring(redstring);
     if (!ok) return res.status(400).json({ error: 'import-rejected' });
-    res.json({ ok: true, stateVersion: daemon.stateVersion });
+    res.json({ ok: true, stateVersion: runtime.stateVersion });
   } catch (err) {
     res.status(500).json({ error: String(err?.message || err) });
   }
@@ -516,7 +516,7 @@ app.get('/api/bridge/telemetry', (req, res) => {
 // GET pending actions - UI polls this to receive mutations
 app.get('/api/bridge/pending-actions', (req, res) => {
   try {
-    // Headless: the daemon executes actions in-process, so never hand them to a
+    // Headless: the runtime executes actions in-process, so never hand them to a
     // (coexisting) browser — that would double-apply the same mutation.
     if (isHeadless()) return res.json({ pendingActions: [] });
     const available = pendingActions.filter(a => !inflightActionIds.has(a.id));
@@ -562,7 +562,7 @@ app.post('/api/bridge/pending-actions/enqueue', (req, res) => {
       // Assign ids synchronously (in execution order) so the response carries
       // them; mark each pending until the async executor completes it.
       const ordered = [...expanded]
-        .sort((x, y) => daemon.priority(x) - daemon.priority(y))
+        .sort((x, y) => runtime.priority(x) - runtime.priority(y))
         .map((a) => {
           const actionId = id(a.action || 'act');
           generatedIds.push(actionId);
@@ -575,7 +575,7 @@ app.post('/api/bridge/pending-actions/enqueue', (req, res) => {
         for (const { actionId, action, params } of ordered) {
           telemetry.push({ ts: Date.now(), type: 'tool_call', name: action, args: params, status: 'running', id: actionId });
           try {
-            const result = await daemon.executeAction(action, params);
+            const result = await runtime.executeAction(action, params);
             completedActions.set(actionId, { result: result ?? { success: true }, completedAt: Date.now() });
             telemetry.push({ ts: Date.now(), type: 'tool_call', name: action, args: params, status: 'completed', id: actionId });
           } catch (err) {
@@ -587,7 +587,7 @@ app.post('/api/bridge/pending-actions/enqueue', (req, res) => {
           }
         }
       })();
-      return res.json({ ok: true, enqueued: expanded.length, actionIds: generatedIds, storeMode: 'daemon' });
+      return res.json({ ok: true, enqueued: expanded.length, actionIds: generatedIds, storeMode: 'runtime' });
     }
 
     for (const a of expanded) {
@@ -748,17 +748,17 @@ export async function startWizardServer() {
   debugLogSync('wizard-server.js:startWizardServer:ENTRY', 'startWizardServer called', {}, 'debug-session', 'C');
   // #endregion
   try {
-    // Headless mode: if a universe is configured, boot the daemon runtime before
+    // Headless mode: if a universe is configured, boot the runtime before
     // listening so the store is live the moment the server accepts requests.
     const universePath = resolveUniversePath();
     if (universePath) {
       try {
         console.log(`[Wizard] Headless mode: loading universe ${universePath}`);
-        daemon = await initDaemonRuntime({ universePath, log: (...a) => console.error(...a) });
-        console.log(`[Wizard] Headless daemon ready (v${daemon.stateVersion})`);
-        installDaemonShutdownHandlers();
+        runtime = await initRuntime({ universePath, log: (...a) => console.error(...a) });
+        console.log(`[Wizard] Headless runtime ready (v${runtime.stateVersion})`);
+        installShutdownHandlers();
       } catch (err) {
-        console.error(`[Wizard] Failed to start headless daemon: ${err.message}`);
+        console.error(`[Wizard] Failed to start headless runtime: ${err.message}`);
         throw err;
       }
     }

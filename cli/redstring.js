@@ -118,8 +118,8 @@ function httpBackend() {
 
 async function directBackend(universePath) {
   if (!universePath) die('no daemon running and no --universe given (also set REDSTRING_UNIVERSE or ~/.redstring/daemon.json)');
-  const { initDaemonRuntime } = await import(path.join(ROOT, 'src/headless/daemonRuntime.js'));
-  const runtime = await initDaemonRuntime({ universePath, log: () => {} });
+  const { initRuntime } = await import(path.join(ROOT, 'src/headless/runtime.js'));
+  const runtime = await initRuntime({ universePath, log: () => {} });
   return {
     mode: 'direct',
     async getState() { return runtime.buildBridgeStatePayload(); },
