@@ -17,8 +17,36 @@ import { callLLM } from './src/wizard/LLMClient.js';
 import { debugLogSync } from './src/utils/debugLogger.js';
 import { enrichBatch, enrichSingle } from './src/wizard/services/wikipediaEnrichment.js';
 import SchedulerModule from './src/services/orchestrator/Scheduler.js';
+import { resolveUniversePath, initDaemonRuntime } from './src/headless/daemonRuntime.js';
 
 const app = express();
+
+// ─────────────────────────────────────────────────────────────
+// Headless daemon runtime (optional). When a universe file is configured
+// (--universe / REDSTRING_UNIVERSE / ~/.redstring/daemon.json), the server owns
+// a live store and executes mutations in-process — no browser required. When
+// absent, the server behaves exactly as before (browser-relay mode).
+// ─────────────────────────────────────────────────────────────
+let daemon = null;
+const isHeadless = () => !!daemon;
+
+// Flush + release the lock on shutdown so the .redstring file is never left
+// stale and another daemon can take over cleanly.
+let daemonShutdownInstalled = false;
+function installDaemonShutdownHandlers() {
+  if (daemonShutdownInstalled) return;
+  daemonShutdownInstalled = true;
+  let shuttingDown = false;
+  const shutdown = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.error(`[Wizard] ${signal} — flushing universe and releasing lock`);
+    try { if (daemon) await daemon.shutdown(); } catch (err) { console.error('[Wizard] Shutdown flush failed:', err.message); }
+    process.exit(0);
+  };
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+}
 
 // Check if a port is available
 function isPortAvailable(port) {
@@ -98,7 +126,13 @@ app.get('/api/bridge/health', (req, res) => {
     status: 'ok',
     source: 'wizard-server',
     timestamp: new Date().toISOString(),
-    scheduler: scheduler?.status() || { enabled: false }
+    scheduler: scheduler?.status() || { enabled: false },
+    // Headless daemon status — the browser (BridgeClient) reads `headless` to
+    // switch into daemon-authoritative mode (Phase 6).
+    headless: isHeadless(),
+    storeMode: isHeadless() ? 'daemon' : 'browser',
+    universe: isHeadless() ? daemon.universePath : null,
+    stateVersion: isHeadless() ? daemon.stateVersion : null
   });
 });
 
@@ -333,7 +367,14 @@ app.post('/api/bridge/register-store', (req, res) => {
 // State endpoint - stores latest state from BridgeClient.jsx for MCP server consumption
 let latestBridgeState = null;
 
+let warnedIgnoredStatePost = false;
+
 app.get('/api/bridge/state', (req, res) => {
+  // Headless: serve the live store directly (canonical). The MCP server reads
+  // the same shape it reads from the browser (buildBridgeState contract).
+  if (isHeadless()) {
+    return res.json(daemon.buildBridgeStatePayload());
+  }
   if (latestBridgeState) {
     res.json(latestBridgeState);
   } else {
@@ -347,9 +388,56 @@ app.get('/api/bridge/state', (req, res) => {
 });
 
 app.post('/api/bridge/state', (req, res) => {
+  // Headless: the daemon owns the store, so an inbound bridge snapshot is not
+  // authoritative — ignore it (log once) rather than clobbering live state.
+  if (isHeadless()) {
+    if (!warnedIgnoredStatePost) {
+      console.log('[Wizard] Headless mode: ignoring POST /api/bridge/state (daemon owns the store)');
+      warnedIgnoredStatePost = true;
+    }
+    return res.json({ ok: true, ignored: true, storeMode: 'daemon' });
+  }
   // Store state updates from BridgeClient.jsx so MCP server can read them
   latestBridgeState = req.body || null;
   res.json({ ok: true });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Store endpoints (headless only) — full lossless universe access for the CLI
+// and, later, browser↔daemon sync (Phase 6).
+// ─────────────────────────────────────────────────────────────
+
+app.get('/api/store/export', (req, res) => {
+  if (!isHeadless()) return res.status(409).json({ error: 'not-headless', message: 'No daemon universe loaded' });
+  try {
+    res.json(daemon.exportRedstring());
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+app.get('/api/store/status', (req, res) => {
+  if (!isHeadless()) return res.json({ headless: false });
+  const state = daemon.getState();
+  res.json({
+    headless: true,
+    universe: daemon.universePath,
+    stateVersion: daemon.stateVersion,
+    graphs: state.graphs.size,
+    prototypes: state.nodePrototypes.size,
+    edges: state.edges?.size || 0,
+    activeGraphId: state.activeGraphId || null
+  });
+});
+
+app.post('/api/store/save', async (req, res) => {
+  if (!isHeadless()) return res.status(409).json({ error: 'not-headless' });
+  try {
+    await daemon.flush();
+    res.json({ ok: true, stateVersion: daemon.stateVersion, universe: daemon.universePath });
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message || err) });
+  }
 });
 
 // SSE events stream - UI subscribes to this for real-time updates
@@ -441,6 +529,42 @@ app.post('/api/bridge/pending-actions/enqueue', (req, res) => {
     }
     const id = (suffix) => `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${suffix}`;
     const generatedIds = [];
+
+    // Headless: execute each action in-process, in dependency order (shared
+    // priority()), then mark it completed immediately so the MCP server's
+    // action-status poll resolves on the first hit (no browser to lease it).
+    if (isHeadless()) {
+      // Assign ids synchronously (in execution order) so the response carries
+      // them; mark each pending until the async executor completes it.
+      const ordered = [...expanded]
+        .sort((x, y) => daemon.priority(x) - daemon.priority(y))
+        .map((a) => {
+          const actionId = id(a.action || 'act');
+          generatedIds.push(actionId);
+          pendingActions.push({ id: actionId, action: a.action, params: a.params, timestamp: Date.now() });
+          return { actionId, action: a.action, params: a.params };
+        });
+
+      // Fire-and-forget sequential execution; the MCP client polls action-status.
+      (async () => {
+        for (const { actionId, action, params } of ordered) {
+          telemetry.push({ ts: Date.now(), type: 'tool_call', name: action, args: params, status: 'running', id: actionId });
+          try {
+            const result = await daemon.executeAction(action, params);
+            completedActions.set(actionId, { result: result ?? { success: true }, completedAt: Date.now() });
+            telemetry.push({ ts: Date.now(), type: 'tool_call', name: action, args: params, status: 'completed', id: actionId });
+          } catch (err) {
+            completedActions.set(actionId, { result: { success: false, error: String(err?.message || err) }, completedAt: Date.now() });
+            telemetry.push({ ts: Date.now(), type: 'tool_call', name: action, args: params, status: 'error', error: String(err?.message || err), id: actionId });
+          } finally {
+            pendingActions = pendingActions.filter((p) => p.id !== actionId);
+            setTimeout(() => completedActions.delete(actionId), 300000); // 5 min TTL
+          }
+        }
+      })();
+      return res.json({ ok: true, enqueued: expanded.length, actionIds: generatedIds, storeMode: 'daemon' });
+    }
+
     for (const a of expanded) {
       const actionId = id(a.action || 'act');
       generatedIds.push(actionId);
@@ -599,6 +723,21 @@ export async function startWizardServer() {
   debugLogSync('wizard-server.js:startWizardServer:ENTRY', 'startWizardServer called', {}, 'debug-session', 'C');
   // #endregion
   try {
+    // Headless mode: if a universe is configured, boot the daemon runtime before
+    // listening so the store is live the moment the server accepts requests.
+    const universePath = resolveUniversePath();
+    if (universePath) {
+      try {
+        console.log(`[Wizard] Headless mode: loading universe ${universePath}`);
+        daemon = await initDaemonRuntime({ universePath, log: (...a) => console.error(...a) });
+        console.log(`[Wizard] Headless daemon ready (v${daemon.stateVersion})`);
+        installDaemonShutdownHandlers();
+      } catch (err) {
+        console.error(`[Wizard] Failed to start headless daemon: ${err.message}`);
+        throw err;
+      }
+    }
+
     // #region agent log
     debugLogSync('wizard-server.js:getPort:BEFORE', 'About to call getPort', {}, 'debug-session', 'D');
     // #endregion
