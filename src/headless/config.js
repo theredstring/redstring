@@ -66,3 +66,20 @@ export function resolveWorkspace({ flags = {}, env = process.env } = {}) {
 export function rememberWorkspace(dir) {
   return writeConfig({ workspace: path.resolve(dir) });
 }
+
+/**
+ * Resolve the BYOK GitHub token. Precedence:
+ *   1. explicit flag (--token)
+ *   2. REDSTRING_GITHUB_TOKEN env
+ *   3. GITHUB_TOKEN env
+ *   4. ~/.redstring/config.json { githubToken }
+ * Returns null if none is configured.
+ */
+export function resolveGithubToken({ flags = {}, env = process.env } = {}) {
+  return flags.token || env.REDSTRING_GITHUB_TOKEN || env.GITHUB_TOKEN || readConfig().githubToken || null;
+}
+
+/** Persist a BYOK GitHub token (from `redstring auth github <token>`). */
+export function rememberGithubToken(token) {
+  return writeConfig({ githubToken: token });
+}

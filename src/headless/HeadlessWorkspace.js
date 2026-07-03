@@ -180,6 +180,100 @@ export class HeadlessWorkspace {
     return entry;
   }
 
+  // ── GitHub-backed universes ─────────────────────────────────────────────
+  /**
+   * Pull a universe from a GitHub repo into this workspace. The `sync` is a
+   * GitHubUniverseSync-like client (readFile / discoverUniverses / {user,repo,branch})
+   * so this method stays free of token/env concerns and is trivially testable.
+   * @param {object}  sync
+   * @param {object}  [opts]
+   * @param {string}  [opts.repoPath]        exact `.redstring` path in the repo (else discover)
+   * @param {string}  [opts.name]            display name (else derived from the file name)
+   * @param {boolean} [opts.activate=true]
+   * @returns {Promise<object>} the registered universe entry
+   */
+  async pullUniverse(sync, { repoPath = null, name = null, activate = true } = {}) {
+    let filePath = repoPath;
+    if (!filePath) {
+      const found = await sync.discoverUniverses();
+      if (found.length === 0) throw new Error(`No .redstring universe files found in ${sync.user}/${sync.repo}`);
+      if (found.length > 1) {
+        this.log(`[workspace] ${sync.user}/${sync.repo} has ${found.length} universes; pulling "${found[0]}" (others: ${found.slice(1).join(', ')})`);
+      }
+      filePath = found[0];
+    }
+
+    const content = await sync.readFile(filePath);
+    if (content == null) throw new Error(`Universe file not found in repo: ${filePath}`);
+    let json;
+    try { json = JSON.parse(content); }
+    catch (err) { throw new Error(`Repo file ${filePath} is not valid JSON: ${err.message}`); }
+
+    const baseName = name || filePath.split('/').pop().replace(/\.redstring$/i, '') || 'Universe';
+    const slug = this._registerUniverse(baseName);
+
+    // Materialize the pulled content into the local workspace file first, so an
+    // immediate activation loads exactly what the repo had.
+    const localPath = this._filePath(slug);
+    fs.mkdirSync(path.dirname(localPath), { recursive: true });
+    fs.writeFileSync(localPath, JSON.stringify(json), 'utf8');
+
+    const folder = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/')) : slug;
+    this.setGitLink(
+      slug,
+      { type: 'github', user: sync.user, repo: sync.repo, authMethod: 'token', branch: sync.branch || 'main' },
+      { universeFolder: folder, universeFile: filePath.split('/').pop(), sourceOfTruth: 'git' }
+    );
+    this.manifest.universes[slug].gitRepo.repoPath = filePath; // exact path push targets
+    this._writeManifest();
+
+    if (activate) await this.switchActive(slug);
+    return this.manifest.universes[slug];
+  }
+
+  /**
+   * Push a universe's current on-disk state to GitHub via `sync`.
+   * @param {object} sync   GitHubUniverseSync-like client (writeFile / {user,repo,branch})
+   * @param {string} slug
+   * @param {object} [opts] { message, repoPath }
+   * @returns {Promise<{slug, repoPath, commit:(string|null)}>}
+   */
+  async pushUniverse(sync, slug, { message = null, repoPath = null } = {}) {
+    const entry = this.manifest.universes[slug];
+    if (!entry) throw new Error(`No such universe: ${slug}`);
+
+    // Ensure the file reflects the latest store if this universe is active.
+    if (this.activeSlug === slug && this.universe) await this.universe.flush();
+
+    const localPath = this._filePath(slug);
+    if (!fs.existsSync(localPath)) throw new Error(`Universe file missing on disk: ${localPath}`);
+    const content = fs.readFileSync(localPath, 'utf8');
+
+    const target =
+      repoPath ||
+      entry.gitRepo?.repoPath ||
+      (entry.gitRepo?.universeFolder && entry.gitRepo?.universeFile
+        ? `${entry.gitRepo.universeFolder}/${entry.gitRepo.universeFile}`
+        : `universes/${slug}/${slug}.redstring`);
+
+    const res = await sync.writeFile(target, content, message || `Update universe ${entry.name}`);
+
+    // Record the link so a bare `push`/`pull` later resolves the same repo + path.
+    this.setGitLink(
+      slug,
+      { type: 'github', user: sync.user, repo: sync.repo, authMethod: 'token', branch: sync.branch || 'main' },
+      {
+        universeFolder: target.includes('/') ? target.slice(0, target.lastIndexOf('/')) : slug,
+        universeFile: target.split('/').pop(),
+        sourceOfTruth: entry.sourceOfTruth || 'git'
+      }
+    );
+    this.manifest.universes[slug].gitRepo.repoPath = target;
+    this._writeManifest();
+
+    return { slug, repoPath: target, commit: res?.commit?.sha || res?.content?.sha || null };
+  }
+
   async close() {
     if (this.universe) { await this.universe.close(); this.universe = null; }
     this._writeManifest();

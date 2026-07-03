@@ -114,6 +114,8 @@ export async function initRuntime({
     deleteUniverse: (slug, opts) => workspace.deleteUniverse(slug, opts),
     unlinkUniverse: (slug, slot) => workspace.unlink(slug, slot),
     setGitLink: (slug, linkedRepo, opts) => workspace.setGitLink(slug, linkedRepo, opts),
+    pullUniverse: (sync, opts) => workspace.pullUniverse(sync, opts),
+    pushUniverse: (sync, slug, opts) => workspace.pushUniverse(sync, slug, opts),
 
     /** Full lossless universe JSON (the runtime↔browser sync format). */
     exportRedstring: () => exportToRedstring(useGraphStore.getState()),

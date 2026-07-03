@@ -18,9 +18,14 @@
  *   redstring show <universe>         show a universe's details
  *   redstring rm <universe> [--keep-file]   delete a universe
  *   redstring workspace [link <dir>]  show or set the workspace folder
+ *   redstring auth github <token>     save a BYOK GitHub token
+ *   redstring pull <user/repo>[/path] import a universe from a GitHub repo (+ activate)
+ *   redstring push [<universe>] [<user/repo>]   publish a universe to a GitHub repo
+ *   redstring link|unlink <universe> ...        manage a universe's repo link
  *   redstring graph|node|edge|search|apply|export|state   (operate on the active universe)
  *
- * Flags: --workspace/-w <dir>, --universe <file> (back-compat), --port <n>, --json
+ * Flags: --workspace/-w <dir>, --universe <file> (back-compat), --port <n>, --json,
+ *        --token <t>, --branch <b>, --name <n>, -m/--message <msg>, --no-activate
  */
 import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
@@ -28,7 +33,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { resolveWorkspace, rememberWorkspace, REDSTRING_HOME } from '../src/headless/config.js';
+import { resolveWorkspace, rememberWorkspace, resolveGithubToken, rememberGithubToken, REDSTRING_HOME } from '../src/headless/config.js';
+import { GitHubUniverseSync, parseRepoSpec } from '../src/headless/githubSync.js';
 
 // The store + handlers log via console.log; route ALL library noise to stderr so
 // the CLI's stdout stays clean. Intentional output goes through emit() only.
@@ -53,6 +59,13 @@ const { values: flags, positionals } = parseArgs({
     color: { type: 'string' },
     type: { type: 'string' },
     out: { type: 'string' },
+    token: { type: 'string' },
+    branch: { type: 'string' },
+    name: { type: 'string' },
+    message: { type: 'string', short: 'm' },
+    'no-activate': { type: 'boolean' },
+    local: { type: 'boolean' },
+    git: { type: 'boolean' },
     'keep-file': { type: 'boolean' },
     json: { type: 'boolean' },
     help: { type: 'boolean', short: 'h' }
@@ -119,8 +132,19 @@ function httpBackend() {
     async switchUniverse(slug) { return post('/api/workspace/active', { slug }); },
     async deleteUniverse(slug, { keepFile } = {}) { return del(`/api/workspace/universes/${encodeURIComponent(slug)}${keepFile ? '?keepFile=true' : ''}`); },
     async unlink(slug, slot) { return post('/api/workspace/unlink', { slug, slot }); },
+    async pull(repoSpec, opts) { return post('/api/workspace/pull', { repo: repoSpec, ...opts }); },
+    async push(slug, opts) { return post('/api/workspace/push', { slug, ...opts }); },
+    async link(slug, repoSpec, opts) { return post('/api/workspace/link', { slug, repo: repoSpec, ...opts }); },
     async close() {}
   };
+}
+
+// Construct a GitHub sync client from a repo spec + BYOK token (direct mode).
+function githubSyncFor(repoSpec, { branch } = {}) {
+  const { user, repo, path: repoPath } = parseRepoSpec(repoSpec);
+  const token = resolveGithubToken({ flags, env: process.env });
+  if (!token) die('no GitHub token — run `redstring auth github <token>` or set REDSTRING_GITHUB_TOKEN');
+  return { sync: new GitHubUniverseSync({ user, repo, token, branch: branch || flags.branch || 'main', log: () => {} }), repoPath };
 }
 
 async function directBackend() {
@@ -145,6 +169,34 @@ async function directBackend() {
     async switchUniverse(slug) { await runtime.switchUniverse(slug); return { ok: true, active: runtime.getActiveUniverse()?.slug }; },
     async deleteUniverse(slug, opts) { const r = await runtime.deleteUniverse(slug, opts); return { ok: true, ...r }; },
     async unlink(slug, slot) { runtime.unlinkUniverse(slug, slot); return { ok: true }; },
+    async pull(repoSpec, { name = null, activate = true, branch = null } = {}) {
+      const { sync, repoPath } = githubSyncFor(repoSpec, { branch });
+      const universe = await runtime.pullUniverse(sync, { repoPath, name, activate });
+      return { ok: true, universe, active: runtime.getActiveUniverse()?.slug };
+    },
+    async push(slug, { repo = null, message = null, branch = null } = {}) {
+      const entry = runtime.listUniverses().find((u) => u.slug === slug);
+      let repoSpec = repo;
+      let storedPath = null;
+      if (!repoSpec && entry?.gitRepo?.enabled && entry.gitRepo.linkedRepo) {
+        const lr = entry.gitRepo.linkedRepo;
+        repoSpec = `${lr.user}/${lr.repo}`;
+        storedPath = entry.gitRepo.repoPath || null;
+      }
+      if (!repoSpec) die('no linked repo — pass a repo: `redstring push <universe> <user/repo>`');
+      const { sync, repoPath } = githubSyncFor(repoSpec, { branch: branch || entry?.gitRepo?.linkedRepo?.branch });
+      const result = await runtime.pushUniverse(sync, slug, { message, repoPath: storedPath || repoPath });
+      return { ok: true, ...result };
+    },
+    async link(slug, repoSpec, { branch = null } = {}) {
+      const { user, repo, path: repoPath } = parseRepoSpec(repoSpec);
+      runtime.setGitLink(
+        slug,
+        { type: 'github', user, repo, authMethod: 'token', branch: branch || flags.branch || 'main' },
+        repoPath ? { universeFolder: repoPath.includes('/') ? repoPath.slice(0, repoPath.lastIndexOf('/')) : slug, universeFile: repoPath.split('/').pop() } : {}
+      );
+      return { ok: true, linked: `${user}/${repo}` };
+    },
     async close() { await runtime.shutdown(); }
   };
 }
@@ -304,6 +356,51 @@ async function main() {
       return out(u);
     });
 
+    // ── GitHub-backed universes ─────────────────────────────────────────────
+    case 'auth': {
+      if (sub !== 'github') die('auth github <token>');
+      const token = rest[0]; if (!token) die('auth github <token>');
+      rememberGithubToken(token);
+      return out(flags.json ? { ok: true } : 'GitHub token saved to ~/.redstring/config.json');
+    }
+
+    case 'pull': return withBackend(async (b) => {
+      const repoSpec = sub; if (!repoSpec) die('pull <user/repo>[/path/to/file.redstring]');
+      const r = await b.pull(repoSpec, { name: flags.name || null, activate: !flags['no-activate'], branch: flags.branch || null });
+      const u = r.universe || {};
+      return out(flags.json ? r : `pulled "${u.name || repoSpec}" [${u.slug || '?'}]${flags['no-activate'] ? '' : ' (active)'}`);
+    });
+
+    case 'push': return withBackend(async (b) => {
+      // Args: [<universe>] [<user/repo>] in any order — repo is the one with a slash.
+      const args = [sub, ...rest].filter(Boolean);
+      const repoArg = args.find(a => a.includes('/')) || null;
+      const uniArg = args.find(a => a !== repoArg) || null;
+      const info = await b.workspaceInfo();
+      const slug = uniArg ? resolveUniverseArg(info, uniArg) : (info.active || info.universes.find(u => u.active)?.slug);
+      if (!slug) die('no active universe to push');
+      const r = await b.push(slug, { repo: repoArg, message: flags.message || null, branch: flags.branch || null });
+      return out(flags.json ? r : `pushed ${r.slug} → ${r.repoPath}${r.commit ? ` (${r.commit.slice(0, 8)})` : ''}`);
+    });
+
+    case 'link': return withBackend(async (b) => {
+      const uniArg = sub; const repoSpec = rest[0];
+      if (!uniArg || !repoSpec) die('link <universe> <user/repo>');
+      const info = await b.workspaceInfo();
+      const slug = resolveUniverseArg(info, uniArg);
+      const r = await b.link(slug, repoSpec, { branch: flags.branch || null });
+      return out(flags.json ? r : `linked ${slug} → ${repoSpec}`);
+    });
+
+    case 'unlink': return withBackend(async (b) => {
+      const uniArg = sub; if (!uniArg) die('unlink <universe> [--local]');
+      const info = await b.workspaceInfo();
+      const slug = resolveUniverseArg(info, uniArg);
+      const slot = flags.local ? 'local' : 'git';
+      const r = await b.unlink(slug, slot);
+      return out(flags.json ? r : `unlinked ${slot} from ${slug}`);
+    });
+
     // ── graph operations (on the active universe) ───────────────────────────
     case 'state': return withBackend(async (b) => {
       const s = await b.getState();
@@ -424,6 +521,13 @@ Universes:
   use <universe>        switch the active universe
   show <universe>       show a universe's details
   rm <universe> [--keep-file]   delete a universe
+
+GitHub (BYOK token):
+  auth github <token>   save a GitHub token to ~/.redstring/config.json
+  pull <user/repo>[/path] [--name <n>] [--no-activate]   import a universe from a repo
+  push [<universe>] [<user/repo>] [-m <msg>]             publish a universe to a repo
+  link <universe> <user/repo>    record a repo link (without pushing)
+  unlink <universe> [--local]    detach the git (or local) source
 
 Graph (operate on the active universe):
   graph list | create <name> | show <id>

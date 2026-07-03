@@ -19,6 +19,8 @@ import { debugLogSync } from './src/utils/debugLogger.js';
 import { enrichBatch, enrichSingle } from './src/wizard/services/wikipediaEnrichment.js';
 import SchedulerModule from './src/services/orchestrator/Scheduler.js';
 import { initRuntime, resolveWorkspace } from './src/headless/runtime.js';
+import { GitHubUniverseSync, parseRepoSpec } from './src/headless/githubSync.js';
+import { resolveGithubToken } from './src/headless/config.js';
 
 const app = express();
 
@@ -508,6 +510,65 @@ app.post('/api/workspace/unlink', (req, res) => {
   try {
     runtime.unlinkUniverse(req.body?.slug, req.body?.slot);
     res.json({ ok: true });
+  } catch (err) { res.status(400).json({ error: String(err?.message || err) }); }
+});
+
+app.post('/api/workspace/link', (req, res) => {
+  if (!isHeadless()) return res.status(409).json({ error: 'not-headless' });
+  try {
+    const { slug, repo, branch = 'main' } = req.body || {};
+    if (!slug || !repo) return res.status(400).json({ error: 'slug and repo required' });
+    const { user, repo: repoName, path: repoPath } = parseRepoSpec(repo);
+    const entry = runtime.setGitLink(
+      slug,
+      { type: 'github', user, repo: repoName, authMethod: 'token', branch },
+      repoPath ? { universeFolder: repoPath.includes('/') ? repoPath.slice(0, repoPath.lastIndexOf('/')) : slug, universeFile: repoPath.split('/').pop() } : {}
+    );
+    res.json({ ok: true, universe: entry });
+  } catch (err) { res.status(400).json({ error: String(err?.message || err) }); }
+});
+
+// Build a GitHub sync client from a repo spec + server-resolved BYOK token.
+function buildGithubSync(repoSpec, { branch } = {}) {
+  const { user, repo, path: repoPath } = parseRepoSpec(repoSpec);
+  const token = resolveGithubToken({ env: process.env });
+  const sync = new GitHubUniverseSync({ user, repo, token, branch: branch || 'main' });
+  return { sync, repoPath };
+}
+
+app.post('/api/workspace/pull', async (req, res) => {
+  if (!isHeadless()) return res.status(409).json({ error: 'not-headless' });
+  try {
+    const { repo, name = null, activate = true, branch = null } = req.body || {};
+    if (!repo) return res.status(400).json({ error: 'repo required (user/repo[/path])' });
+    const { sync, repoPath } = buildGithubSync(repo, { branch });
+    const universe = await runtime.pullUniverse(sync, { repoPath, name, activate });
+    res.json({ ok: true, universe, active: runtime.getActiveUniverse()?.slug, stateVersion: runtime.stateVersion });
+  } catch (err) { res.status(400).json({ error: String(err?.message || err) }); }
+});
+
+app.post('/api/workspace/push', async (req, res) => {
+  if (!isHeadless()) return res.status(409).json({ error: 'not-headless' });
+  try {
+    const { slug: slugIn = null, repo = null, message = null, branch = null } = req.body || {};
+    const slug = slugIn || runtime.getActiveUniverse()?.slug;
+    if (!slug) return res.status(400).json({ error: 'no universe to push' });
+    const entry = runtime.listUniverses().find((u) => u.slug === slug);
+    if (!entry) return res.status(404).json({ error: `no such universe: ${slug}` });
+
+    // Resolve the repo from the request, else the universe's recorded link.
+    let repoSpec = repo;
+    let repoPath = null;
+    if (!repoSpec && entry.gitRepo?.enabled && entry.gitRepo.linkedRepo) {
+      const lr = entry.gitRepo.linkedRepo;
+      repoSpec = `${lr.user}/${lr.repo}`;
+      repoPath = entry.gitRepo.repoPath || null;
+    }
+    if (!repoSpec) return res.status(400).json({ error: 'no linked repo — pass repo: "user/repo"' });
+
+    const built = buildGithubSync(repoSpec, { branch: branch || entry.gitRepo?.linkedRepo?.branch });
+    const result = await runtime.pushUniverse(built.sync, slug, { message, repoPath: repoPath || built.repoPath });
+    res.json({ ok: true, ...result });
   } catch (err) { res.status(400).json({ error: String(err?.message || err) }); }
 });
 
