@@ -75,7 +75,7 @@ const app = express();
 const PORT = process.env.MCP_PORT || (process.env.PORT && process.env.PORT !== '4001' ? process.env.PORT : 3003);
 // BRIDGE_PORT: Where the wizard server / UI bridge lives (receives state from BridgeClient.jsx)
 // This is separate from PORT because the MCP server reads state FROM the bridge, not from itself.
-const BRIDGE_PORT = 3001;
+const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || process.env.WIZARD_PORT || '3001', 10);
 const OAUTH_PORT = 3003;
 
 // Helper to map JSON Schema to Zod for dynamic tool registration
@@ -1474,7 +1474,7 @@ async function getRealRedstringState(retryCount = 0) {
       `After ${retryCount + 1} attempts, bridge` :
       'Redstring store bridge';
 
-    throw new Error(`${errorPrefix} not available: ${error.message}. Make sure Redstring is running on localhost:4000 and the MCPBridge component is loaded.`);
+    throw new Error(`${errorPrefix} not available: ${error.message}. Start either the Redstring app in a browser (which loads the MCPBridge) OR the headless daemon (\`npm run daemon\` with a universe configured via --universe / REDSTRING_UNIVERSE). Both serve the bridge on localhost:${BRIDGE_PORT}.`);
   }
 }
 
