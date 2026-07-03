@@ -27,6 +27,21 @@ import { exportToRedstring } from '../formats/redstringFormat.js';
 
 const BASE_PROTOTYPE_IDS = new Set(['base-thing-prototype', 'base-connection-prototype']);
 
+/** A fresh empty universe (mirrors universeBackend.createEmptyState). */
+const emptyUniverseState = () => ({
+  graphs: new Map(),
+  nodePrototypes: new Map(),
+  edges: new Map(),
+  openGraphIds: [],
+  activeGraphId: null,
+  activeDefinitionNodeId: null,
+  expandedGraphIds: new Set(),
+  rightPanelTabs: [{ type: 'home', isActive: true }],
+  savedNodeIds: new Set(),
+  savedGraphIds: new Set(),
+  showConnectionNames: true
+});
+
 const lockPathFor = (absPath) => {
   const slug = crypto.createHash('sha1').update(absPath).digest('hex');
   return path.join(os.homedir(), '.redstring', 'locks', `${slug}.lock`);
@@ -107,10 +122,46 @@ export class HeadlessUniverse {
       const ok = this.useGraphStore.getState().loadUniverseFromFile(json);
       if (!ok) throw new Error(`loadUniverseFromFile rejected ${this.filePath}`);
       this._highWater = this._countUserData(this.useGraphStore.getState());
-      this.log(`[HeadlessUniverse] Loaded ${this.filePath} (${this._highWater.nodes} nodes, ${this._highWater.graphs} graphs)`);
+      this.log(`[universe] Loaded ${this.filePath} (${this._highWater.nodes} nodes, ${this._highWater.graphs} graphs)`);
     } else {
-      this.log(`[HeadlessUniverse] No file at ${this.filePath} — starting empty; will create on first save`);
+      // New universe: reset the store to a fresh empty universe (mirrors the
+      // browser's createEmptyState → loadUniverseFromFile). This also CLEARS any
+      // previously-active universe's state when switching to a new file.
+      this.useGraphStore.getState().loadUniverseFromFile(emptyUniverseState());
+      this._highWater = { nodes: 0, graphs: 0 };
+      this.log(`[universe] New universe at ${this.filePath} — starting empty`);
     }
+    return this;
+  }
+
+  /** Write the current store to disk unconditionally (bypasses the debounce). */
+  async forceSave() {
+    if (this._savePromise) { try { await this._savePromise; } catch { /* prior save failed */ } }
+    this._pendingSave = false;
+    if (this._saveTimer) { clearTimeout(this._saveTimer); this._saveTimer = null; }
+    await this._writeToDisk();
+  }
+
+  /**
+   * Re-point this persister at a different `.redstring` file (active-universe
+   * switch). Flushes + unlocks the current file, then locks + loads the new one
+   * into the store (replacing state). The store subscription set up by watch()
+   * stays alive and now targets the new file.
+   */
+  async switchTo(newFilePath) {
+    const resolved = path.resolve(newFilePath);
+    if (resolved === this.filePath) return this;
+
+    await this.flush();
+    this.releaseLock();
+
+    this.filePath = resolved;
+    this._lockPath = lockPathFor(resolved);
+    this._lockHeld = false;
+    this.stateVersion = 0;
+    this._highWater = { nodes: 0, graphs: 0 };
+
+    await this.load(); // acquires the new lock + loads file (or empty) into store
     return this;
   }
 
