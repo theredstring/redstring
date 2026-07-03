@@ -8,6 +8,9 @@ import {
   buildGraphSummaries
 } from '../services/bridgeStateSerializer.js';
 import { createStoreActions, normalizeId, priority } from '../services/storeActions.js';
+import { createDaemonCoexistence } from '../services/daemonCoexistence.js';
+import saveCoordinator from '../services/SaveCoordinator.js';
+import { exportToRedstring } from '../formats/redstringFormat.js';
 
 /**
  * Bridge Client Component (formerly MCPBridge)
@@ -881,6 +884,23 @@ const BridgeClient = () => {
         reconnectIntervalRef.current = null;
       }
     };
+  }, []);
+
+  // ── Daemon coexistence (Phase 6) ──────────────────────────────────────────
+  // When a headless daemon is running, it owns the universe file. This controller
+  // hydrates the browser from the daemon, suspends local file writes, forwards
+  // edits, and re-hydrates on daemon-side changes. Inert when no daemon: tick()
+  // just fails the health probe and never engages.
+  useEffect(() => {
+    const coexistence = createDaemonCoexistence({
+      useGraphStore,
+      saveCoordinator,
+      bridgeFetch,
+      exportToRedstring,
+      log: (...a) => console.log('[BridgeClient]', ...a)
+    });
+    coexistence.start();
+    return () => coexistence.stop();
   }, []);
 
   // This component doesn't render anything visible

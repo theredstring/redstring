@@ -440,6 +440,28 @@ app.post('/api/store/save', async (req, res) => {
   }
 });
 
+// Browser → daemon forward-edit (Phase 6 coexistence). Optimistic concurrency:
+// the browser sends the stateVersion it last observed; if the daemon has since
+// advanced (e.g. an MCP mutation landed), reject with 409 so the browser
+// re-hydrates instead of clobbering. Body: { baseVersion?, redstring }.
+app.post('/api/store/import', (req, res) => {
+  if (!isHeadless()) return res.status(409).json({ error: 'not-headless' });
+  const { baseVersion, redstring } = req.body || {};
+  if (typeof baseVersion === 'number' && baseVersion !== daemon.stateVersion) {
+    return res.status(409).json({ error: 'version-conflict', stateVersion: daemon.stateVersion });
+  }
+  if (!redstring || typeof redstring !== 'object') {
+    return res.status(400).json({ error: 'missing-redstring' });
+  }
+  try {
+    const ok = daemon.importRedstring(redstring);
+    if (!ok) return res.status(400).json({ error: 'import-rejected' });
+    res.json({ ok: true, stateVersion: daemon.stateVersion });
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
 // SSE events stream - UI subscribes to this for real-time updates
 const sseClients = new Set();
 
@@ -494,6 +516,9 @@ app.get('/api/bridge/telemetry', (req, res) => {
 // GET pending actions - UI polls this to receive mutations
 app.get('/api/bridge/pending-actions', (req, res) => {
   try {
+    // Headless: the daemon executes actions in-process, so never hand them to a
+    // (coexisting) browser — that would double-apply the same mutation.
+    if (isHeadless()) return res.json({ pendingActions: [] });
     const available = pendingActions.filter(a => !inflightActionIds.has(a.id));
     available.forEach(a => {
       inflightActionIds.add(a.id);

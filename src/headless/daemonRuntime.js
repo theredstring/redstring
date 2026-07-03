@@ -122,6 +122,12 @@ export async function initDaemonRuntime({ universePath, debounceMs = 1000, log =
     get universePath() { return universe.filePath; },
     /** Full lossless universe JSON (the daemon↔browser sync format). */
     exportRedstring: () => exportToRedstring(useGraphStore.getState()),
+    /**
+     * Replace the store with an incoming universe (browser→daemon forward-edit).
+     * Returns true if loadUniverseFromFile accepted it. The autosave subscriber
+     * bumps stateVersion + persists as a side effect.
+     */
+    importRedstring: (json) => useGraphStore.getState().loadUniverseFromFile(json),
     async flush() { await universe.flush(); },
     async shutdown() { await universe.close(); }
   };

@@ -86,6 +86,18 @@ echo "-- store export + save --"
 curl -sf "${BASE}/api/store/export" | jq -e '.' >/dev/null && pass "/api/store/export returns JSON" || fail "export failed"
 curl -sf -X POST "${BASE}/api/store/save" | jq -e '.ok==true' >/dev/null && pass "/api/store/save ok" || fail "save failed"
 
+echo "-- store import (Phase 6 coexistence) --"
+VER="$(curl -sf "${BASE}/api/bridge/health" | jq -r '.stateVersion')"
+EXPORT_JSON="$(curl -sf "${BASE}/api/store/export")"
+# accept: correct baseVersion
+IMP="$(curl -sf -X POST "${BASE}/api/store/import" -H 'Content-Type: application/json' \
+  -d "$(jq -n --argjson v "$VER" --argjson r "$EXPORT_JSON" '{baseVersion:$v, redstring:$r}')")"
+[ "$(echo "$IMP" | jq -r '.ok')" = "true" ] && pass "import accepted with correct baseVersion" || fail "import rejected ($IMP)"
+# reject: stale baseVersion → 409
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST "${BASE}/api/store/import" -H 'Content-Type: application/json' \
+  -d "$(jq -n --argjson r "$EXPORT_JSON" '{baseVersion:999999, redstring:$r}')")"
+[ "$CODE" = "409" ] && pass "import rejects stale baseVersion (409)" || fail "expected 409 for stale version, got $CODE"
+
 echo "-- shutdown + on-disk check --"
 stop_daemon
 [ -f "$UNIVERSE" ] && pass "universe file exists on disk" || fail "no universe file written"
