@@ -207,13 +207,16 @@ export class HeadlessWorkspace {
     return path.join(this.dir, entry.localFile.path);
   }
 
-  /** Add any `.redstring` files on disk that aren't already in the manifest. */
+  /** Add any `.redstring` FILES on disk that aren't already in the manifest. */
   _reconcileWithDisk() {
     const known = new Set(Object.values(this.manifest.universes).map((u) => u.localFile?.path));
-    let files = [];
-    try { files = fs.readdirSync(this.dir); } catch { files = []; }
-    for (const f of files) {
+    let entries = [];
+    try { entries = fs.readdirSync(this.dir, { withFileTypes: true }); } catch { entries = []; }
+    for (const ent of entries) {
+      const f = ent.name;
+      if (f === MANIFEST_DIR) continue;              // skip the .redstring manifest DIR
       if (!f.toLowerCase().endsWith('.redstring')) continue;
+      if (!ent.isFile()) continue;                    // only real files, not dirs
       if (known.has(f)) continue;
       this._registerUniverseFromFile(f);
     }

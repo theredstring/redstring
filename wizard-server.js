@@ -11,13 +11,14 @@
 import express from 'express';
 import cors from 'cors';
 import net from 'net';
+import { parseArgs } from 'node:util';
 import { runAgent } from './src/wizard/AgentLoop.js';
 import { getToolDefinitions, executeTool } from './src/wizard/tools/index.js';
 import { callLLM } from './src/wizard/LLMClient.js';
 import { debugLogSync } from './src/utils/debugLogger.js';
 import { enrichBatch, enrichSingle } from './src/wizard/services/wikipediaEnrichment.js';
 import SchedulerModule from './src/services/orchestrator/Scheduler.js';
-import { resolveUniversePath, initRuntime } from './src/headless/runtime.js';
+import { initRuntime, resolveWorkspace } from './src/headless/runtime.js';
 
 const app = express();
 
@@ -131,7 +132,9 @@ app.get('/api/bridge/health', (req, res) => {
     // switch into runtime-authoritative mode (Phase 6).
     headless: isHeadless(),
     storeMode: isHeadless() ? 'runtime' : 'browser',
+    workspace: isHeadless() ? runtime.workspaceDir : null,
     universe: isHeadless() ? runtime.universePath : null,
+    activeUniverse: isHeadless() ? (runtime.getActiveUniverse()?.slug || null) : null,
     stateVersion: isHeadless() ? runtime.stateVersion : null
   });
 });
@@ -462,6 +465,52 @@ app.post('/api/store/import', (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// Workspace / universe management (headless only). Lets the CLI (HTTP mode)
+// and a future GUI drive the same universe lifecycle the direct-library path uses.
+// ─────────────────────────────────────────────────────────────
+
+app.get('/api/workspace', (req, res) => {
+  if (!isHeadless()) return res.status(409).json({ error: 'not-headless' });
+  res.json({
+    workspace: runtime.workspaceDir,
+    active: runtime.getActiveUniverse()?.slug || null,
+    universes: runtime.listUniverses()
+  });
+});
+
+app.post('/api/workspace/universes', async (req, res) => {
+  if (!isHeadless()) return res.status(409).json({ error: 'not-headless' });
+  try {
+    const universe = await runtime.createUniverse(req.body?.name || 'Universe');
+    res.json({ ok: true, universe, active: runtime.getActiveUniverse()?.slug, stateVersion: runtime.stateVersion });
+  } catch (err) { res.status(400).json({ error: String(err?.message || err) }); }
+});
+
+app.post('/api/workspace/active', async (req, res) => {
+  if (!isHeadless()) return res.status(409).json({ error: 'not-headless' });
+  try {
+    await runtime.switchUniverse(req.body?.slug);
+    res.json({ ok: true, active: runtime.getActiveUniverse()?.slug, stateVersion: runtime.stateVersion });
+  } catch (err) { res.status(400).json({ error: String(err?.message || err) }); }
+});
+
+app.delete('/api/workspace/universes/:slug', async (req, res) => {
+  if (!isHeadless()) return res.status(409).json({ error: 'not-headless' });
+  try {
+    const result = await runtime.deleteUniverse(req.params.slug, { keepFile: req.query.keepFile === 'true' });
+    res.json({ ok: true, ...result });
+  } catch (err) { res.status(400).json({ error: String(err?.message || err) }); }
+});
+
+app.post('/api/workspace/unlink', (req, res) => {
+  if (!isHeadless()) return res.status(409).json({ error: 'not-headless' });
+  try {
+    runtime.unlinkUniverse(req.body?.slug, req.body?.slot);
+    res.json({ ok: true });
+  } catch (err) { res.status(400).json({ error: String(err?.message || err) }); }
+});
+
 // SSE events stream - UI subscribes to this for real-time updates
 const sseClients = new Set();
 
@@ -748,14 +797,25 @@ export async function startWizardServer() {
   debugLogSync('wizard-server.js:startWizardServer:ENTRY', 'startWizardServer called', {}, 'debug-session', 'C');
   // #endregion
   try {
-    // Headless mode: if a universe is configured, boot the runtime before
-    // listening so the store is live the moment the server accepts requests.
-    const universePath = resolveUniversePath();
-    if (universePath) {
+    // Headless mode is OPT-IN via an explicit workspace/universe (flag or env).
+    // Bare `npm run wizard` (the Electron embedded bridge) has none, so it stays
+    // in browser-relay mode exactly as before — the browser owns its universes.
+    let wsFlags = {};
+    try {
+      ({ values: wsFlags } = parseArgs({
+        args: process.argv.slice(2),
+        options: { workspace: { type: 'string', short: 'w' }, universe: { type: 'string' } },
+        strict: false, allowPositionals: true
+      }));
+    } catch { /* ignore malformed args */ }
+    const explicit = wsFlags.workspace || wsFlags.universe || process.env.REDSTRING_WORKSPACE || process.env.REDSTRING_UNIVERSE;
+    if (explicit) {
       try {
-        console.log(`[Wizard] Headless mode: loading universe ${universePath}`);
-        runtime = await initRuntime({ universePath, log: (...a) => console.error(...a) });
-        console.log(`[Wizard] Headless runtime ready (v${runtime.stateVersion})`);
+        const { dir, activeFileHint } = resolveWorkspace({ flags: wsFlags });
+        console.log(`[Wizard] Headless mode: workspace ${dir}`);
+        runtime = await initRuntime({ workspaceDir: dir, activeFileHint, log: (...a) => console.error(...a) });
+        const active = runtime.getActiveUniverse();
+        console.log(`[Wizard] Headless runtime ready — active universe "${active?.name || '?'}" (v${runtime.stateVersion})`);
         installShutdownHandlers();
       } catch (err) {
         console.error(`[Wizard] Failed to start headless runtime: ${err.message}`);

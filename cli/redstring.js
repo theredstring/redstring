@@ -1,30 +1,26 @@
 #!/usr/bin/env node
 /**
- * redstring — command-line interface to a Redstring universe.
+ * redstring — run and drive Redstring from the command line.
  *
- * Two backends, chosen automatically:
- *   • HTTP mode   — a daemon is running (probe /api/bridge/health). Commands go
- *                   through its endpoints; the daemon owns the file.
- *   • Direct mode — no daemon. The CLI boots the headless store itself
- *                   (createHeadlessStore + HeadlessUniverse), runs one command,
- *                   flushes, and exits. Acquires the same lock, so it refuses to
- *                   run if a daemon already owns the universe.
+ * A workspace is a local folder of universes (.redstring files); one universe is
+ * active at a time. `redstring run` starts a background Redstring serving your
+ * workspace; other commands talk to it if it's up, or run the store directly
+ * (one-shot) if it isn't.
  *
- * Node built-ins only (util.parseArgs, fetch, child_process). No deps.
+ * Node built-ins only. No dependencies.
  *
- * Usage:
- *   redstring [--universe <path>] [--port <n>] [--json] <command> [args]
+ *   redstring run [<universe>]        start the background Redstring (+ activate)
+ *   redstring stop                    stop the background Redstring
+ *   redstring status                  is it running? which workspace / universe
+ *   redstring list                    list universes in the workspace
+ *   redstring create <name>           create a universe (and make it active)
+ *   redstring use <universe>          switch the active universe
+ *   redstring show <universe>         show a universe's details
+ *   redstring rm <universe> [--keep-file]   delete a universe
+ *   redstring workspace [link <dir>]  show or set the workspace folder
+ *   redstring graph|node|edge|search|apply|export|state   (operate on the active universe)
  *
- *   daemon start|stop|status         manage the background daemon
- *   universe create|info             create an empty universe / show status
- *   graph list|create <name>|show <id>
- *   node create <name> --graph <id> [--color <hex>]
- *   node list --graph <id>
- *   edge create <srcName> <dstName> --graph <id> [--type <name>]
- *   search <query>                   find graphs/prototypes by name
- *   apply <specs.json|->             enqueue/execute raw action specs
- *   export [--out <file>]            write the full universe JSON
- *   state [--json]                   summarize the current store
+ * Flags: --workspace/-w <dir>, --universe <file> (back-compat), --port <n>, --json
  */
 import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
@@ -32,29 +28,32 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import { resolveWorkspace, rememberWorkspace, REDSTRING_HOME } from '../src/headless/config.js';
 
-// The store + extracted handlers log to console.log (harmless in a browser, but
-// it would corrupt the CLI's stdout). Route ALL library noise to stderr; the
-// CLI's own output goes to stdout exclusively via emit().
+// The store + handlers log via console.log; route ALL library noise to stderr so
+// the CLI's stdout stays clean. Intentional output goes through emit() only.
 console.log = (...a) => process.stderr.write(a.map(x => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ') + '\n');
 const emit = (s) => process.stdout.write(String(s) + '\n');
 
 const PORT = process.env.WIZARD_PORT || process.env.BRIDGE_PORT || '3001';
 const BASE = `http://127.0.0.1:${PORT}`;
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const PID_FILE = path.join(REDSTRING_HOME, 'redstring.pid');
+const LOG_FILE = path.join(REDSTRING_HOME, 'redstring.log');
 
-// ── arg parsing ────────────────────────────────────────────────────────────
 const { values: flags, positionals } = parseArgs({
   args: process.argv.slice(2),
   allowPositionals: true,
   strict: false,
   options: {
+    workspace: { type: 'string', short: 'w' },
     universe: { type: 'string' },
     port: { type: 'string' },
     graph: { type: 'string' },
     color: { type: 'string' },
     type: { type: 'string' },
     out: { type: 'string' },
+    'keep-file': { type: 'boolean' },
     json: { type: 'boolean' },
     help: { type: 'boolean', short: 'h' }
   }
@@ -63,16 +62,14 @@ const { values: flags, positionals } = parseArgs({
 const [command, sub, ...rest] = positionals;
 const die = (msg, code = 1) => { console.error(`redstring: ${msg}`); process.exit(code); };
 const out = (obj) => emit(flags.json ? JSON.stringify(obj) : formatHuman(obj));
-
 const newId = (prefix) => `${prefix}-${crypto.randomUUID()}`;
-const daemonPidFile = path.join(os.homedir(), '.redstring', 'daemon.pid');
 
-async function daemonHealth() {
+async function probeRunning() {
   try {
     const r = await fetch(`${BASE}/api/bridge/health`);
     if (!r.ok) return null;
     const h = await r.json();
-    return h.headless ? h : null; // only treat a headless daemon as "up" for our purposes
+    return h.headless ? h : null; // only a headless instance counts as "running" for us
   } catch { return null; }
 }
 
@@ -82,6 +79,12 @@ function httpBackend() {
     const r = await fetch(`${BASE}${p}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
     const t = await r.text();
     if (!r.ok) throw new Error(`POST ${p} → ${r.status}: ${t.slice(0, 200)}`);
+    return t ? JSON.parse(t) : {};
+  };
+  const del = async (p) => {
+    const r = await fetch(`${BASE}${p}`, { method: 'DELETE' });
+    const t = await r.text();
+    if (!r.ok) throw new Error(`DELETE ${p} → ${r.status}: ${t.slice(0, 200)}`);
     return t ? JSON.parse(t) : {};
   };
   const get = async (p) => {
@@ -110,16 +113,20 @@ function httpBackend() {
       return results;
     },
     async export() { return get('/api/store/export'); },
-    async status() { return get('/api/store/status'); },
     async save() { return post('/api/store/save', {}); },
+    async workspaceInfo() { return get('/api/workspace'); },
+    async createUniverse(name) { return post('/api/workspace/universes', { name }); },
+    async switchUniverse(slug) { return post('/api/workspace/active', { slug }); },
+    async deleteUniverse(slug, { keepFile } = {}) { return del(`/api/workspace/universes/${encodeURIComponent(slug)}${keepFile ? '?keepFile=true' : ''}`); },
+    async unlink(slug, slot) { return post('/api/workspace/unlink', { slug, slot }); },
     async close() {}
   };
 }
 
-async function directBackend(universePath) {
-  if (!universePath) die('no daemon running and no --universe given (also set REDSTRING_UNIVERSE or ~/.redstring/daemon.json)');
+async function directBackend() {
+  const { dir, activeFileHint } = resolveWorkspace({ flags });
   const { initRuntime } = await import(path.join(ROOT, 'src/headless/runtime.js'));
-  const runtime = await initRuntime({ universePath, log: () => {} });
+  const runtime = await initRuntime({ workspaceDir: dir, activeFileHint, log: () => {} });
   return {
     mode: 'direct',
     async getState() { return runtime.buildBridgeStatePayload(); },
@@ -130,35 +137,67 @@ async function directBackend(universePath) {
       return results;
     },
     async export() { return runtime.exportRedstring(); },
-    async status() {
-      const s = runtime.getState();
-      return { headless: true, universe: runtime.universePath, stateVersion: runtime.stateVersion, graphs: s.graphs.size, prototypes: s.nodePrototypes.size, edges: s.edges?.size || 0, activeGraphId: s.activeGraphId || null };
-    },
     async save() { await runtime.flush(); return { ok: true }; },
+    async workspaceInfo() {
+      return { workspace: runtime.workspaceDir, active: runtime.getActiveUniverse()?.slug || null, universes: runtime.listUniverses() };
+    },
+    async createUniverse(name) { const u = await runtime.createUniverse(name); return { ok: true, universe: u, active: runtime.getActiveUniverse()?.slug }; },
+    async switchUniverse(slug) { await runtime.switchUniverse(slug); return { ok: true, active: runtime.getActiveUniverse()?.slug }; },
+    async deleteUniverse(slug, opts) { const r = await runtime.deleteUniverse(slug, opts); return { ok: true, ...r }; },
+    async unlink(slug, slot) { runtime.unlinkUniverse(slug, slot); return { ok: true }; },
     async close() { await runtime.shutdown(); }
   };
 }
 
-function resolveUniverse() {
-  if (flags.universe) return path.resolve(flags.universe);
-  if (process.env.REDSTRING_UNIVERSE) return path.resolve(process.env.REDSTRING_UNIVERSE);
-  try {
-    const cfg = path.join(os.homedir(), '.redstring', 'daemon.json');
-    if (fs.existsSync(cfg)) { const c = JSON.parse(fs.readFileSync(cfg, 'utf8')); if (c?.universe) return path.resolve(c.universe); }
-  } catch {}
-  return null;
+/** HTTP if a background Redstring is up; otherwise a one-shot direct-library backend. */
+async function getBackend() {
+  if (await probeRunning()) return httpBackend();
+  return directBackend();
 }
 
-async function getBackend() {
-  const health = await daemonHealth();
-  if (health) return httpBackend();
-  return directBackend(resolveUniverse());
+async function withBackend(fn) {
+  const backend = await getBackend();
+  try { return await fn(backend); }
+  finally { await backend.close(); }
+}
+
+// Resolve a user-supplied universe name-or-slug to its slug (last match wins).
+function resolveUniverseArg(info, nameOrSlug) {
+  const q = String(nameOrSlug || '').toLowerCase();
+  let hit = null;
+  for (const u of info.universes) {
+    if (u.slug === nameOrSlug) return u.slug;
+    if ((u.name || '').toLowerCase() === q || u.slug.toLowerCase() === q) hit = u.slug;
+  }
+  if (!hit) die(`no such universe: ${nameOrSlug}`);
+  return hit;
+}
+
+// ── auto-start (the `run` verb) ───────────────────────────────────────────────
+async function ensureRunning() {
+  const existing = await probeRunning();
+  if (existing) return existing;
+  const { dir } = resolveWorkspace({ flags });
+  rememberWorkspace(dir); // persist the linked workspace for future invocations
+  fs.mkdirSync(REDSTRING_HOME, { recursive: true });
+  const logFd = fs.openSync(LOG_FILE, 'a');
+  const child = spawn('node', ['wizard-server.js'], {
+    cwd: ROOT, detached: true, stdio: ['ignore', logFd, logFd],
+    env: { ...process.env, REDSTRING_WORKSPACE: dir, WIZARD_PORT: PORT }
+  });
+  fs.writeFileSync(PID_FILE, String(child.pid));
+  child.unref();
+  for (let i = 0; i < 60; i++) {
+    const h = await probeRunning();
+    if (h) return h;
+    await new Promise(r => setTimeout(r, 200));
+  }
+  die(`Redstring did not become ready — see ${LOG_FILE}`);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function findGraphByName(state, name) {
   const n = name.toLowerCase();
-  // take LAST match — newest wins (mirrors the store's resolve-by-name rule)
   let hit = null;
   for (const g of state.graphs) if ((g.name || '').toLowerCase() === n) hit = g;
   return hit;
@@ -169,74 +208,109 @@ function instancesOf(state, graphId) {
   const protos = new Map(state.nodePrototypes.map(p => [p.id, p]));
   return Object.values(g.instances || {}).map(inst => ({ ...inst, name: protos.get(inst.prototypeId)?.name || inst.prototypeId }));
 }
-
 function formatHuman(obj) {
   if (typeof obj === 'string') return obj;
   return JSON.stringify(obj, null, 2);
 }
 
-// ── commands ──────────────────────────────────────────────────────────────────
-async function cmdDaemon() {
-  if (sub === 'status') {
-    const h = await daemonHealth();
-    if (!h) return out('daemon: not running');
-    return out({ running: true, universe: h.universe, stateVersion: h.stateVersion });
-  }
-  if (sub === 'start') {
-    const universe = resolveUniverse();
-    if (!universe) die('daemon start requires --universe or REDSTRING_UNIVERSE');
-    if (await daemonHealth()) die('daemon already running');
-    const logFd = fs.openSync(path.join(os.homedir(), '.redstring', 'daemon.log'), 'a');
-    fs.mkdirSync(path.dirname(daemonPidFile), { recursive: true });
-    const child = spawn('node', ['wizard-server.js'], {
-      cwd: ROOT, detached: true, stdio: ['ignore', logFd, logFd],
-      env: { ...process.env, REDSTRING_UNIVERSE: universe, WIZARD_PORT: PORT }
-    });
-    fs.writeFileSync(daemonPidFile, String(child.pid));
-    child.unref();
-    // wait for health
-    for (let i = 0; i < 50; i++) { if (await daemonHealth()) return out({ started: true, pid: child.pid, universe }); await new Promise(r => setTimeout(r, 200)); }
-    die('daemon did not become healthy — see ~/.redstring/daemon.log');
-  }
-  if (sub === 'stop') {
-    if (!fs.existsSync(daemonPidFile)) die('no daemon pidfile');
-    const pid = parseInt(fs.readFileSync(daemonPidFile, 'utf8'), 10);
-    try { process.kill(pid, 'SIGTERM'); } catch (e) { die(`could not signal pid ${pid}: ${e.message}`); }
-    fs.rmSync(daemonPidFile, { force: true });
-    return out({ stopped: true, pid });
-  }
-  die(`unknown: daemon ${sub || ''}`);
-}
-
-async function withBackend(fn) {
-  const backend = await getBackend();
-  try { return await fn(backend); }
-  finally { await backend.close(); }
-}
-
+// ── main ──────────────────────────────────────────────────────────────────────
 async function main() {
   if (flags.help || !command) return printHelp();
 
   switch (command) {
-    case 'daemon': return cmdDaemon();
-
-    case 'universe': return withBackend(async (b) => {
-      if (sub === 'info') return out(await b.status());
-      if (sub === 'create') {
-        // In direct mode, booting the backend already created/loaded the file; flush to materialize it.
-        await b.save();
-        return out({ created: true, ...(await b.status()) });
+    // ── lifecycle ──────────────────────────────────────────────────────────
+    case 'run': {
+      const health = await ensureRunning();
+      if (sub) {
+        // activate the named universe
+        const info = await httpBackend().workspaceInfo();
+        const slug = resolveUniverseArg(info, sub);
+        await httpBackend().switchUniverse(slug);
       }
-      die(`unknown: universe ${sub || ''}`);
+      const h = await probeRunning();
+      return out(flags.json ? h : `Redstring running on ${BASE}\nworkspace: ${h.workspace}\nactive universe: ${h.activeUniverse}`);
+    }
+
+    case 'stop': {
+      const running = await probeRunning();
+      if (!fs.existsSync(PID_FILE)) {
+        if (!running) return out('Redstring is not running');
+        die('running but no pidfile — stop it manually');
+      }
+      const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8'), 10);
+      try { process.kill(pid, 'SIGTERM'); } catch (e) { die(`could not signal pid ${pid}: ${e.message}`); }
+      fs.rmSync(PID_FILE, { force: true });
+      return out({ stopped: true, pid });
+    }
+
+    case 'status':
+    case 'ps': {
+      const h = await probeRunning();
+      if (h) return out(flags.json ? h : `running: yes\nworkspace: ${h.workspace}\nactive universe: ${h.activeUniverse}\nstate version: ${h.stateVersion}`);
+      const { dir } = resolveWorkspace({ flags });
+      return out(flags.json ? { running: false, workspace: dir } : `running: no\nworkspace: ${dir}\n(start it with: redstring run)`);
+    }
+
+    case 'workspace': {
+      if (sub === 'link') {
+        const dir = rest[0]; if (!dir) die('workspace link <dir>');
+        const abs = path.resolve(dir);
+        rememberWorkspace(abs);
+        const running = await probeRunning();
+        return out(flags.json
+          ? { workspace: abs, note: running ? 'restart with `redstring run` to serve the new workspace' : null }
+          : `workspace set to ${abs}${running ? '\n(restart with `redstring run` to serve it)' : ''}`);
+      }
+      const { dir } = resolveWorkspace({ flags });
+      return out(flags.json ? { workspace: dir } : dir);
+    }
+
+    // ── universe management ─────────────────────────────────────────────────
+    case 'list':
+    case 'ls': return withBackend(async (b) => {
+      const info = await b.workspaceInfo();
+      if (flags.json) return out(info.universes.map(u => ({ slug: u.slug, name: u.name, active: u.active, source: u.sourceOfTruth })));
+      return out(info.universes.map(u => `${u.active ? '*' : ' '} ${u.name}  [${u.slug}]  (${u.sourceOfTruth})`).join('\n') || '(no universes)');
     });
 
+    case 'create': return withBackend(async (b) => {
+      const name = sub; if (!name) die('create <name>');
+      const r = await b.createUniverse(name);
+      return out(flags.json ? r : `created "${name}" (active)`);
+    });
+
+    case 'use': return withBackend(async (b) => {
+      const name = sub; if (!name) die('use <universe>');
+      const info = await b.workspaceInfo();
+      const slug = resolveUniverseArg(info, name);
+      const r = await b.switchUniverse(slug);
+      return out(flags.json ? r : `active universe: ${slug}`);
+    });
+
+    case 'rm':
+    case 'remove': return withBackend(async (b) => {
+      const name = sub; if (!name) die('rm <universe>');
+      const info = await b.workspaceInfo();
+      const slug = resolveUniverseArg(info, name);
+      const r = await b.deleteUniverse(slug, { keepFile: !!flags['keep-file'] });
+      return out(flags.json ? r : `removed ${slug}${flags['keep-file'] ? ' (file kept)' : ''}`);
+    });
+
+    case 'show': return withBackend(async (b) => {
+      const name = sub; if (!name) die('show <universe>');
+      const info = await b.workspaceInfo();
+      const slug = resolveUniverseArg(info, name);
+      const u = info.universes.find(x => x.slug === slug);
+      return out(u);
+    });
+
+    // ── graph operations (on the active universe) ───────────────────────────
     case 'state': return withBackend(async (b) => {
       const s = await b.getState();
       if (flags.json) return out(s);
-      const lines = [`store: ${s.storeMode || 'unknown'}  v${s.stateVersion ?? '?'}`,
+      return out([`store: ${s.storeMode || 'unknown'}  v${s.stateVersion ?? '?'}`,
         `graphs: ${s.graphs.length}  prototypes: ${s.nodePrototypes.length}  edges: ${(s.graphEdges || []).length}`,
-        `active: ${s.activeGraphId || 'none'}`];
-      return out(lines.join('\n'));
+        `active graph: ${s.activeGraphId || 'none'}`].join('\n'));
     });
 
     case 'export': return withBackend(async (b) => {
@@ -329,30 +403,39 @@ async function main() {
       return out({ applied: specs.length, results });
     });
 
-    default: die(`unknown command: ${command}`);
+    default: die(`unknown command: ${command} (try: redstring --help)`);
   }
 }
 
 function printHelp() {
-  emit(`redstring — CLI for a Redstring universe
+  emit(`redstring — run and drive Redstring from the command line
 
-Usage: redstring [--universe <path>] [--port <n>] [--json] <command>
+Usage: redstring [--workspace <dir>] [--port <n>] [--json] <command>
 
-Commands:
-  daemon start|stop|status
-  universe create|info
+Lifecycle:
+  run [<universe>]      start background Redstring serving your workspace (+ activate)
+  stop                  stop the background Redstring
+  status                is it running? which workspace / active universe
+  workspace [link <dir>]  show or set the workspace folder
+
+Universes:
+  list                  list universes in the workspace
+  create <name>         create a universe (and make it active)
+  use <universe>        switch the active universe
+  show <universe>       show a universe's details
+  rm <universe> [--keep-file]   delete a universe
+
+Graph (operate on the active universe):
   graph list | create <name> | show <id>
   node create <name> --graph <id> [--color <hex>] | list --graph <id>
-  edge create <srcName> <dstName> --graph <id> [--type <name>]
-  search <query>
-  apply <specs.json|->
-  export [--out <file>]
-  state [--json]
+  edge create <src> <dst> --graph <id> [--type <name>]
+  search <query> | apply <specs.json|-> | export [--out <file>] | state [--json]
 
-Backend: uses a running daemon if present (localhost:${PORT}); otherwise runs
-directly against the file from --universe / REDSTRING_UNIVERSE / ~/.redstring/daemon.json.`);
+A workspace is a local folder of universes (.redstring files). Commands use a
+running Redstring if present (localhost:${PORT}); otherwise they run the store
+directly for one shot. Default workspace: ~/redstring (created on first run).`);
 }
 
 // Explicit exit: the headless store keeps the event loop alive, so a resolved
-// main() would otherwise hang the process after the command completes.
+// main() would otherwise hang after the command completes.
 main().then(() => process.exit(0)).catch((err) => { console.error(`redstring: ${err.message}`); process.exit(1); });

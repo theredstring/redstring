@@ -102,7 +102,11 @@ describe('HeadlessWorkspace', () => {
     const ws2 = new HeadlessWorkspace({ dir, useGraphStore, debounceMs: 10, log: () => {} });
     workspaces.push(ws2);
     await ws2.open();
-    expect(ws2.listUniverses().some((u) => u.name === 'Imported')).toBe(true);
+    const list = ws2.listUniverses();
+    expect(list.some((u) => u.name === 'Imported')).toBe(true);
+    // the `.redstring` manifest DIR must never be mistaken for a universe file
+    expect(list.every((u) => u.name && u.name.trim().length > 0)).toBe(true);
+    expect(list.length).toBe(2); // Universe (default) + Imported
   });
 
   it('deletes a universe and falls back to another (or a fresh default)', async () => {
