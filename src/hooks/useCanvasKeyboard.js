@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import useGraphStore from '../store/graphStore';
+import useGraphStore from '../store/graphStore.js';
 import useHistoryStore from '../store/historyStore';
 import { copySelection, pasteClipboard } from '../utils/clipboard';
 import { getNodeDimensions } from '../utils';
