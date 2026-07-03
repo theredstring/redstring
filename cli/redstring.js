@@ -9,6 +9,7 @@
  *
  * Node built-ins only. No dependencies.
  *
+ *   redstring init                    set up a workspace + first universe (interactive/flags)
  *   redstring run [<universe>]        start the background Redstring (+ activate)
  *   redstring stop                    stop the background Redstring
  *   redstring status                  is it running? which workspace / universe
@@ -33,7 +34,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { resolveWorkspace, rememberWorkspace, resolveGithubToken, rememberGithubToken, REDSTRING_HOME } from '../src/headless/config.js';
+import readline from 'node:readline';
+import { resolveWorkspace, rememberWorkspace, resolveGithubToken, rememberGithubToken, REDSTRING_HOME, DEFAULT_WORKSPACE } from '../src/headless/config.js';
 import { GitHubUniverseSync, parseRepoSpec } from '../src/headless/githubSync.js';
 
 // The store + handlers log via console.log; route ALL library noise to stderr so
@@ -62,6 +64,8 @@ const { values: flags, positionals } = parseArgs({
     token: { type: 'string' },
     branch: { type: 'string' },
     name: { type: 'string' },
+    pull: { type: 'string' },
+    yes: { type: 'boolean', short: 'y' },
     message: { type: 'string', short: 'm' },
     'no-activate': { type: 'boolean' },
     local: { type: 'boolean' },
@@ -270,6 +274,61 @@ async function main() {
   if (flags.help || !command) return printHelp();
 
   switch (command) {
+    // ── onboarding ───────────────────────────────────────────────────────────
+    case 'init': {
+      // Interactive when attached to a TTY with no scripted flags; otherwise
+      // fully non-interactive (automation / AI use).
+      const scripted = flags.workspace || flags.name || flags.pull || flags.yes || flags.json;
+      const interactive = !!process.stdin.isTTY && !scripted;
+
+      let dir = flags.workspace ? path.resolve(flags.workspace) : null;
+      let name = flags.name || null;
+      let pull = flags.pull || null;
+
+      if (interactive) {
+        const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+        const ask = (q, def) => new Promise((res) => rl.question(`${q}${def ? ` [${def}]` : ''}: `, (a) => res((a || '').trim() || def || '')));
+        emit('Welcome to Redstring. Let\'s set up a workspace (a folder of universes).');
+        dir = path.resolve(await ask('Workspace folder', DEFAULT_WORKSPACE));
+        name = await ask('First universe name', 'Universe');
+        pull = await ask('Pull a universe from GitHub? (user/repo, or blank to skip)', '') || null;
+        rl.close();
+      }
+
+      dir = dir || DEFAULT_WORKSPACE;
+      rememberWorkspace(dir);
+
+      const { initRuntime } = await import(path.join(ROOT, 'src/headless/runtime.js'));
+      const runtime = await initRuntime({ workspaceDir: dir, log: () => {} });
+      let summary;
+      try {
+        if (pull) {
+          const { sync, repoPath } = githubSyncFor(pull);
+          const u = await runtime.pullUniverse(sync, { repoPath });
+          summary = `pulled "${u.name}" from ${pull}`;
+        } else if (name && name.toLowerCase() !== 'universe') {
+          const u = await runtime.createUniverse(name);
+          summary = `created universe "${u.name}"`;
+        } else {
+          summary = `active universe: ${runtime.getActiveUniverse()?.name}`;
+        }
+        await runtime.flush();
+      } finally {
+        await runtime.shutdown();
+      }
+
+      if (flags.json) return out({ ok: true, workspace: dir, summary });
+      return emit([
+        `Workspace ready: ${dir}`,
+        `  ${summary}`,
+        '',
+        'Next:',
+        '  redstring run          start Redstring in the background',
+        '  redstring list         see your universes',
+        '  redstring graph create "My First Graph"',
+      ].join('\n'));
+    }
+
     // ── lifecycle ──────────────────────────────────────────────────────────
     case 'run': {
       const health = await ensureRunning();
@@ -508,6 +567,10 @@ function printHelp() {
   emit(`redstring — run and drive Redstring from the command line
 
 Usage: redstring [--workspace <dir>] [--port <n>] [--json] <command>
+
+Getting started:
+  init                  set up a workspace + first universe (interactive, or use flags)
+                        flags: --workspace <dir> --name <u> [--pull <user/repo>]
 
 Lifecycle:
   run [<universe>]      start background Redstring serving your workspace (+ activate)

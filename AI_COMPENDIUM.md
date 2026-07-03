@@ -30,6 +30,7 @@ Find your task below and read only the listed files — in order. This is the fa
 | **Understand core architecture** | `CLAUDE.md`, `README.md` (§Architecture section) |
 | **Work with the Wizard / MCP** | `AI_INTEGRATION_GUIDE.md`, `REDSTRING_MCP_SYSTEM_PROMPT.md`, then `AGENTIC_ARCHITECTURE.md` (historical — explains the pipeline shape) |
 | **Call MCP tools from an external client** | `MCP_TOOLS_QUICK_REFERENCE.md`, `MCP_SETUP_GUIDE.md` |
+| **Use Redstring headless (no browser: CLI, workspaces, universes, GitHub)** | `HEADLESS.md` (current — the CLI, workspace/universe model, `redstring init`, pull/push) |
 | **Read or write `.redstring` files** | `redstring-format-spec.md` (legacy-canonical — migration code is derived from this), `REDSTRING_FORMAT_VERSIONING.md` |
 | **Migrate data between format versions** | `REDSTRING_FORMAT_VERSIONING.md`, `MIGRATION_GUIDE.md`, `redstring-format-spec.md` (legacy-canonical) |
 | **Modify the layout algorithm** | `AUTO_LAYOUT_GUIDE.md`, `REDESIGNED_LAYOUT_SUMMARY.md` (historical — explains why it was rebuilt), `FORCE_SIMULATION_TUNER.md` |

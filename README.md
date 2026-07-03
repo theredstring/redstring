@@ -591,6 +591,7 @@ OAUTH_PORT=3002
 ### Core Documentation
 - `aiinstructions.txt` - Project overview and recent enhancements
 - `redstring-format-spec.md` - File format specification
+- `HEADLESS.md` - Run and drive Redstring without a browser (CLI, workspaces, universes, GitHub) — start here if you're an AI that cloned this repo
 - `SEMANTIC_WEB_INTEGRATION.md` - Semantic web features and RDF integration
 - `COMPREHENSIVE_AI_TOOLS.md` - Wizard tools and MCP integration
 - `GIT_FEDERATION.md` - Git federation architecture and workflows
