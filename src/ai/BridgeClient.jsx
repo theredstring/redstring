@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 import { bridgeEventSource, bridgeFetch } from '../services/bridgeConfig.js';
 import { navigateOnGraphSwitch } from '../services/canvasNavigationService.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';

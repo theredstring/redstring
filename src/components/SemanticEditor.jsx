@@ -6,7 +6,7 @@ import { enrichFromSemanticWeb, fastEnrichFromSemanticWeb } from '../services/se
 import { knowledgeFederation } from '../services/knowledgeFederation.js';
 import { getTextColor } from '../utils/colorUtils.js';
 import { useTheme } from '../hooks/useTheme.js';
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 
 // DOI validation regex
 const DOI_REGEX = /^10\.\d{4,}\/[-._;()\/:a-zA-Z0-9]+$/;

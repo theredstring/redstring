@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './BackToCivilization.css';
 import { useViewportBounds } from './hooks/useViewportBounds';
-import useGraphStore from './store/graphStore.jsx';
+import useGraphStore from './store/graphStore.js';
 
 const BackToCivilization = ({
   isVisible,

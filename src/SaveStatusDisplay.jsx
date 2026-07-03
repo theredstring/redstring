@@ -3,7 +3,7 @@ import { HEADER_HEIGHT } from './constants';
 import { universeManagerService } from './services/universeManagerService';
 import saveCoordinator from './services/SaveCoordinator';
 import { useViewportBounds } from './hooks/useViewportBounds';
-import useGraphStore from './store/graphStore.jsx';
+import useGraphStore from './store/graphStore.js';
 
 const SaveStatusDisplay = () => {
   const [statusText, setStatusText] = useState('Loading...');

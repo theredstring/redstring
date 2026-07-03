@@ -1,4 +1,4 @@
-import useGraphStore from './src/store/graphStore.jsx';
+import useGraphStore from './src/store/graphStore.js';
 import useHistoryStore from './src/store/historyStore.js';
 
 // Setup basic nodes

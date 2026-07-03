@@ -9,7 +9,7 @@ import {
   generateProgressiveColor,
   getTextColor
 } from './utils/colorUtils.js';
-import useGraphStore from './store/graphStore.jsx';
+import useGraphStore from './store/graphStore.js';
 import useImageCache from './services/imageCache.js';
 import { useTheme } from './hooks/useTheme.js';
 import './AbstractionCarousel.css';

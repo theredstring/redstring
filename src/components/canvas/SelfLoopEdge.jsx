@@ -2,7 +2,7 @@ import React from 'react';
 import { calculateSelfLoopPath } from '../../utils/canvas/selfLoopUtils.js';
 import { estimateTextWidth } from '../../utils/canvas/edgeLabelPlacement.js';
 import { getLightHueText, getDarkHueText } from '../../utils/colorUtils.js';
-import useGraphStore from '../../store/graphStore.jsx';
+import useGraphStore from '../../store/graphStore.js';
 
 const SelfLoopEdge = ({
   edge,

@@ -1,4 +1,4 @@
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from './graphLayoutService.js';
 import { getNodeDimensions } from '../utils';
 

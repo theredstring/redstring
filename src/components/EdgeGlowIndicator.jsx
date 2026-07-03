@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useViewportBounds } from '../hooks/useViewportBounds';
 import { getNodeDimensions } from '../utils';
 import { HEADER_HEIGHT, NODE_HEIGHT } from '../constants';
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 
 const EdgeGlowIndicator = ({
   nodes,

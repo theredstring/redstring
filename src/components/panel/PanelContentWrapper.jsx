@@ -2,7 +2,7 @@ import React, { useState, useMemo, memo } from 'react';
 import { THUMBNAIL_MAX_DIMENSION } from '../../constants.js';
 import { generateThumbnail } from '../../utils.js';
 import SharedPanelContent from './SharedPanelContent.jsx';
-import useGraphStore from "../../store/graphStore.jsx";
+import useGraphStore from "../../store/graphStore.js";
 import ColorPicker from '../../ColorPicker.jsx';
 import PanelColorPickerPortal from '../PanelColorPickerPortal.jsx';
 import { useTheme } from '../../hooks/useTheme.js';

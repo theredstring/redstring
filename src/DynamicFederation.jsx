@@ -28,7 +28,7 @@ import domainVerification from './services/domainVerification.js';
 import podDiscovery from './services/podDiscovery.js';
 import uriGenerator from './services/uriGenerator.js';
 import { importFromRedstring } from './formats/redstringFormat.js';
-import useGraphStore from "./store/graphStore.jsx";
+import useGraphStore from "./store/graphStore.js";
 import { useTheme } from './hooks/useTheme.js';
 
 

@@ -14,7 +14,7 @@ import WizardActionChip from '../../wizard/WizardActionChip.jsx';
 import { resolveGraphId } from '../../../wizard/tools/resolveGraphId.js';
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx';
 import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
-import useGraphStore from '../../../store/graphStore.jsx';
+import useGraphStore from '../../../store/graphStore.js';
 import { applyOffscreenLayout } from '../../../services/offscreenLayout.js';
 import DruidInstance from '../../../services/DruidInstance.js';
 import { getTextColor } from '../../../utils/colorUtils.js';

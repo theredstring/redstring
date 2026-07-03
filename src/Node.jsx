@@ -8,7 +8,7 @@ import { getNodeDimensions } from './utils.js'; // Import needed for node dims
 import { getTextColor } from './utils/colorUtils.js';
 import { isValidColor } from './ai/palettes.js';
 import { ChevronLeft, ChevronRight, Trash2, Expand, ArrowUpFromDot, PackageOpen } from 'lucide-react'; // Import navigation icons, trash, expand, and package-open
-import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./store/graphStore.jsx"; // Import store selectors
+import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./store/graphStore.js"; // Import store selectors
 
 import { useTheme } from './hooks/useTheme.js';
 

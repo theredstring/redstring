@@ -14,7 +14,7 @@ import useGraphStore, {
     getGraphTitleById,
     getOpenGraphIds,
     getActiveGraphId
-} from '../../src/store/graphStore.jsx'; // Corrected path: from test/store go up two levels, then src/store
+} from '../../src/store/graphStore.js'; // Corrected path: from test/store go up two levels, then src/store
 // No longer need class imports
 // import Node from '../../src/core/Node';
 // import Edge from '../../src/core/Edge';

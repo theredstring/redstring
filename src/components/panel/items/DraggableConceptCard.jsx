@@ -2,7 +2,7 @@ import React, { useEffect, useMemo } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Search, Bookmark, ArrowRight } from 'lucide-react';
-import useGraphStore from '../../../store/graphStore.jsx';
+import useGraphStore from '../../../store/graphStore.js';
 import { getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
 

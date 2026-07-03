@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
-import useGraphStore from './store/graphStore.jsx';
+import useGraphStore from './store/graphStore.js';
 import { getNodeDimensions } from './utils.js';
 import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { isValidColor } from './ai/palettes.js';

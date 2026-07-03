@@ -3,7 +3,7 @@ import UniversalNodeRenderer from '../UniversalNodeRenderer';
 import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
 import { getNodeDimensions } from '../utils.js';
 import { measureTextWidth } from '../services/textMeasurement.js';
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 
 /**
  * HoverVisionAid displays a high-fidelity preview of nodes or connections

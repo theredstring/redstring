@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import CanvasModal from './CanvasModal';
 import { getStorageKey } from '../utils/storageUtils.js';
 import useViewportBounds from '../hooks/useViewportBounds.js';
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
 
 /**

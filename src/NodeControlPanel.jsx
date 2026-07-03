@@ -1,6 +1,6 @@
 import React from 'react';
 import UnifiedBottomControlPanel from './UnifiedBottomControlPanel';
-import useGraphStore from './store/graphStore.jsx';
+import useGraphStore from './store/graphStore.js';
 
 const NodeControlPanel = ({
   mode = 'nodes',

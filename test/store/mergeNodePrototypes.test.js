@@ -2,7 +2,7 @@ const assert = require('assert');
 
 // Minimal harness to import the store factory in a Node test context
 const React = require('react');
-const { default: useGraphStore } = require('../../src/store/graphStore.jsx');
+const { default: useGraphStore } = require('../../src/store/graphStore.js');
 
 describe('mergeNodePrototypes', () => {
   it('remaps instances, saved sets, activeDefinitionNodeId and tabs; deletes secondary', () => {

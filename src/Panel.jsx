@@ -20,7 +20,7 @@ import useGraphStore, {
   getActiveGraphData,
   getEdgesForGraph,
   getNodePrototypeById,
-} from './store/graphStore.jsx';
+} from './store/graphStore.js';
 import { shallow } from 'zustand/shallow';
 import GraphListItem from './GraphListItem'; // <<< Import the new component
 // Direct import (lazy loading removed to avoid production chunk 404 errors)

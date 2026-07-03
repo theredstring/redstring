@@ -25,7 +25,7 @@ import universeManagerService, { STORAGE_TYPES } from './services/universeManage
 import { isElectron, pickFile, pickSaveLocation, readFile, writeFile } from './utils/fileAccessAdapter.js';
 import { startOAuthFlow } from './utils/oauthAdapter.js';
 import { HEADER_HEIGHT } from './constants.js';
-import useGraphStore from './store/graphStore.jsx';
+import useGraphStore from './store/graphStore.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { buildUniqueUniverseName } from './utils/universeNaming.js';
 import { useTheme } from './hooks/useTheme.js';
@@ -285,7 +285,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
   const loadGraphStore = useCallback(async () => {
     if (!graphStoreModuleRef.current) {
-      const module = await import('./store/graphStore.jsx');
+      const module = await import('./store/graphStore.js');
       graphStoreModuleRef.current = module.default;
     }
     return graphStoreModuleRef.current;
@@ -3397,7 +3397,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       }
 
       // Get current store state
-      const useGraphStore = (await import('./store/graphStore.jsx')).default;
+      const useGraphStore = (await import('./store/graphStore.js')).default;
       const storeState = useGraphStore.getState();
 
       // Export to redstring format

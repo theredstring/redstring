@@ -1,4 +1,4 @@
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 
 /**
  * Mark a set of prototype IDs as protected from cleanup.

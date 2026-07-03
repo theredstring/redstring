@@ -663,7 +663,7 @@ export class LocalSemanticQuery {
   async _getGraphState() {
     try {
       // Dynamic import to avoid circular dependencies
-      const graphStoreModule = await import('../store/graphStore.jsx');
+      const graphStoreModule = await import('../store/graphStore.js');
       
       // Check if useGraphStore exists and has getState
       if (graphStoreModule.useGraphStore && typeof graphStoreModule.useGraphStore.getState === 'function') {

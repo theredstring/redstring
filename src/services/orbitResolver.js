@@ -7,7 +7,7 @@ import { findLocalOrbitCandidates } from './orbitLocalIndex.js';
 let _useGraphStore = null;
 const getGraphStore = async () => {
   if (!_useGraphStore) {
-    const module = await import('../store/graphStore.jsx');
+    const module = await import('../store/graphStore.js');
     _useGraphStore = module.default;
   }
   return _useGraphStore;

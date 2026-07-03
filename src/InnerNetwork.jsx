@@ -12,7 +12,7 @@ import {
 } from './constants'; // Import necessary constants
 import { getNodeDimensions } from './utils.js'; // Import from utils.js
 import { getTextColor } from './utils/colorUtils.js';
-import useGraphStore from "./store/graphStore.jsx";
+import useGraphStore from "./store/graphStore.js";
 
 // --- InnerNetwork Component --- 
 // Rename connections to edges, expect plain data objects

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Palette, Plus } from 'lucide-react';
 import { NODE_DEFAULT_COLOR, MODAL_CLOSE_ICON_SIZE } from './constants';
 import { getTextColor } from './utils/colorUtils';
-import useGraphStore from "./store/graphStore.jsx";
+import useGraphStore from "./store/graphStore.js";
 import ColorPicker from './ColorPicker';
 import useViewportBounds from './hooks/useViewportBounds';
 import useMobileDetection from './hooks/useMobileDetection';

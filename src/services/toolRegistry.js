@@ -5,7 +5,7 @@
 
 import toolValidator from './toolValidator.js';
 import cognitiveAgent from './cognitiveAgent.js';
-import useGraphStore from "../store/graphStore.jsx";
+import useGraphStore from "../store/graphStore.js";
 import { v4 as uuidv4 } from 'uuid';
 
 class ToolRegistry {

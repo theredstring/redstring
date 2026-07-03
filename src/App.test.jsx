@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import App from './App';
-import useGraphStore from './store/graphStore.jsx'; // Import the store
+import useGraphStore from './store/graphStore.js'; // Import the store
 
 // Mock the useCanvasWorker hook
 vi.mock('./hooks/useCanvasWorker', () => ({

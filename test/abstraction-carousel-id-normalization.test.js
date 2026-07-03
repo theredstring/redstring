@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import useGraphStore from '../src/store/graphStore.jsx';
+import useGraphStore from '../src/store/graphStore.js';
 
 describe('Abstraction add flow uses prototypeId and reuses existing nodes', () => {
   it('inserts new node relative to existing focused prototype without duplicating it', () => {

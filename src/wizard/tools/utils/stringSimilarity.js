@@ -1,6 +1,6 @@
 /**
  * String similarity calculation using Levenshtein distance.
- * Copied from graphStore.jsx for use in server-side wizard tools.
+ * Copied from graphStore.js for use in server-side wizard tools.
  */
 export function calculateStringSimilarity(str1, str2) {
   if (!str1 || !str2) return 0;

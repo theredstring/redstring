@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useViewportBounds } from '../hooks/useViewportBounds';
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
 
 /**

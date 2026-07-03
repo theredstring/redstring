@@ -6,7 +6,7 @@ import { getNodeDimensions } from '../utils.js';
 import { NODE_CORNER_RADIUS, NODE_PADDING, NODE_DEFAULT_COLOR } from '../constants';
 import { candidateToConcept } from '../services/candidates.js';
 import { useTheme } from '../hooks/useTheme.js';
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 import { getTextColor, getInvertedTextColor } from '../utils/colorUtils';
 import { formatPredicate } from '../utils/predicateFormatter.js';
 

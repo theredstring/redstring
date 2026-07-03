@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import CanvasModal from './CanvasModal';
 import MaroonSlider from './MaroonSlider.jsx';
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
 import { Monitor, Grid3x3, Cable, Keyboard, Type, Brain, Info } from 'lucide-react';
 import AISection from './settings/AISection.jsx';

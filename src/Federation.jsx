@@ -8,7 +8,7 @@ import { LogIn, LogOut, User, Upload, Download, Trash2, RefreshCw } from 'lucide
 import solidAuth from './services/solidAuth.js';
 import solidData from './services/solidData.js';
 import { importFromRedstring } from './formats/redstringFormat.js';
-import useGraphStore from "./store/graphStore.jsx";
+import useGraphStore from "./store/graphStore.js";
 import { useTheme } from './hooks/useTheme.js';
 
 

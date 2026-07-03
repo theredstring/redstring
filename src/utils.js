@@ -6,7 +6,7 @@ import {
   NODE_CORNER_RADIUS,
   NAME_AREA_FACTOR
 } from './constants'; // Import necessary constants
-import useGraphStore from './store/graphStore.jsx'; // Import store for textSettings
+import useGraphStore from './store/graphStore.js'; // Import store for textSettings
 import { measureTextBlockHeight, measureTextWidth, buildNodeFontString } from './services/textMeasurement.js';
 
 // Font-load guard: clear dimension cache once the custom font is ready

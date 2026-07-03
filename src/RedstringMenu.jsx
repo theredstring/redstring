@@ -7,7 +7,7 @@ import * as fileStorage from './store/fileStorage.js';
 import { debugConfig } from './utils/debugConfig.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import useHistoryStore from './store/historyStore.js';
-import useGraphStore from './store/graphStore.jsx';
+import useGraphStore from './store/graphStore.js';
 
 const RedstringMenu = ({
   isOpen,

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import useGraphStore from "../store/graphStore.jsx";
+import useGraphStore from "../store/graphStore.js";
 import { bridgeEventSource, bridgeFetch } from '../services/bridgeConfig.js';
 
 // Projection store: replaces UI state wholesale upon commit events

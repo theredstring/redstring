@@ -4,7 +4,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import useGraphStore from "../store/graphStore.jsx";
+import useGraphStore from "../store/graphStore.js";
 
 // MCP Protocol Constants
 const MCP_VERSION = '2025-03-26';

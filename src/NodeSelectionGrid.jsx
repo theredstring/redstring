@@ -1,7 +1,7 @@
 import React, { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import NodeGridItem from './NodeGridItem';
 import { useTheme } from './hooks/useTheme.js';
-import useGraphStore from './store/graphStore.jsx';
+import useGraphStore from './store/graphStore.js';
 import './NodeSelectionGrid.css';
 
 const NodeSelectionGrid = ({ 

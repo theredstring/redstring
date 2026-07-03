@@ -12,7 +12,7 @@ import ConnectionBrowser from '../ConnectionBrowser.jsx';
 import StandardDivider from '../StandardDivider.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { fastEnrichFromSemanticWeb } from '../../services/semanticWebQuery.js';
-import useGraphStore from "../../store/graphStore.jsx";
+import useGraphStore from "../../store/graphStore.js";
 import useImageCache, { queueThumbnailFetch } from '../../services/imageCache.js';
 
 // Helper function to determine the correct article ("a" or "an")

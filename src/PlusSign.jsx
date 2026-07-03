@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { NODE_WIDTH, NODE_HEIGHT, PLUS_SIGN_SIZE, PLUS_SIGN_ANIMATION_DURATION } from './constants';
-import useGraphStore from './store/graphStore.jsx';
+import useGraphStore from './store/graphStore.js';
 
 const PlusSign = ({
   plusSign,

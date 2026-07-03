@@ -3,7 +3,7 @@ import { Trash2, Plus, ArrowUpFromDot, ArrowRight, ChevronLeft, ChevronRight, Pa
 import UniversalNodeRenderer from './UniversalNodeRenderer';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
-import useGraphStore from "./store/graphStore.jsx";
+import useGraphStore from "./store/graphStore.js";
 import { getNodeDimensions } from './utils.js';
 import useMobileDetection from './hooks/useMobileDetection';
 import { getTextColor, getLightHueText, getDarkHueText } from './utils/colorUtils.js';

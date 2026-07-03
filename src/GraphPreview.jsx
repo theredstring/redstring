@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { getNodeDimensions } from './utils.js';
 import { NODE_HEIGHT, NODE_WIDTH, NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from './constants';
-import useGraphStore from "./store/graphStore.jsx";
+import useGraphStore from "./store/graphStore.js";
 import { getTextColor } from './utils/colorUtils.js';
 import { useTheme } from './hooks/useTheme.js';
 

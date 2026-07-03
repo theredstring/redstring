@@ -54,7 +54,7 @@ import useGraphStore, {
   getHydratedNodesForGraph, // New selector
   getEdgesForGraph,
   getNodePrototypeById, // New selector for prototypes
-} from "./store/graphStore.jsx";
+} from "./store/graphStore.js";
 import useHistoryStore from './store/historyStore.js';
 import useImageCache, { queueThumbnailFetch } from './services/imageCache.js';
 

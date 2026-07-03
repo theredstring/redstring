@@ -3,7 +3,7 @@ import { Merge, Plus, Search } from 'lucide-react';
 import GraphListItem from '../../../GraphListItem.jsx';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
-import useGraphStore from '../../../store/graphStore.jsx';
+import useGraphStore from '../../../store/graphStore.js';
 import { useTheme } from '../../../hooks/useTheme.js';
 
 // Internal Left Grid View (Open Things)

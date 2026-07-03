@@ -5,7 +5,7 @@
  */
 
 import { useMemo } from 'react';
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 import { getTheme } from '../utils/themeColors.js';
 
 /**

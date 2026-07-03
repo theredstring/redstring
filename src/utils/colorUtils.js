@@ -308,7 +308,7 @@ export const generateProgressiveColor = (baseColor, level) => {
 export function getCurrentTheme() {
   // Import dynamically to avoid circular dependencies
   const { getTheme } = require('./themeColors.js');
-  const useGraphStore = require('../store/graphStore.jsx').default;
+  const useGraphStore = require('../store/graphStore.js').default;
 
   try {
     const darkMode = useGraphStore.getState().darkMode;

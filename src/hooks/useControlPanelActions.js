@@ -4,7 +4,7 @@
  */
 
 import { useCallback } from 'react';
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 
 /**
  * Hook providing control panel action handlers

@@ -1231,7 +1231,7 @@ class UniverseBackend {
         if (this.storeOperations?.setUniverseLoaded) {
           this.storeOperations.setUniverseLoaded(true, false);
         } else {
-          const { default: useGraphStore } = await import('../store/graphStore.jsx');
+          const { default: useGraphStore } = await import('../store/graphStore.js');
           useGraphStore.getState().setUniverseLoaded?.(true, false);
         }
       } catch (e) {
@@ -1497,7 +1497,7 @@ class UniverseBackend {
         if (this.storeOperations?.setUniverseError) {
           this.storeOperations.setUniverseError(error?.message || 'Initialization failed');
         } else {
-          const { default: useGraphStore } = await import('../store/graphStore.jsx');
+          const { default: useGraphStore } = await import('../store/graphStore.js');
           const s = useGraphStore.getState();
           if (typeof s.setUniverseError === 'function') {
             s.setUniverseError(error?.message || 'Initialization failed');
@@ -1527,7 +1527,7 @@ class UniverseBackend {
     while (retryCount < maxRetries) {
       try {
         // Dynamically import graphStore from backend (outside the circular dependency)
-        const { default: useGraphStore } = await import('../store/graphStore.jsx');
+        const { default: useGraphStore } = await import('../store/graphStore.js');
 
         // Validate that the store is properly initialized
         const testState = useGraphStore.getState();
@@ -5216,7 +5216,7 @@ class UniverseBackend {
     // Get store state if not provided
     if (!storeState) {
       // Try to get from store operations if available
-      const useGraphStore = (await import('../store/graphStore.jsx')).default;
+      const useGraphStore = (await import('../store/graphStore.js')).default;
       storeState = useGraphStore.getState();
     }
 
@@ -5298,7 +5298,7 @@ class UniverseBackend {
           const jsonData = JSON.parse(e.target.result);
 
           // Get store actions
-          const useGraphStore = (await import('../store/graphStore.jsx')).default;
+          const useGraphStore = (await import('../store/graphStore.js')).default;
           const storeActions = useGraphStore.getState();
 
           // Import the data

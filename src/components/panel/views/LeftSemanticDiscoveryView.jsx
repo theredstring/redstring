@@ -8,7 +8,7 @@ import { enhancedSemanticSearch } from '../../../services/semanticWebQuery.js';
 import { knowledgeFederation } from '../../../services/knowledgeFederation.js';
 import { normalizeToCandidate, candidateToConcept } from '../../../services/candidates.js';
 import { ingestOrbitIndexEntries } from '../../../services/orbitLocalIndex.js';
-import useGraphStore from '../../../store/graphStore.jsx';
+import useGraphStore from '../../../store/graphStore.js';
 import { markPrototypesProtected } from '../../../services/prototypeProtection.js';
 import { generateConceptColor, getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Merge, AlertTriangle, Check, X, Plus, ArrowRight } from 'lucide-react';
-import useGraphStore from '../store/graphStore.jsx';
+import useGraphStore from '../store/graphStore.js';
 import { NODE_DEFAULT_COLOR } from '../constants';
 
 const DuplicateManager = ({ onClose }) => {

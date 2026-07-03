@@ -4,7 +4,7 @@ import './TypeList.css';
 import { HEADER_HEIGHT } from './constants';
 import NodeType from './NodeType'; // Import NodeType
 import EdgeType from './EdgeType'; // Import EdgeType
-import useGraphStore from './store/graphStore.jsx';
+import useGraphStore from './store/graphStore.js';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 // Placeholder icons (replace with actual icons later)
 import { ChevronUp, Tag, Share2, LayoutGrid } from 'lucide-react';

@@ -4,7 +4,7 @@ import { NODE_DEFAULT_COLOR, HEADER_HEIGHT, MODAL_CLOSE_ICON_SIZE } from './cons
 import NodeGridItem from './NodeGridItem';
 import ColorPicker from './ColorPicker';
 import { useTheme } from './hooks/useTheme.js';
-import useGraphStore from './store/graphStore.jsx';
+import useGraphStore from './store/graphStore.js';
 
 const OldUnifiedSelector = ({ 
   mode, // 'node-creation', 'connection-creation', 'node-typing', or 'abstraction-node-creation'

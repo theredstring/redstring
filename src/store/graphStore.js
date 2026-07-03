@@ -2375,7 +2375,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // Adds a NEW edge connecting two instances.
     addEdge: (graphId, newEdgeData, contextOptions = {}) => {
       // #region agent log
-      debugLogSync('graphStore.jsx:addEdge', 'addEdge called', { graphId, edgeId: newEdgeData?.id, sourceId: newEdgeData?.sourceId, destId: newEdgeData?.destinationId, stack: new Error().stack?.split('\n').slice(1, 5) }, 'debug-session', 'A-B');
+      debugLogSync('graphStore.js:addEdge', 'addEdge called', { graphId, edgeId: newEdgeData?.id, sourceId: newEdgeData?.sourceId, destId: newEdgeData?.destinationId, stack: new Error().stack?.split('\n').slice(1, 5) }, 'debug-session', 'A-B');
       // #endregion
 
       // Resolve names for history
@@ -2432,7 +2432,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           (e.sourceId === sourceInstanceId && e.destinationId === destInstanceId) ||
           (e.sourceId === destInstanceId && e.destinationId === sourceInstanceId)
         );
-        debugLogSync('graphStore.jsx:addEdge:check', 'Checking existing edges', { edgeId, sourceId: sourceInstanceId, destId: destInstanceId, existingEdgeCount: existingEdges.length, existingEdgeIds: existingEdges.map(e => e.id) }, 'debug-session', 'B');
+        debugLogSync('graphStore.js:addEdge:check', 'Checking existing edges', { edgeId, sourceId: sourceInstanceId, destId: destInstanceId, existingEdgeCount: existingEdges.length, existingEdgeIds: existingEdges.map(e => e.id) }, 'debug-session', 'B');
         // #endregion
 
         if (!draft.edges.has(edgeId)) {
@@ -2448,11 +2448,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           }
           graph.edgeIds.push(edgeId);
           // #region agent log
-          debugLogSync('graphStore.jsx:addEdge:created', 'Edge created', { edgeId, totalEdgesNow: graph.edgeIds.length }, 'debug-session', 'A-B');
+          debugLogSync('graphStore.js:addEdge:created', 'Edge created', { edgeId, totalEdgesNow: graph.edgeIds.length }, 'debug-session', 'A-B');
           // #endregion
         } else {
           // #region agent log
-          debugLogSync('graphStore.jsx:addEdge:skip', 'Edge already exists - skipped', { edgeId }, 'debug-session', 'A');
+          debugLogSync('graphStore.js:addEdge:skip', 'Edge already exists - skipped', { edgeId }, 'debug-session', 'A');
           // #endregion
         }
       }));
@@ -4927,7 +4927,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     updateGraphView: (graphId, panOffset, zoomLevel) => {
       // #region agent log
-      debugLogSync('graphStore.jsx:updateGraphView', 'updateGraphView called', { graphId, zoomLevel: zoomLevel?.toFixed?.(3) }, 'debug-session', 'C');
+      debugLogSync('graphStore.js:updateGraphView', 'updateGraphView called', { graphId, zoomLevel: zoomLevel?.toFixed?.(3) }, 'debug-session', 'C');
       // #endregion
       api.setChangeContext({ type: 'viewport', target: 'graph' });
       set(produce((draft) => {
