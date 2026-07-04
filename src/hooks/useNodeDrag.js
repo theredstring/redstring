@@ -24,10 +24,16 @@ const DRAG_ZOOM_ADDITIVE_SCALE = 0.2;
 // duration when a drag starts. Position (translate) must stay instant — it and
 // scale share one `transform` string with `transition:none` — so the scale
 // portion is interpolated in JS each frame rather than via a CSS transition.
-const LIFT_DURATION = 150; // ms
+const LIFT_DURATION = 100; // ms
 // Drop-on-release: the scale settles node.scale → 1 when the drag ends. Kept
 // snappier than the lift so the node "lands" rather than drifting back down.
-const DROP_DURATION = 150; // ms
+const DROP_DURATION = 50; // ms
+// Lift target scale. Both the lift ramp and the drop read node.scale, so this
+// is the single knob for how far the node grows on grab. Boosted when drag-zoom
+// is on: the canvas zoom-out/in works against the node's own scale, so a bigger
+// pop is needed to read through it.
+const LIFT_SCALE = 1.15;
+const LIFT_SCALE_ZOOM = 1.4;
 
 /**
  * useNodeDrag — Extracts all node/group dragging behavior from NodeCanvas.
@@ -585,12 +591,12 @@ export const useNodeDrag = ({
           });
         } else {
           // Curved/parallel edge: update <path> elements. When an arrow is present,
-          // trim the curve to that end's arrow tip (using the SAME t as the arrow
-          // placement) so the curve never overshoots the arrowhead mid-drag.
+          // trim the curve to the back of that end's arrowhead (trimT) so the curve's
+          // round cap tucks under the triangle and never overshoots it mid-drag.
           let curveD = parallelPath.path;
           if (curvedArrowPlacement && (hasSourceArrow || hasDestArrow)) {
-            const tStart = hasSourceArrow ? curvedArrowPlacement.source.t : 0;
-            const tEnd = hasDestArrow ? curvedArrowPlacement.dest.t : 1;
+            const tStart = hasSourceArrow ? curvedArrowPlacement.source.trimT : 0;
+            const tEnd = hasDestArrow ? curvedArrowPlacement.dest.trimT : 1;
             curveD = getTrimmedBezierPath(
               parallelPath.startX, parallelPath.startY,
               parallelPath.ctrlX, parallelPath.ctrlY,
@@ -1447,22 +1453,29 @@ export const useNodeDrag = ({
         initMouseCanvasY = rect ? (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY : 0;
       }
 
-      setDraggingNodeInfo({
+      const multiInfo = {
         initialMouseCanvas: { x: initMouseCanvasX, y: initMouseCanvasY },
         initialPrimaryPos,
         relativeOffsets: initialPositions,
         primaryId: instanceId
-      });
+      };
+      setDraggingNodeInfo(multiInfo);
 
       dragHistoryRecordedRef.current = false;
       triggerDragZoomOut(clientX, clientY);
 
+      const liftScale = dragZoomSettings.enabled ? LIFT_SCALE_ZOOM : LIFT_SCALE;
       selectedInstanceIds.forEach(id => {
-        storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start', ignore: true });
+        storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = liftScale; }, { isDragging: true, phase: 'start', ignore: true });
       });
 
       // Cache DOM elements for all dragged nodes
       cacheDOMElements(draggedIds);
+      // Prime the drag-update snapshot so the post-commit re-apply effect
+      // re-asserts the ramped lift transform on the drag-zoom-out's per-frame
+      // commits — otherwise React resets the node to its full inline scale each
+      // frame (no pointer move to trigger the re-apply), clobbering the ramp.
+      pendingDragUpdate.current = { clientX, clientY, draggingNodeInfo: multiInfo };
       runLiftAnimation();
       return true;
     }
@@ -1478,17 +1491,23 @@ export const useNodeDrag = ({
       const mouseCanvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
       offset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
     }
-    setDraggingNodeInfo({ instanceId, offset, initialPos: { x: nodeData.x, y: nodeData.y } });
+    const singleInfo = { instanceId, offset, initialPos: { x: nodeData.x, y: nodeData.y } };
+    setDraggingNodeInfo(singleInfo);
 
     dragHistoryRecordedRef.current = false;
     triggerDragZoomOut(clientX, clientY);
-    storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start', ignore: true });
+    const liftScale = dragZoomSettings.enabled ? LIFT_SCALE_ZOOM : LIFT_SCALE;
+    storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = liftScale; }, { isDragging: true, phase: 'start', ignore: true });
 
     // Cache DOM elements
     cacheDOMElements([instanceId]);
+    // Prime the drag-update snapshot so the post-commit re-apply effect
+    // re-asserts the ramped lift transform on the drag-zoom-out's per-frame
+    // commits (no pointer move yet to trigger it otherwise).
+    pendingDragUpdate.current = { clientX, clientY, draggingNodeInfo: singleInfo };
     runLiftAnimation();
     return true;
-  }, [activeGraphId, selectedInstanceIds, nodes, nodeById, panOffsetRef, zoomLevelRef, canvasSize.offsetX, canvasSize.offsetY, containerRef, storeActions, triggerDragZoomOut, cacheDOMElements, cancelInFlightZoomRestore, runLiftAnimation]);
+  }, [activeGraphId, selectedInstanceIds, nodes, nodeById, panOffsetRef, zoomLevelRef, canvasSize.offsetX, canvasSize.offsetY, containerRef, storeActions, triggerDragZoomOut, cacheDOMElements, cancelInFlightZoomRestore, runLiftAnimation, dragZoomSettings]);
 
   // Ref for long-press timeout to always use latest startDragForNode
   const startDragForNodeRef = useRef(startDragForNode);

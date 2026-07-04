@@ -11713,10 +11713,10 @@ function NodeCanvas() {
                             (isHovered || hasSourceArrow || hasDestArrow);
                           if (shouldTrimCurve) {
                             const tStart = hasSourceArrow && curvedArrowPlacement
-                              ? curvedArrowPlacement.source.t
+                              ? curvedArrowPlacement.source.trimT
                               : (isHovered ? 0.08 : 0);
                             const tEnd = hasDestArrow && curvedArrowPlacement
-                              ? curvedArrowPlacement.dest.t
+                              ? curvedArrowPlacement.dest.trimT
                               : (isHovered ? 0.92 : 1);
                             trimmedPath = getTrimmedBezierPath(
                               parallelPath.startX, parallelPath.startY,
@@ -13120,10 +13120,10 @@ function NodeCanvas() {
                             (isHovered || hasSourceArrow || hasDestArrow);
                           if (shouldTrimCurve) {
                             const tStart = hasSourceArrow && curvedArrowPlacement
-                              ? curvedArrowPlacement.source.t
+                              ? curvedArrowPlacement.source.trimT
                               : (isHovered ? 0.08 : 0);
                             const tEnd = hasDestArrow && curvedArrowPlacement
-                              ? curvedArrowPlacement.dest.t
+                              ? curvedArrowPlacement.dest.trimT
                               : (isHovered ? 0.92 : 1);
                             trimmedPath = getTrimmedBezierPath(
                               parallelPath.startX, parallelPath.startY,

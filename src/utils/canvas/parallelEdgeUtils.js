@@ -288,22 +288,34 @@ export function calculateParallelEdgePath(startX, startY, endX, endY, curveInfo,
 
 // Default target distance (px, pre-scale) of the arrowhead tip from the curve's
 // outset endpoint. The endpoint is already outset VISIBLE_LINE_OUTSET (20px) past
-// the node border, so ~26 lands the tip right at the border like straight edges.
-export const DEFAULT_TIP_INSET = 26;
+// the node border, so ~20 lands the tip right at the border like straight edges.
+export const DEFAULT_TIP_INSET = 20;
+
+// Half the connection stroke width (27px), i.e. the radius of the round line-cap.
+// The visible curve bulges this far past its geometric endpoint, so the trim must
+// stop this much SHORT of the arrowhead's back edge to stay hidden under the triangle.
+const CAP_RADIUS = 13.5;
 
 /**
  * Compute arrowhead placement for a curved parallel edge so the tip lands a FIXED
  * pixel distance from each endpoint (independent of curve length/amount), with the
- * angle following the bezier tangent. Also returns the parameter t at each tip so
- * callers can trim the visible curve to exactly the arrow tips (no overshoot).
+ * angle following the bezier tangent.
+ *
+ * Returns, per end:
+ *   - x, y, angle : the arrow group's translate origin + rotation (tip lands at the
+ *                   inset point, `tipInsetPx` from the endpoint).
+ *   - t           : parameter at the tip (near the endpoint).
+ *   - tipX, tipY  : on-curve tip point (used for the hover "dot" affordance).
+ *   - trimT       : parameter at which the VISIBLE curve should stop so its round
+ *                   line-cap tucks under the back of the arrowhead (no overshoot).
  *
  * Shared by the settled render (NodeCanvas) and the live drag update (useNodeDrag)
  * so both stay in lockstep.
  *
  * @param {Object} parallelPath - result of calculateParallelEdgePath with type 'curve'
  * @param {number} connectionWidth - arrow scale factor (matches the render transform)
- * @param {number} tipInsetPx - target tip distance from the endpoint (default 26)
- * @returns {Object|null} { source:{x,y,angle,t}, dest:{x,y,angle,t} } or null if not a curve
+ * @param {number} tipInsetPx - target tip distance from the endpoint (default 20)
+ * @returns {Object|null} placement, or null if not a curve
  */
 export function getCurvedArrowPlacement(parallelPath, connectionWidth = 1, tipInsetPx = DEFAULT_TIP_INSET) {
   if (!parallelPath || parallelPath.type !== 'curve' || parallelPath.ctrlX == null) {
@@ -323,6 +335,13 @@ export function getCurvedArrowPlacement(parallelPath, connectionWidth = 1, tipIn
   const tSource = Math.max(0, Math.min(0.5, tipInsetPx / Math.max(speedSource, EPS)));
   const tDest = Math.max(0.5, Math.min(1, 1 - tipInsetPx / Math.max(speedDest, EPS)));
 
+  // The visible curve should end at the arrowhead's BACK edge, less the round-cap
+  // radius, so nothing pokes through the tip. Back edge is 2*POLY_TIP*cw past the
+  // tip (tip at local -34, base at +34), i.e. this far from the endpoint:
+  const trimDist = tipInsetPx + (2 * POLY_TIP * cw) - (CAP_RADIUS * cw);
+  const trimTSource = Math.min(0.48, Math.max(tSource, trimDist / Math.max(speedSource, EPS)));
+  const trimTDest = Math.max(0.52, Math.min(tDest, 1 - trimDist / Math.max(speedDest, EPS)));
+
   const tangentAt = (t) => {
     const invT = 1 - t;
     const tx = 2 * invT * (ctrlX - startX) + 2 * t * (endX - ctrlX);
@@ -341,14 +360,14 @@ export function getCurvedArrowPlacement(parallelPath, connectionWidth = 1, tipIn
   const destRad = destAngle * (Math.PI / 180);
 
   // Back off the group origin so the polygon tip (origin + cw*POLY_TIP*(cos a, sin a))
-  // lands on the computed tip point. `tipX/tipY` is the on-curve point (used for the
-  // hover "dot" affordance on undirected ends).
+  // lands on the computed tip point.
   return {
     source: {
       x: sourceTip.x - cw * POLY_TIP * Math.cos(sourceRad),
       y: sourceTip.y - cw * POLY_TIP * Math.sin(sourceRad),
       angle: sourceAngle,
       t: tSource,
+      trimT: trimTSource,
       tipX: sourceTip.x,
       tipY: sourceTip.y
     },
@@ -357,6 +376,7 @@ export function getCurvedArrowPlacement(parallelPath, connectionWidth = 1, tipIn
       y: destTip.y - cw * POLY_TIP * Math.sin(destRad),
       angle: destAngle,
       t: tDest,
+      trimT: trimTDest,
       tipX: destTip.x,
       tipY: destTip.y
     }
