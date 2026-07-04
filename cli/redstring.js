@@ -299,7 +299,9 @@ async function main() {
       rememberWorkspace(dir);
 
       const { initRuntime } = await import(path.join(ROOT, 'src/headless/runtime.js'));
-      const runtime = await initRuntime({ workspaceDir: dir, log: () => {} });
+      // Skip auto-default "Universe" when the user is providing their own name/pull
+      const skipDefault = !!(name || pull);
+      const runtime = await initRuntime({ workspaceDir: dir, log: () => {}, autoCreateDefault: !skipDefault });
       let summary;
       try {
         if (pull) {

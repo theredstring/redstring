@@ -116,8 +116,15 @@ export class HeadlessWorkspace {
   async switchActive(slug) {
     const entry = this.manifest.universes[slug];
     if (!entry) throw new Error(`No such universe: ${slug}`);
-    if (!this.universe) throw new Error('workspace is not open');
-    await this.universe.switchTo(this._filePath(slug));
+    if (!this.universe) {
+      // First universe in a workspace opened with autoCreateDefault:false
+      const filePath = this._filePath(slug);
+      this.universe = new HeadlessUniverse({ filePath, useGraphStore: this.useGraphStore, debounceMs: this.debounceMs, log: this.log });
+      await this.universe.load();
+      this.universe.watch();
+    } else {
+      await this.universe.switchTo(this._filePath(slug));
+    }
     await this.universe.forceSave(); // ensure the (possibly new) active file exists on disk
     this.manifest.activeUniverse = slug;
     this._writeManifest();
