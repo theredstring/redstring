@@ -9,7 +9,7 @@ import useGraphStore from '../store/graphStore.js';
 // full opacity for PREFADE_MS, then fade it out over FADE_MS. Any new hover
 // during the hold or fade snaps back to full opacity and switches instantly.
 const PREFADE_MS = 250;
-const FADE_MS = 500;
+const FADE_MS = 250;
 
 /**
  * HoverVisionAid displays a high-fidelity preview of nodes or connections

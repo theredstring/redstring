@@ -11805,7 +11805,7 @@ function NodeCanvas() {
                                   })()}
                                   fill="none"
                                   stroke="transparent"
-                                  strokeWidth="40"
+                                  strokeWidth={Math.max(50, 44 * connectionWidth)}
                                   style={{ cursor: 'pointer' }}
                                   onPointerDown={(e) => {
                                     // Immediate tap support for touch/pencil
@@ -11880,7 +11880,7 @@ function NodeCanvas() {
                                   d={parallelPath.path}
                                   fill="none"
                                   stroke="transparent"
-                                  strokeWidth="40"
+                                  strokeWidth={Math.max(50, 44 * connectionWidth)}
                                   style={{ cursor: 'pointer' }}
                                   onPointerDown={(e) => {
                                     if (e.pointerType && e.pointerType !== 'mouse') {
@@ -11956,7 +11956,7 @@ function NodeCanvas() {
                                   x2={x2}
                                   y2={y2}
                                   stroke="transparent"
-                                  strokeWidth="40"
+                                  strokeWidth={Math.max(50, 44 * connectionWidth)}
                                   style={{ cursor: 'pointer' }}
                                   onPointerDown={(e) => {
                                     if (e.pointerType && e.pointerType !== 'mouse') {
@@ -13225,7 +13225,7 @@ function NodeCanvas() {
                                   })()}
                                   fill="none"
                                   stroke="transparent"
-                                  strokeWidth="40"
+                                  strokeWidth={Math.max(50, 44 * connectionWidth)}
                                   style={{ cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -13271,7 +13271,7 @@ function NodeCanvas() {
                                   x2={x2}
                                   y2={y2}
                                   stroke="transparent"
-                                  strokeWidth="40"
+                                  strokeWidth={Math.max(50, 44 * connectionWidth)}
                                   style={{ cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
