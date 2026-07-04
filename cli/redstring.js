@@ -86,7 +86,7 @@ async function probeRunning() {
     const r = await fetch(`${BASE}/api/bridge/health`);
     if (!r.ok) return null;
     const h = await r.json();
-    return h.headless ? h : null; // only a headless instance counts as "running" for us
+    return h.status === 'ok' ? h : null; // accept headless or browser-mode (Electron) instances
   } catch { return null; }
 }
 
@@ -122,6 +122,7 @@ function httpBackend() {
   };
   return {
     mode: 'http',
+    headless: false, // set below
     async getState() { return get('/api/bridge/state'); },
     async runActions(actions) {
       const res = await post('/api/bridge/pending-actions/enqueue', { actions });
@@ -130,7 +131,11 @@ function httpBackend() {
       return results;
     },
     async export() { return get('/api/store/export'); },
-    async save() { return post('/api/store/save', {}); },
+    async save() {
+      // browser-mode (Electron): renderer owns saves, skip the headless-only endpoint
+      if (!this.headless) return {};
+      return post('/api/store/save', {});
+    },
     async workspaceInfo() { return get('/api/workspace'); },
     async createUniverse(name) { return post('/api/workspace/universes', { name }); },
     async switchUniverse(slug) { return post('/api/workspace/active', { slug }); },
@@ -208,7 +213,12 @@ async function directBackend() {
 
 /** HTTP if a background Redstring is up; otherwise a one-shot direct-library backend. */
 async function getBackend() {
-  if (await probeRunning()) return httpBackend();
+  const health = await probeRunning();
+  if (health) {
+    const b = httpBackend();
+    b.headless = !!health.headless;
+    return b;
+  }
   return directBackend();
 }
 
