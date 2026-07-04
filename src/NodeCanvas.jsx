@@ -101,7 +101,7 @@ import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/port
 import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import EdgeRenderer from './components/EdgeRenderer.jsx';
-import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getPointOnQuadraticBezier } from './utils/canvas/parallelEdgeUtils.js';
+import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
 import { chooseLabelPlacement, buildRoundedPathFromPoints, estimateTextWidth } from './utils/canvas/edgeLabelPlacement.js';
@@ -678,6 +678,9 @@ function NodeCanvas() {
   const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
   const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
   const cleanLaneSpacing = useGraphStore(state => state.autoLayoutSettings?.cleanLaneSpacing || 24);
+  const multiConnectionCurve = useGraphStore(state => state.autoLayoutSettings?.multiConnectionCurve ?? 1.3);
+  // Effective px spacing between adjacent parallel-edge curves (base 100 * user multiplier).
+  const curveSpacing = 100 * multiConnectionCurve;
   const textSettings = useGraphStore(state => state.textSettings);
   const connectionWidth = textSettings?.connectionWidth ?? 1.0;
   const connectionLabelSize = useGraphStore(state => state.connectionLabelSize ?? 1.0);
@@ -1272,8 +1275,10 @@ function NodeCanvas() {
   // Routing refs for DOM-bypass drag (arrow/label updates need to know routing mode)
   const enableAutoRoutingRef = useRef(enableAutoRouting);
   const routingStyleRef = useRef(routingStyle);
+  const multiConnectionCurveRef = useRef(multiConnectionCurve);
   useEffect(() => { enableAutoRoutingRef.current = enableAutoRouting; }, [enableAutoRouting]);
   useEffect(() => { routingStyleRef.current = routingStyle; }, [routingStyle]);
+  useEffect(() => { multiConnectionCurveRef.current = multiConnectionCurve; }, [multiConnectionCurve]);
 
   // Groups-by-node mapping for DOM-bypass group drag
   const groupsByNodeIdRef = useRef(new Map());
@@ -1853,6 +1858,7 @@ function NodeCanvas() {
     selectedInstanceIdsRef,
     enableAutoRoutingRef,
     routingStyleRef,
+    multiConnectionCurveRef,
     groupsByNodeIdRef,
     groupsByIdRef,
     childGroupIdsByGroupIdRef,
@@ -11667,8 +11673,14 @@ function NodeCanvas() {
 
                           // Calculate parallel edge path using centralized utility
                           // Note: curveInfo was already retrieved earlier for shouldShorten logic
-                          const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
+                          const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo, curveSpacing);
                           const useCurve = parallelPath.type === 'curve';
+
+                          // Curved arrow placement (tips a fixed px from each endpoint, tangent angle).
+                          // Shared source of truth for both the arrowheads and the curve trim below.
+                          const curvedArrowPlacement = useCurve
+                            ? getCurvedArrowPlacement(parallelPath, connectionWidth, DEFAULT_TIP_INSET)
+                            : null;
 
                           // For label placement, always use the visible segment (edge-to-edge).
                           // This ensures labels are centered on the visible portion, not the drawn
@@ -11687,20 +11699,30 @@ function NodeCanvas() {
                           const labelPlacementPath = calculateParallelEdgePath(
                             visibleEndpoints.x1, visibleEndpoints.y1,
                             visibleEndpoints.x2, visibleEndpoints.y2,
-                            curveInfo
+                            curveInfo,
+                            curveSpacing
                           );
 
-                          // For hover effect or arrows on curved edges, trim the curve to create "shorten" visual
-                          // This keeps the curve shape consistent but renders a shorter portion
+                          // For hover effect or arrows on curved edges, trim the curve so it ends
+                          // exactly at the arrowhead tips (never overshoots them). Only trim the
+                          // end(s) that actually have an arrow; a plain hover keeps a small cosmetic
+                          // trim. Uses the SAME t values that place the arrowheads (curvedArrowPlacement)
+                          // so line and arrow stay in lockstep.
                           let trimmedPath = null;
                           const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
-                            (isHovered || arrowsToward.has(sourceNode.id) || arrowsToward.has(destNode.id));
+                            (isHovered || hasSourceArrow || hasDestArrow);
                           if (shouldTrimCurve) {
+                            const tStart = hasSourceArrow && curvedArrowPlacement
+                              ? curvedArrowPlacement.source.t
+                              : (isHovered ? 0.08 : 0);
+                            const tEnd = hasDestArrow && curvedArrowPlacement
+                              ? curvedArrowPlacement.dest.t
+                              : (isHovered ? 0.92 : 1);
                             trimmedPath = getTrimmedBezierPath(
                               parallelPath.startX, parallelPath.startY,
                               parallelPath.ctrlX, parallelPath.ctrlY,
                               parallelPath.endX, parallelPath.endY,
-                              0.08, 0.92  // Trim 8% from each end
+                              tStart, tEnd
                             );
                           }
 
@@ -12033,55 +12055,18 @@ function NodeCanvas() {
                                 let sourceArrowX, sourceArrowY, destArrowX, destArrowY, sourceArrowAngle, destArrowAngle;
 
                                 // For curved edges, calculate arrow/dot positions along the curve
-                                if (useCurve && parallelPath.ctrlX !== null) {
-                                  const tSource = 0.13; // Position near source (13% along curve)
-                                  const tDest = 0.87;   // Position near dest (87% along curve)
-
-                                  // Get positions along the curve
-                                  const sourcePoint = getPointOnQuadraticBezier(
-                                    tSource,
-                                    parallelPath.startX, parallelPath.startY,
-                                    parallelPath.ctrlX, parallelPath.ctrlY,
-                                    parallelPath.endX, parallelPath.endY
-                                  );
-                                  const destPoint = getPointOnQuadraticBezier(
-                                    tDest,
-                                    parallelPath.startX, parallelPath.startY,
-                                    parallelPath.ctrlX, parallelPath.ctrlY,
-                                    parallelPath.endX, parallelPath.endY
-                                  );
-
-                                  sourceArrowX = sourcePoint.x;
-                                  sourceArrowY = sourcePoint.y;
-                                  destArrowX = destPoint.x;
-                                  destArrowY = destPoint.y;
-
-                                  // Calculate tangent angles at these points
-                                  // Derivative of quadratic Bézier: B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
-                                  const calcTangentAngle = (t, x0, y0, cx, cy, x1, y1) => {
-                                    const invT = 1 - t;
-                                    const tangentX = 2 * invT * (cx - x0) + 2 * t * (x1 - cx);
-                                    const tangentY = 2 * invT * (cy - y0) + 2 * t * (y1 - cy);
-                                    return Math.atan2(tangentY, tangentX) * (180 / Math.PI);
-                                  };
-
-                                  // Source arrow points backward (toward source node)
-                                  const sourceTangent = calcTangentAngle(
-                                    tSource,
-                                    parallelPath.startX, parallelPath.startY,
-                                    parallelPath.ctrlX, parallelPath.ctrlY,
-                                    parallelPath.endX, parallelPath.endY
-                                  );
-                                  sourceArrowAngle = sourceTangent + 180; // Point back toward source
-
-                                  // Dest arrow points forward (toward dest node)
-                                  const destTangent = calcTangentAngle(
-                                    tDest,
-                                    parallelPath.startX, parallelPath.startY,
-                                    parallelPath.ctrlX, parallelPath.ctrlY,
-                                    parallelPath.endX, parallelPath.endY
-                                  );
-                                  destArrowAngle = destTangent; // Point toward dest
+                                if (useCurve && parallelPath.ctrlX !== null && curvedArrowPlacement) {
+                                  // Curved edges: place arrowheads so their tips land a fixed pixel
+                                  // distance from each endpoint (at the node border, like straight
+                                  // edges) with the angle following the bezier tangent. Origins are
+                                  // pre-backed-off by the helper so translate() targets are the group
+                                  // origins the render expects.
+                                  sourceArrowX = curvedArrowPlacement.source.x;
+                                  sourceArrowY = curvedArrowPlacement.source.y;
+                                  sourceArrowAngle = curvedArrowPlacement.source.angle; // Points back toward source
+                                  destArrowX = curvedArrowPlacement.dest.x;
+                                  destArrowY = curvedArrowPlacement.dest.y;
+                                  destArrowAngle = curvedArrowPlacement.dest.angle; // Points toward dest
                                 } else if (enableAutoRouting && routingStyle === 'clean') {
                                   // Clean mode: use actual port assignments for proper arrow positioning
                                   const offset = 6;
@@ -12314,6 +12299,14 @@ function NodeCanvas() {
                                   }
                                 }
 
+                                // Hover "dot" affordances sit ON the curve near each endpoint.
+                                // For curved edges the arrow coords are backed-off group origins, so
+                                // use the on-curve tip points instead; other routings match arrow coords.
+                                const sourceDotX = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.source.tipX : sourceArrowX;
+                                const sourceDotY = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.source.tipY : sourceArrowY;
+                                const destDotX = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.dest.tipX : destArrowX;
+                                const destDotY = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.dest.tipY : destArrowY;
+
                                 const handleArrowClick = (nodeId, e) => {
                                   e.stopPropagation();
 
@@ -12418,8 +12411,8 @@ function NodeCanvas() {
                                         {!arrowsToward.has(sourceNode.id) && (
                                           <g>
                                             <circle
-                                              cx={sourceArrowX}
-                                              cy={sourceArrowY}
+                                              cx={sourceDotX}
+                                              cy={sourceDotY}
                                               r={Math.round(26 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
@@ -12427,8 +12420,8 @@ function NodeCanvas() {
                                               onMouseDown={(e) => e.stopPropagation()}
                                             />
                                             <circle
-                                              cx={sourceArrowX}
-                                              cy={sourceArrowY}
+                                              cx={sourceDotX}
+                                              cy={sourceDotY}
                                               r={Math.round(22 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
@@ -12440,8 +12433,8 @@ function NodeCanvas() {
                                         {!arrowsToward.has(destNode.id) && (
                                           <g>
                                             <circle
-                                              cx={destArrowX}
-                                              cy={destArrowY}
+                                              cx={destDotX}
+                                              cy={destDotY}
                                               r={Math.round(26 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
@@ -12449,8 +12442,8 @@ function NodeCanvas() {
                                               onMouseDown={(e) => e.stopPropagation()}
                                             />
                                             <circle
-                                              cx={destArrowX}
-                                              cy={destArrowY}
+                                              cx={destDotX}
+                                              cy={destDotY}
                                               r={Math.round(22 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
@@ -13087,8 +13080,14 @@ function NodeCanvas() {
 
                           // Calculate parallel edge path using centralized utility
                           // Note: curveInfo was already retrieved earlier for shouldShorten logic
-                          const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
+                          const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo, curveSpacing);
                           const useCurve = parallelPath.type === 'curve';
+
+                          // Curved arrow placement (tips a fixed px from each endpoint, tangent angle).
+                          // Shared source of truth for both the arrowheads and the curve trim below.
+                          const curvedArrowPlacement = useCurve
+                            ? getCurvedArrowPlacement(parallelPath, connectionWidth, DEFAULT_TIP_INSET)
+                            : null;
 
                           // For label placement, always use the visible segment (edge-to-edge).
                           // This ensures labels are centered on the visible portion, not the drawn
@@ -13107,20 +13106,30 @@ function NodeCanvas() {
                           const labelPlacementPath = calculateParallelEdgePath(
                             visibleEndpoints.x1, visibleEndpoints.y1,
                             visibleEndpoints.x2, visibleEndpoints.y2,
-                            curveInfo
+                            curveInfo,
+                            curveSpacing
                           );
 
-                          // For hover effect or arrows on curved edges, trim the curve to create "shorten" visual
-                          // This keeps the curve shape consistent but renders a shorter portion
+                          // For hover effect or arrows on curved edges, trim the curve so it ends
+                          // exactly at the arrowhead tips (never overshoots them). Only trim the
+                          // end(s) that actually have an arrow; a plain hover keeps a small cosmetic
+                          // trim. Uses the SAME t values that place the arrowheads (curvedArrowPlacement)
+                          // so line and arrow stay in lockstep.
                           let trimmedPath = null;
                           const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
-                            (isHovered || arrowsToward.has(sourceNode.id) || arrowsToward.has(destNode.id));
+                            (isHovered || hasSourceArrow || hasDestArrow);
                           if (shouldTrimCurve) {
+                            const tStart = hasSourceArrow && curvedArrowPlacement
+                              ? curvedArrowPlacement.source.t
+                              : (isHovered ? 0.08 : 0);
+                            const tEnd = hasDestArrow && curvedArrowPlacement
+                              ? curvedArrowPlacement.dest.t
+                              : (isHovered ? 0.92 : 1);
                             trimmedPath = getTrimmedBezierPath(
                               parallelPath.startX, parallelPath.startY,
                               parallelPath.ctrlX, parallelPath.ctrlY,
                               parallelPath.endX, parallelPath.endY,
-                              0.08, 0.92  // Trim 8% from each end
+                              tStart, tEnd
                             );
                           }
 
@@ -13318,55 +13327,18 @@ function NodeCanvas() {
                                 let sourceArrowX, sourceArrowY, destArrowX, destArrowY, sourceArrowAngle, destArrowAngle;
 
                                 // For curved edges, calculate arrow/dot positions along the curve
-                                if (useCurve && parallelPath.ctrlX !== null) {
-                                  const tSource = 0.13; // Position near source (13% along curve)
-                                  const tDest = 0.87;   // Position near dest (87% along curve)
-
-                                  // Get positions along the curve
-                                  const sourcePoint = getPointOnQuadraticBezier(
-                                    tSource,
-                                    parallelPath.startX, parallelPath.startY,
-                                    parallelPath.ctrlX, parallelPath.ctrlY,
-                                    parallelPath.endX, parallelPath.endY
-                                  );
-                                  const destPoint = getPointOnQuadraticBezier(
-                                    tDest,
-                                    parallelPath.startX, parallelPath.startY,
-                                    parallelPath.ctrlX, parallelPath.ctrlY,
-                                    parallelPath.endX, parallelPath.endY
-                                  );
-
-                                  sourceArrowX = sourcePoint.x;
-                                  sourceArrowY = sourcePoint.y;
-                                  destArrowX = destPoint.x;
-                                  destArrowY = destPoint.y;
-
-                                  // Calculate tangent angles at these points
-                                  // Derivative of quadratic Bézier: B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
-                                  const calcTangentAngle = (t, x0, y0, cx, cy, x1, y1) => {
-                                    const invT = 1 - t;
-                                    const tangentX = 2 * invT * (cx - x0) + 2 * t * (x1 - cx);
-                                    const tangentY = 2 * invT * (cy - y0) + 2 * t * (y1 - cy);
-                                    return Math.atan2(tangentY, tangentX) * (180 / Math.PI);
-                                  };
-
-                                  // Source arrow points backward (toward source node)
-                                  const sourceTangent = calcTangentAngle(
-                                    tSource,
-                                    parallelPath.startX, parallelPath.startY,
-                                    parallelPath.ctrlX, parallelPath.ctrlY,
-                                    parallelPath.endX, parallelPath.endY
-                                  );
-                                  sourceArrowAngle = sourceTangent + 180; // Point back toward source
-
-                                  // Dest arrow points forward (toward dest node)
-                                  const destTangent = calcTangentAngle(
-                                    tDest,
-                                    parallelPath.startX, parallelPath.startY,
-                                    parallelPath.ctrlX, parallelPath.ctrlY,
-                                    parallelPath.endX, parallelPath.endY
-                                  );
-                                  destArrowAngle = destTangent; // Point toward dest
+                                if (useCurve && parallelPath.ctrlX !== null && curvedArrowPlacement) {
+                                  // Curved edges: place arrowheads so their tips land a fixed pixel
+                                  // distance from each endpoint (at the node border, like straight
+                                  // edges) with the angle following the bezier tangent. Origins are
+                                  // pre-backed-off by the helper so translate() targets are the group
+                                  // origins the render expects.
+                                  sourceArrowX = curvedArrowPlacement.source.x;
+                                  sourceArrowY = curvedArrowPlacement.source.y;
+                                  sourceArrowAngle = curvedArrowPlacement.source.angle; // Points back toward source
+                                  destArrowX = curvedArrowPlacement.dest.x;
+                                  destArrowY = curvedArrowPlacement.dest.y;
+                                  destArrowAngle = curvedArrowPlacement.dest.angle; // Points toward dest
                                 } else if (enableAutoRouting && routingStyle === 'clean') {
                                   // Clean mode: use actual port assignments for proper arrow positioning
                                   const offset = 6;
@@ -13599,6 +13571,14 @@ function NodeCanvas() {
                                   }
                                 }
 
+                                // Hover "dot" affordances sit ON the curve near each endpoint.
+                                // For curved edges the arrow coords are backed-off group origins, so
+                                // use the on-curve tip points instead; other routings match arrow coords.
+                                const sourceDotX = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.source.tipX : sourceArrowX;
+                                const sourceDotY = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.source.tipY : sourceArrowY;
+                                const destDotX = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.dest.tipX : destArrowX;
+                                const destDotY = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.dest.tipY : destArrowY;
+
                                 const handleArrowClick = (nodeId, e) => {
                                   e.stopPropagation();
 
@@ -13703,8 +13683,8 @@ function NodeCanvas() {
                                         {!arrowsToward.has(sourceNode.id) && (
                                           <g>
                                             <circle
-                                              cx={sourceArrowX}
-                                              cy={sourceArrowY}
+                                              cx={sourceDotX}
+                                              cy={sourceDotY}
                                               r={Math.round(26 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
@@ -13712,8 +13692,8 @@ function NodeCanvas() {
                                               onMouseDown={(e) => e.stopPropagation()}
                                             />
                                             <circle
-                                              cx={sourceArrowX}
-                                              cy={sourceArrowY}
+                                              cx={sourceDotX}
+                                              cy={sourceDotY}
                                               r={Math.round(22 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
@@ -13725,8 +13705,8 @@ function NodeCanvas() {
                                         {!arrowsToward.has(destNode.id) && (
                                           <g>
                                             <circle
-                                              cx={destArrowX}
-                                              cy={destArrowY}
+                                              cx={destDotX}
+                                              cy={destDotY}
                                               r={Math.round(26 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
@@ -13734,8 +13714,8 @@ function NodeCanvas() {
                                               onMouseDown={(e) => e.stopPropagation()}
                                             />
                                             <circle
-                                              cx={destArrowX}
-                                              cy={destArrowY}
+                                              cx={destDotX}
+                                              cy={destDotY}
                                               r={Math.round(22 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}

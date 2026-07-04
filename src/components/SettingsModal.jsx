@@ -62,6 +62,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
   const routingStyle = useGraphStore(s => s.routingStyle);
   const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
+  const multiConnectionCurve = useGraphStore(s => s.autoLayoutSettings?.multiConnectionCurve ?? 1.3);
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
   const connectionLabelSize = useGraphStore(s => s.connectionLabelSize ?? 1.0);
   const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
@@ -512,6 +513,17 @@ const SettingsModal = ({ isVisible, onClose }) => {
               step={0.05}
               suffix="x"
               onChange={(v) => useGraphStore.getState().setConnectionWidth?.(v)}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Multi Connection Curve"
+              value={multiConnectionCurve}
+              min={0}
+              max={3.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setMultiConnectionCurve?.(v)}
             />
           </div>
           <div className="settings-row">

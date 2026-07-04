@@ -47,6 +47,17 @@ const getDefaultAutoLayoutSettings = () => ({
   routingStyle: 'straight',
   manhattanBends: 'auto',
   cleanLaneSpacing: 200,
+  // How much parallel (multi) connections bow out. Multiplier on the base
+  // curve spacing (100px). 1.0 = the historical look; default 1.3 = a touch
+  // more curve. Persisted to localStorage below.
+  multiConnectionCurve: (() => {
+    try {
+      const saved = localStorage.getItem('redstring_multi_connection_curve');
+      return saved === null ? 1.3 : parseFloat(saved);
+    } catch (_) {
+      return 1.3;
+    }
+  })(),
   layoutScale: 'balanced',
   layoutScaleMultiplier: 1.0,
   layoutIterations: 'balanced',
@@ -3804,6 +3815,24 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // Clamp for sanity with new generous range
       const clamped = Math.max(100, Math.min(400, Math.round(v)));
       draft.autoLayoutSettings.cleanLaneSpacing = clamped;
+    })),
+
+    // Set how much parallel (multi) connections curve. Multiplier on the base
+    // 100px spacing; 1.0 reproduces the historical look. Persisted to localStorage.
+    setMultiConnectionCurve: (value) => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      const v = Number(value);
+      if (!Number.isFinite(v)) {
+        console.warn(`[setMultiConnectionCurve] Invalid value: ${value}`);
+        return;
+      }
+      const clamped = Math.max(0, Math.min(3, v));
+      draft.autoLayoutSettings.multiConnectionCurve = clamped;
+      try {
+        localStorage.setItem('redstring_multi_connection_curve', String(clamped));
+      } catch (_) { }
     })),
 
     // Text appearance settings

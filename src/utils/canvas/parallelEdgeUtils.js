@@ -3,6 +3,18 @@
  * Ensures multiple edges between the same nodes curve in opposite directions
  */
 
+// Distance (local units) from the arrowhead polygon origin to its tip.
+// The arrow polygon is "-26,34 26,34 0,-34" so the tip sits at local (0, -34).
+// Rendered as translate(origin) rotate(angle+90) scale(cw): under rotate(+90) the
+// local -Y axis (the tip) maps to world direction `angle`, so the tip lands at
+// origin + cw * POLY_TIP * (cos angle, sin angle). Kept here as the single source
+// of truth so the JSX polygon and the placement back-off math can't drift.
+export const POLY_TIP = 34;
+
+// Default base spacing (px) between adjacent parallel-edge curves. Multiplied by
+// the user's "Multi Connection Curve" setting to produce the effective spacing.
+export const BASE_CURVE_SPACING = 100;
+
 /**
  * Calculate minimum distance from point (px, py) to quadratic Bezier curve
  * Uses sampling approach for simplicity (exact solution requires solving cubic)
@@ -137,13 +149,12 @@ export function getTrimmedBezierPath(x0, y0, cx, cy, x1, y1, tStart = 0, tEnd = 
  * @param {Object} curveInfo - Curve info: { pairIndex, totalInPair }
  * @returns {Object|null} Control point { ctrlX, ctrlY } or null if straight line
  */
-export function calculateCurveControlPoint(startX, startY, endX, endY, curveInfo) {
+export function calculateCurveControlPoint(startX, startY, endX, endY, curveInfo, curveSpacing = BASE_CURVE_SPACING) {
   if (!curveInfo || curveInfo.totalInPair <= 1) {
     return null;
   }
 
   const { pairIndex, totalInPair } = curveInfo;
-  const curveSpacing = 100;
 
   const edgeDx = endX - startX;
   const edgeDy = endY - startY;
@@ -180,9 +191,10 @@ export function calculateCurveControlPoint(startX, startY, endX, endY, curveInfo
  * @param {number} endX - End X coordinate
  * @param {number} endY - End Y coordinate
  * @param {Object|null} curveInfo - Curve info from edgeCurveInfo map: { pairIndex, totalInPair }
+ * @param {number} curveSpacing - Effective px spacing between adjacent parallel curves (default 100)
  * @returns {Object} Path object with type ('line' or 'curve'), path string, and control point
  */
-export function calculateParallelEdgePath(startX, startY, endX, endY, curveInfo) {
+export function calculateParallelEdgePath(startX, startY, endX, endY, curveInfo, curveSpacing = BASE_CURVE_SPACING) {
   // Calculate edge vector for angle calculation (needed for both line and curve)
   const edgeDx = endX - startX;
   const edgeDy = endY - startY;
@@ -207,7 +219,6 @@ export function calculateParallelEdgePath(startX, startY, endX, endY, curveInfo)
   }
 
   const { pairIndex, totalInPair } = curveInfo;
-  const curveSpacing = 100; // Pixels between parallel edge curves
 
   // SYMMETRICAL DISTRIBUTION: Distribute edges symmetrically around the center axis
   // For 2 edges: centerIndex=0.5, offsets=[-0.5, +0.5] * spacing
@@ -272,6 +283,83 @@ export function calculateParallelEdgePath(startX, startY, endX, endY, curveInfo)
     apexX,
     apexY,
     labelAngle
+  };
+}
+
+// Default target distance (px, pre-scale) of the arrowhead tip from the curve's
+// outset endpoint. The endpoint is already outset VISIBLE_LINE_OUTSET (20px) past
+// the node border, so ~26 lands the tip right at the border like straight edges.
+export const DEFAULT_TIP_INSET = 26;
+
+/**
+ * Compute arrowhead placement for a curved parallel edge so the tip lands a FIXED
+ * pixel distance from each endpoint (independent of curve length/amount), with the
+ * angle following the bezier tangent. Also returns the parameter t at each tip so
+ * callers can trim the visible curve to exactly the arrow tips (no overshoot).
+ *
+ * Shared by the settled render (NodeCanvas) and the live drag update (useNodeDrag)
+ * so both stay in lockstep.
+ *
+ * @param {Object} parallelPath - result of calculateParallelEdgePath with type 'curve'
+ * @param {number} connectionWidth - arrow scale factor (matches the render transform)
+ * @param {number} tipInsetPx - target tip distance from the endpoint (default 26)
+ * @returns {Object|null} { source:{x,y,angle,t}, dest:{x,y,angle,t} } or null if not a curve
+ */
+export function getCurvedArrowPlacement(parallelPath, connectionWidth = 1, tipInsetPx = DEFAULT_TIP_INSET) {
+  if (!parallelPath || parallelPath.type !== 'curve' || parallelPath.ctrlX == null) {
+    return null;
+  }
+
+  const { startX, startY, ctrlX, ctrlY, endX, endY } = parallelPath;
+  const cw = connectionWidth || 1;
+  const EPS = 1e-3;
+
+  // Local bezier speed near each endpoint: |B'(0)| = 2|P1-P0|, |B'(1)| = 2|P2-P1|.
+  // Converting a fixed pixel inset into a t via speed keeps the tip a constant
+  // pixel distance from the endpoint regardless of curve length/amount.
+  const speedSource = 2 * Math.hypot(ctrlX - startX, ctrlY - startY);
+  const speedDest = 2 * Math.hypot(endX - ctrlX, endY - ctrlY);
+
+  const tSource = Math.max(0, Math.min(0.5, tipInsetPx / Math.max(speedSource, EPS)));
+  const tDest = Math.max(0.5, Math.min(1, 1 - tipInsetPx / Math.max(speedDest, EPS)));
+
+  const tangentAt = (t) => {
+    const invT = 1 - t;
+    const tx = 2 * invT * (ctrlX - startX) + 2 * t * (endX - ctrlX);
+    const ty = 2 * invT * (ctrlY - startY) + 2 * t * (endY - ctrlY);
+    return Math.atan2(ty, tx) * (180 / Math.PI);
+  };
+
+  // Source arrow: tip at the near-source inset point, pointing back toward source.
+  const sourceTip = getPointOnQuadraticBezier(tSource, startX, startY, ctrlX, ctrlY, endX, endY);
+  const sourceAngle = tangentAt(tSource) + 180;
+  const sourceRad = sourceAngle * (Math.PI / 180);
+
+  // Dest arrow: tip at the near-dest inset point, pointing forward toward dest.
+  const destTip = getPointOnQuadraticBezier(tDest, startX, startY, ctrlX, ctrlY, endX, endY);
+  const destAngle = tangentAt(tDest);
+  const destRad = destAngle * (Math.PI / 180);
+
+  // Back off the group origin so the polygon tip (origin + cw*POLY_TIP*(cos a, sin a))
+  // lands on the computed tip point. `tipX/tipY` is the on-curve point (used for the
+  // hover "dot" affordance on undirected ends).
+  return {
+    source: {
+      x: sourceTip.x - cw * POLY_TIP * Math.cos(sourceRad),
+      y: sourceTip.y - cw * POLY_TIP * Math.sin(sourceRad),
+      angle: sourceAngle,
+      t: tSource,
+      tipX: sourceTip.x,
+      tipY: sourceTip.y
+    },
+    dest: {
+      x: destTip.x - cw * POLY_TIP * Math.cos(destRad),
+      y: destTip.y - cw * POLY_TIP * Math.sin(destRad),
+      angle: destAngle,
+      t: tDest,
+      tipX: destTip.x,
+      tipY: destTip.y
+    }
   };
 }
 

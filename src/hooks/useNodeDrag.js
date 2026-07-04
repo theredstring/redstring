@@ -4,7 +4,7 @@ import { getNodeDimensions } from '../utils.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
-import { calculateParallelEdgePath, getPointOnQuadraticBezier } from '../utils/canvas/parallelEdgeUtils.js';
+import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../services/groupLayout.js';
 import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
@@ -19,6 +19,15 @@ const DRAG_ZOOM_ANIMATION_DURATION = 250; // ms
 // floor (scaled by zoomAmount so it stays proportional to user intent)
 // guarantees a minimum perceptible zoom-out regardless of starting zoom.
 const DRAG_ZOOM_ADDITIVE_SCALE = 0.2;
+
+// Node lift-on-grab animation. The scale ramps 1 → node.scale (1.15) over this
+// duration when a drag starts. Position (translate) must stay instant — it and
+// scale share one `transform` string with `transition:none` — so the scale
+// portion is interpolated in JS each frame rather than via a CSS transition.
+const LIFT_DURATION = 150; // ms
+// Drop-on-release: the scale settles node.scale → 1 when the drag ends. Kept
+// snappier than the lift so the node "lands" rather than drifting back down.
+const DROP_DURATION = 150; // ms
 
 /**
  * useNodeDrag — Extracts all node/group dragging behavior from NodeCanvas.
@@ -82,6 +91,7 @@ export const useNodeDrag = ({
   selectedInstanceIdsRef,
   enableAutoRoutingRef,
   routingStyleRef,
+  multiConnectionCurveRef,
   groupsByNodeIdRef,
   groupsByIdRef,
   childGroupIdsByGroupIdRef,
@@ -152,6 +162,20 @@ export const useNodeDrag = ({
   // RAF throttling for drag position updates
   const pendingDragUpdate = useRef(null);
   const dragUpdateScheduled = useRef(false);
+
+  // Lift-on-grab animation state (see LIFT_DURATION). liftStartTimeRef holds the
+  // performance.now() of the current drag's start (null when not lifting);
+  // liftRafRef is the standalone rAF loop that ramps the scale even if the
+  // pointer never moves.
+  const liftStartTimeRef = useRef(null);
+  const liftRafRef = useRef(null);
+
+  // Drop-on-release animation state (see DROP_DURATION). dropPendingRef carries
+  // the per-node entries captured at drag-end so the post-commit layout effect
+  // can re-apply the lift scale (React strips the inline transform on the
+  // not-dragging commit) and ramp it back to 1; dropRafRef is that loop.
+  const dropRafRef = useRef(null);
+  const dropPendingRef = useRef(null);
 
   // DOM-bypass drag state
   const dragPositionsRef = useRef(new Map());     // instanceId → {x, y} (latest computed)
@@ -528,9 +552,17 @@ export const useNodeDrag = ({
       // Get curve info for parallel edges
       const curveInfo = curCurveInfo.get(edgeId);
       const useCurve = curveInfo && curveInfo.totalInPair > 1;
+      const dragCurveSpacing = 100 * (multiConnectionCurveRef?.current ?? 1.3);
       const parallelPath = calculateParallelEdgePath(
-        endpoints.x1, endpoints.y1, endpoints.x2, endpoints.y2, curveInfo
+        endpoints.x1, endpoints.y1, endpoints.x2, endpoints.y2, curveInfo, dragCurveSpacing
       );
+      // Shared curved arrow placement + trim t values (same helper as the settled
+      // render). Match the settled arrow scale (connectionWidth) so tips land
+      // identically before and after drop.
+      const dragConnectionWidth = useGraphStore.getState().textSettings?.connectionWidth ?? 1;
+      const curvedArrowPlacement = (useCurve && parallelPath.ctrlX != null)
+        ? getCurvedArrowPlacement(parallelPath, dragConnectionWidth, DEFAULT_TIP_INSET)
+        : null;
 
       // Update each edge <g> element (may appear in both above/below blocks)
       edgeEls.forEach(({ paths, lines, arrows: arrowGs, texts }) => {
@@ -552,9 +584,22 @@ export const useNodeDrag = ({
             }
           });
         } else {
-          // Curved/parallel edge: update <path> elements
+          // Curved/parallel edge: update <path> elements. When an arrow is present,
+          // trim the curve to that end's arrow tip (using the SAME t as the arrow
+          // placement) so the curve never overshoots the arrowhead mid-drag.
+          let curveD = parallelPath.path;
+          if (curvedArrowPlacement && (hasSourceArrow || hasDestArrow)) {
+            const tStart = hasSourceArrow ? curvedArrowPlacement.source.t : 0;
+            const tEnd = hasDestArrow ? curvedArrowPlacement.dest.t : 1;
+            curveD = getTrimmedBezierPath(
+              parallelPath.startX, parallelPath.startY,
+              parallelPath.ctrlX, parallelPath.ctrlY,
+              parallelPath.endX, parallelPath.endY,
+              tStart, tEnd
+            ).path;
+          }
           paths.forEach(path => {
-            path.setAttribute('d', parallelPath.path);
+            path.setAttribute('d', curveD);
           });
           // Also update any straight <line> elements that might exist as click targets
           lines.forEach(line => {
@@ -568,20 +613,13 @@ export const useNodeDrag = ({
         // --- Update arrow positions ---
         if (!isManhattanOrClean) {
           if (arrowGs.length > 0) {
-            if (useCurve && parallelPath.ctrlX != null) {
-              // Curved: compute point on quadratic bezier at t near endpoints + tangent angle
+            if (useCurve && parallelPath.ctrlX != null && curvedArrowPlacement) {
+              // Curved: shared placement puts the arrow tip a fixed px from the endpoint
+              // with the tangent angle, matching the settled render exactly.
               arrowGs.forEach(arrowG => {
                 const type = arrowG.getAttribute('data-arrow');
-                const t = type === 'source' ? 0.08 : 0.92;
-                const pt = getPointOnQuadraticBezier(t,
-                  parallelPath.startX, parallelPath.startY,
-                  parallelPath.ctrlX, parallelPath.ctrlY,
-                  parallelPath.endX, parallelPath.endY);
-                const invT = 1 - t;
-                const tx = 2 * invT * (parallelPath.ctrlX - parallelPath.startX) + 2 * t * (parallelPath.endX - parallelPath.ctrlX);
-                const ty = 2 * invT * (parallelPath.ctrlY - parallelPath.startY) + 2 * t * (parallelPath.endY - parallelPath.ctrlY);
-                const angle = Math.atan2(ty, tx) * (180 / Math.PI) + (type === 'source' ? 180 : 0);
-                arrowG.setAttribute('transform', `translate(${pt.x}, ${pt.y}) rotate(${angle + 90})`);
+                const p = type === 'source' ? curvedArrowPlacement.source : curvedArrowPlacement.dest;
+                arrowG.setAttribute('transform', `translate(${p.x}, ${p.y}) rotate(${p.angle + 90}) scale(${dragConnectionWidth})`);
               });
             } else {
               // Straight: arrows near endpoints, angle from line direction
@@ -628,7 +666,8 @@ export const useNodeDrag = ({
           const labelPlacementPath = calculateParallelEdgePath(
             visibleEndpoints.x1, visibleEndpoints.y1,
             visibleEndpoints.x2, visibleEndpoints.y2,
-            curveInfo
+            curveInfo,
+            dragCurveSpacing
           );
           let midX, midY, labelAngle;
           if (labelPlacementPath.apexX != null) {
@@ -871,7 +910,14 @@ export const useNodeDrag = ({
       const deltaX = x - storedX;
       const deltaY = y - storedY;
 
-      const nodeScale = node.scale ?? 1;
+      const targetScale = node.scale ?? 1;
+      // Interpolate the lift scale in JS: translate tracks the pointer instantly
+      // (transition is disabled during drag), so the grow-on-grab is ramped here
+      // per frame instead. ease-out cubic, 1 → node.scale over LIFT_DURATION.
+      const lift = liftStartTimeRef.current == null
+        ? 1
+        : Math.min(1, (performance.now() - liftStartTimeRef.current) / LIFT_DURATION);
+      const nodeScale = 1 + (targetScale - 1) * (1 - Math.pow(1 - lift, 3));
       const dims = curBaseDims.get(instanceId);
       const cx = storedX + (dims?.currentWidth ?? 0) / 2;
       const cy = storedY + (dims?.currentHeight ?? 0) / 2;
@@ -898,6 +944,57 @@ export const useNodeDrag = ({
     }
     updateEdgesInDOM(edgeUpdateIds);
   }, [containerRef, canvasSizeRef, placedLabelsRef, computePositionUpdates, nodeByIdRef, baseDimsByIdRef, updateEdgesInDOM, updateGroupBoundsInDOM]);
+
+  // ---------------------------------------------------------------------------
+  // Lift-on-grab animation
+  // ---------------------------------------------------------------------------
+  // Ramps the node scale 1 → node.scale over LIFT_DURATION. performDOMDragUpdate
+  // already interpolates the same ramp on pointer-move frames, but that only
+  // fires while the pointer moves. This standalone rAF loop guarantees the grow
+  // completes smoothly even if the user grabs a node and holds still. Both paths
+  // read liftStartTimeRef so they stay in sync when they run on the same frame.
+  const runLiftAnimation = useCallback(() => {
+    if (liftRafRef.current) cancelAnimationFrame(liftRafRef.current);
+    // A drop from the previous release may still be settling on these same
+    // elements — cancel it so the two ramps don't write competing scales.
+    if (dropRafRef.current) {
+      cancelAnimationFrame(dropRafRef.current);
+      dropRafRef.current = null;
+    }
+    dropPendingRef.current = null;
+    liftStartTimeRef.current = performance.now();
+
+    const step = () => {
+      const t = Math.min(1, (performance.now() - liftStartTimeRef.current) / LIFT_DURATION);
+      const lift = 1 - Math.pow(1 - t, 3);
+
+      const curNodeById = nodeByIdRef.current;
+      const curBaseDims = baseDimsByIdRef.current;
+      dragNodeElsRef.current.forEach((nodeEl, instanceId) => {
+        const node = curNodeById.get(instanceId);
+        if (!node) return;
+        const storedX = node.x ?? 0;
+        const storedY = node.y ?? 0;
+        const applied = appliedPositionsRef.current.get(instanceId);
+        const deltaX = (applied ? applied.x : storedX) - storedX;
+        const deltaY = (applied ? applied.y : storedY) - storedY;
+        const targetScale = node.scale ?? 1;
+        const scale = 1 + (targetScale - 1) * lift;
+        const dims = curBaseDims.get(instanceId);
+        const cx = storedX + (dims?.currentWidth ?? 0) / 2;
+        const cy = storedY + (dims?.currentHeight ?? 0) / 2;
+        nodeEl.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(${scale})`;
+        nodeEl.style.transformOrigin = `${cx}px ${cy}px`;
+      });
+
+      if (t < 1) {
+        liftRafRef.current = requestAnimationFrame(step);
+      } else {
+        liftRafRef.current = null;
+      }
+    };
+    liftRafRef.current = requestAnimationFrame(step);
+  }, [nodeByIdRef, baseDimsByIdRef]);
 
   // Ref to hold latest performDOMDragUpdate (avoids restarting edge panning effect)
   const performDragUpdateRef = useRef(performDOMDragUpdate);
@@ -1105,7 +1202,51 @@ export const useNodeDrag = ({
   // ---------------------------------------------------------------------------
   // Clear DOM Transforms (called on drag end or cancel)
   // ---------------------------------------------------------------------------
-  const clearDOMTransforms = useCallback(() => {
+  const clearDOMTransforms = useCallback((options = {}) => {
+    const { animateDrop = false } = options;
+    // Stop any in-flight lift ramp so it can't write a scale back onto a node
+    // after we've cleared its transform below.
+    if (liftRafRef.current) {
+      cancelAnimationFrame(liftRafRef.current);
+      liftRafRef.current = null;
+    }
+    liftStartTimeRef.current = null;
+    // Cancel any drop still settling from a previous release (rapid
+    // release→re-grab), so its tail can't clear the transform of the node
+    // we're about to re-animate.
+    if (dropRafRef.current) {
+      cancelAnimationFrame(dropRafRef.current);
+      dropRafRef.current = null;
+    }
+
+    // Capture drop-animation entries BEFORE the refs below are cleared. On a
+    // normal release each lifted node shrinks from its lift scale back to 1
+    // about its final (flushed) center; the actual ramp runs in the post-commit
+    // layout effect, since React strips the inline transform when isDragging
+    // flips false. Skipped on cancel (animateDrop:false — positions aren't
+    // flushed) and for unlifted nodes (group members, scale 1).
+    if (animateDrop) {
+      const curNodeById = nodeByIdRef.current;
+      const curBaseDims = baseDimsByIdRef.current;
+      const entries = [];
+      dragNodeElsRef.current.forEach((_el, id) => {
+        const node = curNodeById.get(id);
+        const fromScale = node?.scale ?? 1;
+        if (fromScale <= 1.0001) return; // not lifted — nothing to settle
+        const pos = dragPositionsRef.current.get(id) || (node ? { x: node.x, y: node.y } : null);
+        if (!pos) return;
+        const dims = curBaseDims.get(id);
+        const cx = pos.x + (dims?.currentWidth ?? 0) / 2;
+        const cy = pos.y + (dims?.currentHeight ?? 0) / 2;
+        // Store the id, NOT the element: the dragged node renders in a separate
+        // `draggingNodeToRender` JSX branch, so the not-dragging commit unmounts
+        // this <g> and mounts a fresh one in the normal node list. The layout
+        // effect re-queries the live element by id after that commit.
+        entries.push({ id, cx, cy, fromScale });
+      });
+      dropPendingRef.current = entries.length > 0 ? { entries } : null;
+    }
+
     // Snapshot elements before clearing refs so we can defer restoring the
     // `transition` property until AFTER React commits the flushed store
     // positions. Otherwise React may not yet have re-rendered new SVG attrs
@@ -1140,15 +1281,81 @@ export const useNodeDrag = ({
 
     // Double-rAF: first frame lets React commit + paint with the new stored
     // positions; second frame restores normal transition behavior for any
-    // future hover/scale animations.
-    if (snapshotNodeEls.length > 0) {
+    // future hover/scale animations. Skipped when a drop animation is pending —
+    // it keeps `transition:none` while it drives the ramp and restores it at the
+    // end, so touching transition here would let the CSS transform-transition
+    // fight the ramp.
+    if (snapshotNodeEls.length > 0 && !dropPendingRef.current) {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           snapshotNodeEls.forEach(el => { el.style.transition = ''; });
         });
       });
     }
-  }, []);
+  }, [nodeByIdRef, baseDimsByIdRef]);
+
+  // ---------------------------------------------------------------------------
+  // Drop-on-release animation (runs after the not-dragging commit)
+  // ---------------------------------------------------------------------------
+  // Fires on the commit where draggingNodeInfo → null. React has just stripped
+  // the inline transform it set during drag and moved each node's SVG to its
+  // flushed final position. This layout effect runs before paint, so it can
+  // re-apply the lift scale about the final center (no scale-1 frame is shown)
+  // and then ramp it to 1 over DROP_DURATION. Entries were captured in
+  // clearDOMTransforms; a null pending ref means this was a cancel or a plain
+  // (unlifted) release, so there's nothing to settle.
+  useLayoutEffect(() => {
+    if (draggingNodeInfo) return;
+    const pending = dropPendingRef.current;
+    if (!pending) return;
+    dropPendingRef.current = null;
+
+    if (dropRafRef.current) cancelAnimationFrame(dropRafRef.current);
+
+    // Resolve the LIVE element for each node by id. The <g> that was being
+    // dragged has just been unmounted (it lived in the draggingNodeToRender
+    // branch); the node now renders in the normal list as a fresh element.
+    const container = containerRef.current;
+    const targets = pending.entries.reduce((acc, e) => {
+      const el = container?.querySelector(`[data-instance-id="${e.id}"]`);
+      if (el) acc.push({ el, cx: e.cx, cy: e.cy, fromScale: e.fromScale });
+      return acc;
+    }, []);
+    if (targets.length === 0) return;
+
+    // Apply the starting (lift) scale synchronously so the frame painted right
+    // after the position flush is continuous with where the node visually was,
+    // instead of snapping to 1 for a frame before the ramp begins.
+    targets.forEach(({ el, cx, cy, fromScale }) => {
+      el.style.transition = 'none';
+      el.style.transformOrigin = `${cx}px ${cy}px`;
+      el.style.transform = `scale(${fromScale})`;
+    });
+
+    const start = performance.now();
+    const step = () => {
+      const t = Math.min(1, (performance.now() - start) / DROP_DURATION);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out
+      targets.forEach(({ el, cx, cy, fromScale }) => {
+        const scale = fromScale + (1 - fromScale) * eased;
+        el.style.transform = `scale(${scale})`;
+        el.style.transformOrigin = `${cx}px ${cy}px`;
+      });
+      if (t < 1) {
+        dropRafRef.current = requestAnimationFrame(step);
+      } else {
+        dropRafRef.current = null;
+        // Hand the node back to React's natural (transform-free) render and
+        // restore CSS-driven transitions for future hover/scale animations.
+        targets.forEach(({ el }) => {
+          el.style.transform = '';
+          el.style.transformOrigin = '';
+          el.style.transition = '';
+        });
+      }
+    };
+    dropRafRef.current = requestAnimationFrame(step);
+  }, [draggingNodeInfo, containerRef]);
 
   // ---------------------------------------------------------------------------
   // Centralized reset of pre-drag refs after a zoom-restore completes (or is
@@ -1256,6 +1463,7 @@ export const useNodeDrag = ({
 
       // Cache DOM elements for all dragged nodes
       cacheDOMElements(draggedIds);
+      runLiftAnimation();
       return true;
     }
 
@@ -1278,8 +1486,9 @@ export const useNodeDrag = ({
 
     // Cache DOM elements
     cacheDOMElements([instanceId]);
+    runLiftAnimation();
     return true;
-  }, [activeGraphId, selectedInstanceIds, nodes, nodeById, panOffsetRef, zoomLevelRef, canvasSize.offsetX, canvasSize.offsetY, containerRef, storeActions, triggerDragZoomOut, cacheDOMElements, cancelInFlightZoomRestore]);
+  }, [activeGraphId, selectedInstanceIds, nodes, nodeById, panOffsetRef, zoomLevelRef, canvasSize.offsetX, canvasSize.offsetY, containerRef, storeActions, triggerDragZoomOut, cacheDOMElements, cancelInFlightZoomRestore, runLiftAnimation]);
 
   // Ref for long-press timeout to always use latest startDragForNode
   const startDragForNodeRef = useRef(startDragForNode);
@@ -1559,7 +1768,7 @@ export const useNodeDrag = ({
         );
       }
 
-      clearDOMTransforms();
+      clearDOMTransforms({ animateDrop: true });
 
       // Reset scale 1.15 → 1 synchronously so it batches into the same React
       // commit as the position flush above. Previously this was wrapped in

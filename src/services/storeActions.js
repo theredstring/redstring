@@ -590,7 +590,11 @@ export function createStoreActions({
                       results.push({ type: op.type, ok: true, id: op.prototypeId });
                       break;
                     case 'createGroup':
-                      store.createGroup(op.graphId, op.groupData || {});
+                      store.createGroup(op.graphId, op.groupData || {
+                        name: op.name,
+                        color: op.color,
+                        memberInstanceIds: op.memberInstanceIds,
+                      });
                       results.push({ type: op.type, ok: true, graphId: op.graphId });
                       break;
                     case 'convertToNodeGroup':
