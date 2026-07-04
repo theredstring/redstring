@@ -707,31 +707,11 @@ OAUTH_PORT=3002
 - Debounced drag operations to reduce churn
 - Background persistence without blocking UI
 
-## Future Roadmap
-
-### Near-Term
-- [ ] Additional Git providers (GitLab, Gitea native support)
-- [ ] Enhanced semantic discovery UI
-- [ ] Real-time collaborative editing
-- [ ] Mobile app with full feature parity
-
-### Mid-Term
-- [ ] SPARQL endpoint for semantic queries
-- [ ] Vocabulary alignment with standard ontologies
-- [ ] Advanced AI reasoning over knowledge graphs
-- [ ] Cross-Pod semantic linking (Solid)
-
-### Long-Term
-- [ ] Federated query across multiple knowledge bases
-- [ ] Automatic ontology extraction from text
-- [ ] Collective intelligence features
-- [ ] Planetary-scale knowledge federation
-
 ## Philosophy
 
-Redstring is built on the belief that **everything is connected**. Knowledge doesn't exist in isolation—it lives in the relationships between concepts, the contexts that shape meaning, and the communities that create understanding.
+Redstring is built on the belief of holism, that **everything is connected**. Understanding the Universe lives in the relationships between concepts, the contexts that shape meaning, and the communities that create compositions when they work together.
 
-We're not just building a knowledge management tool. We're architecting infrastructure for **distributed cognition**—where individual thinking becomes collective intelligence through the power of semantic web standards and user-controlled data.
+Redstring is infrastructure for **distributed cognition**, where individual data management meets collective intelligence through the power of a decentralized design pattern where you own the data. It is a shared knowledge commons built on top of the Semantic Web.
 
 ### Key Principles
 
@@ -754,7 +734,7 @@ MIT License - See `LICENSE` file for details.
 
 ## Credits
 
-An endless thank you to everyone who has provided input and support.
+An endless thank you to everyone who has provided input, patience, and support.
 - Grant Eubanks
 
 Built with:
@@ -768,5 +748,3 @@ Built with:
 - And many other amazing open source projects
 
 ---
-
-**The spark begins with your local files and Git repositories. It ends with a new type of knowledge that spans the planet.**
