@@ -81,7 +81,6 @@ const Node = ({
   const instanceId = node.id;
   const nodeX = node.x ?? 0;
   const nodeY = node.y ?? 0;
-  const instanceScale = node.scale ?? 1;
   const prototypeId = node.prototypeId;
 
   // Prototype properties
@@ -287,12 +286,16 @@ const Node = ({
       data-has-context-menu="true"
       /* Disable default touch gestures on node group */
       style={isDragging ? {
-        // CSS transform + will-change only during drag — either property on a parent <g>
-        // creates a GPU compositing layer on iOS WebKit, which mispositions foreignObject
-        // children to the SVG origin and causes a blank inner preview. Leave both absent
-        // when not dragging so no compositing layer is created.
-        transform: `scale(${instanceScale})`,
-        transformOrigin: `${nodeX + currentWidth / 2}px ${nodeY + currentHeight / 2}px`,
+        // During drag the transform (translate delta + lift scale) is written
+        // directly to this element by useNodeDrag — the lift-ramp rAF and
+        // performDOMDragUpdate. We deliberately DON'T set `transform` from React
+        // here: drag-zoom commits setZoomLevel every frame, which would re-render
+        // this node and re-assert a static `scale()`, clobbering the JS-driven
+        // ramp/translate and forcing an expensive per-commit re-apply. Leaving it
+        // to JS keeps a single writer and lets the lift animate smoothly.
+        // `willChange` alone still forms the GPU compositing layer (the iOS
+        // foreignObject concern is unchanged — a layer forms during drag either
+        // way); it's kept out of the not-dragging branch so no layer forms then.
         willChange: 'transform',
         cursor: 'pointer',
         touchAction: 'none'

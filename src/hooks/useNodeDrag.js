@@ -1471,11 +1471,6 @@ export const useNodeDrag = ({
 
       // Cache DOM elements for all dragged nodes
       cacheDOMElements(draggedIds);
-      // Prime the drag-update snapshot so the post-commit re-apply effect
-      // re-asserts the ramped lift transform on the drag-zoom-out's per-frame
-      // commits — otherwise React resets the node to its full inline scale each
-      // frame (no pointer move to trigger the re-apply), clobbering the ramp.
-      pendingDragUpdate.current = { clientX, clientY, draggingNodeInfo: multiInfo };
       runLiftAnimation();
       return true;
     }
@@ -1501,10 +1496,6 @@ export const useNodeDrag = ({
 
     // Cache DOM elements
     cacheDOMElements([instanceId]);
-    // Prime the drag-update snapshot so the post-commit re-apply effect
-    // re-asserts the ramped lift transform on the drag-zoom-out's per-frame
-    // commits (no pointer move yet to trigger it otherwise).
-    pendingDragUpdate.current = { clientX, clientY, draggingNodeInfo: singleInfo };
     runLiftAnimation();
     return true;
   }, [activeGraphId, selectedInstanceIds, nodes, nodeById, panOffsetRef, zoomLevelRef, canvasSize.offsetX, canvasSize.offsetY, containerRef, storeActions, triggerDragZoomOut, cacheDOMElements, cancelInFlightZoomRestore, runLiftAnimation, dragZoomSettings]);
