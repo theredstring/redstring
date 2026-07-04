@@ -2,6 +2,8 @@
 
 A semantic knowledge graph application that bridges human cognition and machine intelligence through visual node-based interface, W3C semantic web standards, and AI-powered knowledge discovery.
 
+**[Download the desktop app](https://github.com/theredstring/redstring/releases)** · **[Use it online at redstring.io](https://redstring.io)** · **[Learn more at redstring.net](https://redstring.net)**
+
 ## What is Redstring?
 
 Redstring enables you to create, connect, and explore concepts through an intuitive visual interface while maintaining full semantic web standards compliance. It's designed for the intersection of personal knowledge management and collective intelligence—where individual thinking becomes collaborative understanding through RDF-based linking.
@@ -53,47 +55,87 @@ Redstring enables you to create, connect, and explore concepts through an intuit
 - **User Feedback**: Migration progress displayed during import
 - **Data Protection**: Comprehensive validation before any data changes
 
-## Quick Start
+## Getting Started for Humans
+
+Redstring is a desktop-first app. The fastest path is the Electron build.
 
 ### Prerequisites
 - Node.js 18+ and npm
-- Git (for federation features)
-- Modern browser with File System Access API support
 
-### Installation
+### Electron (recommended)
 
 ```bash
-# Clone the repository
 git clone https://github.com/yourusername/redstring.git
 cd redstring
+npm install
+npm run electron:dev
+```
 
-# Install dependencies
+The app opens directly. Create a universe from the header menu, start adding nodes, and connect them on the canvas. The Wizard (AI assistant) is available inside the app once you provide an API key in settings.
+
+### Browser (web dev server)
+
+```bash
+npm install
+npm run dev
+```
+
+Open `http://localhost:4001`. File save uses the browser's File System Access API — you'll be prompted to grant access to a folder the first time you save.
+
+### Full Stack (with OAuth and server features)
+
+```bash
+npm run dev:full   # frontend + OAuth server + main server in one terminal
+```
+
+---
+
+## Getting Started for AIs
+
+Redstring has a headless stack — the same Zustand store that powers the GUI runs in Node, driven by a CLI, HTTP API, or MCP server. **Start with `HEADLESS.md`** for the complete reference. The short version:
+
+```bash
+git clone https://github.com/yourusername/redstring.git
+cd redstring
 npm install
 
-# Start development server
-npm run dev
+# Create a workspace and your first universe
+node cli/redstring.js init --workspace ~/redstring --name "My Universe"
+
+# Build a graph
+GID=$(node cli/redstring.js --json graph create "Concepts" | jq -r .id)
+node cli/redstring.js node create "Idea A" --graph "$GID"
+node cli/redstring.js node create "Idea B" --graph "$GID"
+node cli/redstring.js edge create "Idea A" "Idea B" --graph "$GID" --type "leads to"
+
+# Apply a batch of mutations from a JSON spec
+node cli/redstring.js apply mutations.json
+
+# See the full store state
+node cli/redstring.js state --json
 ```
 
-The application will be available at `http://localhost:5173` (Vite dev server) or `http://localhost:4000` (production server).
+### If the Electron app is already open
 
-### Full Stack Development
+The CLI auto-detects the running wizard on port 3001 and routes mutations through the live bridge — the canvas updates in real time. **Drop `--universe`** so the CLI uses the bridge instead of writing to the file directly:
 
-**Option 1: Docker Compose (Recommended)**
 ```bash
-docker-compose -f deployment/docker/docker-compose.yml up
+# Routes through the bridge → canvas updates live
+node cli/redstring.js apply mutations.json
+
+# Forces direct file mode (use only when the app is closed)
+node cli/redstring.js apply mutations.json --universe ~/path/to/universe.redstring
 ```
 
-**Option 2: Manual (3 terminals)**
+### MCP
+
+The MCP server exposes the full Wizard tool suite to any MCP-compatible AI client:
+
 ```bash
-# Terminal 1: Frontend
-npm run dev
-
-# Terminal 2: OAuth Server (for GitHub federation)
-npm run oauth
-
-# Terminal 3: Main Server
-npm run server
+node redstring-mcp-server.js
 ```
+
+See `HEADLESS.md` for HTTP endpoints, workspace management, GitHub-backed universes, and the full architecture.
 
 ## Core Concepts
 
