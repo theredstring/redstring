@@ -665,7 +665,7 @@ function NodeCanvas() {
   const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
   const showNodeControlPanel = useGraphStore(state => state.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore(state => state.showMultipleNodesControlPanel ?? true);
-  const showConnectionControlPanel = useGraphStore(state => state.showConnectionControlPanel ?? false);
+  const showConnectionControlPanel = useGraphStore(state => state.showConnectionControlPanel ?? true);
   const showGroupControlPanel = useGraphStore(state => state.showGroupControlPanel ?? true);
   const showAbstractionControlPanel = useGraphStore(state => state.showAbstractionControlPanel ?? true);
   const darkMode = useGraphStore(state => state.darkMode);
