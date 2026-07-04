@@ -431,35 +431,34 @@ alice:ClimatePolicy
 
 ### Redstring Format (.redstring)
 
-Redstring uses a JSON-based format with JSON-LD context for semantic web compatibility:
+Redstring uses a JSON-based format with JSON-LD context for semantic web compatibility.
+
+**v4.0.0** (current, June 2026) introduced the `prototypeSpace` / `spatialGraphs` top-level shape: node prototypes live in a shared namespace and each graph is a named spatial context that owns its instances and edges.
 
 ```json
 {
   "@context": "https://redstring.net/contexts/v1.jsonld",
   "@type": "redstring:CognitiveSpace",
-  "format": "redstring-v3.0.0",
+  "format": "redstring-v4.0.0",
   "metadata": {
-    "version": "3.0.0",
+    "version": "4.0.0",
     "created": "2024-01-01T00:00:00Z",
     "modified": "2024-01-01T12:00:00Z"
   },
-  "graphs": { /* Graph definitions */ },
-  "nodes": { /* Node prototypes and instances */ },
-  "edges": { /* Edge definitions with RDF statements */ },
-  "userInterface": { /* UI state */ },
-  "federation": { /* Solid Pod references */ }
+  "prototypeSpace": {
+    "nodePrototypes": { /* shared node type definitions */ }
+  },
+  "spatialGraphs": {
+    "graph-id": {
+      "nodes": { /* positioned instances of prototypes */ },
+      "edges": { /* edges scoped to this graph */ }
+    }
+  },
+  "userInterface": { /* UI state */ }
 }
 ```
 
-### Version Support
-
-- **Current**: v3.0.0 (includes format versioning system)
-- **Supported**: v1.0.0, v2.0.0-semantic (auto-migrated)
-- **Format History**: Metadata tracks migrations and changes
-
-### Dual-Format Edges
-
-Edges are stored in both native and RDF formats:
+Edges are embedded inside each `spatialGraph` entry (they were in a global `relationships` section in v3). Each edge carries both native instance IDs and an RDF statement for semantic web interoperability:
 
 ```json
 {
@@ -467,6 +466,7 @@ Edges are stored in both native and RDF formats:
     "sourceId": "instance-a",
     "destinationId": "instance-b",
     "directionality": { "arrowsToward": [] },
+    "definitionNodeIds": ["conn-leads-to"],
     "rdfStatement": {
       "subject": { "@id": "node:prototype-a" },
       "predicate": { "@id": "node:relationship-type" },
@@ -476,12 +476,13 @@ Edges are stored in both native and RDF formats:
 }
 ```
 
-This enables:
-- Full application functionality using instance IDs
-- Semantic web interoperability using RDF triples
-- AI reasoning over semantic relationships
+### Version Support
 
-See `redstring-format-spec.md` for complete specification.
+- **Current**: v4.0.0 — `prototypeSpace`/`spatialGraphs` shape, graph-scoped edges, SKOS+PROV alignment (breaking change from v3)
+- **Supported**: v1.0.0, v2.0.0-semantic, v3.0.0 (all auto-migrated on open)
+- **Format History**: Metadata tracks migrations and applied changes
+
+See `redstring-format-spec.md` for the complete specification.
 
 ## Development
 
