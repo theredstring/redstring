@@ -196,13 +196,37 @@ universe with an empty one. An exclusive **lockfile**
 file (stale locks from dead PIDs are stolen). `SIGINT`/`SIGTERM` flush and
 release the lock.
 
-## Coexistence (browser + background instance)
+## CLI + Electron / browser coworking
 
-When the browser detects a running headless instance (`health.headless`), the
-`daemonCoexistence` controller hydrates from `GET /api/store/export`, suspends
-the browser's own file writes, forwards edits via `POST /api/store/import`
-(re-hydrating on 409), and re-hydrates when the instance advances (MCP/CLI). When
-it disappears, the browser resumes standalone.
+The CLI auto-detects whether a Redstring wizard is running (headless *or*
+browser-mode) by probing `GET /api/bridge/health` on startup. When Electron is
+open, the forked `agent-server.js` is the wizard and it answers on port 3001.
+
+**Key rule: drop `--universe` when the app is open.**
+
+```bash
+# ✗ wrong — forces direct file mode, CLI and Electron fight over the file
+redstring apply my-spec.json --universe ~/Documents/Redstring/my.redstring
+
+# ✓ right — CLI detects the running wizard and routes through the bridge
+redstring apply my-spec.json
+```
+
+With the bridge active, `apply` (and `node`, `edge`, `graph` mutations) enqueue
+actions to `/api/bridge/pending-actions/enqueue`. The BridgeClient in the
+renderer picks them up and executes them in the live Zustand store. The canvas
+updates immediately — no file-write, no reload.
+
+Saves are skipped in browser mode because the renderer owns saves. Use
+`--universe` only for one-shot offline operations when the app is closed.
+
+## Coexistence (browser + background headless instance)
+
+When the browser detects a running **headless** instance (`health.headless`),
+the `daemonCoexistence` controller hydrates from `GET /api/store/export`,
+suspends the browser's own file writes, forwards edits via `POST
+/api/store/import` (re-hydrating on 409), and re-hydrates when the instance
+advances (MCP/CLI). When it disappears, the browser resumes standalone.
 
 ## Testing
 
@@ -223,6 +247,7 @@ npm run test:e2e        # smoke + CLI round-trip + MCP-over-HTTP scripts
 
 - **One active universe per process** — the store is a module singleton.
   Switching is a sequential flush→load (same as the browser).
-- **Auto-layout is a no-op headless** — text measurement needs a canvas Node
-  lacks; the layout call is caught. Nodes keep their positions; explicit
-  positions from mutations are honored.
+- **Auto-layout uses estimated dimensions headless** — `OffscreenCanvas` is
+  unavailable in Node so text measurement is skipped; nodes get a uniform
+  estimated size instead. The force-directed simulation still runs and spreads
+  nodes sensibly. Explicit positions from mutations are always honored.

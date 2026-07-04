@@ -313,6 +313,20 @@ npm run test:ai:all
 
 See `COMPREHENSIVE_AI_TOOLS.md` for complete documentation.
 
+### CLI + Canvas Coworking
+
+The CLI (`cli/redstring.js`) can drive the live canvas while the app is open. When Electron (or any browser session with the wizard running) is detected on port 3001, the CLI auto-routes mutations through the bridge instead of writing directly to the file — changes land in the live store and the canvas updates immediately.
+
+```bash
+# With Electron open, drop --universe so the CLI uses the bridge
+node cli/redstring.js apply my-mutations.json
+
+# Without the app open, --universe targets the file directly
+node cli/redstring.js apply my-mutations.json --universe ~/path/to/universe.redstring
+```
+
+See `HEADLESS.md` for the full CLI reference and coworking details.
+
 ## Semantic Web Features
 
 ### Enhanced Semantic Search
