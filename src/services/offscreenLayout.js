@@ -19,9 +19,15 @@ export function applyOffscreenLayout(graphId) {
 
   const layoutNodes = instances.map(inst => {
     const proto = st.nodePrototypes.get(inst.prototypeId);
-    const dims = getNodeDimensions({ name: proto?.name || '', thumbnailSrc: proto?.thumbnailSrc }, false, null);
-    const labelWidth = dims?.currentWidth ?? nodeSpacing;
-    const labelHeight = dims?.currentHeight ?? nodeSpacing;
+    let labelWidth = nodeSpacing, labelHeight = nodeSpacing, imageHeight = 0;
+    try {
+      const dims = getNodeDimensions({ name: proto?.name || '', thumbnailSrc: proto?.thumbnailSrc }, false, null);
+      if (dims) {
+        labelWidth = dims.currentWidth ?? nodeSpacing;
+        labelHeight = dims.currentHeight ?? nodeSpacing;
+        imageHeight = dims.calculatedImageHeight ?? 0;
+      }
+    } catch { /* canvas/OffscreenCanvas unavailable (Node.js) — use estimated size */ }
     return {
       id: inst.id,
       prototypeId: inst.prototypeId,
@@ -31,7 +37,7 @@ export function applyOffscreenLayout(graphId) {
       height: labelHeight,
       labelWidth,
       labelHeight,
-      imageHeight: dims?.calculatedImageHeight ?? 0,
+      imageHeight,
       nodeSize: Math.max(labelWidth, labelHeight, nodeSpacing)
     };
   });

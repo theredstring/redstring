@@ -123,6 +123,18 @@ export async function initRuntime({
     importRedstring: (json) => useGraphStore.getState().loadUniverseFromFile(json),
 
     async flush() { await workspace.universe?.flush(); },
-    async shutdown() { await workspace.close(); }
+    async shutdown() { await workspace.close(); },
+
+    /** Run force-directed layout on each graph ID. Safe in Node.js (no DOM needed). */
+    async layoutGraphs(graphIds) {
+      const { applyOffscreenLayout } = await import('../services/offscreenLayout.js');
+      const ids = Array.isArray(graphIds) ? graphIds : [graphIds];
+      const out = {};
+      for (const gid of ids) {
+        try { applyOffscreenLayout(gid); out[gid] = 'ok'; }
+        catch (e) { out[gid] = `error: ${e.message}`; }
+      }
+      return out;
+    }
   };
 }

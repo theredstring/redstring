@@ -201,6 +201,7 @@ async function directBackend() {
       );
       return { ok: true, linked: `${user}/${repo}` };
     },
+    async layoutGraphs(graphIds) { return runtime.layoutGraphs(graphIds); },
     async close() { await runtime.shutdown(); }
   };
 }
@@ -504,6 +505,21 @@ async function main() {
         if (!g) die(`graph not found: ${gid}`);
         return out({ id: g.id, name: g.name, description: g.description, nodes: instancesOf(s, g.id).map(i => ({ instanceId: i.id, name: i.name })), edgeIds: g.edgeIds || [] });
       }
+      if (sub === 'layout') {
+        // Run force-directed layout on one or all graphs.
+        // Usage: graph layout [<id|name>] [--all]
+        const s = await b.getState();
+        const ids = flags.all
+          ? s.graphs.map(g => g.id)
+          : rest[0]
+            ? [resolveGraphId(s, rest[0])]
+            : s.graphs.map(g => g.id);
+        if (!ids.length) die('no graphs to layout');
+        if (typeof b.layoutGraphs !== 'function') die('layout not available in HTTP mode');
+        const results = await b.layoutGraphs(ids);
+        await b.save();
+        return out({ layout: results });
+      }
       die(`unknown: graph ${sub || ''}`);
     });
 
@@ -573,8 +589,14 @@ async function main() {
         ? [{ action: 'applyMutations', params: [specs] }]
         : specs;
       const results = await b.runActions(actions);
+      // Auto-layout every graph touched by these mutations.
+      const touchedGraphIds = [...new Set(specs.flatMap(s => [s.graphId, s.edgeData?.graphId]).filter(Boolean))];
+      let layout = {};
+      if (touchedGraphIds.length && typeof b.layoutGraphs === 'function') {
+        layout = await b.layoutGraphs(touchedGraphIds);
+      }
       await b.save();
-      return out({ applied: specs.length, results });
+      return out({ applied: specs.length, results, layout });
     });
 
     default: die(`unknown command: ${command} (try: redstring --help)`);

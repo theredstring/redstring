@@ -401,18 +401,37 @@ export function createStoreActions({
                         results.push({ type: op.type, ok: false, id: op.edgeData?.id, error: 'Missing instances/graph' });
                         break;
                       }
-                      st.addEdge(op.graphId, op.edgeData);
+                      // Auto-create a connection-type prototype when connectionName is given
+                      // (mirrors how the UI creates a defining node for each edge type).
+                      const edgeData = { ...op.edgeData };
+                      const connName = edgeData.connectionName;
+                      if (connName && !(edgeData.definitionNodeIds?.length)) {
+                        let connProtoId = null;
+                        for (const [pid, proto] of useGraphStore.getState().nodePrototypes) {
+                          if ((proto.name || '').toLowerCase() === connName.toLowerCase()) connProtoId = pid;
+                        }
+                        if (!connProtoId) {
+                          connProtoId = `conn-${connName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`;
+                          useGraphStore.getState().addNodePrototype({ id: connProtoId, name: connName, color: NODE_DEFAULT_COLOR, definitionGraphIds: [] });
+                        }
+                        edgeData.definitionNodeIds = [connProtoId];
+                        delete edgeData.connectionName;
+                      }
+                      st.addEdge(op.graphId, edgeData);
                       try {
                         const s2 = useGraphStore.getState();
                         const gi = s2.graphs.get(op.graphId);
-                        const srcInst = gi?.instances?.get(op.edgeData?.sourceId);
-                        const dstInst = gi?.instances?.get(op.edgeData?.destinationId);
+                        const srcInst = gi?.instances?.get(edgeData?.sourceId);
+                        const dstInst = gi?.instances?.get(edgeData?.destinationId);
                         const srcProto = srcInst ? s2.nodePrototypes.get(srcInst.prototypeId) : null;
                         const dstProto = dstInst ? s2.nodePrototypes.get(dstInst.prototypeId) : null;
-                        const friendly = `Connected "${srcProto?.name || 'A'}" → "${dstProto?.name || 'B'}"`;
+                        const connLabel = edgeData.definitionNodeIds?.length
+                          ? s2.nodePrototypes.get(edgeData.definitionNodeIds[0])?.name || ''
+                          : '';
+                        const friendly = `Connected "${srcProto?.name || 'A'}" ${connLabel ? `—[${connLabel}]→` : '→'} "${dstProto?.name || 'B'}"`;
                         emitEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
                       } catch { }
-                      results.push({ type: op.type, ok: true, id: op.edgeData?.id });
+                      results.push({ type: op.type, ok: true, id: edgeData?.id, connectionName: connName || null });
                       break;
                     }
                     case 'moveNodeInstance': {
