@@ -6226,6 +6226,68 @@ function NodeCanvas() {
     setHoveredEdgeInfo(null);
   }, []);
 
+  // Shared pointer handlers for edge hitboxes (line stroke + label rect) so the
+  // connection label text is just as clickable as the line itself.
+  const getEdgeHitboxHandlers = useCallback((edgeId) => ({
+    onPointerDown: (e) => {
+      if (e.pointerType && e.pointerType !== 'mouse') {
+        e.preventDefault?.();
+        e.stopPropagation?.();
+        ignoreCanvasClick.current = true;
+        setLongPressingInstanceId(null);
+        setDrawingConnectionFrom(null);
+        if (e.ctrlKey || e.metaKey) {
+          if (selectedEdgeIds.has(edgeId)) {
+            storeActions.removeSelectedEdgeId(edgeId);
+          } else {
+            storeActions.addSelectedEdgeId(edgeId);
+          }
+        } else {
+          storeActions.clearSelectedEdgeIds();
+          storeActions.setSelectedEdgeId(edgeId);
+        }
+      }
+      handleEdgePointerDownTouch(edgeId, e);
+    },
+    onTouchStart: (e) => {
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      ignoreCanvasClick.current = true;
+      setLongPressingInstanceId(null);
+      setDrawingConnectionFrom(null);
+      storeActions.clearSelectedEdgeIds();
+      storeActions.setSelectedEdgeId(edgeId);
+    },
+    onClick: (e) => {
+      e.stopPropagation();
+      ignoreCanvasClick.current = true;
+      if (e.ctrlKey || e.metaKey) {
+        if (selectedEdgeIds.has(edgeId)) {
+          storeActions.removeSelectedEdgeId(edgeId);
+        } else {
+          storeActions.addSelectedEdgeId(edgeId);
+        }
+      } else {
+        storeActions.clearSelectedEdgeIds();
+        storeActions.setSelectedEdgeId(edgeId);
+      }
+    },
+    onDoubleClick: (e) => {
+      e.stopPropagation();
+      const state = useGraphStore.getState();
+      const edge = state.edges?.get?.(edgeId);
+      let definingNodeId = null;
+      if (edge?.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+        definingNodeId = edge.definitionNodeIds[0];
+      } else if (edge?.typeNodeId) {
+        definingNodeId = edge.typeNodeId;
+      }
+      if (definingNodeId) {
+        storeActions.openRightPanelNodeTab(definingNodeId);
+      }
+    },
+  }), [selectedEdgeIds, storeActions, handleEdgePointerDownTouch]);
+
   const handleNodeMouseDown = (nodeData, e) => { // nodeData is now a hydrated node (instance + prototype)
     e.stopPropagation();
     if (suppressNextMouseDownRef.current) {
@@ -12533,8 +12595,26 @@ function NodeCanvas() {
                                 // Adjust angle to keep text readable (never upside down)
                                 const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
 
+                                // Generous hitbox around the label text so the name is as
+                                // clickable as the line itself (labels often sit off the line).
+                                const labelHitW = estimateTextWidth(connectionName, connectionFontSize) + connectionFontSize * 0.9;
+                                const labelHitH = connectionFontSize * 1.5;
+
                                 return (
                                   <g>
+                                    {/* Invisible click target covering the label text */}
+                                    <rect
+                                      x={labelRenderX - labelHitW / 2}
+                                      y={labelRenderY - labelHitH / 2}
+                                      width={labelHitW}
+                                      height={labelHitH}
+                                      rx={labelHitH / 2}
+                                      ry={labelHitH / 2}
+                                      fill="transparent"
+                                      transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
+                                      style={{ cursor: 'pointer' }}
+                                      {...getEdgeHitboxHandlers(edge.id)}
+                                    />
                                     {/* Canvas-colored text creating a "hole" effect in the connection */}
                                     <text
                                       x={labelRenderX}
@@ -13800,8 +13880,26 @@ function NodeCanvas() {
                                 // Adjust angle to keep text readable (never upside down)
                                 const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
 
+                                // Generous hitbox around the label text so the name is as
+                                // clickable as the line itself (labels often sit off the line).
+                                const labelHitW = estimateTextWidth(connectionName, connectionFontSize) + connectionFontSize * 0.9;
+                                const labelHitH = connectionFontSize * 1.5;
+
                                 return (
                                   <g>
+                                    {/* Invisible click target covering the label text */}
+                                    <rect
+                                      x={labelRenderX - labelHitW / 2}
+                                      y={labelRenderY - labelHitH / 2}
+                                      width={labelHitW}
+                                      height={labelHitH}
+                                      rx={labelHitH / 2}
+                                      ry={labelHitH / 2}
+                                      fill="transparent"
+                                      transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
+                                      style={{ cursor: 'pointer' }}
+                                      {...getEdgeHitboxHandlers(edge.id)}
+                                    />
                                     {/* Canvas-colored text creating a "hole" effect in the connection */}
                                     <text
                                       x={labelRenderX}

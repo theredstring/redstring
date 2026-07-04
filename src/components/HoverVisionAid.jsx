@@ -1,15 +1,26 @@
-import React from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import UniversalNodeRenderer from '../UniversalNodeRenderer';
 import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
 import { getNodeDimensions } from '../utils.js';
 import { measureTextWidth } from '../services/textMeasurement.js';
 import useGraphStore from '../store/graphStore.js';
 
+// Minecraft-toolbar-style timing: after the pointer leaves, hold the preview at
+// full opacity for PREFADE_MS, then fade it out over FADE_MS. Any new hover
+// during the hold or fade snaps back to full opacity and switches instantly.
+const PREFADE_MS = 250;
+const FADE_MS = 500;
+
 /**
  * HoverVisionAid displays a high-fidelity preview of nodes or connections
  * when the user hovers over elements on the canvas.
- * 
+ *
  * SCALING FIX: Uses standard getNodeDimensions(node, false) to avoid massive square mode.
+ *
+ * The live hover props feed a small internal state machine that decouples what
+ * is *displayed* from what is currently hovered, so the preview can linger and
+ * fade after the pointer leaves without any fade-in or resize animation on the
+ * way back in.
  */
 const HoverVisionAid = ({
   hoveredNode,
@@ -21,32 +32,114 @@ const HoverVisionAid = ({
   const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
   const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 0.6);
 
-  const hasConnection = Boolean(hoveredConnection?.source && hoveredConnection?.target);
-  const hasNode = Boolean(!hasConnection && hoveredNode);
-  const hasItem = Boolean(!hasConnection && !hasNode && activePieMenuItem);
-
-  if (!showHoverPreview || (!hasConnection && !hasNode && !hasItem)) {
-    return null;
-  }
-
   // On no-mouse (touch) devices there is no real hover — a tap would otherwise pop this
   // preview up unexpectedly, so suppress the node/connection hover previews entirely.
   // (The pie-menu item label is kept; it's driven by the pie menu, not stray hovers.)
   const noHoverDevice = typeof window !== 'undefined'
     && typeof window.matchMedia === 'function'
     && window.matchMedia('(hover: none)').matches;
-  if (noHoverDevice && !hasItem) {
+
+  // Normalize the current live hover into a single "subject" (or null). The
+  // `key` uniquely identifies the subject so we can tell "same thing" from
+  // "different thing" across renders regardless of object identity.
+  const liveSubject = useMemo(() => {
+    if (!showHoverPreview) return null;
+
+    const hasConnection = Boolean(hoveredConnection?.source && hoveredConnection?.target);
+    const hasNode = Boolean(!hasConnection && hoveredNode);
+    const hasItem = Boolean(!hasConnection && !hasNode && activePieMenuItem);
+
+    if (noHoverDevice && !hasItem) return null;
+
+    if (hasConnection) {
+      return {
+        kind: 'connection',
+        key: `c:${hoveredConnection.id}:${hoveredConnection.source.id}:${hoveredConnection.target.id}`,
+        connection: hoveredConnection
+      };
+    }
+    if (hasNode) {
+      return { kind: 'node', key: `n:${hoveredNode.id}`, node: hoveredNode };
+    }
+    if (hasItem) {
+      return { kind: 'item', key: `i:${activePieMenuItem.id ?? activePieMenuItem.label}`, item: activePieMenuItem };
+    }
+    return null;
+  }, [showHoverPreview, noHoverDevice, hoveredConnection, hoveredNode, activePieMenuItem]);
+
+  const targetKey = liveSubject?.key ?? '';
+
+  // Keep the latest subject readable inside the (key-gated) effect without
+  // making the effect fire on every unrelated re-render.
+  const targetRef = useRef(liveSubject);
+  targetRef.current = liveSubject;
+
+  // What is actually rendered right now — lags the live hover during fade-out.
+  const [displayed, setDisplayed] = useState(null);
+  const displayedRef = useRef(null);
+  // Fade style applied to the container. transition:'none' means instant snaps.
+  const [fadeStyle, setFadeStyle] = useState({ opacity: 1, transition: 'none' });
+
+  const prefadeTimer = useRef(null);
+  const fadeTimer = useRef(null);
+
+  useEffect(() => {
+    const clearTimers = () => {
+      if (prefadeTimer.current) { clearTimeout(prefadeTimer.current); prefadeTimer.current = null; }
+      if (fadeTimer.current) { clearTimeout(fadeTimer.current); fadeTimer.current = null; }
+    };
+
+    const subject = targetRef.current;
+
+    if (subject) {
+      // Hovering something: cancel any pending hold/fade, snap to full opacity,
+      // and switch content instantly. If it's the same subject we were already
+      // showing (re-hover during the hold), the keyed wrapper below doesn't
+      // remount — nothing visibly changes, we just kill the timer.
+      clearTimers();
+      displayedRef.current = subject;
+      setDisplayed(subject);
+      setFadeStyle({ opacity: 1, transition: 'none' });
+      return;
+    }
+
+    // Pointer left. Nothing displayed → nothing to do.
+    if (!displayedRef.current) return;
+
+    // Hold at full opacity, then fade out.
+    clearTimers();
+    prefadeTimer.current = setTimeout(() => {
+      prefadeTimer.current = null;
+      setFadeStyle({ opacity: 0, transition: `opacity ${FADE_MS}ms ease` });
+      fadeTimer.current = setTimeout(() => {
+        fadeTimer.current = null;
+        displayedRef.current = null;
+        setDisplayed(null);
+        setFadeStyle({ opacity: 1, transition: 'none' });
+      }, FADE_MS);
+    }, PREFADE_MS);
+  }, [targetKey]);
+
+  // Clean up timers on unmount.
+  useEffect(() => () => {
+    if (prefadeTimer.current) clearTimeout(prefadeTimer.current);
+    if (fadeTimer.current) clearTimeout(fadeTimer.current);
+  }, []);
+
+  if (!displayed) {
     return null;
   }
 
-  const NODE_PREVIEW_HEIGHT = 120;
+  const isConnection = displayed.kind === 'connection';
+  const isNode = displayed.kind === 'node';
+  const isItem = displayed.kind === 'item';
 
   let content = null;
 
   // Hover Preview Size setting is the direct scale (default 0.6x) for node and
   // connection previews. The pie-menu item label is a fixed text pill, not a node
   // preview, so it renders at its original full size (1.0) and ignores the slider.
-  const previewScale = hasItem ? 1.0 : hoverPreviewSize;
+  const previewScale = isItem ? 1.0 : hoverPreviewSize;
 
   const containerStyle = {
     position: 'absolute',
@@ -61,13 +154,17 @@ const HoverVisionAid = ({
     pointerEvents: 'none',
     zIndex: 10,
     width: 'auto',
-    maxWidth: '94vw'
+    maxWidth: '94vw',
+    opacity: fadeStyle.opacity,
+    transition: fadeStyle.transition,
+    willChange: 'opacity'
   };
 
-  if (hasConnection) {
-    const isSelfLoop = hoveredConnection.source.id === hoveredConnection.target.id;
-    const sourceDims = getNodeDimensions(hoveredConnection.source, false);
-    const targetDims = getNodeDimensions(hoveredConnection.target, false);
+  if (isConnection) {
+    const hoveredConn = displayed.connection;
+    const isSelfLoop = hoveredConn.source.id === hoveredConn.target.id;
+    const sourceDims = getNodeDimensions(hoveredConn.source, false);
+    const targetDims = getNodeDimensions(hoveredConn.target, false);
 
     // Use natural node widths (252px+ from canvas) but cap height so tall image
     // nodes don't make the preview excessively tall.
@@ -77,22 +174,22 @@ const HoverVisionAid = ({
     const targetH = Math.min(Math.max(targetDims.currentHeight, 96), 200);
 
     const nodes = isSelfLoop
-      ? [{ ...hoveredConnection.source, x: 0, y: 0, width: sourceW, height: sourceH }]
+      ? [{ ...hoveredConn.source, x: 0, y: 0, width: sourceW, height: sourceH }]
       : [
-          { ...hoveredConnection.source, x: 0, y: 0, width: sourceW, height: sourceH },
-          { ...hoveredConnection.target, x: 0, y: 0, width: targetW, height: targetH }
+          { ...hoveredConn.source, x: 0, y: 0, width: sourceW, height: sourceH },
+          { ...hoveredConn.target, x: 0, y: 0, width: targetW, height: targetH }
         ];
 
     const connections = [
       {
-        id: hoveredConnection.id,
-        sourceId: hoveredConnection.source.id,
-        destinationId: hoveredConnection.target.id,
-        connectionName: hoveredConnection.name || 'Connection',
-        color: hoveredConnection.color,
-        definitionNodeIds: hoveredConnection.definitionNodeIds,
-        typeNodeId: hoveredConnection.typeNodeId,
-        directionality: hoveredConnection.directionality
+        id: hoveredConn.id,
+        sourceId: hoveredConn.source.id,
+        destinationId: hoveredConn.target.id,
+        connectionName: hoveredConn.name || 'Connection',
+        color: hoveredConn.color,
+        definitionNodeIds: hoveredConn.definitionNodeIds,
+        typeNodeId: hoveredConn.typeNodeId,
+        directionality: hoveredConn.directionality
       }
     ];
 
@@ -139,9 +236,10 @@ const HoverVisionAid = ({
         />
       </div>
     );
-  } else if (hasNode) {
+  } else if (isNode) {
+    const hoveredNodeData = displayed.node;
     // 1. Prepare node with REAL dimensions (non-preview)
-    const dims = getNodeDimensions(hoveredNode, false);
+    const dims = getNodeDimensions(hoveredNodeData, false);
     const nodeWidth = Math.max(dims.currentWidth, 220);
     const nodeHeight = Math.max(dims.currentHeight, 96);
 
@@ -149,7 +247,7 @@ const HoverVisionAid = ({
     //    prevent the preview growing proportionally with the larger baseline.
     const nodeContainerWidth = Math.max(300, nodeWidth + 48);
     const nodeContainerHeight = Math.max(100, Math.min(200, nodeHeight + 24));
-    
+
     containerStyle.marginTop = -18;
     content = (
       <div style={{ display: 'inline-flex', padding: 0, borderRadius: '36px', background: 'transparent', overflow: 'visible' }}>
@@ -157,7 +255,7 @@ const HoverVisionAid = ({
           renderContext="full"
           nodes={[
             {
-              ...hoveredNode,
+              ...hoveredNodeData,
               x: 0,
               y: 0,
               width: nodeWidth,
@@ -176,7 +274,7 @@ const HoverVisionAid = ({
         />
       </div>
     );
-  } else if (hasItem) {
+  } else if (isItem) {
     const pieMenuHeight = 36;
     const pieMenuPaddingX = 14;
     containerStyle.marginTop = -2;
@@ -200,14 +298,18 @@ const HoverVisionAid = ({
           boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)'
         }}
       >
-        {activePieMenuItem.label}
+        {displayed.item.label}
       </div>
     );
   }
 
   return (
     <div className="hover-vision-aid" style={containerStyle}>
-      {content}
+      {/* Keyed by subject so switching preview (e.g. connection → node) remounts
+          the renderer at its final size — no width/height resize tween. */}
+      <div key={displayed.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        {content}
+      </div>
     </div>
   );
 };
