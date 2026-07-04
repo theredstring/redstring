@@ -558,7 +558,7 @@ export const useNodeDrag = ({
       // Get curve info for parallel edges
       const curveInfo = curCurveInfo.get(edgeId);
       const useCurve = curveInfo && curveInfo.totalInPair > 1;
-      const dragCurveSpacing = 100 * (multiConnectionCurveRef?.current ?? 1.3);
+      const dragCurveSpacing = 200 * (multiConnectionCurveRef?.current ?? 1.0);
       const parallelPath = calculateParallelEdgePath(
         endpoints.x1, endpoints.y1, endpoints.x2, endpoints.y2, curveInfo, dragCurveSpacing
       );

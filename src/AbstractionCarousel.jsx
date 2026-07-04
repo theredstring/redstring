@@ -1230,12 +1230,15 @@ const AbstractionCarousel = ({
             const { currentWidth, currentHeight, textAreaHeight, imageWidth, calculatedImageHeight } = nodeDimensions;
 
             const imageCornerRadius = nodeDimensions.scaledCornerRadius ?? NODE_CORNER_RADIUS * 1.4 * nodeScaleGlobal;
+            // Use the same scaled padding that getNodeDimensions used to compute imageWidth
+            // (imageWidth = currentWidth - 2 * scaledPadding), otherwise the image is offset
+            const imagePadding = nodeDimensions.scaledPadding ?? NODE_PADDING * 1.4 * nodeScaleGlobal;
 
             return (
               <clipPath key={`clip-image-${item.id}`} id={`carousel-image-clip-${item.id}`}>
                 <rect
                   // These coordinates are relative to the center of the node group's transform
-                  x={-currentWidth / 2 + NODE_PADDING}
+                  x={-currentWidth / 2 + imagePadding}
                   y={-currentHeight / 2 + textAreaHeight}
                   width={imageWidth}
                   height={calculatedImageHeight}
@@ -1358,6 +1361,8 @@ const AbstractionCarousel = ({
                 calculatedImageHeight: unscaledImageHeight
               } = item.baseDimensions;
               const hasThumbnail = Boolean(item.thumbnailSrc);
+              // Scaled padding used to center the image (matches getNodeDimensions' imageWidth calc)
+              const unscaledImagePadding = item.baseDimensions.scaledPadding ?? NODE_PADDING * 1.4 * nodeScaleGlobal;
 
               // Unscaled border and corner radius
               const borderWidth = isMainNode ? 12 : 0; // Match NodeCanvas: 12 for centered, 0 for others
@@ -1435,7 +1440,7 @@ const AbstractionCarousel = ({
                     {/* Image (if available) - positioned relative to center */}
                     {hasThumbnail && (
                       <image
-                        x={-unscaledWidth / 2 + NODE_PADDING}
+                        x={-unscaledWidth / 2 + unscaledImagePadding}
                         y={-unscaledHeight / 2 + unscaledTextAreaHeight}
                         width={unscaledImageWidth}
                         height={unscaledImageHeight}

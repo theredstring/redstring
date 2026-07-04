@@ -678,9 +678,10 @@ function NodeCanvas() {
   const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
   const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
   const cleanLaneSpacing = useGraphStore(state => state.autoLayoutSettings?.cleanLaneSpacing || 24);
-  const multiConnectionCurve = useGraphStore(state => state.autoLayoutSettings?.multiConnectionCurve ?? 1.3);
-  // Effective px spacing between adjacent parallel-edge curves (base 100 * user multiplier).
-  const curveSpacing = 100 * multiConnectionCurve;
+  const multiConnectionCurve = useGraphStore(state => state.autoLayoutSettings?.multiConnectionCurve ?? 1.0);
+  // Effective px spacing between adjacent parallel-edge curves. Base 200 bakes the
+  // old "2x" look in as the 1.0 baseline; multiplier is the user's slider value.
+  const curveSpacing = 200 * multiConnectionCurve;
   const textSettings = useGraphStore(state => state.textSettings);
   const connectionWidth = textSettings?.connectionWidth ?? 1.0;
   const connectionLabelSize = useGraphStore(state => state.connectionLabelSize ?? 1.0);
@@ -3999,9 +4000,15 @@ function NodeCanvas() {
       const dims = getNodeDimensions(node, false, null);
       const centerX = node.x + dims.currentWidth / 2;
       const centerY = node.y + dims.currentHeight / 2;
-      // 0 on wide screens → 1 on narrow screens, interpolated by viewport width.
+      // Frame against the usable canvas region (panels/header/typelist excluded) —
+      // the same bounds the edge glow uses — so the node centers in what's actually
+      // visible rather than the full window when panels/typelist are open.
+      const vb = viewportBounds;
+      const regionCenterX = vb.x + vb.width / 2;
+      const regionCenterY = vb.y + vb.height / 2;
+      // 0 on wide regions → 1 on narrow regions, interpolated by usable width.
       const narrowness = Math.max(0, Math.min(1,
-        (CAROUSEL_ZOOM_WIDTH_WIDE - viewportSize.width) / (CAROUSEL_ZOOM_WIDTH_WIDE - CAROUSEL_ZOOM_WIDTH_NARROW)
+        (CAROUSEL_ZOOM_WIDTH_WIDE - vb.width) / (CAROUSEL_ZOOM_WIDTH_WIDE - CAROUSEL_ZOOM_WIDTH_NARROW)
       ));
       // Max horizontal reach of the pie-menu button cluster from the focused-node
       // centre, in canvas units: the focused-node half-width plus the outermost
@@ -4015,15 +4022,15 @@ function NodeCanvas() {
       const bPad = 32 * pieScale;   // BUBBLE_PADDING
       const focusScale = carouselFocusedNodeScale || 1.2;
       const clusterHalfReach = (dims.currentWidth * focusScale) / 2 + 3 * bSize + 3 * bPad;
-      // Fraction of the viewport half-width the cluster should occupy (fuller on narrow).
+      // Fraction of the usable region half-width the cluster should occupy (fuller on narrow).
       const fillFrac = CAROUSEL_FILL_WIDE + (CAROUSEL_FILL_NARROW - CAROUSEL_FILL_WIDE) * narrowness;
-      const referenceZoom = (viewportSize.width * 0.5 * fillFrac) / clusterHalfReach;
+      const referenceZoom = (vb.width * 0.5 * fillFrac) / clusterHalfReach;
       const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
-      // Frame the node slightly above the vertical center so the carousel stack
-      // (and the control panel below it) has room to breathe.
-      const verticalBias = viewportSize.height * CAROUSEL_VERTICAL_BIAS;
-      const targetPanX = viewportSize.width / 2 - (centerX - canvasSize.offsetX) * tz;
-      const targetPanY = (viewportSize.height / 2 - verticalBias) - (centerY - canvasSize.offsetY) * tz;
+      // Frame the node slightly above the region's vertical center so the carousel
+      // stack (and the control panel below it) has room to breathe.
+      const verticalBias = vb.height * CAROUSEL_VERTICAL_BIAS;
+      const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
+      const targetPanY = (regionCenterY - verticalBias) - (centerY - canvasSize.offsetY) * tz;
       const minPanX = viewportSize.width - canvasSize.width * tz;
       const minPanY = viewportSize.height - canvasSize.height * tz;
       const finalPan = {
@@ -4032,7 +4039,7 @@ function NodeCanvas() {
       };
       animateCanvasView(finalPan, tz);
     }
-  }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, carouselFocusedNodeScale]);
+  }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, carouselFocusedNodeScale]);
 
   // Animation states for carousel
   const [carouselAnimationState, setCarouselAnimationState] = useState('hidden'); // 'hidden', 'entering', 'visible', 'exiting'
@@ -4242,24 +4249,31 @@ function NodeCanvas() {
     const centerX = node.x + dims.currentWidth / 2;
     const centerY = node.y + dims.currentHeight / 2;
 
-    // 0 on wide screens → 1 on narrow screens, interpolated by viewport width.
+    // Fit against the usable canvas region (panels/header/typelist excluded) — the
+    // same bounds the edge glow uses — so the expanded node fits and centers within
+    // what's actually visible rather than the full window when panels are open.
+    const vb = viewportBounds;
+    const regionCenterX = vb.x + vb.width / 2;
+    const regionCenterY = vb.y + vb.height / 2;
+
+    // 0 on wide regions → 1 on narrow regions, interpolated by usable width.
     const narrowness = Math.max(0, Math.min(1,
-      (DECOMPOSE_WIDTH_WIDE - viewportSize.width) / (DECOMPOSE_WIDTH_WIDE - DECOMPOSE_WIDTH_NARROW)
+      (DECOMPOSE_WIDTH_WIDE - vb.width) / (DECOMPOSE_WIDTH_WIDE - DECOMPOSE_WIDTH_NARROW)
     ));
     const lerp = (a, b, t) => a + (b - a) * t;
     const zoomFactor = lerp(DECOMPOSE_ZOOM_FACTOR_WIDE, DECOMPOSE_ZOOM_FACTOR_NARROW, narrowness);
     const biasFraction = lerp(DECOMPOSE_BIAS_WIDE, DECOMPOSE_BIAS_NARROW, narrowness);
 
-    // Zoom to fit the expanded node within the viewport, then pull back per the
+    // Zoom to fit the expanded node within the usable region, then pull back per the
     // width-scaled factor. Clamp to zoom bounds.
-    const fitX = viewportSize.width / (dims.currentWidth + DECOMPOSE_VIEW_PADDING * 2);
-    const fitY = viewportSize.height / (dims.currentHeight + DECOMPOSE_VIEW_PADDING * 2);
+    const fitX = vb.width / (dims.currentWidth + DECOMPOSE_VIEW_PADDING * 2);
+    const fitY = vb.height / (dims.currentHeight + DECOMPOSE_VIEW_PADDING * 2);
     const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(fitX, fitY) * zoomFactor));
 
-    // Nudge the node above center so the control panel below has room.
-    const verticalBias = viewportSize.height * biasFraction;
-    const targetPanX = viewportSize.width / 2 - (centerX - canvasSize.offsetX) * tz;
-    const targetPanY = (viewportSize.height / 2 - verticalBias) - (centerY - canvasSize.offsetY) * tz;
+    // Nudge the node above the region center so the control panel below has room.
+    const verticalBias = vb.height * biasFraction;
+    const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
+    const targetPanY = (regionCenterY - verticalBias) - (centerY - canvasSize.offsetY) * tz;
     const minPanX = viewportSize.width - canvasSize.width * tz;
     const minPanY = viewportSize.height - canvasSize.height * tz;
     const finalPan = {
@@ -4267,7 +4281,7 @@ function NodeCanvas() {
       y: Math.min(Math.max(targetPanY, minPanY), 0),
     };
     animateCanvasView(finalPan, tz);
-  }, [previewingNodeId, nodes, animateCanvasView, viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM]);
+  }, [previewingNodeId, nodes, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM]);
 
   // Track current definition index for each node per graph context (nodeId-graphId -> index)
   const [nodeDefinitionIndices, setNodeDefinitionIndices] = useState(new Map());
@@ -12299,13 +12313,14 @@ function NodeCanvas() {
                                   }
                                 }
 
-                                // Hover "dot" affordances sit ON the curve near each endpoint.
-                                // For curved edges the arrow coords are backed-off group origins, so
-                                // use the on-curve tip points instead; other routings match arrow coords.
-                                const sourceDotX = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.source.tipX : sourceArrowX;
-                                const sourceDotY = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.source.tipY : sourceArrowY;
-                                const destDotX = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.dest.tipX : destArrowX;
-                                const destDotY = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.dest.tipY : destArrowY;
+                                // Hover "dot" affordances preview where the arrow would sit, so they
+                                // use the exact same anchor as the arrowheads (for curved edges that's
+                                // the backed-off group origin, keeping the dot in line with the arrow
+                                // rather than out at the curve tip).
+                                const sourceDotX = sourceArrowX;
+                                const sourceDotY = sourceArrowY;
+                                const destDotX = destArrowX;
+                                const destDotY = destArrowY;
 
                                 const handleArrowClick = (nodeId, e) => {
                                   e.stopPropagation();
@@ -12413,7 +12428,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={sourceDotX}
                                               cy={sourceDotY}
-                                              r={Math.round(26 * connectionWidth)}
+                                              r={Math.round(36 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => handleArrowClick(sourceNode.id, e)}
@@ -12422,7 +12437,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={sourceDotX}
                                               cy={sourceDotY}
-                                              r={Math.round(22 * connectionWidth)}
+                                              r={Math.round(30 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
                                             />
@@ -12435,7 +12450,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={destDotX}
                                               cy={destDotY}
-                                              r={Math.round(26 * connectionWidth)}
+                                              r={Math.round(36 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => handleArrowClick(destNode.id, e)}
@@ -12444,7 +12459,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={destDotX}
                                               cy={destDotY}
-                                              r={Math.round(22 * connectionWidth)}
+                                              r={Math.round(30 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
                                             />
@@ -13571,13 +13586,14 @@ function NodeCanvas() {
                                   }
                                 }
 
-                                // Hover "dot" affordances sit ON the curve near each endpoint.
-                                // For curved edges the arrow coords are backed-off group origins, so
-                                // use the on-curve tip points instead; other routings match arrow coords.
-                                const sourceDotX = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.source.tipX : sourceArrowX;
-                                const sourceDotY = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.source.tipY : sourceArrowY;
-                                const destDotX = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.dest.tipX : destArrowX;
-                                const destDotY = (useCurve && curvedArrowPlacement) ? curvedArrowPlacement.dest.tipY : destArrowY;
+                                // Hover "dot" affordances preview where the arrow would sit, so they
+                                // use the exact same anchor as the arrowheads (for curved edges that's
+                                // the backed-off group origin, keeping the dot in line with the arrow
+                                // rather than out at the curve tip).
+                                const sourceDotX = sourceArrowX;
+                                const sourceDotY = sourceArrowY;
+                                const destDotX = destArrowX;
+                                const destDotY = destArrowY;
 
                                 const handleArrowClick = (nodeId, e) => {
                                   e.stopPropagation();
@@ -13685,7 +13701,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={sourceDotX}
                                               cy={sourceDotY}
-                                              r={Math.round(26 * connectionWidth)}
+                                              r={Math.round(36 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => handleArrowClick(sourceNode.id, e)}
@@ -13694,7 +13710,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={sourceDotX}
                                               cy={sourceDotY}
-                                              r={Math.round(22 * connectionWidth)}
+                                              r={Math.round(30 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
                                             />
@@ -13707,7 +13723,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={destDotX}
                                               cy={destDotY}
-                                              r={Math.round(26 * connectionWidth)}
+                                              r={Math.round(36 * connectionWidth)}
                                               fill="transparent"
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => handleArrowClick(destNode.id, e)}
@@ -13716,7 +13732,7 @@ function NodeCanvas() {
                                             <circle
                                               cx={destDotX}
                                               cy={destDotY}
-                                              r={Math.round(22 * connectionWidth)}
+                                              r={Math.round(30 * connectionWidth)}
                                               fill={edgeColor}
                                               style={{ pointerEvents: 'none' }}
                                             />

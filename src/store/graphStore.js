@@ -47,15 +47,16 @@ const getDefaultAutoLayoutSettings = () => ({
   routingStyle: 'straight',
   manhattanBends: 'auto',
   cleanLaneSpacing: 200,
-  // How much parallel (multi) connections bow out. Multiplier on the base
-  // curve spacing (100px). 1.0 = the historical look; default 1.3 = a touch
-  // more curve. Persisted to localStorage below.
+  // How much parallel (multi) connections bow out. Multiplier on the app-level
+  // base curve spacing (200px — the old "2x" look baked in as the 1.0 baseline).
+  // Default 1.0. localStorage key bumped to _v2 so stale values saved against the
+  // old 100px baseline don't carry over. Persisted in the setter below.
   multiConnectionCurve: (() => {
     try {
-      const saved = localStorage.getItem('redstring_multi_connection_curve');
-      return saved === null ? 1.3 : parseFloat(saved);
+      const saved = localStorage.getItem('redstring_multi_connection_curve_v2');
+      return saved === null ? 1.0 : parseFloat(saved);
     } catch (_) {
-      return 1.3;
+      return 1.0;
     }
   })(),
   layoutScale: 'balanced',
@@ -3831,7 +3832,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       const clamped = Math.max(0, Math.min(3, v));
       draft.autoLayoutSettings.multiConnectionCurve = clamped;
       try {
-        localStorage.setItem('redstring_multi_connection_curve', String(clamped));
+        localStorage.setItem('redstring_multi_connection_curve_v2', String(clamped));
       } catch (_) { }
     })),
 

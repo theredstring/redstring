@@ -305,7 +305,6 @@ const CAP_RADIUS = 13.5;
  *   - x, y, angle : the arrow group's translate origin + rotation (tip lands at the
  *                   inset point, `tipInsetPx` from the endpoint).
  *   - t           : parameter at the tip (near the endpoint).
- *   - tipX, tipY  : on-curve tip point (used for the hover "dot" affordance).
  *   - trimT       : parameter at which the VISIBLE curve should stop so its round
  *                   line-cap tucks under the back of the arrowhead (no overshoot).
  *
@@ -367,18 +366,14 @@ export function getCurvedArrowPlacement(parallelPath, connectionWidth = 1, tipIn
       y: sourceTip.y - cw * POLY_TIP * Math.sin(sourceRad),
       angle: sourceAngle,
       t: tSource,
-      trimT: trimTSource,
-      tipX: sourceTip.x,
-      tipY: sourceTip.y
+      trimT: trimTSource
     },
     dest: {
       x: destTip.x - cw * POLY_TIP * Math.cos(destRad),
       y: destTip.y - cw * POLY_TIP * Math.sin(destRad),
       angle: destAngle,
       t: tDest,
-      trimT: trimTDest,
-      tipX: destTip.x,
-      tipY: destTip.y
+      trimT: trimTDest
     }
   };
 }

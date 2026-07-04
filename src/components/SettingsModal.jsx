@@ -62,7 +62,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
   const routingStyle = useGraphStore(s => s.routingStyle);
   const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
-  const multiConnectionCurve = useGraphStore(s => s.autoLayoutSettings?.multiConnectionCurve ?? 1.3);
+  const multiConnectionCurve = useGraphStore(s => s.autoLayoutSettings?.multiConnectionCurve ?? 1.0);
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
   const connectionLabelSize = useGraphStore(s => s.connectionLabelSize ?? 1.0);
   const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
