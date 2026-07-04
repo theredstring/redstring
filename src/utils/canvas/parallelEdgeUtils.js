@@ -69,6 +69,71 @@ export function getPointOnQuadraticBezier(t, x0, y0, cx, cy, x1, y1) {
 }
 
 /**
+ * Find where a quadratic Bézier curve crosses the border of an axis-aligned box.
+ * The curve's endpoints run to node CENTERS (inside their boxes), so the visually
+ * drawn portion begins/ends where the bowed curve exits each node box. This walks
+ * the curve outward from each end to find those true crossing points (not the
+ * straight chord's border intersection, which is laterally off on a bowed curve).
+ *
+ * @param {number} x0,y0 - Start point (source node center, inside sourceBox)
+ * @param {number} cx,cy - Control point
+ * @param {number} x1,y1 - End point (dest node center, inside destBox)
+ * @param {Object|null} sourceBox - { minX, minY, maxX, maxY } or null
+ * @param {Object|null} destBox - { minX, minY, maxX, maxY } or null
+ * @param {number} samples - sampling resolution for the initial scan
+ * @returns {Object} { source: {x,y,t}, dest: {x,y,t} } points ON the curve at the borders
+ */
+export function getCurveBorderCrossings(x0, y0, cx, cy, x1, y1, sourceBox, destBox, samples = 64) {
+  const inside = (box, x, y) =>
+    box && x >= box.minX && x <= box.maxX && y >= box.minY && y <= box.maxY;
+
+  // Source: walk t up from 0 until the point leaves sourceBox, then bisect.
+  let sourceT = 0;
+  if (sourceBox && inside(sourceBox, x0, y0)) {
+    let tIn = 0, tOut = 1, found = false;
+    for (let i = 1; i <= samples; i++) {
+      const t = i / samples;
+      const p = getPointOnQuadraticBezier(t, x0, y0, cx, cy, x1, y1);
+      if (!inside(sourceBox, p.x, p.y)) { tOut = t; tIn = (i - 1) / samples; found = true; break; }
+    }
+    if (found) {
+      for (let i = 0; i < 24; i++) {
+        const mid = (tIn + tOut) / 2;
+        const p = getPointOnQuadraticBezier(mid, x0, y0, cx, cy, x1, y1);
+        if (inside(sourceBox, p.x, p.y)) tIn = mid; else tOut = mid;
+      }
+      sourceT = (tIn + tOut) / 2;
+    }
+  }
+
+  // Dest: walk t down from 1 until the point leaves destBox, then bisect.
+  let destT = 1;
+  if (destBox && inside(destBox, x1, y1)) {
+    let tIn = 1, tOut = 0, found = false;
+    for (let i = 1; i <= samples; i++) {
+      const t = 1 - i / samples;
+      const p = getPointOnQuadraticBezier(t, x0, y0, cx, cy, x1, y1);
+      if (!inside(destBox, p.x, p.y)) { tOut = t; tIn = 1 - (i - 1) / samples; found = true; break; }
+    }
+    if (found) {
+      for (let i = 0; i < 24; i++) {
+        const mid = (tIn + tOut) / 2;
+        const p = getPointOnQuadraticBezier(mid, x0, y0, cx, cy, x1, y1);
+        if (inside(destBox, p.x, p.y)) tIn = mid; else tOut = mid;
+      }
+      destT = (tIn + tOut) / 2;
+    }
+  }
+
+  const sp = getPointOnQuadraticBezier(sourceT, x0, y0, cx, cy, x1, y1);
+  const dp = getPointOnQuadraticBezier(destT, x0, y0, cx, cy, x1, y1);
+  return {
+    source: { x: sp.x, y: sp.y, t: sourceT },
+    dest: { x: dp.x, y: dp.y, t: destT }
+  };
+}
+
+/**
  * Generate a trimmed Bézier path from t=tStart to t=tEnd
  * Uses de Casteljau's algorithm to subdivide the curve while maintaining the same shape
  * @param {number} x0 - Start point X (P0)
@@ -359,21 +424,27 @@ export function getCurvedArrowPlacement(parallelPath, connectionWidth = 1, tipIn
   const destRad = destAngle * (Math.PI / 180);
 
   // Back off the group origin so the polygon tip (origin + cw*POLY_TIP*(cos a, sin a))
-  // lands on the computed tip point.
+  // lands on the computed tip point. The hover "dot" reuses that same on-curve tip
+  // point (dotX/dotY) — identical anchoring to the arrow, so it tracks connection
+  // length/endpoint the same way and always stays on the curve.
   return {
     source: {
       x: sourceTip.x - cw * POLY_TIP * Math.cos(sourceRad),
       y: sourceTip.y - cw * POLY_TIP * Math.sin(sourceRad),
       angle: sourceAngle,
       t: tSource,
-      trimT: trimTSource
+      trimT: trimTSource,
+      dotX: sourceTip.x,
+      dotY: sourceTip.y
     },
     dest: {
       x: destTip.x - cw * POLY_TIP * Math.cos(destRad),
       y: destTip.y - cw * POLY_TIP * Math.sin(destRad),
       angle: destAngle,
       t: tDest,
-      trimT: trimTDest
+      trimT: trimTDest,
+      dotX: destTip.x,
+      dotY: destTip.y
     }
   };
 }

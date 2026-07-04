@@ -101,7 +101,7 @@ import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/port
 import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import EdgeRenderer from './components/EdgeRenderer.jsx';
-import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
+import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
 import { chooseLabelPlacement, buildRoundedPathFromPoints, estimateTextWidth } from './utils/canvas/edgeLabelPlacement.js';
@@ -11555,6 +11555,30 @@ function NodeCanvas() {
                             endY = shouldShortenDest ? (insetLineEndpoints?.y2 ?? destIntersection?.y ?? y2) : y2;
                           }
 
+                          // Straight hover-preview: hovering an arrow-less end of a NON-curved edge
+                          // should look like a preview arrow — pull the visible line back by roughly
+                          // an arrowhead's length so the hover dot sits ahead of it at the border,
+                          // exactly where a real arrowhead would land. Curved edges do this via the
+                          // trimT trim below; Manhattan/Clean keep their own geometry.
+                          const isStraightRouting = !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean'));
+                          let lineStartX = startX, lineStartY = startY, lineEndX = endX, lineEndY = endY;
+                          let straightDotSource = null, straightDotDest = null;
+                          if (isHovered && isStraightRouting && !isCurvedEdge && length > 0) {
+                            const ux = dx / length, uy = dy / length;
+                            const previewBack = POLY_TIP * connectionWidth + 8;
+                            if (!arrowsToward.has(sourceNode.id) && sourceIntersection) {
+                              lineStartX = sourceIntersection.x + ux * previewBack;
+                              lineStartY = sourceIntersection.y + uy * previewBack;
+                              // Dot caps the shortened line end (tracks the connection end).
+                              straightDotSource = { x: lineStartX, y: lineStartY };
+                            }
+                            if (!arrowsToward.has(destNode.id) && destIntersection) {
+                              lineEndX = destIntersection.x - ux * previewBack;
+                              lineEndY = destIntersection.y - uy * previewBack;
+                              straightDotDest = { x: lineEndX, y: lineEndY };
+                            }
+                          }
+
                           // Predeclare Manhattan path info for safe use below
                           let manhattanPathD = null;
                           let manhattanSourceSide = null;
@@ -11687,7 +11711,26 @@ function NodeCanvas() {
 
                           // Calculate parallel edge path using centralized utility
                           // Note: curveInfo was already retrieved earlier for shouldShorten logic
-                          const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo, curveSpacing);
+                          // Curved edges anchor an arrow-less end at the node CENTER and an
+                          // arrow-side end at the node BORDER (see x1/y1 logic above). The border
+                          // anchor is what visibly shortens the connection when an arrow is active.
+                          // On hover we want that same shortening as a preview, so pull the
+                          // arrow-less curve ends to the border too — making hover match arrow-active
+                          // geometry exactly (same parallelPath → same trim, arrows, dots).
+                          let curveStartX = startX, curveStartY = startY, curveEndX = endX, curveEndY = endY;
+                          if (isCurvedEdge && isHovered) {
+                            const hoverBorder = getVisualConnectionEndpoints(
+                              sourceNode, destNode, sNodeDims, eNodeDims,
+                              selectedInstanceIds.has(sourceNode.id),
+                              selectedInstanceIds.has(destNode.id),
+                              true,
+                              sAnchorInfo?.outerBounds || null,
+                              eAnchorInfo?.outerBounds || null
+                            );
+                            if (!hasSourceArrow) { curveStartX = hoverBorder.x1; curveStartY = hoverBorder.y1; }
+                            if (!hasDestArrow) { curveEndX = hoverBorder.x2; curveEndY = hoverBorder.y2; }
+                          }
+                          const parallelPath = calculateParallelEdgePath(curveStartX, curveStartY, curveEndX, curveEndY, curveInfo, curveSpacing);
                           const useCurve = parallelPath.type === 'curve';
 
                           // Curved arrow placement (tips a fixed px from each endpoint, tangent angle).
@@ -11716,6 +11759,36 @@ function NodeCanvas() {
                             curveInfo,
                             curveSpacing
                           );
+                          // Hover dots sit exactly where the bowed curve crosses each node's
+                          // border — the true visible connection end. The curve runs center→center
+                          // and bows out perpendicular, so its border crossing is laterally offset
+                          // from the straight chord's crossing (using the chord put dots off on
+                          // both axes). Walk the actual bezier out of each node box to find it.
+                          const dotBorderEndpoints = (useCurve && parallelPath.ctrlX !== null)
+                            ? (() => {
+                                const sBox = sAnchorInfo?.outerBounds
+                                  ? { minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
+                                      maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
+                                      maxY: sAnchorInfo.outerBounds.y + sAnchorInfo.outerBounds.height }
+                                  : { minX: sourceNode.x, minY: sourceNode.y,
+                                      maxX: sourceNode.x + sNodeDims.currentWidth,
+                                      maxY: sourceNode.y + sNodeDims.currentHeight };
+                                const eBox = eAnchorInfo?.outerBounds
+                                  ? { minX: eAnchorInfo.outerBounds.x, minY: eAnchorInfo.outerBounds.y,
+                                      maxX: eAnchorInfo.outerBounds.x + eAnchorInfo.outerBounds.width,
+                                      maxY: eAnchorInfo.outerBounds.y + eAnchorInfo.outerBounds.height }
+                                  : { minX: destNode.x, minY: destNode.y,
+                                      maxX: destNode.x + eNodeDims.currentWidth,
+                                      maxY: destNode.y + eNodeDims.currentHeight };
+                                const c = getCurveBorderCrossings(
+                                  parallelPath.startX, parallelPath.startY,
+                                  parallelPath.ctrlX, parallelPath.ctrlY,
+                                  parallelPath.endX, parallelPath.endY,
+                                  sBox, eBox
+                                );
+                                return { x1: c.source.x, y1: c.source.y, x2: c.dest.x, y2: c.dest.y };
+                              })()
+                            : null;
 
                           // For hover effect or arrows on curved edges, trim the curve so it ends
                           // exactly at the arrowhead tips (never overshoots them). Only trim the
@@ -11726,10 +11799,14 @@ function NodeCanvas() {
                           const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
                             (isHovered || hasSourceArrow || hasDestArrow);
                           if (shouldTrimCurve) {
-                            const tStart = hasSourceArrow && curvedArrowPlacement
+                            // On hover OR with a real arrow, pull the curve back to the arrowhead's
+                            // base depth (trimT) so a plain hover looks like a preview arrow — the
+                            // border-crossing dot then sits ahead of the line end, in the gap where
+                            // an arrowhead would go.
+                            const tStart = curvedArrowPlacement
                               ? curvedArrowPlacement.source.trimT
                               : (isHovered ? 0.08 : 0);
-                            const tEnd = hasDestArrow && curvedArrowPlacement
+                            const tEnd = curvedArrowPlacement
                               ? curvedArrowPlacement.dest.trimT
                               : (isHovered ? 0.92 : 1);
                             trimmedPath = getTrimmedBezierPath(
@@ -11775,10 +11852,10 @@ function NodeCanvas() {
                                   />
                                 ) : (
                                   <line
-                                    x1={startX}
-                                    y1={startY}
-                                    x2={endX}
-                                    y2={endY}
+                                    x1={lineStartX}
+                                    y1={lineStartY}
+                                    x2={lineEndX}
+                                    y2={lineEndY}
                                     stroke={edgeColor}
                                     strokeWidth={20 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
@@ -11821,10 +11898,10 @@ function NodeCanvas() {
                                 />
                               ) : (
                                 <line
-                                  x1={startX}
-                                  y1={startY}
-                                  x2={endX}
-                                  y2={endY}
+                                  x1={lineStartX}
+                                  y1={lineStartY}
+                                  x2={lineEndX}
+                                  y2={lineEndY}
                                   stroke={edgeColor}
                                   strokeWidth={27 * connectionWidth}
                                   style={{ transition: 'stroke 0.2s ease' }}
@@ -12313,14 +12390,24 @@ function NodeCanvas() {
                                   }
                                 }
 
-                                // Hover "dot" affordances preview where the arrow would sit, so they
-                                // use the exact same anchor as the arrowheads (for curved edges that's
-                                // the backed-off group origin, keeping the dot in line with the arrow
-                                // rather than out at the curve tip).
-                                const sourceDotX = sourceArrowX;
-                                const sourceDotY = sourceArrowY;
-                                const destDotX = destArrowX;
-                                const destDotY = destArrowY;
+                                // Hover "dot" affordances. For curved edges the arrow's translate
+                                // origin is a straight-line back-off that drifts OFF the curve on
+                                // sharply-bowed outer edges (and can land inside a wide node's box),
+                                // so dots use an explicit ON-curve point at the arrowhead's depth.
+                                // Other routings keep the arrow coords.
+                                // Curved: dot sits at the trimmed curve's visible end (the line's
+                                // new endpoint after the hover/arrow pull-back), tracking it exactly.
+                                // Falls back to the border crossing if the curve wasn't trimmed.
+                                const curveSourceDot = (useCurve && trimmedPath)
+                                  ? { x: trimmedPath.startX, y: trimmedPath.startY }
+                                  : (dotBorderEndpoints ? { x: dotBorderEndpoints.x1, y: dotBorderEndpoints.y1 } : null);
+                                const curveDestDot = (useCurve && trimmedPath)
+                                  ? { x: trimmedPath.endX, y: trimmedPath.endY }
+                                  : (dotBorderEndpoints ? { x: dotBorderEndpoints.x2, y: dotBorderEndpoints.y2 } : null);
+                                const sourceDotX = curveSourceDot ? curveSourceDot.x : (straightDotSource ? straightDotSource.x : sourceArrowX);
+                                const sourceDotY = curveSourceDot ? curveSourceDot.y : (straightDotSource ? straightDotSource.y : sourceArrowY);
+                                const destDotX = curveDestDot ? curveDestDot.x : (straightDotDest ? straightDotDest.x : destArrowX);
+                                const destDotY = curveDestDot ? curveDestDot.y : (straightDotDest ? straightDotDest.y : destArrowY);
 
                                 const handleArrowClick = (nodeId, e) => {
                                   e.stopPropagation();
@@ -12963,6 +13050,30 @@ function NodeCanvas() {
                             endY = shouldShortenDest ? (insetLineEndpoints?.y2 ?? destIntersection?.y ?? y2) : y2;
                           }
 
+                          // Straight hover-preview: hovering an arrow-less end of a NON-curved edge
+                          // should look like a preview arrow — pull the visible line back by roughly
+                          // an arrowhead's length so the hover dot sits ahead of it at the border,
+                          // exactly where a real arrowhead would land. Curved edges do this via the
+                          // trimT trim below; Manhattan/Clean keep their own geometry.
+                          const isStraightRouting = !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean'));
+                          let lineStartX = startX, lineStartY = startY, lineEndX = endX, lineEndY = endY;
+                          let straightDotSource = null, straightDotDest = null;
+                          if (isHovered && isStraightRouting && !isCurvedEdge && length > 0) {
+                            const ux = dx / length, uy = dy / length;
+                            const previewBack = POLY_TIP * connectionWidth + 8;
+                            if (!arrowsToward.has(sourceNode.id) && sourceIntersection) {
+                              lineStartX = sourceIntersection.x + ux * previewBack;
+                              lineStartY = sourceIntersection.y + uy * previewBack;
+                              // Dot caps the shortened line end (tracks the connection end).
+                              straightDotSource = { x: lineStartX, y: lineStartY };
+                            }
+                            if (!arrowsToward.has(destNode.id) && destIntersection) {
+                              lineEndX = destIntersection.x - ux * previewBack;
+                              lineEndY = destIntersection.y - uy * previewBack;
+                              straightDotDest = { x: lineEndX, y: lineEndY };
+                            }
+                          }
+
                           // Predeclare Manhattan path info for safe use below
                           let manhattanPathD = null;
                           let manhattanSourceSide = null;
@@ -13095,7 +13206,26 @@ function NodeCanvas() {
 
                           // Calculate parallel edge path using centralized utility
                           // Note: curveInfo was already retrieved earlier for shouldShorten logic
-                          const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo, curveSpacing);
+                          // Curved edges anchor an arrow-less end at the node CENTER and an
+                          // arrow-side end at the node BORDER (see x1/y1 logic above). The border
+                          // anchor is what visibly shortens the connection when an arrow is active.
+                          // On hover we want that same shortening as a preview, so pull the
+                          // arrow-less curve ends to the border too — making hover match arrow-active
+                          // geometry exactly (same parallelPath → same trim, arrows, dots).
+                          let curveStartX = startX, curveStartY = startY, curveEndX = endX, curveEndY = endY;
+                          if (isCurvedEdge && isHovered) {
+                            const hoverBorder = getVisualConnectionEndpoints(
+                              sourceNode, destNode, sNodeDims, eNodeDims,
+                              selectedInstanceIds.has(sourceNode.id),
+                              selectedInstanceIds.has(destNode.id),
+                              true,
+                              sAnchorInfo?.outerBounds || null,
+                              eAnchorInfo?.outerBounds || null
+                            );
+                            if (!hasSourceArrow) { curveStartX = hoverBorder.x1; curveStartY = hoverBorder.y1; }
+                            if (!hasDestArrow) { curveEndX = hoverBorder.x2; curveEndY = hoverBorder.y2; }
+                          }
+                          const parallelPath = calculateParallelEdgePath(curveStartX, curveStartY, curveEndX, curveEndY, curveInfo, curveSpacing);
                           const useCurve = parallelPath.type === 'curve';
 
                           // Curved arrow placement (tips a fixed px from each endpoint, tangent angle).
@@ -13124,6 +13254,36 @@ function NodeCanvas() {
                             curveInfo,
                             curveSpacing
                           );
+                          // Hover dots sit exactly where the bowed curve crosses each node's
+                          // border — the true visible connection end. The curve runs center→center
+                          // and bows out perpendicular, so its border crossing is laterally offset
+                          // from the straight chord's crossing (using the chord put dots off on
+                          // both axes). Walk the actual bezier out of each node box to find it.
+                          const dotBorderEndpoints = (useCurve && parallelPath.ctrlX !== null)
+                            ? (() => {
+                                const sBox = sAnchorInfo?.outerBounds
+                                  ? { minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
+                                      maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
+                                      maxY: sAnchorInfo.outerBounds.y + sAnchorInfo.outerBounds.height }
+                                  : { minX: sourceNode.x, minY: sourceNode.y,
+                                      maxX: sourceNode.x + sNodeDims.currentWidth,
+                                      maxY: sourceNode.y + sNodeDims.currentHeight };
+                                const eBox = eAnchorInfo?.outerBounds
+                                  ? { minX: eAnchorInfo.outerBounds.x, minY: eAnchorInfo.outerBounds.y,
+                                      maxX: eAnchorInfo.outerBounds.x + eAnchorInfo.outerBounds.width,
+                                      maxY: eAnchorInfo.outerBounds.y + eAnchorInfo.outerBounds.height }
+                                  : { minX: destNode.x, minY: destNode.y,
+                                      maxX: destNode.x + eNodeDims.currentWidth,
+                                      maxY: destNode.y + eNodeDims.currentHeight };
+                                const c = getCurveBorderCrossings(
+                                  parallelPath.startX, parallelPath.startY,
+                                  parallelPath.ctrlX, parallelPath.ctrlY,
+                                  parallelPath.endX, parallelPath.endY,
+                                  sBox, eBox
+                                );
+                                return { x1: c.source.x, y1: c.source.y, x2: c.dest.x, y2: c.dest.y };
+                              })()
+                            : null;
 
                           // For hover effect or arrows on curved edges, trim the curve so it ends
                           // exactly at the arrowhead tips (never overshoots them). Only trim the
@@ -13134,10 +13294,14 @@ function NodeCanvas() {
                           const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
                             (isHovered || hasSourceArrow || hasDestArrow);
                           if (shouldTrimCurve) {
-                            const tStart = hasSourceArrow && curvedArrowPlacement
+                            // On hover OR with a real arrow, pull the curve back to the arrowhead's
+                            // base depth (trimT) so a plain hover looks like a preview arrow — the
+                            // border-crossing dot then sits ahead of the line end, in the gap where
+                            // an arrowhead would go.
+                            const tStart = curvedArrowPlacement
                               ? curvedArrowPlacement.source.trimT
                               : (isHovered ? 0.08 : 0);
-                            const tEnd = hasDestArrow && curvedArrowPlacement
+                            const tEnd = curvedArrowPlacement
                               ? curvedArrowPlacement.dest.trimT
                               : (isHovered ? 0.92 : 1);
                             trimmedPath = getTrimmedBezierPath(
@@ -13183,10 +13347,10 @@ function NodeCanvas() {
                                   />
                                 ) : (
                                   <line
-                                    x1={startX}
-                                    y1={startY}
-                                    x2={endX}
-                                    y2={endY}
+                                    x1={lineStartX}
+                                    y1={lineStartY}
+                                    x2={lineEndX}
+                                    y2={lineEndY}
                                     stroke={edgeColor}
                                     strokeWidth={20 * connectionWidth}
                                     opacity={isSelected ? "0.3" : "0.2"}
@@ -13229,10 +13393,10 @@ function NodeCanvas() {
                                 />
                               ) : (
                                 <line
-                                  x1={startX}
-                                  y1={startY}
-                                  x2={endX}
-                                  y2={endY}
+                                  x1={lineStartX}
+                                  y1={lineStartY}
+                                  x2={lineEndX}
+                                  y2={lineEndY}
                                   stroke={edgeColor}
                                   strokeWidth={27 * connectionWidth}
                                   style={{ transition: 'stroke 0.2s ease' }}
@@ -13586,14 +13750,24 @@ function NodeCanvas() {
                                   }
                                 }
 
-                                // Hover "dot" affordances preview where the arrow would sit, so they
-                                // use the exact same anchor as the arrowheads (for curved edges that's
-                                // the backed-off group origin, keeping the dot in line with the arrow
-                                // rather than out at the curve tip).
-                                const sourceDotX = sourceArrowX;
-                                const sourceDotY = sourceArrowY;
-                                const destDotX = destArrowX;
-                                const destDotY = destArrowY;
+                                // Hover "dot" affordances. For curved edges the arrow's translate
+                                // origin is a straight-line back-off that drifts OFF the curve on
+                                // sharply-bowed outer edges (and can land inside a wide node's box),
+                                // so dots use an explicit ON-curve point at the arrowhead's depth.
+                                // Other routings keep the arrow coords.
+                                // Curved: dot sits at the trimmed curve's visible end (the line's
+                                // new endpoint after the hover/arrow pull-back), tracking it exactly.
+                                // Falls back to the border crossing if the curve wasn't trimmed.
+                                const curveSourceDot = (useCurve && trimmedPath)
+                                  ? { x: trimmedPath.startX, y: trimmedPath.startY }
+                                  : (dotBorderEndpoints ? { x: dotBorderEndpoints.x1, y: dotBorderEndpoints.y1 } : null);
+                                const curveDestDot = (useCurve && trimmedPath)
+                                  ? { x: trimmedPath.endX, y: trimmedPath.endY }
+                                  : (dotBorderEndpoints ? { x: dotBorderEndpoints.x2, y: dotBorderEndpoints.y2 } : null);
+                                const sourceDotX = curveSourceDot ? curveSourceDot.x : (straightDotSource ? straightDotSource.x : sourceArrowX);
+                                const sourceDotY = curveSourceDot ? curveSourceDot.y : (straightDotSource ? straightDotSource.y : sourceArrowY);
+                                const destDotX = curveDestDot ? curveDestDot.x : (straightDotDest ? straightDotDest.x : destArrowX);
+                                const destDotY = curveDestDot ? curveDestDot.y : (straightDotDest ? straightDotDest.y : destArrowY);
 
                                 const handleArrowClick = (nodeId, e) => {
                                   e.stopPropagation();
