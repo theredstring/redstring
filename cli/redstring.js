@@ -41,7 +41,7 @@ import { GitHubUniverseSync, parseRepoSpec } from '../src/headless/githubSync.js
 // The store + handlers log via console.log; route ALL library noise to stderr so
 // the CLI's stdout stays clean. Intentional output goes through emit() only.
 console.log = (...a) => process.stderr.write(a.map(x => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ') + '\n');
-const emit = (s) => process.stdout.write(String(s) + '\n');
+const emit = (s) => new Promise((res, rej) => process.stdout.write(String(s) + '\n', (e) => e ? rej(e) : res()));
 
 const PORT = process.env.WIZARD_PORT || process.env.BRIDGE_PORT || '3001';
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -252,6 +252,10 @@ async function ensureRunning() {
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+function resolveGraphId(state, idOrName) {
+  const g = state.graphs.find(x => x.id === idOrName) || findGraphByName(state, idOrName);
+  return g ? g.id : idOrName;
+}
 function findGraphByName(state, name) {
   const n = name.toLowerCase();
   let hit = null;
@@ -414,7 +418,10 @@ async function main() {
       const info = await b.workspaceInfo();
       const slug = resolveUniverseArg(info, name);
       const u = info.universes.find(x => x.slug === slug);
-      return out(u);
+      if (flags.json) return out(u);
+      const src = u.gitRepo?.enabled ? `git:${u.gitRepo.linkedRepo?.user}/${u.gitRepo.linkedRepo?.repo}` : 'local';
+      const active = u.active ? ' *' : '';
+      return out(`${u.name} [${u.slug}]${active}  source: ${src}  file: ${u.localFile?.path || '(none)'}`);
     });
 
     // ── GitHub-backed universes ─────────────────────────────────────────────
@@ -502,15 +509,18 @@ async function main() {
 
     case 'node': return withBackend(async (b) => {
       if (sub === 'list') {
-        const gid = flags.graph; if (!gid) die('node list --graph <id>');
+        if (!flags.graph) die('node list --graph <id>');
         const s = await b.getState();
+        const gid = resolveGraphId(s, flags.graph);
         const list = instancesOf(s, gid);
         if (flags.json) return out(list.map(i => ({ instanceId: i.id, prototypeId: i.prototypeId, name: i.name })));
         return out(list.map(i => `${i.id}  ${i.name}`).join('\n') || '(no nodes)');
       }
       if (sub === 'create') {
-        const name = rest[0]; const gid = flags.graph;
-        if (!name || !gid) die('node create <name> --graph <id>');
+        const name = rest[0];
+        if (!name || !flags.graph) die('node create <name> --graph <id>');
+        const s = await b.getState();
+        const gid = resolveGraphId(s, flags.graph);
         const protoId = newId('proto'); const instId = newId('inst');
         await b.runActions([{ action: 'applyMutations', params: [[
           { type: 'addNodePrototype', prototypeData: { id: protoId, name, color: flags.color || '#5B7F58' } },
@@ -524,9 +534,10 @@ async function main() {
 
     case 'edge': return withBackend(async (b) => {
       if (sub === 'create') {
-        const [srcName, dstName] = rest; const gid = flags.graph;
-        if (!srcName || !dstName || !gid) die('edge create <srcName> <dstName> --graph <id>');
+        const [srcName, dstName] = rest;
+        if (!srcName || !dstName || !flags.graph) die('edge create <srcName> <dstName> --graph <id>');
         const s = await b.getState();
+        const gid = resolveGraphId(s, flags.graph);
         const insts = instancesOf(s, gid);
         const find = (nm) => { const n = nm.toLowerCase(); let h = null; for (const i of insts) if ((i.name || '').toLowerCase() === n) h = i; return h; };
         const src = find(srcName), dst = find(dstName);
@@ -556,7 +567,12 @@ async function main() {
       const raw = source === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(path.resolve(source), 'utf8');
       let specs = JSON.parse(raw);
       if (!Array.isArray(specs)) specs = specs.actions || [specs];
-      const results = await b.runActions(specs);
+      // Normalize: raw mutation objects { type, ... } → a single applyMutations action.
+      // Action objects { action, params } are passed through unchanged.
+      const actions = specs.every((s) => s.type && !s.action)
+        ? [{ action: 'applyMutations', params: [specs] }]
+        : specs;
+      const results = await b.runActions(actions);
       await b.save();
       return out({ applied: specs.length, results });
     });
