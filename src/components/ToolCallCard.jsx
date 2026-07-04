@@ -416,7 +416,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                         <div className="detail-section">
                             <h4>Groups</h4>
                             <ul className="group-list">
-                                {result.groupsAdded.map((group, idx) => (
+                                {result.groupsAdded.filter(Boolean).map((group, idx) => (
                                     <li key={idx}>{typeof group === 'string' ? group : group.name}</li>
                                 ))}
                             </ul>
