@@ -3932,11 +3932,16 @@ function NodeCanvas() {
   // blocked (see wheel/drag/pinch/keyboard guards). On close, the framing is
   // left as-is. This gives the carousel a stable, predictable frame to live in
   // instead of fighting a moving canvas.
-  // Reference zoom scales with viewport width: on narrow/mobile screens 0.8 keeps
-  // the node large enough that the pie-menu buttons (which radiate to the right of
-  // the node) push off-screen and can't be reached, so zoom out more there.
-  const CAROUSEL_ZOOM_WIDE = 0.8;   // desktop
-  const CAROUSEL_ZOOM_NARROW = 0.5; // mobile — smaller node, buttons stay on-screen
+  // The carousel frames the focused node so the pie-menu buttons — which radiate
+  // horizontally from the node — stay on-screen at a comfortable size. Rather than a
+  // hand-tuned reference zoom (which broke when the node/pie-menu button sizes changed
+  // and made the carousel zoom in far too much), we derive the zoom from the button
+  // cluster's actual canvas footprint so it self-corrects for any size change. The zoom
+  // is chosen so the cluster occupies a target fraction of the viewport's half-width:
+  // nearly full on narrow/mobile screens (so the buttons still fit) and roomier on wide
+  // screens (so the node isn't blown up).
+  const CAROUSEL_FILL_WIDE = 0.42;   // desktop: button cluster fills ~42% of the half-width
+  const CAROUSEL_FILL_NARROW = 0.9;  // mobile: fill nearly the whole half-width
   const CAROUSEL_ZOOM_WIDTH_WIDE = 1200;   // px: at/above this, use WIDE
   const CAROUSEL_ZOOM_WIDTH_NARROW = 480;  // px: at/below this, use NARROW
   const CAROUSEL_VERTICAL_BIAS = 0.10; // fraction of viewport height to nudge the node above center
@@ -3992,7 +3997,21 @@ function NodeCanvas() {
       const narrowness = Math.max(0, Math.min(1,
         (CAROUSEL_ZOOM_WIDTH_WIDE - viewportSize.width) / (CAROUSEL_ZOOM_WIDTH_WIDE - CAROUSEL_ZOOM_WIDTH_NARROW)
       ));
-      const referenceZoom = CAROUSEL_ZOOM_WIDE + (CAROUSEL_ZOOM_NARROW - CAROUSEL_ZOOM_WIDE) * narrowness;
+      // Max horizontal reach of the pie-menu button cluster from the focused-node
+      // centre, in canvas units: the focused-node half-width plus the outermost
+      // ('right-outer') button and its radius. Buttons are BUBBLE_SIZE/BUBBLE_PADDING
+      // (see PieMenu.jsx) scaled by nodeScale·pieMenuScale, so this tracks any size
+      // change automatically. right-outer sits at halfW + padding + 2·outerOffset,
+      // where padding = bPad + bSize/2 and outerOffset = bSize + bPad, plus bSize/2
+      // for the bubble's own radius → halfW + 3·bSize + 3·bPad.
+      const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
+      const bSize = 120 * pieScale; // BUBBLE_SIZE
+      const bPad = 32 * pieScale;   // BUBBLE_PADDING
+      const focusScale = carouselFocusedNodeScale || 1.2;
+      const clusterHalfReach = (dims.currentWidth * focusScale) / 2 + 3 * bSize + 3 * bPad;
+      // Fraction of the viewport half-width the cluster should occupy (fuller on narrow).
+      const fillFrac = CAROUSEL_FILL_WIDE + (CAROUSEL_FILL_NARROW - CAROUSEL_FILL_WIDE) * narrowness;
+      const referenceZoom = (viewportSize.width * 0.5 * fillFrac) / clusterHalfReach;
       const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
       // Frame the node slightly above the vertical center so the carousel stack
       // (and the control panel below it) has room to breathe.
@@ -4007,7 +4026,7 @@ function NodeCanvas() {
       };
       animateCanvasView(finalPan, tz);
     }
-  }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM]);
+  }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, carouselFocusedNodeScale]);
 
   // Animation states for carousel
   const [carouselAnimationState, setCarouselAnimationState] = useState('hidden'); // 'hidden', 'entering', 'visible', 'exiting'

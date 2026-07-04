@@ -70,6 +70,12 @@ const Node = ({
   const effPadding = scaledPadding ?? NODE_PADDING * globalNodeScale;
   const effCornerRadius = scaledCornerRadius ?? NODE_CORNER_RADIUS * globalNodeScale;
 
+  // Font size for the "Define … With a New Web" placeholder shown when a decomposed
+  // node has no definition yet. The preview's inner-network area is large, so a fixed
+  // size reads as tiny — scale it to the area's width (which already folds in
+  // globalNodeScale) so it stays proportional to the node. Clamped to a sane range.
+  const decompPlaceholderFont = Math.max(16, Math.min(52, innerNetworkWidth * 0.05));
+
   // Destructure properties from the hydrated node object
   // Instance-specific properties
   const instanceId = node.id;
@@ -551,10 +557,10 @@ const Node = ({
                     justifyContent: 'center',
                     backgroundColor: 'transparent',
                     color: theme.canvas.textSecondary,
-                    fontSize: '16px',
+                    fontSize: `${decompPlaceholderFont}px`,
                     fontWeight: 'bold',
                     textAlign: 'center',
-                    padding: '20px',
+                    padding: `${decompPlaceholderFont * 1.25}px`,
                     boxSizing: 'border-box',
                     transition: 'all 0.2s ease',
                   }}
@@ -574,7 +580,7 @@ const Node = ({
                     console.log(`Creating new definition for node: ${nodeName}`);
                   }}
                 >
-                  <div style={{ fontSize: '48px', marginBottom: '10px' }}>+</div>
+                  <div style={{ fontSize: `${decompPlaceholderFont * 3}px`, marginBottom: `${decompPlaceholderFont * 0.6}px`, lineHeight: 1 }}>+</div>
                   <div>Define {nodeName}</div>
                   <div>With a New Web</div>
                 </div>
