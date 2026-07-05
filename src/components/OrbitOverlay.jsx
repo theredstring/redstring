@@ -582,10 +582,17 @@ export default function OrbitOverlay({
   ring3Candidates,
   ring4Candidates,
   onOrbitItemClick,
-  isLoading = false
+  isLoading = false,
+  zoomLevelRef = null,
+  viewportSizeRef = null
 }) {
   // Hover tracking — pauses all orbit animation when any item is hovered
   const [hoveredCandidateId, setHoveredCandidateId] = useState(null);
+
+  // Live focal-node height for the RAF loop's zoom-freeze threshold (the loop's
+  // effect has [] deps, so it can't close over the prop directly).
+  const focusHeightRef = useRef(focusHeight);
+  focusHeightRef.current = focusHeight;
 
   // Always call hooks first, before any early returns
   const measuredRing1 = useMemo(() => measureCandidates(ring1Candidates || []), [ring1Candidates]);
@@ -694,8 +701,18 @@ export default function OrbitOverlay({
     let startTs = 0;
     const loop = (ts) => {
       if (!startTs) startTs = ts;
-      // Pause the animation clock on hover only.
-      if (pausedRef.current) {
+      // Pause the animation clock when hovered, OR when zoomed in far enough that
+      // the focal node fills most of the screen (so the orbit rings are off-screen
+      // anyway). The orbit lives inside the shared, single-layer canvas SVG, so
+      // ticking this clock re-renders the overlay every frame → mutates that layer
+      // → forces the browser to repaint the ENTIRE canvas 60×/sec. At high zoom
+      // that full-canvas repaint drops raster tiles and flickers everything (even
+      // at rest, no interaction). Freezing when zoomed in past the point of seeing
+      // the rings removes the repaint churn without any visible loss of animation.
+      const z = zoomLevelRef?.current ?? 1;
+      const vpH = viewportSizeRef?.current?.height;
+      const zoomedInFar = vpH ? (focusHeightRef.current * z > 0.55 * vpH) : false;
+      if (pausedRef.current || zoomedInFar) {
         // Record when this pause began (once)
         if (pauseStartRef.current === null) pauseStartRef.current = ts;
       } else {

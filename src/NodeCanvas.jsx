@@ -1680,6 +1680,7 @@ function NodeCanvas() {
 
   const [recentlyPanned, setRecentlyPanned] = useState(false);
   const orbitClickDownPos = useRef(null); // Track mousedown position for orbit overlay pan detection
+  const orbitDimRectRef = useRef(null); // Dim backdrop rect — geometry updated live on transform change
 
   const [selectionRect, setSelectionRect] = useState(null);
   const [selectionStart, setSelectionStart] = useState(null);
@@ -8667,6 +8668,35 @@ function NodeCanvas() {
     semanticOrbitActiveRef.current = semanticOrbitActive;
   }, [semanticOrbitActive]);
 
+  // Keep the orbit dim backdrop sized to the live viewport during pan/zoom.
+  // The rect's JSX props come from settledPan/settledZoom, which lag ~150ms behind
+  // an active gesture — so on zoom-out the dark overlay visibly trails and looks
+  // too small until motion settles. Updating its geometry imperatively off the
+  // live transform-change signal (same one culling uses) makes it track in
+  // lockstep. Bounded to ~3× the viewport so the blend stays cheap at any zoom.
+  useEffect(() => {
+    if (!semanticOrbitActive) return;
+    const updateDim = () => {
+      const rect = orbitDimRectRef.current;
+      if (!rect) return;
+      const pan = panOffsetRef.current;
+      const z = zoomLevelRef.current || 1;
+      const vp = viewportSizeRef.current;
+      if (!pan || !vp) return;
+      const visMinX = (-pan.x) / z + canvasSize.offsetX;
+      const visMinY = (-pan.y) / z + canvasSize.offsetY;
+      const visW = vp.width / z;
+      const visH = vp.height / z;
+      rect.setAttribute('x', visMinX - visW);
+      rect.setAttribute('y', visMinY - visH);
+      rect.setAttribute('width', visW * 3);
+      rect.setAttribute('height', visH * 3);
+    };
+    updateDim(); // sync immediately on activation
+    window.addEventListener('canvas-transform-change', updateDim);
+    return () => window.removeEventListener('canvas-transform-change', updateDim);
+  }, [semanticOrbitActive, canvasSize]);
+
   // Fetch orbit candidates only when orbit mode is explicitly active
   useEffect(() => {
     let cancelled = false;
@@ -14484,6 +14514,7 @@ function NodeCanvas() {
                           const visH = viewportSize.height / z;
                           return (
                           <rect
+                            ref={orbitDimRectRef}
                             x={visMinX - visW}
                             y={visMinY - visH}
                             width={visW * 3}
@@ -14565,6 +14596,8 @@ function NodeCanvas() {
                                   ring4Candidates={orbitData.ring4 || []}
                                   onOrbitItemClick={handleOrbitItemClick}
                                   isLoading={orbitLoading}
+                                  zoomLevelRef={zoomLevelRef}
+                                  viewportSizeRef={viewportSizeRef}
                                 />
                                 <Node
                                   key={activeNodeToRender.id}
