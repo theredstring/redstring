@@ -14544,6 +14544,8 @@ function NodeCanvas() {
                                   ring4Candidates={orbitData.ring4 || []}
                                   onOrbitItemClick={handleOrbitItemClick}
                                   isLoading={orbitLoading}
+                                  interactionRef={isPanningOrZooming}
+                                  zoomAnimatingRef={isAnimatingZoomRef}
                                 />
                                 <Node
                                   key={activeNodeToRender.id}

@@ -58,7 +58,10 @@ const SpawningNodeDragLayer = () => {
     }
 
     const dimensions = getNodeDimensions(displayNode, false, null);
-    const scale = 0.8;
+    // Screen-space preview scale. Rendered at fixed px (not canvas-zoom aware),
+    // so it must be halved relative to the old 0.8 now that NODE_WIDTH doubled
+    // to 180 — otherwise the drag-in ghost reads twice as large as it used to.
+    const scale = 0.4;
     const nodeX = - (dimensions.currentWidth * scale) / 2;
     const nodeY = - (dimensions.currentHeight * scale) / 2;
 
