@@ -341,8 +341,8 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
         y={y}
         width={currentWidth}
         height={currentHeight}
-        rx={effectiveCornerRadius}
-        ry={effectiveCornerRadius}
+        rx={NODE_CORNER_RADIUS}
+        ry={NODE_CORNER_RADIUS}
         fill={hasImage ? 'none' : fill}
         stroke={hasImage ? fill : 'none'}
         strokeWidth={hasImage ? 1.5 : 0}
@@ -531,7 +531,6 @@ function pointOnRoundedRect(t, cx, cy, w, h, cr) {
 
 const OrbitLoadingDots = ({ centerX, centerY, focusWidth, focusHeight }) => {
   const theme = useTheme();
-  const nodeScale = useGraphStore(state => state.textSettings?.nodeScale ?? 1.0);
   const [timeSec, setTimeSec] = useState(0);
   const rafRef = useRef(null);
   const startRef = useRef(null);
@@ -548,8 +547,7 @@ const OrbitLoadingDots = ({ centerX, centerY, focusWidth, focusHeight }) => {
 
   const w = focusWidth + 2 * LOADING_PAD;
   const h = focusHeight + 2 * LOADING_PAD;
-  // Match the node's scaled corner radius (getNodeDimensions: NODE_CORNER_RADIUS * 1.4 * nodeScale)
-  const cr = NODE_CORNER_RADIUS * 1.4 * nodeScale;
+  const cr = NODE_CORNER_RADIUS;
 
   const dots = [];
   for (let i = 0; i < LOADING_DOT_COUNT; i++) {
@@ -582,17 +580,10 @@ export default function OrbitOverlay({
   ring3Candidates,
   ring4Candidates,
   onOrbitItemClick,
-  isLoading = false,
-  zoomLevelRef = null,
-  viewportSizeRef = null
+  isLoading = false
 }) {
   // Hover tracking — pauses all orbit animation when any item is hovered
   const [hoveredCandidateId, setHoveredCandidateId] = useState(null);
-
-  // Live focal-node height for the RAF loop's zoom-freeze threshold (the loop's
-  // effect has [] deps, so it can't close over the prop directly).
-  const focusHeightRef = useRef(focusHeight);
-  focusHeightRef.current = focusHeight;
 
   // Always call hooks first, before any early returns
   const measuredRing1 = useMemo(() => measureCandidates(ring1Candidates || []), [ring1Candidates]);
@@ -701,18 +692,7 @@ export default function OrbitOverlay({
     let startTs = 0;
     const loop = (ts) => {
       if (!startTs) startTs = ts;
-      // Pause the animation clock when hovered, OR when zoomed in far enough that
-      // the focal node fills most of the screen (so the orbit rings are off-screen
-      // anyway). The orbit lives inside the shared, single-layer canvas SVG, so
-      // ticking this clock re-renders the overlay every frame → mutates that layer
-      // → forces the browser to repaint the ENTIRE canvas 60×/sec. At high zoom
-      // that full-canvas repaint drops raster tiles and flickers everything (even
-      // at rest, no interaction). Freezing when zoomed in past the point of seeing
-      // the rings removes the repaint churn without any visible loss of animation.
-      const z = zoomLevelRef?.current ?? 1;
-      const vpH = viewportSizeRef?.current?.height;
-      const zoomedInFar = vpH ? (focusHeightRef.current * z > 0.55 * vpH) : false;
-      if (pausedRef.current || zoomedInFar) {
+      if (pausedRef.current) {
         // Record when this pause began (once)
         if (pauseStartRef.current === null) pauseStartRef.current = ts;
       } else {
