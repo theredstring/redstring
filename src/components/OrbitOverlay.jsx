@@ -341,8 +341,8 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
         y={y}
         width={currentWidth}
         height={currentHeight}
-        rx={NODE_CORNER_RADIUS}
-        ry={NODE_CORNER_RADIUS}
+        rx={effectiveCornerRadius}
+        ry={effectiveCornerRadius}
         fill={hasImage ? 'none' : fill}
         stroke={hasImage ? fill : 'none'}
         strokeWidth={hasImage ? 1.5 : 0}
@@ -531,6 +531,7 @@ function pointOnRoundedRect(t, cx, cy, w, h, cr) {
 
 const OrbitLoadingDots = ({ centerX, centerY, focusWidth, focusHeight }) => {
   const theme = useTheme();
+  const nodeScale = useGraphStore(state => state.textSettings?.nodeScale ?? 1.0);
   const [timeSec, setTimeSec] = useState(0);
   const rafRef = useRef(null);
   const startRef = useRef(null);
@@ -547,7 +548,8 @@ const OrbitLoadingDots = ({ centerX, centerY, focusWidth, focusHeight }) => {
 
   const w = focusWidth + 2 * LOADING_PAD;
   const h = focusHeight + 2 * LOADING_PAD;
-  const cr = NODE_CORNER_RADIUS;
+  // Match the node's scaled corner radius (getNodeDimensions: NODE_CORNER_RADIUS * 1.4 * nodeScale)
+  const cr = NODE_CORNER_RADIUS * 1.4 * nodeScale;
 
   const dots = [];
   for (let i = 0; i < LOADING_DOT_COUNT; i++) {
