@@ -35,6 +35,122 @@ import { debugLogSync } from '../utils/debugLogger.js';
 import useHistoryStore from './historyStore.js';
 import { generateDescription } from '../utils/actionDescriptions.js';
 
+/**
+ * @module graphStore
+ * @description Zustand store for all Redstring graph state. Uses Immer for immutable
+ * updates and a custom `produce` wrapper that captures patches for the undo/redo history system.
+ *
+ * **Architecture layers:**
+ * - **Prototypes** (`nodePrototypes` Map): Node type definitions — name, color, description, definition graph IDs.
+ * - **Graphs** (`graphs` Map): Each graph holds node `instances` (position/scale) and `edgeIds`.
+ * - **Edges** (`edges` Map): Edge objects referencing source/destination instance IDs.
+ * - **UI state**: Active graph, viewport, panel layout, selection, PieMenu, settings.
+ *
+ * All mutations use `set(produce(draft => ...))` via Immer. The middleware wrapping
+ * intercepts every `set` call to capture patches for history and notify SaveCoordinator.
+ */
+
+/**
+ * @typedef {Object} NodePrototype
+ * @property {string} id - UUID.
+ * @property {string} name - Display name.
+ * @property {string} [description] - Description text.
+ * @property {string} color - Hex color string.
+ * @property {string|null} typeNodeId - ID of the prototype that types this one (null = base type).
+ * @property {string[]} definitionGraphIds - IDs of graphs that define this prototype's interior.
+ * @property {boolean} isSpecificityChainNode - Whether this node participates in a specificity chain.
+ * @property {boolean} hasSpecificityChain - Whether this node is the root of a specificity chain.
+ * @property {Object|null} agentConfig - Agent configuration, or null if not an agent node.
+ * @property {Object} [semanticMetadata] - Wikipedia/Wikidata enrichment metadata.
+ * @property {boolean} [autoEnriched] - True if this prototype was auto-enriched from semantic web.
+ */
+
+/**
+ * @typedef {Object} NodeInstance
+ * @property {string} id - UUID.
+ * @property {string} prototypeId - ID of the NodePrototype this instance renders.
+ * @property {number} x - Canvas x-coordinate.
+ * @property {number} y - Canvas y-coordinate.
+ * @property {number} [scale=1] - Scale multiplier relative to base node size.
+ */
+
+/**
+ * @typedef {Object} GraphData
+ * @property {string} id - UUID.
+ * @property {string} name - Display name.
+ * @property {string} [description] - Description text.
+ * @property {boolean} directed - Whether edges in this graph are directed.
+ * @property {Map<string, NodeInstance>} instances - Node instances keyed by instance ID.
+ * @property {Map<string, Object>} groups - Visual groupings of instances, keyed by group ID.
+ * @property {string[]} edgeIds - IDs of edges whose source/destination instances are in this graph.
+ * @property {string[]} definingNodeIds - Prototype IDs that "own" this graph as a definition.
+ * @property {string|null} color - Optional color inherited from the owning prototype.
+ */
+
+/**
+ * @typedef {Object} EdgeData
+ * @property {string} id - UUID.
+ * @property {string} sourceInstanceId - ID of the source NodeInstance.
+ * @property {string} destinationInstanceId - ID of the destination NodeInstance.
+ * @property {string} graphId - ID of the graph this edge belongs to.
+ * @property {string|null} typeNodeId - Prototype ID for the edge type (null = base Connection).
+ * @property {string} [name] - Optional label for the edge.
+ * @property {Object} directionality - `{ arrowsToward: Set<string> }` — node IDs that have an arrow pointing toward them.
+ */
+
+/**
+ * @typedef {Object} GraphState
+ * @property {Map<string, NodePrototype>} nodePrototypes - All node prototype definitions.
+ * @property {Map<string, GraphData>} graphs - All graphs keyed by graph ID.
+ * @property {Map<string, EdgeData>} edges - All edges keyed by edge ID.
+ * @property {Map<string, Object>} edgePrototypes - Edge type prototypes (subtypes of Connection).
+ * @property {Set<string>} protectedPrototypeIds - Prototype IDs exempt from orphan cleanup.
+ * @property {Map<string, Object>} pendingDeletions - Soft-deleted instances awaiting grace period expiry.
+ * @property {string|null} activeGraphId - ID of the graph currently displayed on the canvas.
+ * @property {string[]} openGraphIds - Ordered list of graph IDs open as tabs.
+ * @property {string|null} activeDefinitionNodeId - Prototype ID whose definition is being viewed.
+ * @property {string|null} selectedEdgeId - Single selected edge ID (used for editing).
+ * @property {Set<string>} selectedEdgeIds - Set of selected edge IDs for multi-select.
+ * @property {string} typeListMode - Left panel type list state: `'closed'|'node'|'connection'|'component'`.
+ * @property {Object[]} rightPanelTabs - Array of tab descriptor objects for the right panel.
+ * @property {Set<string>} expandedGraphIds - Graph IDs with their tree item expanded in the panel.
+ * @property {Set<string>} savedNodeIds - Prototype IDs pinned to the right panel.
+ * @property {Set<string>} savedGraphIds - Graph IDs pinned to the right panel.
+ * @property {Object} wizardPlansByConversation - Durable wizard plans keyed by conversation ID.
+ * @property {boolean} isUniverseLoaded - True after a universe file has been successfully loaded.
+ * @property {boolean} isUniverseLoading - True while a universe file is being loaded.
+ * @property {boolean} hasUniverseFile - True if the app is connected to a `.redstring` file.
+ * @property {string|null} universeLoadingError - Error message from the last failed load, or null.
+ * @property {string} storageMode - `'local'|'git'|'hybrid'` — determines save targets.
+ * @property {Object} gitSettings - Git auto-sync preferences: `{ autoSync, defaultRemote, syncOnSave }`.
+ * @property {Object|null} gitConnection - Active Git remote connection config, or null.
+ * @property {Object|null} gitSyncEngine - Live GitSyncEngine instance, set by UniverseManager.
+ * @property {string} gitSourceOfTruth - `'local'|'git'` — which store is authoritative.
+ * @property {string} thingNodeId - Always `'base-thing-prototype'`; the root of the type hierarchy.
+ * @property {boolean} leftPanelExpanded - Whether the left panel is open.
+ * @property {boolean} rightPanelExpanded - Whether the right panel is open.
+ * @property {string} inputMode - `'mouse'|'touch'` — current interaction modality (session-only).
+ * @property {boolean} darkMode - Dark theme enabled.
+ * @property {number} connectionLabelSize - Multiplier for connection label text size.
+ * @property {boolean} showConnectionNames - Whether connection labels are visible on the canvas.
+ * @property {boolean} showEdgeGlowIndicators - Whether edges show directional glow effects.
+ * @property {boolean} showHoverPreview - Whether hovering a node shows a preview card.
+ * @property {number} hoverPreviewSize - Scale multiplier for hover preview cards.
+ * @property {boolean} showNodeControlPanel - Whether the single-node control panel is visible.
+ * @property {boolean} showMultipleNodesControlPanel - Whether the multi-node control panel is visible.
+ * @property {boolean} showConnectionControlPanel - Whether the connection control panel is visible.
+ * @property {boolean} showGroupControlPanel - Whether the group control panel is visible.
+ * @property {boolean} showAbstractionControlPanel - Whether the abstraction chain control panel is visible.
+ * @property {Object} gridSettings - `{ mode: 'off'|'hover'|'always', size: number }`.
+ * @property {Object} dragZoomSettings - `{ enabled: boolean, zoomAmount: number }`.
+ * @property {Object} autoLayoutSettings - Force-directed layout parameters.
+ * @property {Object} forceTunerSettings - Advanced force tuner parameters (mirrors autoLayoutSettings structure).
+ * @property {Object} textSettings - `{ fontSize, lineSpacing, nodeScale, connectionWidth, plusSignScale, pieMenuScale }`.
+ * @property {Object} keyboardSettings - `{ zoomSensitivity, panSensitivity }` in range [0, 1].
+ * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
+ * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity }`.
+ */
+
 // Enable Immer plugins
 enableMapSet();
 enablePatches();
@@ -796,13 +912,36 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     _triggerGraphRefresh: () => set((state) => ({ _refreshTick: (state._refreshTick || 0) + 1 })),
 
     // --- Actions --- (Operating on plain data)
-    // Panel actions
+
+    // ─── PANEL LAYOUT ────────────────────────────────────────────────────────────
+    /**
+     * Sets whether the left panel is expanded.
+     * @param {boolean} expanded
+     */
     setLeftPanelExpanded: (expanded) => set({ leftPanelExpanded: expanded }),
+    /** @param {boolean} expanded */
     setRightPanelExpanded: (expanded) => set({ rightPanelExpanded: expanded }),
+    /** Toggles the left panel open/closed. */
     toggleLeftPanel: () => set(state => ({ leftPanelExpanded: !state.leftPanelExpanded })),
+    /** Toggles the right panel open/closed. */
     toggleRightPanel: () => set(state => ({ rightPanelExpanded: !state.rightPanelExpanded })),
 
-    // Grouping actions
+    // ─── GROUP MANAGEMENT ────────────────────────────────────────────────────────
+
+    /**
+     * Creates a new visual group within a graph, optionally pre-populated with member instances.
+     *
+     * Groups are visual clusters of node instances. They store semantic metadata for RDF
+     * relationship tracking. Returns the new group ID.
+     *
+     * @param {string} graphId - ID of the graph to create the group in.
+     * @param {Object} [options]
+     * @param {string} [options.name='Group'] - Display name for the group.
+     * @param {string} [options.color='#8B0000'] - Hex color for the group border.
+     * @param {string[]} [options.memberInstanceIds=[]] - Instance IDs to include as initial members.
+     * @param {Object} [contextOptions] - Save context flags (isDragging, phase, etc.).
+     * @returns {string|null} The new group ID, or null if the graph was not found.
+     */
     createGroup: (graphId, { name = 'Group', color = '#8B0000', memberInstanceIds = [] } = {}, contextOptions = {}) => {
       api.setChangeContext({ type: 'group_create', target: 'group', ...contextOptions });
       let createdGroupId = null;
@@ -840,6 +979,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return createdGroupId;
     },
 
+    /**
+     * Applies an Immer recipe function to a group, mutating it in place.
+     *
+     * Automatically updates `semanticMetadata.lastModified` and syncs the RDF
+     * relationship list when membership changes.
+     *
+     * @param {string} graphId - ID of the graph containing the group.
+     * @param {string} groupId - ID of the group to update.
+     * @param {function} recipe - Immer recipe: `(group) => { group.name = '...'; }`.
+     * @param {Object} [contextOptions] - Save context flags.
+     */
     updateGroup: (graphId, groupId, recipe, contextOptions = {}) => {
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
@@ -913,6 +1063,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
+    /**
+     * Removes a group from a graph, restoring all member instances to ungrouped state.
+     *
+     * Clears `isGroupAnchor` and `anchorForGroupId` flags from the anchor instance.
+     *
+     * @param {string} graphId - ID of the graph containing the group.
+     * @param {string} groupId - ID of the group to delete.
+     * @param {Object} [contextOptions] - Save context flags.
+     */
     deleteGroup: (graphId, groupId, contextOptions = {}) => {
       api.setChangeContext({ type: 'group_delete', target: 'group', ...contextOptions });
       return set(produce((draft) => {
@@ -945,11 +1104,19 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Ensure a node-group (one linked to a prototype) has an anchor instance — the
-    // invisible instance that edges connect to so the group is a usable connection
-    // target. Idempotent: returns the existing anchor when present, repairs node-groups
-    // that were created without one (legacy files, or paths that set linkedNodePrototypeId
-    // directly without minting an anchor).
+    /**
+     * Ensures a group has a valid anchor instance, creating one or reassigning as needed.
+     *
+     * An anchor instance is the group's "representative" node on the canvas — it remains
+     * visible when the group is collapsed. If `preferredAnchorInstanceId` is provided
+     * and belongs to the group, it is promoted; otherwise the first member is used.
+     *
+     * @param {string} graphId - ID of the graph containing the group.
+     * @param {string} groupId - ID of the group to anchor.
+     * @param {Object} [options]
+     * @param {string} [options.preferredAnchorInstanceId] - Instance ID to prefer as anchor.
+     * @param {Object} [options] - Remaining keys are passed as contextOptions.
+     */
     ensureGroupAnchor: (graphId, groupId, { preferredAnchorInstanceId, ...contextOptions } = {}) => {
       api.setChangeContext({ type: 'group_anchor_repair', target: 'group', groupId, ...contextOptions });
       let anchorId = null;
@@ -1015,7 +1182,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return anchorId;
     },
 
-    // Convert a regular group to a node-group (linked to a node prototype definition)
+    /**
+     * Converts a plain group into a node-group: associates it with a node prototype so the
+     * group renders as a "thing" with an expandable interior.
+     *
+     * If `createNewPrototype` is true, creates a new prototype with `newPrototypeName`/
+     * `newPrototypeColor`; otherwise links the group to the existing `nodePrototypeId`.
+     * The group's anchor instance is converted to represent the prototype.
+     *
+     * @param {string} graphId - Graph containing the group.
+     * @param {string} groupId - Group to convert.
+     * @param {string} nodePrototypeId - Prototype to link (ignored if createNewPrototype=true).
+     * @param {boolean} [createNewPrototype=false] - Create a new prototype instead of linking an existing one.
+     * @param {string} [newPrototypeName=''] - Name for the new prototype (requires createNewPrototype=true).
+     * @param {string} [newPrototypeColor='#8B0000'] - Color for the new prototype.
+     * @param {Object} [contextOptions] - Save context flags.
+     */
     convertGroupToNodeGroup: (graphId, groupId, nodePrototypeId, createNewPrototype = false, newPrototypeName = '', newPrototypeColor = '#8B0000', contextOptions = {}) => {
       api.setChangeContext({ type: 'group_convert', target: 'group', ...contextOptions });
       return set(produce((draft) => {
@@ -1197,6 +1379,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // This action is deprecated. All loading now goes through loadUniverseFromFile.
     loadGraph: (graphInstance) => { },
 
+    /**
+     * Collapses a node-group back into a single node instance (the inverse of decompose).
+     *
+     * Removes all member instances and their edges from the graph, leaving only the anchor
+     * instance. The anchor's prototype retains its definition graph.
+     *
+     * @param {string} graphId - Graph containing the group.
+     * @param {string} groupId - Node-group to combine.
+     * @param {Object} [contextOptions] - Save context flags.
+     */
     combineNodeGroup: (graphId, groupId, contextOptions = {}) => {
       api.setChangeContext({ type: 'group_combine', target: 'group', ...contextOptions });
       let createdInstanceId = null;
@@ -1347,8 +1539,19 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return createdInstanceId;
     },
 
-    // Decompose a node into a thing-group, keeping the original instance as the group's anchor.
-    // All edges to/from the original instance are preserved automatically.
+    /**
+     * Expands a node instance into a node-group by materializing its definition graph in place.
+     *
+     * Copies all instances and edges from the prototype's definition graph (at `definitionIndex`)
+     * into the active graph, then creates a group linking them to the source prototype. The
+     * original instance becomes the group anchor. Returns the new group ID.
+     *
+     * @param {string} graphId - Graph containing the instance to decompose.
+     * @param {string} prototypeId - Prototype whose definition graph provides the expansion content.
+     * @param {number} [definitionIndex=0] - Which definition graph to expand (0 = first).
+     * @param {Object} [contextOptions] - Save context flags.
+     * @returns {string|null} The new group ID, or null if decomposition failed.
+     */
     decomposeNodeToGroup: (graphId, prototypeId, definitionIndex = 0, contextOptions = {}) => {
       api.setChangeContext({ type: 'group_decompose', target: 'group', ...contextOptions });
       let createdGroupId = null;
@@ -1520,7 +1723,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return createdGroupId;
     },
 
-    // Adds a NEW plain prototype data to the global pool.
+    // ─── NODE PROTOTYPE MANAGEMENT ───────────────────────────────────────────────
+
+    /**
+     * Adds a new node prototype to the global pool and pins it to the right panel.
+     *
+     * Does nothing if a prototype with the same ID already exists. Auto-generates a UUID
+     * if `prototypeData.id` is absent. Sets `agentConfig` to null if not provided.
+     *
+     * @param {Object} prototypeData - Prototype fields (name, color, description, etc.).
+     * @param {string} [prototypeData.id] - Optional ID; auto-generated UUID if omitted.
+     */
     addNodePrototype: (prototypeData) => {
       api.setChangeContext({ type: 'prototype_create', target: 'prototype' });
       return set(produce((draft) => {
@@ -1572,7 +1785,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return prototypeId;
     },
 
-    // Adds a node prototype with duplicate detection by name
+    /**
+     * Adds a node prototype with name-based deduplication.
+     *
+     * If a prototype with the same name (case-insensitive) already exists, merges
+     * `semanticMetadata` from the incoming data into the existing prototype and returns
+     * the existing ID. Otherwise delegates to `addNodePrototype`.
+     *
+     * @param {Object} prototypeData - Same shape as `addNodePrototype`.
+     * @returns {string} The ID of the existing or newly created prototype.
+     */
     addNodePrototypeWithDeduplication: (prototypeData) => {
       let resultId = null;
 
@@ -1626,7 +1848,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return resultId;
     },
 
-    // Find potential duplicate nodes based on name similarity
+    /**
+     * Identifies pairs of node prototypes whose names are similar enough to be duplicates.
+     *
+     * Uses Levenshtein distance-based similarity. Returns pairs where both prototypes
+     * have similarity ≥ `threshold`. Does not modify state.
+     *
+     * @param {number} [threshold=0.8] - Similarity threshold in [0, 1].
+     * @returns {Array<{proto1: NodePrototype, proto2: NodePrototype, similarity: number}>}
+     */
     findPotentialDuplicates: (threshold = 0.8) => {
       const state = get();
       const prototypes = Array.from(state.nodePrototypes.values());
@@ -1663,7 +1893,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return duplicateGroups;
     },
 
-    // Merge two node prototypes
+    /**
+     * Merges a secondary node prototype into a primary, transferring all instances, edges,
+     * and definition graphs to the primary, then deletes the secondary.
+     *
+     * After the merge: all instances that referenced `secondaryId` are updated to
+     * reference `primaryId`; all edges referencing the secondary prototype's instances
+     * are preserved; all definition graphs previously owned by the secondary are re-owned
+     * by the primary.
+     *
+     * @param {string} primaryId - The prototype to merge INTO (survives).
+     * @param {string} secondaryId - The prototype to merge FROM (deleted after merge).
+     */
     mergeNodePrototypes: (primaryId, secondaryId) => set(produce((draft) => {
       const primary = draft.nodePrototypes.get(primaryId);
       const secondary = draft.nodePrototypes.get(secondaryId);
@@ -1889,7 +2130,24 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.log(`[mergeNodePrototypes] Merged ${secondary.name} into ${primary.name}`);
     })),
 
-    // Merge definition graphs with options
+    /**
+     * Merges the definition graphs of two prototypes according to a strategy.
+     *
+     * Strategies:
+     * - `'combine'` (default): Appends secondary's definition graph IDs to primary's list.
+     * - `'overwrite_with_primary'`: Secondary's definition graphs are removed.
+     * - `'overwrite_with_secondary'`: Primary's definition graphs are replaced with secondary's.
+     * - `'selective'`: Only graphs selected via `keepPrimary`/`keepSecondary` booleans are kept.
+     *
+     * All affected graphs have their `definingNodeIds` updated to reference `primaryId`.
+     *
+     * @param {string} primaryId - Primary prototype ID.
+     * @param {string} secondaryId - Secondary prototype ID.
+     * @param {Object} [mergeOptions]
+     * @param {'combine'|'overwrite_with_primary'|'overwrite_with_secondary'|'selective'} [mergeOptions.strategy='combine']
+     * @param {boolean} [mergeOptions.keepPrimary] - For 'selective': retain primary's graphs.
+     * @param {boolean} [mergeOptions.keepSecondary] - For 'selective': retain secondary's graphs.
+     */
     mergeDefinitionGraphs: (primaryId, secondaryId, mergeOptions = { strategy: 'combine' }) => set(produce((draft) => {
       const primary = draft.nodePrototypes.get(primaryId);
       const secondary = draft.nodePrototypes.get(secondaryId);
@@ -1989,7 +2247,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.log(`[mergeDefinitionGraphs] Merged definition graphs using strategy: ${strategy}`);
     })),
 
-    // Duplicate a node prototype for testing
+    /**
+     * Creates a copy of a node prototype with a " (Copy)" name suffix.
+     *
+     * The duplicate gets a new UUID and does not share definition graphs with the original.
+     * Semantic metadata is shallow-copied with `isMergedNode` cleared.
+     *
+     * @param {string} prototypeId - ID of the prototype to duplicate.
+     * @returns {string} The new duplicate prototype's ID (via Immer return).
+     */
     duplicateNodePrototype: (prototypeId) => set(produce((draft) => {
       const original = draft.nodePrototypes.get(prototypeId);
       if (!original) {
@@ -2016,7 +2282,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return newId;
     })),
 
-    // Adds a new instance of a prototype to a specific graph.
+    // ─── NODE INSTANCE MANAGEMENT ────────────────────────────────────────────────
+
+    /**
+     * Adds a new instance of a prototype to a specific graph at the given position.
+     *
+     * @param {string} graphId - ID of the target graph.
+     * @param {string} prototypeId - ID of the prototype to instantiate.
+     * @param {{x: number, y: number}} position - Canvas coordinates for the new instance.
+     * @param {string} [instanceId] - Optional specific instance ID; auto-generated if omitted.
+     */
     addNodeInstance: (graphId, prototypeId, position, instanceId = uuidv4()) => {
       api.setChangeContext({ type: 'node_place', target: 'instance', finalize: true });
       return set(produce((draft) => {
@@ -2043,7 +2318,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Remove instance immediately (hard delete) and clean up connected edges
+    /**
+     * Hard-deletes a node instance and all of its connected edges in a single transaction.
+     *
+     * If the instance is a group anchor, its associated group is also deleted.
+     * Removes the instance from any group membership lists. Clears any pending-deletion entry.
+     *
+     * @param {string} graphId - Graph containing the instance.
+     * @param {string} instanceId - Instance to permanently delete.
+     */
     removeNodeInstance: (graphId, instanceId) => {
       // Get prototype ID for description context BEFORE entering Immer if possible, or just pass instanceId
       // Ideally we want to know what we are deleting. We can't easily access state outside of set unless we use get().
@@ -2103,7 +2386,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Remove multiple instances and their connected edges in a single transaction
+    /**
+     * Hard-deletes multiple instances and all of their connected edges in a single transaction.
+     *
+     * @param {string} graphId - Graph containing the instances.
+     * @param {string[]|Set<string>} instanceIds - Instances to permanently delete.
+     */
     removeMultipleNodeInstances: (graphId, instanceIds) => {
       if (!instanceIds || (instanceIds instanceof Set ? instanceIds.size === 0 : instanceIds.length === 0)) return;
 
@@ -2160,7 +2448,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Immediately and permanently deletes a node instance (bypasses grace period)
+    /**
+     * Force-deletes an instance bypassing grace-period protection.
+     * Use for programmatic cleanup where soft-delete semantics don't apply.
+     * @param {string} graphId
+     * @param {string} instanceId
+     */
     forceDeleteNodeInstance: (graphId, instanceId) => {
       const state = get();
       const graph = state.graphs.get(graphId);
@@ -2205,7 +2498,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Restores a node instance from pending deletion
+    /**
+     * Restores a soft-deleted instance from `pendingDeletions` back into its graph.
+     * @param {string} instanceId - Instance ID in pendingDeletions.
+     */
     restoreNodeInstance: (instanceId) => set(produce((draft) => {
       const pendingDeletion = draft.pendingDeletions.get(instanceId);
       if (!pendingDeletion) {
@@ -2238,7 +2534,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.log(`[restoreNodeInstance] Restored instance ${instanceId} from pending deletion`);
     })),
 
-    // Cleanup expired pending deletions
+    /**
+     * Removes all soft-deleted instances whose grace period has elapsed.
+     * Should be called periodically (e.g., on app focus or timer).
+     */
     cleanupExpiredDeletions: () => set(produce((draft) => {
       const now = Date.now();
       const expiredIds = [];
@@ -2278,7 +2577,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
-    // Update a prototype's data using Immer's recipe. This affects all its instances.
+    // ─── NODE & EDGE MUTATIONS ────────────────────────────────────────────────────
+
+    /**
+     * Updates a node prototype using an Immer recipe, affecting all its instances visually.
+     *
+     * Automatically syncs any name change to definition graphs and right-panel tab titles.
+     *
+     * @param {string} prototypeId - ID of the prototype to update.
+     * @param {function} recipe - Immer recipe: `(prototype) => { prototype.name = '...'; }`.
+     */
     updateNodePrototype: (prototypeId, recipe) => {
       api.setChangeContext({ type: 'prototype_update', target: 'prototype', prototypeId });
       return set(produce((draft) => {
@@ -2311,7 +2619,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Update an instance's unique data (e.g., position)
+    /**
+     * Updates a node instance using an Immer recipe.
+     *
+     * @param {string} graphId - Graph containing the instance.
+     * @param {string} instanceId - Instance to update.
+     * @param {function} recipe - Immer recipe: `(instance) => { instance.x = 100; }`.
+     * @param {Object} [contextOptions] - Save context flags; `contextOptions.type` overrides the change type.
+     */
     updateNodeInstance: (graphId, instanceId, recipe, contextOptions = {}) => {
       api.setChangeContext({ type: contextOptions.type || 'node_update', target: 'instance', ...contextOptions });
       return set(produce((draft) => {
@@ -2327,7 +2642,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Update positions of multiple instances efficiently
+    /**
+     * Updates the (x, y) position of multiple instances in a single transaction.
+     *
+     * @param {string} graphId - Graph containing the instances.
+     * @param {Array<{instanceId: string, x: number, y: number}>} updates - Position updates.
+     * @param {Object} [contextOptions] - Save context flags (set isDragging=true during drag).
+     */
     updateMultipleNodeInstancePositions: (graphId, updates, contextOptions = {}) => {
       api.setChangeContext({ type: 'node_position', target: 'instance', ...contextOptions });
       return set(produce((draft) => {
@@ -2344,7 +2665,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Paste nodes and edges as a single atomic operation
+    /**
+     * Pastes nodes and edges as an atomic operation — used by the copy/paste system.
+     *
+     * Skips any edge whose source or destination instance is missing from the graph
+     * (guards against stale clipboard data).
+     *
+     * @param {string} graphId - Target graph for the paste.
+     * @param {Array<{instanceId: string, prototypeId: string, x: number, y: number, scale: number}>} nodes
+     * @param {Array<EdgeData>} edges - Edges to restore; each must have valid source/destination IDs.
+     * @param {Object} [contextOptions] - Save context flags.
+     */
     pasteNodesAndEdges: (graphId, nodes, edges, contextOptions = {}) => {
       api.setChangeContext({ type: 'paste', target: 'batch', ...contextOptions });
       return set(produce((draft) => {
@@ -2383,8 +2714,19 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Adds a NEW edge connecting two instances.
-    // Adds a NEW edge connecting two instances.
+    // ─── EDGE MANAGEMENT ─────────────────────────────────────────────────────────
+
+    /**
+     * Connects two node instances with an edge in a single transaction.
+     *
+     * Validates that both instance IDs exist in the graph. Skips silently if the
+     * edge ID already exists. Defaults to `base-connection-prototype` edge type if
+     * `typeNodeId` is absent. Normalizes `directionality.arrowsToward` to a Set.
+     *
+     * @param {string} graphId - Graph containing both instances.
+     * @param {EdgeData} newEdgeData - Edge descriptor; must include `id`, `sourceId`, `destinationId`.
+     * @param {Object} [contextOptions] - Save context flags.
+     */
     addEdge: (graphId, newEdgeData, contextOptions = {}) => {
       // #region agent log
       debugLogSync('graphStore.js:addEdge', 'addEdge called', { graphId, edgeId: newEdgeData?.id, sourceId: newEdgeData?.sourceId, destId: newEdgeData?.destinationId, stack: new Error().stack?.split('\n').slice(1, 5) }, 'debug-session', 'A-B');
@@ -2470,7 +2812,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Update an edge's data using Immer's recipe (no change needed here)
+    /**
+     * Updates an edge using an Immer recipe.
+     *
+     * @param {string} edgeId - ID of the edge to update.
+     * @param {function} recipe - Immer recipe: `(edge) => { edge.name = '...'; }`.
+     */
     updateEdge: (edgeId, recipe) => set(produce((draft) => {
       const edge = draft.edges.get(edgeId);
       if (edge) {
@@ -2480,7 +2827,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
-    // Set the type of a node (the node that serves as this node's type in the abstraction hierarchy)
+    /**
+     * Sets the type prototype for a node in the abstraction hierarchy.
+     *
+     * Guards against circular typing and prevents reassigning the root `base-thing-prototype`.
+     * Pass `null` to remove the type assignment.
+     *
+     * @param {string} nodeId - Prototype ID of the node to retype.
+     * @param {string|null} typeNodeId - ID of the prototype to use as the type, or null to clear.
+     */
     setNodeType: (nodeId, typeNodeId) => {
       api.setChangeContext({ type: 'node_type_change', target: 'prototype', nodeId, typeNodeId });
       return set(produce((draft) => {
@@ -2528,7 +2883,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Edge prototype management
+    /**
+     * Adds a new edge prototype (connection type) to the edge prototype catalog.
+     * Does nothing if an edge prototype with the same ID already exists.
+     *
+     * @param {Object} prototypeData - Edge prototype fields (id, name, color, description, etc.).
+     */
     addEdgePrototype: (prototypeData) => set(produce((draft) => {
       const prototypeId = prototypeData.id || uuidv4();
       if (!draft.edgePrototypes.has(prototypeId)) {
@@ -2536,6 +2896,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
+    /**
+     * Updates an edge prototype using an Immer recipe.
+     * Prevents changing the type of the root `base-connection-prototype`.
+     *
+     * @param {string} prototypeId - ID of the edge prototype to update.
+     * @param {function} recipe - Immer recipe applied to the edge prototype.
+     */
     updateEdgePrototype: (prototypeId, recipe) => set(produce((draft) => {
       const prototype = draft.edgePrototypes.get(prototypeId);
       if (prototype) {
@@ -2552,7 +2919,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
-    // Set the type of an edge
+    /**
+     * Sets the type prototype for an edge.
+     * Validates that the type exists in `edgePrototypes`. Pass `null` to clear.
+     *
+     * @param {string} edgeId - ID of the edge to retype.
+     * @param {string|null} typeNodeId - ID of the edge prototype to use as type, or null.
+     */
     setEdgeType: (edgeId, typeNodeId) => set(produce((draft) => {
       const edge = draft.edges.get(edgeId);
       if (!edge) {
@@ -2575,6 +2948,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     updateNode: () => console.warn("`updateNode` is deprecated. Use `updateNodePrototype` or `updateNodeInstance`."),
     updateMultipleNodePositions: () => console.warn("`updateMultipleNodePositions` is deprecated. Use `updateMultipleNodeInstancePositions`."),
     removeNode: () => console.warn("`removeNode` is deprecated. Use `removeNodeInstance`."),
+    /**
+     * Removes an edge from the store and from its graph's `edgeIds` list.
+     *
+     * @param {string} edgeId - ID of the edge to remove.
+     * @param {Object} [contextOptions] - Save context flags.
+     */
     removeEdge: (edgeId, contextOptions = {}) => {
       api.setChangeContext({ type: 'edge_delete', target: 'edge', finalize: true, ...contextOptions });
       return set(produce((draft) => {
@@ -2608,7 +2987,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     },
 
 
-    // --- Tab Management Actions --- (Unaffected by prototype change)
+    // ─── GRAPH TAB NAVIGATION ─────────────────────────────────────────────────────
+
+    /**
+     * Opens a graph in the tab bar and makes it the active graph.
+     *
+     * If the graph is already open, it is simply activated (not duplicated). Also
+     * sets `activeDefinitionNodeId` to the provided `definitionNodeId`, or clears it
+     * if none is given. Auto-expands the graph in the "Open Things" list.
+     *
+     * @param {string} graphId - ID of the graph to open.
+     * @param {string|null} [definitionNodeId=null] - Prototype ID to track as the active definition context.
+     */
     openGraphTab: (graphId, definitionNodeId = null) => set(produce((draft) => {
       console.log(`[Store openGraphTab] Called with graphId: ${graphId}, definitionNodeId: ${definitionNodeId}`);
       if (draft.graphs.has(graphId)) { // Ensure graph exists
@@ -2643,6 +3033,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
+    /**
+     * Removes a graph from the open tab list.
+     * If it was the active graph, activates the first remaining open graph.
+     *
+     * @param {string} graphId - ID of the graph tab to close.
+     */
     closeGraphTab: (graphId) => set(produce((draft) => {
       draft.openGraphIds = draft.openGraphIds.filter(id => id !== graphId);
       if (draft.activeGraphId === graphId) {
@@ -2650,6 +3046,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
+    /**
+     * Sets the active graph tab without opening or closing any tabs.
+     * Requires the graph to already be in `openGraphIds`. Pass `null` to clear.
+     *
+     * @param {string|null} graphId - ID of the graph to activate.
+     */
     setActiveGraphTab: (graphId) => set(produce((draft) => {
       if (graphId === null) {
         draft.activeGraphId = null;
@@ -2664,8 +3066,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
-    // Creates a new, empty graph and sets it as active
-    // Batch multiple graph updates in one transaction
+    /**
+     * Applies a batch of nodes, edges, and groups to an existing graph in one transaction.
+     *
+     * Handles deduplication: nodes with matching names are reused, edges between the same
+     * pair with the same type are updated rather than duplicated. Creates connection-type
+     * prototypes for named edge types on the fly. Accepts node names by string for edges,
+     * resolving them via a case-insensitive lookup map.
+     *
+     * @param {string} graphId - Target graph ID.
+     * @param {Object} batch
+     * @param {Array<{name: string, color?: string, description?: string, x?: number, y?: number, prototypeId?: string, instanceId?: string}>} [batch.nodes=[]]
+     * @param {Array<{source: string, target: string, type?: string, directionality?: string, definitionNode?: Object}>} [batch.edges=[]]
+     * @param {Array<{name: string, memberNames?: string[], memberInstanceIds?: string[]}>} [batch.groups=[]]
+     */
     applyBulkGraphUpdates: (graphId, { nodes = [], edges = [], groups = [] }) => {
       api.setChangeContext({ type: 'bulk_update', target: 'graph', finalize: true });
       set(produce((draft) => {
@@ -2975,6 +3389,24 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
+    // ─── GRAPH CRUD ───────────────────────────────────────────────────────────────
+
+    /**
+     * Creates a new graph paired with a defining prototype, and activates it.
+     *
+     * Both the graph and its owning prototype are assigned new UUIDs (unless
+     * `initialData.id` provides a specific graph ID). The graph is opened as a tab,
+     * its defining prototype is pinned to the right panel, and `activeDefinitionNodeId`
+     * is set to the new prototype.
+     *
+     * @param {Object} [initialData]
+     * @param {string} [initialData.id] - Specific graph ID; auto-generated UUID if omitted.
+     * @param {string} [initialData.name='New Thing'] - Name for both the graph and its prototype.
+     * @param {string} [initialData.description] - Description text.
+     * @param {string} [initialData.color] - Hex color.
+     * @param {string|null} [initialData.typeNodeId] - Type assignment for the defining prototype.
+     * @returns {string} The new graph ID.
+     */
     createNewGraph: (initialData = {}) => {
       const newGraphId = initialData.id || uuidv4(); // Use provided ID if available
       set(produce((draft) => {
@@ -3032,7 +3464,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return newGraphId; // Return the actual graph ID that was created
     },
 
-    // Deterministic graph creation with provided id (no-op if exists)
+    /**
+     * Creates a graph with a specific ID, or no-ops if that ID already exists.
+     *
+     * Used when a deterministic ID is needed (e.g., wizard tools that predict IDs).
+     * Activates the new graph and adds it to the open tab list.
+     *
+     * @param {string} graphId - Specific UUID to use for the new graph.
+     * @param {Object} [initialData] - Same shape as `createNewGraph` initial data.
+     */
     createGraphWithId: (graphId, initialData = {}) => set(produce((draft) => {
       if (!graphId) return;
       if (draft.graphs.has(graphId)) return;
@@ -3070,7 +3510,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.log(`[Store createGraphWithId] Created and activated graph ${graphId} ('${name}')`);
     })),
 
-    // Repair tool to re-sync bidirectional links between graphs and their defining nodes
+    /**
+     * Re-syncs bidirectional links between graphs and their defining prototypes.
+     *
+     * Walks all graphs and ensures each `definingNodeIds` entry has a matching
+     * `definitionGraphIds` entry in the referenced prototype. Run this to recover
+     * from data corruption or mismatched state after a partial import.
+     */
     repairGraphLinkages: () => {
       console.log('[Repair Tool] Starting bidirectional link repair...');
       set(produce((draft) => {
@@ -3110,7 +3556,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Creates a new graph, assigns it as a definition to a prototype, and makes it active
+    /**
+     * Creates a new graph assigned as a definition to a prototype, and activates it.
+     *
+     * The new graph is added to `prototype.definitionGraphIds`, opened as a tab,
+     * and set as the active graph. Returns the new graph ID.
+     *
+     * @param {string} prototypeId - Prototype that will own the new definition graph.
+     * @returns {string|null} The new graph ID, or null if the prototype was not found.
+     */
     createAndAssignGraphDefinition: (prototypeId) => {
       let newGraphId = null;
       set(produce((draft) => {
@@ -3132,7 +3586,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return newGraphId;
     },
 
-    // Creates a new graph and assigns it as a definition, but does NOT make it active.
+    /**
+     * Creates a new graph assigned as a definition to a prototype, without activating it.
+     *
+     * Same as `createAndAssignGraphDefinition` but leaves `activeGraphId` unchanged.
+     * Use this when building definition graphs in the background.
+     *
+     * @param {string} prototypeId - Prototype that will own the new definition graph.
+     * @returns {string|null} The new graph ID, or null if the prototype was not found.
+     */
     createAndAssignGraphDefinitionWithoutActivation: (prototypeId) => {
       let newGraphId = null;
       set(produce((draft) => {
@@ -3144,8 +3606,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return newGraphId;
     },
 
-    // Creates a definition graph with a SPECIFIC ID and assigns it to a prototype.
-    // Does NOT change activeGraphId. Used by wizard tools that generate predictive IDs.
+    /**
+     * Creates a definition graph with a specific ID and assigns it to a prototype.
+     *
+     * Does NOT change `activeGraphId`. If the graph already exists, opens its tab
+     * without re-creating it. Used by wizard tools that generate predictive IDs to
+     * avoid UUID mismatch between AgentLoop predictions and real store IDs.
+     *
+     * @param {string} graphId - Specific UUID to use for the new definition graph.
+     * @param {string} prototypeId - Prototype that will own this definition graph.
+     */
     createDefinitionGraphWithId: (graphId, prototypeId) => {
       set(produce((draft) => {
         const prototype = draft.nodePrototypes.get(prototypeId);
@@ -3187,7 +3657,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Helper function to find a prototype by name (case-insensitive)
+    /**
+     * Finds a node prototype by name (case-insensitive, trims whitespace).
+     * Returns the first match. Does not modify state.
+     *
+     * @param {string} name - Name to search for.
+     * @returns {NodePrototype|undefined} The matching prototype, or undefined if not found.
+     */
     findPrototypeByName: (name) => {
       const state = get();
       const searchName = name.toLowerCase().trim();
@@ -3196,8 +3672,23 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         .find(proto => proto.name?.toLowerCase().trim() === searchName);
     },
 
-    // Create a complex concept with definition graph and optional sub-concepts
-    // This is a high-level helper for the Druid to create structured knowledge
+    /**
+     * High-level helper for creating a concept prototype with an optional definition graph
+     * pre-populated with sub-concepts and relationships.
+     *
+     * Creates: (1) a prototype for the concept, (2) a definition graph if `subConcepts`
+     * are provided, (3) prototype+instance for each sub-concept inside that graph,
+     * (4) edges for each relationship, (5) optionally, an instance in `targetGraphId`.
+     *
+     * @param {Object} conceptData
+     * @param {string} conceptData.name - Name for the main concept.
+     * @param {string} [conceptData.color] - Hex color.
+     * @param {string} [conceptData.description] - Description text.
+     * @param {Array<{name: string, color?: string, description?: string}>} [conceptData.subConcepts=[]]
+     * @param {Array<{source: string, target: string, type?: string}>} [conceptData.relationships=[]]
+     * @param {string|null} [conceptData.targetGraphId=null] - Graph to place the main concept instance in.
+     * @returns {{prototypeId: string, definitionGraphId: string|null, instanceId: string|null, subConceptIds: Array, edgeIds: string[]}}
+     */
     createComplexConcept: (conceptData) => {
       const {
         name,
@@ -3315,7 +3806,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return result;
     },
 
-    // Sets the currently active graph tab.
+    // ─── ACTIVE GRAPH & RIGHT PANEL ──────────────────────────────────────────────
+
+    /**
+     * Sets the active graph, automatically determining the `activeDefinitionNodeId`
+     * from the graph's `definingNodeIds[0]`.
+     *
+     * Falls back to the first open graph if `graphId` is invalid or not open.
+     *
+     * @param {string} graphId - ID of the graph to activate.
+     */
     setActiveGraph: (graphId) => {
       console.log(`[Store Action] setActiveGraph called with: ${graphId}`);
       set((state) => {
@@ -3351,7 +3851,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       });
     },
 
-    // Updates specific properties of a graph
+    /**
+     * Updates graph properties using an Immer recipe function.
+     *
+     * Automatically syncs any name change to the graph's defining prototype(s) and to
+     * open right-panel tab titles.
+     *
+     * @param {string} graphId - ID of the graph to update.
+     * @param {function} updateFn - Immer recipe: `(graph) => { graph.name = '...'; }`.
+     */
     updateGraph: (graphId, updateFn) => {
       api.setChangeContext({ type: 'graph_update', target: 'graph', graphId });
       return set(produce((draft) => {
@@ -3385,7 +3893,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // --- Right Panel Tab Management Actions ---
+    // ─── RIGHT PANEL TAB MANAGEMENT ──────────────────────────────────────────────
+
+    /**
+     * Opens or activates a node tab in the right panel for the given prototype.
+     *
+     * If a tab for this node already exists, activates it. Otherwise appends a new tab.
+     * All other tabs are deactivated. Also ensures the right panel is expanded so the
+     * navigated-to node is visible.
+     *
+     * @param {string} nodeId - Prototype ID to open in the panel.
+     * @param {string} [nodeNameFallback='Node Details'] - Tab title fallback if prototype name is absent.
+     */
     openRightPanelNodeTab: (nodeId, nodeNameFallback = 'Node Details') => set(produce((draft) => {
       // Find prototype data to get the title
       const prototypeData = draft.nodePrototypes.get(nodeId);
@@ -3421,6 +3940,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.rightPanelExpanded = true;
     })),
 
+    /**
+     * Activates a right panel tab by its zero-based index.
+     * All other tabs are deactivated.
+     *
+     * @param {number} index - Index into `rightPanelTabs`.
+     */
     activateRightPanelTab: (index) => set(produce((draft) => {
       if (index < 0 || index >= draft.rightPanelTabs.length) {
         console.warn(`activateRightPanelTab: Tab index ${index} out of bounds.`);
@@ -3432,6 +3957,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.rightPanelTabs[index].isActive = true;
     })),
 
+    /**
+     * Removes a node tab from the right panel. The home tab (index 0) is never removed.
+     * If the closed tab was active, activates the home tab.
+     *
+     * @param {string} nodeIdToClose - Prototype ID of the tab to close.
+     */
     closeRightPanelTab: (nodeIdToClose) => set(produce((draft) => {
       // Find the index of the tab with the matching nodeId
       const index = draft.rightPanelTabs.findIndex(tab => tab.nodeId === nodeIdToClose);
@@ -3453,6 +3984,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
+    /**
+     * Reorders right panel tabs via drag-and-drop.
+     * Indices are 0-based from the drag layer (the home tab at position 0 is excluded).
+     *
+     * @param {number} dragIndex - Source position (0-based, excluding home tab).
+     * @param {number} hoverIndex - Target position (0-based, excluding home tab).
+     */
     moveRightPanelTab: (dragIndex, hoverIndex) => set(produce((draft) => {
       // Convert to absolute indices (drag and hover are 0-based from the UI but we need to add 1 for the home tab)
       const sourceDragIndex = dragIndex + 1;
@@ -3469,6 +4007,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.rightPanelTabs.splice(sourceHoverIndex, 0, movedTab);
     })),
 
+    /**
+     * Closes a graph tab and removes it from the open list.
+     * If it was the active graph, activates the nearest remaining open graph.
+     * Schedules `cleanupOrphanedData` 100ms after close.
+     *
+     * @param {string} graphId - ID of the graph to close.
+     */
     closeGraph: (graphId) => set(produce((draft) => {
       console.log(`[Store closeGraph] Called with graphId: ${graphId}`);
       const index = draft.openGraphIds.indexOf(graphId);
@@ -3516,7 +4061,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }, 100);
     })),
 
-    // <<< Add action to toggle expanded state >>>
+    // ─── SAVED & EXPANDED STATE ──────────────────────────────────────────────────
+
+    /**
+     * Toggles whether a graph node is expanded in the "Open Things" left panel list.
+     * @param {string} graphId
+     */
     toggleGraphExpanded: (graphId) => set(produce((draft) => {
       console.log(`[Store toggleGraphExpanded] Called for ${graphId}. Current state:`, new Set(draft.expandedGraphIds)); // <<< Log entry
       if (draft.expandedGraphIds.has(graphId)) {
@@ -3528,7 +4078,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
-    // Toggle node bookmark status in savedNodeIds set
+    /**
+     * Toggles a node prototype's pinned status in the right panel.
+     *
+     * Removing a saved node schedules `cleanupOrphanedData` 100ms later to purge
+     * any now-orphaned prototypes.
+     *
+     * @param {string} nodeId - Prototype ID to pin/unpin.
+     */
     toggleSavedNode: (nodeId) => set(produce((draft) => {
       const wasRemoved = draft.savedNodeIds.has(nodeId);
       if (wasRemoved) {
@@ -3550,7 +4107,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
-    // Toggle graph bookmark status by saving/unsaving its defining node
+    /**
+     * Toggles a graph's bookmarked status by pinning/unpinning its defining prototype.
+     *
+     * If the graph has no defining prototype, creates one automatically. Toggling
+     * operates on `savedNodeIds` via the defining prototype ID.
+     *
+     * @param {string} graphId - ID of the graph to bookmark/unbookmark.
+     */
     toggleSavedGraph: (graphId) => set(produce((draft) => {
       const graph = draft.graphs.get(graphId);
       if (!graph) {
@@ -3602,6 +4166,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.savedNodeIds = new Set(draft.savedNodeIds);
     })),
 
+    // ─── DISPLAY SETTINGS ────────────────────────────────────────────────────────
+
+    /**
+     * Sets the scale multiplier for connection label text. Persists to localStorage.
+     * @param {number} size - Multiplier (e.g., 1.0 = default size).
+     */
     setConnectionLabelSize: (size) => set(produce((draft) => {
       draft.connectionLabelSize = size;
       try {
@@ -3609,45 +4179,56 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
-    // Toggle connection names visibility
+    /** Toggles visibility of connection labels on the canvas. Persists to localStorage. */
     toggleShowConnectionNames: () => set(produce((draft) => {
       draft.showConnectionNames = !draft.showConnectionNames;
       try {
         localStorage.setItem('redstring_show_connection_names', draft.showConnectionNames);
       } catch (_) { }
     })),
+    /** Toggles directional glow effects on edges. Persists to localStorage. */
     toggleShowEdgeGlowIndicators: () => set(produce((draft) => {
       draft.showEdgeGlowIndicators = !draft.showEdgeGlowIndicators;
       try {
         localStorage.setItem('redstring_show_edge_glow', draft.showEdgeGlowIndicators);
       } catch (_) { }
     })),
+    /** Toggles the hover-preview card shown when hovering over a node. Persists to localStorage. */
     toggleShowHoverPreview: () => set(produce((draft) => {
       draft.showHoverPreview = !draft.showHoverPreview;
       try {
         localStorage.setItem('redstring_show_hover_preview', draft.showHoverPreview);
       } catch (_) { }
     })),
+    /** Toggles the single-node control panel. Persists to localStorage. */
     toggleShowNodeControlPanel: () => set(produce((draft) => {
       draft.showNodeControlPanel = !draft.showNodeControlPanel;
       try { localStorage.setItem('redstring_show_node_cp', draft.showNodeControlPanel); } catch (_) { }
     })),
+    /** Toggles the multi-node selection control panel. Persists to localStorage. */
     toggleShowMultipleNodesControlPanel: () => set(produce((draft) => {
       draft.showMultipleNodesControlPanel = !draft.showMultipleNodesControlPanel;
       try { localStorage.setItem('redstring_show_multi_node_cp', draft.showMultipleNodesControlPanel); } catch (_) { }
     })),
+    /** Toggles the connection (edge) control panel. Persists to localStorage. */
     toggleShowConnectionControlPanel: () => set(produce((draft) => {
       draft.showConnectionControlPanel = !draft.showConnectionControlPanel;
       try { localStorage.setItem('redstring_show_connection_cp', draft.showConnectionControlPanel); } catch (_) { }
     })),
+    /** Toggles the group control panel. Persists to localStorage. */
     toggleShowGroupControlPanel: () => set(produce((draft) => {
       draft.showGroupControlPanel = !draft.showGroupControlPanel;
       try { localStorage.setItem('redstring_show_group_cp', draft.showGroupControlPanel); } catch (_) { }
     })),
+    /** Toggles the abstraction chain control panel. Persists to localStorage. */
     toggleShowAbstractionControlPanel: () => set(produce((draft) => {
       draft.showAbstractionControlPanel = !draft.showAbstractionControlPanel;
       try { localStorage.setItem('redstring_show_abstraction_cp', draft.showAbstractionControlPanel); } catch (_) { }
     })),
+    /**
+     * Sets the hover preview card scale multiplier. Clamped to [0.5, 1.5]. Persists to localStorage.
+     * @param {number} value
+     */
     setHoverPreviewSize: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v)) {
@@ -3660,6 +4241,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         localStorage.setItem('redstring_hover_preview_size', String(clamped));
       } catch (_) { }
     })),
+    /**
+     * Toggles dark mode. Persists to localStorage and syncs to workspace config if available.
+     */
     toggleDarkMode: () => {
       set(produce((draft) => {
         draft.darkMode = !draft.darkMode;
@@ -3676,7 +4260,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     },
 
-    // Load UI settings from workspace config
+    // ─── INPUT & LAYOUT SETTINGS ─────────────────────────────────────────────────
+
+    /**
+     * Loads UI settings (currently just darkMode) from a workspace config service.
+     * Stores the service reference on `window.__workspaceService` for future saves.
+     *
+     * @param {Object} workspaceService - Service with a `getUISettings()` method.
+     */
     loadUISettingsFromWorkspace: async (workspaceService) => {
       try {
         const uiSettings = workspaceService.getUISettings();
@@ -3697,15 +4288,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     },
 
-    // Input mode (mouse vs touch) — flipped by pointerdown handler in NodeCanvas.
-    // No-op when value is unchanged to avoid spurious re-renders during mouse moves.
+    /**
+     * Sets the active input modality. No-ops when value is unchanged to avoid spurious re-renders.
+     * Flipped automatically by the pointerdown handler in NodeCanvas based on `PointerEvent.pointerType`.
+     *
+     * @param {'mouse'|'touch'} mode
+     */
     setInputMode: (mode) => {
       if (mode !== 'mouse' && mode !== 'touch') return;
       if (get().inputMode === mode) return;
       set(produce((draft) => { draft.inputMode = mode; }));
     },
 
-    // Grid settings actions
+    /**
+     * Sets the grid visualization mode. Persists to localStorage.
+     * @param {'off'|'hover'|'always'} mode
+     */
     setGridMode: (mode) => set(produce((draft) => {
       const allowed = ['off', 'hover', 'always'];
       if (!draft.gridSettings) draft.gridSettings = { mode: 'off', size: 200 };
@@ -3716,6 +4314,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         console.warn(`[setGridMode] Invalid mode: ${mode}`);
       }
     })),
+    /**
+     * Sets the grid cell size in canvas pixels. Clamped to [20, 400]. Persists to localStorage.
+     * @param {number} value
+     */
     setGridSize: (value) => set(produce((draft) => {
       if (!draft.gridSettings) draft.gridSettings = { mode: 'off', size: 200 };
       const v = Number(value);
@@ -3728,7 +4330,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       try { localStorage.setItem('redstring_grid_size', String(clamped)); } catch (_) { }
     })),
 
-    // Drag zoom settings actions
+    /** Toggles drag-to-zoom (pinch/scroll zoom on drag). Persists to localStorage. */
     toggleDragZoomEnabled: () => set(produce((draft) => {
       if (!draft.dragZoomSettings) {
         draft.dragZoomSettings = { enabled: true, zoomAmount: 0.45 };
@@ -3738,6 +4340,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         localStorage.setItem('redstring_drag_zoom_enabled', String(draft.dragZoomSettings.enabled));
       } catch (_) { }
     })),
+
+    /**
+     * Sets how aggressively drag-zoom scales the view. Clamped to [0, 0.9]. Persists to localStorage.
+     * @param {number} value - 0 = no zoom, 0.9 = zoom out by 90%.
+     */
     setDragZoomAmount: (value) => set(produce((draft) => {
       if (!draft.dragZoomSettings) {
         draft.dragZoomSettings = { enabled: true, zoomAmount: 0.45 };
@@ -3755,7 +4362,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
-    // Toggle global auto-routing enablement
+    /** Toggles whether edge auto-routing avoids nodes. Persists to localStorage. */
     toggleEnableAutoRouting: () => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
@@ -3763,7 +4370,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.autoLayoutSettings.enableAutoRouting = !draft.autoLayoutSettings.enableAutoRouting;
     })),
 
-    // Set the global routing style
+    /**
+     * Sets the algorithm used to lay out node-groups.
+     * @param {'node-driven'|string} algorithm
+     */
     setGroupLayoutAlgorithm: (algorithm) => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
@@ -3772,6 +4382,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.log(`[Store] Group layout algorithm set to: ${algorithm}`);
     })),
 
+    /** Toggles debug cluster hull visualization. Persists to localStorage. */
     toggleShowClusterHulls: () => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
@@ -3780,6 +4391,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.log(`[Store] Show cluster hulls set to: ${draft.autoLayoutSettings.showClusterHulls}`);
     })),
 
+    /**
+     * Sets the edge routing style.
+     * @param {'straight'|'orthogonal'|string} style
+     */
     setRoutingStyle: (style) => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
@@ -3791,7 +4406,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
-    // Set number of bends preference for Manhattan routing
+    /**
+     * Sets how Manhattan-style bends are applied to routed edges.
+     * @param {'auto'|string} mode
+     */
     setManhattanBends: (mode) => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
@@ -3803,7 +4421,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
-    // Set lane spacing for clean routing
+    /**
+     * Sets spacing between parallel edge lanes in canvas pixels. Persists to localStorage.
+     * @param {number} value
+     */
     setCleanLaneSpacing: (value) => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
@@ -3818,8 +4439,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.autoLayoutSettings.cleanLaneSpacing = clamped;
     })),
 
-    // Set how much parallel (multi) connections curve. Multiplier on the base
-    // 100px spacing; 1.0 reproduces the historical look. Persisted to localStorage.
+    /**
+     * Sets the curve multiplier for parallel (multi) connections. Persists to localStorage.
+     * 1.0 = default bow-out distance.
+     * @param {number} value
+     */
     setMultiConnectionCurve: (value) => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
@@ -3836,7 +4460,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
-    // Text appearance settings
+    /**
+     * Sets font size multiplier for node label text. Persists to localStorage.
+     * @param {number} value
+     */
     setTextFontSize: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.7 || v > 2.0) {
@@ -3849,6 +4476,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /**
+     * Sets line spacing multiplier for node label text. Persists to localStorage.
+     * @param {number} value
+     */
     setTextLineSpacing: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.7 || v > 2.0) {
@@ -3861,6 +4492,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /**
+     * Sets the global node size scale multiplier. Persists to localStorage.
+     * @param {number} value
+     */
     setNodeScale: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.5 || v > 2.0) {
@@ -3873,6 +4508,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /**
+     * Sets the stroke width for edge connections. Persists to localStorage.
+     * @param {number} value
+     */
     setConnectionWidth: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.25 || v > 4.0) {
@@ -3885,6 +4524,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /**
+     * Sets the scale multiplier for the plus-sign node creation affordance. Persists to localStorage.
+     * @param {number} value
+     */
     setPlusSignScale: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.25 || v > 3.0) {
@@ -3897,6 +4540,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /**
+     * Sets the scale multiplier for the pie-menu radial overlay. Persists to localStorage.
+     * @param {number} value
+     */
     setPieMenuScale: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.25 || v > 3.0) {
@@ -3909,7 +4556,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
-    // Keyboard settings actions
+    /**
+     * Sets keyboard zoom sensitivity. Range [0, 1]. Persists to localStorage.
+     * @param {number} value
+     */
     setKeyboardZoomSensitivity: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
@@ -3923,6 +4573,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /**
+     * Sets keyboard pan sensitivity. Range [0, 1]. Persists to localStorage.
+     * @param {number} value
+     */
     setKeyboardPanSensitivity: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
@@ -3936,7 +4590,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
-    // Mouse settings actions
+    /** Toggles middle-mouse-button zoom. Persists to localStorage. */
     toggleMiddleMouseZoom: () => set(produce((draft) => {
       if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true };
       draft.mouseSettings.middleMouseZoomEnabled = !draft.mouseSettings.middleMouseZoomEnabled;
@@ -3945,6 +4599,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /** Toggles edge-pan-while-dragging-node. Persists to localStorage. */
     toggleNodeDragEdgePan: () => set(produce((draft) => {
       if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true };
       draft.mouseSettings.nodeDragEdgePanEnabled = !draft.mouseSettings.nodeDragEdgePanEnabled;
@@ -3953,6 +4608,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /** Toggles edge-pan-while-drawing-a-connection. Persists to localStorage. */
     toggleConnectionDrawEdgePan: () => set(produce((draft) => {
       if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true };
       draft.mouseSettings.connectionDrawEdgePanEnabled = !draft.mouseSettings.connectionDrawEdgePanEnabled;
@@ -3961,7 +4617,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
-    // Glide / momentum panning toggle for mouse (click-drag) panning
+    /** Toggles momentum/glide panning for mouse click-drag. Persists to localStorage. */
     toggleMouseGlide: () => set(produce((draft) => {
       if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.1 };
       draft.mouseSettings.glideEnabled = draft.mouseSettings.glideEnabled === false;
@@ -3970,7 +4626,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
-    // How far mouse (click-drag) glide coasts — [0, 1], 0.5 maps to the default friction
+    /**
+     * Sets how far mouse glide coasts after release. Range [0, 1]. Persists to localStorage.
+     * @param {number} value
+     */
     setMouseGlideStrength: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
@@ -3984,7 +4643,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
-    // How long (ms) to hold before a node is considered lifted for dragging
+    /**
+     * Sets the hold duration (ms) before a node starts dragging. Clamped to [50, 1000]. Persists to localStorage.
+     * @param {number} value
+     */
     setNodeLiftDelay: (value) => set(produce((draft) => {
       const v = Math.round(Number(value));
       if (!Number.isFinite(v) || v < 50 || v > 1000) {
@@ -3998,7 +4660,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
-    // Touch settings actions
+    /**
+     * Sets touch pinch-zoom sensitivity. Range [0, 1]. Persists to localStorage.
+     * @param {number} value
+     */
     setTouchZoomSensitivity: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
@@ -4012,6 +4677,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /**
+     * Sets touch single-finger pan sensitivity. Range [0, 1]. Persists to localStorage.
+     * @param {number} value
+     */
     setTouchPanSensitivity: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
@@ -4025,7 +4694,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
-    // Glide / momentum panning toggle for single-finger touch panning
+    /** Toggles momentum/glide panning for single-finger touch. Persists to localStorage. */
     toggleTouchGlide: () => set(produce((draft) => {
       if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5 };
       draft.touchSettings.glideEnabled = draft.touchSettings.glideEnabled === false;
@@ -4034,7 +4703,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
-    // How far single-finger touch glide coasts — [0, 1], 0.5 maps to the default friction
+    /**
+     * Sets how far touch glide coasts after release. Range [0, 1]. Persists to localStorage.
+     * @param {number} value
+     */
     setTouchGlideStrength: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
@@ -4048,6 +4720,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /**
+     * Sets trackpad pinch-zoom sensitivity. Range [0.1, 1]. Persists to localStorage.
+     * @param {number} value
+     */
     setTrackpadZoomSensitivity: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.1 || v > 1.0) {
@@ -4061,6 +4737,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /**
+     * Sets trackpad pan sensitivity. Range [0.1, 1]. Persists to localStorage.
+     * @param {number} value
+     */
     setTrackpadPanSensitivity: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.1 || v > 1.0) {
@@ -4074,6 +4754,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /**
+     * Sets the auto-layout spacing preset.
+     * @param {'compact'|'balanced'|'spacious'} preset
+     */
     setLayoutScalePreset: (preset) => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
@@ -4085,6 +4769,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.autoLayoutSettings.layoutScale = preset;
     })),
 
+    /**
+     * Sets the auto-layout scale multiplier. Clamped to [0.5, MAX_LAYOUT_SCALE_MULTIPLIER].
+     * @param {number} value
+     */
     setLayoutScaleMultiplier: (value) => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
@@ -4098,6 +4786,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.autoLayoutSettings.layoutScaleMultiplier = clamped;
     })),
 
+    /**
+     * Sets the auto-layout iteration depth preset.
+     * @param {'fast'|'balanced'|'deep'} preset
+     */
     setLayoutIterationPreset: (preset) => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
@@ -4109,6 +4801,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.autoLayoutSettings.layoutIterations = preset;
     })),
 
+    /**
+     * Sets the Force Tuner spacing preset.
+     * @param {'compact'|'balanced'|'spacious'} preset
+     */
     setForceTunerScalePreset: (preset) => set(produce((draft) => {
       if (!draft.forceTunerSettings) {
         draft.forceTunerSettings = getDefaultForceTunerSettings();
@@ -4120,6 +4816,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.forceTunerSettings.layoutScale = preset;
     })),
 
+    /**
+     * Sets the Force Tuner scale multiplier. Clamped to [0.2, MAX_LAYOUT_SCALE_MULTIPLIER].
+     * @param {number} value
+     */
     setForceTunerScaleMultiplier: (value) => set(produce((draft) => {
       if (!draft.forceTunerSettings) {
         draft.forceTunerSettings = getDefaultForceTunerSettings();
@@ -4133,6 +4833,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.forceTunerSettings.layoutScaleMultiplier = clamped;
     })),
 
+    /**
+     * Sets the Force Tuner iteration depth preset.
+     * @param {'fast'|'balanced'|'deep'} preset
+     */
     setForceTunerIterationPreset: (preset) => set(produce((draft) => {
       if (!draft.forceTunerSettings) {
         draft.forceTunerSettings = getDefaultForceTunerSettings();
@@ -4144,6 +4848,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.forceTunerSettings.layoutIterations = preset;
     })),
 
+    /**
+     * Copies all current Force Tuner settings into the Auto Layout settings object.
+     * Useful for promoting a tuned layout configuration to the default.
+     */
     copyForceTunerSettingsToAutoLayout: () => set(produce((draft) => {
       if (!draft.forceTunerSettings) return;
 
@@ -4160,43 +4868,65 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
 
-    // Explicitly set active definition node (e.g., when switching graphs)
+    // ─── SELECTION & DEFINITION STATE ────────────────────────────────────────────
+
+    /**
+     * Explicitly sets the active definition node (prototype) context.
+     * Used when switching graphs to keep the definition panel in sync.
+     *
+     * @param {string|null} nodeId - Prototype ID to set as the active definition context.
+     */
     setActiveDefinitionNode: (nodeId) => {
       console.log(`[Store Action] Explicitly setting activeDefinitionNodeId to: ${nodeId}`);
       set({ activeDefinitionNodeId: nodeId });
     },
 
-    // Set the currently selected edge for editing
+    /**
+     * Sets the single selected edge for editing in the connection control panel.
+     * @param {string|null} edgeId
+     */
     setSelectedEdgeId: (edgeId) => {
       console.log(`[Store Action] Setting selectedEdgeId to: ${edgeId}`);
       set({ selectedEdgeId: edgeId });
     },
 
-    // Set multiple selected edges
+    /**
+     * Replaces the entire multi-edge selection with the provided set.
+     * @param {string[]|Iterable<string>} edgeIds
+     */
     setSelectedEdgeIds: (edgeIds) => {
       console.log(`[Store Action] Setting selectedEdgeIds to:`, edgeIds);
       set({ selectedEdgeIds: new Set(edgeIds) });
     },
 
-    // Add edge to selection
+    /**
+     * Adds an edge to the multi-edge selection.
+     * @param {string} edgeId
+     */
     addSelectedEdgeId: (edgeId) => set(produce((draft) => {
       draft.selectedEdgeIds.add(edgeId);
       console.log(`[Store Action] Added edge ${edgeId} to selection`);
     })),
 
-    // Remove edge from selection
+    /**
+     * Removes an edge from the multi-edge selection.
+     * @param {string} edgeId
+     */
     removeSelectedEdgeId: (edgeId) => set(produce((draft) => {
       draft.selectedEdgeIds.delete(edgeId);
       console.log(`[Store Action] Removed edge ${edgeId} from selection`);
     })),
 
-    // Clear all selected edges
+    /** Clears all selected edges. */
     clearSelectedEdgeIds: () => set(produce((draft) => {
       draft.selectedEdgeIds.clear();
       console.log(`[Store Action] Cleared all selected edges`);
     })),
 
-    // Set TypeList mode
+    /**
+     * Sets the type list display mode in the left panel.
+     * @param {'closed'|'node'|'connection'|'component'} mode
+     */
     setTypeListMode: (mode) => {
       console.log(`[Store Action] Setting typeListMode to: ${mode}`);
       set({ typeListMode: mode });
@@ -4204,7 +4934,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     // Set the type of a node prototype (duplicate removed; use earlier guarded version)
 
-    // Remove a definition graph from a node and delete the graph if it's no longer referenced
+    /**
+     * Removes a definition graph from a prototype's `definitionGraphIds` list.
+     * If no other prototype references the graph, also deletes it and closes its tab.
+     *
+     * @param {string} nodeId - Prototype to remove the definition from.
+     * @param {string} graphId - Definition graph to remove.
+     */
     removeDefinitionFromNode: (nodeId, graphId) => set(produce((draft) => {
       const node = draft.nodePrototypes.get(nodeId);
       if (!node) {
@@ -4267,7 +5003,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
-    // Open a graph tab and bring it to the top (similar to Panel.jsx double-click behavior)
+    /**
+     * Opens or moves a graph tab to the front of the tab list and activates it.
+     * Equivalent to the Panel.jsx double-click navigation behavior.
+     *
+     * @param {string} graphId - Graph to open/bring to front.
+     * @param {string|null} [definitionNodeId=null] - Prototype to set as active definition context.
+     */
     openGraphTabAndBringToTop: (graphId, definitionNodeId = null) => set(produce((draft) => {
       console.log(`[Store openGraphTabAndBringToTop] Called with graphId: ${graphId}, definitionNodeId: ${definitionNodeId}`);
       if (!draft.graphs.has(graphId)) {
@@ -4307,7 +5049,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.log(`[Store openGraphTabAndBringToTop] Added ${graphId} to expanded set.`);
     })),
 
-    // Clean up orphaned nodes and graphs that are no longer referenced
+    // ─── CLEANUP & MAINTENANCE ───────────────────────────────────────────────────
+
+    /**
+     * Removes orphaned prototypes, graphs, and edges that are no longer reachable.
+     *
+     * A prototype is considered "reachable" if it is saved, has an open right-panel tab,
+     * has a definition graph, is instantiated in a graph, or is protected.
+     * Also prunes stale right-panel tabs, resets `activeDefinitionNodeId` if its
+     * prototype was deleted, and removes edges referencing missing instances.
+     * Called automatically 100ms after `toggleSavedNode` and `closeGraph`.
+     */
     cleanupOrphanedData: () => set(produce((draft) => {
       console.log('[Store cleanupOrphanedData] Starting cleanup of orphaned data...');
 
@@ -4615,7 +5367,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.log(`[Store cleanupOrphanedData] Cleanup complete. Removed ${orphanedPrototypes.length} prototypes, ${orphanedGraphs.length} graphs, ${orphanedEdges.length} edges, ${totalOrphanMembers} orphan group members.`);
     })),
 
-    // Restore from last session (automatic) - now only returns universe file data
+    // ─── UNIVERSE & FILE MANAGEMENT ──────────────────────────────────────────────
+
+    /**
+     * Restores the last saved session from local storage.
+     * @async
+     */
     restoreFromSession: async () => {
       try {
         const result = await restoreLastSession();
@@ -4626,10 +5383,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     },
 
-    // Get file status
+    /**
+     * Returns the current file status object from the file storage layer.
+     * @returns {Object} File status including `hasFile`, `fileName`, etc.
+     */
     getFileStatus: () => getFileStatus(),
 
-    // Universe file management actions
+    /**
+     * Replaces all store state with the provided universe data object.
+     *
+     * Deserializes Maps and Sets from the plain-object format used in `.redstring` files.
+     * Sets `isUniverseLoaded: true` and `isUniverseLoading: false` on success.
+     * Does NOT save or touch the file handle — call SaveCoordinator separately if needed.
+     *
+     * @param {Object} dataToLoad - Deserialized universe state (from `importFromRedstring`).
+     */
     loadUniverseFromFile: (dataToLoad) => {
       try {
         // CRITICAL: Prevent concurrent loads - check if a load is already in progress
@@ -4790,6 +5558,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     },
 
+    /**
+     * Sets the universe loading error message (shown in the loading UI).
+     * Pass `null` to clear the error.
+     * @param {string|null} error
+     */
     setUniverseError: (error) => set({
       isUniverseLoaded: true, // Loading is complete, but with an error
       isUniverseLoading: false,
@@ -4797,9 +5570,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       hasUniverseFile: false
     }),
 
-    // --- Simple Abstraction Actions ---
+    // ─── ABSTRACTION CHAIN ────────────────────────────────────────────────────────
 
-    // Add a node above (more specific) or below (more general) in a dimension chain
+    /**
+     * Inserts a node into an abstraction chain for a given dimension and direction.
+     *
+     * Abstraction chains represent the Is-a hierarchy (Tree of Porphyry). Each node
+     * can have a chain in the specificity dimension. The new node is inserted relative
+     * to `insertRelativeToNodeId` in the specified direction.
+     *
+     * @param {string} nodeId - Prototype ID that owns the chain.
+     * @param {string} dimension - The abstraction dimension (e.g., 'specificity').
+     * @param {'above'|'below'} direction - Insert above (more general) or below (more specific).
+     * @param {string} newNodeId - Prototype ID of the node to insert into the chain.
+     * @param {string|null} insertRelativeToNodeId - Existing chain member to insert relative to.
+     */
     addToAbstractionChain: (nodeId, dimension, direction, newNodeId, insertRelativeToNodeId) => set(produce((draft) => {
       console.log(`[Store] addToAbstractionChain called with:`, {
         nodeId,
@@ -4893,7 +5678,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
-    // Remove a node from an abstraction chain
+    /**
+     * Removes a node from an abstraction chain.
+     * @param {string} nodeId - Prototype ID that owns the chain.
+     * @param {string} dimension - The abstraction dimension.
+     * @param {string} nodeToRemove - Prototype ID of the node to remove from the chain.
+     */
     removeFromAbstractionChain: (nodeId, dimension, nodeToRemove) => set(produce((draft) => {
       const node = draft.nodePrototypes.get(nodeId);
       if (!node?.abstractionChains?.[dimension]) return;
@@ -4906,13 +5696,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })),
 
-    // Replace a node in the canvas with one from the abstraction chain
+    /**
+     * Replaces one node with another in all abstraction chains.
+     * Used when renaming/retyping a node that participates in chains.
+     *
+     * @param {string} currentNodeId - Prototype ID to replace.
+     * @param {string} newNodeId - Prototype ID to substitute in.
+     */
     swapNodeInChain: (currentNodeId, newNodeId) => set(produce((draft) => {
       // This will be used by the swap button in the carousel
       // For now, just log the action - the actual swap will happen in the UI layer
       console.log(`Swapping ${currentNodeId} with ${newNodeId}`);
     })),
 
+    /** Resets all store state to the empty default. Used to start a new universe. */
     clearUniverse: () => set(() => ({
       graphs: new Map(),
       nodePrototypes: new Map(),
@@ -4932,11 +5729,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       hasUniverseFile: false,
     })),
 
+    /** Marks the universe as connected to a file (hasUniverseFile). @param {boolean} [hasFile=true] */
     setUniverseConnected: (hasFile = true) => set(state => ({
       ...state,
       hasUniverseFile: hasFile
     })),
 
+    /** Marks the universe load as complete. @param {boolean} [loaded=true] @param {boolean} [hasFile=true] */
     setUniverseLoaded: (loaded = true, hasFile = true) => set(state => ({
       ...state,
       isUniverseLoaded: loaded,
@@ -4945,16 +5744,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       universeLoadingError: null
     })),
 
-    // Storage mode actions
+    /** Sets the storage mode. @param {'local'|'git'|'hybrid'} mode */
     setStorageMode: (mode) => set(state => ({
       ...state,
       storageMode: mode
     })),
+    /** Merges partial Git settings into the gitSettings object. @param {Object} settings */
     updateGitSettings: (settings) => set(state => ({
       ...state,
       gitSettings: { ...state.gitSettings, ...settings }
     })),
 
+    /** Persists pan/zoom viewport state for a graph. @param {string} graphId @param {{x: number, y: number}} panOffset @param {number} zoomLevel */
     updateGraphView: (graphId, panOffset, zoomLevel) => {
       // #region agent log
       debugLogSync('graphStore.js:updateGraphView', 'updateGraphView called', { graphId, zoomLevel: zoomLevel?.toFixed?.(3) }, 'debug-session', 'C');
@@ -4969,7 +5770,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Git Federation Actions
+    /** Sets the active Git remote connection configuration. @param {Object} connectionConfig */
     setGitConnection: (connectionConfig) => {
       set(produce((draft) => {
         draft.gitConnection = connectionConfig;
@@ -4978,6 +5779,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
+    /** Clears the Git remote connection and removes it from localStorage. */
     clearGitConnection: () => {
       set(produce((draft) => {
         draft.gitConnection = null;
@@ -4987,12 +5789,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
+    /** Sets the live GitSyncEngine instance (called by UniverseManager). @param {Object} syncEngine */
     setGitSyncEngine: (syncEngine) => {
       set(produce((draft) => {
         draft.gitSyncEngine = syncEngine;
       }));
     },
 
+    /** Sets whether 'local' or 'git' is the authoritative data source. @param {'local'|'git'} sourceOfTruth */
     setGitSourceOfTruth: (sourceOfTruth) => {
       set(produce((draft) => {
         draft.gitSourceOfTruth = sourceOfTruth;
@@ -5001,7 +5805,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
-    // Delete a node prototype and all its related data
+    // ─── DELETION ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Permanently deletes a node prototype and all of its associated data.
+     *
+     * Also deletes any graphs that list this prototype as their sole defining node,
+     * removes all instances of this prototype from all graphs, removes connected edges,
+     * removes the prototype from saved/panel state, and closes any open tabs.
+     * Cannot delete the base `base-thing-prototype` or `base-connection-prototype`.
+     *
+     * @param {string} prototypeId - ID of the prototype to delete.
+     */
     deleteNodePrototype: (prototypeId) => set(produce((draft) => {
       console.log(`[Store deleteNodePrototype] Deleting prototype: ${prototypeId}`);
 
@@ -5080,7 +5895,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.log(`[Store deleteNodePrototype] Successfully deleted prototype: ${prototypeId} and ${graphsToDelete.length} orphaned graphs`);
     })),
 
-    // Delete a graph and all its related data
+    /**
+     * Permanently deletes a graph and all of its associated data.
+     *
+     * Removes all instances in the graph, all edges, closes the tab, and clears
+     * any active-graph references. Also removes the graph ID from its defining
+     * prototypes' `definitionGraphIds` lists.
+     *
+     * @param {string} graphId - ID of the graph to delete.
+     */
     deleteGraph: (graphId) => set(produce((draft) => {
       console.log(`[Store deleteGraph] Deleting graph: ${graphId}`);
 
@@ -5124,7 +5947,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.log(`[Store deleteGraph] Successfully deleted graph: ${graphId}`);
     })),
 
-    // Clean up any orphaned graphs that reference non-existent prototypes
+    /**
+     * Removes graphs that are no longer referenced by any prototype's `definitionGraphIds`.
+     * Also deletes all edges belonging to each orphaned graph.
+     */
     cleanupOrphanedGraphs: () => set(produce((draft) => {
       console.log('[Store cleanupOrphanedGraphs] Starting cleanup...');
 
@@ -5178,22 +6004,47 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.log(`[Store cleanupOrphanedGraphs] Cleanup complete. Deleted ${orphanedGraphs.length} orphaned graphs.`);
     })),
 
-    // Apply Immer patches to the state (used by Undo/Redo)
+    // ─── HISTORY & UNDO/REDO ─────────────────────────────────────────────────────
+
+    /**
+     * Applies Immer inverse patches to revert or redo a state change.
+     * Used by the history store's undo/redo system.
+     *
+     * @param {import('immer').Patch[]} patches - Immer patches to apply.
+     */
     applyPatches: (patches) => set((state) => applyPatches(state, patches)),
 
-    // Durable wizard plan actions — keyed by conversation/tab ID
+    // ─── WIZARD / AGENT STATE ─────────────────────────────────────────────────────
+
+    /**
+     * Saves a wizard execution plan for a conversation/tab, persisting across LLM context clears.
+     *
+     * @param {string} conversationId - Conversation or tab ID.
+     * @param {Object[]} plan - Array of plan step objects.
+     * @param {string|null} graphId - Graph the plan is scoped to.
+     */
     setWizardPlanForConversation: (conversationId, plan, graphId) => set((state) => ({
       wizardPlansByConversation: {
         ...state.wizardPlansByConversation,
         [conversationId]: { steps: plan, graphId: graphId || null }
       }
     })),
+    /**
+     * Removes the wizard plan for a conversation/tab.
+     * @param {string} conversationId - Conversation or tab ID whose plan to clear.
+     */
     clearWizardPlanForConversation: (conversationId) => set((state) => {
       const next = { ...state.wizardPlansByConversation };
       delete next[conversationId];
       return { wizardPlansByConversation: next };
     }),
 
+    /**
+     * Reverts a specific wizard-authored action by applying its inverse Immer patches.
+     * Records the revert itself as a history entry.
+     *
+     * @param {string} actionId - ID of the wizard action to revert (from historyStore).
+     */
     revertWizardAction: (actionId) => {
       const historyStore = useHistoryStore.getState();
       const action = historyStore.history.find(h => h.actionId === actionId);
@@ -5216,22 +6067,37 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
   }; // End of returned state and actions object
 })); // End of create function with middleware
 
-// --- Selectors --- (Return plain data, add edge selector)
+// ─── SELECTORS ────────────────────────────────────────────────────────────────
+// Selector factories for use with `useGraphStore(selector)`.
 
+/** @param {string} id @returns {function(GraphState): GraphData|undefined} */
 export const getGraphDataById = (id) => (state) => state.graphs.get(id);
+/** @param {string} id @returns {function(GraphState): NodePrototype|undefined} */
 export const getNodePrototypeById = (id) => (state) => state.nodePrototypes.get(id);
+/** @param {string} id @returns {function(GraphState): EdgeData|undefined} */
 export const getEdgeDataById = (id) => (state) => state.edges.get(id);
 
+/** Returns the currently active graph's data. */
 export const getActiveGraphData = (state) => state.graphs.get(state.activeGraphId);
 
-// Returns NodeInstance objects for a given graph ID
+/**
+ * Returns all NodeInstance objects in a graph as an array.
+ * @param {string} graphId
+ * @returns {function(GraphState): NodeInstance[]}
+ */
 export const getInstancesForGraph = (graphId) => (state) => {
   const graph = state.graphs.get(graphId);
   if (!graph || !graph.instances) return [];
   return Array.from(graph.instances.values());
 };
 
-// Returns fully hydrated node objects (instance + prototype data) for rendering
+/**
+ * Returns hydrated node objects combining instance position data with prototype metadata.
+ * Used by NodeCanvas for rendering. Returns null entries for instances with missing prototypes.
+ *
+ * @param {string} graphId
+ * @returns {function(GraphState): Array<{id: string, x: number, y: number, scale: number, name: string, color: string, ...}|null>}
+ */
 export const getHydratedNodesForGraph = (graphId) => (state) => {
   const graph = state.graphs.get(graphId);
   if (!graph || !graph.instances) return [];

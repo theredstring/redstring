@@ -54,6 +54,7 @@ class DocumentationGenerator {
     await this.generateApiDocs();
     await this.generateComponentDocs();
     await this.generateServiceDocs();
+    await this.generateStoreDocs();
 
     console.log('✅ Documentation generation complete!');
   }
@@ -454,6 +455,69 @@ ${this.sanitizeForMdx(func.description) || 'No description available.'}
 
       await this.writeDocFile(`api/${service.name.toLowerCase()}.mdx`, content);
     }
+  }
+
+  /**
+   * Generate documentation for Zustand stores
+   */
+  async generateStoreDocs() {
+    for (const store of this.extractedData.stores) {
+      const fileContent = fs.readFileSync(store.filePath, 'utf-8');
+      const actionsWithDocs = this.extractActionsWithJSDoc(fileContent);
+
+      const mdxContent = `---
+title: "${store.name}"
+description: "Zustand store: ${this.sanitizeForMdx(store.description) || store.name}"
+---
+
+# ${store.name}
+
+${this.sanitizeForMdx(store.description) || `The \`${store.name}\` Zustand store.`}
+
+## Location
+\`${store.filePath.replace(projectRoot + '/', '')}\`
+
+## Actions
+
+${actionsWithDocs.length > 0 ? actionsWithDocs.map(action => `
+### ${action.name}
+
+${action.description ? action.description + '\n' : ''}${action.params.length > 0 ? `\n**Parameters:**\n\n${action.params.map(p => `- \`${p}\``).join('\n')}\n` : ''}${action.returns ? `\n**Returns:** ${action.returns}\n` : ''}`).join('\n---\n') : 'No actions detected.'}
+
+---
+
+*Auto-generated from source code*
+`;
+
+      await this.writeDocFile(`api/${store.name.toLowerCase()}.mdx`, mdxContent);
+    }
+  }
+
+  /**
+   * Extract actions with their preceding JSDoc descriptions from store content
+   */
+  extractActionsWithJSDoc(content) {
+    const results = [];
+    // Match a JSDoc block followed immediately by a 4-space-indented action name.
+    // Uses (?:[^*]|\*(?!\/))*  to match content that cannot cross a */ boundary,
+    // preventing the engine from spanning multiple JSDoc blocks to find an action.
+    const pattern = /\/\*\*((?:[^*]|\*(?!\/))*)\*\/[ \t]*\n[ \t]{4}(\w+)\s*:/g;
+    let match;
+    while ((match = pattern.exec(content)) !== null) {
+      const jsdocBody = match[1];
+      const actionName = match[2];
+      const lines = jsdocBody.split('\n').map(l => l.replace(/^\s*\*\s?/, '').trim());
+      const descLines = lines.filter(l => l && !l.startsWith('@'));
+      const paramLines = lines.filter(l => l.startsWith('@param')).map(l => l.replace('@param', '').trim());
+      const returnsLine = lines.find(l => l.startsWith('@returns'));
+      results.push({
+        name: actionName,
+        description: descLines.join(' ').trim(),
+        params: paramLines,
+        returns: returnsLine ? returnsLine.replace('@returns', '').trim() : null
+      });
+    }
+    return results;
   }
 
   /**

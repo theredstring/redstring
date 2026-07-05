@@ -582,9 +582,7 @@ export default function OrbitOverlay({
   ring3Candidates,
   ring4Candidates,
   onOrbitItemClick,
-  isLoading = false,
-  interactionRef = null,
-  zoomAnimatingRef = null
+  isLoading = false
 }) {
   // Hover tracking — pauses all orbit animation when any item is hovered
   const [hoveredCandidateId, setHoveredCandidateId] = useState(null);
@@ -696,14 +694,8 @@ export default function OrbitOverlay({
     let startTs = 0;
     const loop = (ts) => {
       if (!startTs) startTs = ts;
-      // Pause on hover, OR while the user is actively panning/zooming. During
-      // pan/zoom the canvas <g> transform repaints the whole SVG each step
-      // (CPU-painted, not GPU-composited); layering per-frame React DOM
-      // mutations from the orbit animation on top thrashes the renderer and
-      // flickers the foreignObject text. Freezing the orbit leaves the zoom
-      // transform as the sole render driver.
-      const interacting = (interactionRef?.current === true) || (zoomAnimatingRef?.current === true);
-      if (pausedRef.current || interacting) {
+      // Pause the animation clock on hover only.
+      if (pausedRef.current) {
         // Record when this pause began (once)
         if (pauseStartRef.current === null) pauseStartRef.current = ts;
       } else {

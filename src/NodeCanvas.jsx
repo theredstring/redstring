@@ -14466,13 +14466,28 @@ function NodeCanvas() {
                         {/* Dim overlay for semantic orbit mode.
                             Plain SVG rect (not foreignObject) so it stays in proper paint order
                             on iOS WebKit — foreignObject with backdrop-filter punches itself to
-                            the top of the stack and eats taps on orbit items. */}
-                        {semanticOrbitActive && (
+                            the top of the stack and eats taps on orbit items.
+
+                            Sized to the visible viewport (+1 viewport margin each side), NOT the
+                            full 100000×100000 canvas. This rect lives inside the zoomed <g>, so a
+                            canvas-sized rect renders at 100000×zoom screen px and alpha-blending
+                            that over the whole canvas every frame torches the fill-rate budget at
+                            high zoom — dropping raster tiles ("squares") and flickering the entire
+                            canvas (not just orbit). Bounding it to ~3× the viewport keeps the blend
+                            cheap at any zoom. Uses settled pan/zoom (lags ~150ms during a gesture,
+                            which the margin absorbs). */}
+                        {semanticOrbitActive && (() => {
+                          const z = zoomLevel || 1;
+                          const visMinX = (-panOffset.x) / z + canvasSize.offsetX;
+                          const visMinY = (-panOffset.y) / z + canvasSize.offsetY;
+                          const visW = viewportSize.width / z;
+                          const visH = viewportSize.height / z;
+                          return (
                           <rect
-                            x={canvasSize.offsetX}
-                            y={canvasSize.offsetY}
-                            width={canvasSize.width}
-                            height={canvasSize.height}
+                            x={visMinX - visW}
+                            y={visMinY - visH}
+                            width={visW * 3}
+                            height={visH * 3}
                             fill="rgba(0, 0, 0, 0.7)"
                             style={{ cursor: 'pointer', touchAction: 'manipulation' }}
                             onMouseDown={(e) => {
@@ -14511,7 +14526,8 @@ function NodeCanvas() {
                               exitOrbitMode();
                             }}
                           />
-                        )}
+                          );
+                        })()}
 
                         {/* Render the "Active" Node (if it exists and not being dragged).
                             In semantic orbit mode, bypass viewport culling: when zoomed in the
@@ -14549,8 +14565,6 @@ function NodeCanvas() {
                                   ring4Candidates={orbitData.ring4 || []}
                                   onOrbitItemClick={handleOrbitItemClick}
                                   isLoading={orbitLoading}
-                                  interactionRef={isPanningOrZooming}
-                                  zoomAnimatingRef={isAnimatingZoomRef}
                                 />
                                 <Node
                                   key={activeNodeToRender.id}

@@ -58,41 +58,49 @@ const SpawningNodeDragLayer = () => {
     }
 
     const dimensions = getNodeDimensions(displayNode, false, null);
-    // Screen-space preview scale. Rendered at fixed px (not canvas-zoom aware),
-    // so it must be halved relative to the old 0.8 now that NODE_WIDTH doubled
-    // to 180 — otherwise the drag-in ghost reads twice as large as it used to.
+    const W = dimensions.currentWidth;
+    const H = dimensions.currentHeight;
+
+    // Screen-space preview scale. The ghost is rendered at fixed px (not canvas-zoom
+    // aware) and getNodeDimensions already folds in a 1.4x geometry factor, so the
+    // full node draws at ~252px. The `scale` prop on the node is a no-op here — the
+    // Node's isDragging branch deliberately omits the React transform — so we must
+    // scale the SVG content with a real <g transform>. 0.4 keeps the ghost around the
+    // ~100px it was before NODE_WIDTH doubled.
     const scale = 0.4;
-    const nodeX = - (dimensions.currentWidth * scale) / 2;
-    const nodeY = - (dimensions.currentHeight * scale) / 2;
 
     const clonedNode = {
         ...displayNode,
-        x: nodeX,
-        y: nodeY,
-        scale,
+        x: 0,
+        y: 0,
     };
 
     return (
         <div style={layerStyles}>
             <div style={getItemStyles(currentOffset)}>
-                <svg 
-                    width={dimensions.currentWidth * scale} 
-                    height={dimensions.currentHeight * scale} 
+                <svg
+                    width={W * scale}
+                    height={H * scale}
                     style={{ overflow: 'visible' }}
                 >
-                    <Node
-                        node={clonedNode}
-                        isSelected={false}
-                        isDragging={true}
-                        onMouseDown={() => {}}
-                        currentWidth={dimensions.currentWidth}
-                        currentHeight={dimensions.currentHeight}
-                        textAreaHeight={dimensions.textAreaHeight}
-                        imageWidth={dimensions.imageWidth}
-                        imageHeight={dimensions.calculatedImageHeight}
-                        descriptionAreaHeight={dimensions.descriptionAreaHeight}
-                        isPreviewing={false}
-                    />
+                    {/* Scale the full-size node down and center it on the cursor. */}
+                    <g transform={`translate(${-W * scale / 2}, ${-H * scale / 2}) scale(${scale})`}>
+                        <Node
+                            node={clonedNode}
+                            isSelected={false}
+                            isDragging={true}
+                            onMouseDown={() => {}}
+                            currentWidth={W}
+                            currentHeight={H}
+                            textAreaHeight={dimensions.textAreaHeight}
+                            imageWidth={dimensions.imageWidth}
+                            imageHeight={dimensions.calculatedImageHeight}
+                            scaledPadding={dimensions.scaledPadding}
+                            scaledCornerRadius={dimensions.scaledCornerRadius}
+                            descriptionAreaHeight={dimensions.descriptionAreaHeight}
+                            isPreviewing={false}
+                        />
+                    </g>
                 </svg>
             </div>
         </div>
