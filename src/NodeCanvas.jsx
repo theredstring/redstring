@@ -14513,8 +14513,13 @@ function NodeCanvas() {
                           />
                         )}
 
-                        {/* Render the "Active" Node (if it exists and not being dragged) */}
-                        {activeNodeToRender && visibleNodeIds.has(activeNodeToRender.id) && (
+                        {/* Render the "Active" Node (if it exists and not being dragged).
+                            In semantic orbit mode, bypass viewport culling: when zoomed in the
+                            focal node sits right at the cull threshold and toggles in/out of
+                            visibleNodeIds every transform frame, which would unmount/remount the
+                            whole OrbitOverlay each toggle — replaying entrance animations and
+                            flickering the orbit chaotically. Keep it mounted while orbiting. */}
+                        {activeNodeToRender && (visibleNodeIds.has(activeNodeToRender.id) || semanticOrbitActive) && (
                           (() => {
                             const isPreviewing = previewingNodeId === activeNodeToRender.id;
                             const baseDimensions = baseDimsById.get(activeNodeToRender.id);
