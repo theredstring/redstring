@@ -245,7 +245,7 @@ const __oauthHealth = loadOAuthHealth();
 // OAuth-specific fetch function with aggressive error suppression.
 // Accepts a non-standard `bypassCooldown` option (extracted before passing to fetch)
 // so user-initiated actions can always attempt a real request even during cooldown.
-export function oauthFetch(path, options = {}) {
+export async function oauthFetch(path, options = {}) {
   const { bypassCooldown = false, ...fetchInit } = options || {};
   const now = Date.now();
 
@@ -253,6 +253,27 @@ export function oauthFetch(path, options = {}) {
   // User-initiated callers pass bypassCooldown: true.
   if (!bypassCooldown && __oauthHealth.cooldownUntil > now) {
     return Promise.reject(new Error('OAuth server unavailable (cooldown)'));
+  }
+
+  // GitHub App endpoints now require the caller's OAuth user token so the
+  // server can confirm ownership of the installation before minting a token or
+  // returning installation data (installation IDs are enumerable). Attach it
+  // here for all /api/github/app/ calls unless the caller already set one.
+  // Lazy-import persistentAuth to avoid a static circular dependency (it
+  // imports oauthFetch). If no token is stored, the header is omitted and the
+  // server responds 401 — the correct "connect OAuth first" outcome.
+  if (/\/api\/github\/app\//.test(path)) {
+    const hasAuthHeader = fetchInit.headers && Object.keys(fetchInit.headers)
+      .some((k) => k.toLowerCase() === 'authorization');
+    if (!hasAuthHeader) {
+      try {
+        const { persistentAuth } = await import('./persistentAuth.js');
+        const oauthToken = await persistentAuth.getAccessToken?.();
+        if (oauthToken) {
+          fetchInit.headers = { ...(fetchInit.headers || {}), Authorization: `token ${oauthToken}` };
+        }
+      } catch { /* no token available — server will 401 for app endpoints */ }
+    }
   }
 
   // Make the request with a timeout to fail fast

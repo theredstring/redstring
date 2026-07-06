@@ -42,6 +42,44 @@ app.use('/api/github/*', cors({
   credentials: false,
 }));
 
+// Shared ownership gate for GitHub App endpoints. Requires the SPA to pass its
+// OAuth user token so the Worker can confirm the caller actually owns the
+// installation before minting a token / returning its data — installation IDs
+// are enumerable integers, so acting on an arbitrary one is broken access
+// control. Returns a Response to short-circuit on refusal, otherwise the
+// verification context. NOTE: an `unverified` result (token present but the
+// install can't be enumerated via /user/installations, e.g. org installs when
+// the OAuth token lacks read:org) is allowed through to preserve those flows;
+// fully closing that residual requires read:org scope on the OAuth token.
+async function requireInstallOwnership(c: any, installationId: string | number) {
+  const oauthToken = extractOAuthToken(c.req.header('authorization'));
+  if (!oauthToken) {
+    return c.json({
+      error: 'OAuth token required',
+      hint: `Pass "Authorization: token <oauth_token>" so the Worker can confirm you own installation ${installationId} before acting on it.`,
+      code: 'oauth_required',
+      service: SERVICE,
+    }, 401);
+  }
+  const oauthUser = await fetchOAuthUser(oauthToken);
+  const verification = await verifyInstallationWithOAuth(installationId, oauthToken, oauthUser);
+  const deniedStatus: Record<string, number> = {
+    missing_installation: 400,
+    account_mismatch: 403,
+    not_found: 403,
+    oauth_invalid: 401,
+  };
+  if (deniedStatus[verification.status]) {
+    return c.json({
+      error: 'Installation access denied',
+      code: verification.status,
+      verification: formatVerificationForResponse(verification),
+      service: SERVICE,
+    }, deniedStatus[verification.status] as any);
+  }
+  return { oauthToken, oauthUser, verification };
+}
+
 // =============================================================================
 // /api/github/oauth/* — user-facing OAuth flow
 // =============================================================================
@@ -259,11 +297,18 @@ app.post('/api/github/app/installation-token', async (c) => {
     return c.json({ error: 'GitHub App not configured', hint: 'Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY as Worker secrets', service: SERVICE }, 500);
   }
 
-  // Optional verification: if the SPA passed its OAuth token, use it to
-  // confirm the install belongs to this user before minting. The Node
-  // server did this from server-stored credentials; here we accept it from
-  // the Authorization header instead (stateless).
+  // Require the SPA's OAuth token so we can confirm the install belongs to this
+  // user before minting. Installation IDs are enumerable integers, so minting
+  // for an arbitrary ID with no caller identity is broken access control.
   const oauthToken = extractOAuthToken(c.req.header('authorization'));
+  if (!oauthToken) {
+    return c.json({
+      error: 'OAuth token required',
+      hint: `Pass "Authorization: token <oauth_token>" so the Worker can confirm you own installation ${installation_id} before minting a token.`,
+      code: 'oauth_required',
+      service: SERVICE,
+    }, 401);
+  }
   let verificationResult = null;
   let verificationForResponse = null;
   if (oauthToken) {
@@ -421,6 +466,8 @@ app.get('/api/github/app/installations', async (c) => {
 // Get a specific installation's data (installation info + repositories).
 app.get('/api/github/app/installation/:installation_id', async (c) => {
   const installation_id = c.req.param('installation_id');
+  const gate = await requireInstallOwnership(c, installation_id);
+  if (gate instanceof Response) return gate;
   const appId = c.env.GITHUB_APP_ID;
   const privateKey = c.env.GITHUB_APP_PRIVATE_KEY;
   if (!appId || !privateKey) return c.json({ error: 'GitHub App not configured', service: SERVICE }, 500);
@@ -468,6 +515,8 @@ app.post('/api/github/app/create-repository', async (c) => {
   if (!installation_id || !name) {
     return c.json({ error: 'Installation ID and repository name are required', service: SERVICE }, 400);
   }
+  const gate = await requireInstallOwnership(c, installation_id);
+  if (gate instanceof Response) return gate;
   const appId = c.env.GITHUB_APP_ID;
   const privateKey = c.env.GITHUB_APP_PRIVATE_KEY;
   if (!appId || !privateKey) return c.json({ error: 'GitHub App not configured', service: SERVICE }, 500);
