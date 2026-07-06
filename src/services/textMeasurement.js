@@ -5,7 +5,7 @@
  * and canvas measureText() calls with Pretext's DOM-free layout engine,
  * eliminating synchronous layout reflows.
  */
-import { prepare, prepareWithSegments, layout, measureNaturalWidth, clearCache } from '@chenglou/pretext';
+import { prepare, prepareWithSegments, layout, layoutWithLines, measureNaturalWidth, clearCache } from '@chenglou/pretext';
 
 // --- Prepared-text cache (keyed by text + fontString) ---
 const preparedCache = new Map();
@@ -99,6 +99,23 @@ export function measureTextWidth(text, fontString) {
   if (!text) return 0;
   const prepared = getPreparedWithSegments(text, fontString);
   return measureNaturalWidth(prepared);
+}
+
+/**
+ * Wrap text into lines that fit within maxWidth, for rendering as SVG <tspan>s.
+ * Returns the array of line strings (word-wrapped, same engine as node layout).
+ *
+ * @param {string} text
+ * @param {number} maxWidth - available width in px
+ * @param {string} fontString - canvas font shorthand (e.g. "bold 45px 'EmOne', sans-serif")
+ * @returns {string[]} wrapped line strings
+ */
+export function wrapTextToLines(text, maxWidth, fontString) {
+  if (!text) return [];
+  const prepared = getPreparedWithSegments(text, fontString);
+  // lineHeight only affects the returned `height`, which we don't use here.
+  const result = layoutWithLines(prepared, maxWidth, 1);
+  return result.lines.map((l) => l.text);
 }
 
 /**

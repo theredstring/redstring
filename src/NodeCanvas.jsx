@@ -218,12 +218,6 @@ function NodeCanvas() {
   const [orbitLoading, setOrbitLoading] = useState(false);
   const [semanticOrbitActive, setSemanticOrbitActive] = useState(false);
   const semanticOrbitActiveRef = useRef(false);
-  // True while the canvas zoom is actively changing (with a short trailing
-  // debounce). Used to hide the orbit overlay's heavy content during the
-  // per-frame full-canvas repaint that zooming triggers — see the effect below.
-  const [isCanvasZooming, setIsCanvasZooming] = useState(false);
-  const zoomHideTimerRef = useRef(null);
-  const lastZoomForHideRef = useRef(1);
   // Mirrors store inputMode so RAF callbacks and pointer handlers can read the
   // current modality without re-binding when it flips.
   const inputModeRef = useRef('mouse');
@@ -8673,35 +8667,6 @@ function NodeCanvas() {
     semanticOrbitActiveRef.current = semanticOrbitActive;
   }, [semanticOrbitActive]);
 
-  // Hide the orbit overlay while the zoom is actively changing.
-  //
-  // Zooming applies a new transform to the shared canvas <g> every frame, which
-  // forces the browser to repaint the ENTIRE SVG each step (confirmed via paint
-  // flashing: the whole canvas lights up only while zooming). Outside orbit mode
-  // that repaint is cheap enough. In orbit mode the same per-frame repaint must
-  // also paint the overlay's expensive content (many foreignObject labels, long
-  // thick connection lines), blowing the frame budget so tiles drop and the whole
-  // canvas flickers. Hiding the overlay (display:none — kept mounted, so no
-  // remount / entrance-animation replay) during the gesture makes the zoom repaint
-  // identical to the non-orbit case; it reappears ~140ms after zooming stops.
-  useEffect(() => {
-    if (!semanticOrbitActive) { setIsCanvasZooming(false); return; }
-    lastZoomForHideRef.current = zoomLevelRef.current;
-    const onTransformChange = () => {
-      const z = zoomLevelRef.current;
-      if (z !== lastZoomForHideRef.current) {
-        lastZoomForHideRef.current = z;
-        setIsCanvasZooming(true); // no-op re-render if already true
-        if (zoomHideTimerRef.current) clearTimeout(zoomHideTimerRef.current);
-        zoomHideTimerRef.current = setTimeout(() => setIsCanvasZooming(false), 140);
-      }
-    };
-    window.addEventListener('canvas-transform-change', onTransformChange);
-    return () => {
-      window.removeEventListener('canvas-transform-change', onTransformChange);
-      if (zoomHideTimerRef.current) { clearTimeout(zoomHideTimerRef.current); zoomHideTimerRef.current = null; }
-    };
-  }, [semanticOrbitActive]);
 
   // Fetch orbit candidates only when orbit mode is explicitly active
   useEffect(() => {
@@ -14569,22 +14534,18 @@ function NodeCanvas() {
 
                             return (
                               <>
-                                {/* Kept mounted (display:none, not unmounted) so hiding during
-                                    zoom doesn't replay the entrance animation. */}
-                                <g style={{ display: isCanvasZooming ? 'none' : undefined }}>
-                                  <OrbitOverlay
-                                    centerX={centerX}
-                                    centerY={centerY}
-                                    focusWidth={dimensions.currentWidth}
-                                    focusHeight={dimensions.currentHeight}
-                                    ring1Candidates={orbitData.ring1 || []}
-                                    ring2Candidates={orbitData.ring2 || []}
-                                    ring3Candidates={orbitData.ring3 || []}
-                                    ring4Candidates={orbitData.ring4 || []}
-                                    onOrbitItemClick={handleOrbitItemClick}
-                                    isLoading={orbitLoading}
-                                  />
-                                </g>
+                                <OrbitOverlay
+                                  centerX={centerX}
+                                  centerY={centerY}
+                                  focusWidth={dimensions.currentWidth}
+                                  focusHeight={dimensions.currentHeight}
+                                  ring1Candidates={orbitData.ring1 || []}
+                                  ring2Candidates={orbitData.ring2 || []}
+                                  ring3Candidates={orbitData.ring3 || []}
+                                  ring4Candidates={orbitData.ring4 || []}
+                                  onOrbitItemClick={handleOrbitItemClick}
+                                  isLoading={orbitLoading}
+                                />
                                 <Node
                                   key={activeNodeToRender.id}
                                   node={activeNodeToRender}

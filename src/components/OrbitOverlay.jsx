@@ -9,6 +9,7 @@ import { useTheme } from '../hooks/useTheme.js';
 import useGraphStore from '../store/graphStore.js';
 import { getTextColor, getInvertedTextColor } from '../utils/colorUtils';
 import { formatPredicate } from '../utils/predicateFormatter.js';
+import { wrapTextToLines } from '../services/textMeasurement.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -35,6 +36,16 @@ const hashToUnitFloat = (str, salt = '') => {
 };
 
 const ENTRANCE_DURATION_MS = 350;
+
+// Orbit label typography (matches the old foreignObject: 45px bold EmOne, 39px
+// line height, 42px side padding). Rendered as native SVG <text> rather than
+// foreignObject — foreignObject is far more expensive to rasterize, and the orbit
+// overlay repaints with the whole canvas on every zoom frame, so heavy labels
+// blew the frame budget and flickered. SVG text repaints cheaply.
+const ORBIT_LABEL_FONT_SIZE = 45;
+const ORBIT_LABEL_LINE_HEIGHT = 39;
+const ORBIT_LABEL_SIDE_PADDING = 42;
+const ORBIT_LABEL_FONT_STRING = "bold 45px 'EmOne', sans-serif";
 
 // Component to render a connection from center to an orbit item
 const OrbitConnection = ({
@@ -251,14 +262,16 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
   const { currentWidth, currentHeight, scaledCornerRadius } = getNodeDimensions(tempNode, false, null);
   const effectiveCornerRadius = scaledCornerRadius || NODE_CORNER_RADIUS;
 
-  // Text sizing constants (match Node.jsx: 45px font, 39px lineHeight, 42px side padding)
-  const baseFontSize = 45;
-  const baseLineHeight = 39;
-  const baseVerticalPadding = 14;
-  const baseSingleLineSidePadding = 42;
-
   // Text contrast
   const textColor = getTextColor(fill, theme.darkMode);
+
+  // Word-wrap the label into lines for SVG <text> rendering (no foreignObject).
+  const nameLines = useMemo(
+    () => (hasImage
+      ? []
+      : wrapTextToLines(label, Math.max(1, currentWidth - 2 * ORBIT_LABEL_SIDE_PADDING), ORBIT_LABEL_FONT_STRING)),
+    [hasImage, label, currentWidth]
+  );
 
   // Center of the item for scale-from-center transform
   const cx = x + currentWidth / 2;
@@ -349,53 +362,44 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
         style={{ pointerEvents: 'none' }}
       />
 
-      {/* Text using foreignObject - only show if no image */}
-      {!hasImage && (
-        <foreignObject
-          x={x}
-          y={y}
-          width={currentWidth}
-          height={currentHeight}
-          style={{ pointerEvents: 'auto', overflow: 'hidden' }}
+      {/* Label as native SVG text (word-wrapped, block-centered) — only if no image */}
+      {!hasImage && nameLines.length > 0 && (
+        <text
+          x={x + currentWidth / 2}
+          y={y + currentHeight / 2}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontFamily="'EmOne', sans-serif"
+          fontWeight="bold"
+          fontSize={ORBIT_LABEL_FONT_SIZE}
+          fill={textColor}
+          style={{ pointerEvents: 'none', userSelect: 'none', letterSpacing: '-0.3px' }}
         >
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '100%',
-              height: '100%',
-              padding: `${baseVerticalPadding}px ${baseSingleLineSidePadding}px`,
-              boxSizing: 'border-box',
-              userSelect: 'none',
-              minWidth: 0,
-              cursor: 'pointer',
-            }}
-          >
-            <span
-              style={{
-                fontSize: `${baseFontSize}px`,
-                fontWeight: 'bold',
-                color: textColor,
-                lineHeight: `${baseLineHeight}px`,
-                letterSpacing: '-0.3px',
-                whiteSpace: 'normal',
-                overflowWrap: 'break-word',
-                wordBreak: 'break-word',
-                textAlign: 'center',
-                minWidth: 0,
-                display: 'inline-block',
-                width: '100%',
-                fontFamily: 'EmOne, sans-serif',
-                textRendering: 'optimizeLegibility',
-              }}
+          {nameLines.map((line, i) => (
+            <tspan
+              key={i}
+              x={x + currentWidth / 2}
+              dy={i === 0 ? -((nameLines.length - 1) * ORBIT_LABEL_LINE_HEIGHT) / 2 : ORBIT_LABEL_LINE_HEIGHT}
             >
-              {label}
-            </span>
-          </div>
-        </foreignObject>
+              {line}
+            </tspan>
+          ))}
+        </text>
       )}
+
+      {/* Transparent hit target. The visible fills use pointerEvents:none, so this
+          captures clicks / drag-start for the group (replaces the foreignObject's
+          old hit area). */}
+      <rect
+        x={x}
+        y={y}
+        width={currentWidth}
+        height={currentHeight}
+        rx={effectiveCornerRadius}
+        ry={effectiveCornerRadius}
+        fill="transparent"
+        style={{ pointerEvents: 'all', cursor: 'pointer' }}
+      />
     </g>
   );
 };
