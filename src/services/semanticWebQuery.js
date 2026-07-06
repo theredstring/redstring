@@ -37,6 +37,24 @@ const createRateLimiter = (limit, interval) => {
 const dbpediaRateLimiter = createRateLimiter(1, 500);
 
 /**
+ * Escape a string for safe interpolation into a SPARQL double-quoted string
+ * literal. Prevents an entity name containing a quote/backslash/newline from
+ * breaking out of the "..." literal and altering the query. For ordinary names
+ * (no special characters) this is an identity transform. Backslash must be
+ * escaped first so the later escapes aren't double-escaped.
+ * @param {string} value
+ * @returns {string}
+ */
+export function escapeSparqlLiteral(value) {
+  return String(value ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+}
+
+/**
  * Extract Wikipedia page title from URL
  * @param {string} url - Wikipedia URL
  * @returns {string|null} Page title or null
@@ -92,9 +110,19 @@ export async function getWikidataIdFromUrl(wikipediaUrl) {
 export async function queryWikidataByQId(wikidataId, options = {}) {
   const { timeout = 5000, limit = 30 } = options;
 
+  // Validate the Q-ID before interpolating it into the SPARQL query. Wikidata
+  // entity IDs are always "Q" followed by digits; anything else is rejected so
+  // an untrusted value can't be injected into the query body.
+  const id = String(wikidataId || '').trim();
+  if (!/^Q\d+$/.test(id)) {
+    console.warn('[SemanticWebQuery] Rejecting invalid Wikidata ID:', wikidataId);
+    return [];
+  }
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
+
   const query = `
     SELECT DISTINCT ?related ?relatedLabel ?property ?propertyLabel WHERE {
-      wd:${wikidataId} ?property ?related .
+      wd:${id} ?property ?related .
       ?related rdfs:label ?relatedLabel .
       FILTER(LANG(?relatedLabel) = "en")
       FILTER(STRSTARTS(STR(?property), "http://www.wikidata.org/prop/direct/"))
@@ -159,7 +187,7 @@ export async function simpleQueryWikidata(entityName, options = {}) {
   
   const query = `
     SELECT DISTINCT ?item ?itemLabel ?itemDescription WHERE {
-      ?item rdfs:label "${entityName}"@en .
+      ?item rdfs:label "${escapeSparqlLiteral(entityName)}"@en .
       SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
     } LIMIT ${limit}
   `;
@@ -213,7 +241,7 @@ export async function simpleQueryDBpedia(entityName, options = {}) {
   
   const query = `
     SELECT DISTINCT ?resource ?comment WHERE {
-      ?resource rdfs:label "${entityName}"@en .
+      ?resource rdfs:label "${escapeSparqlLiteral(entityName)}"@en .
       OPTIONAL { ?resource rdfs:comment ?comment . FILTER(LANG(?comment) = "en") }
     } LIMIT ${limit}
   `;
@@ -347,7 +375,7 @@ export async function queryWikidata(entityName, options = {}) {
     // Exact label match
     query = `
       SELECT DISTINCT ?item ?itemLabel ?itemDescription WHERE {
-        ?item rdfs:label "${sanitizedEntityName}"@en .
+        ?item rdfs:label "${escapeSparqlLiteral(sanitizedEntityName)}"@en .
         SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
       } LIMIT ${limit}
     `;
@@ -356,12 +384,12 @@ export async function queryWikidata(entityName, options = {}) {
     query = `
       SELECT DISTINCT ?item ?itemLabel ?itemDescription ?itemAltLabel WHERE {
         {
-          ?item rdfs:label "${sanitizedEntityName}"@en .
+          ?item rdfs:label "${escapeSparqlLiteral(sanitizedEntityName)}"@en .
         } UNION {
-          ?item skos:altLabel "${sanitizedEntityName}"@en .
+          ?item skos:altLabel "${escapeSparqlLiteral(sanitizedEntityName)}"@en .
         } UNION {
           ?item rdfs:label ?itemAltLabel .
-          FILTER(CONTAINS(LCASE(?itemAltLabel), LCASE("${sanitizedEntityName}")))
+          FILTER(CONTAINS(LCASE(?itemAltLabel), LCASE("${escapeSparqlLiteral(sanitizedEntityName)}")))
         }
         SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
       } LIMIT ${limit}
@@ -459,8 +487,8 @@ export async function queryDBpedia(entityName, options = {}) {
     // Exact label match with properties
     query = `
       SELECT DISTINCT ?resource ?comment ?label ?genre ?developer ?publisher ?platform ?series ?character ?gameplay ?engine WHERE {
-        ?resource rdfs:label "${sanitizedEntityName}"@en .
-        BIND("${sanitizedEntityName}" AS ?label)
+        ?resource rdfs:label "${escapeSparqlLiteral(sanitizedEntityName)}"@en .
+        BIND("${escapeSparqlLiteral(sanitizedEntityName)}" AS ?label)
         OPTIONAL { ?resource rdfs:comment ?comment . FILTER(LANG(?comment) = "en") }
         ${includeProperties ? `
         OPTIONAL { ?resource dbo:genre ?genre }
@@ -479,11 +507,11 @@ export async function queryDBpedia(entityName, options = {}) {
     query = `
       SELECT DISTINCT ?resource ?comment ?label ?genre ?developer ?publisher ?platform ?series ?character ?gameplay ?engine WHERE {
         {
-          ?resource rdfs:label "${sanitizedEntityName}"@en .
-          BIND("${sanitizedEntityName}" AS ?label)
+          ?resource rdfs:label "${escapeSparqlLiteral(sanitizedEntityName)}"@en .
+          BIND("${escapeSparqlLiteral(sanitizedEntityName)}" AS ?label)
         } UNION {
           ?resource rdfs:label ?label .
-          FILTER(CONTAINS(LCASE(?label), LCASE("${sanitizedEntityName}")))
+          FILTER(CONTAINS(LCASE(?label), LCASE("${escapeSparqlLiteral(sanitizedEntityName)}")))
         }
         OPTIONAL { ?resource rdfs:comment ?comment . FILTER(LANG(?comment) = "en") }
         ${includeProperties ? `
@@ -1099,7 +1127,7 @@ export async function findRelatedConcepts(entityName, options = {}) {
     try {
       const wikidataRelQuery = `
         SELECT DISTINCT ?related ?relatedLabel ?property ?propertyLabel WHERE {
-          ?item rdfs:label "${entityName}"@en .
+          ?item rdfs:label "${escapeSparqlLiteral(entityName)}"@en .
           ?item ?property ?related .
           ?related rdfs:label ?relatedLabel .
           FILTER(LANG(?relatedLabel) = "en")
@@ -1141,7 +1169,7 @@ export async function findRelatedConcepts(entityName, options = {}) {
       try {
         const dbpediaRelQuery = `
           SELECT DISTINCT ?related ?relatedLabel ?property WHERE {
-            ?item rdfs:label "${entityName}"@en .
+            ?item rdfs:label "${escapeSparqlLiteral(entityName)}"@en .
             ?item ?property ?related .
             ?related rdfs:label ?relatedLabel .
             FILTER(LANG(?relatedLabel) = "en")

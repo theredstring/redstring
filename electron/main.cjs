@@ -558,7 +558,8 @@ ipcMain.handle('file:delete', async (event, filePath) => {
 
 ipcMain.handle('file:exists', async (event, filePath) => {
   try {
-    await fs.access(filePath, fsSync.constants.F_OK);
+    const safePath = assertAccessAllowed(filePath, 'file:exists');
+    await fs.access(safePath, fsSync.constants.F_OK);
     return true;
   } catch {
     return false;
@@ -567,7 +568,8 @@ ipcMain.handle('file:exists', async (event, filePath) => {
 
 ipcMain.handle('file:folderExists', async (event, folderPath) => {
   try {
-    const stats = await fs.stat(folderPath);
+    const safePath = assertAccessAllowed(folderPath, 'file:folderExists');
+    const stats = await fs.stat(safePath);
     return stats.isDirectory();
   } catch {
     return false;
@@ -576,7 +578,12 @@ ipcMain.handle('file:folderExists', async (event, folderPath) => {
 
 ipcMain.handle('file:getPathParent', async (event, filePath) => {
   try {
-    return path.dirname(filePath);
+    // Only reveal the parent of a path the user is already allowed to touch,
+    // and only one step up. The returned parent is NOT added to the approved
+    // set, so it can't be fed back in to climb further toward the filesystem
+    // root unless it independently lives under an allowed root.
+    const resolved = assertAccessAllowed(filePath, 'file:getPathParent');
+    return path.dirname(resolved);
   } catch {
     return null;
   }
@@ -584,7 +591,8 @@ ipcMain.handle('file:getPathParent', async (event, filePath) => {
 
 ipcMain.handle('file:mkdir', async (event, folderPath) => {
   try {
-    await fs.mkdir(folderPath, { recursive: true });
+    const safePath = assertAccessAllowed(folderPath, 'file:mkdir');
+    await fs.mkdir(safePath, { recursive: true });
     return true;
   } catch (error) {
     throw new Error(`Failed to create directory: ${error.message} `);
@@ -596,8 +604,9 @@ ipcMain.handle('file:showInFolder', async (event, filePath) => {
     if (!filePath) {
       throw new Error('File path is required');
     }
-    console.log('[Electron] Showing file in folder:', filePath);
-    const result = shell.showItemInFolder(filePath);
+    const safePath = assertAccessAllowed(filePath, 'file:showInFolder');
+    console.log('[Electron] Showing file in folder:', safePath);
+    const result = shell.showItemInFolder(safePath);
     console.log('[Electron] showItemInFolder result:', result);
     return true;
   } catch (error) {

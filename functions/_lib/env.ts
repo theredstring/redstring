@@ -13,6 +13,10 @@ export interface Env {
   GITHUB_APP_ID: string;          // numeric, stored as string
   GITHUB_APP_PRIVATE_KEY: string; // PEM (PKCS#8 or PKCS#1 — converted in jwt.ts)
   GITHUB_APP_SLUG: string;
+  // Optional: set to the string "true" to allow *.pages.dev / *.workers.dev
+  // preview origins through CORS (off by default — those suffixes are
+  // registrable by anyone).
+  ALLOW_PREVIEW_ORIGINS?: string;
 }
 
 export const USER_AGENT = 'Redstring-Worker/1.0';

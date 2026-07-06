@@ -24,16 +24,18 @@ const SERVICE = 'oauth-server'; // SPA may assert on this; keep stable
 const app = new Hono<{ Bindings: Env }>();
 
 // CORS — same-origin (Pages serves SPA + this function) doesn't need it, but
-// Electron and curl tests do. Mirror app-semantic-server.js's allowlist with
-// a permissive fallback for *.pages.dev / *.workers.dev preview URLs.
+// Electron and curl tests do. Allow redstring.io + localhost by default.
+// `*.pages.dev` / `*.workers.dev` are attacker-registrable, so that broad
+// preview allowance is opt-in per environment via ALLOW_PREVIEW_ORIGINS=true.
 app.use('/api/github/*', cors({
-  origin: (origin) => {
+  origin: (origin, c) => {
     if (!origin) return '*';
+    const allowPreview = (c?.env as Env | undefined)?.ALLOW_PREVIEW_ORIGINS === 'true';
     try {
       const host = new URL(origin).hostname;
       if (host === 'redstring.io' || host.endsWith('.redstring.io')) return origin;
-      if (host.endsWith('.pages.dev') || host.endsWith('.workers.dev')) return origin;
       if (host === 'localhost' || host.endsWith('.localhost')) return origin;
+      if (allowPreview && (host.endsWith('.pages.dev') || host.endsWith('.workers.dev'))) return origin;
     } catch { /* ignore */ }
     return null;
   },

@@ -96,14 +96,17 @@ app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
     if (allowedOrigins.has(origin)) return callback(null, true);
-    // Allow Cloud Run domains so test/staging deployments work without
-    // requiring CORS_ORIGINS to be set per environment.
-    try {
-      const host = new URL(origin).hostname;
-      if (host.endsWith('.a.run.app') || host.endsWith('.run.app')) {
-        return callback(null, true);
-      }
-    } catch { /* invalid Origin */ }
+    // Cloud Run domains are shared/registrable infrastructure, so this broad
+    // allowance is opt-in via ALLOW_CLOUDRUN_ORIGINS=true. Prefer setting
+    // CORS_ORIGINS to the exact staging/prod hosts instead.
+    if (process.env.ALLOW_CLOUDRUN_ORIGINS === 'true') {
+      try {
+        const host = new URL(origin).hostname;
+        if (host.endsWith('.a.run.app') || host.endsWith('.run.app')) {
+          return callback(null, true);
+        }
+      } catch { /* invalid Origin */ }
+    }
     // Silently omit CORS headers instead of throwing 500. Same-origin loads
     // (browser sends Origin for `<script type="module" crossorigin>` even
     // when same-origin) need to succeed; cross-origin gets blocked correctly

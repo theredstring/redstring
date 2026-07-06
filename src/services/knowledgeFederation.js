@@ -5,7 +5,7 @@
  * and creates federated search across domains
  */
 
-import { enrichFromSemanticWeb } from './semanticWebQuery.js';
+import { enrichFromSemanticWeb, escapeSparqlLiteral } from './semanticWebQuery.js';
 import { sparqlClient } from './sparqlClient.js';
 
 export class KnowledgeFederation {
@@ -404,7 +404,7 @@ export class KnowledgeFederation {
     
     const query = `
       SELECT DISTINCT ?item ?itemLabel ?itemDescription ?instanceOf ?instanceOfLabel WHERE {
-        ?item rdfs:label "${sanitizedEntityName}"@en .
+        ?item rdfs:label "${escapeSparqlLiteral(sanitizedEntityName)}"@en .
         OPTIONAL { ?item wdt:P31 ?instanceOf }
         SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
       } LIMIT 5
@@ -440,7 +440,7 @@ export class KnowledgeFederation {
     
     const query = `
       SELECT DISTINCT ?related ?relatedLabel ?property ?propertyLabel WHERE {
-        ?item rdfs:label "${sanitizedEntityName}"@en .
+        ?item rdfs:label "${escapeSparqlLiteral(sanitizedEntityName)}"@en .
         ?item ?property ?related .
         ?related rdfs:label ?relatedLabel .
         FILTER(LANG(?relatedLabel) = "en")
@@ -483,7 +483,7 @@ export class KnowledgeFederation {
     
     const query = `
       SELECT DISTINCT ?resource ?comment ?type WHERE {
-        ?resource rdfs:label "${sanitizedEntityName}"@en .
+        ?resource rdfs:label "${escapeSparqlLiteral(sanitizedEntityName)}"@en .
         OPTIONAL { ?resource rdfs:comment ?comment . FILTER(LANG(?comment) = "en") }
         OPTIONAL { ?resource rdf:type ?type }
       } LIMIT 5
@@ -519,7 +519,7 @@ export class KnowledgeFederation {
     
     const query = `
       SELECT DISTINCT ?related ?relatedLabel ?property WHERE {
-        ?resource rdfs:label "${sanitizedEntityName}"@en .
+        ?resource rdfs:label "${escapeSparqlLiteral(sanitizedEntityName)}"@en .
         ?resource ?property ?related .
         ?related rdfs:label ?relatedLabel .
         FILTER(LANG(?relatedLabel) = "en")
@@ -610,7 +610,7 @@ export class KnowledgeFederation {
     const sparqlQuery = `
       SELECT DISTINCT ?item ?itemLabel ?itemDescription WHERE {
         ?item rdfs:label ?itemLabel .
-        FILTER(CONTAINS(LCASE(?itemLabel), LCASE("${sanitizedQuery}")))
+        FILTER(CONTAINS(LCASE(?itemLabel), LCASE("${escapeSparqlLiteral(sanitizedQuery)}")))
         FILTER(LANG(?itemLabel) = "en")
         OPTIONAL { ?item schema:description ?itemDescription . FILTER(LANG(?itemDescription) = "en") }
       } LIMIT ${limit}
@@ -638,7 +638,7 @@ export class KnowledgeFederation {
     const sparqlQuery = `
       SELECT DISTINCT ?resource ?label ?comment WHERE {
         ?resource rdfs:label ?label .
-        FILTER(CONTAINS(LCASE(?label), LCASE("${query}")))
+        FILTER(CONTAINS(LCASE(?label), LCASE("${escapeSparqlLiteral(query)}")))
         FILTER(LANG(?label) = "en")
         OPTIONAL { ?resource rdfs:comment ?comment . FILTER(LANG(?comment) = "en") }
       } LIMIT ${limit}

@@ -82,7 +82,33 @@ async function getPort() {
 }
 
 // Middleware
-app.use(cors());
+// CORS: this bridge binds to 127.0.0.1, so it should only be driven by the
+// local app (Vite dev proxy / Electron renderer / CLI), never by an arbitrary
+// website the user happens to have open. Allow requests with no Origin
+// (same-origin, proxied, curl, Electron) and localhost origins on any port;
+// extend via CORS_ORIGINS (comma-separated) if a specific web origin is needed.
+const wizardAllowedOrigins = new Set(
+  (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (wizardAllowedOrigins.has(origin)) return callback(null, true);
+    try {
+      const host = new URL(origin).hostname;
+      if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') {
+        return callback(null, true);
+      }
+    } catch { /* invalid Origin header */ }
+    // Omit CORS headers (don't 500) so same-origin loads still work while
+    // cross-origin requests are blocked by the missing allow-origin header.
+    return callback(null, false);
+  },
+  credentials: false,
+}));
 app.use(express.json({ limit: '20mb' }));
 
 // Request logging
