@@ -64,6 +64,16 @@ contextBridge.exposeInMainWorld('electron', {
     restart: () => ipcRenderer.invoke('agent:restart'),
   },
 
+  // App lifecycle — quit-flush handshake. Main intercepts window close,
+  // asks the renderer to flush unsaved changes, and waits for confirmation
+  // (bounded by a main-side timeout) before destroying the window.
+  lifecycle: {
+    onFlushBeforeQuit: (callback) => {
+      ipcRenderer.on('app:flush-before-quit', () => callback());
+    },
+    notifyFlushComplete: () => ipcRenderer.send('app:flush-complete'),
+  },
+
   // Auto-updater
   updater: {
     onUpdateAvailable: (callback) => {

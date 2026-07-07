@@ -118,6 +118,28 @@ export const readFile = async (fileHandleOrPath) => {
   throw new Error(`readFile: unsupported handle/path (got ${typeof fileHandleOrPath})`);
 };
 
+// Per-handle write chains. FSA writables commit atomically on close() with
+// last-close-wins semantics — two overlapping writes to the same handle can
+// finish out of order and leave the OLDER snapshot as the file's final
+// content. Chaining guarantees writes to a given handle land in call order.
+// (Electron string-path writes are serialized in main.cjs's file:write.)
+const handleWriteChains = new WeakMap();
+
+/**
+ * Runs an async write operation serialized against all other writes to the
+ * same FileHandle. Prior failures don't block subsequent writes.
+ *
+ * @param {FileSystemFileHandle} handle - Handle to serialize on.
+ * @param {function(): Promise<*>} operation - The write to perform.
+ * @returns {Promise<*>} Result of the operation.
+ */
+export const serializeHandleWrite = (handle, operation) => {
+  const prior = handleWriteChains.get(handle) || Promise.resolve();
+  const chained = prior.catch(() => { /* prior failure doesn't block this write */ }).then(operation);
+  handleWriteChains.set(handle, chained);
+  return chained;
+};
+
 /**
  * Write file contents
  * @param {FileHandle|string} fileHandleOrPath - Browser: FileHandle, Electron: file path or FileHandle
@@ -135,9 +157,11 @@ export const writeFile = async (fileHandleOrPath, content) => {
   }
   if (fileHandleOrPath && typeof fileHandleOrPath.createWritable === 'function') {
     // Browser or Electron with FileHandle object
-    const writable = await fileHandleOrPath.createWritable();
-    await writable.write(content);
-    await writable.close();
+    await serializeHandleWrite(fileHandleOrPath, async () => {
+      const writable = await fileHandleOrPath.createWritable();
+      await writable.write(content);
+      await writable.close();
+    });
     return;
   }
   throw new Error(`writeFile: unsupported handle/path (got ${typeof fileHandleOrPath})`);

@@ -1944,22 +1944,36 @@ class UniverseBackend {
       const fileStorage = await import('../store/fileStorage.js');
       const resolvedEngine = engine || saveCoordinator.gitSyncEngine || null;
 
+      // Return contract (consumed by SaveCoordinator._normalizeSaveOutcome):
+      //   { success: true }          — bytes confirmed on disk
+      //   { skipped|blocked: true }  — a data-loss guard refused; data NOT persisted
+      //   { failed: true, reason }   — local file expected but the write can't happen
+      //   false                      — no local save target applicable (legacy no-op)
+      // A throw is treated as failed by the coordinator.
       const localSaveAdapter = {
-        saveToFile: async (state, showSuccess = true) => {
+        saveToFile: async (state, showSuccess = true, options = {}) => {
           const slug = this.activeUniverseSlug;
 
           // GUARD: Reject stale saves from a different universe
           if (state?._universeSlug && slug && state._universeSlug !== slug) {
             umWarn(`[UniverseBackend] Rejected stale save: state belongs to "${state._universeSlug}" but active is "${slug}"`);
-            return false;
+            return { blocked: true, reason: 'state belongs to a different universe' };
           }
 
           const universe = slug ? this.getUniverse(slug) : null;
 
           if (universe?.localFile?.enabled) {
             if (!this.fileHandles.get(slug)) {
-              // Gracefully handle disconnected file - log warning but don't crash
-              umWarn(`[UniverseBackend] Local file disconnected for ${slug}. Skipping local save.`);
+              if (universe?.localFile?.hadFileHandle) {
+                // The universe HAS a real file but we lost the handle
+                // (restart, revoked permission). This is a genuine failure
+                // the user must see — not a silent skip: their edits are not
+                // reaching the file they believe is being saved.
+                umWarn(`[UniverseBackend] Local file disconnected for ${slug}. Save NOT persisted to file.`);
+                return { failed: true, reason: 'local file disconnected — reconnect the file to resume saving' };
+              }
+              // Never had a file yet — nothing to write to. Not an error;
+              // file creation happens through explicit link/create flows.
               return false;
             }
 
@@ -1979,14 +1993,14 @@ class UniverseBackend {
             if (state?.universeLoadingError) {
               umWarn(`[UniverseBackend] Refusing local save for ${slug}: universe load failed (${state.universeLoadingError}). On-disk file preserved.`);
               this.notifyStatus('warning', 'Save blocked: universe load failed. Reload or reconnect the file to recover.');
-              return false;
+              return { blocked: true, reason: 'universe load failed' };
             }
             if (state?.hasUniverseFile === false) {
               const counts = this.analyzeStoreData(state);
               if (counts.nodeCount === 0) {
                 umWarn(`[UniverseBackend] Refusing local save for ${slug}: universe never loaded (hasUniverseFile=false) and state has no user content. On-disk file preserved.`);
                 this.notifyStatus('warning', 'Save blocked: universe not loaded. Reconnect the file or reload to recover.');
-                return false;
+                return { blocked: true, reason: 'universe not loaded' };
               }
             }
             // Symmetric empty-state guard. Even after a load completes
@@ -2001,7 +2015,7 @@ class UniverseBackend {
               if (counts.nodeCount === 0) {
                 umWarn(`[UniverseBackend] Refusing local save for ${slug}: state has 0 nodes but universe has prior saves (lastSaved=${universe.metadata?.lastSaved}). On-disk file preserved.`);
                 this.notifyStatus('warning', 'Save blocked: state is empty but file has prior data. Reload to recover.');
-                return false;
+                return { blocked: true, reason: 'empty state with prior saves' };
               }
             }
 

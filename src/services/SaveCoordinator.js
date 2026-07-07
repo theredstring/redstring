@@ -1,14 +1,17 @@
 /**
- * Save Coordinator - Simplified save management system
- * 
- * Coordinates between:
- * - Local file saves (FileStorage)
- * - Git repository commits (GitSyncEngine)
- * 
- * Features:
- * - Single debounced save timer (500ms) for all changes
- * - GitSyncEngine handles its own batching and rate limiting
- * - Consistent state synchronization
+ * @module SaveCoordinator
+ * @description Centralized save management for Redstring. Coordinates local file writes
+ * and Git commits from a single debounced pipeline.
+ *
+ * State changes flow through a Web Worker (save.worker.js) that hashes the content
+ * state off the main thread. When the hash differs from `lastSaveHash`, a debounced
+ * write is scheduled. A main-thread fallback activates when the worker is unavailable
+ * (mobile Safari, OOM, stall).
+ *
+ * Key invariants:
+ * - Saves are blocked until a `type:'load'` change context fires (`hasLoadedFromFile`).
+ * - Catastrophic shrinkage (>90% drop from baseline) is refused; use `forceSave` to override.
+ * - All interaction gates (drag, pan, pinch) defer serialization until `signalInteractionEnd`.
  */
 
 import { exportToRedstring } from '../formats/redstringFormat.js';
@@ -17,6 +20,15 @@ import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 // SIMPLIFIED: No priorities - all changes batched together with a single debounce
 const DEBOUNCE_MS = 3000; // Wait 3000ms after last change before saving (merges node drop + view restore)
 
+/**
+ * Coordinates save operations for a Redstring universe.
+ *
+ * Instantiated as a singleton (`saveCoordinator`) and wired to the Zustand store
+ * via `graphStore.jsx`. Consumers call `initialize()` once with storage backends,
+ * then `onStateChange()` on every store update.
+ *
+ * @class
+ */
 class SaveCoordinator {
   constructor() {
     this.isEnabled = false;
@@ -55,6 +67,14 @@ class SaveCoordinator {
     this.isSaving = false;
     this.lastError = null;
     this.isGlobalDragging = false; // Track drag state globally to prevent interleaved updates from triggering saves
+
+    // Write-failure retry tracking. A save only counts as complete when the
+    // storage backend confirms it — failed/blocked writes keep the dirty
+    // state and retry with exponential backoff instead of silently marking
+    // the session clean (which would strand the user's work forever, since
+    // an identical re-hash would be skipped).
+    this.retryAttempt = 0;
+    this._lastGitUnhealthyWarnTime = 0;
     
     // Worker for offloading heavy serialization
     this.saveWorker = null;
@@ -84,10 +104,27 @@ class SaveCoordinator {
     // console.log('[SaveCoordinator] Initialized with simple batched saves');
   }
 
+  /**
+   * Returns the localStorage key for the persisted guard state of a universe.
+   *
+   * @private
+   * @param {string} slug - Universe slug identifier.
+   * @returns {string} localStorage key.
+   */
   _getGuardStorageKey(slug) {
     return `redstring-savecoord-guard:${slug}`;
   }
 
+  /**
+   * Persists the data-loss guard state to localStorage so the shrinkage floor
+   * survives page refresh before the next `type:'load'` context fires.
+   *
+   * Failures (quota exceeded, private-mode restrictions) are silently ignored;
+   * the guard still operates in-memory.
+   *
+   * @private
+   * @param {string} slug - Universe slug used as the storage key suffix.
+   */
   _persistGuardState(slug) {
     if (!slug || typeof window === 'undefined' || !window.localStorage) return;
     try {
@@ -104,6 +141,16 @@ class SaveCoordinator {
     }
   }
 
+  /**
+   * Restores guard state from localStorage for the given universe slug.
+   *
+   * Only ratchets `dataBaseline` upward — never reduces it — so a stale
+   * persisted value can't lower the protection threshold.
+   *
+   * @private
+   * @param {string} slug - Universe slug to look up.
+   * @returns {boolean} True if state was successfully restored.
+   */
   _restoreGuardState(slug) {
     if (!slug || typeof window === 'undefined' || !window.localStorage) return false;
     try {
@@ -127,14 +174,27 @@ class SaveCoordinator {
     }
   }
 
+  /**
+   * Removes the persisted guard state for a universe from localStorage.
+   *
+   * Called when a universe is deleted or reset so the old baseline doesn't
+   * constrain the new universe's first save.
+   *
+   * @param {string} slug - Universe slug whose guard entry should be removed.
+   */
   clearPersistedGuardState(slug) {
     if (!slug || typeof window === 'undefined' || !window.localStorage) return;
     try { window.localStorage.removeItem(this._getGuardStorageKey(slug)); } catch (_) { /* noop */ }
   }
 
   /**
-   * Pause autosave dispatch during a source-of-truth swap.
-   * Callers must invoke endSwap() in a finally block to avoid stranding saves.
+   * Pauses autosave dispatch during a source-of-truth swap.
+   *
+   * While paused, `onStateChange` queues state but does not schedule a dispatch.
+   * Callers MUST call `endSwap()` in a `finally` block — failing to do so strands
+   * all subsequent saves forever.
+   *
+   * @param {string} [label='sot-swap'] - Diagnostic label logged with the pause event.
    */
   beginSwap(label = 'sot-swap') {
     this.swapInProgress = true;
@@ -142,8 +202,12 @@ class SaveCoordinator {
   }
 
   /**
-   * Resume autosave dispatch. If state was queued during the swap, flush it
-   * through the normal path so any post-swap edits don't get stranded.
+   * Resumes autosave dispatch after a source-of-truth swap.
+   *
+   * If state was queued while paused, immediately schedules a save so the
+   * queued changes are not stranded.
+   *
+   * @param {string} [label='sot-swap'] - Diagnostic label logged with the resume event.
    */
   endSwap(label = 'sot-swap') {
     if (!this.swapInProgress) return;
@@ -154,12 +218,26 @@ class SaveCoordinator {
     }
   }
 
-  // Status notification system
+  // ─── STATUS NOTIFICATIONS ────────────────────────────────────────────────────
+
+  /**
+   * Registers a status change handler and returns an unsubscribe function.
+   *
+   * @param {function(Object): void} handler - Called with `{ type, message, timestamp, ...details }` on each status event.
+   * @returns {function(): void} Call to unregister the handler.
+   */
   onStatusChange(handler) {
     this.statusHandlers.add(handler);
     return () => this.statusHandlers.delete(handler);
   }
 
+  /**
+   * Broadcasts a status event to all registered handlers.
+   *
+   * @param {string} type - Severity level: `'info'`, `'success'`, `'warning'`, or `'error'`.
+   * @param {string} message - Human-readable status message.
+   * @param {Object} [details={}] - Additional fields merged into the status object.
+   */
   notifyStatus(type, message, details = {}) {
     const status = { type, message, timestamp: Date.now(), ...details };
     this.statusHandlers.forEach(handler => {
@@ -171,11 +249,15 @@ class SaveCoordinator {
     });
   }
 
-  // Explicit interaction-end signal — release the drag gate without requiring
-  // a phase:'end' store mutation. Used by useNodeDrag to defer the post-drag
-  // worker dispatch until AFTER the zoom-restore animation finishes (otherwise
-  // the structured-clone postMessage runs on the rAF tail and stutters the
-  // animation). Idempotent: safe to call when already idle.
+  /**
+   * Releases the interaction gate and schedules a deferred worker dispatch.
+   *
+   * Called by `useNodeDrag` after the zoom-restore animation finishes, so the
+   * expensive structured-clone postMessage doesn't run on the animation tail.
+   * Safe to call when already idle (idempotent).
+   *
+   * @param {Object} [context={}] - Optional context for logging.
+   */
   signalInteractionEnd(context = {}) {
     if (!this.isEnabled) return;
     const wasInteracting = this.isGlobalDragging;
@@ -199,7 +281,15 @@ class SaveCoordinator {
     }
   }
 
-  // Initialize with required dependencies
+  /**
+   * Wires the coordinator to storage backends and starts the save worker.
+   *
+   * Must be called once before `onStateChange`. Restores persisted guard state
+   * from localStorage so the shrinkage floor is non-zero before the first load.
+   *
+   * @param {Object} fileStorage - FileStorage instance with a `saveToFile` method.
+   * @param {Object} gitSyncEngine - GitSyncEngine instance; may be `null` when Git is disabled.
+   */
   initialize(fileStorage, gitSyncEngine) {
     this.fileStorage = fileStorage;
     this.setGitSyncEngine(gitSyncEngine);
@@ -248,6 +338,15 @@ class SaveCoordinator {
     this.notifyStatus('info', 'Save coordinator ready with Git autosave policy');
   }
 
+  /**
+   * Processes a message from the save worker.
+   *
+   * On `save_processed` success: if the hash changed, marks dirty and schedules a
+   * debounced write. Cancels the stall watchdog. If `workerDirty` is set (new state
+   * arrived while the worker was busy), immediately re-dispatches.
+   *
+   * @param {MessageEvent} e - Worker message event with `{ type, hash, jsonString, redstringData, success, error }`.
+   */
   handleWorkerMessage(e) {
     const { type, hash, jsonString, redstringData, success, error } = e.data;
 
@@ -267,6 +366,10 @@ class SaveCoordinator {
         this.pendingHash = hash;
         this.pendingString = jsonString; // Store the pre-serialized string
         this.pendingRedstringData = redstringData; // Store the pre-computed object
+        // Record which state snapshot this serialization came from, so
+        // executeSave never writes an older serialization on behalf of a
+        // newer state (local file and Git would silently diverge).
+        this.pendingStringState = this.lastState;
 
         // console.log('[SaveCoordinator] Change detected by worker, hash:', hash.substring(0, 8));
         this.isDirty = true;
@@ -290,6 +393,15 @@ class SaveCoordinator {
     }
   }
 
+  /**
+   * Serializes and posts the current pending state to the save worker.
+   *
+   * Strips `imageSrc`/`thumbnailSrc` from auto-enriched prototypes before
+   * `postMessage` to avoid OOM from large base64 data URLs. Falls back to
+   * `_processSaveOnMainThread` when no worker is available (mobile Safari,
+   * post-crash recovery). Arms a stall watchdog that fires after 3 seconds
+   * if the worker never responds.
+   */
   sendToWorker() {
     if (!this.nextStateToProcess) return;
 
@@ -397,8 +509,16 @@ class SaveCoordinator {
     }
   }
 
-  // Recover from a stalled or crashed worker. Reuses the main-thread save
-  // path so a dead/slow worker never blocks autosave on mobile.
+  /**
+   * Recovers from a stalled or crashed save worker.
+   *
+   * Clears the watchdog, resets `workerProcessing`, and immediately dispatches
+   * a main-thread save so autosave is never blocked by a dead worker. Prefers
+   * the latest queued `nextStateToProcess` over the stale `lastState`.
+   *
+   * @private
+   * @param {string} reason - Description of the stall cause for log output.
+   */
   _handleWorkerStall(reason) {
     if (this.workerWatchdogTimer) {
       clearTimeout(this.workerWatchdogTimer);
@@ -417,12 +537,17 @@ class SaveCoordinator {
     }
   }
 
-  // Main-thread analogue of save.worker.js. Hashes the content state with the
-  // same FNV-1a logic the worker uses, and — if it differs from lastSaveHash —
-  // marks dirty and schedules a save. This is the fallback that runs whenever
-  // the worker is unavailable (mobile Safari module-worker init failure,
-  // worker termination after onerror, watchdog stall recovery). Without it,
-  // autosave silently no-ops on every edit when the worker is gone.
+  /**
+   * Main-thread fallback for the save worker's hash-and-schedule pipeline.
+   *
+   * Uses the same FNV-1a hashing logic as `save.worker.js`. If the hash
+   * differs from `lastSaveHash`, marks dirty and calls `scheduleSave`. Runs
+   * whenever the worker is unavailable (mobile Safari module-worker failure,
+   * post-crash recovery, watchdog stall).
+   *
+   * @private
+   * @param {Object} state - Zustand store snapshot to process.
+   */
   _processSaveOnMainThread(state) {
     if (!state) return;
     this.lastState = state;
@@ -449,7 +574,23 @@ class SaveCoordinator {
     }
   }
 
-  // Main entry point for state changes
+  /**
+   * Primary entry point for Zustand store state updates.
+   *
+   * Called on every store mutation. Applies several early-return guards in order:
+   * 1. Not enabled → skip
+   * 2. Swap in progress → queue only
+   * 3. `type:'viewport'` → update state ref, skip serialization
+   * 4. `type:'load'` → reset hashes, set `hasLoadedFromFile`, skip save
+   * 5. Universe loading/error → block
+   * 6. Empty state before first load → block (unless real data is present)
+   *
+   * For passing changes, debounces `sendToWorker` by 500ms; respects the global
+   * interaction gate (`isGlobalDragging`).
+   *
+   * @param {Object} newState - Current Zustand store snapshot.
+   * @param {Object} [changeContext={}] - Metadata about the change: `type`, `isDragging`, `isPanning`, `isPinching`, `isAnimating`, `phase`.
+   */
   onStateChange(newState, changeContext = {}) {
     if (!this.isEnabled || !newState) {
       if (!this.isEnabled) {
@@ -484,6 +625,7 @@ class SaveCoordinator {
         this.pendingHash = null;
         this.pendingString = null;
         this.pendingRedstringData = null;
+        this.pendingStringState = null;
         this.isDirty = false;
         if (this.saveTimer) {
           clearTimeout(this.saveTimer);
@@ -657,7 +799,12 @@ class SaveCoordinator {
     }
   }
 
-  // Schedule a debounced save (cancels previous timer)
+  /**
+   * Schedules a debounced write, resetting the timer on each call.
+   *
+   * Fires `executeSave` after `DEBOUNCE_MS` (3000ms) with no further calls.
+   * Always cancels any previously pending timer before setting a new one.
+   */
   scheduleSave() {
     // Clear existing timer
     if (this.saveTimer) {
@@ -672,7 +819,15 @@ class SaveCoordinator {
     }, DEBOUNCE_MS);
   }
 
-  // Execute save (both local and git) - NON-BLOCKING
+  /**
+   * Dispatches a non-blocking fire-and-forget write to all active storage backends.
+   *
+   * Guards applied before dispatching: swap in progress, `isSaving` already set,
+   * interaction gate active, post-interaction cooldown (300ms), catastrophic
+   * shrinkage detected. Reschedules rather than dropping if a prior save is
+   * still in flight. Updates `lastSaveHash` and ratchets `dataBaseline` after
+   * dispatching.
+   */
   executeSave() {
     // Defense-in-depth: if a SoT swap is in flight, don't dispatch. The fire-
     // and-forget dual write would otherwise commit potentially-empty state to
@@ -717,14 +872,236 @@ class SaveCoordinator {
 
     // Capture values before async operations
     const state = this.lastState;
-    const pendingString = this.pendingString;
-    const pendingRedstringData = this.pendingRedstringData;
+    let pendingString = this.pendingString;
+    let pendingRedstringData = this.pendingRedstringData;
     const pendingHash = this.pendingHash;
+
+    // Never write a serialization produced from an OLDER state on behalf of
+    // a newer one — drop the stale pre-serialized payload and let the
+    // storage layer re-serialize from `state` directly.
+    if (pendingString && this.pendingStringState && this.pendingStringState !== state) {
+      pendingString = null;
+      pendingRedstringData = null;
+    }
 
     // Catastrophic-shrinkage guard. Refuse to save if the new state has
     // collapsed to near-empty while the baseline had real data. This catches
     // HMR re-instantiating an empty store, accidental reset paths, and other
     // surprise-empty states. forceSave() (user-triggered) bypasses this.
+    if (this._isCatastrophicShrinkage(state)) {
+      this.notifyStatus('warning', 'Save blocked: data shrank unexpectedly. Reload to recover, or use Save Now to confirm.');
+      // Don't clear pending — leave state as-is so a future legitimate save can fire.
+      this.isSaving = false;
+      return;
+    }
+
+    // Mark as saving immediately
+    this.isSaving = true;
+
+    // Watchdog: force-reset isSaving if the write never settles within the
+    // budget. isSaving is now held for the duration of the actual write (so
+    // dispatches are serialized and results are honest), which means slow
+    // disks / large universes can legitimately take seconds. 30s covers the
+    // worst realistic write; anything longer is a hung promise (iOS Safari
+    // backgrounded-tab stalls, dead FSA handle) and must not block autosave
+    // forever.
+    const watchdogId = setTimeout(() => {
+      if (this.isSaving) {
+        console.warn('[SaveCoordinator] Watchdog clearing stuck isSaving flag — write did not settle in 30s');
+        this.isSaving = false;
+        // The write outcome is unknown, so the state must remain dirty and
+        // pending data must stay queued for a retry.
+        this.isDirty = true;
+        if (this.isDirty || this.pendingHash !== null) {
+          this.scheduleSave();
+        }
+      }
+    }, 30000);
+
+    // setTimeout(0) keeps the dispatch off the current frame for UI
+    // responsiveness; the callback itself AWAITS the local write so the
+    // dirty flag and save hash only advance when bytes actually landed.
+    setTimeout(async () => {
+      try {
+        // ── Local write (awaited — its result decides clean vs dirty) ──
+        let localOutcome = { status: 'skipped', reason: 'no-file-storage' };
+        if (this.fileStorage && typeof this.fileStorage.saveToFile === 'function') {
+          try {
+            const result = await this.fileStorage.saveToFile(state, false, {
+              preSerialized: !!pendingString,
+              serializedData: pendingString,
+              redstringData: pendingRedstringData
+            });
+            localOutcome = this._normalizeSaveOutcome(result);
+          } catch (error) {
+            console.error('[SaveCoordinator] Local file save failed:', error);
+            localOutcome = { status: 'failed', reason: error?.message || 'write error' };
+          }
+        }
+
+        // ── Git queue (non-blocking; the engine has its own retry/floor
+        //    machinery). An unhealthy engine on a git-enabled universe is a
+        //    degraded-durability state the user must be able to see. ──
+        if (this.gitSyncEngine) {
+          if (this.gitSyncEngine.isHealthy()) {
+            this.gitSyncEngine.updateState(state);
+          } else {
+            this._notifyGitUnhealthy();
+          }
+        }
+
+        if (localOutcome.status === 'saved' || localOutcome.status === 'skipped') {
+          // Durable (or local persistence not applicable for this universe).
+          this._onSaveConfirmed(state, pendingHash);
+        } else {
+          // 'failed' (write error, disconnected handle) or 'blocked' (a
+          // data-loss guard refused the write). Either way the data is NOT
+          // on disk: keep the pending state and dirty flag, surface the
+          // failure, and retry with backoff. Do NOT advance lastSaveHash —
+          // that is what previously made failed saves unretryable (the
+          // identical re-hash was skipped forever).
+          this.isDirty = true;
+          if (localOutcome.status === 'failed') {
+            this.lastError = localOutcome.reason;
+            this.notifyStatus('error', `Save failed: ${localOutcome.reason}. Changes are kept and will retry.`, { persistent: true });
+          }
+          // 'blocked' outcomes already emitted their own warning at the guard.
+          this._scheduleRetry();
+        }
+      } catch (error) {
+        console.error('[SaveCoordinator] Save dispatch failed:', error);
+        this.isDirty = true;
+        this.notifyStatus('error', `Save failed: ${error.message}`);
+        this._scheduleRetry();
+      } finally {
+        this.isSaving = false;
+        clearTimeout(watchdogId);
+      }
+    }, 0);
+  }
+
+  /**
+   * Marks a dispatched state as durably saved: advances the save hash,
+   * ratchets the shrinkage baseline, and clears pending data — but only if no
+   * newer change arrived while the write was in flight.
+   *
+   * @private
+   * @param {Object} state - The state that was written.
+   * @param {string|null} confirmedHash - The pending hash captured at dispatch time.
+   */
+  _onSaveConfirmed(state, confirmedHash) {
+    this.retryAttempt = 0;
+    this.lastError = null;
+
+    // If confirmedHash is missing (worker stalled, main-thread fallback),
+    // compute it now so the next worker callback for the same content
+    // doesn't re-mark dirty and strand the indicator on "Saving...".
+    let savedHash = confirmedHash;
+    if (!savedHash && state) {
+      try {
+        savedHash = this.generateStateHash(state);
+      } catch (hashErr) {
+        console.warn('[SaveCoordinator] Hash after confirmed save failed:', hashErr);
+      }
+    }
+    if (savedHash) {
+      this.lastSaveHash = savedHash;
+    }
+
+    // Update the data baseline now that this state has been written to
+    // disk — used by the shrinkage guard on future saves.
+    try {
+      const counts = this._countDataItems(state);
+      // Only ratchet up the baseline; never reduce it via successful
+      // saves of smaller datasets, because we'd otherwise lose the
+      // protection threshold over time.
+      this.dataBaseline = {
+        nodes: Math.max(this.dataBaseline?.nodes || 0, counts.nodes),
+        graphs: Math.max(this.dataBaseline?.graphs || 0, counts.graphs)
+      };
+
+      // Persist the baseline so the shrinkage guard survives page refresh.
+      // Use the slug embedded in state (graphStore stamps `_universeSlug`)
+      // and fall back to whatever was active when we initialized.
+      const slugForGuard = state?._universeSlug || this.activeUniverseSlugForGuard;
+      if (slugForGuard) {
+        this.activeUniverseSlugForGuard = slugForGuard;
+        this._persistGuardState(slugForGuard);
+      }
+    } catch (_) { /* non-fatal */ }
+
+    // Only clear pending data if no NEWER change arrived while the write was
+    // in flight. If the worker produced a fresh hash mid-write, that change
+    // is still pending and its own scheduled save will pick it up.
+    if (this.pendingHash === confirmedHash || this.pendingHash === null) {
+      this.pendingHash = null;
+      this.pendingString = null;
+      this.pendingRedstringData = null;
+      this.pendingStringState = null;
+      this.isDirty = false;
+    }
+    this.notifyStatus('success', 'Save completed');
+  }
+
+  /**
+   * Normalizes the many historical return shapes of storage backends into
+   * `{ status: 'saved' | 'skipped' | 'blocked' | 'failed', reason? }`.
+   *
+   * - `true` / `undefined` (no throw) → saved
+   * - `false` → skipped (legacy "no save method available" no-op)
+   * - `{ success: true }` → saved
+   * - `{ skipped | blocked: true }` → blocked (a guard refused; data NOT persisted)
+   * - `{ failed: true }` → failed
+   *
+   * @private
+   * @param {*} result - Raw return value from a `saveToFile` implementation.
+   * @returns {{ status: string, reason?: string }} Normalized outcome.
+   */
+  _normalizeSaveOutcome(result) {
+    if (result === true || result === undefined || result === null) {
+      return { status: 'saved' };
+    }
+    if (result === false) {
+      return { status: 'skipped', reason: 'no-save-target' };
+    }
+    if (typeof result === 'object') {
+      if (result.success) return { status: 'saved' };
+      if (result.failed) return { status: 'failed', reason: result.reason || 'save failed' };
+      if (result.skipped || result.blocked) {
+        return { status: 'blocked', reason: result.reason || 'save blocked by guard' };
+      }
+    }
+    return { status: 'saved' };
+  }
+
+  /**
+   * Schedules a retry after a failed/blocked write with exponential backoff.
+   *
+   * Backoff: DEBOUNCE_MS * 2^attempt, capped at 60s. Reset to zero on any
+   * confirmed save. New user edits also reschedule through the normal
+   * pipeline, so the backoff only governs the no-new-edits case.
+   *
+   * @private
+   */
+  _scheduleRetry() {
+    const delay = Math.min(60000, DEBOUNCE_MS * Math.pow(2, this.retryAttempt));
+    this.retryAttempt++;
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => {
+      this.executeSave();
+    }, delay);
+  }
+
+  /**
+   * Returns `true` if the state has collapsed to near-empty against the
+   * recorded baseline — the signature of an HMR store reset or a buggy wipe
+   * rather than intentional deletion.
+   *
+   * @private
+   * @param {Object} state - Store snapshot to check.
+   * @returns {boolean} `true` when the save should be refused.
+   */
+  _isCatastrophicShrinkage(state) {
     try {
       const current = this._countDataItems(state);
       const baseline = this.dataBaseline || { nodes: 0, graphs: 0 };
@@ -740,121 +1117,131 @@ class SaveCoordinator {
           current,
           message: 'If this was intentional, use forceSave() (e.g. via "Save Now" in the UI).'
         });
-        this.notifyStatus('warning', 'Save blocked: data shrank unexpectedly. Reload to recover, or use Save Now to confirm.');
-        // Don't clear pending — leave state as-is so a future legitimate save can fire.
-        this.isSaving = false;
-        return;
       }
+      return collapsed;
     } catch (e) {
       console.warn('[SaveCoordinator] Shrinkage check failed (continuing with save):', e);
+      return false;
     }
-
-    // Mark as saving immediately
-    this.isSaving = true;
-
-    // Watchdog: force-reset isSaving if the dispatch never completes within
-    // the budget. On mobile (iOS Safari especially) requestIdleCallback +
-    // microtask chains can stall indefinitely if the tab is backgrounded or
-    // memory-pressured, which leaves the SaveStatus stuck on "Saving..."
-    // even though manual save works fine. The save operations themselves
-    // are fire-and-forget (fileStorage.saveToFile is .catch()-handled,
-    // gitSyncEngine.updateState just queues), so a stuck dispatch only
-    // hurts the UI, not the actual persistence. 5s is generous; the
-    // synchronous dispatch below normally completes in <10ms.
-    const watchdogId = setTimeout(() => {
-      if (this.isSaving) {
-        console.warn('[SaveCoordinator] Watchdog clearing stuck isSaving flag — dispatch did not complete in 5s');
-        this.isSaving = false;
-        // If the dispatch never ran, the dirty flag is still set and pending
-        // data is still queued. Reschedule so we don't strand the change.
-        if (this.isDirty || this.pendingHash !== null) {
-          this.scheduleSave();
-        }
-      }
-    }, 5000);
-
-    // Drop requestIdleCallback entirely. It was used as a "be nice to the
-    // main thread" optimization, but its reliability on mobile is poor
-    // (iOS Safari often defers it indefinitely even with timeout), and the
-    // work we do here is already non-blocking — fileStorage.saveToFile
-    // is .catch()-handled (not awaited), gitSyncEngine.updateState just
-    // pushes to a queue. Plain setTimeout(0) gives us identical UI
-    // responsiveness with predictable cross-browser firing.
-    setTimeout(() => {
-      try {
-        // Save to local file if available - fire and forget with error handling
-        if (this.fileStorage && typeof this.fileStorage.saveToFile === 'function') {
-          this.fileStorage.saveToFile(state, false, {
-            preSerialized: !!pendingString,
-            serializedData: pendingString,
-            redstringData: pendingRedstringData
-          }).catch(error => {
-            console.error('[SaveCoordinator] Local file save failed:', error);
-          });
-        }
-
-        // Save to Git if available - already non-blocking (just queues)
-        if (this.gitSyncEngine && this.gitSyncEngine.isHealthy()) {
-          this.gitSyncEngine.updateState(state);
-        }
-
-        // Update save hash after initiating save. If pendingHash is missing
-        // (worker stalled and we fell back to main-thread dispatch), compute
-        // it now via the same FNV-1a logic the worker uses — otherwise the
-        // next worker callback would see hash !== lastSaveHash and re-mark
-        // dirty, restarting the autosave loop and stranding the indicator
-        // on "Saving..." even after the data has been persisted.
-        if (pendingHash) {
-          this.lastSaveHash = pendingHash;
-          this.pendingHash = null;
-        } else if (state) {
-          try {
-            this.lastSaveHash = this.generateStateHash(state);
-          } catch (hashErr) {
-            console.warn('[SaveCoordinator] Main-thread hash after fallback save failed:', hashErr);
-          }
-        }
-
-        // Update the data baseline now that this state has been written to
-        // disk — used by the shrinkage guard on future saves.
-        try {
-          const counts = this._countDataItems(state);
-          // Only ratchet up the baseline; never reduce it via successful
-          // saves of smaller datasets, because we'd otherwise lose the
-          // protection threshold over time.
-          this.dataBaseline = {
-            nodes: Math.max(this.dataBaseline?.nodes || 0, counts.nodes),
-            graphs: Math.max(this.dataBaseline?.graphs || 0, counts.graphs)
-          };
-
-          // Persist the baseline so the shrinkage guard survives page refresh.
-          // Use the slug embedded in state (graphStore stamps `_universeSlug`)
-          // and fall back to whatever was active when we initialized.
-          const slugForGuard = state?._universeSlug || this.activeUniverseSlugForGuard;
-          if (slugForGuard) {
-            this.activeUniverseSlugForGuard = slugForGuard;
-            this._persistGuardState(slugForGuard);
-          }
-        } catch (_) { /* non-fatal */ }
-
-        // Clear dirty flag and pending data
-        this.isDirty = false;
-        this.pendingString = null;
-        this.pendingRedstringData = null;
-        this.notifyStatus('success', 'Save completed');
-      } catch (error) {
-        console.error('[SaveCoordinator] Save failed:', error);
-        this.notifyStatus('error', `Save failed: ${error.message}`);
-      } finally {
-        // The dispatch completed. The actual saves continue in the
-        // background — that's fine, the engine tracks its own state.
-        this.isSaving = false;
-        clearTimeout(watchdogId);
-      }
-    }, 0);
   }
 
-  // Force immediate save (for manual save button) - still awaitable for user feedback
+  /**
+   * Immediately writes any unsaved changes, bypassing debounce and interaction
+   * gates. Used on quit/close/tab-hide, where waiting out the 3s debounce
+   * means losing the user's last edits.
+   *
+   * Unlike `forceSave`, this respects the catastrophic-shrinkage guard —
+   * a quit-flush must never be the thing that persists a surprise-empty state.
+   *
+   * @param {string} [reason='flush'] - Diagnostic label for logging.
+   * @returns {Promise<boolean>} `true` if a write was performed and confirmed.
+   */
+  async flush(reason = 'flush') {
+    if (!this.isEnabled || this.swapInProgress) return false;
+
+    if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+    if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
+
+    // The app is closing/hiding — any interaction is over by definition.
+    this.isGlobalDragging = false;
+    this._lastInteractionEndTime = 0;
+
+    const state = this.nextStateToProcess || this.lastState;
+    if (!state) return false;
+
+    // Anything to write? Either the pipeline already knows it's dirty, or an
+    // unprocessed state is queued whose hash differs from the last save.
+    let needsWrite = this.hasUnsavedChanges();
+    if (!needsWrite) {
+      try {
+        needsWrite = this.generateStateHash(state) !== this.lastSaveHash;
+      } catch {
+        needsWrite = true;
+      }
+    }
+    if (!needsWrite) return false;
+
+    if (!this.hasLoadedFromFile || state?.universeLoadingError || state?.isUniverseLoading) {
+      console.warn(`[SaveCoordinator] flush(${reason}) skipped: universe not in a saveable state`);
+      return false;
+    }
+    if (this._isCatastrophicShrinkage(state)) {
+      console.warn(`[SaveCoordinator] flush(${reason}) refused by shrinkage guard`);
+      return false;
+    }
+
+    // Let any in-flight dispatch settle first (bounded wait).
+    const waitStart = Date.now();
+    while (this.isSaving && Date.now() - waitStart < 4000) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    console.log(`[SaveCoordinator] Flushing unsaved changes (${reason})`);
+    this.isSaving = true;
+    try {
+      this.lastState = state;
+
+      let localOutcome = { status: 'skipped', reason: 'no-file-storage' };
+      if (this.fileStorage && typeof this.fileStorage.saveToFile === 'function') {
+        try {
+          const result = await this.fileStorage.saveToFile(state, false, { preSerialized: false });
+          localOutcome = this._normalizeSaveOutcome(result);
+        } catch (error) {
+          console.error(`[SaveCoordinator] flush(${reason}) local write failed:`, error);
+          localOutcome = { status: 'failed', reason: error?.message || 'write error' };
+        }
+      }
+
+      // On quit there is no later commit loop — push to Git now if we can.
+      if (this.gitSyncEngine && this.gitSyncEngine.isHealthy()) {
+        try {
+          if (typeof this.gitSyncEngine.forceCommit === 'function') {
+            await this.gitSyncEngine.forceCommit(state);
+          } else {
+            this.gitSyncEngine.updateState(state);
+          }
+        } catch (gitError) {
+          console.warn(`[SaveCoordinator] flush(${reason}) git commit failed:`, gitError);
+        }
+      }
+
+      if (localOutcome.status === 'saved' || localOutcome.status === 'skipped') {
+        this._onSaveConfirmed(state, this.pendingHash);
+        return true;
+      }
+      this.isDirty = true;
+      return false;
+    } finally {
+      this.isSaving = false;
+    }
+  }
+
+  /**
+   * Emits a throttled warning when a git-enabled universe's sync engine is
+   * unhealthy at save time — otherwise edits silently stop reaching Git while
+   * the UI still reports local success.
+   *
+   * @private
+   */
+  _notifyGitUnhealthy() {
+    const now = Date.now();
+    if (now - this._lastGitUnhealthyWarnTime < 30000) return;
+    this._lastGitUnhealthyWarnTime = now;
+    console.warn('[SaveCoordinator] Git sync engine unhealthy — state not queued for commit');
+    this.notifyStatus('warning', 'Git sync is unavailable — changes are saved locally but not synced.', { persistent: true });
+  }
+
+  /**
+   * Performs an immediate, awaitable save bypassing the shrinkage guard.
+   *
+   * Used by the "Save Now" UI button. Cancels pending debounce timers, awaits
+   * `fileStorage.saveToFile`, queues a Git update, then resets `dataBaseline` to
+   * the current state so subsequent autosaves are not blocked by the guard.
+   *
+   * @param {Object} state - Zustand store snapshot to save.
+   * @returns {Promise<true>} Resolves `true` on success.
+   * @throws {Error} If the coordinator is not initialized or the local save fails.
+   */
   async forceSave(state) {
     if (!this.isEnabled) {
       throw new Error('Save coordinator not initialized');
@@ -870,23 +1257,39 @@ class SaveCoordinator {
       this.lastState = state;
       this.isSaving = true;
       
-      // For force save, we do await to give user feedback that it completed
-      // But we still use non-blocking patterns where possible
+      // For force save, we await the local write and surface its real
+      // outcome — reporting success when nothing was written is how users
+      // lose hours of work believing they were saved.
+      let localOutcome = { status: 'skipped', reason: 'no-file-storage' };
       if (this.fileStorage && typeof this.fileStorage.saveToFile === 'function') {
         try {
-          await this.fileStorage.saveToFile(state, false, { 
+          const result = await this.fileStorage.saveToFile(state, false, {
             preSerialized: false // Force re-serialize for explicit save
           });
+          localOutcome = this._normalizeSaveOutcome(result);
         } catch (error) {
           console.error('[SaveCoordinator] Force save local file failed:', error);
+          localOutcome = { status: 'failed', reason: error?.message || 'write error' };
         }
       }
 
       // Queue Git save (non-blocking)
       if (this.gitSyncEngine && this.gitSyncEngine.isHealthy()) {
         this.gitSyncEngine.updateState(state);
+      } else if (this.gitSyncEngine) {
+        this._notifyGitUnhealthy();
       }
-      
+
+      if (localOutcome.status === 'failed' || localOutcome.status === 'blocked') {
+        // Keep the state dirty so autosave keeps retrying, and tell the
+        // caller the truth.
+        this.isDirty = true;
+        this.isSaving = false;
+        const message = `Save failed: ${localOutcome.reason}`;
+        this.notifyStatus('error', message, { persistent: true });
+        throw new Error(message);
+      }
+
       this.isDirty = false;
       this.pendingString = null;
       this.pendingRedstringData = null;
@@ -924,8 +1327,16 @@ class SaveCoordinator {
     }
   }
 
-  // Generate hash - now mostly for fallback or worker internal use
-  // Kept here for compatibility if needed, but primary logic moved to worker
+  /**
+   * Computes an FNV-1a content hash of the store's graph/prototype/edge data.
+   *
+   * Mirrors the logic in `save.worker.js`. Used as a fallback when the worker is
+   * unavailable. Strips viewport and image fields before hashing to avoid
+   * false positives and OOM on large data URLs.
+   *
+   * @param {Object} state - Zustand store snapshot.
+   * @returns {string} 32-bit unsigned integer as a decimal string.
+   */
   generateStateHash(state) {
       // ... (implementation matches worker) ...
       // Legacy implementation kept for robustness if worker fails
@@ -961,7 +1372,13 @@ class SaveCoordinator {
     }
   }
 
-  // Get current state for autosave policy
+  /**
+   * Returns the most recent store snapshot seen by the coordinator.
+   *
+   * Falls back to the Git sync engine's local state if `lastState` is unset.
+   *
+   * @returns {Object|null} Latest store snapshot, or `null` if none available.
+   */
   getState() {
     // Return the last state
     if (this.lastState) {
@@ -976,12 +1393,23 @@ class SaveCoordinator {
     return null;
   }
 
-  // Get pre-serialized string for Git autosave policy (avoids redundant JSON.stringify)
+  /**
+   * Returns the pre-serialized JSON string produced by the save worker.
+   *
+   * Used by `GitAutosavePolicy` to avoid redundant `JSON.stringify` calls when
+   * committing the same state that was already serialized for the local write.
+   *
+   * @returns {string|null} Pre-serialized JSON, or `null` if not yet available.
+   */
   getPendingString() {
     return this.pendingString;
   }
 
-  // Get current status
+  /**
+   * Returns a summary of the coordinator's current state for UI display.
+   *
+   * @returns {{ isEnabled: boolean, isSaving: boolean, hasPendingSave: boolean, lastError: Error|null, gitAutosavePolicy: Object }} Status snapshot.
+   */
   getStatus() {
     return {
       isEnabled: this.isEnabled,
@@ -992,9 +1420,16 @@ class SaveCoordinator {
     };
   }
 
-  // Diagnostic snapshot for the debug overlay. Surfaces exactly the state
-  // that gates autosave — used on mobile where we can't open devtools and
-  // need to see which flag is latched true.
+  /**
+   * Returns a verbose diagnostic snapshot of all autosave gate flags.
+   *
+   * Surfaces exactly the state that can block autosave — used on mobile where
+   * devtools are unavailable. Includes worker state, timer state, interaction
+   * gate, data-loss guard, and storage backend health.
+   *
+   * @returns {Object} Diagnostic snapshot with `isEnabled`, `isSaving`, `isDirty`,
+   *   `isGlobalDragging`, `hasLoadedFromFile`, worker/timer flags, and more.
+   */
   getDiagnostics() {
     const now = Date.now();
     return {
@@ -1034,7 +1469,14 @@ class SaveCoordinator {
     };
   }
 
-  // Enable/disable the coordinator
+  /**
+   * Enables or disables the save coordinator.
+   *
+   * Disabling cancels the pending save timer. Re-enabling notifies status handlers
+   * but does not replay any missed state changes.
+   *
+   * @param {boolean} enabled - `true` to enable, `false` to disable.
+   */
   setEnabled(enabled) {
     if (enabled && !this.isEnabled) {
       this.isEnabled = true;
@@ -1054,9 +1496,17 @@ class SaveCoordinator {
     }
   }
 
-  // Count "real" data items (excluding the always-present base prototypes
-  // like base-thing-prototype / base-connection-prototype) so the shrinkage
-  // guard doesn't mis-trigger on a brand-new universe.
+  /**
+   * Counts user-created nodes and graphs, excluding built-in base prototypes.
+   *
+   * Used by the shrinkage guard to distinguish an intentionally empty universe
+   * from a surprise data-loss event. Handles both `Map` and plain-object forms
+   * of `nodePrototypes` and `graphs`.
+   *
+   * @private
+   * @param {Object} state - Zustand store snapshot.
+   * @returns {{ nodes: number, graphs: number }} Counts of user prototypes and graphs.
+   */
   _countDataItems(state) {
     if (!state) return { nodes: 0, graphs: 0 };
     let nodes = 0;
@@ -1078,8 +1528,13 @@ class SaveCoordinator {
     return { nodes, graphs };
   }
 
-  // Cancel all pending saves and clear stale state.
-  // Used during universe switching/deletion to prevent cross-contamination.
+  /**
+   * Cancels all pending saves and resets coordinator state.
+   *
+   * Used during universe switching and deletion to prevent stale state from one
+   * universe contaminating the next. Resets `hasLoadedFromFile` so the next
+   * universe's load must re-establish the baseline before saves are allowed.
+   */
   cancelPendingSaves() {
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
     if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
@@ -1089,8 +1544,10 @@ class SaveCoordinator {
     this.pendingHash = null;
     this.pendingString = null;
     this.pendingRedstringData = null;
+    this.pendingStringState = null;
     this.lastState = null;
     this.isDirty = false;
+    this.retryAttempt = 0;
     // Reset the data-loss guard. The new universe's load needs to happen
     // before saves are allowed again.
     this.hasLoadedFromFile = false;
@@ -1098,11 +1555,23 @@ class SaveCoordinator {
     this.dataBaseline = { nodes: 0, graphs: 0 };
   }
 
-  // Check if there are unsaved changes (for immediate UI feedback)
+  /**
+   * Returns `true` if there are changes not yet written to disk.
+   *
+   * @returns {boolean} `true` when `isDirty` or a pending hash is queued.
+   */
   hasUnsavedChanges() {
     return this.isDirty || (this.pendingHash !== null);
   }
 
+  /**
+   * Replaces the active Git sync engine.
+   *
+   * Also updates the reference held by `gitAutosavePolicy` so policy decisions
+   * use the new engine immediately.
+   *
+   * @param {Object|null} gitSyncEngine - New GitSyncEngine instance, or `null` to disable Git saves.
+   */
   setGitSyncEngine(gitSyncEngine) {
     this.gitSyncEngine = gitSyncEngine;
     if (gitAutosavePolicy) {
@@ -1110,7 +1579,11 @@ class SaveCoordinator {
     }
   }
 
-  // Cleanup
+  /**
+   * Disables the coordinator and clears all status handlers.
+   *
+   * Called when the component tree unmounts. Does not flush pending saves.
+   */
   destroy() {
     this.setEnabled(false);
     this.statusHandlers.clear();

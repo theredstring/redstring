@@ -7,7 +7,7 @@
 import { exportToRedstring, importFromRedstring } from '../formats/redstringFormat.js';
 import { v4 as uuidv4 } from 'uuid';
 import { CONNECTION_DEFAULT_COLOR } from '../constants.js';
-import { isElectron, pickFile, pickSaveLocation, readFile, writeFile } from '../utils/fileAccessAdapter.js';
+import { isElectron, pickFile, pickSaveLocation, readFile, writeFile, serializeHandleWrite } from '../utils/fileAccessAdapter.js';
 
 // Re-export these for use by other modules (e.g., LeftAIView.jsx)
 export { isElectron, readFile, writeFile };
@@ -1005,20 +1005,26 @@ export const saveToFile = async (storeState, showSuccess = true, options = {}) =
         jsonString = JSON.stringify(redstringData, null, 2);
       }
 
-      const writable = await fileHandle.createWritable();
+      // Serialize against other writes to the same handle — the chunked loop
+      // yields to the main thread between chunks, which widens the window for
+      // a second (newer, smaller) write to race ahead and close first; FSA is
+      // last-close-wins, so the older snapshot would silently win the file.
+      await serializeHandleWrite(fileHandle, async () => {
+        const writable = await fileHandle.createWritable();
 
-      // Write in chunks to avoid blocking the main thread during large file writes
-      const CHUNK_SIZE = 64 * 1024; // 64KB chunks
-      for (let i = 0; i < jsonString.length; i += CHUNK_SIZE) {
-        const chunk = jsonString.slice(i, i + CHUNK_SIZE);
-        await writable.write(chunk);
-        // Yield to main thread between chunks to prevent blocking
-        if (i + CHUNK_SIZE < jsonString.length) {
-          await new Promise(resolve => setTimeout(resolve, 0));
+        // Write in chunks to avoid blocking the main thread during large file writes
+        const CHUNK_SIZE = 64 * 1024; // 64KB chunks
+        for (let i = 0; i < jsonString.length; i += CHUNK_SIZE) {
+          const chunk = jsonString.slice(i, i + CHUNK_SIZE);
+          await writable.write(chunk);
+          // Yield to main thread between chunks to prevent blocking
+          if (i + CHUNK_SIZE < jsonString.length) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
         }
-      }
 
-      await writable.close();
+        await writable.close();
+      });
       lastSaveTime = Date.now();
       if (showSuccess) {
         console.log('[FileStorage] Universe saved to local file');

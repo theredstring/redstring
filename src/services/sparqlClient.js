@@ -1,7 +1,16 @@
 /**
- * SPARQL Client Service
- * 
- * Handles queries to external SPARQL endpoints for semantic web data integration.
+ * @module sparqlClient
+ * @description SPARQL query client for Redstring's semantic web integration.
+ *
+ * Provides a singleton `SPARQLClient` instance pre-configured for Wikidata, DBpedia,
+ * and Schema.org. Features include:
+ * - Per-endpoint rate limiting (queued, not dropped)
+ * - 1-hour result cache keyed by endpoint + query hash
+ * - SSRF guard on caller-supplied endpoint URLs
+ * - Automatic GET/POST selection (GET for short queries and Wikidata to avoid CORS preflight)
+ *
+ * Convenience wrapper functions (`executeQuery`, `findEquivalentClasses`,
+ * `searchEntities`, `testEndpoint`) delegate to the singleton.
  */
 
 import { SimpleClient as SparqlHttpClient } from 'sparql-http-client';
@@ -85,6 +94,11 @@ const PREDEFINED_ENDPOINTS = {
   }
 };
 
+/**
+ * SPARQL query client with built-in rate limiting, caching, and SSRF guards.
+ *
+ * @class
+ */
 export class SPARQLClient {
   constructor() {
     this.endpoints = new Map(Object.entries(PREDEFINED_ENDPOINTS));
@@ -95,9 +109,18 @@ export class SPARQLClient {
   }
 
   /**
-   * Add a custom SPARQL endpoint
-   * @param {string} key - Endpoint identifier
-   * @param {Object} config - Endpoint configuration
+   * Registers a custom SPARQL endpoint, replacing any existing entry with the same key.
+   *
+   * Validates the URL against the SSRF guard before storing. Clears any cached
+   * HTTP client for the key so the next query gets a fresh connection.
+   *
+   * @param {string} key - Unique identifier for this endpoint.
+   * @param {Object} config - Endpoint configuration.
+   * @param {string} config.url - SPARQL endpoint URL (must be https or http, no private ranges).
+   * @param {number} [config.rateLimit=1000] - Minimum ms between requests to this endpoint.
+   * @param {number} [config.timeout=20000] - Request timeout in ms.
+   * @param {Object} [config.headers={}] - Extra HTTP headers to include.
+   * @throws {Error} If `config.url` fails the SSRF safety check.
    */
   addEndpoint(key, config) {
     assertSafeSparqlUrl(config?.url);
@@ -113,8 +136,12 @@ export class SPARQLClient {
   }
 
   /**
-   * Remove a custom endpoint
-   * @param {string} key - Endpoint identifier
+   * Removes a custom endpoint by key.
+   *
+   * Predefined endpoints (`wikidata`, `dbpedia`, `schema`) cannot be removed.
+   *
+   * @param {string} key - Identifier of the endpoint to remove.
+   * @throws {Error} If `key` matches a predefined endpoint.
    */
   removeEndpoint(key) {
     if (PREDEFINED_ENDPOINTS[key]) {
@@ -126,17 +153,19 @@ export class SPARQLClient {
   }
 
   /**
-   * Get endpoint configuration
-   * @param {string} key - Endpoint identifier
-   * @returns {Object} Endpoint configuration
+   * Returns the configuration object for the named endpoint.
+   *
+   * @param {string} key - Endpoint identifier.
+   * @returns {Object|undefined} Endpoint config, or `undefined` if not found.
    */
   getEndpoint(key) {
     return this.endpoints.get(key);
   }
 
   /**
-   * List all available endpoints
-   * @returns {Array} Array of endpoint configurations
+   * Returns all registered endpoints as an array.
+   *
+   * @returns {Array<Object>} Each object contains `key` plus all endpoint config fields.
    */
   listEndpoints() {
     return Array.from(this.endpoints.entries()).map(([key, config]) => ({
@@ -146,11 +175,19 @@ export class SPARQLClient {
   }
 
   /**
-   * Execute a SPARQL query using direct fetch (bypasses sparql-http-client issues)
-   * @param {string} endpointKey - Endpoint identifier
-   * @param {string} query - SPARQL query string
-   * @param {Object} options - Query options
-   * @returns {Promise<Array>} Query results as bindings array
+   * Executes a SPARQL SELECT query and returns the bindings array.
+   *
+   * Uses GET for queries under 4000 characters or targeting Wikidata (avoids CORS
+   * preflight); POST otherwise. Results are cached for 1 hour per endpoint+query.
+   * Applies per-endpoint rate limiting before each request.
+   *
+   * @param {string} endpointKey - Registered endpoint identifier.
+   * @param {string} query - SPARQL SELECT query string.
+   * @param {Object} [options={}] - Request options.
+   * @param {AbortSignal} [options.signal] - External abort signal; overrides the endpoint timeout.
+   * @param {Object} [options.headers] - Extra headers merged with endpoint defaults.
+   * @returns {Promise<Array<Object>>} Array of binding objects; each key maps to `{ value, type, ... }`.
+   * @throws {Error} On HTTP error or network failure.
    */
   async executeQuery(endpointKey, query, options = {}) {
     const endpoint = this.endpoints.get(endpointKey);
@@ -235,11 +272,13 @@ export class SPARQLClient {
   }
 
   /**
-   * Execute a CONSTRUCT query and return RDF triples
-   * @param {string} endpointKey - Endpoint identifier
-   * @param {string} query - SPARQL CONSTRUCT query
-   * @param {Object} options - Query options
-   * @returns {Promise<Array>} Array of RDF triples
+   * Executes a SPARQL CONSTRUCT query and returns an array of RDF triples.
+   *
+   * @param {string} endpointKey - Registered endpoint identifier.
+   * @param {string} query - SPARQL CONSTRUCT query string.
+   * @param {Object} [options={}] - Request options (same shape as `executeQuery`).
+   * @returns {Promise<Array<{subject: string, predicate: string, object: string, graph: string|null}>>} Parsed triples.
+   * @throws {Error} On HTTP error or network failure.
    */
   async executeConstructQuery(endpointKey, query, options = {}) {
     const endpoint = this.endpoints.get(endpointKey);
@@ -270,10 +309,11 @@ export class SPARQLClient {
   }
 
   /**
-   * Query for equivalent classes
-   * @param {string} endpointKey - Endpoint identifier
-   * @param {string} classUri - URI of the class to find equivalents for
-   * @returns {Promise<Array>} Array of equivalent class URIs
+   * Queries for classes equivalent to the given URI via `owl:equivalentClass` and `owl:sameAs`.
+   *
+   * @param {string} endpointKey - Registered endpoint identifier.
+   * @param {string} classUri - Full URI of the class to find equivalents for.
+   * @returns {Promise<string[]>} Array of equivalent class URI strings (up to 50).
    */
   async findEquivalentClasses(endpointKey, classUri) {
     const query = `
@@ -302,10 +342,11 @@ export class SPARQLClient {
   }
 
   /**
-   * Query for subclasses
-   * @param {string} endpointKey - Endpoint identifier
-   * @param {string} classUri - URI of the parent class
-   * @returns {Promise<Array>} Array of subclass URIs
+   * Queries for direct subclasses of the given class URI via `rdfs:subClassOf`.
+   *
+   * @param {string} endpointKey - Registered endpoint identifier.
+   * @param {string} classUri - Full URI of the parent class.
+   * @returns {Promise<string[]>} Array of subclass URI strings (up to 100).
    */
   async findSubClasses(endpointKey, classUri) {
     const query = `
@@ -320,10 +361,11 @@ export class SPARQLClient {
   }
 
   /**
-   * Query for superclasses
-   * @param {string} endpointKey - Endpoint identifier
-   * @param {string} classUri - URI of the child class
-   * @returns {Promise<Array>} Array of superclass URIs
+   * Queries for direct superclasses of the given class URI via `rdfs:subClassOf`.
+   *
+   * @param {string} endpointKey - Registered endpoint identifier.
+   * @param {string} classUri - Full URI of the child class.
+   * @returns {Promise<string[]>} Array of superclass URI strings (up to 50).
    */
   async findSuperClasses(endpointKey, classUri) {
     const query = `
@@ -338,11 +380,12 @@ export class SPARQLClient {
   }
 
   /**
-   * Search for entities by label
-   * @param {string} endpointKey - Endpoint identifier
-   * @param {string} searchTerm - Search term
-   * @param {string} entityType - Type of entity to search for (e.g., 'Class', 'Property')
-   * @returns {Promise<Array>} Array of matching entities
+   * Searches for RDF entities whose `rdfs:label` contains the search term (case-insensitive).
+   *
+   * @param {string} endpointKey - Registered endpoint identifier.
+   * @param {string} searchTerm - Label substring to search for.
+   * @param {string|null} [entityType=null] - Optional RDF type URI to restrict results.
+   * @returns {Promise<Array<{uri: string, label: string, type: string}>>} Matching entities (up to 20).
    */
   async searchEntities(endpointKey, searchTerm, entityType = null) {
     let typeFilter = '';
@@ -370,9 +413,10 @@ export class SPARQLClient {
   }
 
   /**
-   * Test endpoint connectivity
-   * @param {string} endpointKey - Endpoint identifier
-   * @returns {Promise<Object>} Connectivity test result
+   * Probes an endpoint with a minimal SELECT query to verify connectivity.
+   *
+   * @param {string} endpointKey - Registered endpoint identifier.
+   * @returns {Promise<{endpoint: string, status: 'connected'|'error', responseTime?: number, error?: string, timestamp: string}>} Connectivity result.
    */
   async testEndpoint(endpointKey) {
     const endpoint = this.endpoints.get(endpointKey);
@@ -722,8 +766,9 @@ export class SPARQLClient {
   }
 
   /**
-   * Clear query cache
-   * @param {string} endpointKey - Optional endpoint to clear specific cache
+   * Clears cached query results.
+   *
+   * @param {string|null} [endpointKey=null] - If provided, clears only cache entries for that endpoint; otherwise clears all.
    */
   clearCache(endpointKey = null) {
     if (endpointKey) {
@@ -740,8 +785,9 @@ export class SPARQLClient {
   }
 
   /**
-   * Get cache statistics
-   * @returns {Object} Cache statistics
+   * Returns cache statistics broken down by valid and expired entries.
+   *
+   * @returns {{ totalEntries: number, validEntries: number, expiredEntries: number }} Cache stats.
    */
   getCacheStats() {
     const now = Date.now();
@@ -767,12 +813,15 @@ export class SPARQLClient {
 // Export singleton instance
 export const sparqlClient = new SPARQLClient();
 
-// Export utility functions
-export const executeQuery = (endpointKey, query, options) => 
+/** @see {@link SPARQLClient#executeQuery} */
+export const executeQuery = (endpointKey, query, options) =>
   sparqlClient.executeQuery(endpointKey, query, options);
-export const findEquivalentClasses = (endpointKey, classUri) => 
+/** @see {@link SPARQLClient#findEquivalentClasses} */
+export const findEquivalentClasses = (endpointKey, classUri) =>
   sparqlClient.findEquivalentClasses(endpointKey, classUri);
-export const searchEntities = (endpointKey, searchTerm, entityType) => 
+/** @see {@link SPARQLClient#searchEntities} */
+export const searchEntities = (endpointKey, searchTerm, entityType) =>
   sparqlClient.searchEntities(endpointKey, searchTerm, entityType);
-export const testEndpoint = (endpointKey) => 
+/** @see {@link SPARQLClient#testEndpoint} */
+export const testEndpoint = (endpointKey) =>
   sparqlClient.testEndpoint(endpointKey);

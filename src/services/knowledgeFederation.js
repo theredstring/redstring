@@ -1,13 +1,67 @@
 /**
- * Knowledge Federation Service
- * 
- * Connects to multiple knowledge bases simultaneously, imports related entities,
- * and creates federated search across domains
+ * @module KnowledgeFederation
+ * @description Federated knowledge import and search across multiple semantic web sources.
+ *
+ * Queries Wikidata (SPARQL), DBpedia (SPARQL), and ConceptNet (REST) in parallel or
+ * in sequence to build knowledge clusters around seed entities. Results are merged,
+ * deduplicated by confidence, and organized into clusters using DFS connectivity analysis.
+ *
+ * All query methods validate input and return empty arrays on invalid input rather
+ * than throwing, so callers can safely `await` without wrapping in try/catch.
+ */
+
+/**
+ * @typedef {Object} EntityData
+ * @property {string} name - Canonical entity name.
+ * @property {string[]} sources - Source keys that returned results (e.g. `['wikidata', 'dbpedia']`).
+ * @property {Array<{text: string, source: string, confidence: number}>} descriptions - Description strings per source.
+ * @property {string[]} externalLinks - External URIs for this entity.
+ * @property {Array<{type: string, source: string}>} types - RDF types discovered per source.
+ * @property {Map<string, Array<{value: *, source: string}>>} properties - Named property values per source.
+ * @property {number} confidence - Highest confidence score seen across all sources (0–1).
+ */
+
+/**
+ * @typedef {Object} Relationship
+ * @property {string} source - Source entity name.
+ * @property {string} target - Target entity name.
+ * @property {string} predicate - Relationship predicate label (e.g. `'born_in'`, `'related_to'`).
+ * @property {string} type - Alias for `predicate` (for backward compatibility).
+ * @property {number} confidence - Confidence score (0–1).
+ * @property {string[]} sources - Source keys that produced this relationship.
+ */
+
+/**
+ * @typedef {Object} ClusterInfo
+ * @property {string[]} entities - Entity names in this cluster.
+ * @property {number} size - Number of entities.
+ * @property {number} density - Edge density (0–1); ratio of actual to possible edges.
+ */
+
+/**
+ * @typedef {Object} KnowledgeClusterResult
+ * @property {string} seedEntity - The canonical seed entity name used.
+ * @property {number} totalEntities - Total entities imported.
+ * @property {number} totalRelationships - Total relationships discovered.
+ * @property {Object} sourceBreakdown - Map of source key → entity count.
+ * @property {Map<string, EntityData>} entities - All imported entities keyed by name.
+ * @property {Relationship[]} relationships - All discovered relationships.
+ * @property {Map<string, ClusterInfo>} clusters - Identified graph clusters.
+ * @property {string} importedAt - ISO timestamp.
+ * @property {string} [error] - Error message if the import was aborted early.
  */
 
 import { enrichFromSemanticWeb, escapeSparqlLiteral } from './semanticWebQuery.js';
 import { sparqlClient } from './sparqlClient.js';
 
+/**
+ * Federated knowledge import and search service.
+ *
+ * Instantiated as a singleton (`knowledgeFederation`) with no `graphStore` reference.
+ * Pass a `graphStore` if you want to write imported nodes directly to the store.
+ *
+ * @class
+ */
 export class KnowledgeFederation {
   constructor(graphStore) {
     this.graphStore = graphStore;
@@ -38,10 +92,21 @@ export class KnowledgeFederation {
   }
 
   /**
-   * Import a knowledge cluster around a seed entity
-   * @param {string} seedEntity - Starting entity name
-   * @param {Object} options - Import options
-   * @returns {Promise<Object>} Import results
+   * Imports a multi-level knowledge cluster centered on a seed entity.
+   *
+   * Level 0 imports the seed; each subsequent level imports related entities
+   * discovered from the previous level, up to `maxDepth`. Returns immediately
+   * with an error-shaped result (no throw) if `seedEntity` is empty or invalid.
+   *
+   * @param {string} seedEntity - Human-readable entity name to start from (e.g. `'Immanuel Kant'`).
+   * @param {Object} [options={}] - Import configuration.
+   * @param {number} [options.maxDepth=2] - Number of relationship hops to follow.
+   * @param {number} [options.maxEntitiesPerLevel=10] - Max entities imported per depth level.
+   * @param {boolean} [options.includeRelationships=true] - Whether to discover relationships between entities.
+   * @param {string[]} [options.includeSources=['wikidata','dbpedia']] - Knowledge sources to query.
+   * @param {function(Object): void} [options.onProgress] - Progress callback called with `{ stage, entity, level }`.
+   * @returns {Promise<KnowledgeClusterResult>} Cluster result object.
+   * @throws {Error} If a source query fails unexpectedly (individual source failures are swallowed).
    */
   async importKnowledgeCluster(seedEntity, options = {}) {
     const {
@@ -154,7 +219,15 @@ export class KnowledgeFederation {
   }
 
   /**
-   * Import a single entity from federated knowledge sources
+   * Imports a single entity from one or more knowledge sources.
+   *
+   * Merges descriptions, types, and properties across sources. Results are cached
+   * per `entityName+sources` combination. Returns an empty-shaped object (no throw)
+   * if `entityName` is empty or invalid.
+   *
+   * @param {string} entityName - Human-readable entity name.
+   * @param {string[]} [sources=['wikidata','dbpedia']] - Source keys to query.
+   * @returns {Promise<EntityData>} Merged entity data.
    */
   async importSingleEntity(entityName, sources = ['wikidata', 'dbpedia']) {
     // Add debug logging to track where empty entity names come from
@@ -250,10 +323,15 @@ export class KnowledgeFederation {
   }
 
   /**
-   * Find entities related to a seed entity
-   * @param {string} seedEntity - Entity to find relationships for
-   * @param {Object} options - Search options
-   * @returns {Promise<Array>} Related entities
+   * Finds entities related to the seed via each source's relationship function.
+   *
+   * Results are sorted by confidence (descending) and deduplicated by target name.
+   *
+   * @param {string} seedEntity - Entity name to find relationships for.
+   * @param {Object} [options={}] - Search options.
+   * @param {string[]} [options.sources=['wikidata','dbpedia']] - Sources to query.
+   * @param {number} [options.limit=10] - Maximum relationships to return.
+   * @returns {Promise<Relationship[]>} Related entity relationships, deduplicated and ranked.
    */
   async findRelatedEntities(seedEntity, options = {}) {
     const { sources = ['wikidata', 'dbpedia'], limit = 10 } = options;
@@ -296,10 +374,18 @@ export class KnowledgeFederation {
   }
 
   /**
-   * Federated search across all knowledge sources
-   * @param {string} query - Search query
-   * @param {Object} options - Search options
-   * @returns {Promise<Array>} Search results
+   * Searches all registered knowledge sources in parallel and merges results.
+   *
+   * Results below `minConfidence` are filtered out. Returns an empty array (no throw)
+   * if the query is empty or invalid.
+   *
+   * @param {string} query - Search query string.
+   * @param {Object} [options={}] - Search options.
+   * @param {string[]} [options.sources] - Source keys to include (default: all).
+   * @param {number} [options.limit=20] - Maximum results to return.
+   * @param {number} [options.minConfidence=0.5] - Minimum confidence threshold.
+   * @param {boolean} [options.includeSnippets=true] - Whether to include description snippets.
+   * @returns {Promise<Array<{title: string, snippet: string, uri: string, confidence: number, source: string}>>} Merged, ranked results.
    */
   async federatedSearch(query, options = {}) {
     const { 
@@ -355,11 +441,17 @@ export class KnowledgeFederation {
   }
 
   /**
-   * Search a single knowledge source
-   * @param {string} sourceName - Source to search
-   * @param {string} query - Search query
-   * @param {Object} options - Search options
-   * @returns {Promise<Array>} Search results
+   * Searches a single knowledge source and returns results.
+   *
+   * Routes to `searchWikidata`, `searchDBpedia`, or `searchConceptNet` based on
+   * `sourceName`. Returns an empty array for unknown sources or invalid queries.
+   *
+   * @param {string} sourceName - Source key (`'wikidata'`, `'dbpedia'`, or `'conceptnet'`).
+   * @param {string} query - Search query string.
+   * @param {Object} [options={}] - Options passed to the source-specific search method.
+   * @param {number} [options.limit=10] - Maximum results from this source.
+   * @param {boolean} [options.includeSnippets=true] - Whether to include snippets.
+   * @returns {Promise<Array>} Source-specific search results.
    */
   async searchSingleSource(sourceName, query, options = {}) {
     const { limit = 10, includeSnippets = true } = options;
@@ -682,7 +774,13 @@ export class KnowledgeFederation {
   // Utility methods
 
   /**
-   * Identify clusters in the knowledge graph
+   * Groups entities into connected clusters using DFS traversal.
+   *
+   * Only clusters with 2 or more entities are recorded. Singleton entities are skipped.
+   *
+   * @param {Map<string, EntityData>} entities - All entities to cluster.
+   * @param {Relationship[]} relationships - Relationships used as graph edges.
+   * @returns {Map<string, ClusterInfo>} Clusters keyed by `'cluster_N'`.
    */
   identifyClusters(entities, relationships) {
     const clusters = new Map();
@@ -736,7 +834,13 @@ export class KnowledgeFederation {
   }
 
   /**
-   * Calculate search confidence based on query match
+   * Calculates a confidence score (0–1) for a search result based on label match quality.
+   *
+   * Exact match → 1.0; substring match → 0.8; word overlap ratio → capped at 0.9.
+   *
+   * @param {string} query - The original search query.
+   * @param {string} title - The result label to score against.
+   * @returns {number} Confidence score between 0 and 1.
    */
   calculateSearchConfidence(query, title) {
     const queryLower = query.toLowerCase();

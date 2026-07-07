@@ -300,7 +300,8 @@ class DocumentationGenerator {
     let description = '';
 
     if (jsdocs.length > 0) {
-      description = jsdocs[0].description;
+      // Prefer explicit body text; fall back to @description tag (used in @module blocks)
+      description = jsdocs[0].description || jsdocs[0].tags.description || '';
     } else {
       // Look for file-level comment
       const fileCommentMatch = content.match(/\/\*\*?\s*\n\s*\*\s*([^\n]+)/);
@@ -424,37 +425,65 @@ ${component.imports.length > 0 ? component.imports.map(imp => `- \`${imp}\``).jo
    */
   async generateServiceDocs() {
     for (const service of this.extractedData.services) {
-      const content = `---
+      const fileContent = fs.readFileSync(service.filePath, 'utf-8');
+      const methods = this.extractClassMethodsWithJSDoc(fileContent);
+      const description = service.description || `The ${service.name} service.`;
+
+      const mdxContent = `---
 title: "${service.name}"
-description: "Service: ${service.description || service.name}"
+description: "Service: ${this.sanitizeForMdx(description)}"
 ---
 
 # ${service.name}
 
-${this.sanitizeForMdx(service.description) || `The ${service.name} service.`}
+${this.sanitizeForMdx(description)}
 
 ## Location
 \`${service.filePath}\`
 
-## Functions
+## Methods
 
-${service.functions.length > 0 ? service.functions.map(func => `
-### ${func.name}
+${methods.length > 0 ? methods.map(method => `
+### ${method.name}
 
-\`\`\`javascript
-${func.signature}
-\`\`\`
-
-${this.sanitizeForMdx(func.description) || 'No description available.'}
-`).join('\n') : 'No functions detected.'}
+${method.description ? this.sanitizeForMdx(method.description) + '\n' : ''}${method.params.length > 0 ? `\n**Parameters:**\n\n${method.params.map(p => `- \`${this.sanitizeForMdx(p)}\``).join('\n')}\n` : ''}${method.returns ? `\n**Returns:** ${this.sanitizeForMdx(method.returns)}\n` : ''}`).join('\n---\n') : 'No methods detected.'}
 
 ---
 
 *Auto-generated from source code*
 `;
 
-      await this.writeDocFile(`api/${service.name.toLowerCase()}.mdx`, content);
+      await this.writeDocFile(`api/${service.name.toLowerCase()}.mdx`, mdxContent);
     }
+  }
+
+  /**
+   * Extract public class methods with their JSDoc from file content.
+   */
+  extractClassMethodsWithJSDoc(content) {
+    const results = [];
+    // Match a JSDoc block followed by a 2-space-indented method declaration.
+    // Uses (?:[^*]|\*(?!\/))*  to prevent spanning across multiple JSDoc blocks.
+    const pattern = /\/\*\*((?:[^*]|\*(?!\/))*)\*\/[ \t]*\n[ \t]{2}(?:async\s+)?(\w+)\s*\(/g;
+    let match;
+    while ((match = pattern.exec(content)) !== null) {
+      const jsdocBody = match[1];
+      const methodName = match[2];
+      if (methodName === 'constructor') continue;
+      const lines = jsdocBody.split('\n').map(l => l.replace(/^\s*\*\s?/, '').trim());
+      const isPrivate = lines.some(l => l.startsWith('@private'));
+      if (isPrivate) continue;
+      const descLines = lines.filter(l => l && !l.startsWith('@'));
+      const paramLines = lines.filter(l => l.startsWith('@param')).map(l => l.replace('@param', '').trim());
+      const returnsLine = lines.find(l => l.startsWith('@returns'));
+      results.push({
+        name: methodName,
+        description: descLines.join(' ').trim(),
+        params: paramLines,
+        returns: returnsLine ? returnsLine.replace('@returns', '').trim() : null
+      });
+    }
+    return results;
   }
 
   /**

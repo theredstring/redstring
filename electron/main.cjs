@@ -279,6 +279,40 @@ function createWindow() {
     mainWindow.focus();
   });
 
+  // Quit-flush handshake. SaveCoordinator debounces writes by ~3s, so a
+  // Cmd+Q right after an edit would silently drop it. Intercept the first
+  // close, ask the renderer to flush pending saves, then destroy the window
+  // once it confirms (or after a timeout so a hung renderer can't block quit).
+  let flushCompleted = false;
+  mainWindow.on('close', (event) => {
+    if (flushCompleted) return;
+    event.preventDefault();
+    const win = mainWindow;
+    const finish = () => {
+      flushCompleted = true;
+      ipcMain.removeListener('app:flush-complete', onFlushComplete);
+      if (win && !win.isDestroyed()) {
+        win.destroy();
+      }
+    };
+    const timeoutId = setTimeout(() => {
+      console.warn('[Electron] Quit flush timed out — closing anyway');
+      finish();
+    }, 5000);
+    const onFlushComplete = () => {
+      clearTimeout(timeoutId);
+      finish();
+    };
+    ipcMain.once('app:flush-complete', onFlushComplete);
+    try {
+      win.webContents.send('app:flush-before-quit');
+    } catch (sendError) {
+      console.warn('[Electron] Could not request quit flush:', sendError.message);
+      clearTimeout(timeoutId);
+      finish();
+    }
+  });
+
   // Handle new window links externally
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -535,20 +569,50 @@ ipcMain.handle('file:read', async (event, filePath) => {
   }
 });
 
+// Serialize writes per target path. Two concurrent writes to the same file
+// (autosave racing a force-save) would otherwise interleave truncation, and
+// an out-of-order completion could leave an older snapshot as the final
+// content. The chain guarantees writes land in call order.
+const fileWriteChains = new Map();
+
 ipcMain.handle('file:write', async (event, filePath, content) => {
-  try {
-    const safePath = assertAccessAllowed(filePath, 'file:write');
-    await fs.writeFile(safePath, content, 'utf-8');
+  const safePath = assertAccessAllowed(filePath, 'file:write');
+  const prior = fileWriteChains.get(safePath) || Promise.resolve();
+  const writeOp = prior.catch(() => { /* prior failure doesn't block this write */ }).then(async () => {
+    // Atomic write: temp file + rename, same pattern as writeStorage. A crash
+    // or power loss mid-write can never leave a truncated .redstring behind —
+    // the original survives until the rename. Before renaming, rotate the
+    // current file to .bak so every save leaves one recovery point.
+    const tmpPath = `${safePath}.${process.pid}.tmp`;
+    await fs.writeFile(tmpPath, content, 'utf-8');
+    try {
+      await fs.copyFile(safePath, `${safePath}.bak`);
+    } catch (bakError) {
+      if (bakError.code !== 'ENOENT') {
+        console.warn('[file:write] Could not rotate backup for', safePath, bakError.message);
+      }
+    }
+    await fs.rename(tmpPath, safePath);
     return { success: true, path: safePath };
+  });
+  fileWriteChains.set(safePath, writeOp);
+  try {
+    return await writeOp;
   } catch (error) {
     throw new Error(`Failed to write file: ${error.message} `);
+  } finally {
+    if (fileWriteChains.get(safePath) === writeOp) {
+      fileWriteChains.delete(safePath);
+    }
   }
 });
 
 ipcMain.handle('file:delete', async (event, filePath) => {
   try {
     const safePath = assertAccessAllowed(filePath, 'file:delete');
-    await fs.unlink(safePath);
+    // Trash, don't unlink — a wrong-target delete (or a user who clicked the
+    // wrong dialog button) must be recoverable.
+    await shell.trashItem(safePath);
     return true;
   } catch (err) {
     console.error('[file:delete] Failed to delete file:', filePath, err);
