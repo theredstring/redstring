@@ -36,6 +36,9 @@ const hashToUnitFloat = (str, salt = '') => {
 };
 
 const ENTRANCE_DURATION_MS = 350;
+// Max animation-time credited per painted frame during entrance. Guarantees the
+// effect spans at least ~7 painted frames even when mount jank drops real time.
+const ENTRANCE_MAX_FRAME_MS = 50;
 
 // Orbit label typography (matches the old foreignObject: 45px bold EmOne, 39px
 // line height, 42px side padding). Rendered as native SVG <text> rather than
@@ -59,14 +62,18 @@ const OrbitConnection = ({
 }) => {
   const theme = useTheme();
 
-  // Entrance animation
-  const mountTimeRef = useRef(Date.now());
+  // Entrance animation. Clocked per painted frame with a capped delta (not wall
+  // time from mount) — mounting the whole orbit janks the main thread, and a
+  // wall-clock elapsed would burn the entire entrance window before the first
+  // frames ever paint, cutting the effect off after a split second.
   const [entranceProgress, setEntranceProgress] = useState(0);
   useEffect(() => {
-    mountTimeRef.current = Date.now();
     let raf;
-    const tick = () => {
-      const elapsed = Date.now() - mountTimeRef.current;
+    let last = null;
+    let elapsed = 0;
+    const tick = (ts) => {
+      if (last !== null) elapsed += Math.min(ts - last, ENTRANCE_MAX_FRAME_MS);
+      last = ts;
       const t = Math.min(1, elapsed / ENTRANCE_DURATION_MS);
       setEntranceProgress(t);
       if (t < 1) raf = requestAnimationFrame(tick);
@@ -211,14 +218,16 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
   const rotation = useGraphStore(state => state.orbitRotation);
   const concept = useMemo(() => candidateToConcept(candidate), [candidate]);
 
-  // Entrance animation: scale from 0 + fade in
-  const mountTimeRef = useRef(Date.now());
+  // Entrance animation: scale from 0 + fade in. Clocked per painted frame with a
+  // capped delta (see OrbitConnection) so mount jank can't swallow the effect.
   const [entranceProgress, setEntranceProgress] = useState(0);
   useEffect(() => {
-    mountTimeRef.current = Date.now();
     let raf;
-    const tick = () => {
-      const elapsed = Date.now() - mountTimeRef.current;
+    let last = null;
+    let elapsed = 0;
+    const tick = (ts) => {
+      if (last !== null) elapsed += Math.min(ts - last, ENTRANCE_MAX_FRAME_MS);
+      last = ts;
       const t = Math.min(1, elapsed / ENTRANCE_DURATION_MS);
       setEntranceProgress(t);
       if (t < 1) raf = requestAnimationFrame(tick);

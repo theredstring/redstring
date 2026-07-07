@@ -8667,6 +8667,36 @@ function NodeCanvas() {
     semanticOrbitActiveRef.current = semanticOrbitActive;
   }, [semanticOrbitActive]);
 
+  // Keep the orbit dim rect sized to the visible viewport (plus a full viewport
+  // of margin per side) instead of the whole 100000px canvas plane. A full-plane
+  // rect's transformed bounds at high zoom are enormous, which thrashes the SVG
+  // renderer's tile cache during the per-frame repaints orbit mode causes.
+  // Sized imperatively on every pan/zoom tick (canvas-transform-change fires
+  // synchronously from the transform mutators) so it never lags a gesture the
+  // way settled-state (150ms debounce) sizing did.
+  const orbitDimRectRef = useRef(null);
+  const updateOrbitDimRect = useCallback(() => {
+    const el = orbitDimRectRef.current;
+    if (!el) return;
+    const pan = panOffsetRef.current;
+    const z = zoomLevelRef.current || 1;
+    const vp = viewportSizeRef.current;
+    const vw = vp.width / z;
+    const vh = vp.height / z;
+    const x0 = (0 - pan.x) / z + (canvasSize?.offsetX || 0);
+    const y0 = (0 - pan.y) / z + (canvasSize?.offsetY || 0);
+    el.setAttribute('x', x0 - vw);
+    el.setAttribute('y', y0 - vh);
+    el.setAttribute('width', vw * 3);
+    el.setAttribute('height', vh * 3);
+  }, [canvasSize]);
+
+  useEffect(() => {
+    if (!semanticOrbitActive) return;
+    updateOrbitDimRect();
+    window.addEventListener('canvas-transform-change', updateOrbitDimRect);
+    return () => window.removeEventListener('canvas-transform-change', updateOrbitDimRect);
+  }, [semanticOrbitActive, updateOrbitDimRect]);
 
   // Fetch orbit candidates only when orbit mode is explicitly active
   useEffect(() => {
@@ -14470,10 +14500,13 @@ function NodeCanvas() {
                             the top of the stack and eats taps on orbit items. */}
                         {semanticOrbitActive && (
                           <rect
-                            x={canvasSize.offsetX}
-                            y={canvasSize.offsetY}
-                            width={canvasSize.width}
-                            height={canvasSize.height}
+                            /* Geometry is set imperatively (viewport-sized, tracks
+                               every pan/zoom tick) — see updateOrbitDimRect. Kept out
+                               of JSX so React re-renders don't clobber it. */
+                            ref={(el) => {
+                              orbitDimRectRef.current = el;
+                              if (el) updateOrbitDimRect();
+                            }}
                             fill="rgba(0, 0, 0, 0.7)"
                             style={{ cursor: 'pointer', touchAction: 'manipulation' }}
                             onMouseDown={(e) => {
