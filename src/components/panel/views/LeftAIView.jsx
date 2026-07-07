@@ -1,4 +1,5 @@
 import React from 'react';
+import { sanitizeHtml } from '../../../utils/sanitizeHtml.js';
 import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Brain, Wrench, Plus, X, ChevronDown, Paperclip, FileText } from 'lucide-react';
 import * as fileStorage from '../../../store/fileStorage.js';
 import mcpClient from '../../../services/mcpClient.js';
@@ -3143,7 +3144,7 @@ const LeftAIView = ({ compact = false,
                               key={`text-${i}`}
                               className="ai-message-text"
                               style={{ userSelect: 'text', cursor: 'text' }}
-                              dangerouslySetInnerHTML={{ __html: renderMarkdown(block.content) }}
+                              dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(block.content)) }}
                             />
                           );
                         }
@@ -3198,7 +3199,7 @@ const LeftAIView = ({ compact = false,
                       <div
                         className="ai-message-text"
                         style={{ userSelect: 'text', cursor: 'text' }}
-                        dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(message.content)) }}
                       />
                     ) : message.isStreaming ? (
                       <span className="ai-thinking-dots">

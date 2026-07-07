@@ -164,6 +164,27 @@ class GitAutosavePolicy {
   }
 
   /**
+   * Drops any queued batch and cancels pending commit timers.
+   *
+   * Called on universe switch: the policy is a singleton whose engine
+   * pointer gets hot-swapped, so a timer armed for the OLD universe must
+   * never fire a commit through the NEW universe's engine. (The engine also
+   * refuses wrong-slug state as a hard guard; this prevents the attempt.)
+   */
+  clearPending() {
+    if (this.pendingTimeout) {
+      clearTimeout(this.pendingTimeout);
+      this.pendingTimeout = null;
+    }
+    if (this.maxTimeout) {
+      clearTimeout(this.maxTimeout);
+      this.maxTimeout = null;
+    }
+    this.currentBatch = [];
+    this.retryCount = 0;
+  }
+
+  /**
    * Execute batch commit with policy enforcement
    */
   async executeBatchCommit(reason) {
@@ -340,9 +361,12 @@ class GitAutosavePolicy {
 
       setTimeout(() => this.executeBatchCommit(reason), delay);
     } else {
-      // Max retries exceeded
-      this.notifyStatus('error', `Commit failed after ${this.maxRetries} retries: ${error.message}`);
-      this.currentBatch = []; // Clear batch to prevent infinite retries
+      // Max retries exceeded. Keep the batch (state still needs committing —
+      // dropping it here silently lost the user's last edits from Git when
+      // they stopped editing before the engine recovered) but stop the retry
+      // loop; the next edit or engine recovery re-triggers a commit that
+      // includes everything.
+      this.notifyStatus('error', `Commit failed after ${this.maxRetries} retries: ${error.message}. Will retry on next change.`);
       this.retryCount = 0;
     }
   }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { sanitizeHtml } from '../../utils/sanitizeHtml.js';
 import { useTheme } from '../../hooks/useTheme.js';
 
 export default function ThinkingBlock({ content, contentHtml, collapsed }) {
@@ -58,7 +59,7 @@ export default function ThinkingBlock({ content, contentHtml, collapsed }) {
           cursor: 'text',
         }}>
           {contentHtml
-            ? <div dangerouslySetInnerHTML={{ __html: contentHtml }} />
+            ? <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(contentHtml) }} />
             : <div style={{ whiteSpace: 'pre-wrap' }}>{content}</div>}
         </div>
       )}

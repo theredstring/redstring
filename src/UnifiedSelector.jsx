@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { sanitizeHtml } from './utils/sanitizeHtml.js';
 import { createPortal } from 'react-dom';
 import { X, Palette, Plus } from 'lucide-react';
 import { NODE_DEFAULT_COLOR, MODAL_CLOSE_ICON_SIZE } from './constants';
@@ -264,7 +265,7 @@ const UnifiedSelector = ({
             {subtitle && (
               <div
                 style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: theme.canvas.textSecondary, fontSize: subtitleFontSize, fontFamily: "'EmOne', sans-serif" }}
-                dangerouslySetInnerHTML={{ __html: subtitle }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(subtitle) }}
               />
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: isSmallScreen ? '6px' : '8px' }}>

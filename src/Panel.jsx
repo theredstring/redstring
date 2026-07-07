@@ -457,6 +457,40 @@ const panelPropsAreEqual = (prevProps, nextProps) => {
   return true;
 };
 
+/**
+ * @typedef {Object} PanelProps
+ * @property {boolean} isExpanded - Whether the panel is open.
+ * @property {function(): void} onToggleExpand - Callback to open/close the panel.
+ * @property {function(boolean): void} onFocusChange - Called when the panel gains or loses keyboard focus.
+ * @property {'left'|'right'} [side='right'] - Which side of the canvas this panel occupies.
+ * @property {string|null} activeGraphId - ID of the graph currently displayed on the canvas.
+ * @property {Object} storeActions - Bound Zustand store actions passed from NodeCanvas.
+ * @property {number} renderTrigger - Incrementing counter that forces the panel to re-render.
+ * @property {string} graphName - Display name of the active graph.
+ * @property {string} graphDescription - Description of the active graph.
+ * @property {string|null} activeDefinitionNodeId - Prototype ID of the node whose definition is being browsed.
+ * @property {Map<string, number>} [nodeDefinitionIndices] - Active definition index per "nodeId-graphId" composite key.
+ * @property {function(): void} onStartHurtleAnimationFromPanel - Triggers the hurtle zoom animation from panel context.
+ * @property {boolean} [leftPanelExpanded=true] - Whether the left panel is currently open (used for exclusive-mode logic).
+ * @property {Set<string>} [selectedInstanceIds] - Instance IDs of nodes currently selected on the canvas.
+ * @property {Array<Object>} [hydratedNodes] - Hydrated node objects (prototype + instance merged) for the active graph.
+ * @property {boolean} [rightPanelExpanded=true] - Whether the right panel is currently open.
+ * @property {boolean} initialViewActive - True when the canvas is showing the initial empty-state view.
+ */
+
+/**
+ * Resizable side panel displaying node metadata, tabs, and graph-level actions.
+ *
+ * Rendered on the left (graph/type list) and right (node detail, AI assistant, settings)
+ * sides of NodeCanvas. Implemented as a `memo(forwardRef(...))` so NodeCanvas can hold
+ * an imperative ref for scroll commands and panel measurements, while still benefiting
+ * from memoization on stable prop sets.
+ *
+ * The panel is not connected to the Zustand store directly — all store data and actions
+ * are passed down from NodeCanvas via props to keep its subscription surface minimal.
+ *
+ * @type {React.ForwardRefExoticComponent<PanelProps & React.RefAttributes<HTMLDivElement>>}
+ */
 const Panel = memo(forwardRef(
   ({
     isExpanded,

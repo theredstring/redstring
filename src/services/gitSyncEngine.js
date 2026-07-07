@@ -7,9 +7,22 @@ import { exportToRedstring } from '../formats/redstringFormat.js';
 
 // Source of truth modes
 const SOURCE_OF_TRUTH = {
-  LOCAL: 'local',    // Redstring file is authoritative 
+  LOCAL: 'local',    // Redstring file is authoritative
   GIT: 'git'         // Git repository is authoritative (default)
 };
+
+/**
+ * Canonical remote file base name. The SINGLE place this sanitization lives —
+ * every reader and writer of `universes/<folder>/<base>.redstring` must agree
+ * on the name, or a universe with spaces/special chars in its filename forks
+ * into two remote files (engine writes the sanitized name while direct reads
+ * look at the raw one, and neither sees the other's data).
+ */
+export const sanitizeGitFileBaseName = (name) => (name || 'universe')
+  .replace(/\.redstring$/i, '')
+  .replace(/[^a-zA-Z0-9-_]/g, '-') // Replace spaces and special chars with hyphens
+  .replace(/-+/g, '-') // Collapse multiple hyphens
+  .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
 
 class GitSyncEngine {
   constructor(provider, sourceOfTruth = SOURCE_OF_TRUTH.GIT, universeSlug = 'default', fileBaseName = 'universe', universeFolder = null) {
@@ -18,12 +31,8 @@ class GitSyncEngine {
     this.universeSlug = (universeSlug || 'default').trim() || 'default';
     // Universe folder in the repo (e.g., "default") - defaults to slug if not provided
     this.universeFolder = universeFolder || this.universeSlug;
-    // Sanitize file base name to prevent URL encoding issues
-    this.fileBaseName = (fileBaseName || 'universe')
-      .replace(/\.redstring$/i, '')
-      .replace(/[^a-zA-Z0-9-_]/g, '-') // Replace spaces and special chars with hyphens
-      .replace(/-+/g, '-') // Collapse multiple hyphens
-      .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
+    // Canonical sanitized base name (see sanitizeGitFileBaseName)
+    this.fileBaseName = sanitizeGitFileBaseName(fileBaseName);
     this.localState = new Map(); // Instant updates
     this.pendingCommits = []; // Queue of pending changes
     // Optimized auto-save settings based on authentication method
@@ -71,6 +80,26 @@ class GitSyncEngine {
 
     // Optional UI status handler
     this.statusHandler = null;
+
+    // Optimistic concurrency state.
+    // `undefined` = we've never observed the remote (first write probes);
+    // `null`      = remote confirmed absent (create);
+    // string      = SHA from our last successful read or write.
+    // Every push asserts this SHA — a mismatch means another device moved
+    // the remote, and we pull-and-compare instead of overwriting their work.
+    this.lastKnownRemoteSha = undefined;
+
+    // Set by universeBackend: async ({ remoteData, universeSlug }) =>
+    // 'overwrite' | 'conflict'. Called when a push discovers the remote
+    // changed under us. 'overwrite' = contents are equivalent/safe, retry the
+    // push; 'conflict' = real divergence, block pushes until resolved.
+    this.onRemoteDivergence = null;
+
+    // True while a remote divergence awaits user resolution. Blocks the
+    // autosave queue (updateState/processPendingCommits); forceCommit still
+    // works so the conflict-resolution save can go through, and clears the
+    // flag on success.
+    this.remoteConflictPending = false;
 
     // Restore the persisted commit floor for this universe slug. Without this,
     // a fresh engine after page refresh has lastCommittedNodeCount=0 — meaning
@@ -451,6 +480,22 @@ class GitSyncEngine {
   }
 
   updateState(storeState, force = false) {
+    // Identity guard: state stamped for a different universe must never be
+    // committed through this engine. GitAutosavePolicy is a singleton whose
+    // engine pointer is hot-swapped on universe switch — an idle timer
+    // straddling the switch could otherwise commit universe A's content to
+    // universe B's remote file.
+    if (storeState?._universeSlug && storeState._universeSlug !== this.universeSlug) {
+      console.warn(`[GitSyncEngine] Refusing updateState: state belongs to "${storeState._universeSlug}" but this engine syncs "${this.universeSlug}"`);
+      return;
+    }
+
+    // A remote divergence is awaiting user resolution — queuing more commits
+    // would just hammer the conflict. The resolution flow uses forceCommit.
+    if (this.remoteConflictPending) {
+      return;
+    }
+
     // Empty-state guard: refuse to queue a commit that would shrink a known-
     // non-empty repo to zero nodes. This catches transient empty store states
     // (e.g. during source-of-truth handoff or page-load races) that would
@@ -529,6 +574,76 @@ class GitSyncEngine {
     } else {
       // Normal update, log but don't spam
       console.log('[GitSyncEngine] Content updated, pending commits:', this.pendingCommits.length);
+    }
+  }
+
+  /**
+   * Push serialized content to the remote with optimistic concurrency.
+   *
+   * Asserts `lastKnownRemoteSha`. If the remote moved (another device pushed
+   * since our last sync), pulls the current remote, asks `onRemoteDivergence`
+   * whether the divergence is safe (identical/equivalent content → retry) or
+   * real (surface the conflict flow and block pushes). NEVER blind-overwrites
+   * a diverged remote.
+   *
+   * @private
+   * @param {string} jsonString - Serialized universe content.
+   * @returns {Promise<Object>} Provider write result.
+   */
+  async _commitToRemote(jsonString) {
+    const path = this.getLatestPath();
+    const options = this.lastKnownRemoteSha !== undefined
+      ? { expectedSha: this.lastKnownRemoteSha }
+      : {}; // never observed the remote — provider probes for the SHA
+
+    try {
+      const result = await this.provider.writeFileRaw(path, jsonString, options);
+      const newSha = result?.content?.sha;
+      if (newSha) this.lastKnownRemoteSha = newSha;
+      this.remoteConflictPending = false;
+      return result;
+    } catch (error) {
+      if (error?.code !== 'REMOTE_DIVERGED') throw error;
+
+      console.warn('[GitSyncEngine] Remote moved since last sync — pulling to compare before any overwrite');
+      const remote = await this.provider.readFileRawWithMeta(path);
+      this.lastKnownRemoteSha = remote.sha;
+
+      let remoteData = null;
+      try {
+        remoteData = JSON.parse(remote.content);
+      } catch (parseError) {
+        // Unparseable remote: our copy is the only readable one, and Git
+        // history preserves the corrupt blob for forensics. Safe to retry.
+        console.warn('[GitSyncEngine] Diverged remote content is unparseable — overwriting (git history retains it):', parseError.message);
+      }
+
+      let decision = 'conflict';
+      if (remoteData === null) {
+        decision = 'overwrite';
+      } else if (typeof this.onRemoteDivergence === 'function') {
+        try {
+          decision = await this.onRemoteDivergence({ remoteData, universeSlug: this.universeSlug });
+        } catch (handlerError) {
+          console.warn('[GitSyncEngine] onRemoteDivergence handler failed — treating as conflict:', handlerError);
+          decision = 'conflict';
+        }
+      }
+      // No handler wired: default to conflict — never silently overwrite.
+
+      if (decision === 'overwrite') {
+        const retry = await this.provider.writeFileRaw(path, jsonString, { expectedSha: this.lastKnownRemoteSha });
+        const retrySha = retry?.content?.sha;
+        if (retrySha) this.lastKnownRemoteSha = retrySha;
+        this.remoteConflictPending = false;
+        return retry;
+      }
+
+      this.remoteConflictPending = true;
+      this.notifyStatus('warning', 'This universe changed on another device — choose which version to keep.');
+      const conflictError = new Error('Remote universe changed since last sync — resolution required before pushing.');
+      conflictError.code = 'REMOTE_CONFLICT';
+      throw conflictError;
     }
   }
 
@@ -664,11 +779,16 @@ class GitSyncEngine {
 
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          await this.provider.writeFileRaw(this.getLatestPath(), jsonString);
+          await this._commitToRemote(jsonString);
           writeSuccess = true;
           break;
         } catch (writeError) {
           lastWriteError = writeError;
+
+          // A surfaced conflict is not retryable here — the user must resolve.
+          if (writeError.code === 'REMOTE_CONFLICT') {
+            throw writeError;
+          }
 
           // Check if this is a transient network error
           const isNetworkError = writeError.message?.includes('network') ||
@@ -722,9 +842,14 @@ class GitSyncEngine {
         this.isInErrorBackoff = true;
         this.notifyStatus('warning', `Too many errors, pausing sync for ${this.errorBackoffDelay / 1000}s`);
 
-        // Clear pending commits to prevent infinite retry loops
-        this.pendingCommits = [];
-        this.hasChanges = false;
+        // Keep ONLY the latest snapshot so it retries once backoff ends.
+        // Clearing the queue entirely meant a user who stopped editing and
+        // closed the tab lost their last edits from Git forever, while the
+        // UI had long since said "Saved". Backoff + rate limiting already
+        // prevent an infinite retry loop; the retained snapshot just gives
+        // the recovery cycle something to push.
+        this.pendingCommits = this.pendingCommits.slice(-1);
+        this.hasChanges = this.pendingCommits.length > 0;
       } else {
         // Normal error handling
         this.notifyStatus('error', `Commit failed: ${error.message || 'Unknown error'}`);
@@ -748,11 +873,44 @@ class GitSyncEngine {
   }
 
   /**
-   * ALWAYS force commits - this is an overwriter, no "mode" needed
-   * Aggressive rate limiting and redundancy prevention
+   * Immediate commit path (Save Now, quit flush, conflict resolution,
+   * migration write-back).
+   *
+   * Guards applied: universe identity, empty-state floor (opt out with
+   * `options.allowEmpty` for intentional clears), redundancy, rate limiting.
+   * Writes go through the optimistic-concurrency path — a diverged remote
+   * surfaces the conflict flow instead of being overwritten.
+   *
+   * @param {Object} storeState - Store snapshot to commit.
+   * @param {Object} [options={}]
+   * @param {boolean} [options.allowEmpty=false] - Permit committing zero
+   *   nodes over a previously non-empty remote (intentional clear).
+   * @returns {Promise<boolean>} `true` if committed; `false` if skipped
+   *   (rate limited / no changes). Throws on failure or unresolved conflict.
    */
-  async forceCommit(storeState) {
+  async forceCommit(storeState, options = {}) {
     try {
+      // Identity guard — see updateState for rationale.
+      if (storeState?._universeSlug && storeState._universeSlug !== this.universeSlug) {
+        console.warn(`[GitSyncEngine] Refusing forceCommit: state belongs to "${storeState._universeSlug}" but this engine syncs "${this.universeSlug}"`);
+        return false;
+      }
+
+      // Empty-state floor. updateState and processPendingCommits both refuse
+      // to shrink a known-non-empty remote to zero — but forceCommit is the
+      // path autosave policies and quit flushes actually use, so without the
+      // same floor here a transient empty snapshot (universe switch, HMR
+      // reset) could wipe the remote AND then persist floor=0, disarming the
+      // guard for all subsequent commits.
+      if (!options.allowEmpty && this.lastCommittedNodeCount > 0) {
+        const incomingCount = this._countNodes(storeState);
+        if (incomingCount === 0) {
+          console.warn('[GitSyncEngine] Refusing forceCommit: state has 0 nodes but last commit had', this.lastCommittedNodeCount, '— pass allowEmpty to clear intentionally.');
+          this.notifyStatus('warning', 'Commit blocked: state is empty but the repository has prior data.');
+          return false;
+        }
+      }
+
       // REASONABLE RATE LIMITING: Prevent too frequent commits but allow responsive saves
       const now = Date.now();
       const timeSinceLastCommit = now - this.lastCommitTime;
@@ -775,8 +933,7 @@ class GitSyncEngine {
         return false;
       }
 
-      console.log('[GitSyncEngine] ALWAYS force committing - overwriter behavior...');
-      this.notifyStatus('info', 'Force committing changes...');
+      this.notifyStatus('info', 'Committing changes...');
 
       // Clear any pending debounce
       if (this.debounceTimeout) {
@@ -794,51 +951,53 @@ class GitSyncEngine {
       }
       this.isCommitInProgress = true;
 
-      console.log('[GitSyncEngine] Always overwrites - forcing commit regardless of any detection');
+      // Track API call for circuit breaker
+      this.recentApiCalls.push(Date.now());
 
-      // Try up to 5 times with exponential backoff for 409 conflicts
+      // Optimistic-concurrency write: retries only for transient network
+      // errors. A diverged remote goes through pull-and-compare inside
+      // _commitToRemote and either safely retries or surfaces the conflict.
       let lastError = null;
-      for (let attempt = 1; attempt <= 5; attempt++) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          // Track API call for circuit breaker
-          this.recentApiCalls.push(Date.now());
-
-          await this.provider.writeFileRaw(this.getLatestPath(), jsonString);
-
-          // Success! Update tracking
-          this.lastCommittedHash = currentHash;
-          this.lastCommittedNodeCount = this._countNodes(storeState);
-          this.hasChanges = false;
-          this.pendingCommits = []; // Clear pending commits
-          this.lastCommitTime = now; // Use original timestamp for rate limiting
-          this._persistFloor();
-
-          // Reset error tracking on successful commit
-          this.consecutiveErrors = 0;
-          this.isInErrorBackoff = false;
-
-          console.log('[GitSyncEngine] OVERWRITER commit successful');
-          this.notifyStatus('success', 'Commit successful');
-          return true;
-
+          await this._commitToRemote(jsonString);
+          lastError = null;
+          break;
         } catch (error) {
           lastError = error;
-          if (error.message && error.message.includes('409') && attempt < 5) {
-            // Reasonable backoff for 409 conflicts: 1s, 2s, 4s, 6s
-            const backoffDelay = Math.min(1000 * attempt, 6000);
-            console.log(`[GitSyncEngine] Attempt ${attempt} got 409, backing off ${backoffDelay}ms...`);
-            await new Promise(resolve => setTimeout(resolve, backoffDelay));
+          if (error.code === 'REMOTE_CONFLICT') break;
+          const isNetworkError = error.message?.includes('network') ||
+            error.message?.includes('fetch') ||
+            error.message?.includes('NETWORK_CHANGED');
+          if (isNetworkError && attempt < 3) {
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
             continue;
-          } else {
-            break; // Non-409 error or final attempt
           }
+          break;
         }
       }
 
-      // All attempts failed
-      console.error('[GitSyncEngine] OVERWRITER commit failed after 5 attempts:', lastError);
-      this.notifyStatus('error', `Commit failed: ${lastError.message || 'Unknown error'}`);
-      throw lastError;
+      if (lastError) {
+        console.error('[GitSyncEngine] forceCommit failed:', lastError);
+        this.notifyStatus('error', `Commit failed: ${lastError.message || 'Unknown error'}`);
+        throw lastError;
+      }
+
+      // Success! Update tracking
+      this.lastCommittedHash = currentHash;
+      this.lastCommittedNodeCount = this._countNodes(storeState);
+      this.hasChanges = false;
+      this.pendingCommits = []; // Clear pending commits
+      this.lastCommitTime = now; // Use original timestamp for rate limiting
+      this._persistFloor();
+
+      // Reset error tracking on successful commit
+      this.consecutiveErrors = 0;
+      this.isInErrorBackoff = false;
+
+      console.log('[GitSyncEngine] forceCommit successful');
+      this.notifyStatus('success', 'Commit successful');
+      return true;
 
     } finally {
       this.isCommitInProgress = false;
@@ -846,42 +1005,52 @@ class GitSyncEngine {
   }
 
   /**
-   * Load state from Git repository
+   * Load state from Git repository.
+   *
+   * Returns `null` ONLY for a confirmed-missing or confirmed-empty file
+   * ("start fresh" is safe). Every other failure — network, auth, truncated
+   * read, corrupted JSON — THROWS: conflating them with "no file" let stale
+   * browser-cache data load instead and later overwrite a newer remote.
    */
   async loadFromGit() {
+    console.log('[GitSyncEngine] Loading from Git repository...');
+
+    let content;
+    let sha = null;
     try {
-      console.log('[GitSyncEngine] Loading from Git repository...');
-
-      // Try to load the main universe file (raw JSON) for this slug
-      let content;
-      try {
-        content = await this.provider.readFileRaw(this.getLatestPath());
-        console.log('[GitSyncEngine] Loaded main universe file');
-      } catch (error) {
-        console.log('[GitSyncEngine] Main file not found for slug, starting fresh');
-        return null;
-      }
-
-      // Check if content is empty or whitespace
-      if (!content || content.trim() === '') {
-        console.log('[GitSyncEngine] File is empty, starting fresh');
-        return null;
-      }
-
-      // Try to parse the content
-      try {
-        const redstringData = JSON.parse(content);
-        console.log('[GitSyncEngine] Successfully parsed Redstring data');
-        return redstringData;
-      } catch (parseError) {
-        console.warn('[GitSyncEngine] Failed to parse JSON, file may be corrupted:', parseError.message);
-        console.log('[GitSyncEngine] File content preview:', content.substring(0, 100) + '...');
-        return null; // Return null to start fresh
-      }
-
+      const result = await this.provider.readFileRawWithMeta(this.getLatestPath());
+      content = result.content;
+      sha = result.sha;
+      console.log('[GitSyncEngine] Loaded main universe file');
     } catch (error) {
-      console.error('[GitSyncEngine] Failed to load from Git:', error);
-      return null; // Return null instead of throwing to start fresh
+      if (error?.code === 'FILE_NOT_FOUND' || (error?.message || '').includes('File not found')) {
+        console.log('[GitSyncEngine] Main file not found for slug, starting fresh');
+        this.lastKnownRemoteSha = null; // confirmed absent
+        return null;
+      }
+      // Auth/network/truncation — remote content is UNKNOWN, not missing.
+      console.error('[GitSyncEngine] Failed to read from Git (not a 404 — surfacing):', error?.message || error);
+      throw error;
+    }
+
+    this.lastKnownRemoteSha = sha;
+
+    // Check if content is empty or whitespace
+    if (!content || content.trim() === '') {
+      console.log('[GitSyncEngine] File is empty, starting fresh');
+      return null;
+    }
+
+    // Try to parse the content
+    try {
+      const redstringData = JSON.parse(content);
+      console.log('[GitSyncEngine] Successfully parsed Redstring data');
+      return redstringData;
+    } catch (parseError) {
+      console.warn('[GitSyncEngine] Failed to parse JSON, file may be corrupted:', parseError.message);
+      const err = new Error(`Remote universe file is corrupted (invalid JSON): ${parseError.message}`);
+      err.code = 'REMOTE_CORRUPT';
+      throw err;
     }
   }
 

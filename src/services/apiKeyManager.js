@@ -1,9 +1,11 @@
 /**
  * API Key Manager for Redstring AI Chat
- * 
+ *
  * Securely stores and manages API keys in browser localStorage
  * Keys are stored locally on the user's machine only
  */
+
+import { encryptSecret, decryptSecret, isEncrypted } from '../utils/secureStore.js';
 
 class APIKeyManager {
   constructor() {
@@ -27,11 +29,12 @@ class APIKeyManager {
    */
   async storeAPIKey(apiKey, provider = 'anthropic', config = {}) {
     try {
-      // Simple obfuscation (in production, you might want stronger encryption)
-      const obfuscatedKey = this.obfuscate(apiKey);
+      // Encrypt at rest with AES-GCM (non-extractable key in IndexedDB).
+      // Falls back to plaintext only if WebCrypto is unavailable.
+      const encryptedKey = await encryptSecret(apiKey);
 
       const keyData = {
-        key: obfuscatedKey,
+        key: encryptedKey,
         provider,
         endpoint: config.endpoint || this.getDefaultEndpoint(provider),
         model: config.model || this.getDefaultModel(provider),
@@ -85,10 +88,15 @@ class APIKeyManager {
     try {
       const keyData = await this._getActiveProfileData();
       if (!keyData) return null;
-      const deobfuscatedKey = this.deobfuscate(keyData.key);
+      // New format is encrypted (marker prefix); legacy profiles used the old
+      // reversible obfuscation. Branch so existing users are never locked out —
+      // their key upgrades to ciphertext on the next storeAPIKey().
+      const plainKey = isEncrypted(keyData.key)
+        ? await decryptSecret(keyData.key)
+        : this.deobfuscate(keyData.key);
 
       console.log('[API Key Manager] API key retrieved successfully');
-      return deobfuscatedKey;
+      return plainKey;
     } catch (error) {
       console.error('[API Key Manager] Failed to retrieve API key:', error);
       return null;

@@ -167,6 +167,22 @@ const GLIDE_FRICTION_MIN = 0.80;                // clamp floor for glide frictio
 const GLIDE_FRICTION_MAX = 0.985;               // clamp ceiling for glide friction (long coast, never near-perpetual)
 
 
+/**
+ * Root canvas component for Redstring's graph interface.
+ *
+ * Renders the full SVG-based interactive graph: nodes, edges, PieMenu, abstraction
+ * carousel, control panels, and the header. All state is sourced from the Zustand
+ * store — this component accepts no props.
+ *
+ * Responsibilities:
+ * - Pan/zoom via wheel, trackpad pinch, touch, and middle-mouse drag
+ * - Node drag-and-drop with canvas auto-scroll at viewport edges
+ * - Edge creation by dragging from a node's connection handle
+ * - PieMenu lifecycle: open, transition, animation completion
+ * - Keyboard shortcuts (Cmd+F, Escape, Delete, Backspace, undo/redo)
+ * - Semantic orbit animations (nodes orbit the active node)
+ * - Context-aware definition navigation
+ */
 function NodeCanvas() {
   // CULLING FLAG - viewport culling for nodes and edges
   const ENABLE_CULLING = false;
@@ -6420,6 +6436,20 @@ function NodeCanvas() {
     });
   };
 
+  /**
+   * Handles wheel events for zoom and pan, with cross-platform input discrimination.
+   *
+   * Zoom path: Cmd+scroll (Mac) or Ctrl+scroll, delegates to the canvas worker for
+   * the new viewport. Distinguishes trackpad pinch (`ctrlKey` + small delta <20px)
+   * from a real modifier+wheel (large delta) and applies the appropriate sensitivity.
+   *
+   * Pan path: unmodified scroll is passed through as canvas pan. Fractional deltas
+   * from a precision trackpad cause smooth glide; integer multiples indicate a
+   * detent mouse wheel and are handled with higher per-step sensitivity.
+   *
+   * @param {WheelEvent} e - Native wheel event. `deltaMode` normalization converts
+   *   line-based and page-based values to pixels before any math.
+   */
   const handleWheel = async (e) => {
     if (pinchRef.current.active) return;
     if (trackpadZoomEnabled && (e.ctrlKey || e.metaKey)) return;
@@ -6705,6 +6735,20 @@ function NodeCanvas() {
   const pendingHoverCheck = useRef(null);
   const hoverCheckScheduled = useRef(false);
 
+  /**
+   * Handles pointer-move for dragging, panning, edge-preview, and hover detection.
+   *
+   * Runs on every `mousemove`/`pointermove` event over the canvas SVG. Branches:
+   * - **Middle-mouse zoom drag**: uses `movementY` (pointer is locked) to drive zoom
+   *   anchored at the original mousedown point.
+   * - **Node drag**: updates the dragged node's canvas position; triggers viewport
+   *   edge-scroll when the pointer is within the scroll margin.
+   * - **Edge creation preview**: draws the in-progress edge line from source to cursor.
+   * - **Canvas pan**: updates `panOffset` when in pan mode (no node targeted).
+   * - **Hover detection**: debounced hit-test to update the hovered node/edge state.
+   *
+   * @param {MouseEvent|PointerEvent} e - The pointer-move event from the SVG element.
+   */
   async function handleMouseMove(e) {
     // Update mouse position for edge panning
     mousePositionRef.current = { x: e.clientX, y: e.clientY };
@@ -7248,6 +7292,19 @@ function NodeCanvas() {
     // (Removed per-move extra smoothing to avoid double updates)
   };
 
+  /**
+   * Handles mousedown to initiate drags, panning, edge creation, and selection.
+   *
+   * Button routing:
+   * - **Right-click (button 2)**: exits immediately; the native context menu handles it.
+   * - **Middle-click (button 1, zoom enabled)**: locks the pointer and starts the
+   *   zoom-by-vertical-drag gesture.
+   * - **Primary (button 0)**: hit-tests against nodes and edges to decide whether to
+   *   start a node drag, an edge-creation drag, or a canvas pan. Also begins a
+   *   rubber-band selection box if the click lands on empty canvas.
+   *
+   * @param {MouseEvent} e - The mousedown event from the SVG element.
+   */
   async function handleMouseDown(e) {
     // Ignore right-clicks (button === 2) so context menu can handle them without locking canvas panning
     if (e && e.button === 2) {
@@ -7328,6 +7385,23 @@ function NodeCanvas() {
     panSourceRef.current = isTouchDeviceRef.current ? 'touch' : 'mouse';
     panVelocityHistoryRef.current = [{ x: e.clientX, y: e.clientY, time: performance.now() }];
   };
+  /**
+   * Handles mouseup to finalize drags, connections, pan momentum, and selection.
+   *
+   * Protected by a re-entry guard (`handleMouseUpInProgressRef`) because the event
+   * fires on both the SVG element and the window capture listener in the same tick.
+   * Branches:
+   * - **Middle-mouse release**: ends the pointer-lock zoom gesture; if the cursor
+   *   never moved and landed on a node, opens that node's right-panel tab.
+   * - **Node drag end**: signals `SaveCoordinator` that the interaction is done,
+   *   then commits the final position to the store.
+   * - **Edge creation end**: if the cursor lifted over a valid target node, creates
+   *   the edge; otherwise discards the in-progress connection.
+   * - **Pan momentum**: launches a momentum animation from the recorded velocity history.
+   * - **Selection box end**: finalizes the rubber-band selection.
+   *
+   * @param {MouseEvent} e - The mouseup event.
+   */
   async function handleMouseUp(e) {
 
     // console.log('[Mouse Up] Called, history length:', panVelocityHistoryRef.current.length, 'Stack:', new Error().stack.split('\n').slice(1, 4).join('\n'));
@@ -8364,6 +8438,21 @@ function NodeCanvas() {
 
   // Panel toggle and TypeList keyboard shortcuts - work even when inputs are focused
   useEffect(() => {
+    /**
+     * Global keydown handler registered on `document` (not the SVG element).
+     *
+     * Runs even when focus is inside a text input so panel shortcuts remain
+     * available while editing node descriptions. Text-input-aware: destructive
+     * shortcuts (Delete, Backspace) are suppressed when the active element is
+     * editable. Handled keys:
+     * - **Cmd/Ctrl+F**: opens the graph search header.
+     * - **Escape**: closes search, dismisses PieMenu, clears edge-creation state.
+     * - **Delete / Backspace**: deletes the selected node(s) or edge when canvas has focus.
+     * - **Cmd/Ctrl+Z**: undo; **Cmd/Ctrl+Shift+Z** or **Cmd/Ctrl+Y**: redo.
+     * - **Tab**: cycles the right-panel tab focus.
+     *
+     * @param {KeyboardEvent} e - The keydown event.
+     */
     const handleGlobalKeyDown = (e) => {
       // Check for Cmd+F (Mac) or Ctrl+F (Windows/Linux) to open Graph Search
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {

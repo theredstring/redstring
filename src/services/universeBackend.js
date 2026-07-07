@@ -695,6 +695,32 @@ class UniverseBackend {
   }
 
   /**
+   * Generate a universe filename that no other universe is already using.
+   *
+   * Slugs are deduped but filenames were not — two universes named "Universe"
+   * would both target `Universe.redstring`, and the workspace-folder save
+   * fallback (which looks files up by name) would let one universe overwrite
+   * the other's file.
+   */
+  generateUniqueFileName(name) {
+    const taken = new Set();
+    for (const u of this.universes.values()) {
+      const p = u?.localFile?.path || u?.localFile?.fileName;
+      if (typeof p === 'string' && p) {
+        taken.add(p.split(/[/\\]/).pop().toLowerCase());
+      }
+    }
+    const base = this.sanitizeFileName(name);
+    if (!taken.has(base.toLowerCase())) return base;
+    const stem = base.replace(/\.redstring$/, '');
+    for (let i = 1; i < 1000; i++) {
+      const candidate = `${stem}-${i}.redstring`;
+      if (!taken.has(candidate.toLowerCase())) return candidate;
+    }
+    return `${stem}-${Date.now()}.redstring`;
+  }
+
+  /**
    * Generate unique slug
    */
   generateUniqueSlug(name) {
@@ -1565,6 +1591,14 @@ class UniverseBackend {
                 hasNodes: storeState?.nodePrototypes ? (storeState.nodePrototypes instanceof Map ? storeState.nodePrototypes.size : Object.keys(storeState.nodePrototypes).length) : 0
               });
 
+              // Stamp the state with the universe it belongs to so the save
+              // adapter's stale-slug guard works for EVERY load path (startup,
+              // background, reload, auth-triggered, conflict-resolve) — not
+              // just the switch/create paths that stamped it explicitly.
+              if (storeState && typeof storeState === 'object' && !storeState._universeSlug && this.activeUniverseSlug) {
+                storeState._universeSlug = this.activeUniverseSlug;
+              }
+
               store.loadUniverseFromFile(storeState);
               umLog('[UniverseBackend] Successfully loaded universe data into store');
               return true;
@@ -1770,6 +1804,54 @@ class UniverseBackend {
   /**
    * Ensure a Git sync engine exists for a universe
    */
+  /**
+   * Refreshes a live engine provider's GitHub App token when it is expired
+   * or about to expire, updating the provider in place. No-op for OAuth
+   * providers (long-lived tokens) and in Electron (stored user-to-server
+   * token is managed elsewhere).
+   */
+  async _refreshEngineTokenIfNeeded(engine) {
+    const provider = engine?.provider;
+    if (!provider || provider.authMethod !== 'github-app') return;
+    if (typeof provider.updateToken !== 'function') return;
+
+    const app = persistentAuth.getAppInstallation?.();
+    if (!app?.installationId) return;
+
+    const tokenExpiresAt = app.tokenExpiresAt ? new Date(app.tokenExpiresAt) : null;
+    const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000);
+    const stillFresh = app.accessToken && tokenExpiresAt && tokenExpiresAt > fiveMinutesFromNow;
+
+    if (stillFresh) {
+      // A newer token may have been minted elsewhere (e.g. loadFromGitDirect)
+      // — make sure the engine's provider uses it.
+      if (provider.token !== app.accessToken) {
+        provider.updateToken(app.accessToken);
+      }
+      return;
+    }
+
+    if (isElectron()) return;
+
+    const tokenResp = await oauthFetch('/api/github/app/installation-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ installation_id: app.installationId })
+    });
+    if (!tokenResp.ok) return;
+    const tokenData = await tokenResp.json();
+    if (!tokenData?.token) return;
+
+    provider.updateToken(tokenData.token);
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    await persistentAuth.storeAppInstallation({
+      ...app,
+      accessToken: tokenData.token,
+      tokenExpiresAt: expiresAt.toISOString()
+    });
+    umLog('[UniverseBackend] Refreshed GitHub App token for live engine');
+  }
+
   async ensureGitSyncEngine(universeSlug) {
     umLog(`[UniverseBackend] Ensuring Git sync engine for universe: ${universeSlug}`);
 
@@ -1778,6 +1860,13 @@ class UniverseBackend {
       const existingEngine = this.gitSyncEngines.get(universeSlug);
       if (existingEngine && existingEngine.provider) {
         umLog(`[UniverseBackend] Using existing healthy engine for ${universeSlug}`);
+        // GitHub App installation tokens expire in ~1h. The token was baked
+        // into the provider at engine creation — refresh it in place so a
+        // long-lived session doesn't spend hour 2+ failing every commit
+        // with a dead token.
+        await this._refreshEngineTokenIfNeeded(existingEngine).catch((e) => {
+          umWarn('[UniverseBackend] Token freshness check failed (continuing):', e?.message || e);
+        });
         return existingEngine;
       } else {
         umLog(`[UniverseBackend] Existing engine for ${universeSlug} is unhealthy, removing`);
@@ -1905,6 +1994,73 @@ class UniverseBackend {
       this.notifyStatus(status.type, `${universeName}: ${status.status}`);
     });
 
+    // Remote-divergence handler (optimistic concurrency). Called when a push
+    // discovers the remote moved since our last sync — i.e. another device
+    // committed. Decides 'overwrite' (contents equivalent — safe to push) or
+    // 'conflict' (real divergence — surface the slot-conflict dialog and
+    // block pushes until the user chooses).
+    engine.onRemoteDivergence = async ({ remoteData }) => {
+      try {
+        const localState = this.storeOperations?.getState?.();
+        if (!localState) return 'conflict';
+
+        let remoteState = null;
+        try {
+          remoteState = importFromRedstring(remoteData).storeState;
+        } catch (importError) {
+          umWarn('[UniverseBackend] Diverged remote could not be imported — treating as safe to overwrite (git history retains it):', importError.message);
+          return 'overwrite';
+        }
+
+        try {
+          const equal = await slotsHaveEqualKnowledge(localState, remoteState);
+          if (equal) return 'overwrite';
+        } catch (hashError) {
+          umWarn('[UniverseBackend] Semantic comparison of diverged remote failed:', hashError);
+        }
+
+        const remoteInfo = this.analyzeStoreData(remoteState);
+        if (remoteInfo.nodeCount === 0) {
+          // Remote moved but holds nothing — pushing our content loses nothing.
+          return 'overwrite';
+        }
+
+        const localInfo = this.analyzeStoreData(localState);
+        const liveUniverse = this.getUniverse(universeSlug) || universe;
+        const conflict = {
+          universeSlug,
+          universeName: liveUniverse.name || universeSlug,
+          sourceOfTruth: liveUniverse.sourceOfTruth,
+          localData: {
+            storeState: localState,
+            nodeCount: localInfo.nodeCount,
+            graphCount: localInfo.graphCount,
+            timestamp: localInfo.timestamp
+          },
+          gitData: {
+            storeState: remoteState,
+            nodeCount: remoteInfo.nodeCount,
+            graphCount: remoteInfo.graphCount,
+            timestamp: remoteInfo.timestamp
+          },
+          primaryData: localState,
+          requiresPrimarySelection: false,
+          areIdentical: false,
+          riskOverwriteEmptyPrimary: false,
+          isRemoteDivergence: true
+        };
+        this.pendingConflict = conflict;
+        this.notifyStatus('warning', `"${liveUniverse.name || universeSlug}" was changed on another device — choose which version to keep.`);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('redstring:slot-conflict', { detail: conflict }));
+        }
+        return 'conflict';
+      } catch (handlerError) {
+        umWarn('[UniverseBackend] Remote-divergence handler failed — defaulting to conflict:', handlerError);
+        return 'conflict';
+      }
+    };
+
     // Register engine
     this.gitSyncEngines.set(universeSlug, engine);
 
@@ -1958,6 +2114,15 @@ class UniverseBackend {
           if (state?._universeSlug && slug && state._universeSlug !== slug) {
             umWarn(`[UniverseBackend] Rejected stale save: state belongs to "${state._universeSlug}" but active is "${slug}"`);
             return { blocked: true, reason: 'state belongs to a different universe' };
+          }
+
+          // GUARD: A slot conflict is awaiting the user's decision — the
+          // store holds temporary fallback data from one slot, and writing
+          // it now would destroy the OTHER slot's divergent content while
+          // the dialog asking which to keep is still open.
+          if (this.pendingConflict?.universeSlug === slug) {
+            umLog(`[UniverseBackend] Autosave suppressed: slot conflict pending for ${slug}`);
+            return { blocked: true, reason: 'storage conflict awaiting resolution' };
           }
 
           const universe = slug ? this.getUniverse(slug) : null;
@@ -2540,18 +2705,34 @@ class UniverseBackend {
         umLog('[UniverseBackend] Saved current universe before switching');
       } catch (error) {
         umWarn('[UniverseBackend] Failed to save current universe before switch:', error);
+        this.notifyStatus('warning', `Could not save "${this.getUniverse(this.activeUniverseSlug)?.name || this.activeUniverseSlug}" before switching — its latest changes may not be persisted.`);
       }
     }
 
-    this.activeUniverseSlug = key;
-    this.saveToStorage();
+    // Cancel any debounced save still holding the OUTGOING universe's
+    // snapshot. Without this, a save timer scheduled with universe A's state
+    // can fire after the slug flips and write A's data into B's file. Same
+    // for the Git autosave policy's idle/max timers.
+    try {
+      const { saveCoordinator } = await import('../backend/sync/index.js');
+      saveCoordinator?.cancelPendingSaves?.();
+    } catch (e) {
+      umWarn('[UniverseBackend] Could not cancel pending saves before switch:', e);
+    }
+    try {
+      const { gitAutosavePolicy } = await import('./GitAutosavePolicy.js');
+      gitAutosavePolicy?.clearPending?.();
+    } catch (e) {
+      umWarn('[UniverseBackend] Could not clear git autosave batch before switch:', e);
+    }
 
     // CRITICAL: Cancel any pending background loads to prevent overwriting
     this.pendingBackgroundLoadId = null;
 
-    this.notifyStatus('info', `Switched to universe: ${universe.name}`);
-
-    // Load the universe data based on source of truth
+    // Load the universe data BEFORE flipping the active slug. If the load
+    // fails, the store still holds the previous universe's data — and with
+    // the slug already flipped, a "Save Now" would write the OLD universe's
+    // content into the NEW universe's file. Flip only on success.
     let storeState;
     try {
       storeState = await this.loadUniverseData(universe);
@@ -2589,10 +2770,16 @@ class UniverseBackend {
       }
     } catch (error) {
       umError('[UniverseBackend] Failed to load universe data:', error);
-      this.notifyStatus('error', `Failed to load universe: ${error.message}`);
-      this.storeOperations?.setUniverseError(error.message || 'Failed to load universe');
+      this.notifyStatus('error', `Failed to load universe "${universe.name || key}": ${error.message}. Still on the previous universe.`);
+      // The active slug was NOT flipped — the previous universe remains
+      // active and its data in the store remains saveable to its own file.
       throw error;
     }
+
+    // Load succeeded — NOW commit the switch.
+    this.activeUniverseSlug = key;
+    this.saveToStorage();
+    this.notifyStatus('info', `Switched to universe: ${universe.name}`);
 
     const result = { universe, storeState };
 
@@ -2715,6 +2902,18 @@ class UniverseBackend {
       }
     }
 
+    // Identity/load-state guards — same protections the SaveCoordinator
+    // adapter applies, enforced here because direct callers (switch pre-save,
+    // periodic saves) bypass the adapter.
+    if (storeState?._universeSlug && storeState._universeSlug !== universe.slug) {
+      umWarn(`[UniverseBackend] Save suppressed: state belongs to "${storeState._universeSlug}" but active universe is "${universe.slug}"`);
+      return { results: [], errors: ['Save suppressed: state belongs to a different universe'] };
+    }
+    if (storeState?.universeLoadingError) {
+      umWarn(`[UniverseBackend] Save suppressed: universe load failed (${storeState.universeLoadingError})`);
+      return { results: [], errors: ['Save suppressed: universe failed to load'] };
+    }
+
     // Export data asynchronously to prevent UI blocking
     const redstringData = await new Promise((resolve) => {
       if (typeof requestIdleCallback !== 'undefined') {
@@ -2748,7 +2947,10 @@ class UniverseBackend {
       if (universe.localFile.enabled && !!this.fileHandles.get(universe.slug)) {
         try {
           umLog('[UniverseBackend] Saving to linked local file (autosave)');
-          await this.saveToLinkedLocalFile(universe.slug, storeState, { suppressNotification });
+          await this.saveToLinkedLocalFile(universe.slug, storeState, {
+            suppressNotification,
+            isConflictResolution: options?.isConflictResolution === true
+          });
           results.push('local');
         } catch (error) {
           umWarn('[UniverseBackend] Local file save failed during autosave:', error);
@@ -2835,7 +3037,17 @@ class UniverseBackend {
       if (this.storeOperations?.getState) {
         const storeState = this.storeOperations.getState();
         // Force commit through the existing GitSyncEngine which handles SHA conflicts properly
-        await gitSyncEngine.forceCommit(storeState);
+        const committed = await gitSyncEngine.forceCommit(storeState);
+        if (committed === false) {
+          // forceCommit returns false for BOTH "content already committed"
+          // (fine — remote is current) and "rate-limited skip" (NOT fine —
+          // nothing was pushed). Reporting a rate-limited skip as success
+          // updates lastSync for a commit that never happened.
+          const currentHash = gitSyncEngine.generateStateHash(storeState);
+          if (gitSyncEngine.lastCommittedHash !== currentHash) {
+            throw new Error('Commit skipped (rate limited) — changes not yet pushed');
+          }
+        }
       } else {
         throw new Error('Store operations not available for Git sync');
       }
@@ -3128,10 +3340,14 @@ class UniverseBackend {
       const validation = validateFormatVersion(parsedData);
       const detectedVersion = validation?.version || 'unknown';
       const isOlder = validation?.needsMigration === true || validation?.tooOld === true;
+      const isNewer = validation?.tooNew === true;
 
-      // Only back up older-than-current files. Same-version and future-version
-      // (tooNew) loads leave no backup — there is nothing a migration could harm.
-      if (!isOlder) {
+      // Back up older-than-current files (a migration could harm them) AND
+      // future-version files: a tooNew file fails the import in this app
+      // version, and any subsequent write against that universe slot would
+      // replace content this build can't even read. The backup makes that
+      // recoverable.
+      if (!isOlder && !isNewer) {
         return;
       }
 
@@ -3443,8 +3659,23 @@ class UniverseBackend {
             ? conflict.gitData.nodeCount > 0
             : conflict.localData.nodeCount > 0;
 
+          // Never auto-resolve onto a meaningfully NEWER secondary. A user
+          // who worked offline (local newer than git) or on another device
+          // (git newer than local) must get the dialog, not a silent
+          // force-overwrite of their most recent work. 5-minute slack
+          // absorbs normal dual-write skew between the two slots.
+          const primaryTs = sourceOfTruth === SOURCE_OF_TRUTH.GIT
+            ? conflict.gitData.timestamp
+            : conflict.localData.timestamp;
+          const secondaryTs = sourceOfTruth === SOURCE_OF_TRUTH.GIT
+            ? conflict.localData.timestamp
+            : conflict.gitData.timestamp;
+          const TIMESTAMP_SLACK_MS = 5 * 60 * 1000;
+          const secondaryIsNewer = !!(primaryTs && secondaryTs &&
+            (new Date(secondaryTs).getTime() - new Date(primaryTs).getTime()) > TIMESTAMP_SLACK_MS);
+
           const canAutoResolve = primaryDefined && !conflict.riskOverwriteEmptyPrimary && (
-            conflict.areIdentical === true || primaryHasData
+            conflict.areIdentical === true || (primaryHasData && !secondaryIsNewer)
           );
           if (canAutoResolve) {
             const primaryState = sourceOfTruth === SOURCE_OF_TRUTH.GIT
@@ -3554,7 +3785,17 @@ class UniverseBackend {
 
     if (hasLinkedGitRepo) {
       const gitPromise = this.loadFromGit(universe)
-        .catch(() => this.loadFromGitDirect(universe)) // Try direct fallback
+        .catch(async (engineError) => {
+          // Direct provider read gets one shot as a fallback — but if it
+          // ALSO can't produce data, the original error must surface as an
+          // error, not as "no git data". Swallowing it here let a stale
+          // browser-storage copy load instead and later overwrite a newer
+          // remote the engine merely failed to read (auth blip, 5xx,
+          // truncation, corrupt JSON).
+          const direct = await this.loadFromGitDirect(universe).catch(() => null);
+          if (direct) return direct;
+          throw engineError;
+        })
         .then(data => ({ source: SOURCE_OF_TRUTH.GIT, data, error: null }))
         .catch(error => ({ source: SOURCE_OF_TRUTH.GIT, data: null, error }));
       loadPromies.push(gitPromise);
@@ -4080,6 +4321,12 @@ class UniverseBackend {
       umLog('[UniverseBackend] Pending conflict cancelled for', universeSlug);
     }
     this.pendingPrimarySelection.delete(universeSlug);
+    // Unblock the engine's autosave queue too — otherwise a dismissed
+    // divergence dialog leaves Git pushes blocked for the whole session.
+    const engine = this.gitSyncEngines.get(universeSlug);
+    if (engine) {
+      engine.remoteConflictPending = false;
+    }
   }
 
   /**
@@ -4243,6 +4490,12 @@ class UniverseBackend {
       // Construct full path: universes/{folder}/{file}
       const filePath = `universes/${universeFolder}/${fileName}`;
 
+      // Canonical path — where the sync engine reads/writes (sanitized base
+      // name). All WRITES from this function go here so the engine and the
+      // direct path never fork the universe into two files.
+      const { sanitizeGitFileBaseName } = await import('./gitSyncEngine.js');
+      const canonicalPath = `universes/${universeFolder}/${sanitizeGitFileBaseName(fileName)}.redstring`;
+
       // Helper: rebuild provider with OAuth, used when an App-based op fails
       // in a way that suggests App grants don't cover this resource. We've
       // observed an App install that can pass isAvailable() (sees the repo)
@@ -4285,10 +4538,30 @@ class UniverseBackend {
         confirmedMissing = isNotFound(readError);
       }
 
+      // Canonical-name fallback: the sync engine writes to the SANITIZED
+      // file name (spaces etc. replaced), while gitRepo.universeFile may
+      // hold the raw name from discovery. If the raw path 404s, the
+      // universe's actual data may live at the sanitized path — read it
+      // before concluding the file is missing (otherwise we'd bootstrap an
+      // empty file and fork the universe in the repo).
+      if (confirmedMissing && canonicalPath !== filePath) {
+        try {
+          content = await provider.readFileRaw(canonicalPath);
+          confirmedMissing = false;
+          lastReadError = null;
+          umLog(`[UniverseBackend] loadFromGitDirect: found universe at canonical path ${canonicalPath} (raw name ${fileName} was missing)`);
+        } catch (sanitizedError) {
+          if (!isNotFound(sanitizedError)) {
+            confirmedMissing = false; // ambiguous at the canonical path — do NOT bootstrap
+            lastReadError = sanitizedError;
+          }
+        }
+      }
+
       // If the read failed with an App provider, retry once with OAuth before
       // assuming the file doesn't exist. Avoids bootstrapping a fresh empty
       // state on top of a file that actually exists but the App can't see.
-      if (readFailed && (await swapToOauth())) {
+      if (readFailed && !content && (await swapToOauth())) {
         try {
           content = await provider.readFileRaw(filePath);
           confirmedMissing = false;
@@ -4319,7 +4592,7 @@ class UniverseBackend {
             }
           });
           try {
-            await provider.writeFileRaw(filePath, JSON.stringify(initialRedstring, null, 2));
+            await provider.writeFileRaw(canonicalPath, JSON.stringify(initialRedstring, null, 2));
           } catch (writeErr) {
             // Swap to OAuth when the App token can't determine whether the
             // file exists (FILE_INFO_UNKNOWN — 401/403/5xx on the probe), or
@@ -4333,12 +4606,12 @@ class UniverseBackend {
               || msg.includes('422')
               || msg.includes('409');
             if (shouldSwap && (await swapToOauth())) {
-              await provider.writeFileRaw(filePath, JSON.stringify(initialRedstring, null, 2));
+              await provider.writeFileRaw(canonicalPath, JSON.stringify(initialRedstring, null, 2));
             } else {
               throw writeErr;
             }
           }
-          this.notifyStatus('success', `Created new universe file at ${filePath}`);
+          this.notifyStatus('success', `Created new universe file at ${canonicalPath}`);
           const { storeState } = importFromRedstring(initialRedstring);
           return storeState;
         } catch (createErr) {
@@ -4360,7 +4633,7 @@ class UniverseBackend {
       if (importResult.version?.migrated) {
         try {
           const migratedJson = JSON.stringify(exportToRedstring(storeState));
-          await provider.writeFileRaw(filePath, migratedJson);
+          await provider.writeFileRaw(canonicalPath, migratedJson);
           umLog(`[UniverseBackend] Wrote migrated data back to git direct (${importResult.version.imported} → ${importResult.version.current})`);
         } catch (writeErr) {
           umWarn('[UniverseBackend] Failed to write migrated data back to git (direct):', writeErr);
@@ -4584,7 +4857,7 @@ class UniverseBackend {
       sourceOfTruth: options.sourceOfTruth || (this.isGitOnlyMode ? SOURCE_OF_TRUTH.GIT : SOURCE_OF_TRUTH.LOCAL),
       localFile: {
         enabled: options.enableLocal ?? true,
-        path: this.sanitizeFileName(safeName)
+        path: this.generateUniqueFileName(safeName)
       },
       gitRepo: {
         enabled: options.enableGit ?? false,
@@ -4943,6 +5216,22 @@ class UniverseBackend {
     if (!universe) {
       throw new Error(`Universe ${universeSlug} not found`);
     }
+
+    // Identity guard: never write state that belongs to a different universe
+    // (e.g. a failed switch left the previous universe's data in the store).
+    if (storeState?._universeSlug && storeState._universeSlug !== universeSlug) {
+      throw new Error(`Refusing to save: store holds data for "${storeState._universeSlug}" but the target universe is "${universeSlug}". Reload before saving.`);
+    }
+    // A universe that failed to load must not be overwritten by whatever is
+    // in the store — the on-disk content is unknown to us.
+    if (storeState?.universeLoadingError) {
+      throw new Error(`Refusing to save: this universe failed to load (${storeState.universeLoadingError}). Reload or reconnect to recover.`);
+    }
+    // Don't persist temporary conflict-fallback state while the user is
+    // still choosing which slot to keep.
+    if (this.pendingConflict?.universeSlug === universeSlug && !options.isConflictResolution) {
+      throw new Error('Refusing to save: a storage conflict for this universe is awaiting your decision.');
+    }
     if (this.requiresPrimarySelection(universe)) {
       umWarn(`[UniverseBackend] Force save blocked - primary storage not selected for ${universeSlug}`);
       await this.promptForPrimarySelection(universe);
@@ -5032,7 +5321,9 @@ class UniverseBackend {
           }
 
           if (engine) {
-            const result = await engine.forceCommit(storeState);
+            // Explicit user save ("Save Now") — intentional clears allowed,
+            // matching SaveCoordinator.forceSave's shrinkage-guard bypass.
+            const result = await engine.forceCommit(storeState, { allowEmpty: true });
 
             // Track successful completion
             this.trackGitOperationComplete(universeSlug, 'force-save', true, {
@@ -5299,45 +5590,6 @@ class UniverseBackend {
   }
 
   /**
-   * Upload/Import universe from local .redstring file
-   */
-  async uploadLocalFile(file, targetUniverseSlug = null) {
-    umLog(`[UniverseBackend] Uploading local file: ${file.name}`);
-
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-
-      reader.onload = async (e) => {
-        try {
-          const jsonData = JSON.parse(e.target.result);
-
-          // Get store actions
-          const useGraphStore = (await import('../store/graphStore.js')).default;
-          const storeActions = useGraphStore.getState();
-
-          // Import the data
-          importFromRedstring(jsonData, storeActions);
-
-          this.notifyStatus('success', `Imported ${file.name}`);
-          resolve({ success: true, fileName: file.name });
-        } catch (error) {
-          umError(`[UniverseBackend] Failed to import ${file.name}:`, error);
-          this.notifyStatus('error', `Import failed: ${error.message}`);
-          reject(error);
-        }
-      };
-
-      reader.onerror = () => {
-        const error = new Error('Failed to read file');
-        this.notifyStatus('error', error.message);
-        reject(error);
-      };
-
-      reader.readAsText(file);
-    });
-  }
-
-  /**
    * Prompt user to select a file handle and store it (pick or saveAs)
    */
   async setupLocalFileHandle(universeSlug, options = {}) {
@@ -5457,7 +5709,8 @@ class UniverseBackend {
   async saveToLinkedLocalFile(universeSlug, storeState = null, options = {}) {
     const {
       suppressNotification = false,
-      allowEmpty = false
+      allowEmpty = false,
+      isConflictResolution = false
     } = options || {};
 
     // 1. Prepare data first (needed for potential file creation)
@@ -5466,6 +5719,22 @@ class UniverseBackend {
     }
     if (!storeState) {
       throw new Error('No store state available to save');
+    }
+
+    // Never write the local file while a slot conflict for this universe is
+    // awaiting the user's decision — the store may hold the OTHER slot's
+    // content, and this write would destroy the local side of the divergence
+    // the dialog is asking about. Conflict resolution itself opts in.
+    if (this.pendingConflict?.universeSlug === universeSlug && !isConflictResolution) {
+      umWarn(`[UniverseBackend] saveToLinkedLocalFile blocked for ${universeSlug}: slot conflict pending`);
+      return { skipped: true, reason: 'conflict-pending' };
+    }
+
+    // Identity guard at the byte-exit point: state stamped for a different
+    // universe must never reach this universe's file.
+    if (storeState?._universeSlug && storeState._universeSlug !== universeSlug) {
+      umWarn(`[UniverseBackend] saveToLinkedLocalFile blocked: state belongs to "${storeState._universeSlug}", target is "${universeSlug}"`);
+      return { skipped: true, reason: 'stale-universe-state' };
     }
 
     // Central empty-state guard. Every path that writes the local universe
@@ -5516,16 +5785,57 @@ class UniverseBackend {
         // Try getting existing file first
         handle = await getFileFromWorkspace(fileName);
 
-        // If not found but we have workspace access, create it!
-        if (!handle) {
+        if (handle) {
+          // ADOPTION GUARD. A name match is NOT an identity match: two
+          // universes can share a filename, and a deleted universe's file can
+          // linger in the workspace. Writing to the wrong file destroys it.
+          // Verify before adopting:
+          //  - a file stamped with a DIFFERENT universeSlug is never adopted;
+          //  - a universe with no prior saves (fresh/empty) never adopts a
+          //    non-empty existing file — that combination is exactly the
+          //    "new empty universe overwrites old data file" wipe.
+          try {
+            const existingText = await readFile(handle);
+            if (existingText && existingText.trim()) {
+              let fileSlug = null;
+              try { fileSlug = JSON.parse(existingText)?.metadata?.universeSlug || null; } catch { /* unparseable — treated below */ }
+              const hasPriorSaveForAdoption = !!(universe?.metadata?.lastSaved || universe?.metadata?.lastSync || universe?.localFile?.lastSaved);
+              if (fileSlug && fileSlug !== universeSlug) {
+                umWarn(`[FileHandles] ✗ Refusing to adopt workspace file "${fileName}": it belongs to universe "${fileSlug}", not "${universeSlug}"`);
+                handle = null;
+              } else if (!fileSlug && !hasPriorSaveForAdoption) {
+                umWarn(`[FileHandles] ✗ Refusing to adopt non-empty workspace file "${fileName}" for a universe with no prior saves — it may belong to another universe`);
+                handle = null;
+              }
+            }
+          } catch (verifyError) {
+            umWarn(`[FileHandles] ✗ Could not verify workspace file identity, refusing adoption: ${verifyError.message}`);
+            handle = null;
+          }
+          if (handle) {
+            umLog(`[FileHandles] ✓ Adopted existing workspace file: ${fileName}`);
+          }
+        } else if (universe?.localFile?.hadFileHandle) {
+          // The universe HAS a real file somewhere but we lost the handle and
+          // it isn't in the workspace. Creating a NEW file here would silently
+          // fork the universe — the user's real file stops updating while
+          // saves divert to a file they don't know exists. Surface reconnect
+          // instead.
+          umWarn(`[FileHandles] ✗ Not creating "${fileName}" in workspace: universe previously had a file elsewhere. Reconnect required.`);
+          await this.updateUniverse(universeSlug, {
+            localFile: {
+              ...universe.localFile,
+              fileHandleStatus: 'needs_reconnect',
+              reconnectMessage: 'The linked file could not be found. Reconnect it to resume saving.',
+              unavailableReason: 'Linked file not found. Reconnect to resume automatic saves.'
+            }
+          });
+        } else {
           umLog(`[FileHandles] Creating file in workspace: ${fileName}`);
           // Use overwrite: false to prevent clobbering if our previous check failed falsely
           handle = await createFileInWorkspace(fileName, jsonString, { overwrite: false });
           // createFileInWorkspace already wrote the content
           umLog(`[FileHandles] ✓ Created file in workspace: ${fileName}`);
-        } else {
-          // We found existing file, so we need to write to it below
-          umLog(`[FileHandles] ✓ Found existing workspace file: ${fileName}`);
         }
 
         if (handle) {
@@ -5717,13 +6027,33 @@ class UniverseBackend {
       reader.readAsText(file);
     });
 
-    // Parse and import the redstring data
+    // Parse and import the redstring data. importFromRedstring returns a
+    // wrapper { storeState, errors, version } — passing the wrapper itself to
+    // loadUniverseFromFile would re-import it as a (structurally empty) file
+    // and wipe the target universe.
     let storeState;
     try {
       const parsedData = JSON.parse(fileContent);
-      storeState = importFromRedstring(parsedData);
+      const importResult = importFromRedstring(parsedData);
+      storeState = importResult.storeState;
+      if (importResult.errors && importResult.errors.length > 0) {
+        umWarn(`[UniverseBackend] Import of ${file.name} reported errors:`, importResult.errors);
+      }
     } catch (error) {
       throw new Error(`Invalid .redstring file format: ${error.message}`);
+    }
+
+    // Refuse to replace the target universe with an import that produced no
+    // usable content — an empty result here is far more likely a bad file
+    // than an intentionally empty universe.
+    const importedNodeCount = storeState?.nodePrototypes instanceof Map
+      ? storeState.nodePrototypes.size
+      : Object.keys(storeState?.nodePrototypes || {}).length;
+    const importedGraphCount = storeState?.graphs instanceof Map
+      ? storeState.graphs.size
+      : Object.keys(storeState?.graphs || {}).length;
+    if (importedNodeCount === 0 && importedGraphCount === 0) {
+      throw new Error(`${file.name} contains no nodes or graphs — import aborted to protect the target universe`);
     }
 
     // Load the imported data into the target universe

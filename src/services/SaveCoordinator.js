@@ -1134,9 +1134,14 @@ class SaveCoordinator {
    * a quit-flush must never be the thing that persists a surprise-empty state.
    *
    * @param {string} [reason='flush'] - Diagnostic label for logging.
+   * @param {Object} [options={}] - Flush options.
+   * @param {boolean} [options.terminal=false] - `true` when the app is
+   *   actually exiting: Git changes are force-committed now (no later commit
+   *   loop will run). When `false` (tab hidden, still alive) Git changes are
+   *   queued through the normal engine loop instead.
    * @returns {Promise<boolean>} `true` if a write was performed and confirmed.
    */
-  async flush(reason = 'flush') {
+  async flush(reason = 'flush', { terminal = false } = {}) {
     if (!this.isEnabled || this.swapInProgress) return false;
 
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
@@ -1192,10 +1197,10 @@ class SaveCoordinator {
         }
       }
 
-      // On quit there is no later commit loop — push to Git now if we can.
       if (this.gitSyncEngine && this.gitSyncEngine.isHealthy()) {
         try {
-          if (typeof this.gitSyncEngine.forceCommit === 'function') {
+          if (terminal && typeof this.gitSyncEngine.forceCommit === 'function') {
+            // The app is exiting — no later commit loop will run.
             await this.gitSyncEngine.forceCommit(state);
           } else {
             this.gitSyncEngine.updateState(state);

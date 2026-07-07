@@ -11,6 +11,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import uriGenerator from '../services/uriGenerator.js';
 import { runMigrations } from './migrations.js';
+import { safeJsonParse, stripDangerousKeys } from '../utils/safeJson.js';
 
 // Current format version
 export const CURRENT_FORMAT_VERSION = '4.0.0';
@@ -1028,6 +1029,10 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       "version": emitV4 ? '4.0.0' : CURRENT_FORMAT_VERSION,
       "created": new Date().toISOString(),
       "modified": new Date().toISOString(),
+      // Identity stamp: which universe this file belongs to. Used to refuse
+      // adopting a same-named file that belongs to a DIFFERENT universe as a
+      // save target (which would overwrite it). Absent for pre-stamp files.
+      ...(storeState._universeSlug ? { "universeSlug": storeState._universeSlug } : {}),
       "title": (activeGraphId && graphs.get(activeGraphId)?.name) || "New Thing",
       "description": (activeGraphId && graphs.get(activeGraphId)?.description) || "",
       "domain": userDomain || null,
@@ -1107,6 +1112,11 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
  */
 export const importFromRedstring = (redstringData, storeActions) => {
   try {
+    // Step 0: strip prototype-pollution keys at the ingestion chokepoint. Every
+    // load path (file upload, Electron file:read, GitHub pull) funnels through
+    // here, so this covers untrusted data regardless of which parser produced it.
+    stripDangerousKeys(redstringData);
+
     // Step 1: Validate format version
     const validation = validateFormatVersion(redstringData);
     
@@ -1132,8 +1142,13 @@ export const importFromRedstring = (redstringData, storeActions) => {
     // v3: edges in top-level relationships; v4: embedded inside each spatialGraph (D10/P3.2).
     // `!== undefined` distinguishes "absent" (v4) from "present but empty" (valid v3).
     const edgesObj = (() => {
-      if (processedData.relationships?.edges !== undefined) {
+      // `!= null` (not `!== undefined`): a file with `"edges": null` must fall
+      // back to `{}`, not crash Object.entries and abort the whole import.
+      if (processedData.relationships?.edges != null) {
         return processedData.relationships.edges;
+      }
+      if (processedData.relationships?.edges === null) {
+        return {};
       }
       const collected = {};
       for (const g of Object.values(processedData.spatialGraphs?.graphs || {})) {
@@ -1736,23 +1751,12 @@ export const importFromRedstring = (redstringData, storeActions) => {
     };
   } catch (error) {
     console.error('[importFromRedstring] Critical error during import:', error);
-    // Return a minimal valid state to prevent complete failure
-    return {
-      storeState: {
-        graphs: new Map(),
-        nodePrototypes: new Map(),
-        edges: new Map(),
-        openGraphIds: [],
-        activeGraphId: null,
-        activeDefinitionNodeId: null,
-        expandedGraphIds: new Set(),
-        rightPanelTabs: [{ type: 'home', isActive: true }],
-        savedNodeIds: new Set(),
-        savedGraphIds: new Set(),
-        showConnectionNames: true
-      },
-      errors: [error.message]
-    };
+    // FAIL LOUDLY. This used to return an empty universe "to prevent complete
+    // failure" — but a caller cannot distinguish that from a legitimately
+    // empty file, so the empty state would flow into the store, become the
+    // new save baseline, and the next autosave would overwrite the user's
+    // real file with nothing. A failed import must surface as a failed load.
+    throw new Error(`Failed to import Redstring file: ${error.message}`);
   }
 };
 
@@ -1782,7 +1786,12 @@ export const uploadRedstringFile = (file, storeActions) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const redstringData = JSON.parse(e.target.result);
+        // Prototype-pollution-safe parse: strips __proto__/constructor/prototype
+        // keys before the untrusted file data flows into the store.
+        const redstringData = safeJsonParse(e.target.result);
+        if (!redstringData || typeof redstringData !== 'object' || Array.isArray(redstringData)) {
+          throw new Error('Redstring file must contain a JSON object at the top level');
+        }
         importFromRedstring(redstringData, storeActions);
         resolve(redstringData);
       } catch (error) {

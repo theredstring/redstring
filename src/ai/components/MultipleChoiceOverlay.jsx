@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import './MultipleChoiceOverlay.css';
+import { sanitizeHtml } from '../../utils/sanitizeHtml.js';
 import headSvg from '../../assets/svg/wizard/head.svg';
 import { useTheme } from '../../hooks/useTheme.js';
 
@@ -71,7 +72,7 @@ export default function MultipleChoiceOverlay({ question, options, onSelect, onD
         <div className="mc-overlay-container">
             <div className="mc-question-header">
                 <img src={headSvg} alt="Wizard" className="mc-wizard-face" />
-                <div className="mc-question" dangerouslySetInnerHTML={{ __html: renderMarkdown(question) }} />
+                <div className="mc-question" dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(question)) }} />
             </div>
             <div className="mc-options">
                 {options.map((opt, i) => (
@@ -79,7 +80,7 @@ export default function MultipleChoiceOverlay({ question, options, onSelect, onD
                         key={i}
                         className="mc-option-button"
                         onClick={() => handleOptionClick(opt)}
-                        dangerouslySetInnerHTML={{ __html: renderMarkdown(opt) }}
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(opt)) }}
                     />
                 ))}
 

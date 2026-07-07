@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import jsonld from 'jsonld';
 import { REDSTRING_CONTEXT } from './redstringFormat.js';
 import { applyLens } from './lens.js';
+import { safeJsonParse } from '../utils/safeJson.js';
 
 // Attach provenance to any entity object (P5.3: common provenance path).
 const stamp = (entity, source) => ({
@@ -456,7 +457,7 @@ export const autoImport = async (fileContent, filename) => {
   
   try {
     if (extension === 'json') {
-      const data = JSON.parse(fileContent);
+      const data = safeJsonParse(fileContent);
       
       // Detect format by structure
       if (data['@context'] || data['@type'] || data['@graph']) {

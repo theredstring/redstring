@@ -94,6 +94,7 @@
     "@rdfjs/parser-n3": "^2.1.0",
     "@types/uuid": "^10.0.0",
     "cors": "^2.8.5",
+    "dompurify": "^3.4.11",
     "dotenv": "^17.2.1",
     "electron-log": "^5.4.3",
     "electron-updater": "^6.7.3",
@@ -126,6 +127,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
     "@eslint/js": "^9.9.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
@@ -147,7 +149,6 @@
     "vite": "^5.4.1",
     "vitest": "^3.1.1",
     "wait-on": "^9.0.3",
-    "wrangler": "^3.95.0",
-    "@cloudflare/workers-types": "^4.20241218.0"
+    "wrangler": "^3.95.0"
   }
 }

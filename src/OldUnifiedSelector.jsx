@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Palette, ArrowBigRightDash, Combine } from 'lucide-react';
+import { sanitizeHtml } from './utils/sanitizeHtml.js';
 import { NODE_DEFAULT_COLOR, HEADER_HEIGHT, MODAL_CLOSE_ICON_SIZE } from './constants';
 import NodeGridItem from './NodeGridItem';
 import ColorPicker from './ColorPicker';
@@ -213,7 +214,7 @@ const OldUnifiedSelector = ({
             {subtitle && (
               <div 
                 style={{ textAlign: 'center', marginBottom: '15px', color: '#666', fontSize: '14px', fontFamily: "'EmOne', sans-serif" }}
-                dangerouslySetInnerHTML={{ __html: subtitle }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(subtitle) }}
               />
             )}
             

@@ -5417,11 +5417,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (isAlreadyDeserialized) {
           storeState = dataToLoad;
         } else {
-          // Use the centralized import function to correctly deserialize the data
+          // Use the centralized import function to correctly deserialize the
+          // data. A critical import failure THROWS (caught below → the store
+          // enters the universeLoadingError state, which blocks all saves) —
+          // it must never be loaded as an empty universe, because that empty
+          // state would become the save baseline and overwrite the real file.
           const { storeState: importedState, errors } = importFromRedstring(dataToLoad);
           if (errors && errors.length > 0) {
+            // Partial import: entities failed but the file was structurally
+            // valid. If nothing usable survived, treat it as a failed load
+            // rather than adopting an empty state.
             console.error("[graphStore] Errors importing from Redstring:", errors);
-            // Don't return here, continue with the imported state even if there were errors
+            const nodeCount = importedState?.nodePrototypes?.size || 0;
+            const graphCount = importedState?.graphs?.size || 0;
+            if (nodeCount === 0 && graphCount === 0) {
+              throw new Error(`Import produced no usable data (${errors.length} error(s): ${errors[0]})`);
+            }
           }
           storeState = importedState;
         }

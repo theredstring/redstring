@@ -7,6 +7,7 @@
 
 import { oauthFetch } from './bridgeConfig.js';
 import { isElectron } from '../utils/fileAccessAdapter.js';
+import { encryptSecret, decryptSecret } from '../utils/secureStore.js';
 
 // Token refresh buffer - refresh 5 minutes before expiry
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -163,7 +164,7 @@ export class PersistentAuth {
       try {
         // PRIMARY: Load from browser localStorage (user data stays local!)
         console.log('[PersistentAuth] Loading tokens from browser localStorage...');
-        this.loadFromBrowserStorage();
+        await this.loadFromBrowserStorage();
 
         // OPTIONAL: Sync from server as backup (stateless server doesn't persist)
         // This is only useful for initial server-side OAuth completion
@@ -198,11 +199,13 @@ export class PersistentAuth {
   /**
    * Load tokens from browser localStorage (PRIMARY storage - keeps data local!)
    */
-  loadFromBrowserStorage() {
+  async loadFromBrowserStorage() {
     try {
-      // Load OAuth credentials
-      const accessToken = getLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.accessToken);
-      const refreshToken = getLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.refreshToken);
+      // Load OAuth credentials. Access/refresh tokens are stored encrypted
+      // (AES-GCM at rest); decryptSecret returns legacy plaintext values as-is,
+      // so pre-encryption users are never locked out.
+      const accessToken = await decryptSecret(getLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.accessToken));
+      const refreshToken = await decryptSecret(getLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.refreshToken));
       const scope = getLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.scope);
       const tokenType = getLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.tokenType);
       const expiry = getLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.expiry);
@@ -224,7 +227,7 @@ export class PersistentAuth {
 
       // Load GitHub App installation
       const installationId = getLocalStorageItem(LOCAL_STORAGE_KEYS.app.installationId);
-      const appAccessToken = getLocalStorageItem(LOCAL_STORAGE_KEYS.app.accessToken);
+      const appAccessToken = await decryptSecret(getLocalStorageItem(LOCAL_STORAGE_KEYS.app.accessToken));
       const repositoriesRaw = getLocalStorageItem(LOCAL_STORAGE_KEYS.app.repositories);
       const userDataRaw = getLocalStorageItem(LOCAL_STORAGE_KEYS.app.userData);
       const permissionsRaw = getLocalStorageItem(LOCAL_STORAGE_KEYS.app.permissions);
@@ -252,12 +255,12 @@ export class PersistentAuth {
   /**
    * Save tokens to browser localStorage (PRIMARY storage - keeps data local!)
    */
-  saveToBrowserStorage() {
+  async saveToBrowserStorage() {
     try {
-      // Save OAuth credentials
+      // Save OAuth credentials. Access/refresh tokens are encrypted at rest.
       if (this.oauthCache?.accessToken) {
-        setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.accessToken, this.oauthCache.accessToken);
-        setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.refreshToken, this.oauthCache.refreshToken || '');
+        setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.accessToken, await encryptSecret(this.oauthCache.accessToken));
+        setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.refreshToken, this.oauthCache.refreshToken ? await encryptSecret(this.oauthCache.refreshToken) : '');
         setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.scope, this.oauthCache.scope || '');
         setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.tokenType, this.oauthCache.tokenType || 'bearer');
         setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.expiry, this.oauthCache.expiresAt?.toString() || '');
@@ -269,7 +272,7 @@ export class PersistentAuth {
       // Save GitHub App installation
       if (this.githubAppCache?.installationId) {
         setLocalStorageItem(LOCAL_STORAGE_KEYS.app.installationId, this.githubAppCache.installationId.toString());
-        setLocalStorageItem(LOCAL_STORAGE_KEYS.app.accessToken, this.githubAppCache.accessToken || '');
+        setLocalStorageItem(LOCAL_STORAGE_KEYS.app.accessToken, this.githubAppCache.accessToken ? await encryptSecret(this.githubAppCache.accessToken) : '');
         setLocalStorageItem(LOCAL_STORAGE_KEYS.app.repositories, this.githubAppCache.repositories);
         setLocalStorageItem(LOCAL_STORAGE_KEYS.app.userData, this.githubAppCache.userData);
         setLocalStorageItem(LOCAL_STORAGE_KEYS.app.permissions, this.githubAppCache.permissions);

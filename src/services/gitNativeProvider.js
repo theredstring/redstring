@@ -725,16 +725,60 @@ This repository was automatically initialized by Redstring UI React. You can now
     if (probe.exists === false) return null;
     // 'unknown' — auth error or transient. Throw so writeFileRaw won't
     // silently fall through to a PUT-without-sha and trigger 422.
+    this._maybeDispatchAuthExpired(probe.status);
     const err = new Error(`getFileInfo(${path}) status=${probe.status}: ${probe.message}`);
     err.code = 'FILE_INFO_UNKNOWN';
     err.status = probe.status;
     throw err;
   }
 
-  async writeFileRaw(path, content) {
+  /**
+   * Dispatches the re-authentication event on a 401 probe result. The PUT
+   * path already does this, but with GitHub App tokens (~1h expiry) the
+   * FIRST failure after expiry is always the pre-write probe — without this,
+   * the auth-expired dialog is unreachable from the common failure path and
+   * the engine just cycles through error backoff with a dead token.
+   */
+  _maybeDispatchAuthExpired(status) {
+    if (status !== 401) return;
+    try {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('redstring:auth-expired', {
+          detail: {
+            error: '401 Bad credentials',
+            authMethod: this.authMethod,
+            message: 'GitHub authentication expired. Please re-connect.'
+          }
+        }));
+      }
+    } catch { /* noop */ }
+  }
+
+  /**
+   * Replaces the provider's token in place. Used by token-refresh flows so a
+   * long-lived engine doesn't keep failing with a token that expired an hour
+   * into the session.
+   */
+  updateToken(token) {
+    if (token && typeof token === 'string') {
+      this.token = token;
+      console.log('[GitHubSemanticProvider] Token updated in place');
+    }
+  }
+
+  async writeFileRaw(path, content, options = {}) {
     const { displayPath: safePath, apiPath } = this.resolvePathInput(path, { trimTrailing: false });
     if (!apiPath) {
       throw new Error('Invalid path provided to writeFileRaw');
+    }
+
+    // Optimistic-concurrency mode: the caller supplies the SHA it believes is
+    // current (from its last read/write). We PUT with exactly that SHA and
+    // NEVER retry with a re-fetched one — a mismatch means another writer
+    // moved the remote, and blindly re-PUTting would overwrite their work.
+    // `expectedSha: null` asserts "the file should not exist yet".
+    if ('expectedSha' in options) {
+      return this._writeWithExpectedSha(safePath, apiPath, content, options.expectedSha);
     }
 
     try {
@@ -924,6 +968,63 @@ This repository was automatically initialized by Redstring UI React. You can now
     }
   }
 
+  /**
+   * PUT with a caller-asserted SHA (optimistic concurrency).
+   *
+   * On 409 (stale SHA) or 422 sha-mismatch/sha-missing, throws a typed
+   * REMOTE_DIVERGED error instead of retrying — the caller must pull, compare,
+   * and decide. This is the only honest behavior when multiple devices write
+   * the same file.
+   *
+   * @private
+   */
+  async _writeWithExpectedSha(safePath, apiPath, content, expectedSha) {
+    await githubRateLimiter.waitForAvailability(this.authMethod);
+
+    const body = {
+      message: `Update ${safePath}`,
+      content: this.utf8ToBase64(content)
+    };
+    if (typeof expectedSha === 'string' && expectedSha) {
+      body.sha = expectedSha;
+    }
+
+    githubRateLimiter.recordRequest(this.authMethod);
+    const response = await fetch(`${this.rootUrl}/${apiPath}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': this.getAuthHeader(),
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (response.ok) {
+      if (!this.lastWrites) this.lastWrites = new Map();
+      this.lastWrites.set(`${safePath}_${this.generateContentHash(content)}`, Date.now());
+      return await response.json();
+    }
+
+    const text = await response.text();
+
+    if (response.status === 401) {
+      this._maybeDispatchAuthExpired(401);
+      throw new Error('GitHub authentication failed (401). Please reconnect in the Git Federation panel.');
+    }
+
+    const isShaProblem422 = response.status === 422 && /\bsha\b/i.test(text || '');
+    if (response.status === 409 || isShaProblem422) {
+      console.warn(`[GitHubSemanticProvider] Remote diverged for ${safePath} (expected SHA ${expectedSha ? String(expectedSha).substring(0, 8) : 'none'}) — NOT retrying blindly`);
+      const err = new Error(`Remote file changed since last sync: ${safePath}`);
+      err.code = 'REMOTE_DIVERGED';
+      err.status = response.status;
+      throw err;
+    }
+
+    throw new Error(`GitHub write failed: ${response.status} ${text}`);
+  }
+
   // Helper to generate content hash for redundancy prevention
   generateContentHash(content) {
     let hash = 0;
@@ -935,16 +1036,59 @@ This repository was automatically initialized by Redstring UI React. You can now
     return hash.toString(36);
   }
 
-  async readFileRaw(path) {
-    const { displayPath: safePath } = this.resolvePathInput(path, { trimTrailing: false });
-    try {
-      const info = await this.getFileInfo(safePath);
-      if (!info) {
-        // File not found - this is expected for new files, so don't log as error
-        console.log(`[GitHubSemanticProvider] File not found: ${safePath}`);
-        throw new Error(`File not found: ${safePath}`);
+  /**
+   * Read a file and return `{ content, sha, size }`.
+   *
+   * Handles the GitHub contents-API 1MB cliff: for files between 1MB and
+   * 100MB the JSON response has `"content": "", "encoding": "none"` — which
+   * MUST NOT be interpreted as an empty file (that misread was capable of
+   * making a grown universe look empty and getting it overwritten). Falls
+   * back to a raw-media-type fetch for the actual bytes.
+   */
+  async readFileRawWithMeta(path) {
+    const { displayPath: safePath, apiPath } = this.resolvePathInput(path, { trimTrailing: false });
+    const info = await this.getFileInfo(safePath);
+    if (!info) {
+      console.log(`[GitHubSemanticProvider] File not found: ${safePath}`);
+      const err = new Error(`File not found: ${safePath}`);
+      err.code = 'FILE_NOT_FOUND';
+      throw err;
+    }
+
+    const size = typeof info.size === 'number' ? info.size : 0;
+    const truncated = (info.encoding === 'none') || (size > 0 && (!info.content || info.content === ''));
+
+    if (!truncated) {
+      return { content: this.base64ToUtf8(info.content), sha: info.sha, size };
+    }
+
+    console.log(`[GitHubSemanticProvider] Contents API truncated ${safePath} (${size} bytes) — fetching raw`);
+    githubRateLimiter.recordRequest(this.authMethod);
+    const rawResponse = await fetch(`${this.rootUrl}/${apiPath}`, {
+      headers: {
+        'Authorization': this.getAuthHeader(),
+        'Accept': 'application/vnd.github.raw+json'
       }
-      return this.base64ToUtf8(info.content);
+    });
+    if (!rawResponse.ok) {
+      // NEVER degrade to "empty file" — the file demonstrably has bytes.
+      const err = new Error(`Raw fetch failed for ${safePath} (${size} bytes reported, HTTP ${rawResponse.status})`);
+      err.code = 'READ_TRUNCATED';
+      throw err;
+    }
+    const content = await rawResponse.text();
+    if (!content && size > 0) {
+      const err = new Error(`Raw fetch returned no content for ${safePath} despite reported size ${size}`);
+      err.code = 'READ_TRUNCATED';
+      throw err;
+    }
+    return { content, sha: info.sha, size };
+  }
+
+  async readFileRaw(path) {
+    try {
+      const { content } = await this.readFileRawWithMeta(path);
+      return content;
     } catch (e) {
       // Only log as error if it's not a "file not found" error
       if (e.message && e.message.includes('File not found')) {

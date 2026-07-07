@@ -7,6 +7,7 @@ import UniverseManagerBootstrap from './components/UniverseManagerBootstrap.jsx'
 import UpdateToast from './components/UpdateToast.jsx';
 import useGraphStore from './store/graphStore.js';
 import { isElectron } from './utils/fileAccessAdapter.js';
+import { saveCoordinator } from './services/SaveCoordinator.js';
 import { DARK_THEME, LIGHT_THEME } from './utils/themeColors.js';
 import './App.css';
 
@@ -50,18 +51,50 @@ function App() {
     }
   }, [darkMode]);
 
-  // Always prompt before unload in the browser — safeguard against accidental
-  // exits like Android's edge-swipe back gesture. Skipped in Electron, where
-  // beforeunload blocks the app's own quit flow.
+  // Unsaved-changes protection on exit.
+  //
+  // Browser: prompt only when there are actually unsaved changes, and flush
+  // pending saves when the tab is hidden (visibilitychange is the last
+  // reliable moment on mobile — beforeunload often never fires there).
+  //
+  // Electron: the main process intercepts window close and asks us to flush
+  // via the lifecycle IPC channel before it destroys the window.
   useEffect(() => {
-    if (isElectron()) return;
+    if (isElectron()) {
+      const lifecycle = window.electron?.lifecycle;
+      if (!lifecycle?.onFlushBeforeQuit) return;
+      lifecycle.onFlushBeforeQuit(async () => {
+        try {
+          await saveCoordinator.flush('electron-quit', { terminal: true });
+        } catch (error) {
+          console.error('[App] Quit flush failed:', error);
+        } finally {
+          lifecycle.notifyFlushComplete();
+        }
+      });
+      return;
+    }
+
     const handleBeforeUnload = (event) => {
+      if (!saveCoordinator.hasUnsavedChanges()) return;
       event.preventDefault();
       event.returnValue = '';
       return '';
     };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        // Fire-and-forget: the write itself races the page teardown, but an
+        // FSA write started here usually completes; waiting out the 3s
+        // debounce guarantees it never starts.
+        saveCoordinator.flush('tab-hidden').catch(() => { /* logged inside */ });
+      }
+    };
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   return (
