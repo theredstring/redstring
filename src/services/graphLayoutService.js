@@ -90,7 +90,7 @@ function buildGroupContainmentHierarchy(groups) {
  * services/groupLayout.js so meta-positioning sees the same rect a renderer
  * would draw.
  */
-function deriveGroupVisualBounds(group, bbox, gridSize, measureLabelWidth) {
+export function deriveGroupVisualBounds(group, bbox, gridSize, measureLabelWidth) {
   const C = GROUP_LAYOUT_CONSTANTS;
   const memberPad = Math.max(24, Math.round((gridSize ?? 100) * 0.2));
   const margin = memberPad + C.innerCanvasBorder;
@@ -2112,11 +2112,16 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       config.minGroupDistance || 800, finalMinNodeDistance, config.padding,
       config.width, config.height, 5);
 
-    // Hard constraint: ungrouped nodes must never finish inside a group's
-    // rect — the polish stages above can drag them back in after the soft
+    // Hard constraints, in order: peer groups' boxes must not interleave
+    // (rigid translation apart — guarantees a corridor exists), then
+    // ungrouped nodes must never finish inside a group's rect and
+    // peer-shared (multi-group) nodes must finish in that corridor — the
+    // polish stages above can drag all of these back in after the soft
     // exclusion force stops acting
+    separateGroupBoxes(positions, groups, nodeGroupsMap, nodeById,
+      nestedGroupPairs, config);
     enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap,
-      nodeById, getNodeRadius, config);
+      nodeById, getNodeRadius, config, nestedGroupPairs);
   }
 
   // ── Isolated-node scatter ───────────────────────────────────────────────
@@ -2394,19 +2399,231 @@ function computeGroupWorldBoxes(groups, positions, nodeById, pad) {
  * cheapest box edge, alternating with light overlap resolution so ejected
  * nodes don't stack, and always ends on an eject pass so the guarantee holds.
  */
-function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, nodeById, getRadius, config, passes = 3) {
+/**
+ * Returns a (nodeId, groupId) => bool checker for whether a member is shared
+ * with a peer (non-nested) group — such nodes belong in the corridor between
+ * their groups, not inside any one group's exclusive core.
+ */
+function makePeerSharedChecker(nodeGroupsMap, nestedGroupPairs) {
+  return (nodeId, groupId) => {
+    const memberships = nodeGroupsMap.get(nodeId);
+    if (!memberships || memberships.size < 2) return false;
+    for (const otherGid of memberships) {
+      if (otherGid === groupId) continue;
+      const pk = otherGid < groupId ? `${otherGid}|${groupId}` : `${groupId}|${otherGid}`;
+      if (!nestedGroupPairs.has(pk)) return true;
+    }
+    return false;
+  };
+}
+
+/**
+ * Rigidly translate peer (non-nested) top-level groups apart until their
+ * core boxes no longer overlap. Pairwise node separation alone can leave two
+ * groups spatially interleaved — which renders as one group's rect swallowing
+ * the other and leaves no corridor for shared nodes. Rigid translation
+ * preserves each group's internal layout; nested children ride along with
+ * their parent, and peer-shared members are skipped (the corridor ejection
+ * pass places them afterwards).
+ */
+function separateGroupBoxes(positions, groups, nodeGroupsMap, nodeById, nestedGroupPairs, config, passes = 6) {
+  if (!groups || groups.length < 2) return;
+  const pad = config.groupBoundaryPadding || 100;
+  const isPeerSharedWith = makePeerSharedChecker(nodeGroupsMap, nestedGroupPairs);
+
+  // Only pairs that actually share members need a corridor between their
+  // PADDED boxes wide enough for the shared node plus ejection clearance
+  // (or corridor placement oscillates). Pairs with nothing between them get
+  // a modest gap — sizing every pair for the graph's biggest node casts the
+  // whole layout apart.
+  const plainGap = pad * 2;
+  const gapForPair = (g1, g2) => {
+    const m2 = new Set(g2.memberInstanceIds || []);
+    let maxSharedExtent = 0;
+    (g1.memberInstanceIds || []).forEach(id => {
+      if (!m2.has(id)) return;
+      const n = nodeById.get(id);
+      if (n) maxSharedExtent = Math.max(maxSharedExtent, n.width || 100, n.height || 60);
+    });
+    if (maxSharedExtent === 0) return plainGap;
+    return pad * 2 + maxSharedExtent + 80;
+  };
+
+  const memberSet = new Map(groups.map(g => [g.id, new Set(g.memberInstanceIds || [])]));
+  const isContained = (innerId, outerId) => {
+    const im = memberSet.get(innerId), om = memberSet.get(outerId);
+    if (!im || !om || im.size === 0 || im.size >= om.size) return false;
+    for (const m of im) { if (!om.has(m)) return false; }
+    return true;
+  };
+  const topLevel = groups.filter(g =>
+    !groups.some(o => o.id !== g.id && isContained(g.id, o.id)));
+  if (topLevel.length < 2) return;
+
+  for (let pass = 0; pass < passes; pass++) {
+    const boxes = new Map();
+    topLevel.forEach(g => {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      (g.memberInstanceIds || []).forEach(id => {
+        if (isPeerSharedWith(id, g.id)) return;
+        const pos = positions.get(id);
+        const node = nodeById.get(id);
+        if (!pos || !node) return;
+        const w = node.width || 100;
+        const h = node.height || 60;
+        if (pos.x < minX) minX = pos.x;
+        if (pos.y < minY) minY = pos.y;
+        if (pos.x + w > maxX) maxX = pos.x + w;
+        if (pos.y + h > maxY) maxY = pos.y + h;
+      });
+      if (minX !== Infinity) boxes.set(g.id, { minX, minY, maxX, maxY });
+    });
+
+    let moved = false;
+    for (let i = 0; i < topLevel.length; i++) {
+      for (let j = i + 1; j < topLevel.length; j++) {
+        const b1 = boxes.get(topLevel[i].id);
+        const b2 = boxes.get(topLevel[j].id);
+        if (!b1 || !b2) continue;
+        const gap = gapForPair(topLevel[i], topLevel[j]);
+        const overlapX = Math.min(b1.maxX, b2.maxX) - Math.max(b1.minX, b2.minX) + gap;
+        const overlapY = Math.min(b1.maxY, b2.maxY) - Math.max(b1.minY, b2.minY) + gap;
+        if (overlapX <= 0 || overlapY <= 0) continue;
+
+        let dx = 0, dy = 0;
+        if (overlapX < overlapY) {
+          const dir = (b1.minX + b1.maxX) <= (b2.minX + b2.maxX) ? 1 : -1;
+          dx = dir * overlapX / 2;
+        } else {
+          const dir = (b1.minY + b1.maxY) <= (b2.minY + b2.maxY) ? 1 : -1;
+          dy = dir * overlapY / 2;
+        }
+
+        const translate = (g, sx, sy, box) => {
+          (g.memberInstanceIds || []).forEach(id => {
+            if (isPeerSharedWith(id, g.id)) return;
+            const p = positions.get(id);
+            if (p) { p.x += sx; p.y += sy; }
+          });
+          box.minX += sx; box.maxX += sx;
+          box.minY += sy; box.maxY += sy;
+        };
+        translate(topLevel[i], -dx, -dy, b1);
+        translate(topLevel[j], dx, dy, b2);
+        moved = true;
+      }
+    }
+    if (!moved) return;
+  }
+}
+
+function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, nodeById, getRadius, config, nestedGroupPairs = new Set(), passes = 3) {
   if (!groups || groups.length === 0) return;
   const pad = config.groupBoundaryPadding || 100;
   const clearance = 30;
+  const isPeerSharedWith = makePeerSharedChecker(nodeGroupsMap, nestedGroupPairs);
+
   const ungrouped = nodes.filter(n => {
     const gs = nodeGroupsMap.get(n.id);
     return !gs || gs.size === 0;
   });
-  if (ungrouped.length === 0) return;
+  const peerShared = nodes.filter(n => {
+    const gs = nodeGroupsMap.get(n.id);
+    if (!gs || gs.size < 2) return false;
+    return [...gs].some(gid => isPeerSharedWith(n.id, gid));
+  });
+  if (ungrouped.length === 0 && peerShared.length === 0) return;
+
+  // Core boxes exclude peer-shared members so a shared node in the corridor
+  // doesn't stretch the box it's being ejected from
+  const computeCoreBoxes = () => {
+    const boxes = new Map();
+    groups.forEach(group => {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      (group.memberInstanceIds || []).forEach(id => {
+        if (isPeerSharedWith(id, group.id)) return;
+        const pos = positions.get(id);
+        const node = nodeById.get(id);
+        if (!pos || !node) return;
+        const w = node.width || 100;
+        const h = node.height || 60;
+        if (pos.x < minX) minX = pos.x;
+        if (pos.y < minY) minY = pos.y;
+        if (pos.x + w > maxX) maxX = pos.x + w;
+        if (pos.y + h > maxY) maxY = pos.y + h;
+      });
+      if (minX !== Infinity) {
+        boxes.set(group.id, {
+          minX: minX - pad, minY: minY - pad,
+          maxX: maxX + pad, maxY: maxY + pad,
+          centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2
+        });
+      }
+    });
+    return boxes;
+  };
+
+  const ejectNodeFromBox = (node, pos, box, bias) => {
+    const w = node.width || 100;
+    const h = node.height || 60;
+    const hw = w / 2 + clearance;
+    const hh = h / 2 + clearance;
+    const cx = pos.x + w / 2;
+    const cy = pos.y + h / 2;
+    if (cx + hw <= box.minX || cx - hw >= box.maxX ||
+        cy + hh <= box.minY || cy - hh >= box.maxY) return false;
+    if (bias) {
+      // Exit through the side facing the bias point (the node's other groups)
+      const dx = bias.x - box.centerX;
+      const dy = bias.y - box.centerY;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        pos.x = (dx > 0 ? box.maxX + hw : box.minX - hw) - w / 2;
+      } else {
+        pos.y = (dy > 0 ? box.maxY + hh : box.minY - hh) - h / 2;
+      }
+    } else {
+      const exitLeft = (cx + hw) - box.minX;
+      const exitRight = box.maxX - (cx - hw);
+      const exitUp = (cy + hh) - box.minY;
+      const exitDown = box.maxY - (cy - hh);
+      const min = Math.min(exitLeft, exitRight, exitUp, exitDown);
+      if (min === exitLeft) pos.x -= min;
+      else if (min === exitRight) pos.x += min;
+      else if (min === exitUp) pos.y -= min;
+      else pos.y += min;
+    }
+    return true;
+  };
 
   const ejectPass = () => {
-    const boxes = computeGroupWorldBoxes(groups, positions, nodeById, pad);
+    const coreBoxes = peerShared.length > 0 ? computeCoreBoxes() : null;
     let moved = false;
+
+    // Peer-shared nodes first: their corridor position stretches the rendered
+    // rects, so ungrouped nodes must be validated against the boxes AFTER
+    // shared nodes have settled
+    peerShared.forEach(node => {
+      const pos = positions.get(node.id);
+      if (!pos) return;
+      const memberships = [...(nodeGroupsMap.get(node.id) || [])];
+      memberships.forEach(gid => {
+        if (!isPeerSharedWith(node.id, gid)) return;
+        const box = coreBoxes.get(gid);
+        if (!box) return;
+        // Bias exit toward the centroid of the node's OTHER groups so it
+        // lands in the corridor between them, not on a far side
+        let bx = 0, by = 0, bCount = 0;
+        memberships.forEach(otherGid => {
+          if (otherGid === gid) return;
+          const ob = coreBoxes.get(otherGid);
+          if (ob) { bx += ob.centerX; by += ob.centerY; bCount++; }
+        });
+        const bias = bCount > 0 ? { x: bx / bCount, y: by / bCount } : null;
+        if (ejectNodeFromBox(node, pos, box, bias)) moved = true;
+      });
+    });
+
+    const fullBoxes = computeGroupWorldBoxes(groups, positions, nodeById, pad);
     ungrouped.forEach(node => {
       const pos = positions.get(node.id);
       if (!pos) return;
@@ -2414,23 +2631,29 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
       const h = node.height || 60;
       const hw = w / 2 + clearance;
       const hh = h / 2 + clearance;
-      boxes.forEach(box => {
+      // Iterate until clear of ALL boxes. When the node overlaps several
+      // boxes at once (two rects joined by a shared node's Venn lens),
+      // eject from their UNION — per-box ejection just ping-pongs between
+      // the overlapping boxes.
+      for (let round = 0; round < 4; round++) {
         const cx = pos.x + w / 2;
         const cy = pos.y + h / 2;
-        if (cx + hw <= box.minX || cx - hw >= box.maxX ||
-            cy + hh <= box.minY || cy - hh >= box.maxY) return;
-        const exitLeft = (cx + hw) - box.minX;
-        const exitRight = box.maxX - (cx - hw);
-        const exitUp = (cy + hh) - box.minY;
-        const exitDown = box.maxY - (cy - hh);
-        const min = Math.min(exitLeft, exitRight, exitUp, exitDown);
-        if (min === exitLeft) pos.x -= min;
-        else if (min === exitRight) pos.x += min;
-        else if (min === exitUp) pos.y -= min;
-        else pos.y += min;
-        moved = true;
-      });
+        const hits = [];
+        fullBoxes.forEach(box => {
+          if (cx + hw > box.minX && cx - hw < box.maxX &&
+              cy + hh > box.minY && cy - hh < box.maxY) hits.push(box);
+        });
+        if (hits.length === 0) break;
+        const target = hits.length === 1 ? hits[0] : {
+          minX: Math.min(...hits.map(b => b.minX)),
+          minY: Math.min(...hits.map(b => b.minY)),
+          maxX: Math.max(...hits.map(b => b.maxX)),
+          maxY: Math.max(...hits.map(b => b.maxY))
+        };
+        if (ejectNodeFromBox(node, pos, target)) moved = true;
+      }
     });
+
     return moved;
   };
 

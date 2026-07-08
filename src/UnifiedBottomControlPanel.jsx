@@ -469,37 +469,41 @@ const UnifiedBottomControlPanel = ({
       color: selectedGroup.color || theme.accent.primary
     };
 
+    // Size the box generously so the group reads like a canvas title tab, not a
+    // cramped chip. The renderer's group font is 45 * fitScale, so at the ~0.5 fit
+    // scale below the text lands at a readable ~22px; width/height are the *base*
+    // dims that get scaled by that same factor. Roughly a 2:1 tab with breathing
+    // room around the label (side padding + slack) so the outline isn't hugging text.
+    const name = selectedGroup.name || 'Group';
     return {
       ...baseNode,
       x: 0,
       y: 0,
-      width: Math.max(200, (selectedGroup.name?.length || 5) * 14),
-      height: 90,
+      width: Math.max(400, name.length * 24 + 140),
+      height: 120,
       isGroup: true
     };
   }, [isGroup, selectedGroup]);
 
   const groupRendererMetrics = useMemo(() => {
-    // Size the container to the node at a readable target scale (mirrors the
-    // single-node preset in nodeRendererMetrics). Sizing to node.width + padding
-    // instead makes the renderer's fit-scale ~1.0, so the group label rendered at
-    // the full 45px canvas font — far too large to read in this compact panel.
-    const pad = mobileState.isMobile ? 8 : 12;
-    const scale = mobileState.isMobile ? 0.7 : 0.5;
-    const minHeight = mobileState.isMobile ? 64 : 92;
+    // Hug the box at a fixed target scale: the fit scale comes out to `scale` in both
+    // axes (container = box * scale + padding), so the outline fills its container with
+    // no dead space and the label stays readable. Sizing width to box + padding (the
+    // old approach) instead let the fit-scale drift to ~1.0 and rendered the label at
+    // the full 45px canvas font.
+    const pad = mobileState.isMobile ? 10 : 16;
+    const scale = mobileState.isMobile ? 0.65 : 0.5;
     if (!groupRendererNode) {
       return {
         containerWidth: Math.min(320, viewportLimit),
-        containerHeight: minHeight,
+        containerHeight: mobileState.isMobile ? 64 : 88,
         padding: pad
       };
     }
 
-    // Width drives the fit-scale (scaleW = scale); the taller min height just adds
-    // vertical breathing room without inflating the scale.
     return {
       containerWidth: Math.min(viewportLimit, groupRendererNode.width * scale + pad * 2),
-      containerHeight: Math.max(minHeight, groupRendererNode.height * scale + pad * 2),
+      containerHeight: groupRendererNode.height * scale + pad * 2,
       padding: pad
     };
   }, [groupRendererNode, viewportLimit, mobileState.isMobile]);

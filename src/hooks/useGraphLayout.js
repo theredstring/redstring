@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { applyLayout, FORCE_LAYOUT_DEFAULTS } from '../services/graphLayoutService.js';
+import { applyLayout, FORCE_LAYOUT_DEFAULTS, deriveGroupVisualBounds } from '../services/graphLayoutService.js';
 import { getNodeDimensions } from '../utils'; // Assumed utility
+import { HEADER_HEIGHT } from '../constants';
 
 /**
  * Resolve the displayed connection name for an edge.
@@ -286,40 +287,81 @@ export const useGraphLayout = ({
 
             // Compute the zoom-to-fit camera target framed on the FINAL positions
             let cameraTarget = null;
+            // Screen-space margins around the framed content. The margin is a
+            // fixed pixel breathing room; top/bottom add the UI that overlays
+            // the canvas (fixed header bar, floating bottom control panel).
+            const FIT_MARGIN = 20;
+            const BOTTOM_PANEL_ALLOWANCE = 130;
+            const marginTop = HEADER_HEIGHT + FIT_MARGIN;
+            const marginBottom = BOTTOM_PANEL_ALLOWANCE + FIT_MARGIN;
+            // Visible-area center in screen space — the point the framed
+            // content should center on (shared by target, tween start, and
+            // per-frame pan derivation so the motion doesn't drift)
+            const visCenterX = viewportSize ? viewportSize.width / 2 : 0;
+            const visCenterY = viewportSize
+                ? marginTop + (viewportSize.height - marginTop - marginBottom) / 2
+                : 0;
             if (viewportSize && updates.length > 0 && (canvasTransform || (setZoomLevel && setPanOffset))) {
+                const finalPosById = new Map(updates.map(u => [u.instanceId, u]));
+                const dimsFor = (instanceId) => {
+                    const node = layoutNodes.find(n => n.id === instanceId);
+                    const dims = baseDimsById.get(instanceId);
+                    return {
+                        width: dims?.currentWidth || node?.width || 150,
+                        height: dims?.currentHeight || node?.height || 150
+                    };
+                };
+
                 let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
                 updates.forEach(update => {
-                    const node = layoutNodes.find(n => n.id === update.instanceId);
-                    const dims = baseDimsById.get(update.instanceId);
-                    const width = dims?.currentWidth || node?.width || 150;
-                    const height = dims?.currentHeight || node?.height || 150;
+                    const { width, height } = dimsFor(update.instanceId);
                     minX = Math.min(minX, update.x);
                     minY = Math.min(minY, update.y);
                     maxX = Math.max(maxX, update.x + width);
                     maxY = Math.max(maxY, update.y + height);
                 });
 
-                const nodesWidth = maxX - minX;
-                const nodesHeight = maxY - minY;
+                // Fold in group rect chrome (border margins + title bars) —
+                // framing raw node bounds crops group rects and titles, which
+                // reads as over-zoomed
+                groups.forEach(group => {
+                    let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
+                    (group.memberInstanceIds || []).forEach(id => {
+                        const u = finalPosById.get(id);
+                        if (!u) return;
+                        const { width, height } = dimsFor(id);
+                        gMinX = Math.min(gMinX, u.x);
+                        gMinY = Math.min(gMinY, u.y);
+                        gMaxX = Math.max(gMaxX, u.x + width);
+                        gMaxY = Math.max(gMaxY, u.y + height);
+                    });
+                    if (!Number.isFinite(gMinX)) return;
+                    const vb = deriveGroupVisualBounds(group, { minX: gMinX, minY: gMinY, maxX: gMaxX, maxY: gMaxY });
+                    minX = Math.min(minX, vb.x);
+                    minY = Math.min(minY, vb.y);
+                    maxX = Math.max(maxX, vb.x + vb.w);
+                    maxY = Math.max(maxY, vb.y + vb.h);
+                });
+
+                const nodesWidth = Math.max(1, maxX - minX);
+                const nodesHeight = Math.max(1, maxY - minY);
                 const nodesCenterX = (minX + maxX) / 2;
                 const nodesCenterY = (minY + maxY) / 2;
 
-                // Asymmetric padding: extra vertical room since header/bottom
-                // panels overlay the canvas, plus a slight global back-off
-                const paddingX = Math.max(260, viewportSize.width * 0.15);
-                const paddingY = Math.max(360, viewportSize.height * 0.23);
-                const targetZoomX = viewportSize.width / (nodesWidth + paddingX * 2);
-                const targetZoomY = viewportSize.height / (nodesHeight + paddingY * 2);
-                let targetZoom = Math.min(targetZoomX, targetZoomY) * 0.92;
-                targetZoom = Math.max(Math.min(targetZoom, maxZoom), 0.2);
+                const availW = Math.max(100, viewportSize.width - FIT_MARGIN * 2);
+                const availH = Math.max(100, viewportSize.height - marginTop - marginBottom);
+                // Fit everything in the visible area with the fixed margin —
+                // but never zoom IN past natural size to frame a small graph
+                let targetZoom = Math.min(availW / nodesWidth, availH / nodesHeight);
+                targetZoom = Math.max(Math.min(targetZoom, 1.0, maxZoom), 0.05);
 
                 cameraTarget = {
                     zoom: targetZoom,
                     centerX: nodesCenterX,
                     centerY: nodesCenterY,
                     pan: {
-                        x: (viewportSize.width / 2) - (nodesCenterX - canvasSize.offsetX) * targetZoom,
-                        y: (viewportSize.height / 2) - (nodesCenterY - canvasSize.offsetY) * targetZoom
+                        x: visCenterX - (nodesCenterX - canvasSize.offsetX) * targetZoom,
+                        y: visCenterY - (nodesCenterY - canvasSize.offsetY) * targetZoom
                     }
                 };
             }
@@ -368,8 +410,8 @@ export const useGraphLayout = ({
                 const z0 = canvasTransform.zoomRef.current;
                 camStart = {
                     zoom: z0,
-                    centerX: (viewportSize.width / 2 - p0.x) / z0 + canvasSize.offsetX,
-                    centerY: (viewportSize.height / 2 - p0.y) / z0 + canvasSize.offsetY
+                    centerX: (visCenterX - p0.x) / z0 + canvasSize.offsetX,
+                    centerY: (visCenterY - p0.y) / z0 + canvasSize.offsetY
                 };
             } else {
                 // No transform controller — reframe instantly, nodes still tween
@@ -393,8 +435,8 @@ export const useGraphLayout = ({
                     const cy = camStart.centerY + (cameraTarget.centerY - camStart.centerY) * k;
                     canvasTransform.setPanAndZoom(
                         {
-                            x: viewportSize.width / 2 - (cx - canvasSize.offsetX) * z,
-                            y: viewportSize.height / 2 - (cy - canvasSize.offsetY) * z
+                            x: visCenterX - (cx - canvasSize.offsetX) * z,
+                            y: visCenterY - (cy - canvasSize.offsetY) * z
                         },
                         z
                     );
