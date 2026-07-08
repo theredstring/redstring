@@ -1429,7 +1429,7 @@ const AbstractionCarousel = ({
                       ry={cornerRadius - 6}
                       fill={nodeColor}
                       stroke={borderColor}
-                      strokeWidth={8}
+                      strokeWidth={borderWidth}
                       style={{
                         filter: isMainNode
                           ? 'drop-shadow(0px 0px 20px rgba(0, 0, 0, 0.6))'
