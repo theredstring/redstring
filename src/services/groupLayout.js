@@ -76,15 +76,17 @@ export function buildChildGroupIdsIndex(groupsById, groupsByMemberId) {
   return out;
 }
 
-const labelHeightConst = () => {
+const labelHeightConst = (scale = 1) => {
   const C = GROUP_LAYOUT_CONSTANTS;
-  return Math.max(80, C.fontSize * 1.4 + C.titlePaddingVertical * 2);
+  return Math.max(80 * scale, C.fontSize * scale * 1.4 + C.titlePaddingVertical * scale * 2);
 };
 
-const labelWidthFor = (text, measureLabelWidth) => {
+const labelWidthFor = (text, measureLabelWidth, scale = 1) => {
   const C = GROUP_LAYOUT_CONSTANTS;
+  // `measureLabelWidth` already measures against the node-scaled font, so the
+  // padding/floor/ceiling scale alongside it to keep the tab proportional.
   const measured = measureLabelWidth(text);
-  return Math.min(1000, Math.max(100, measured + C.titlePaddingHorizontal * 2 + C.strokeWidth * 2));
+  return Math.min(1000 * scale, Math.max(100 * scale, measured + (C.titlePaddingHorizontal * 2 + C.strokeWidth * 2) * scale));
 };
 
 /**
@@ -127,6 +129,7 @@ function computeGroupLayoutInner(group, context) {
     childGroupIdsByGroupId,
     gridSize,
     measureLabelWidth,
+    labelScale = 1,
   } = context;
 
   const memberIds = Array.isArray(group.memberInstanceIds) ? group.memberInstanceIds : [];
@@ -205,8 +208,8 @@ function computeGroupLayoutInner(group, context) {
   const rectH = (maxY - minY) + margin * 2;
 
   const labelText = group.name || 'Group';
-  const labelWidth = labelWidthFor(labelText, measureLabelWidth);
-  const labelHeight = labelHeightConst();
+  const labelWidth = labelWidthFor(labelText, measureLabelWidth, labelScale);
+  const labelHeight = labelHeightConst(labelScale);
   const labelX = rectX + (rectW - labelWidth) / 2;
   const labelY = rectY - labelHeight - C.titleToCanvasGap;
 

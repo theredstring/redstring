@@ -74,20 +74,25 @@ const ConnectionText = ({
     const available = Math.max(0, length * 0.45); // clip earlier; keep well clear of node ends/arrowheads
     lines.push(truncateToWidth(displayName, fontString, available));
   } else {
-    // Wrapping logic: roughly 15-20 chars for connection labels
+    // Wrap against the actual space available along the connection so the wrap
+    // point scales with node size and gap. A fixed char count wrapped large nodes
+    // (thick lines, long connections) after just a word or two.
+    const length = Math.sqrt(dx * dx + dy * dy);
+    const fontString = `bold ${fontSize}px 'EmOne', sans-serif`;
+    const available = Math.max(fontSize * 9, length * 1.4);
     const words = displayName.split(' ');
     let currentLine = '';
-    const maxChars = 14; // Conservative wrap point for connection labels
 
     words.forEach(word => {
-      if ((currentLine + word).length > maxChars && currentLine.length > 0) {
-        lines.push(currentLine.trim());
-        currentLine = word + ' ';
+      const tentative = currentLine ? `${currentLine} ${word}` : word;
+      if (measureTextWidth(tentative, fontString) > available && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
       } else {
-        currentLine += word + ' ';
+        currentLine = tentative;
       }
     });
-    if (currentLine) lines.push(currentLine.trim());
+    if (currentLine) lines.push(currentLine);
   }
 
   return (
@@ -726,8 +731,23 @@ const UniversalNodeRenderer = ({
                 y: conn.targetPoint.y - unitY * dotOffset
               } : conn.targetPoint;
 
+              // The visible line should die under the arrowhead, not at its centre —
+              // otherwise the round line cap (which grows with strokeWidth) pokes past
+              // the size-capped arrowhead silhouette on thick connections. Pull the line
+              // endpoints back to roughly the arrowhead base on sides that have an arrow.
+              const arrowScale = Math.min(1.6, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
+              const arrowLineInset = 15 * arrowScale;
+              const lineSourcePoint = conn.hasSourceArrow ? {
+                x: adjustedSourcePoint.x + unitX * arrowLineInset,
+                y: adjustedSourcePoint.y + unitY * arrowLineInset
+              } : adjustedSourcePoint;
+              const lineTargetPoint = conn.hasTargetArrow ? {
+                x: adjustedTargetPoint.x - unitX * arrowLineInset,
+                y: adjustedTargetPoint.y - unitY * arrowLineInset
+              } : adjustedTargetPoint;
+
               // Create adjusted path - only shorten where needed
-              adjustedPath = `M ${adjustedSourcePoint.x} ${adjustedSourcePoint.y} L ${adjustedTargetPoint.x} ${adjustedTargetPoint.y}`;
+              adjustedPath = `M ${lineSourcePoint.x} ${lineSourcePoint.y} L ${lineTargetPoint.x} ${lineTargetPoint.y}`;
             }
           }
 
@@ -789,7 +809,7 @@ const UniversalNodeRenderer = ({
                 // Calculate arrow scale based on stroke width (maintains proportions).
                 // Trim arrowheads in the compact decomposition preview so they read at
                 // node scale instead of dominating the small inner nodes.
-                const arrowScale = Math.max(0.5, conn.strokeWidth / 6) * (renderContext === 'decomposition' ? 0.8 : 1);
+                const arrowScale = Math.min(1.6, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
 
                 return (
                   <g
@@ -803,7 +823,7 @@ const UniversalNodeRenderer = ({
                       points={`${-16 * arrowScale},${20 * arrowScale} ${16 * arrowScale},${20 * arrowScale} 0,${-20 * arrowScale}`}
                       fill={conn.color || '#000000'}
                       stroke={conn.color || '#000000'}
-                      strokeWidth={Math.max(1.5, conn.strokeWidth * 0.8)}
+                      strokeWidth={Math.min(5, Math.max(1.5, conn.strokeWidth * 0.7))}
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       paintOrder="stroke fill"
@@ -839,7 +859,7 @@ const UniversalNodeRenderer = ({
                 // Calculate arrow scale based on stroke width (maintains proportions).
                 // Trim arrowheads in the compact decomposition preview so they read at
                 // node scale instead of dominating the small inner nodes.
-                const arrowScale = Math.max(0.5, conn.strokeWidth / 6) * (renderContext === 'decomposition' ? 0.8 : 1);
+                const arrowScale = Math.min(1.6, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
 
                 return (
                   <g
@@ -853,7 +873,7 @@ const UniversalNodeRenderer = ({
                       points={`${-16 * arrowScale},${20 * arrowScale} ${16 * arrowScale},${20 * arrowScale} 0,${-20 * arrowScale}`}
                       fill={conn.color || '#000000'}
                       stroke={conn.color || '#000000'}
-                      strokeWidth={Math.max(1.5, conn.strokeWidth * 0.8)}
+                      strokeWidth={Math.min(5, Math.max(1.5, conn.strokeWidth * 0.7))}
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       paintOrder="stroke fill"

@@ -10849,6 +10849,11 @@ function NodeCanvas() {
                       const n = hydratedNodes[i];
                       layoutNodesById.set(n.id, { id: n.id, x: n.x, y: n.y });
                     }
+                    // Group labels scale with node size (not the text-size setting),
+                    // so the whole tab — box and font — grows proportionally when nodes
+                    // are enlarged instead of staying a fixed 36px.
+                    const groupLabelScale = textSettings?.nodeScale ?? 1.0;
+                    const groupLabelFontSize = GROUP_LAYOUT_CONSTANTS.fontSize * groupLabelScale;
                     const layoutContext = {
                       nodesById: layoutNodesById,
                       dimsById: baseDimsById,
@@ -10856,7 +10861,8 @@ function NodeCanvas() {
                       groupsByMemberId: groupsByNodeIdRef.current,
                       childGroupIdsByGroupId: childGroupIdsByGroupIdRef.current,
                       gridSize,
-                      measureLabelWidth: (text) => getTextWidth(text || 'Group', `bold ${GROUP_LAYOUT_CONSTANTS.fontSize}px "EmOne", sans-serif`),
+                      measureLabelWidth: (text) => getTextWidth(text || 'Group', `bold ${groupLabelFontSize}px "EmOne", sans-serif`),
+                      labelScale: groupLabelScale,
                       _cache: new Map(),
                     };
 
@@ -10886,7 +10892,7 @@ function NodeCanvas() {
 
                       const nodeGroupCornerR = GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius;
                       const strokeColor = group.color || '#8B0000';
-                      const fontSize = GROUP_LAYOUT_CONSTANTS.fontSize;
+                      const fontSize = groupLabelFontSize;
 
                       const currentText = editingGroupId === group.id ? tempGroupName : (group.name || 'Group');
                       const labelText = group.name || 'Group';
@@ -11120,10 +11126,10 @@ function NodeCanvas() {
                             if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
                           }}
                         >
-                          <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20} ry={20}
+                          <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20 * groupLabelScale} ry={20 * groupLabelScale}
                             fill={isNodeGroup ? "none" : theme.canvas.bg}
                             stroke={isNodeGroup ? "none" : strokeColor}
-                            strokeWidth={isNodeGroup ? 0 : 6}
+                            strokeWidth={isNodeGroup ? 0 : 6 * groupLabelScale}
                             pointerEvents="all"
                             style={{
                               transform: isGroupDragging ? `scale(1.08)` : 'scale(1)',
@@ -11171,9 +11177,9 @@ function NodeCanvas() {
                                   }}
                                   autoFocus
                                   style={{
-                                    width: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * 2}px)`,
-                                    height: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingVertical * 2}px)`,
-                                    margin: `${GROUP_LAYOUT_CONSTANTS.titlePaddingVertical}px ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal}px`,
+                                    width: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * 2 * groupLabelScale}px)`,
+                                    height: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingVertical * 2 * groupLabelScale}px)`,
+                                    margin: `${GROUP_LAYOUT_CONSTANTS.titlePaddingVertical * groupLabelScale}px ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * groupLabelScale}px`,
                                     fontSize: `${fontSize}px`,
                                     fontFamily: 'EmOne, sans-serif',
                                     fontWeight: 'bold',

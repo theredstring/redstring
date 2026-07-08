@@ -203,7 +203,9 @@ const HoverVisionAid = ({
       return Math.max(max, wordMax);
     }, 0);
 
-    const targetGap = Math.max(380, longestWordWidth * 2.4);
+    // Keep the gap modest — a fixed-scale preview looks ridiculous if the gap
+    // stretches out for long labels, so cap it rather than letting it grow freely.
+    const targetGap = Math.min(460, Math.max(320, longestWordWidth * 1.6));
     const connectionGap = Math.ceil(targetGap / 0.8);
 
     // Size container generously so nodeScale would be 1.0 without the cap.
