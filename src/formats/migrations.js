@@ -90,6 +90,8 @@ export const KNOWN_PROTOTYPE_KEYS = new Set([
   'redstring:definitionGraphIds', 'redstring:bio', 'redstring:conjugation',
   'redstring:typeNodeId', 'redstring:citations', 'redstring:cognitiveProperties',
   'redstring:abstractionChains', 'redstring:agentConfig', 'redstring:semanticMetadata',
+  'redstring:isSpecificityChainNode', 'redstring:hasSpecificityChain', 'redstring:createdAt',
+  'isSpecificityChainNode', 'hasSpecificityChain', 'createdAt',
   // SKOS + PROV emitted by Phase 2 (P2.4/P2.5/P2.6) — recognized, not quarantined
   'skos:prefLabel', 'skos:altLabel', 'skos:inScheme', 'skos:broader',
   'skos:closeMatch', 'skos:exactMatch',
@@ -121,10 +123,11 @@ export const KNOWN_GRAPH_KEYS = new Set([
   'redstring:definingNodeIds', 'redstring:edgeIds', 'redstring:panOffset',
   'redstring:zoomLevel', 'redstring:instances', 'redstring:groups',
   'redstring:visualProperties',
+  'redstring:directed', 'redstring:color', 'redstring:picture', 'redstring:createdAt',
   'redstring:edges',  // v4: graph-scoped edge map (D10/P3.1)
   // legacy flat (read)
   'id', 'name', 'description', 'definingNodeIds', 'edgeIds', 'instances',
-  'groups', 'panOffset', 'zoomLevel',
+  'groups', 'panOffset', 'zoomLevel', 'directed', 'color', 'picture', 'createdAt',
   '_preserved'
 ]);
 

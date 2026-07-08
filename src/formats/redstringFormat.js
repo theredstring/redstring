@@ -589,7 +589,8 @@ export const PERSISTED_STORE_KEYS = [
   'savedNodeIds',
   'savedGraphIds',
   'showConnectionNames',
-  'wizardPlansByConversation'
+  'wizardPlansByConversation',
+  'universeCreatedAt'
 ];
 
 /**
@@ -677,9 +678,10 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       "redstring:definingNodeIds": graph.definingNodeIds || [],
       "redstring:edgeIds": graph.edgeIds || [],
       // Semantic/visual graph fields the store carries (createNewGraph sets
-      // these). `directed` is a real semantic flag; color/picture/createdAt
+      // these). Emit only when present so a graph that never had the field
+      // doesn't gain a default on round-trip. color/picture/createdAt/directed
       // were previously dropped on every save/load cycle.
-      "redstring:directed": graph.directed !== false,
+      ...(graph.directed !== undefined ? { "redstring:directed": graph.directed !== false } : {}),
       ...(graph.color != null ? { "redstring:color": graph.color } : {}),
       ...(graph.picture != null ? { "redstring:picture": graph.picture } : {}),
       ...(graph.createdAt != null ? { "redstring:createdAt": graph.createdAt } : {}),
@@ -1070,7 +1072,10 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     "format": emitV4 ? 'redstring-v4.0.0' : `redstring-v${CURRENT_FORMAT_VERSION}`,
     "metadata": {
       "version": emitV4 ? '4.0.0' : CURRENT_FORMAT_VERSION,
-      "created": new Date().toISOString(),
+      // Preserve the original creation timestamp across saves. It was being
+      // re-stamped to "now" on every export, making the universe's true
+      // creation date unrecoverable after the first save.
+      "created": storeState.universeCreatedAt || storeState._preserved?.metadataCreated || new Date().toISOString(),
       "modified": new Date().toISOString(),
       // Identity stamp: which universe this file belongs to. Used to refuse
       // adopting a same-named file that belongs to a DIFFERENT universe as a
@@ -1171,6 +1176,14 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
  */
 export const importFromRedstring = (redstringData, storeActions) => {
   try {
+    // Step -1: input must be a real object. A primitive/array/null would
+    // otherwise sail through the section reads (which default to {}) and
+    // produce a structurally-empty universe with no error — the exact silent
+    // "loaded an empty universe" failure this hardening pass exists to kill.
+    if (!redstringData || typeof redstringData !== 'object' || Array.isArray(redstringData)) {
+      throw new Error(`Not a valid Redstring document (got ${Array.isArray(redstringData) ? 'array' : typeof redstringData})`);
+    }
+
     // Step 0: strip prototype-pollution keys at the ingestion chokepoint. Every
     // load path (file upload, Electron file:read, GitHub pull) funnels through
     // here, so this covers untrusted data regardless of which parser produced it.
@@ -1816,6 +1829,12 @@ export const importFromRedstring = (redstringData, storeActions) => {
 
     // Carry the file-root quarantine bag through (opaque cargo, D1/P1.3)
     if (processedData._preserved) storeState._preserved = processedData._preserved;
+
+    // Preserve the universe's original creation timestamp so re-export doesn't
+    // reset it to "now" (see export metadata.created).
+    if (processedData.metadata?.created) {
+      storeState.universeCreatedAt = processedData.metadata.created;
+    }
 
     const importedTabs = extractedRightPanelTabs;
 
