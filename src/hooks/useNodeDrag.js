@@ -739,6 +739,12 @@ export const useNodeDrag = ({
 
     // Shared cache across all groups in this frame so multi-parent containment
     // doesn't recompute the same child layout repeatedly.
+    // Match the static render's label sizing (NodeCanvas): node-title size
+    // (45 * fontSize * nodeScale). Without this the tab re-measured at the fixed
+    // 36px base with no scale on grab and jumped size mid-drag.
+    const ts = useGraphStore.getState().textSettings;
+    const labelScale = ts?.nodeScale ?? 1;
+    const labelFontSize = 45 * (ts?.fontSize ?? 1) * labelScale;
     const layoutContext = {
       nodesById: dragNodesById,
       dimsById: curBaseDims,
@@ -746,7 +752,9 @@ export const useNodeDrag = ({
       groupsByMemberId: groupsByNode,
       childGroupIdsByGroupId: childGroupIdsByGroupIdRef?.current,
       gridSize,
-      measureLabelWidth: (text) => pretextMeasureTextWidth(text || 'Group', `bold ${C.fontSize}px "EmOne", sans-serif`),
+      measureLabelWidth: (text) => pretextMeasureTextWidth(text || 'Group', `bold ${labelFontSize}px "EmOne", sans-serif`),
+      labelScale,
+      labelFontSize,
       _cache: new Map(),
     };
 
@@ -825,10 +833,14 @@ export const useNodeDrag = ({
           if (sub.labelRect) {
             sub.labelRect.setAttribute('x', labelX);
             sub.labelRect.setAttribute('y', labelY);
-            sub.labelRect.style.transformOrigin = `${labelX + groupLabelWidth / 2}px ${labelY + groupLabelHeight / 2}px`;
+            // Pivot the label's lift-scale off its own bbox center (fill-box), not a
+            // graph-coord px origin — a view-box px origin resolves in the wrong space
+            // inside the pan/zoom <g> and drifts the label off-center during the drag.
+            sub.labelRect.style.transformBox = 'fill-box';
+            sub.labelRect.style.transformOrigin = 'center';
             if (sub.labelText) {
               sub.labelText.setAttribute('x', labelX + groupLabelWidth / 2);
-              sub.labelText.setAttribute('y', labelY + groupLabelHeight * 0.7 - 2);
+              sub.labelText.setAttribute('y', labelY + groupLabelHeight / 2); // dominantBaseline:central centers it
             }
           }
         } else if (sub.type === 'bg') {
@@ -850,10 +862,14 @@ export const useNodeDrag = ({
           if (sub.labelRect) {
             sub.labelRect.setAttribute('x', labelX);
             sub.labelRect.setAttribute('y', labelY);
-            sub.labelRect.style.transformOrigin = `${labelX + groupLabelWidth / 2}px ${labelY + groupLabelHeight / 2}px`;
+            // Pivot the label's lift-scale off its own bbox center (fill-box), not a
+            // graph-coord px origin — a view-box px origin resolves in the wrong space
+            // inside the pan/zoom <g> and drifts the label off-center during the drag.
+            sub.labelRect.style.transformBox = 'fill-box';
+            sub.labelRect.style.transformOrigin = 'center';
             if (sub.labelText) {
               sub.labelText.setAttribute('x', labelX + groupLabelWidth / 2);
-              sub.labelText.setAttribute('y', labelY + groupLabelHeight * 0.7 - 2);
+              sub.labelText.setAttribute('y', labelY + groupLabelHeight / 2); // dominantBaseline:central centers it
             }
           }
         }

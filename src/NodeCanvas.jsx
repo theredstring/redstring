@@ -10853,7 +10853,10 @@ function NodeCanvas() {
                     // so the whole tab — box and font — grows proportionally when nodes
                     // are enlarged instead of staying a fixed 36px.
                     const groupLabelScale = textSettings?.nodeScale ?? 1.0;
-                    const groupLabelFontSize = GROUP_LAYOUT_CONSTANTS.fontSize * groupLabelScale;
+                    // Match the on-canvas node title size (45 * fontSize * nodeScale) so the
+                    // group tab reads at the same size as an average node and its box is sized
+                    // from that text.
+                    const groupLabelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * groupLabelScale;
                     const layoutContext = {
                       nodesById: layoutNodesById,
                       dimsById: baseDimsById,
@@ -10863,6 +10866,7 @@ function NodeCanvas() {
                       gridSize,
                       measureLabelWidth: (text) => getTextWidth(text || 'Group', `bold ${groupLabelFontSize}px "EmOne", sans-serif`),
                       labelScale: groupLabelScale,
+                      labelFontSize: groupLabelFontSize,
                       _cache: new Map(),
                     };
 
@@ -11133,7 +11137,12 @@ function NodeCanvas() {
                             pointerEvents="all"
                             style={{
                               transform: isGroupDragging ? `scale(1.08)` : 'scale(1)',
-                              transformOrigin: `${labelX + labelWidth / 2}px ${labelY + labelHeight / 2}px`,
+                              // Pivot off the rect's own bounding box, not a px origin in graph
+                              // coords: this <rect> lives inside the pan/zoom <g>, so a view-box
+                              // px origin resolves in a different coordinate space and the 1.08
+                              // lift scales off-center (label drifts up-left, snaps back on drop).
+                              transformBox: 'fill-box',
+                              transformOrigin: 'center',
                               filter: isGroupDragging ? 'drop-shadow(0px 5px 10px rgba(0,0,0,0.3))' : 'none'
                             }}
                           />
@@ -11192,10 +11201,10 @@ function NodeCanvas() {
                               </div>
                             </foreignObject>
                           ) : (
-                            <text x={labelX + labelWidth / 2} y={labelY + labelHeight * 0.7 - 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
+                            <text x={labelX + labelWidth / 2} y={labelY + labelHeight / 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
                               fill={isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode)}
                               fontWeight="bold" stroke="none" strokeWidth={0}
-                              paintOrder="stroke fill" textAnchor="middle"
+                              paintOrder="stroke fill" textAnchor="middle" dominantBaseline="central"
                             >
                               {labelText}
                             </text>

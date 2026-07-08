@@ -76,9 +76,13 @@ export function buildChildGroupIdsIndex(groupsById, groupsByMemberId) {
   return out;
 }
 
-const labelHeightConst = (scale = 1) => {
+// Tab height is dictated by the label font: tall enough for the line box
+// (font * 1.4) plus vertical padding, with a sane minimum. `fontSize` is the
+// already-scaled px size; falls back to the fixed constant when not supplied.
+const labelHeightConst = (scale = 1, fontSize = null) => {
   const C = GROUP_LAYOUT_CONSTANTS;
-  return Math.max(80 * scale, C.fontSize * scale * 1.4 + C.titlePaddingVertical * scale * 2);
+  const f = fontSize ?? C.fontSize * scale;
+  return Math.max(80 * scale, f * 1.4 + C.titlePaddingVertical * scale * 2);
 };
 
 const labelWidthFor = (text, measureLabelWidth, scale = 1) => {
@@ -130,6 +134,7 @@ function computeGroupLayoutInner(group, context) {
     gridSize,
     measureLabelWidth,
     labelScale = 1,
+    labelFontSize = null,
   } = context;
 
   const memberIds = Array.isArray(group.memberInstanceIds) ? group.memberInstanceIds : [];
@@ -209,7 +214,7 @@ function computeGroupLayoutInner(group, context) {
 
   const labelText = group.name || 'Group';
   const labelWidth = labelWidthFor(labelText, measureLabelWidth, labelScale);
-  const labelHeight = labelHeightConst(labelScale);
+  const labelHeight = labelHeightConst(labelScale, labelFontSize);
   const labelX = rectX + (rectW - labelWidth) / 2;
   const labelY = rectY - labelHeight - C.titleToCanvasGap;
 

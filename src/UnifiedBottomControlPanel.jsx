@@ -684,7 +684,6 @@ const UnifiedBottomControlPanel = ({
                   containerWidth={calculatedWidth}
                   containerHeight={calculatedHeight}
                   minHorizontalSpacing={dynamicMinHorizontalSpacing}
-                  connectionFontScale={isMobile ? 1.4 : 1.5}
                   forceShowConnectionDots={inputMode === 'touch'}
                   onNodeClick={onNodeClick}
                   onConnectionClick={onPredicateClick}
