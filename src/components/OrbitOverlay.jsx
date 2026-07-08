@@ -7,7 +7,7 @@ import { NODE_CORNER_RADIUS, NODE_PADDING, NODE_DEFAULT_COLOR } from '../constan
 import { candidateToConcept } from '../services/candidates.js';
 import { useTheme } from '../hooks/useTheme.js';
 import useGraphStore from '../store/graphStore.js';
-import { getTextColor, getInvertedTextColor } from '../utils/colorUtils';
+import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText } from '../utils/colorUtils';
 import { formatPredicate } from '../utils/predicateFormatter.js';
 import { wrapTextToLines } from '../services/textMeasurement.js';
 
@@ -91,7 +91,6 @@ const OrbitConnection = ({
   }
 
   const formattedPredicate = formatPredicate(predicate);
-  const textColor = getTextColor(color, theme.darkMode);
 
   // Calculate direction vector and length (matching NodeCanvas)
   const dx = targetX - sourceX;
@@ -151,8 +150,8 @@ const OrbitConnection = ({
   }
 
   // Font size matching NodeCanvas
-  const fontSize = 24;
-  const textStrokeWidth = Math.max(2, fontSize * 0.25); // ~6px
+  const fontSize = 30;
+  const textStrokeWidth = Math.max(1, fontSize * 0.12); // thinner outline, matches connection labels
 
   return (
     <g className="orbit-connection" opacity={(isHovered ? 1 : 0.85) * connEase} style={{ transition: connEase >= 1 ? 'opacity 0.2s ease' : undefined }}>
@@ -193,8 +192,8 @@ const OrbitConnection = ({
         fontSize={fontSize}
         fontFamily="'EmOne', sans-serif"
         fontWeight="bold"
-        fill={textColor}
-        stroke={getInvertedTextColor(color, theme.darkMode)}
+        fill={theme.darkMode ? getDarkHueText(color) : getLightHueText(color)}
+        stroke={theme.darkMode ? getLightHueText(color) : getDarkHueText(color)}
         strokeWidth={textStrokeWidth}
         strokeLinecap="round"
         strokeLinejoin="round"

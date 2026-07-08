@@ -189,7 +189,6 @@ const UniversalNodeRenderer = ({
   const graphsMap = useGraphStore((state) => state.graphs);
   const activeGraphId = useGraphStore((state) => state.activeGraphId);
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
-  const nodeScaleGlobal = useGraphStore((state) => state.textSettings?.nodeScale ?? 1.0);
   const connectionWidthGlobal = useGraphStore((state) => state.textSettings?.connectionWidth ?? 1.0);
 
   // Get actual node instances if not provided
@@ -790,7 +789,7 @@ const UniversalNodeRenderer = ({
                 // Calculate arrow scale based on stroke width (maintains proportions).
                 // Trim arrowheads in the compact decomposition preview so they read at
                 // node scale instead of dominating the small inner nodes.
-                const arrowScale = Math.max(0.5, conn.strokeWidth / 6) * (renderContext === 'decomposition' ? 0.8 : 1) * nodeScaleGlobal;
+                const arrowScale = Math.max(0.5, conn.strokeWidth / 6) * (renderContext === 'decomposition' ? 0.8 : 1);
 
                 return (
                   <g
@@ -840,7 +839,7 @@ const UniversalNodeRenderer = ({
                 // Calculate arrow scale based on stroke width (maintains proportions).
                 // Trim arrowheads in the compact decomposition preview so they read at
                 // node scale instead of dominating the small inner nodes.
-                const arrowScale = Math.max(0.5, conn.strokeWidth / 6) * (renderContext === 'decomposition' ? 0.8 : 1) * nodeScaleGlobal;
+                const arrowScale = Math.max(0.5, conn.strokeWidth / 6) * (renderContext === 'decomposition' ? 0.8 : 1);
 
                 return (
                   <g
@@ -900,7 +899,7 @@ const UniversalNodeRenderer = ({
                     const dotY = adjustedSourcePoint.y;
 
                     // Calculate dot scale based on stroke width (maintains proportions)
-                    const dotScale = Math.max(0.5, conn.strokeWidth / 6) * nodeScaleGlobal; // Base dot size is for strokeWidth=6
+                    const dotScale = Math.max(0.5, conn.strokeWidth / 6); // Base dot size is for strokeWidth=6
 
                     return (
                       <g>
@@ -961,7 +960,7 @@ const UniversalNodeRenderer = ({
                     const dotY = adjustedTargetPoint.y;
 
                     // Calculate dot scale based on stroke width (maintains proportions)
-                    const dotScale = Math.max(0.5, conn.strokeWidth / 6) * nodeScaleGlobal; // Base dot size is for strokeWidth=6
+                    const dotScale = Math.max(0.5, conn.strokeWidth / 6); // Base dot size is for strokeWidth=6
 
                     return (
                       <g>

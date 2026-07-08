@@ -200,7 +200,10 @@ const Node = ({
   // causing the title to reflow during the animation.)
   const unexpandedDims = React.useMemo(() => {
     return getNodeDimensions(node, false, null);
-  }, [node]);
+    // Depend on the scale/text settings too: getNodeDimensions folds these in, but
+    // the `node` reference doesn't change when a slider moves — so without these deps
+    // the memo returns stale wrapping widths until the node is dragged (new ref).
+  }, [node, textSettings.nodeScale, textSettings.fontSize, textSettings.lineSpacing]);
   const previewTextMaxWidth = unexpandedDims ? unexpandedDims.currentWidth - 60 : undefined; // 60px = 2 * 30px (multi-line padding for consistent wrapping)
 
   // Determine if text will be multiline for conditional padding
@@ -448,7 +451,7 @@ const Node = ({
                 fontSize: `${45 * textSettings.fontSize * globalNodeScale}px`,
                 fontWeight: 'bold',
                 color: nodeTextColor,
-                lineHeight: `${39 * textSettings.lineSpacing * globalNodeScale}px`,
+                lineHeight: `${39 * textSettings.fontSize * textSettings.lineSpacing * globalNodeScale}px`,
                 whiteSpace: 'normal',
                 overflowWrap: 'break-word',
                 wordBreak: 'break-word',
@@ -615,7 +618,7 @@ const Node = ({
               fontSize: `${40 * textSettings.fontSize * globalNodeScale}px`,
               color: nodeTextColor,
               fontWeight: 'normal',
-              lineHeight: `${33 * textSettings.lineSpacing * globalNodeScale}px`,
+              lineHeight: `${33 * textSettings.fontSize * textSettings.lineSpacing * globalNodeScale}px`,
               textAlign: 'center',
               wordWrap: 'break-word',
               overflowWrap: 'break-word',

@@ -203,7 +203,7 @@ const HoverVisionAid = ({
       return Math.max(max, wordMax);
     }, 0);
 
-    const targetGap = Math.max(300, longestWordWidth * 2.0);
+    const targetGap = Math.max(380, longestWordWidth * 2.4);
     const connectionGap = Math.ceil(targetGap / 0.8);
 
     // Size container generously so nodeScale would be 1.0 without the cap.

@@ -626,6 +626,46 @@ rs:prototypeSpace
   rdfs:range rs:PrototypeSpace ;
   rdfs:comment "Links a CognitiveSpace to its PrototypeSpace (the default graph in the RDF 1.1 dataset)."@en .
 
+rs:edgePrototypes
+  a owl:ObjectProperty ;
+  rdfs:label "edge prototypes"@en ;
+  rdfs:domain rs:CognitiveSpace ;
+  rdfs:comment "Container for user-defined connection types (edge prototypes), keyed by id."@en .
+
+rs:directed
+  a owl:DatatypeProperty ;
+  rdfs:label "directed"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:domain rs:SpatialGraph ;
+  rdfs:comment "Whether the graph is treated as directed."@en .
+
+rs:color
+  a owl:DatatypeProperty ;
+  rdfs:label "color"@en ;
+  rdfs:comment "Optional explicit color for a graph or entity."@en .
+
+rs:picture
+  a owl:DatatypeProperty ;
+  rdfs:label "picture"@en ;
+  rdfs:comment "Optional picture/thumbnail reference for a graph."@en .
+
+rs:createdAt
+  a owl:DatatypeProperty ;
+  rdfs:label "created at"@en ;
+  rdfs:comment "Creation timestamp for a graph or prototype (ISO 8601)."@en .
+
+rs:isSpecificityChainNode
+  a owl:DatatypeProperty ;
+  rdfs:label "is specificity chain node"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:comment "Whether this prototype participates in an abstraction (specificity) chain."@en .
+
+rs:hasSpecificityChain
+  a owl:DatatypeProperty ;
+  rdfs:label "has specificity chain"@en ;
+  rdfs:range xsd:boolean ;
+  rdfs:comment "Whether this prototype defines an abstraction (specificity) chain."@en .
+
 rs:spatialGraphs
   a owl:ObjectProperty ;
   rdfs:label "spatial graphs"@en ;

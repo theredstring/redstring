@@ -139,7 +139,9 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   if (isPreviewing) {
     currentWidth = baseWidth;
     // Calculate textAreaHeight dynamically based on actual text wrapping with correct width
-    const textBlockHeight = measureTextBlockHeight(nodeName, textWidthTarget, augTs, lineHeightBase * nodeScale);
+    // augTs.fontSize already folds in nodeScale, so this measures with a line height that
+    // scales with font size (matches Node.jsx render: base * fontSize * lineSpacing * nodeScale).
+    const textBlockHeight = measureTextBlockHeight(nodeName, textWidthTarget, augTs, lineHeightBase * augTs.fontSize);
     textAreaHeight = Math.max(sPTA, textBlockHeight + TEXT_V_PADDING_TOTAL);
 
     innerNetworkWidth = currentWidth - 2 * sP;
@@ -147,10 +149,10 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     // Calculate description area height dynamically based on actual content
     if (descriptionContent && descriptionContent.trim() && descriptionContent !== 'No description.') {
       // Measure actual text to determine how many lines we need
-      const actualHeight = measureTextBlockHeight(descriptionContent, innerNetworkWidth, augTs, DESCRIPTION_LINE_HEIGHT * nodeScale);
+      const actualHeight = measureTextBlockHeight(descriptionContent, innerNetworkWidth, augTs, DESCRIPTION_LINE_HEIGHT * augTs.fontSize);
 
-      // Cap at maximum 3 lines but use actual height if smaller
-      const maxAllowedHeight = DESCRIPTION_MAX_LINES * DESCRIPTION_LINE_HEIGHT * nodeScale;
+      // Cap at maximum 3 lines but use actual height if smaller (fontSize-scaled to match render)
+      const maxAllowedHeight = DESCRIPTION_MAX_LINES * DESCRIPTION_LINE_HEIGHT * augTs.fontSize;
       const contentHeight = Math.min(actualHeight, maxAllowedHeight);
       descriptionAreaHeight = contentHeight + 16 * nodeScale; // Padding (12px top + 4px bottom, matches Node.jsx)
     } else {
@@ -172,7 +174,9 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   } else if (hasImage) {
     currentWidth = baseWidth;
     // Calculate text block height based on expanded width
-    const textBlockHeight = measureTextBlockHeight(nodeName, textWidthTarget, augTs, lineHeightBase * nodeScale);
+    // augTs.fontSize already folds in nodeScale, so this measures with a line height that
+    // scales with font size (matches Node.jsx render: base * fontSize * lineSpacing * nodeScale).
+    const textBlockHeight = measureTextBlockHeight(nodeName, textWidthTarget, augTs, lineHeightBase * augTs.fontSize);
     // Text area height is text height + vertical padding, with a minimum.
     textAreaHeight = Math.max(sH, textBlockHeight + TEXT_V_PADDING_TOTAL);
 
