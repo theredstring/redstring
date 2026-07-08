@@ -1143,11 +1143,18 @@ class UniverseBackend {
             // Skip workspace folder service in Electron - it's browser-only (uses IndexedDB)
             // Strategy 1 would be workspace folder, but it doesn't work in Electron
 
-            // Strategy 2: Try common Electron and browser locations
+            // Strategy 2: Try common Electron and browser locations.
+            // Only probe metadata.displayPath directly if it's ABSOLUTE — a
+            // bare filename ("1.redstring") would be resolved against the
+            // main-process CWD by file:exists and could match an unrelated
+            // file in the launch directory, cementing the wrong handle.
+            const displayIsAbsolute = typeof metadata.displayPath === 'string' &&
+              (metadata.displayPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(metadata.displayPath) || metadata.displayPath.startsWith('\\\\'));
             if (!foundPath) {
-              const possiblePaths = [
-                metadata.displayPath, // Current directory
-              ];
+              const possiblePaths = [];
+              if (displayIsAbsolute) {
+                possiblePaths.push(metadata.displayPath);
+              }
 
               // Only use Electron APIs if in Electron environment
               if (isElectron() && window.electron?.storage?.getPaths) {
@@ -4915,13 +4922,18 @@ class UniverseBackend {
     }
     const { key, universe } = resolved;
 
-    // Try to get the file handle (absolute path in Electron)
+    // Try to get the file handle (absolute path in Electron). Prefer the live
+    // handle; fall back to localFile.path ONLY if it is absolute — a bare
+    // filename would resolve against the process CWD and could trash an
+    // unrelated file that happens to share the name.
     const fileHandle = this.fileHandles.get(key);
     const localPath = universe.localFile?.path;
-    const filePath = fileHandle || localPath;
+    const isAbs = (p) => typeof p === 'string' && (p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\'));
+    const filePath = (typeof fileHandle === 'string' && isAbs(fileHandle)) ? fileHandle
+      : (isAbs(localPath) ? localPath : null);
 
     if (!filePath || typeof filePath !== 'string') {
-      umWarn('[UniverseBackend] deleteLinkedFile: no file path available for', key);
+      umWarn('[UniverseBackend] deleteLinkedFile: no absolute file path available for', key, '— refusing to delete a relative/unknown path');
       return;
     }
 

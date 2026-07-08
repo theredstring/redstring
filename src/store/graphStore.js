@@ -5450,6 +5450,26 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           return false;
         }
 
+        // Merge edge prototypes with the store's base/agent defaults. An old
+        // file (or one saved before edgePrototypes round-tripped) carries an
+        // empty Map — spreading that would wipe the base "Connection" type and
+        // agent edge types the store seeds at init, dangling every edge's
+        // typeNodeId. Keep existing entries and layer the file's on top.
+        try {
+          const incomingEdgeProtos = storeState.edgePrototypes;
+          const existingEdgeProtos = currentState.edgePrototypes;
+          if (existingEdgeProtos instanceof Map) {
+            const merged = new Map(existingEdgeProtos);
+            if (incomingEdgeProtos instanceof Map) {
+              for (const [id, proto] of incomingEdgeProtos) merged.set(id, proto);
+            }
+            storeState.edgePrototypes = merged;
+          }
+        } catch (e) {
+          console.warn('[graphStore] Failed to merge edgePrototypes during load:', e);
+          delete storeState.edgePrototypes; // fall back to keeping current
+        }
+
         // Normalize all edge directionality to ensure arrowsToward is always a Set
         if (storeState.edges) {
           for (const [edgeId, edgeData] of storeState.edges.entries()) {

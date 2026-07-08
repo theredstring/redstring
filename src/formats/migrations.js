@@ -76,7 +76,7 @@ export const ensureCanonicalSections = (data) => {
 export const KNOWN_ROOT_KEYS = new Set([
   '@context', '@type', '@id', 'format', 'metadata',
   'prototypeSpace', 'spatialGraphs', 'relationships',
-  'graphs', 'nodePrototypes', 'edges',          // duplicate top-level mirrors (until P1.5)
+  'graphs', 'nodePrototypes', 'edges', 'edgePrototypes', // duplicate top-level mirrors (until P1.5)
   'globalSpatialContext', 'userInterface', 'legacy',
   'graphLayouts', 'graphSummaries', '_preserved'
 ]);

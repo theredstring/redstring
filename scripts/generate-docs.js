@@ -26,6 +26,21 @@ const scanDirectories = [
 // File extensions to process
 const codeExtensions = ['.js', '.jsx', '.ts', '.tsx'];
 
+// Marker written into every generated file. Used to (a) safely delete stale
+// generated pages and (b) avoid clobbering hand-written pages of the same name.
+const AUTOGEN_MARKER = 'Auto-generated from source code';
+
+// Output directories that hold generated pages and are safe to prune (only
+// files containing AUTOGEN_MARKER are ever deleted).
+const generatedDirs = ['api', 'components'];
+
+// Symbol names that are regex false-positives (JS keywords / generic wrappers),
+// never real components/services/classes worth documenting.
+const NAME_BLOCKLIST = new Set([
+  'return', 'produce', 'step', 'default', 'function', 'async', 'await',
+  'if', 'for', 'while', 'switch', 'const', 'let', 'var', 'index', 'do'
+]);
+
 class DocumentationGenerator {
   constructor() {
     this.extractedData = {
@@ -34,6 +49,15 @@ class DocumentationGenerator {
       functions: [],
       stores: [],
       services: []
+    };
+    // Pages actually written this run, bucketed for navigation generation.
+    // Each entry is a Mintlify page slug (path relative to docs/, no extension).
+    this.pages = {
+      core: [],
+      stores: [],
+      services: [],
+      components: [],
+      utilities: []
     };
   }
 
@@ -50,13 +74,51 @@ class DocumentationGenerator {
       }
     }
 
+    console.log('🧹 Removing stale generated pages...');
+    this.cleanGeneratedFiles();
+
     console.log('📝 Generating documentation files...');
     await this.generateApiDocs();
-    await this.generateComponentDocs();
-    await this.generateServiceDocs();
+    await this.generateClassDocs();
     await this.generateStoreDocs();
+    await this.generateServiceDocs();
+    await this.generateComponentDocs();
+
+    console.log('🧭 Updating navigation (docs.json)...');
+    this.updateNavigation();
 
     console.log('✅ Documentation generation complete!');
+  }
+
+  /**
+   * Delete previously generated pages so renamed/removed modules don't leave
+   * orphans. Only files containing AUTOGEN_MARKER are removed, so hand-written
+   * pages (e.g. components/nodecanvas.mdx) are preserved.
+   */
+  cleanGeneratedFiles() {
+    for (const dir of generatedDirs) {
+      const fullDir = path.join(docsDir, dir);
+      if (!fs.existsSync(fullDir)) continue;
+      for (const entry of fs.readdirSync(fullDir)) {
+        if (!entry.endsWith('.mdx')) continue;
+        const filePath = path.join(fullDir, entry);
+        try {
+          if (fs.readFileSync(filePath, 'utf-8').includes(AUTOGEN_MARKER)) {
+            fs.unlinkSync(filePath);
+          }
+        } catch { /* ignore unreadable files */ }
+      }
+    }
+  }
+
+  /**
+   * Record a written page under a navigation bucket (slug = docs-relative path
+   * without the .mdx extension, e.g. "api/graph").
+   */
+  trackPage(bucket, slug) {
+    if (!this.pages[bucket].includes(slug)) {
+      this.pages[bucket].push(slug);
+    }
   }
 
   /**
@@ -81,6 +143,7 @@ class DocumentationGenerator {
    * Check if file should be analyzed
    */
   isCodeFile(filename) {
+    if (/\.(test|spec)\.[jt]sx?$/.test(filename)) return false;
     return codeExtensions.some(ext => filename.endsWith(ext));
   }
 
@@ -135,7 +198,7 @@ class DocumentationGenerator {
 
     // Detect React components
     const componentMatch = content.match(/(?:export\s+(?:default\s+)?)?(?:const|function)\s+(\w+)\s*=?\s*(?:\([^)]*\)\s*=>|\([^)]*\)\s*{|function)/);
-    if (componentMatch && this.isReactComponent(content)) {
+    if (componentMatch && !NAME_BLOCKLIST.has(componentMatch[1]) && this.isReactComponent(content)) {
       result.component = {
         name: componentMatch[1],
         filePath: filePath,
@@ -150,6 +213,7 @@ class DocumentationGenerator {
     const classPattern = /class\s+(\w+)(?:\s+extends\s+(\w+))?\s*{([\s\S]*?)^}/gm;
     let classMatch;
     while ((classMatch = classPattern.exec(content)) !== null) {
+      if (NAME_BLOCKLIST.has(classMatch[1])) continue;
       result.classes.push({
         name: classMatch[1],
         extends: classMatch[2] || null,
@@ -379,6 +443,49 @@ ${this.extractedData.components.map(comp => `  <Card title="${comp.name}" href="
   }
 
   /**
+   * Generate reference pages for core domain classes (src/core), e.g. Graph,
+   * Node, Edge. These aren't services or stores, so they'd otherwise produce no
+   * page even though the API index links to them.
+   */
+  async generateClassDocs() {
+    const coreClasses = this.extractedData.classes.filter(cls =>
+      cls.filePath.replace(/\\/g, '/').includes('src/core/')
+    );
+
+    for (const cls of coreClasses) {
+      const description = cls.description || `The \`${cls.name}\` class.`;
+      const methods = (cls.methods || []).filter(m => m.name !== 'constructor');
+
+      const content = `---
+title: "${cls.name}"
+description: "Class: ${this.sanitizeForMdx(description)}"
+---
+
+# ${cls.name}${cls.extends ? ` <Badge>extends ${cls.extends}</Badge>` : ''}
+
+${this.sanitizeForMdx(description)}
+
+## Location
+\`${cls.filePath.replace(/\\/g, '/')}\`
+
+## Methods
+
+${methods.length > 0 ? methods.map(m => `- \`${m.name}()\``).join('\n') : 'No public methods detected.'}
+
+${(cls.properties && cls.properties.length > 0) ? `## Properties\n\n${cls.properties.map(p => `- \`${p}\``).join('\n')}\n` : ''}
+---
+
+*Auto-generated from source code*
+`;
+
+      const slug = `api/${cls.name.toLowerCase()}`;
+      if (await this.writeDocFile(`${slug}.mdx`, content)) {
+        this.trackPage('core', slug);
+      }
+    }
+  }
+
+  /**
    * Generate component documentation
    */
   async generateComponentDocs() {
@@ -416,7 +523,12 @@ ${component.imports.length > 0 ? component.imports.map(imp => `- \`${imp}\``).jo
 *Auto-generated from source code*
 `;
 
-      await this.writeDocFile(`components/${component.name.toLowerCase()}.mdx`, content);
+      const slug = `components/${component.name.toLowerCase()}`;
+      if (await this.writeDocFile(`${slug}.mdx`, content)) {
+        // PascalCase names are true React components; camelCase are helpers.
+        const bucket = /^[A-Z]/.test(component.name) ? 'components' : 'utilities';
+        this.trackPage(bucket, slug);
+      }
     }
   }
 
@@ -453,7 +565,10 @@ ${method.description ? this.sanitizeForMdx(method.description) + '\n' : ''}${met
 *Auto-generated from source code*
 `;
 
-      await this.writeDocFile(`api/${service.name.toLowerCase()}.mdx`, mdxContent);
+      const slug = `api/${service.name.toLowerCase()}`;
+      if (await this.writeDocFile(`${slug}.mdx`, mdxContent)) {
+        this.trackPage('services', slug);
+      }
     }
   }
 
@@ -518,7 +633,10 @@ ${action.description ? action.description + '\n' : ''}${action.params.length > 0
 *Auto-generated from source code*
 `;
 
-      await this.writeDocFile(`api/${store.name.toLowerCase()}.mdx`, mdxContent);
+      const slug = `api/${store.name.toLowerCase()}`;
+      if (await this.writeDocFile(`${slug}.mdx`, mdxContent)) {
+        this.trackPage('stores', slug);
+      }
     }
   }
 
@@ -668,11 +786,21 @@ ${action.description ? action.description + '\n' : ''}${action.params.length > 0
   }
 
   /**
-   * Write documentation file
+   * Write a documentation file. Refuses to overwrite hand-written pages (any
+   * existing file that lacks AUTOGEN_MARKER), so curated docs are never lost.
+   * Returns true if the file was written, false if it was skipped.
    */
   async writeDocFile(relativePath, content) {
     const fullPath = path.join(docsDir, relativePath);
     const dir = path.dirname(fullPath);
+
+    if (fs.existsSync(fullPath)) {
+      const existing = fs.readFileSync(fullPath, 'utf-8');
+      if (!existing.includes(AUTOGEN_MARKER)) {
+        console.log(`⏭️  Skipped (hand-written): ${relativePath}`);
+        return false;
+      }
+    }
 
     // Ensure directory exists
     fs.mkdirSync(dir, { recursive: true });
@@ -680,6 +808,43 @@ ${action.description ? action.description + '\n' : ''}${action.params.length > 0
     // Write file
     fs.writeFileSync(fullPath, content, 'utf-8');
     console.log(`📄 Generated: ${relativePath}`);
+    return true;
+  }
+
+  /**
+   * Rewrite the "API Reference" tab in docs.json from the pages generated this
+   * run. The hand-authored "Guides" tab (and all other config) is left intact.
+   */
+  updateNavigation() {
+    const docsJsonPath = path.join(docsDir, 'docs.json');
+    const config = JSON.parse(fs.readFileSync(docsJsonPath, 'utf-8'));
+
+    const groupDefs = [
+      { group: 'Core Classes', pages: this.pages.core },
+      { group: 'Stores', pages: this.pages.stores },
+      { group: 'Services', pages: this.pages.services },
+      { group: 'Components', pages: this.pages.components },
+      { group: 'Utilities & Functions', pages: this.pages.utilities }
+    ];
+
+    const groups = groupDefs
+      .filter(g => g.pages.length > 0)
+      .map(g => ({ group: g.group, pages: [...g.pages].sort() }));
+
+    const apiTab = { tab: 'API Reference', groups };
+
+    const tabs = config.navigation.tabs;
+    const idx = tabs.findIndex(t => t.tab === 'API Reference');
+    if (idx >= 0) {
+      tabs[idx] = apiTab;
+    } else {
+      tabs.push(apiTab);
+    }
+
+    fs.writeFileSync(docsJsonPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+
+    const total = groups.reduce((n, g) => n + g.pages.length, 0);
+    console.log(`🧭 Navigation updated: ${total} pages across ${groups.length} groups`);
   }
 }
 

@@ -240,6 +240,12 @@ const PanelContentWrapper = memo(({
             };
             storeActions.updateNodePrototype(nodeId, draft => {
               Object.assign(draft, nodeDataToSave);
+              // User image replaces any auto-enriched Wikipedia thumbnail —
+              // clear the flag so the save system persists it in-file instead
+              // of stripping it as re-fetchable.
+              if (draft.semanticMetadata?.autoEnriched) {
+                draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
+              }
             });
           } catch (error) {
             console.error("Image save failed:", error);

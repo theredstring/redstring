@@ -160,11 +160,15 @@ const ensureDirectories = async () => {
       const records = JSON.parse(raw);
       if (records && typeof records === 'object') {
         for (const record of Object.values(records)) {
-          if (record && typeof record.handle === 'string') {
-            userApprovedPaths.add(path.resolve(record.handle));
+          // Only seed ABSOLUTE paths. A relative handle (the "1.redstring"
+          // bug) resolved against the main-process CWD would approve — and
+          // later read/write/delete — an unrelated file that happens to share
+          // the name in whatever directory the app was launched from.
+          if (record && typeof record.handle === 'string' && path.isAbsolute(record.handle)) {
+            userApprovedPaths.add(record.handle);
           }
-          if (record && typeof record.displayPath === 'string') {
-            userApprovedPaths.add(path.resolve(record.displayPath));
+          if (record && typeof record.displayPath === 'string' && path.isAbsolute(record.displayPath)) {
+            userApprovedPaths.add(record.displayPath);
           }
         }
         console.log(`[FileIPC] Seeded ${userApprovedPaths.size} approved path(s) from persisted handles`);
@@ -192,8 +196,12 @@ const getStoragePath = (storeName) => {
 // directories, or (b) the user picked them via a system dialog this session.
 const userApprovedPaths = new Set();
 const rememberApprovedPath = (filePath) => {
-  if (typeof filePath === 'string' && filePath) {
-    userApprovedPaths.add(path.resolve(filePath));
+  // Only remember absolute paths. Resolving a relative path against the
+  // main-process CWD would approve an arbitrary file in the launch directory
+  // (the "1.redstring" relative-handle bug); reject it so callers surface a
+  // reconnect prompt instead of silently writing to the wrong place.
+  if (typeof filePath === 'string' && filePath && path.isAbsolute(filePath)) {
+    userApprovedPaths.add(filePath);
   }
 };
 const isInAllowedRoot = (resolved) => {
@@ -207,6 +215,14 @@ const isInAllowedRoot = (resolved) => {
 const assertAccessAllowed = (filePath, action) => {
   if (typeof filePath !== 'string' || !filePath) {
     throw new Error(`Invalid file path for ${action}`);
+  }
+  // Reject relative paths outright. `path.resolve` on a relative path silently
+  // anchors it to the main-process CWD, which is how a persisted "1.redstring"
+  // handle ended up reading/writing/deleting a file in the launch directory.
+  // A universe file must always be referenced by its absolute path.
+  if (!path.isAbsolute(filePath)) {
+    console.warn(`[FileIPC] Blocked ${action} for relative path:`, filePath);
+    throw new Error(`File access denied for relative path (absolute path required): ${filePath}`);
   }
   const resolved = path.resolve(filePath);
   if (isInAllowedRoot(resolved)) return resolved;

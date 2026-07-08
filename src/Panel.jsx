@@ -1568,8 +1568,16 @@ const Panel = memo(forwardRef(
               const thumbSrc = await generateThumbnail(fullImageSrc, THUMBNAIL_MAX_DIMENSION);
               const nodeDataToSave = { imageSrc: fullImageSrc, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio };
               console.log('Calling store updateNodePrototype with image data:', nodeId, nodeDataToSave); // Keep log for this one
-              // Call store action directly (using prop)
-              storeActions.updateNodePrototype(nodeId, draft => { Object.assign(draft, nodeDataToSave); });
+              // Call store action directly (using prop). Clear the
+              // auto-enriched flag: this is now a USER image, so the save
+              // system must persist it in-file rather than stripping it as a
+              // re-fetchable Wikipedia thumbnail.
+              storeActions.updateNodePrototype(nodeId, draft => {
+                Object.assign(draft, nodeDataToSave);
+                if (draft.semanticMetadata?.autoEnriched) {
+                  draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
+                }
+              });
             } catch (error) {
               // console.error("Thumbnail/save failed:", error);
               // Handle error appropriately, e.g., show a message to the user

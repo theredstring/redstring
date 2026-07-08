@@ -567,6 +567,32 @@ const buildGraphSummariesSnapshot = (graphs, nodePrototypes, edges) => {
 };
 
 /**
+ * The complete set of store keys that get persisted to a .redstring file.
+ *
+ * SINGLE SOURCE OF TRUTH. Any component that forwards store state to the
+ * serializer (notably SaveCoordinator's worker-clean step) MUST forward every
+ * key in this list, or the worker autosave path silently truncates the file —
+ * this is exactly how `wizardPlansByConversation` was being erased on every
+ * autosave. Add a new persisted field here AND to the export block below AND
+ * to the import hydration, or it round-trips lossily.
+ */
+export const PERSISTED_STORE_KEYS = [
+  'graphs',
+  'nodePrototypes',
+  'edges',
+  'edgePrototypes',
+  'openGraphIds',
+  'activeGraphId',
+  'activeDefinitionNodeId',
+  'expandedGraphIds',
+  'rightPanelTabs',
+  'savedNodeIds',
+  'savedGraphIds',
+  'showConnectionNames',
+  'wizardPlansByConversation'
+];
+
+/**
  * Export current Zustand store state to .redstring format
  * @param {Object} storeState - The current state from the Zustand store
  * @param {string} [userDomain] - User's domain for dynamic URI generation
@@ -582,6 +608,7 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       graphs = new Map(),
       nodePrototypes = new Map(),
       edges = new Map(),
+      edgePrototypes = new Map(),
       openGraphIds = [],
       activeGraphId = null,
       activeDefinitionNodeId = null,
@@ -740,11 +767,15 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
         "redstring:spatialScale": prototype.scale || 1.0
       },
       
-      // Redstring visual properties
+      // Redstring visual properties. Only strip the (large, base64) image when
+      // it's genuinely re-fetchable from Wikipedia — auto-enriched AND we have
+      // the thumbnail URL. Otherwise persist it: dropping a user's image to
+      // save space is only acceptable when we can get it back. Must match the
+      // import-side condition or images round-trip lossily.
       "redstring:visualProperties": {
         "redstring:cognitiveColor": prototype.color,
-        "redstring:imageSrc": prototype.semanticMetadata?.autoEnriched ? null : prototype.imageSrc,
-        "redstring:thumbnailSrc": prototype.semanticMetadata?.autoEnriched ? null : prototype.thumbnailSrc,
+        "redstring:imageSrc": (prototype.semanticMetadata?.autoEnriched && prototype.semanticMetadata?.wikipediaThumbnail) ? null : prototype.imageSrc,
+        "redstring:thumbnailSrc": (prototype.semanticMetadata?.autoEnriched && prototype.semanticMetadata?.wikipediaThumbnail) ? null : prototype.thumbnailSrc,
         "redstring:imageAspectRatio": prototype.imageAspectRatio
       },
       
@@ -1097,6 +1128,22 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     "graphLayouts": layoutSnapshot,
     "graphSummaries": summarySnapshot,
 
+    // Custom connection types (edge prototypes). Serialized as a plain object
+    // so user-created / wizard-created connection types survive reload —
+    // without this, edges pointing at a custom typeNodeId dangle on every
+    // load and the type can't even be re-applied (setEdgeType validates
+    // against edgePrototypes). Base types are re-seeded by the store, but
+    // exporting them too keeps user recolors/renames of the base "Connection".
+    "edgePrototypes": (() => {
+      const out = {};
+      if (edgePrototypes && typeof edgePrototypes.entries === 'function') {
+        for (const [id, proto] of edgePrototypes) out[id] = proto;
+      } else if (edgePrototypes && typeof edgePrototypes === 'object') {
+        Object.assign(out, edgePrototypes);
+      }
+      return out;
+    })(),
+
     // File-root quarantined unknown fields ride back out verbatim (D1/P1.3).
     // undefined is dropped by JSON.stringify, so absent when there is none.
     "_preserved": storeState._preserved
@@ -1442,8 +1489,13 @@ export const importFromRedstring = (redstringData, storeActions) => {
             ...ensureArray(prototype['skos:closeMatch']),
             ...ensureArray(prototype.externalLinks)
           ].map(ladderUrl).filter((u) => u !== undefined && u !== null && u !== '');
-          const isAutoEnriched = smRaw?.autoEnriched
-            || linksRaw.some(l => String(l).includes('wikipedia.org'));
+          // Only treat images as re-fetchable (droppable) when the node is
+          // EXPLICITLY flagged auto-enriched AND we still have the Wikipedia
+          // thumbnail URL to re-fetch from. The old heuristic — "any node with
+          // a wikipedia.org external link" — silently dropped user-uploaded
+          // photos from nodes that merely happened to cite Wikipedia, with no
+          // way to get them back. When in doubt, KEEP the image.
+          const isAutoEnriched = !!smRaw?.autoEnriched && !!smRaw?.wikipediaThumbnail;
 
           if (!isAutoEnriched) {
             if (hasOwn(prototype, 'imageSrc') || hasOwn(visual, 'redstring:imageSrc')) {
@@ -1700,11 +1752,23 @@ export const importFromRedstring = (redstringData, storeActions) => {
     const extractedShowConnectionNames = uiState['redstring:showConnectionNames'] ?? uiState.showConnectionNames ?? true;
     const extractedWizardPlansByConversation = uiState['redstring:wizardPlansByConversation'] || {};
 
+    // Rehydrate custom edge prototypes (connection types). Absent in older
+    // files — the store re-seeds base + agent types, so leaving the Map empty
+    // (rather than undefined) lets the store merge defaults back in.
+    const edgePrototypesMap = new Map();
+    const edgeProtoObj = processedData.edgePrototypes || {};
+    if (edgeProtoObj && typeof edgeProtoObj === 'object') {
+      for (const [id, proto] of Object.entries(edgeProtoObj)) {
+        edgePrototypesMap.set(id, proto);
+      }
+    }
+
     // Return the converted state for file storage to use
     const storeState = {
       graphs: graphsMap,
       nodePrototypes: nodesMap,
       edges: edgesMap,
+      edgePrototypes: edgePrototypesMap,
       openGraphIds: Array.isArray(extractedOpenGraphIds) ? extractedOpenGraphIds : [],
       activeGraphId: extractedActiveGraphId,
       activeDefinitionNodeId: extractedActiveDefinitionNodeId,

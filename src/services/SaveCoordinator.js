@@ -14,8 +14,9 @@
  * - All interaction gates (drag, pan, pinch) defer serialization until `signalInteractionEnd`.
  */
 
-import { exportToRedstring } from '../formats/redstringFormat.js';
+import { exportToRedstring, PERSISTED_STORE_KEYS } from '../formats/redstringFormat.js';
 import { gitAutosavePolicy } from './GitAutosavePolicy.js';
+import { generateStateHash as computeStateHash } from './saveHash.js';
 
 // SIMPLIFIED: No priorities - all changes batched together with a single debounce
 const DEBOUNCE_MS = 3000; // Wait 3000ms after last change before saving (merges node drop + view restore)
@@ -382,8 +383,17 @@ class SaveCoordinator {
         this.scheduleSave();
       }
     } else if (type === 'error') {
-      console.error('[SaveCoordinator] Worker error:', error);
-      this.notifyStatus('error', `Worker save failed: ${error}`);
+      // The worker threw while serializing/hashing (e.g. a deterministic
+      // exportToRedstring failure on some state shape). Without recovery the
+      // change is stranded — no dirty flag, no retry. Fall back to the
+      // main-thread path, which fails open (hash error → save fires anyway),
+      // so the write is attempted and the real error surfaces at write time.
+      console.error('[SaveCoordinator] Worker error — falling back to main-thread save:', error);
+      this.notifyStatus('warning', 'Background save failed, retrying on main thread…');
+      const state = this.lastState || this.nextStateToProcess;
+      if (state) {
+        this._processSaveOnMainThread(state);
+      }
     }
 
     // Process any queued updates
@@ -418,52 +428,39 @@ class SaveCoordinator {
 
     this.workerProcessing = true;
 
-    // Extract only data properties for the worker to avoid DataCloneError
-    // The store state often contains functions (actions) mixed in
-    const {
-      graphs,
-      nodePrototypes,
-      edges,
-      openGraphIds,
-      activeGraphId,
-      activeDefinitionNodeId,
-      expandedGraphIds,
-      rightPanelTabs,
-      savedNodeIds,
-      savedGraphIds,
-      showConnectionNames
-    } = this.nextStateToProcess;
+    // Extract ONLY the persisted data properties for the worker. Two reasons:
+    // (1) the store contains functions (actions) that would throw
+    // DataCloneError on postMessage; (2) the set of forwarded keys must EXACTLY
+    // match what the serializer persists — deriving it from PERSISTED_STORE_KEYS
+    // guarantees a new persisted field can't be silently dropped here (the bug
+    // that erased wizardPlansByConversation on every autosave). Carry
+    // _universeSlug through so downstream identity guards work.
+    const cleanState = { _universeSlug: this.nextStateToProcess._universeSlug };
+    for (const key of PERSISTED_STORE_KEYS) {
+      cleanState[key] = this.nextStateToProcess[key];
+    }
 
     // Strip imageSrc/thumbnailSrc from auto-enriched nodePrototypes before postMessage —
     // structured clone copies all data to the worker heap, and base64 data URLs
     // (100KB-5MB each) cause OOM in both the main thread and worker.
     // User-uploaded images (no autoEnriched flag) are preserved for save.
-    let cleanPrototypes = nodePrototypes;
+    const nodePrototypes = cleanState.nodePrototypes;
     if (nodePrototypes && typeof nodePrototypes.entries === 'function') {
-      cleanPrototypes = new Map();
+      const cleanPrototypes = new Map();
       for (const [id, proto] of nodePrototypes) {
-        if (proto.semanticMetadata?.autoEnriched) {
+        // Strip only genuinely re-fetchable Wikipedia images (auto-enriched
+        // AND we have the thumbnail URL). A user-uploaded photo — even on a
+        // node that was once auto-enriched — has no wikipediaThumbnail and
+        // must be kept, or the save writes null over it.
+        if (proto.semanticMetadata?.autoEnriched && proto.semanticMetadata?.wikipediaThumbnail) {
           const { imageSrc, thumbnailSrc, ...rest } = proto;
           cleanPrototypes.set(id, rest);
         } else {
           cleanPrototypes.set(id, proto);
         }
       }
+      cleanState.nodePrototypes = cleanPrototypes;
     }
-
-    const cleanState = {
-      graphs,
-      nodePrototypes: cleanPrototypes,
-      edges,
-      openGraphIds,
-      activeGraphId,
-      activeDefinitionNodeId,
-      expandedGraphIds,
-      rightPanelTabs,
-      savedNodeIds,
-      savedGraphIds,
-      showConnectionNames
-    };
 
     // Capture state and start the watchdog BEFORE postMessage. If postMessage
     // throws (DataCloneError from unserializable state, worker channel closed,
@@ -740,11 +737,30 @@ class SaveCoordinator {
       if (isInteracting) {
         this._lastInteractionTouchTime = now;
         this.isGlobalDragging = true;
+        // Arm a timer-based failsafe: if no further interactive update and no
+        // end/complete phase arrives within the window, clear the gate and
+        // flush. The previous self-heal only ran inside a *future*
+        // onStateChange — so if the drag's last mutation was also the
+        // session's last mutation, the gate stayed latched and autosave never
+        // fired again. A timer doesn't depend on future activity.
+        if (this._dragGateFailsafe) clearTimeout(this._dragGateFailsafe);
+        this._dragGateFailsafe = setTimeout(() => {
+          this._dragGateFailsafe = null;
+          if (this.isGlobalDragging) {
+            console.warn('[SaveCoordinator] Drag gate failsafe: clearing isGlobalDragging and flushing (no end signal received)');
+            this.isGlobalDragging = false;
+            this._lastInteractionEndTime = Date.now();
+            if (this.nextStateToProcess || this.isDirty) {
+              this.signalInteractionEnd({ reason: 'drag-gate-failsafe' });
+            }
+          }
+        }, 2500);
       } else if (changeContext.phase === 'end' || changeContext.phase === 'complete') {
         if (this.isGlobalDragging) {
           this._lastInteractionEndTime = now;
         }
         this.isGlobalDragging = false;
+        if (this._dragGateFailsafe) { clearTimeout(this._dragGateFailsafe); this._dragGateFailsafe = null; }
       }
 
       // Skip updates during any interaction (drag, pan, pinch, zoom animation)
@@ -1343,34 +1359,12 @@ class SaveCoordinator {
    * @returns {string} 32-bit unsigned integer as a decimal string.
    */
   generateStateHash(state) {
-      // ... (implementation matches worker) ...
-      // Legacy implementation kept for robustness if worker fails
+    // Delegates to the shared saveHash module so the main-thread fallback and
+    // the worker can never drift (they used to, and both were blind to
+    // Maps/Sets). Fails open: a hash error returns a unique value so a save
+    // still fires rather than being silently skipped.
     try {
-      const contentState = {
-        graphs: state.graphs ? Array.from(state.graphs.entries()).map(([id, graph]) => {
-          const { panOffset, zoomLevel, instances, ...rest } = graph || {};
-          const instancesArray = instances ? Array.from(instances.entries()) : [];
-          return [id, { ...rest, instances: instancesArray }];
-        }) : [],
-        // Strip imageSrc/thumbnailSrc from hash — base64 data URLs are huge and
-        // cause V8 OOM when JSON.stringify'd. Images are either in the separate
-        // imageCache store (auto-enriched) or reconstructible from URLs in semanticMetadata.
-        nodePrototypes: state.nodePrototypes ? Array.from(state.nodePrototypes.entries()).map(
-          ([id, proto]) => {
-            const { imageSrc, thumbnailSrc, ...rest } = proto;
-            return [id, rest];
-          }
-        ) : [],
-        edges: state.edges ? Array.from(state.edges.entries()) : []
-      };
-
-      const stateString = JSON.stringify(contentState);
-      let hash = 2166136261;
-      for (let i = 0; i < stateString.length; i++) {
-        hash ^= stateString.charCodeAt(i);
-        hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-      }
-      return (hash >>> 0).toString();
+      return computeStateHash(state);
     } catch (error) {
       console.warn('[SaveCoordinator] Hash generation failed:', error);
       return Date.now().toString();
@@ -1544,6 +1538,8 @@ class SaveCoordinator {
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
     if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
     if (this.workerWatchdogTimer) { clearTimeout(this.workerWatchdogTimer); this.workerWatchdogTimer = null; }
+    if (this._dragGateFailsafe) { clearTimeout(this._dragGateFailsafe); this._dragGateFailsafe = null; }
+    this.isGlobalDragging = false;
     this.workerProcessing = false;
     this.workerDirty = false;
     this.pendingHash = null;

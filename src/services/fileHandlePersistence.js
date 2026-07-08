@@ -145,10 +145,22 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
         const parts = additionalMetadata.path.split(/[/\\]/);
         fileName = parts[parts.length - 1];
       }
-      if (resolvedHandle.includes('/') || resolvedHandle.includes('\\')) {
-        console.log(`[FileHandles] ✓ Electron absolute path for ${universeSlug}:`, resolvedHandle);
+      // A relative Electron handle is never usable — it would resolve against
+      // whatever directory the app was launched from. Refuse to persist it as
+      // a handle (which would later be treated as a real file location);
+      // record the filename for display + reconnect, but leave `handle` null
+      // so the universe is correctly shown as needing reconnection.
+      const looksAbsolute = typeof resolvedHandle === 'string' &&
+        (resolvedHandle.startsWith('/') || /^[A-Za-z]:[\\/]/.test(resolvedHandle) || resolvedHandle.startsWith('\\\\'));
+      if (typeof resolvedHandle === 'string' && !looksAbsolute) {
+        console.warn(`[FileHandles] ✗ Refusing to persist RELATIVE Electron handle for ${universeSlug}:`, resolvedHandle);
+        if (!fileName) {
+          const parts = resolvedHandle.split(/[/\\]/);
+          fileName = parts[parts.length - 1];
+        }
+        resolvedHandle = null; // needs reconnect — not a usable location
       } else {
-        console.log(`[FileHandles] ⚠ Electron RELATIVE path for ${universeSlug}:`, resolvedHandle);
+        console.log(`[FileHandles] ✓ Electron absolute path for ${universeSlug}:`, resolvedHandle);
       }
     } else if (fileHandle?.name) {
       fileName = fileHandle.name;
