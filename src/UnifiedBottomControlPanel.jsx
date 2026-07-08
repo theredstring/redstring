@@ -469,8 +469,6 @@ const UnifiedBottomControlPanel = ({
       color: selectedGroup.color || theme.accent.primary
     };
 
-    const dimensions = getNodeDimensions(baseNode, false, null);
-
     return {
       ...baseNode,
       x: 0,
@@ -482,9 +480,13 @@ const UnifiedBottomControlPanel = ({
   }, [isGroup, selectedGroup]);
 
   const groupRendererMetrics = useMemo(() => {
-    const minHeight = mobileState.isMobile ? 64 : 110;
-    const heightExtra = mobileState.isMobile ? 6 : 20;
-    const pad = mobileState.isMobile ? 4 : 8;
+    // Size the container to the node at a readable target scale (mirrors the
+    // single-node preset in nodeRendererMetrics). Sizing to node.width + padding
+    // instead makes the renderer's fit-scale ~1.0, so the group label rendered at
+    // the full 45px canvas font — far too large to read in this compact panel.
+    const pad = mobileState.isMobile ? 8 : 12;
+    const scale = mobileState.isMobile ? 0.7 : 0.5;
+    const minHeight = mobileState.isMobile ? 64 : 92;
     if (!groupRendererNode) {
       return {
         containerWidth: Math.min(320, viewportLimit),
@@ -493,9 +495,11 @@ const UnifiedBottomControlPanel = ({
       };
     }
 
+    // Width drives the fit-scale (scaleW = scale); the taller min height just adds
+    // vertical breathing room without inflating the scale.
     return {
-      containerWidth: Math.min(viewportLimit, Math.max(200, groupRendererNode.width + 48)),
-      containerHeight: Math.max(minHeight, groupRendererNode.height + heightExtra),
+      containerWidth: Math.min(viewportLimit, groupRendererNode.width * scale + pad * 2),
+      containerHeight: Math.max(minHeight, groupRendererNode.height * scale + pad * 2),
       padding: pad
     };
   }, [groupRendererNode, viewportLimit, mobileState.isMobile]);
@@ -684,6 +688,9 @@ const UnifiedBottomControlPanel = ({
                   containerWidth={calculatedWidth}
                   containerHeight={calculatedHeight}
                   minHorizontalSpacing={dynamicMinHorizontalSpacing}
+                  // Match hover's readable label size — the preset default (1) rendered
+                  // connection text at the ~8px floor once the fit scale got small.
+                  connectionFontScale={1.4}
                   forceShowConnectionDots={inputMode === 'touch'}
                   onNodeClick={onNodeClick}
                   onConnectionClick={onPredicateClick}

@@ -4,8 +4,10 @@ import { getNodeDimensions } from '../utils.js';
 
 /**
  * Compute and persist a force-directed layout for any graph, active or not.
- * Uses estimated node dimensions (no DOM access required) and a fixed
- * 2000×2000 virtual canvas. Positions are written directly to the store.
+ * Uses estimated node dimensions (no DOM access required). The 2000×2000
+ * virtual canvas is a floor — the layout engine grows the box to fit the
+ * graph's content, so the result is intrinsic to the data rather than
+ * molded by a fixed container. Positions are written directly to the store.
  */
 export function applyOffscreenLayout(graphId) {
   const st = useGraphStore.getState();
@@ -60,17 +62,25 @@ export function applyOffscreenLayout(graphId) {
 
   const groups = Array.from(graph.groups?.values() || []);
 
+  // Resolve the real rendered label font so labeled edges reserve the space
+  // the canvas actually draws (NodeCanvas base 54 × user text settings)
+  const edgeLabelFontSize = 54
+    * (st.textSettings?.fontSize || 1)
+    * (st.connectionLabelSize ?? 1.0);
+
   let updates = applyLayout(layoutNodes, layoutEdges, 'force-directed', {
     width: 2000,
     height: 2000,
     padding: 300,
     useExistingPositions: false,
     groups,
+    edgeLabelFontSize,
   });
 
   if (!updates || updates.length === 0) return;
 
-  // Recenter so the bounding box center lands at (1000, 1000)
+  // Recenter so the bounding box center lands at (0, 0) — the canvas center
+  // (NodeCanvas world coordinates span ±50000 around the origin)
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   updates.forEach(u => {
     if (u.x < minX) minX = u.x;
@@ -79,8 +89,8 @@ export function applyOffscreenLayout(graphId) {
     if (u.y > maxY) maxY = u.y;
   });
   if (Number.isFinite(minX)) {
-    const shiftX = 1000 - (minX + maxX) / 2;
-    const shiftY = 1000 - (minY + maxY) / 2;
+    const shiftX = 0 - (minX + maxX) / 2;
+    const shiftY = 0 - (minY + maxY) / 2;
     updates = updates.map(u => ({ ...u, x: Math.round(u.x + shiftX), y: Math.round(u.y + shiftY) }));
   }
 

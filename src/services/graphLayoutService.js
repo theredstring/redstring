@@ -444,9 +444,11 @@ function calculateSpring(pos1, pos2, targetDist, strength) {
  * Edge labels are rendered bold with a stroke outline, so we use a wider
  * character width factor (0.7) than the normal-weight estimate (0.55).
  * Adds a flat buffer for the stroke outline that extends beyond glyph bounds.
- * fontSize defaults to 24 (the canvas default connectionFontSize).
+ * fontSize defaults to 54 — the canvas base connectionFontSize. Callers
+ * should pass the resolved size (54 × textSettings.fontSize ×
+ * connectionLabelSize) so layout reserves the space labels actually occupy.
  */
-function estimateEdgeLabelWidth(text, fontSize = 24) {
+export function estimateEdgeLabelWidth(text, fontSize = 54) {
   if (!text) return 0;
   // 0.7 accounts for fontWeight="bold" on edge labels
   const avgCharWidth = fontSize * 0.7;
@@ -541,6 +543,10 @@ export const FORCE_LAYOUT_DEFAULTS = {
   labelAwareLinkReduction: 1,
   edgeLabelPadding: 60,           // total horizontal padding for edge label minimum (30px per side)
   edgeLabelClearancePadding: 30,  // extra gap between midpoints of different labeled edges
+  // Base font used to reserve space for edge labels. MUST track the canvas
+  // renderer (NodeCanvas draws labels at 54 × textSettings.fontSize ×
+  // connectionLabelSize); callers pass the resolved size via options.
+  edgeLabelFontSize: 54,
 
   // Advanced forces
   enableEdgeRepulsion: true, // Triplet repulsion
@@ -786,6 +792,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
         attractionStrength: config.attractionStrength,
         stiffness: config.stiffness,
         edgeAvoidance: config.edgeAvoidance,
+        edgeLabelFontSize: config.edgeLabelFontSize,
       }
     );
 
@@ -1068,6 +1075,34 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     config.minNodeDistance = config.minLinkDistance;
   }
 
+  // Build adjacency
+  const adjacency = new Map();
+  nodes.forEach(node => adjacency.set(node.id, []));
+  edges.forEach(edge => {
+    if (adjacency.has(edge.sourceId) && adjacency.has(edge.destinationId)) {
+      adjacency.get(edge.sourceId).push(edge.destinationId);
+      adjacency.get(edge.destinationId).push(edge.sourceId);
+    }
+  });
+
+  // ── Isolated-node extraction ────────────────────────────────────────────
+  // Edge-less, ungrouped nodes feel only two forces — center pull inward and
+  // repulsion outward — both radially symmetric. At equilibrium every free
+  // floater settles at the SAME radius, producing a packed ring around the
+  // connected structure. They carry no structural information, so exclude
+  // them from the simulation and scatter them into the empty space around
+  // the finished layout instead (deterministic sunflower annulus, below).
+  const groupedNodeIds = new Set();
+  groups.forEach(g => (g.memberInstanceIds || []).forEach(id => groupedNodeIds.add(id)));
+  const isolatedNodes = [];
+  const simNodes = [];
+  nodes.forEach(n => {
+    const degree = (adjacency.get(n.id) || []).length;
+    if (degree === 0 && !groupedNodeIds.has(n.id)) isolatedNodes.push(n);
+    else simNodes.push(n);
+  });
+  nodes = simNodes;
+
   // Calculate automatic scale based on node count
   const totalNodes = nodes.length;
   const autoScale = calculateAutoScale(totalNodes);
@@ -1094,16 +1129,6 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   const repulsionStrength = baseRepulsionStrength * densityRepulsionMultiplier;
   const attractionStrength = config.attractionStrength * densityAttractionMultiplier;
 
-  // Build adjacency
-  const adjacency = new Map();
-  nodes.forEach(node => adjacency.set(node.id, []));
-  edges.forEach(edge => {
-    if (adjacency.has(edge.sourceId) && adjacency.has(edge.destinationId)) {
-      adjacency.get(edge.sourceId).push(edge.destinationId);
-      adjacency.get(edge.destinationId).push(edge.sourceId);
-    }
-  });
-
   // Deduplicate edges by node pair (undirected) so parallel edges between the
   // same two nodes don't compound spring forces or constraint corrections.
   // For each pair, keep the edge with the longest label to preserve the
@@ -1117,8 +1142,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     if (!existing) {
       _uniqueEdgePairMap.set(key, edge);
     } else {
-      const existingW = estimateEdgeLabelWidth(existing.name || '');
-      const newW = estimateEdgeLabelWidth(edge.name || '');
+      const existingW = estimateEdgeLabelWidth(existing.name || '', config.edgeLabelFontSize);
+      const newW = estimateEdgeLabelWidth(edge.name || '', config.edgeLabelFontSize);
       if (newW > existingW) _uniqueEdgePairMap.set(key, edge);
     }
   });
@@ -1187,6 +1212,17 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   const finalMinNodeDistance = minNodeDistance * clusterScale * densityNodeDistanceFactor;
   const finalMaxRepulsionDistance = maxRepulsionDistance * clusterScale * densityRepulsionDistanceFactor;
 
+  // ── Content-derived bounds ──────────────────────────────────────────────
+  // The box must be a consequence of the graph, not a constraint on it.
+  // With a fixed box (e.g. the offscreen 2000×2000) the per-iteration bounds
+  // clamp molds larger layouts against the walls — the layout ends up shaped
+  // by the container instead of the graph structure. Grow the box to what
+  // the physics actually needs; callers recenter / zoom-to-fit the result.
+  const contentSpan = Math.sqrt(totalNodes) * Math.max(finalTargetLinkDistance, finalMinNodeDistance) * 1.6
+    + config.padding * 2;
+  if (contentSpan > config.width) config.width = contentSpan;
+  if (contentSpan > config.height) config.height = contentSpan;
+
   // ── Fix 4: Label-aware node radius for collision ─────────────────────
   // Incorporate actual label width so wider labels produce larger collision
   // radii, preventing edges from overlapping adjacent labels.
@@ -1229,6 +1265,28 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       }
       velocities.set(node.id, { x: 0, y: 0 });
     });
+
+    // Incoming positions can exceed the provided box (composed group layouts
+    // during Phase-3 refinement, or graphs living far from the box's
+    // coordinate frame). Grow the box to fit and center the content in it so
+    // the bounds clamp refines the layout instead of crushing it against the
+    // walls. Callers recenter the output afterwards.
+    let exMinX = Infinity, exMinY = Infinity, exMaxX = -Infinity, exMaxY = -Infinity;
+    positions.forEach(pos => {
+      if (pos.x < exMinX) exMinX = pos.x;
+      if (pos.y < exMinY) exMinY = pos.y;
+      if (pos.x > exMaxX) exMaxX = pos.x;
+      if (pos.y > exMaxY) exMaxY = pos.y;
+    });
+    if (Number.isFinite(exMinX)) {
+      config.width = Math.max(config.width, (exMaxX - exMinX) + config.padding * 2);
+      config.height = Math.max(config.height, (exMaxY - exMinY) + config.padding * 2);
+      const shiftX = config.width / 2 - (exMinX + exMaxX) / 2;
+      const shiftY = config.height / 2 - (exMinY + exMaxY) / 2;
+      if (shiftX !== 0 || shiftY !== 0) {
+        positions.forEach(pos => { pos.x += shiftX; pos.y += shiftY; });
+      }
+    }
   } else {
     const initialOptions = {
       ...config,
@@ -1239,7 +1297,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     // Use group-aware positioning when groups are present (refinement path with useExistingPositions=false
     // but groups present can happen via euler/hybrid or other callers)
     const initial = groups.length > 0
-      ? generateGroupAwareInitialPositions(nodes, adjacency, config.width, config.height, groups, initialOptions)
+      ? generateGroupAwareInitialPositions(nodes, adjacency, groups, config.width, config.height, initialOptions)
       : generateInitialPositions(nodes, adjacency, config.width, config.height, initialOptions);
 
     // Detect stacked nodes and apply jitter
@@ -1510,7 +1568,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       // so we need: edgeLabelWidth + padding + r1 + r2
       let edgeLabelMinDistance = 0;
       if (edge.name) {
-        const edgeLabelWidth = estimateEdgeLabelWidth(edge.name);
+        const edgeLabelWidth = estimateEdgeLabelWidth(edge.name, config.edgeLabelFontSize);
         edgeLabelMinDistance = edgeLabelWidth + (config.edgeLabelPadding || 60) + r1 + r2;
         effectiveTarget = Math.max(effectiveTarget, edgeLabelMinDistance);
       }
@@ -1883,7 +1941,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       // 1. Rigid Edge Constraints (Springs are not enough for stiffness)
       enforceEdgeConstraints(
         positions, uniqueEdges, nodeById, getNodeRadius,
-        finalTargetLinkDistance, 1, config.stiffness * alpha
+        finalTargetLinkDistance, 1, config.stiffness * alpha,
+        null, 0, config.edgeLabelFontSize
       );
 
       // 2. Collision Resolution (Prevent overlaps actively)
@@ -1901,7 +1960,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   // Stage 1: Enforce edge constraints (connected nodes stay at target distance)
   // Pass group info so cross-group edges use weaker correction
   enforceEdgeConstraints(positions, uniqueEdges, nodeById, getNodeRadius,
-    finalTargetLinkDistance, 5, 0.8, nodeGroupsMap, config.minGroupDistance || 800);
+    finalTargetLinkDistance, 5, 0.8, nodeGroupsMap, config.minGroupDistance || 800,
+    config.edgeLabelFontSize);
 
   // Stage 2: Resolve all overlaps
   resolveOverlaps(positions, nodes, getNodeRadius, config.padding,
@@ -1909,7 +1969,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
 
   // Stage 3: Re-enforce edge constraints (maintain connectivity after overlap resolution)
   enforceEdgeConstraints(positions, uniqueEdges, nodeById, getNodeRadius,
-    finalTargetLinkDistance, 3, 0.8, nodeGroupsMap, config.minGroupDistance || 800);
+    finalTargetLinkDistance, 3, 0.8, nodeGroupsMap, config.minGroupDistance || 800,
+    config.edgeLabelFontSize);
 
   // Stage 4: Final gentle overlap check
   resolveOverlaps(positions, nodes, getNodeRadius, config.padding,
@@ -1939,7 +2000,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     const n2 = nodeById.get(edge.destinationId);
     const r1 = getNodeRadius(n1);
     const r2 = getNodeRadius(n2);
-    const labelWidth = estimateEdgeLabelWidth(edge.name);
+    const labelWidth = estimateEdgeLabelWidth(edge.name, config.edgeLabelFontSize);
     const labelMin = labelWidth + 60 + r1 + r2;
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
@@ -1966,7 +2027,138 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       config.width, config.height, 5);
   }
 
+  // ── Isolated-node scatter ───────────────────────────────────────────────
+  // Fill actual empty pockets in and around the finished layout (inner gaps
+  // first), overflowing onto a sunflower spiral outside the structure.
+  if (isolatedNodes.length > 0) {
+    placeIsolatedNodes(positions, isolatedNodes, uniqueEdges, nodeById,
+      getNodeRadius, finalMinNodeDistance, config);
+  }
+
   return positions;
+}
+
+/**
+ * Place edge-less, ungrouped nodes into the empty space of a finished layout.
+ *
+ * Builds a candidate grid over the layout plus a periphery band, keeps only
+ * points clear of node bodies and connection lines, and fills nearest-to-
+ * center pockets first — so free floaters tuck into the gaps of the
+ * structure rather than forming an equilibrium ring around it. Nodes that
+ * don't fit any pocket overflow onto a golden-angle sunflower spiral outside
+ * the structure (uniform 2D density, never a single-radius ring).
+ * Deterministic: candidates and nodes are processed in stable order.
+ */
+function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius, minSpacing, config) {
+  const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+  const sorted = [...isolatedNodes].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+  let maxDiameter = 0;
+  isolatedNodes.forEach(n => {
+    maxDiameter = Math.max(maxDiameter, getRadius(n) * 2);
+  });
+  const spacing = Math.max(minSpacing, maxDiameter * 1.15);
+
+  // Occupied bodies + layout bounds
+  const occupied = [];
+  let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
+  positions.forEach((p, id) => {
+    occupied.push({ x: p.x, y: p.y, r: getRadius(nodeById.get(id)) });
+    if (p.x < bMinX) bMinX = p.x;
+    if (p.y < bMinY) bMinY = p.y;
+    if (p.x > bMaxX) bMaxX = p.x;
+    if (p.y > bMaxY) bMaxY = p.y;
+  });
+
+  // Graph is nothing but isolated nodes: sunflower out from the box center
+  if (occupied.length === 0) {
+    const cX = config.width / 2;
+    const cY = config.height / 2;
+    sorted.forEach((node, i) => {
+      const r = Math.sqrt(((i + 0.5) * spacing * spacing) / Math.PI);
+      positions.set(node.id, {
+        x: cX + Math.cos(i * GOLDEN_ANGLE) * r,
+        y: cY + Math.sin(i * GOLDEN_ANGLE) * r
+      });
+    });
+    return;
+  }
+
+  const coreX = (bMinX + bMaxX) / 2;
+  const coreY = (bMinY + bMaxY) / 2;
+  const coreRadius = Math.hypot(bMaxX - bMinX, bMaxY - bMinY) / 2;
+
+  // Connection segments — keep floaters off edge lines and their labels
+  const edgeSegs = [];
+  edges.forEach(e => {
+    const p1 = positions.get(e.sourceId);
+    const p2 = positions.get(e.destinationId);
+    if (p1 && p2) edgeSegs.push({ x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
+  });
+
+  // Candidate grid: layout bbox plus a periphery band
+  const margin = spacing * 2;
+  const step = spacing * 0.75;
+  const candidates = [];
+  for (let gx = bMinX - margin; gx <= bMaxX + margin; gx += step) {
+    for (let gy = bMinY - margin; gy <= bMaxY + margin; gy += step) {
+      let nodeClearance = Infinity;
+      for (const o of occupied) {
+        const d = Math.hypot(gx - o.x, gy - o.y) - o.r;
+        if (d < nodeClearance) nodeClearance = d;
+        if (nodeClearance <= 0) break;
+      }
+      if (nodeClearance <= 0) continue;
+
+      let edgeClearanceSq = Infinity;
+      for (const s of edgeSegs) {
+        const { distSq } = getPointSegmentDistSq(gx, gy, s.x1, s.y1, s.x2, s.y2);
+        if (distSq < edgeClearanceSq) edgeClearanceSq = distSq;
+      }
+
+      candidates.push({
+        x: gx,
+        y: gy,
+        nodeClearance,
+        edgeClearance: Math.sqrt(edgeClearanceSq),
+        dCenter: Math.hypot(gx - coreX, gy - coreY),
+        used: false
+      });
+    }
+  }
+  // Inner pockets first — floaters fall INTO the empty space of the
+  // structure before spilling to the periphery
+  candidates.sort((a, b) => a.dCenter - b.dCenter);
+
+  const placedIso = [];
+  let overflowIndex = 0;
+  sorted.forEach(node => {
+    const nodeR = getRadius(node);
+    let placed = null;
+    for (const c of candidates) {
+      if (c.used) continue;
+      if (c.nodeClearance < nodeR * 1.1) continue;
+      if (c.edgeClearance < nodeR) continue;
+      let clearOfSiblings = true;
+      for (const p of placedIso) {
+        if (Math.hypot(c.x - p.x, c.y - p.y) < spacing) { clearOfSiblings = false; break; }
+      }
+      if (!clearOfSiblings) continue;
+      c.used = true;
+      placed = { x: c.x, y: c.y };
+      break;
+    }
+    if (!placed) {
+      // Overflow: sunflower annulus outside everything
+      const startR = coreRadius + spacing;
+      const r = Math.sqrt(startR * startR + ((overflowIndex + 0.5) * spacing * spacing) / Math.PI);
+      const theta = overflowIndex * GOLDEN_ANGLE;
+      overflowIndex++;
+      placed = { x: coreX + Math.cos(theta) * r, y: coreY + Math.sin(theta) * r };
+    }
+    placedIso.push(placed);
+    positions.set(node.id, placed);
+  });
 }
 
 /**
@@ -1975,7 +2167,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
  * When nodeGroupsMap is provided, cross-group edges use weaker correction
  * and a larger minimum target to prevent undoing group separation.
  */
-function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDistance, passes, stiffness = 0.5, nodeGroupsMap = null, minGroupDistance = 0) {
+function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDistance, passes, stiffness = 0.5, nodeGroupsMap = null, minGroupDistance = 0, edgeLabelFontSize = 54) {
   for (let pass = 0; pass < passes; pass++) {
     edges.forEach(edge => {
       const p1 = positions.get(edge.sourceId);
@@ -2011,7 +2203,7 @@ function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDis
 
       // Respect edge label minimum — don't shrink edges below their label width
       if (edge.name) {
-        const labelWidth = estimateEdgeLabelWidth(edge.name);
+        const labelWidth = estimateEdgeLabelWidth(edge.name, edgeLabelFontSize);
         const labelMin = labelWidth + 60 + r1 + r2;
         effectiveTarget = Math.max(effectiveTarget, labelMin);
       }
@@ -2183,8 +2375,8 @@ function enforceEdgeLabelClearance(positions, edges, nodeById, getNodeRadius, co
         const midBx = (pB1.x + pB2.x) / 2;
         const midBy = (pB1.y + pB2.y) / 2;
 
-        const wA = estimateEdgeLabelWidth(eA.name);
-        const wB = estimateEdgeLabelWidth(eB.name);
+        const wA = estimateEdgeLabelWidth(eA.name, config.edgeLabelFontSize);
+        const wB = estimateEdgeLabelWidth(eB.name, config.edgeLabelFontSize);
         const minClearance = (wA + wB) / 2 + padding;
 
         const dx = midBx - midAx; // vector from A's midpoint to B's midpoint

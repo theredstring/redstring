@@ -553,11 +553,9 @@ const LeftAIView = ({ compact = false,
   React.useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
   const messagesRef = React.useRef(messages);
   React.useEffect(() => { messagesRef.current = messages; }, [messages]);
-  // Stable refs for graph-scoped conversation switching (avoid stale closures in effects).
+  // Stable ref for conversations (avoid stale closures in effects/event handlers).
   const conversationsRef = React.useRef(conversations);
   React.useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
-  const graphsMapRef = React.useRef(graphsMap);
-  React.useEffect(() => { graphsMapRef.current = graphsMap; }, [graphsMap]);
   // Conversation that owns the in-flight agent run. Telemetry arrives as a
   // GLOBAL window event with no conversation id, so without this a run started
   // in tab A dumps its tool chips into tab B after a tab switch.
@@ -786,47 +784,12 @@ const LeftAIView = ({ compact = false,
     loadConversations();
   }, []); // Electron only; component remounts on file switch
 
-  // When the active graph changes (e.g. navigating into a definition graph), switch to the most
-  // recent conversation for that graph, or auto-create a fresh one if none exist yet.
-  // This prevents tabs from a parent graph "loading in" to a definition graph context.
-  const prevActiveGraphIdRef = React.useRef(activeGraphId);
-  React.useEffect(() => {
-    if (!isHydrated) return;
-    if (prevActiveGraphIdRef.current === activeGraphId) return;
-    prevActiveGraphIdRef.current = activeGraphId;
-    if (!activeGraphId) return;
-
-    const convs = conversationsRef.current;
-    const currentId = activeConversationIdRef.current;
-
-    const visibleConvs = convs.filter(c => !c.graphId || c.graphId === activeGraphId);
-    const currentIsVisible = visibleConvs.some(c => c.id === currentId);
-
-    if (!currentIsVisible) {
-      if (visibleConvs.length > 0) {
-        // Switch to the most recent conversation for this graph
-        const mostRecent = [...visibleConvs].sort((a, b) =>
-          new Date(b.timestamp || 0) - new Date(a.timestamp || 0)
-        )[0];
-        setActiveConversationId(mostRecent.id);
-        // Sync effect will load mostRecent.messages into the display
-      } else {
-        // No conversations for this graph yet — auto-create a scoped one
-        const newId = `conv_${Date.now()}`;
-        const graphData = graphsMapRef.current?.get(activeGraphId);
-        const title = graphData?.name || 'New Chat';
-        const newConv = {
-          id: newId, title, messages: [],
-          timestamp: new Date().toISOString(),
-          graphId: activeGraphId
-        };
-        lastMessagesRef.current = messagesRef.current; // guard: prevent save effect writing old msgs
-        setConversations(prev => [newConv, ...prev]);
-        setActiveConversationId(newId);
-        React.startTransition(() => setMessages([]));
-      }
-    }
-  }, [activeGraphId, isHydrated]);
+  // NOTE: Wizard conversation tabs are intentionally NOT tied to the active graph.
+  // Switching the active graph (e.g. navigating into a definition graph) must leave the
+  // current tab and the full tab list untouched — the conversation is the user's context,
+  // not the graph's. The AI still receives the *current* graph context at query time
+  // (see effectiveActiveGraphId in the wizard request), so graph awareness is preserved
+  // without coupling tab visibility/selection to activeGraphId.
 
   // Sync messages with active conversation
   const lastActiveIdRef = React.useRef(activeConversationId);
@@ -1100,7 +1063,7 @@ const LeftAIView = ({ compact = false,
     // These need to re-bind when state changes so they have access to latest state
     // but the `useEffect` above for SSE only runs once. We'll use refs or simply update these getters
     window.__rs_getTabs = () => ({
-      conversations: conversations.filter(c => !c.graphId || c.graphId === activeGraphId),
+      conversations,
       activeConversationId
     });
     window.__rs_getWizardStatus = () => ({ hasAPIKey, isConnected, isProcessing, activeGraphId });
@@ -2497,16 +2460,14 @@ const LeftAIView = ({ compact = false,
 
   const handleCloseConversation = (id, e) => {
     if (e) e.stopPropagation();
-    // Prevent closing the last visible tab for this graph
-    const currentVisible = conversations.filter(c => !c.graphId || c.graphId === activeGraphId);
-    if (currentVisible.length <= 1) return;
+    // Prevent closing the last remaining tab
+    if (conversations.length <= 1) return;
 
     setConversations(prev => {
       const filtered = prev.filter(c => c.id !== id);
-      if (activeConversationId === id) {
-        // Switch to the most recent VISIBLE conversation after removing this one
-        const nextVisible = filtered.filter(c => !c.graphId || c.graphId === activeGraphId);
-        if (nextVisible.length > 0) handleTabSwitch(nextVisible[0].id);
+      if (activeConversationId === id && filtered.length > 0) {
+        // Switch to the most recent remaining conversation after removing this one
+        handleTabSwitch(filtered[0].id);
       }
       return filtered;
     });
@@ -2588,12 +2549,10 @@ const LeftAIView = ({ compact = false,
     });
   };
 
-  // Only show conversations that belong to the active graph (or legacy unscoped ones).
-  // This prevents tabs from a parent graph from bleeding into a definition graph context.
-  const visibleConversations = React.useMemo(
-    () => conversations.filter(c => !c.graphId || c.graphId === activeGraphId),
-    [conversations, activeGraphId]
-  );
+  // Tabs are global and NOT scoped to the active graph — switching graphs must not
+  // hide, clear, or reorder the user's conversation tabs. (graphId is kept on each
+  // conversation only as metadata; it no longer gates visibility.)
+  const visibleConversations = conversations;
 
   const headerActionsEl = (
     <div className="ai-header-actions">

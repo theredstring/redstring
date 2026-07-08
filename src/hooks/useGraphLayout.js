@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from '../services/graphLayoutService.js';
 import { getNodeDimensions } from '../utils'; // Assumed utility
 
@@ -38,9 +38,15 @@ export const useGraphLayout = ({
     groupLayoutAlgorithm = 'force-directed',
     // Force tuner settings — individual force params for consistency with AI and interactive sim
     forceTunerSettings = null,
+    // Resolved connection label font (54 × textSettings.fontSize ×
+    // connectionLabelSize) so layout reserves the space labels actually render at
+    connectionFontSize = 54,
     // Zoom/pan control for zoom-to-fit after auto-layout
     setZoomLevel = null,
     setPanOffset = null,
+    // Full transform controller (useCanvasTransform) — when provided, the
+    // camera tweens to the zoom-to-fit target alongside the node motion
+    canvasTransform = null,
     viewportSize = null,
     maxZoom = 3,
 }) => {
@@ -132,7 +138,18 @@ export const useGraphLayout = ({
     // ---------------------------------------------------------------------------
     // 2. Auto Layout
     // ---------------------------------------------------------------------------
-    const applyAutoLayoutToActiveGraph = useCallback(() => {
+    // In-flight layout animation frame (cancelled if a new layout starts)
+    const layoutAnimRef = useRef(null);
+    useEffect(() => () => {
+        if (layoutAnimRef.current) cancelAnimationFrame(layoutAnimRef.current);
+    }, []);
+
+    // Computes final positions with the batch engine, then moves each node
+    // directly to its target with one eased motion. The animation is real
+    // (edges/labels/groups all follow the nodes) but the path is direct —
+    // no live-physics wandering, orbiting, or rotation.
+    const applyAutoLayoutToActiveGraph = useCallback((opts = {}) => {
+        const { animate = true, duration = 750 } = opts;
         if (!activeGraphId) {
             alert('No active graph is selected for auto-layout.');
             return;
@@ -206,6 +223,7 @@ export const useGraphLayout = ({
             // Without groups, preserve existing positions for incremental refinement.
             useExistingPositions: groups.length === 0,
             groups,
+            edgeLabelFontSize: connectionFontSize,
             // Pass full force tuner parameters so auto-layout uses
             // the same configuration as the interactive simulation and AI.
             ...(forceTunerSettings ? {
@@ -265,64 +283,141 @@ export const useGraphLayout = ({
             }
 
             if (resetConnectionLabelCache) resetConnectionLabelCache();
-            storeActions.updateMultipleNodeInstancePositions(
-                activeGraphId,
-                updates,
-                { finalize: true, source: 'auto-layout', algorithm: 'force-directed' }
-            );
-            if (resetConnectionLabelCache) resetConnectionLabelCache();
 
-            console.log('[useGraphLayout] Applied', groupLayoutAlgorithm, 'layout to graph', activeGraphId, 'for', updates.length, 'nodes.');
+            // Compute the zoom-to-fit camera target framed on the FINAL positions
+            let cameraTarget = null;
+            if (viewportSize && updates.length > 0 && (canvasTransform || (setZoomLevel && setPanOffset))) {
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                updates.forEach(update => {
+                    const node = layoutNodes.find(n => n.id === update.instanceId);
+                    const dims = baseDimsById.get(update.instanceId);
+                    const width = dims?.currentWidth || node?.width || 150;
+                    const height = dims?.currentHeight || node?.height || 150;
+                    minX = Math.min(minX, update.x);
+                    minY = Math.min(minY, update.y);
+                    maxX = Math.max(maxX, update.x + width);
+                    maxY = Math.max(maxY, update.y + height);
+                });
 
-            setTimeout(() => {
+                const nodesWidth = maxX - minX;
+                const nodesHeight = maxY - minY;
+                const nodesCenterX = (minX + maxX) / 2;
+                const nodesCenterY = (minY + maxY) / 2;
+
+                // Asymmetric padding: extra vertical room since header/bottom
+                // panels overlay the canvas, plus a slight global back-off
+                const paddingX = Math.max(260, viewportSize.width * 0.15);
+                const paddingY = Math.max(360, viewportSize.height * 0.23);
+                const targetZoomX = viewportSize.width / (nodesWidth + paddingX * 2);
+                const targetZoomY = viewportSize.height / (nodesHeight + paddingY * 2);
+                let targetZoom = Math.min(targetZoomX, targetZoomY) * 0.92;
+                targetZoom = Math.max(Math.min(targetZoom, maxZoom), 0.2);
+
+                cameraTarget = {
+                    zoom: targetZoom,
+                    centerX: nodesCenterX,
+                    centerY: nodesCenterY,
+                    pan: {
+                        x: (viewportSize.width / 2) - (nodesCenterX - canvasSize.offsetX) * targetZoom,
+                        y: (viewportSize.height / 2) - (nodesCenterY - canvasSize.offsetY) * targetZoom
+                    }
+                };
+            }
+
+            const applyCameraInstant = () => {
+                if (!cameraTarget) return;
+                if (canvasTransform?.jumpTo) {
+                    canvasTransform.jumpTo(cameraTarget.pan, cameraTarget.zoom);
+                } else {
+                    setZoomLevel(cameraTarget.zoom);
+                    setPanOffset(cameraTarget.pan);
+                }
+            };
+
+            const finishLayout = () => {
+                storeActions.updateMultipleNodeInstancePositions(
+                    activeGraphId,
+                    updates,
+                    { finalize: true, source: 'auto-layout', algorithm: 'force-directed' }
+                );
+                if (resetConnectionLabelCache) resetConnectionLabelCache();
                 try {
                     moveOutOfBoundsNodesInBounds();
                 } catch (boundErr) {
                     console.warn('[useGraphLayout] Bound correction failed:', boundErr);
                 }
-
-                // Zoom-to-fit: frame all nodes in viewport with padding
-                if (setZoomLevel && setPanOffset && viewportSize && updates.length > 0) {
-                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                    updates.forEach(update => {
-                        const node = layoutNodes.find(n => n.id === update.instanceId);
-                        const dims = baseDimsById.get(update.instanceId);
-                        const width = dims?.currentWidth || node?.width || 150;
-                        const height = dims?.currentHeight || node?.height || 150;
-                        minX = Math.min(minX, update.x);
-                        minY = Math.min(minY, update.y);
-                        maxX = Math.max(maxX, update.x + width);
-                        maxY = Math.max(maxY, update.y + height);
-                    });
-
-                    const nodesWidth = maxX - minX;
-                    const nodesHeight = maxY - minY;
-                    const nodesCenterX = (minX + maxX) / 2;
-                    const nodesCenterY = (minY + maxY) / 2;
-
-                    const padding = Math.max(200, Math.min(viewportSize.width, viewportSize.height) * 0.15);
-                    const targetZoomX = viewportSize.width / (nodesWidth + padding * 2);
-                    const targetZoomY = viewportSize.height / (nodesHeight + padding * 2);
-                    let targetZoom = Math.min(targetZoomX, targetZoomY);
-                    targetZoom = Math.max(Math.min(targetZoom, maxZoom), 0.2);
-
-                    const targetPanX = (viewportSize.width / 2) - (nodesCenterX - canvasSize.offsetX) * targetZoom;
-                    const targetPanY = (viewportSize.height / 2) - (nodesCenterY - canvasSize.offsetY) * targetZoom;
-
-                    setZoomLevel(targetZoom);
-                    setPanOffset({ x: targetPanX, y: targetPanY });
-
-                    console.log('[useGraphLayout] Zoom-to-fit:', {
-                        targetZoom: Math.round(targetZoom * 1000) / 1000,
-                        pan: { x: Math.round(targetPanX), y: Math.round(targetPanY) },
-                        bounds: { width: Math.round(nodesWidth), height: Math.round(nodesHeight) }
-                    });
-                }
-
                 window.dispatchEvent(new CustomEvent('rs-auto-layout-complete', {
                     detail: { graphId: activeGraphId, nodeCount: updates.length }
                 }));
-            }, 0);
+                console.log('[useGraphLayout] Applied', groupLayoutAlgorithm, 'layout to graph', activeGraphId, 'for', updates.length, 'nodes.');
+            };
+
+            if (!animate) {
+                applyCameraInstant();
+                finishLayout();
+                return;
+            }
+
+            // Camera tween start state: current world-space viewport center +
+            // zoom, read from the transform controller's live refs. The center
+            // lerps while zoom interpolates in log space (constant perceived
+            // zoom rate); pan is derived each frame so the focus stays smooth.
+            let camStart = null;
+            if (cameraTarget && canvasTransform?.panRef && canvasTransform?.zoomRef) {
+                const p0 = canvasTransform.panRef.current;
+                const z0 = canvasTransform.zoomRef.current;
+                camStart = {
+                    zoom: z0,
+                    centerX: (viewportSize.width / 2 - p0.x) / z0 + canvasSize.offsetX,
+                    centerY: (viewportSize.height / 2 - p0.y) / z0 + canvasSize.offsetY
+                };
+            } else {
+                // No transform controller — reframe instantly, nodes still tween
+                applyCameraInstant();
+            }
+
+            // Direct eased tween: current position → computed position.
+            // One coherent motion, no redundant physics exploration.
+            if (layoutAnimRef.current) cancelAnimationFrame(layoutAnimRef.current);
+            const startPositions = new Map(layoutNodes.map(n => [n.id, { x: n.x, y: n.y }]));
+            const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+            const startTime = performance.now();
+
+            const tick = (now) => {
+                const t = Math.min(1, (now - startTime) / duration);
+                const k = easeInOutCubic(t);
+
+                if (camStart) {
+                    const z = camStart.zoom * Math.pow(cameraTarget.zoom / camStart.zoom, k);
+                    const cx = camStart.centerX + (cameraTarget.centerX - camStart.centerX) * k;
+                    const cy = camStart.centerY + (cameraTarget.centerY - camStart.centerY) * k;
+                    canvasTransform.setPanAndZoom(
+                        {
+                            x: viewportSize.width / 2 - (cx - canvasSize.offsetX) * z,
+                            y: viewportSize.height / 2 - (cy - canvasSize.offsetY) * z
+                        },
+                        z
+                    );
+                }
+
+                const frame = updates.map(u => {
+                    const s = startPositions.get(u.instanceId) || { x: u.x, y: u.y };
+                    return {
+                        instanceId: u.instanceId,
+                        x: s.x + (u.x - s.x) * k,
+                        y: s.y + (u.y - s.y) * k
+                    };
+                });
+                storeActions.updateMultipleNodeInstancePositions(activeGraphId, frame, { skipSave: true });
+                if (t < 1) {
+                    layoutAnimRef.current = requestAnimationFrame(tick);
+                } else {
+                    layoutAnimRef.current = null;
+                    if (camStart) applyCameraInstant(); // lands exactly + flushes settled state
+                    finishLayout();
+                }
+            };
+            layoutAnimRef.current = requestAnimationFrame(tick);
         } catch (error) {
             console.error('[useGraphLayout] Failed to apply layout:', error);
             alert(`Auto-layout failed: ${error.message}`);
@@ -342,8 +437,10 @@ export const useGraphLayout = ({
         groupLayoutAlgorithm,
         graphsMap,
         forceTunerSettings,
+        connectionFontSize,
         setZoomLevel,
         setPanOffset,
+        canvasTransform,
         viewportSize,
         maxZoom
     ]);

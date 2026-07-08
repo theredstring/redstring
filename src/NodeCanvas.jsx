@@ -2194,8 +2194,10 @@ function NodeCanvas() {
     layoutIterationPreset,
     groupLayoutAlgorithm,
     forceTunerSettings,
+    connectionFontSize: 54 * (textSettings?.fontSize || 1) * connectionLabelSize,
     setZoomLevel,
     setPanOffset,
+    canvasTransform: transform,
     viewportSize,
     maxZoom: MAX_ZOOM
   });
@@ -9437,19 +9439,13 @@ function NodeCanvas() {
     }
   }, [activeGraphId, selectedGroup, storeActions, setSelectedInstanceIds, setGroupControlPanelVisible, setSelectedGroup]);
 
-  // Trigger auto-layout via the Force Simulation Tuner (invisible, autoStart mode)
+  // Trigger auto-layout: batch engine computes the final positions, then
+  // nodes tween directly to their targets (edges/labels follow the nodes).
+  // No live physics — one coherent motion instead of redundant exploration.
   const triggerAutoLayout = useCallback(() => {
     if (!activeGraphId) return;
-    if (!hydratedNodes || hydratedNodes.length === 0) {
-      alert('Active graph has no nodes to layout yet.');
-      return;
-    }
-    if (hydratedNodes.length > 200) {
-      console.log(`[AutoLayout] Skipping: graph too large (${hydratedNodes.length} nodes)`);
-      return;
-    }
-    setAutoLayoutRunning(true);
-  }, [activeGraphId, hydratedNodes]);
+    applyAutoLayoutToActiveGraph();
+  }, [activeGraphId, applyAutoLayoutToActiveGraph]);
 
   // Context Menu options for canvas background
   const getCanvasContextMenuOptions = useCallback(() => {
@@ -15865,7 +15861,11 @@ function NodeCanvas() {
           setAutoLayoutRunning(false);
           navigateAfterLayout(activeGraphId, hydratedNodes?.length || 0);
         }}
-        autoLayoutDuration={1500}
+        // Safety ceiling only — the sim stops itself on alpha convergence
+        // (usually ~1-1.5s with substepped auto-layout speed)
+        autoLayoutDuration={6000}
+        // Resolved label font so labeled edges reserve real rendered width
+        connectionFontSize={54 * (textSettings?.fontSize || 1) * connectionLabelSize}
         graphId={activeGraphId}
         storeActions={storeActions}
         layoutScalePreset={forceLayoutScalePreset}

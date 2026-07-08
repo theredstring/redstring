@@ -30,7 +30,8 @@ const ForceSimulationModal = ({
   autoStart = false,
   invisible = false,
   onSimulationComplete = null,
-  autoLayoutDuration = 1000
+  autoLayoutDuration = 1000,
+  connectionFontSize = 54
 }) => {
   const theme = useTheme();
 
@@ -52,6 +53,7 @@ const ForceSimulationModal = ({
     onLayoutScaleMultiplierChange,
     onLayoutIterationPresetChange,
     onLayoutScalePresetChange,
+    connectionFontSize,
   });
 
   // --- UI-only state ---

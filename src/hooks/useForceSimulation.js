@@ -3,7 +3,8 @@ import {
   FORCE_LAYOUT_DEFAULTS,
   LAYOUT_ITERATION_PRESETS,
   LAYOUT_SCALE_PRESETS,
-  MAX_LAYOUT_SCALE_MULTIPLIER
+  MAX_LAYOUT_SCALE_MULTIPLIER,
+  estimateEdgeLabelWidth
 } from '../services/graphLayoutService.js';
 
 /**
@@ -28,6 +29,10 @@ export function useForceSimulation({
   onLayoutScaleMultiplierChange,
   onLayoutIterationPresetChange,
   onLayoutScalePresetChange,
+  // Resolved connection label font (54 × textSettings.fontSize ×
+  // connectionLabelSize) so labeled edges reserve the space the canvas
+  // actually renders
+  connectionFontSize = 54,
 }) {
   // --- Defaults ---
   const {
@@ -59,7 +64,7 @@ export function useForceSimulation({
   const [isRunning, setIsRunning] = useState(false);
   const [scaleMultiplier, setScaleMultiplier] = useState(initialScaleMultiplier);
   const [iterationPreset, setIterationPreset] = useState(initialIterationPreset);
-  const [simulationSpeed, setSimulationSpeed] = useState(autoStart ? 0.3 : 1.0);
+  const [simulationSpeed, setSimulationSpeed] = useState(autoStart ? 3.0 : 1.0);
   const [displayIteration, setDisplayIteration] = useState(0);
   const [displayAlpha, setDisplayAlpha] = useState(1.0);
   const [params, setParams] = useState({
@@ -83,9 +88,13 @@ export function useForceSimulation({
   // --- Refs ---
   const animationRef = useRef(null);
   const nodesByIdRef = useRef(new Map());
+  // Sim-local positions, authoritative between throttled store writes so
+  // substeps integrate against fresh positions instead of stale store state.
+  const simPositionsRef = useRef(new Map());
   const simulationState = useRef({
     velocities: new Map(),
     prevDirections: new Map(),
+    centroid: null,
     alpha: 1.0,
     iteration: 0,
     frameCount: 0
@@ -101,6 +110,16 @@ export function useForceSimulation({
   const iterationPresetEntries = Object.entries(LAYOUT_ITERATION_PRESETS);
 
   // --- Helpers ---
+  // Fixed centering target: the graph's own centroid at simulation start.
+  // Pulling toward the absolute canvas origin (the old behavior) yanks any
+  // graph that lives away from (0,0) across the canvas while it settles.
+  const computeCentroid = (nodes) => {
+    if (!nodes || nodes.length === 0) return null;
+    let sumX = 0, sumY = 0;
+    nodes.forEach(n => { sumX += n.x; sumY += n.y; });
+    return { x: sumX / nodes.length, y: sumY / nodes.length };
+  };
+
   const getNodeRadiusWithPadding = (node) => {
     const fallbackRadius = (params.collisionRadius || defaultCollisionRadius) * scaleMultiplier;
     if (!node) return fallbackRadius;
@@ -153,6 +172,7 @@ export function useForceSimulation({
 
   const handleReset = useCallback(() => {
     setIsRunning(false);
+    simPositionsRef.current.clear();
     simulationState.current.alpha = 1.0;
     simulationState.current.iteration = 0;
     simulationState.current.frameCount = 0;
@@ -166,6 +186,7 @@ export function useForceSimulation({
       });
     });
     simulationState.current.velocities = velocities;
+    simulationState.current.centroid = computeCentroid(nodes);
     lastDisplayUpdate.current = 0;
     setDisplayIteration(0);
     setDisplayAlpha(1.0);
@@ -247,9 +268,11 @@ export function useForceSimulation({
           vy: (Math.random() - 0.5) * 2
         });
       });
+      simPositionsRef.current.clear();
       simulationState.current = {
         velocities,
         prevDirections: new Map(),
+        centroid: computeCentroid(nodes),
         alpha: 1.0,
         iteration: 0,
         frameCount: 0
@@ -271,9 +294,12 @@ export function useForceSimulation({
   }, [externalScaleMultiplier]);
 
   // --- Auto-start ---
+  // 3× = three stable substeps per frame (time-lapse, not amplified forces).
+  // The primary stop is alpha convergence inside simulationStep; the timer
+  // is only a safety ceiling in case frames stall.
   useEffect(() => {
     if (enabled && autoStart) {
-      setSimulationSpeed(1.0);
+      setSimulationSpeed(3.0);
       setIsRunning(true);
       const timer = setTimeout(() => {
         setIsRunning(false);
@@ -296,20 +322,47 @@ export function useForceSimulation({
   }, [externalIterationPreset]);
 
   // --- Simulation step (the physics engine) ---
-  const simulationStep = () => {
+  // dt scales how far velocities move nodes this step (≤1 for stability).
+  // Speeds above 1× are achieved by running multiple substeps per frame,
+  // NOT by enlarging dt — a large dt is indistinguishable from amplifying
+  // the forces (overshoot, harder collisions, oscillation).
+  // Returns false once the simulation has settled.
+  const simulationStep = (dt = 1) => {
     const state = simulationState.current;
-    if (state.alpha < 0.001) {
+    const simPositions = simPositionsRef.current;
+    // Auto-layout stops at a higher alpha: by 0.02 the motion is visually
+    // settled, and waiting for 0.001 adds seconds of imperceptible drift.
+    const stopAlpha = autoStart ? 0.02 : 0.001;
+    if (state.alpha < stopAlpha) {
+      // Flush positions the throttled store write hasn't seen yet
+      if (simPositions.size > 0) {
+        const finalUpdates = [];
+        simPositions.forEach((pos, instanceId) => {
+          finalUpdates.push({ instanceId, x: pos.x, y: pos.y });
+        });
+        storeActions.updateMultipleNodeInstancePositions(graphId, finalUpdates, { skipSave: true });
+        onPositionsUpdated?.();
+      }
       setIsRunning(false);
       onSimulationComplete?.();
-      return;
+      return false;
     }
     state.frameCount = (state.frameCount || 0) + 1;
 
-    const nodes = getNodes();
+    const draggedIds = getDraggedNodeIds();
+    // Overlay sim-local positions so substeps between store writes integrate
+    // against fresh positions. Dragged nodes always follow the store (user).
+    const nodes = getNodes().map(node => {
+      if (draggedIds.has(node.id)) {
+        simPositions.delete(node.id);
+        return node;
+      }
+      const sp = simPositions.get(node.id);
+      return sp ? { ...node, x: sp.x, y: sp.y } : node;
+    });
     const nodesById = nodesByIdRef.current;
     nodesById.clear();
     nodes.forEach(node => nodesById.set(node.id, node));
-    const draggedIds = getDraggedNodeIds();
     const nodeRadiusCache = new Map();
     const getRadius = (node) => {
       if (!node) return (params.collisionRadius || defaultCollisionRadius) * scaleMultiplier;
@@ -409,8 +462,7 @@ export function useForceSimulation({
       // (don't touch edgeMinDistance — its aggressive repulsion causes oscillation)
       let edgeLinkTarget = scaledLinkDistance;
       if (edge.name) {
-        // 0.7 for bold text, plus stroke buffer
-        const labelWidth = edge.name.length * 24 * 1 + Math.max(2, 24 * 0.25) * 2;
+        const labelWidth = estimateEdgeLabelWidth(edge.name, connectionFontSize);
         const sourceRadius = getRadius(source);
         const targetRadius = getRadius(target);
         const labelMin = labelWidth + 60 + sourceRadius + targetRadius;
@@ -527,13 +579,15 @@ export function useForceSimulation({
       });
     }
 
-    // Center force
+    // Center force — toward the graph's initial centroid, keeping the layout
+    // where the user left it instead of dragging it toward the canvas origin
+    const centerTarget = state.centroid || computeCentroid(nodes) || { x: 0, y: 0 };
     nodes.forEach(node => {
       if (draggedIds.has(node.id)) return;
       const vel = velocities.get(node.id);
       if (vel) {
-        vel.vx += (0 - node.x) * centerStrength * state.alpha;
-        vel.vy += (0 - node.y) * centerStrength * state.alpha;
+        vel.vx += (centerTarget.x - node.x) * centerStrength * state.alpha;
+        vel.vy += (centerTarget.y - node.y) * centerStrength * state.alpha;
       }
     });
 
@@ -727,8 +781,8 @@ export function useForceSimulation({
       if (vel) {
         updates.push({
           instanceId: node.id,
-          x: node.x + vel.vx * simulationSpeed,
-          y: node.y + vel.vy * simulationSpeed
+          x: node.x + vel.vx * dt,
+          y: node.y + vel.vy * dt
         });
       }
     });
@@ -789,14 +843,17 @@ export function useForceSimulation({
       }
     }
 
-    // Apply to store (throttled to every 3rd frame for performance)
+    // Sim-local positions advance every step; the store is written on a
+    // throttle (every 3rd step ≈ once per frame at 3 substeps)
+    updates.forEach(u => simPositions.set(u.instanceId, { x: u.x, y: u.y }));
     if (updates.length > 0 && state.frameCount % 3 === 0) {
       storeActions.updateMultipleNodeInstancePositions(graphId, updates, { skipSave: true });
       onPositionsUpdated?.();
     }
 
-    // Decay alpha
-    state.alpha *= (1 - alphaDecay);
+    // Decay alpha (auto-layout cools faster so it finishes in ~1-1.5s)
+    const effectiveAlphaDecay = autoStart ? Math.max(alphaDecay, 0.015) : alphaDecay;
+    state.alpha *= (1 - effectiveAlphaDecay);
     state.iteration++;
 
     // Throttled display updates
@@ -805,19 +862,36 @@ export function useForceSimulation({
       setDisplayIteration(state.iteration);
       setDisplayAlpha(state.alpha);
     }
+    return true;
   };
 
-  // Keep latest simulationStep in ref for animation loop
-  const simulationStepRef = useRef(simulationStep);
+  // --- Frame runner: time acceleration via substeps, not bigger steps ---
+  // speed ≤ 1: one substep with fractional dt (slow motion).
+  // speed > 1: ceil(speed) substeps of dt = speed/substeps each — the same
+  // trajectory the 1× sim would take, watched in time-lapse. Each substep
+  // stays small and stable, so higher speed reads as quick, not violent.
+  const runFrame = () => {
+    const substeps = Math.max(1, Math.ceil(simulationSpeed));
+    const stepDt = simulationSpeed / substeps;
+    for (let i = 0; i < substeps; i++) {
+      if (simulationStep(stepDt) === false) break;
+    }
+  };
+
+  // Keep latest runFrame in ref for animation loop
+  const runFrameRef = useRef(runFrame);
   useEffect(() => {
-    simulationStepRef.current = simulationStep;
+    runFrameRef.current = runFrame;
   });
 
   // Animation loop
   useEffect(() => {
     if (isRunning) {
+      // Fresh run: drop sim-local positions so the sim picks up any changes
+      // made while paused (manual drags, store updates)
+      simPositionsRef.current.clear();
       const animate = () => {
-        simulationStepRef.current();
+        runFrameRef.current();
         animationRef.current = requestAnimationFrame(animate);
       };
       animationRef.current = requestAnimationFrame(animate);

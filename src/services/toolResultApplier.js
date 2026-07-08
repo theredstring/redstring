@@ -25,6 +25,27 @@ import { resolveGraphId } from '../wizard/tools/resolveGraphId.js';
 import { applyOffscreenLayout } from './offscreenLayout.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 
+/**
+ * Lay out a graph the wizard just mutated.
+ *
+ * Background graphs are laid out immediately and silently — nobody is
+ * watching, so a snap is fine. The ACTIVE graph is skipped here on purpose:
+ * the rs-trigger-auto-layout handler in NodeCanvas runs the animated tween
+ * for it, and pre-applying positions here would teleport the nodes to their
+ * final spots, leaving nothing to animate. (Headless hosts have no canvas
+ * listener; they run applyOffscreenLayout themselves via the runtime.)
+ */
+function layoutAfterWizardMutation(graphId) {
+  try {
+    if (typeof window !== 'undefined' && useGraphStore.getState().activeGraphId === graphId) {
+      return; // animated path in NodeCanvas handles the active graph
+    }
+    applyOffscreenLayout(graphId);
+  } catch (e) {
+    console.warn('[Wizard] Offscreen layout failed:', e);
+  }
+}
+
 // Injectable enrichment hooks. Browser (LeftAIView) supplies the real
 // Wikipedia-backed implementations via configureToolResultApplier; a headless
 // Node host leaves these no-ops so the applier stays pure and non-blocking.
@@ -1036,7 +1057,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     console.log('[Wizard] Successfully populated definition graph:', graphId);
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
-    try { applyOffscreenLayout(graphId); } catch (e) { console.warn('[Wizard] Offscreen layout failed:', e); }
+    layoutAfterWizardMutation(graphId);
     setTimeout(() => {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
@@ -1199,7 +1220,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
     // 4. Auto-layout: offscreen layout immediately, then event for DOM-based override
-    try { applyOffscreenLayout(graphId); } catch (e) { console.warn('[Wizard] Offscreen layout failed:', e); }
+    layoutAfterWizardMutation(graphId);
     setTimeout(() => {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
@@ -1302,7 +1323,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
     // 4. Auto-layout
-    try { applyOffscreenLayout(graphId); } catch (e) { console.warn('[Wizard] Offscreen layout failed:', e); }
+    layoutAfterWizardMutation(graphId);
     setTimeout(() => {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
@@ -1418,7 +1439,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     }
 
     // Auto-layout: offscreen layout immediately, then event for DOM-based override
-    try { applyOffscreenLayout(activeGraphId); } catch (e) { console.warn('[Wizard] Offscreen layout failed:', e); }
+    layoutAfterWizardMutation(activeGraphId);
     setTimeout(() => {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {

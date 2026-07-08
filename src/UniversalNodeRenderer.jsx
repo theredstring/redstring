@@ -58,9 +58,10 @@ const ConnectionText = ({
   const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
   const fontSize = Math.max(8, 30 * transform.scale * fontScale);
   const strokeWidth = Math.max(1, (connection.strokeWidth || 6 * transform.scale) * fontScale * 0.5);
-  const baseLineHeight = 30;
-  // Floor at 130% of font size so wrapped lines never overlap when transform.scale is small
-  const scaledLineHeight = Math.max(fontSize * 1.3, baseLineHeight * transform.scale * fontScale * lineHeightScale);
+  const baseLineHeight = 26;
+  // Floor at 115% of font size — tight but enough that wrapped lines never overlap
+  // when transform.scale is small.
+  const scaledLineHeight = Math.max(fontSize * 1.15, baseLineHeight * transform.scale * fontScale * lineHeightScale);
 
   const displayName = connection.connectionName;
   const lines = [];
