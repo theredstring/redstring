@@ -676,7 +676,14 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       // Graph-level properties
       "redstring:definingNodeIds": graph.definingNodeIds || [],
       "redstring:edgeIds": graph.edgeIds || [],
-      
+      // Semantic/visual graph fields the store carries (createNewGraph sets
+      // these). `directed` is a real semantic flag; color/picture/createdAt
+      // were previously dropped on every save/load cycle.
+      "redstring:directed": graph.directed !== false,
+      ...(graph.color != null ? { "redstring:color": graph.color } : {}),
+      ...(graph.picture != null ? { "redstring:picture": graph.picture } : {}),
+      ...(graph.createdAt != null ? { "redstring:createdAt": graph.createdAt } : {}),
+
       // Viewport state for this graph
       "redstring:panOffset": graph.panOffset || { x: 0, y: 0 },
       "redstring:zoomLevel": typeof graph.zoomLevel === 'number' ? graph.zoomLevel : 1.0,
@@ -785,6 +792,11 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       "redstring:conjugation": prototype.conjugation,
       "redstring:typeNodeId": prototype.typeNodeId,
       "redstring:citations": prototype.citations || [],
+      // Abstraction-chain membership flags (read by mcpProvider). Emitted only
+      // when set so we don't bloat every prototype; previously dropped on save.
+      ...(prototype.isSpecificityChainNode ? { "redstring:isSpecificityChainNode": true } : {}),
+      ...(prototype.hasSpecificityChain ? { "redstring:hasSpecificityChain": true } : {}),
+      ...(prototype.createdAt != null ? { "redstring:createdAt": prototype.createdAt } : {}),
       
       // Redstring cognitive properties
       "redstring:cognitiveProperties": (() => {
@@ -1418,6 +1430,17 @@ export const importFromRedstring = (redstringData, storeActions) => {
           }
         }
 
+        // Restore semantic/visual graph fields (see export). Only set when
+        // present so absent-in-old-file leaves the store default intact.
+        const directedRaw = graph['redstring:directed'] ?? graph.directed;
+        if (directedRaw !== undefined) graphShape.directed = directedRaw !== false;
+        const colorRaw = graph['redstring:color'] ?? graph.color;
+        if (colorRaw != null) graphShape.color = colorRaw;
+        const pictureRaw = graph['redstring:picture'] ?? graph.picture;
+        if (pictureRaw != null) graphShape.picture = pictureRaw;
+        const createdAtRaw = graph['redstring:createdAt'] ?? graph.createdAt;
+        if (createdAtRaw != null) graphShape.createdAt = createdAtRaw;
+
         // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
         if (graph._preserved) graphShape._preserved = graph._preserved;
 
@@ -1533,6 +1556,17 @@ export const importFromRedstring = (redstringData, storeActions) => {
 
           if (hasOwn(prototype, 'redstring:citations') || hasOwn(prototype, 'citations')) {
             convertedPrototype.citations = ensureArray(prototype['redstring:citations'] ?? prototype.citations);
+          }
+
+          // Abstraction-chain flags + createdAt (round-trip with export above)
+          if (hasOwn(prototype, 'redstring:isSpecificityChainNode') || hasOwn(prototype, 'isSpecificityChainNode')) {
+            convertedPrototype.isSpecificityChainNode = !!(prototype['redstring:isSpecificityChainNode'] ?? prototype.isSpecificityChainNode);
+          }
+          if (hasOwn(prototype, 'redstring:hasSpecificityChain') || hasOwn(prototype, 'hasSpecificityChain')) {
+            convertedPrototype.hasSpecificityChain = !!(prototype['redstring:hasSpecificityChain'] ?? prototype.hasSpecificityChain);
+          }
+          if (hasOwn(prototype, 'redstring:createdAt') || hasOwn(prototype, 'createdAt')) {
+            convertedPrototype.createdAt = prototype['redstring:createdAt'] ?? prototype.createdAt;
           }
 
           if (hasOwn(prototype, 'redstring:definitionGraphIds') || hasOwn(prototype, 'definitionGraphIds')) {

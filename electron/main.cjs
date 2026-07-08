@@ -724,6 +724,23 @@ const approveFileHandleRecord = (record) => {
   if (typeof record.displayPath === 'string') rememberApprovedPath(record.displayPath);
 };
 
+// Serialize read-modify-write storage mutations per store. setItem/removeItem
+// do read → mutate → write; two concurrent calls (e.g. two universes writing
+// their fileHandles metadata during restore) could interleave at the awaits so
+// the second read predates the first write, silently dropping one record —
+// which presented as "universe unlinked after restart".
+const storeMutationChains = new Map();
+const withStoreLock = (storeName, mutator) => {
+  const prior = storeMutationChains.get(storeName) || Promise.resolve();
+  const next = prior.catch(() => {}).then(mutator);
+  storeMutationChains.set(storeName, next);
+  // Prevent unbounded chain retention once settled.
+  next.finally(() => {
+    if (storeMutationChains.get(storeName) === next) storeMutationChains.delete(storeName);
+  });
+  return next;
+};
+
 // Get item from storage (like localStorage.getItem)
 ipcMain.handle('storage:getItem', async (event, storeName, key) => {
   const data = await readStorage(storeName);
@@ -734,17 +751,21 @@ ipcMain.handle('storage:getItem', async (event, storeName, key) => {
 
 // Set item in storage (like localStorage.setItem)
 ipcMain.handle('storage:setItem', async (event, storeName, key, value) => {
-  const data = await readStorage(storeName);
-  data[key] = value;
-  if (storeName === FILE_HANDLE_STORE) approveFileHandleRecord(value);
-  return await writeStorage(storeName, data);
+  return withStoreLock(storeName, async () => {
+    const data = await readStorage(storeName);
+    data[key] = value;
+    if (storeName === FILE_HANDLE_STORE) approveFileHandleRecord(value);
+    return await writeStorage(storeName, data);
+  });
 });
 
 // Remove item from storage (like localStorage.removeItem)
 ipcMain.handle('storage:removeItem', async (event, storeName, key) => {
-  const data = await readStorage(storeName);
-  delete data[key];
-  return await writeStorage(storeName, data);
+  return withStoreLock(storeName, async () => {
+    const data = await readStorage(storeName);
+    delete data[key];
+    return await writeStorage(storeName, data);
+  });
 });
 
 // Get all items from storage (like getting all keys from localStorage)
@@ -761,12 +782,12 @@ ipcMain.handle('storage:setAll', async (event, storeName, data) => {
   if (storeName === FILE_HANDLE_STORE && data && typeof data === 'object') {
     for (const record of Object.values(data)) approveFileHandleRecord(record);
   }
-  return await writeStorage(storeName, data);
+  return withStoreLock(storeName, () => writeStorage(storeName, data));
 });
 
 // Clear storage (like localStorage.clear for a specific store)
 ipcMain.handle('storage:clear', async (event, storeName) => {
-  return await writeStorage(storeName, {});
+  return withStoreLock(storeName, () => writeStorage(storeName, {}));
 });
 
 // GitHub OAuth Protocol Handler

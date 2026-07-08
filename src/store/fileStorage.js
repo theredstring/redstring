@@ -840,14 +840,26 @@ export const autoConnectToUniverse = async (options = {}) => {
     } catch (error) {
       console.warn('[FileStorage] Stored file handle failed to load:', error);
 
-      // Clear the corrupted/empty file handle from storage and disable auto-save
+      // Disconnect for this session, but DON'T nuke the whole handle DB on a
+      // transient error. A NotReadableError (file on a briefly-unmounted
+      // volume, iCloud placeholder, permission blip) previously wiped
+      // redstring-files entirely via clearIndexedDB(), permanently forgetting
+      // where every universe's file lives. Only clear the persisted handle
+      // when the file is DEFINITIVELY gone (NotFoundError); otherwise keep it
+      // so the next launch can retry.
       fileHandle = null;
       disableAutoSave();
-      try {
-        await clearIndexedDB();
-        console.log('[FileStorage] Cleared corrupted file handle from storage');
-      } catch (clearError) {
-        console.warn('[FileStorage] Failed to clear corrupted storage:', clearError);
+      const definitelyGone = error?.name === 'NotFoundError' ||
+        (typeof error?.message === 'string' && error.message.includes('not found'));
+      if (definitelyGone) {
+        try {
+          await clearIndexedDB();
+          console.log('[FileStorage] Cleared missing file handle from storage (NotFoundError)');
+        } catch (clearError) {
+          console.warn('[FileStorage] Failed to clear storage:', clearError);
+        }
+      } else {
+        console.warn('[FileStorage] Keeping stored handle — failure looks transient, will retry next launch');
       }
     }
   }

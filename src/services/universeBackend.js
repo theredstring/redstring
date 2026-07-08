@@ -393,10 +393,32 @@ class UniverseBackend {
       const activeSlug = storageWrapper.getItem(STORAGE_KEYS.ACTIVE_UNIVERSE);
 
       if (saved) {
-        const universesList = JSON.parse(saved);
-        universesList.forEach(universe => {
-          this.universes.set(universe.slug, this.safeNormalizeUniverse(universe));
-        });
+        let universesList;
+        try {
+          universesList = JSON.parse(saved);
+        } catch (parseError) {
+          // The registry JSON is corrupt. Back it up before anything can
+          // overwrite it — files and IndexedDB blobs still exist on disk and
+          // can be recovered by hand from this backup. Losing the registry
+          // silently orphans every universe.
+          const backupKey = `${STORAGE_KEYS.UNIVERSES_LIST}_corrupt_${Date.now()}`;
+          try { storageWrapper.setItem(backupKey, saved); } catch (_) { /* best effort */ }
+          umError(`[UniverseBackend] Universe registry is corrupt — backed up to ${backupKey} before recovery`);
+          throw parseError;
+        }
+        if (Array.isArray(universesList)) {
+          universesList.forEach(universe => {
+            // Isolate per-entry normalization: one malformed universe (e.g. a
+            // non-string localFile.path that throws in sanitizeFileName) must
+            // not take down the whole list and trigger createSafeDefaultUniverse,
+            // which would overwrite every other universe's registry entry.
+            try {
+              this.universes.set(universe.slug, this.safeNormalizeUniverse(universe));
+            } catch (entryError) {
+              umWarn(`[UniverseBackend] Skipping malformed universe entry "${universe?.slug}":`, entryError?.message || entryError);
+            }
+          });
+        }
       }
 
       // Load file handles info
@@ -3197,7 +3219,7 @@ class UniverseBackend {
 
         if (dataSize > availableSpace) {
           // Try to clean up old data first
-          await this.cleanupBrowserStorage(db);
+          await this.cleanupBrowserStorage(db, universe.browserStorage.key);
 
           // Check again
           const newEstimate = await navigator.storage.estimate();
@@ -3231,9 +3253,20 @@ class UniverseBackend {
   }
 
   /**
-   * Clean up old browser storage data
+   * Clean up browser storage under quota pressure.
+   *
+   * CRITICAL: each record here is one universe's ENTIRE data (keyed by its
+   * browserStorage.key), and on mobile / git-only mode IndexedDB is the real
+   * local persistence layer. The old "keep 3 most recent, delete the rest"
+   * logic therefore deleted OTHER universes' only copies. We now evict ONLY
+   * orphaned records — those whose key belongs to no currently-registered
+   * universe — and never the one being saved. If that doesn't free enough
+   * space, the caller surfaces a quota error rather than sacrificing data.
+   *
+   * @param {IDBDatabase} db - Open browser DB.
+   * @param {string} [preserveKey] - Storage key of the universe being saved.
    */
-  async cleanupBrowserStorage(db) {
+  async cleanupBrowserStorage(db, preserveKey = null) {
     try {
       const tx = db.transaction(['universes'], 'readwrite');
       const store = tx.objectStore('universes');
@@ -3244,24 +3277,29 @@ class UniverseBackend {
         request.onerror = () => reject(request.error);
       });
 
-      // Sort by savedAt and keep only the 3 most recent
-      allData.sort((a, b) => b.savedAt - a.savedAt);
-      const toDelete = allData.slice(3);
+      // Build the set of storage keys still referenced by a live universe.
+      const liveKeys = new Set();
+      for (const u of this.universes.values()) {
+        if (u?.browserStorage?.key) liveKeys.add(u.browserStorage.key);
+      }
+      if (preserveKey) liveKeys.add(preserveKey);
+
+      // Delete only records that no live universe references (orphans from
+      // deleted/renamed universes). A registered universe's data is never
+      // evicted — losing it is the exact data-loss we're preventing.
+      const toDelete = allData.filter(item => !liveKeys.has(item.id));
 
       if (toDelete.length > 0) {
         const deleteTx = db.transaction(['universes'], 'readwrite');
         const deleteStore = deleteTx.objectStore('universes');
-
-        toDelete.forEach(item => {
-          deleteStore.delete(item.id);
-        });
-
+        toDelete.forEach(item => deleteStore.delete(item.id));
         await new Promise((resolve, reject) => {
           deleteTx.oncomplete = () => resolve();
           deleteTx.onerror = () => reject(deleteTx.error);
         });
-
-        umLog(`[UniverseBackend] Cleaned up ${toDelete.length} old browser storage entries`);
+        umLog(`[UniverseBackend] Evicted ${toDelete.length} orphaned browser storage entries (no live universe references them)`);
+      } else {
+        umWarn('[UniverseBackend] Browser storage under pressure but all entries belong to live universes — refusing to evict user data');
       }
     } catch (error) {
       umWarn('[UniverseBackend] Browser storage cleanup failed:', error);
