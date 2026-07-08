@@ -77,33 +77,46 @@ const ConnectionText = ({
     // strategy: keep it on one line (shrinking a little if needed), and only wrap
     // once shrinking would make it too small; then shrink again to guarantee fit.
     const available = Math.max(24, length * 0.94);
-    const minFont = fontSize * 0.68;
+    const minSingle = fontSize * 0.68;
+    const floor = fontSize * 0.38;
+    const maxLines = 3;
 
-    if (measureAt(displayName, minFont) <= available) {
+    const wrapAt = (fs) => {
+      const out = [];
+      let cur = '';
+      displayName.split(' ').forEach(word => {
+        const tentative = cur ? `${cur} ${word}` : word;
+        if (measureAt(tentative, fs) > available && cur) { out.push(cur); cur = word; }
+        else cur = tentative;
+      });
+      if (cur) out.push(cur);
+      return out;
+    };
+
+    if (measureAt(displayName, minSingle) <= available) {
       // One line: use full size, scaling down only enough to fit.
       lines = [displayName];
       const full = measureAt(displayName, fontSize);
       if (full > available) fontSize = fontSize * (available / full);
     } else {
-      // Wrap at full size, then shrink the whole label if the widest line (e.g. a
-      // long single word) still spills past the gap.
-      const words = displayName.split(' ');
-      let currentLine = '';
-      words.forEach(word => {
-        const tentative = currentLine ? `${currentLine} ${word}` : word;
-        if (measureAt(tentative, fontSize) > available && currentLine) {
-          lines.push(currentLine);
-          currentLine = word;
-        } else {
-          currentLine = tentative;
-        }
-      });
-      if (currentLine) lines.push(currentLine);
-      const widest = lines.reduce((m, l) => Math.max(m, measureAt(l, fontSize)), 0);
-      if (widest > available) fontSize = Math.max(fontSize * 0.42, fontSize * (available / widest));
+      // Wrap at full size; if it spills past maxLines (vertical overflow that gets
+      // clipped by the container), shrink the font — smaller text packs more words
+      // per line, so it collapses into fewer lines — until it fits or hits the floor.
+      lines = wrapAt(fontSize);
+      while (lines.length > maxLines && fontSize > floor) {
+        fontSize = Math.max(floor, fontSize * 0.88);
+        lines = wrapAt(fontSize);
+      }
 
-      // Last resort: if even the smallest allowed size can't fit a line (e.g. one
-      // absurdly long word), truncate with an ellipsis so it never bleeds into the nodes.
+      // Worst case (still too many lines at the floor): keep maxLines and fold the
+      // remainder into the last line so it gets ellipsized rather than clipped.
+      if (lines.length > maxLines) {
+        const kept = lines.slice(0, maxLines);
+        kept[maxLines - 1] = `${kept[maxLines - 1]} ${lines.slice(maxLines).join(' ')}`;
+        lines = kept;
+      }
+
+      // Guarantee width fit for any unbreakable line, ellipsizing if needed.
       const finalFont = `bold ${fontSize}px 'EmOne', sans-serif`;
       lines = lines.map(l => truncateToWidth(l, finalFont, available));
     }

@@ -204,7 +204,13 @@ const Node = ({
     // the `node` reference doesn't change when a slider moves — so without these deps
     // the memo returns stale wrapping widths until the node is dragged (new ref).
   }, [node, textSettings.nodeScale, textSettings.fontSize, textSettings.lineSpacing]);
-  const previewTextMaxWidth = unexpandedDims ? unexpandedDims.currentWidth - 60 : undefined; // 60px = 2 * 30px (multi-line padding for consistent wrapping)
+  // Carve out the node's horizontal padding on both sides so the pinned text width
+  // exactly matches the wrapping target getNodeDimensions used (currentWidth - 2 * sP).
+  // Must use the SCALED padding — a fixed carve-out (was 60px) doesn't shrink with the
+  // node, so at small nodeScale it left almost no room and forced premature wrapping.
+  const previewTextMaxWidth = unexpandedDims
+    ? unexpandedDims.currentWidth - 2 * (unexpandedDims.scaledPadding ?? effPadding)
+    : undefined;
 
   // Determine if text will be multiline for conditional padding
 
