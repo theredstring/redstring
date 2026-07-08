@@ -56,44 +56,63 @@ const ConnectionText = ({
   const midY = (sourcePoint.y + targetPoint.y) / 2;
   const angle = Math.atan2(dy, dx) * 180 / Math.PI;
   const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
-  const fontSize = Math.max(8, 30 * transform.scale * fontScale);
-  const strokeWidth = Math.max(1, (connection.strokeWidth || 6 * transform.scale) * fontScale * 0.5);
-  const baseLineHeight = 30;
-  // Floor at 130% of font size so wrapped lines never overlap when transform.scale is small
-  const scaledLineHeight = Math.max(fontSize * 1.3, baseLineHeight * transform.scale * fontScale * lineHeightScale);
+  const length = Math.sqrt(dx * dx + dy * dy);
+  // Slightly larger base size; the fit logic below scales it down when the gap
+  // is tight so it never gets clipped by the nodes drawn on top.
+  let fontSize = Math.max(8, 34 * transform.scale * fontScale);
 
   const displayName = connection.connectionName;
-  const lines = [];
+  let lines = [];
+  const measureAt = (text, fs) => measureTextWidth(text, `bold ${fs}px 'EmOne', sans-serif`);
 
   if (renderContext === 'decomposition') {
     // Compact preview: keep the label to a single clipped line that fits within the
     // connection's span (measured at the on-screen font), so it never overflows the
     // line into the nodes or arrowheads. Clip sooner, don't wrap.
-    const length = Math.sqrt(dx * dx + dy * dy);
-    const fontString = `bold ${fontSize}px 'EmOne', sans-serif`;
     const available = Math.max(0, length * 0.45); // clip earlier; keep well clear of node ends/arrowheads
-    lines.push(truncateToWidth(displayName, fontString, available));
+    lines = [truncateToWidth(displayName, `bold ${fontSize}px 'EmOne', sans-serif`, available)];
   } else {
-    // Wrap against the actual space available along the connection so the wrap
-    // point scales with node size and gap. A fixed char count wrapped large nodes
-    // (thick lines, long connections) after just a word or two.
-    const length = Math.sqrt(dx * dx + dy * dy);
-    const fontString = `bold ${fontSize}px 'EmOne', sans-serif`;
-    const available = Math.max(fontSize * 9, length * 1.4);
-    const words = displayName.split(' ');
-    let currentLine = '';
+    // The label lives in the gap between the two nodes, which render on top of the
+    // connection layer — so it must fit inside that gap or it gets clipped. Fit
+    // strategy: keep it on one line (shrinking a little if needed), and only wrap
+    // once shrinking would make it too small; then shrink again to guarantee fit.
+    const available = Math.max(24, length * 0.94);
+    const minFont = fontSize * 0.68;
 
-    words.forEach(word => {
-      const tentative = currentLine ? `${currentLine} ${word}` : word;
-      if (measureTextWidth(tentative, fontString) > available && currentLine) {
-        lines.push(currentLine);
-        currentLine = word;
-      } else {
-        currentLine = tentative;
-      }
-    });
-    if (currentLine) lines.push(currentLine);
+    if (measureAt(displayName, minFont) <= available) {
+      // One line: use full size, scaling down only enough to fit.
+      lines = [displayName];
+      const full = measureAt(displayName, fontSize);
+      if (full > available) fontSize = fontSize * (available / full);
+    } else {
+      // Wrap at full size, then shrink the whole label if the widest line (e.g. a
+      // long single word) still spills past the gap.
+      const words = displayName.split(' ');
+      let currentLine = '';
+      words.forEach(word => {
+        const tentative = currentLine ? `${currentLine} ${word}` : word;
+        if (measureAt(tentative, fontSize) > available && currentLine) {
+          lines.push(currentLine);
+          currentLine = word;
+        } else {
+          currentLine = tentative;
+        }
+      });
+      if (currentLine) lines.push(currentLine);
+      const widest = lines.reduce((m, l) => Math.max(m, measureAt(l, fontSize)), 0);
+      if (widest > available) fontSize = Math.max(fontSize * 0.42, fontSize * (available / widest));
+
+      // Last resort: if even the smallest allowed size can't fit a line (e.g. one
+      // absurdly long word), truncate with an ellipsis so it never bleeds into the nodes.
+      const finalFont = `bold ${fontSize}px 'EmOne', sans-serif`;
+      lines = lines.map(l => truncateToWidth(l, finalFont, available));
+    }
   }
+
+  // Stroke and line height derive from the final (possibly shrunk) font size so the
+  // outline weight stays proportional and wrapped lines never overlap.
+  const strokeWidth = Math.min(fontSize * 0.14, Math.max(1, (connection.strokeWidth || 6 * transform.scale) * fontScale * 0.5));
+  const scaledLineHeight = Math.max(fontSize * 1.05, 24 * transform.scale * fontScale * lineHeightScale);
 
   return (
     <g transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}>

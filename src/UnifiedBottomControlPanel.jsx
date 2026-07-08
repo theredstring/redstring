@@ -642,9 +642,11 @@ const UnifiedBottomControlPanel = ({
               const layoutNodeCount = nodes.length + selfLoopCount;
               const nodeSpacing = layoutNodeCount * (isMobile ? 90 : 70);
 
+              // Keep in step with connectionFontScale on the renderer so the panel
+              // reserves enough width for the (now larger) label and it doesn't wrap early.
               const connectionLabelFont = isMobile
-                ? '22px "EmOne", sans-serif'
-                : '28px "EmOne", sans-serif';
+                ? '30px "EmOne", sans-serif'
+                : '40px "EmOne", sans-serif';
 
               const longestConnectionLabelWidth = connections.reduce((max, conn) => {
                 const width = measureTextWidth(conn.connectionName, connectionLabelFont);
@@ -681,6 +683,7 @@ const UnifiedBottomControlPanel = ({
                   containerWidth={calculatedWidth}
                   containerHeight={calculatedHeight}
                   minHorizontalSpacing={dynamicMinHorizontalSpacing}
+                  connectionFontScale={isMobile ? 1.4 : 1.5}
                   forceShowConnectionDots={inputMode === 'touch'}
                   onNodeClick={onNodeClick}
                   onConnectionClick={onPredicateClick}
