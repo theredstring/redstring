@@ -1643,6 +1643,14 @@ const SharedPanelContent = ({
               onKeyDown={handleBioKeyPress}
               onBlur={handleBioSave}
               autoFocus
+              ref={(el) => {
+                // Size the box to fit the existing bio on mount, otherwise a
+                // long bio opens at the fixed `rows` height (a few lines).
+                if (el) {
+                  el.style.height = 'auto';
+                  el.style.height = Math.max(el.scrollHeight + 4, 40) + 'px';
+                }
+              }}
               style={{
                 width: '100%',
                 padding: '8px 12px 12px 12px',

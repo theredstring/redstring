@@ -175,6 +175,14 @@ export const useNodeDrag = ({
   // pointer never moves.
   const liftStartTimeRef = useRef(null);
   const liftRafRef = useRef(null);
+  // Target scale the lift ramps toward, captured synchronously at drag start.
+  // The store's `draft.scale = liftScale` only reaches the animation loops after
+  // a React commit round-trips through nodeByIdRef — so ramping toward `node.scale`
+  // holds the target at 1 for the first frames, then snaps once the echo lands
+  // mid-ramp (worse under drag-zoom: bigger target + a flood of setZoomLevel
+  // commits). Reading this ref instead makes the target known on frame one.
+  // Null for group-member drags (no per-node lift), which fall back to node.scale.
+  const liftTargetScaleRef = useRef(null);
 
   // Drop-on-release animation state (see DROP_DURATION). dropPendingRef carries
   // the per-node entries captured at drag-end so the post-commit layout effect
@@ -639,10 +647,10 @@ export const useNodeDrag = ({
                   const type = arrowG.getAttribute('data-arrow');
                   if (type === 'source') {
                     arrowG.setAttribute('transform',
-                      `translate(${endpoints.x1 + (dx / len) * offset}, ${endpoints.y1 + (dy / len) * offset}) rotate(${angle + 180 + 90})`);
+                      `translate(${endpoints.x1 + (dx / len) * offset}, ${endpoints.y1 + (dy / len) * offset}) rotate(${angle + 180 + 90}) scale(${dragConnectionWidth})`);
                   } else {
                     arrowG.setAttribute('transform',
-                      `translate(${endpoints.x2 - (dx / len) * offset}, ${endpoints.y2 - (dy / len) * offset}) rotate(${angle + 90})`);
+                      `translate(${endpoints.x2 - (dx / len) * offset}, ${endpoints.y2 - (dy / len) * offset}) rotate(${angle + 90}) scale(${dragConnectionWidth})`);
                   }
                 });
               }
@@ -932,7 +940,7 @@ export const useNodeDrag = ({
       const deltaX = x - storedX;
       const deltaY = y - storedY;
 
-      const targetScale = node.scale ?? 1;
+      const targetScale = liftTargetScaleRef.current ?? node.scale ?? 1;
       // Interpolate the lift scale in JS: translate tracks the pointer instantly
       // (transition is disabled during drag), so the grow-on-grab is ramped here
       // per frame instead. ease-out cubic, 1 → node.scale over LIFT_DURATION.
@@ -1000,7 +1008,7 @@ export const useNodeDrag = ({
         const applied = appliedPositionsRef.current.get(instanceId);
         const deltaX = (applied ? applied.x : storedX) - storedX;
         const deltaY = (applied ? applied.y : storedY) - storedY;
-        const targetScale = node.scale ?? 1;
+        const targetScale = liftTargetScaleRef.current ?? node.scale ?? 1;
         const scale = 1 + (targetScale - 1) * lift;
         const dims = curBaseDims.get(instanceId);
         const cx = storedX + (dims?.currentWidth ?? 0) / 2;
@@ -1233,6 +1241,9 @@ export const useNodeDrag = ({
       liftRafRef.current = null;
     }
     liftStartTimeRef.current = null;
+    // Drop reads the settled lift scale from node.scale (captured below), not this
+    // ref, so it's safe to release the animation-target hint now.
+    liftTargetScaleRef.current = null;
     // Cancel any drop still settling from a previous release (rapid
     // release→re-grab), so its tail can't clear the transform of the node
     // we're about to re-animate.
@@ -1481,6 +1492,7 @@ export const useNodeDrag = ({
       triggerDragZoomOut(clientX, clientY);
 
       const liftScale = dragZoomSettings.enabled ? LIFT_SCALE_ZOOM : LIFT_SCALE;
+      liftTargetScaleRef.current = liftScale;
       selectedInstanceIds.forEach(id => {
         storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = liftScale; }, { isDragging: true, phase: 'start', ignore: true });
       });
@@ -1508,6 +1520,7 @@ export const useNodeDrag = ({
     dragHistoryRecordedRef.current = false;
     triggerDragZoomOut(clientX, clientY);
     const liftScale = dragZoomSettings.enabled ? LIFT_SCALE_ZOOM : LIFT_SCALE;
+    liftTargetScaleRef.current = liftScale;
     storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = liftScale; }, { isDragging: true, phase: 'start', ignore: true });
 
     // Cache DOM elements
@@ -1533,6 +1546,9 @@ export const useNodeDrag = ({
     mousePositionRef.current = { x: clientX, y: clientY };
     setDraggingNodeInfo({ groupId, memberOffsets });
     dragHistoryRecordedRef.current = false;
+    // Group members don't get a per-node lift scale — fall back to node.scale (1)
+    // rather than a stale target left over from a prior single/multi-node drag.
+    liftTargetScaleRef.current = null;
     triggerDragZoomOut(clientX, clientY);
 
     // Cache DOM elements for all group members

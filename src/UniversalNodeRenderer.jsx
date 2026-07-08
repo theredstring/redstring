@@ -56,8 +56,8 @@ const ConnectionText = ({
   const midY = (sourcePoint.y + targetPoint.y) / 2;
   const angle = Math.atan2(dy, dx) * 180 / Math.PI;
   const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
-  const fontSize = Math.max(8, 30 * transform.scale * fontScale);
-  const strokeWidth = Math.max(1, (connection.strokeWidth || 6 * transform.scale) * fontScale * 0.5);
+  const fontSize = Math.max(8, 34 * transform.scale * fontScale);
+  const strokeWidth = Math.max(1, (connection.strokeWidth || 6 * transform.scale) * fontScale * 0.32);
   const baseLineHeight = 26;
   // Floor at 115% of font size — tight but enough that wrapped lines never overlap
   // when transform.scale is small.
@@ -191,6 +191,12 @@ const UniversalNodeRenderer = ({
   const activeGraphId = useGraphStore((state) => state.activeGraphId);
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
   const connectionWidthGlobal = useGraphStore((state) => state.textSettings?.connectionWidth ?? 1.0);
+  // Global node size. getNodeDimensions() inflates node geometry (width, padding,
+  // corner radius) AND the canvas font by this factor. The renderer's node dims come
+  // from getNodeDimensions (so they're already inflated), so text/padding/rounding
+  // must fold in the same factor or a big node ends up with tiny text and a huge
+  // empty box — not matching the canvas.
+  const nodeScaleGlobal = useGraphStore((state) => state.textSettings?.nodeScale ?? 1.0);
 
   // Get actual node instances if not provided
   const instances = useMemo(() => {
@@ -731,7 +737,7 @@ const UniversalNodeRenderer = ({
               // otherwise the round line cap (which grows with strokeWidth) pokes past
               // the size-capped arrowhead silhouette on thick connections. Pull the line
               // endpoints back to roughly the arrowhead base on sides that have an arrow.
-              const arrowScale = Math.min(1.6, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
+              const arrowScale = Math.min(4.0, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
               const arrowLineInset = 15 * arrowScale;
               const lineSourcePoint = conn.hasSourceArrow ? {
                 x: adjustedSourcePoint.x + unitX * arrowLineInset,
@@ -805,7 +811,7 @@ const UniversalNodeRenderer = ({
                 // Calculate arrow scale based on stroke width (maintains proportions).
                 // Trim arrowheads in the compact decomposition preview so they read at
                 // node scale instead of dominating the small inner nodes.
-                const arrowScale = Math.min(1.6, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
+                const arrowScale = Math.min(4.0, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
 
                 return (
                   <g
@@ -855,7 +861,7 @@ const UniversalNodeRenderer = ({
                 // Calculate arrow scale based on stroke width (maintains proportions).
                 // Trim arrowheads in the compact decomposition preview so they read at
                 // node scale instead of dominating the small inner nodes.
-                const arrowScale = Math.min(1.6, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
+                const arrowScale = Math.min(4.0, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
 
                 return (
                   <g
@@ -1068,23 +1074,29 @@ const UniversalNodeRenderer = ({
             baseAverageCharWidth = 17;
           }
 
-          // Apply transform scale to all measurements
-          const computedFontSize = Math.max(8, baseFontSize * transform.scale * nodeFontScale);
-          const computedLineHeight = Math.max(10, baseLineHeight * transform.scale * nodeFontScale * nodeLineHeightScale);
-          let verticalPadding = baseVerticalPadding * transform.scale;
-          const singleLineSidePadding = baseSingleLineSidePadding * transform.scale;
-          const multiLineSidePadding = baseMultiLineSidePadding * transform.scale;
-          const averageCharWidth = baseAverageCharWidth * transform.scale * nodeFontScale;
+          // Apply transform scale to all measurements. The node's box dims already
+          // include the global nodeScale (via getNodeDimensions), so fold nodeScale into
+          // text/padding here too — otherwise a bigger node keeps 45px text and gains a
+          // huge empty margin instead of scaling the way the canvas node does.
+          // Groups use fixed preview dims (not getNodeDimensions), so their box isn't
+          // inflated by nodeScale — don't fold it into their text or they'd overflow.
+          const textScale = transform.scale * (node.isGroup ? 1 : nodeScaleGlobal);
+          const computedFontSize = Math.max(8, baseFontSize * textScale * nodeFontScale);
+          const computedLineHeight = Math.max(10, baseLineHeight * textScale * nodeFontScale * nodeLineHeightScale);
+          let verticalPadding = baseVerticalPadding * textScale;
+          const singleLineSidePadding = baseSingleLineSidePadding * textScale;
+          const multiLineSidePadding = baseMultiLineSidePadding * textScale;
+          const averageCharWidth = baseAverageCharWidth * textScale * nodeFontScale;
 
-          // Improved corner radius calculation for decomposition view
+          // Corner radius matches the canvas: NODE_CORNER_RADIUS scales with nodeScale
+          // (and then the fit scale), independent of the text-driven node width.
+          const scaledCornerRadius = cornerRadiusMultiplier * textScale;
           let cornerRadius;
           if (renderContext === 'decomposition') {
-            // For decomposition view, keep corners generously rounded (up to half the
-            // node's short side → pill-like) to match the universal node representations.
-            const scaledRadius = cornerRadiusMultiplier * transform.scale;
-            cornerRadius = Math.max(2, Math.min(scaledRadius, node.width * 0.5, node.height * 0.5));
+            // Decomposition view: clamp to half the short side so tiny nodes read as pills.
+            cornerRadius = Math.max(2, Math.min(scaledCornerRadius, node.width * 0.5, node.height * 0.5));
           } else {
-            cornerRadius = Math.max(1, cornerRadiusMultiplier * transform.scale); // NODE_CORNER_RADIUS baseline
+            cornerRadius = Math.max(1, Math.min(scaledCornerRadius, node.width * 0.5, node.height * 0.5));
           }
 
           // Determine multiline exactly like Node.jsx does

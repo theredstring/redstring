@@ -963,31 +963,99 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     });
   });
 
-  // Place peer-conflict nodes at the centroid of their groups' top-level
-  // ancestors (metaPositions is keyed by top-level group IDs).
+  // World-space visual boxes for each top-level group (its composed
+  // visualBounds translated to its meta position). Used to place shared
+  // nodes in the corridor between groups and keep ungrouped nodes out of
+  // every group's rect.
+  const worldGroupBoxes = new Map();
+  topLevelLayoutEntries.forEach(([gId, layout]) => {
+    const metaPos = metaPositions.get(gId);
+    if (!metaPos) return;
+    const dx = metaPos.x - layout.centerX;
+    const dy = metaPos.y - layout.centerY;
+    const vb = layout.visualBounds;
+    worldGroupBoxes.set(gId, {
+      minX: vb.x + dx, minY: vb.y + dy,
+      maxX: vb.x + vb.w + dx, maxY: vb.y + vb.h + dy,
+      centerX: vb.x + vb.w / 2 + dx, centerY: vb.y + vb.h / 2 + dy
+    });
+  });
+
+  // Nearest point on a box's boundary to (px, py) — projects inward points
+  // out through the closest edge, clamps outward points onto the perimeter.
+  const nearestBoundaryPoint = (box, px, py) => {
+    const inside = px > box.minX && px < box.maxX && py > box.minY && py < box.maxY;
+    if (!inside) {
+      return { x: clamp(px, box.minX, box.maxX), y: clamp(py, box.minY, box.maxY) };
+    }
+    const dLeft = px - box.minX, dRight = box.maxX - px;
+    const dUp = py - box.minY, dDown = box.maxY - py;
+    const m = Math.min(dLeft, dRight, dUp, dDown);
+    if (m === dLeft) return { x: box.minX, y: py };
+    if (m === dRight) return { x: box.maxX, y: py };
+    if (m === dUp) return { x: px, y: box.minY };
+    return { x: px, y: box.maxY };
+  };
+
+  // Push a point outside every group box it falls in (plus clearance).
+  // A couple of rounds handles being ejected from one box into another.
+  const ejectFromGroupBoxes = (px, py, clearance) => {
+    for (let round = 0; round < 3; round++) {
+      let movedThisRound = false;
+      for (const box of worldGroupBoxes.values()) {
+        if (px > box.minX - clearance && px < box.maxX + clearance &&
+            py > box.minY - clearance && py < box.maxY + clearance) {
+          const bp = nearestBoundaryPoint(box, px, py);
+          const ux = bp.x - box.centerX;
+          const uy = bp.y - box.centerY;
+          const uLen = Math.hypot(ux, uy) || 1;
+          px = bp.x + (ux / uLen) * clearance;
+          py = bp.y + (uy / uLen) * clearance;
+          movedThisRound = true;
+        }
+      }
+      if (!movedThisRound) break;
+    }
+    return { x: px, y: py };
+  };
+
+  // Place peer-conflict (multi-group, non-nested) nodes in the corridor
+  // between their groups: the average of each group box's boundary point
+  // toward the shared midpoint. Placing at the centroid of group *centers*
+  // lands the node deep inside the larger group and stretches every
+  // containing rect across it.
   multiGroupNodeIds.forEach(nodeId => {
     const node = nodeById.get(nodeId);
     if (!node) return;
     const gs = nodeToGroups.get(nodeId);
     if (!gs) return;
-    let sumX = 0, sumY = 0, gCount = 0;
     const tops = new Set();
     gs.forEach(gId => tops.add(topLevelOf(gId)));
-    tops.forEach(topId => {
-      const metaPos = metaPositions.get(topId);
-      if (metaPos) { sumX += metaPos.x; sumY += metaPos.y; gCount++; }
-    });
-    if (gCount > 0) {
-      finalPositions.set(nodeId, {
-        x: sumX / gCount + (Math.random() - 0.5) * 60,
-        y: sumY / gCount + (Math.random() - 0.5) * 60
+    const boxes = [...tops].map(t => worldGroupBoxes.get(t)).filter(Boolean);
+
+    if (boxes.length >= 2) {
+      let cX = 0, cY = 0;
+      boxes.forEach(b => { cX += b.centerX; cY += b.centerY; });
+      cX /= boxes.length; cY /= boxes.length;
+      let sumX = 0, sumY = 0;
+      boxes.forEach(b => {
+        const bp = nearestBoundaryPoint(b, cX, cY);
+        sumX += bp.x; sumY += bp.y;
       });
+      finalPositions.set(nodeId, {
+        x: sumX / boxes.length + (Math.random() - 0.5) * 40,
+        y: sumY / boxes.length + (Math.random() - 0.5) * 40
+      });
+    } else if (boxes.length === 1) {
+      finalPositions.set(nodeId, { x: boxes[0].centerX, y: boxes[0].centerY });
     } else {
       finalPositions.set(nodeId, { x: centerX, y: centerY });
     }
   });
 
-  // Place ungrouped nodes near their connected groups
+  // Place ungrouped nodes near their connected groups — but never seed one
+  // inside a group's rect, or Phase 3's springs and exclusion force fight a
+  // tug-of-war over it
   ungroupedNodes.forEach(node => {
     let sumX = 0, sumY = 0, connCount = 0;
     edges.forEach(e => {
@@ -998,17 +1066,19 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       const pos = finalPositions.get(targetId);
       if (pos) { sumX += pos.x; sumY += pos.y; connCount++; }
     });
+    let anchor;
     if (connCount > 0) {
-      finalPositions.set(node.id, {
+      anchor = {
         x: sumX / connCount + (Math.random() - 0.5) * 80,
         y: sumY / connCount + (Math.random() - 0.5) * 80
-      });
+      };
     } else {
-      finalPositions.set(node.id, {
+      anchor = {
         x: centerX + (Math.random() - 0.5) * 200,
         y: centerY + (Math.random() - 0.5) * 200
-      });
+      };
     }
+    finalPositions.set(node.id, ejectFromGroupBoxes(anchor.x, anchor.y, 120));
   });
 
   // ---- Phase 3: Cross-group edge refinement ----
@@ -1694,6 +1764,22 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       groups.forEach(group => {
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         (group.memberInstanceIds || []).forEach(nodeId => {
+          // A node shared with a peer (non-nested) group sits in the corridor
+          // between the two groups. Folding it into this box would stretch
+          // the exclusion region across the corridor and shove the neighbor
+          // group's edge members and any corridor-dwelling nodes every tick.
+          const memberships = nodeGroupsMap.get(nodeId);
+          if (memberships && memberships.size > 1) {
+            let sharedWithPeer = false;
+            for (const otherGid of memberships) {
+              if (otherGid === group.id) continue;
+              const pk = otherGid < group.id
+                ? `${otherGid}|${group.id}`
+                : `${group.id}|${otherGid}`;
+              if (!nestedGroupPairs.has(pk)) { sharedWithPeer = true; break; }
+            }
+            if (sharedWithPeer) return;
+          }
           const pos = positions.get(nodeId);
           const node = nodeById.get(nodeId);
           if (pos && node) {
@@ -2025,14 +2111,25 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     enforceGroupSeparation(positions, nodes, nodeGroupsMap, getNodeRadius,
       config.minGroupDistance || 800, finalMinNodeDistance, config.padding,
       config.width, config.height, 5);
+
+    // Hard constraint: ungrouped nodes must never finish inside a group's
+    // rect — the polish stages above can drag them back in after the soft
+    // exclusion force stops acting
+    enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap,
+      nodeById, getNodeRadius, config);
   }
 
   // ── Isolated-node scatter ───────────────────────────────────────────────
   // Fill actual empty pockets in and around the finished layout (inner gaps
   // first), overflowing onto a sunflower spiral outside the structure.
+  // Group rects are forbidden regions — a group's interior padding is not an
+  // "empty pocket" a floater may claim.
   if (isolatedNodes.length > 0) {
+    const groupBoxes = groups.length > 0
+      ? [...computeGroupWorldBoxes(groups, positions, nodeById, config.groupBoundaryPadding || 100).values()]
+      : [];
     placeIsolatedNodes(positions, isolatedNodes, uniqueEdges, nodeById,
-      getNodeRadius, finalMinNodeDistance, config);
+      getNodeRadius, finalMinNodeDistance, config, groupBoxes);
   }
 
   return positions;
@@ -2049,7 +2146,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
  * the structure (uniform 2D density, never a single-radius ring).
  * Deterministic: candidates and nodes are processed in stable order.
  */
-function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius, minSpacing, config) {
+function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius, minSpacing, config, forbiddenRects = []) {
   const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
   const sorted = [...isolatedNodes].sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
@@ -2100,8 +2197,18 @@ function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius
   const margin = spacing * 2;
   const step = spacing * 0.75;
   const candidates = [];
+  const inForbiddenRect = (px, py, buffer) => {
+    for (const r of forbiddenRects) {
+      if (px > r.minX - buffer && px < r.maxX + buffer &&
+          py > r.minY - buffer && py < r.maxY + buffer) return true;
+    }
+    return false;
+  };
+
   for (let gx = bMinX - margin; gx <= bMaxX + margin; gx += step) {
     for (let gy = bMinY - margin; gy <= bMaxY + margin; gy += step) {
+      if (inForbiddenRect(gx, gy, spacing * 0.5)) continue;
+
       let nodeClearance = Infinity;
       for (const o of occupied) {
         const d = Math.hypot(gx - o.x, gy - o.y) - o.r;
@@ -2149,12 +2256,24 @@ function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius
       break;
     }
     if (!placed) {
-      // Overflow: sunflower annulus outside everything
+      // Overflow: sunflower annulus outside everything. Spiral points that
+      // land inside a group rect are skipped (a wide group can poke past
+      // coreRadius on one axis).
       const startR = coreRadius + spacing;
-      const r = Math.sqrt(startR * startR + ((overflowIndex + 0.5) * spacing * spacing) / Math.PI);
-      const theta = overflowIndex * GOLDEN_ANGLE;
-      overflowIndex++;
-      placed = { x: coreX + Math.cos(theta) * r, y: coreY + Math.sin(theta) * r };
+      for (let attempts = 0; attempts < 200; attempts++) {
+        const r = Math.sqrt(startR * startR + ((overflowIndex + 0.5) * spacing * spacing) / Math.PI);
+        const theta = overflowIndex * GOLDEN_ANGLE;
+        overflowIndex++;
+        const px = coreX + Math.cos(theta) * r;
+        const py = coreY + Math.sin(theta) * r;
+        if (inForbiddenRect(px, py, nodeR)) continue;
+        placed = { x: px, y: py };
+        break;
+      }
+      if (!placed) {
+        // Every attempt landed in a group rect — fall back to due east of it all
+        placed = { x: bMaxX + spacing * 2 + overflowIndex * spacing, y: coreY };
+      }
     }
     placedIso.push(placed);
     positions.set(node.id, placed);
@@ -2237,6 +2356,91 @@ function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDis
  * Enforce minimum distance between nodes in different groups.
  * Acts as a hard position constraint after all force-based processing.
  */
+/**
+ * Compute each group's world-space bounding box from its members' laid-out
+ * positions (the rect a renderer would derive), expanded by `pad`.
+ */
+function computeGroupWorldBoxes(groups, positions, nodeById, pad) {
+  const boxes = new Map();
+  groups.forEach(group => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    (group.memberInstanceIds || []).forEach(id => {
+      const pos = positions.get(id);
+      const node = nodeById.get(id);
+      if (!pos || !node) return;
+      const w = node.width || 100;
+      const h = node.height || 60;
+      if (pos.x < minX) minX = pos.x;
+      if (pos.y < minY) minY = pos.y;
+      if (pos.x + w > maxX) maxX = pos.x + w;
+      if (pos.y + h > maxY) maxY = pos.y + h;
+    });
+    if (minX !== Infinity) {
+      boxes.set(group.id, {
+        minX: minX - pad, minY: minY - pad,
+        maxX: maxX + pad, maxY: maxY + pad
+      });
+    }
+  });
+  return boxes;
+}
+
+/**
+ * Hard guarantee that ungrouped nodes finish OUTSIDE every group's bounding
+ * box. The soft exclusion force only acts during the simulation; the polish
+ * stages that follow (edge constraints, overlap resolution, condensation,
+ * crossing reduction) can drag an ungrouped node back inside a group rect,
+ * where it renders as an apparent member. This ejects such nodes through the
+ * cheapest box edge, alternating with light overlap resolution so ejected
+ * nodes don't stack, and always ends on an eject pass so the guarantee holds.
+ */
+function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, nodeById, getRadius, config, passes = 3) {
+  if (!groups || groups.length === 0) return;
+  const pad = config.groupBoundaryPadding || 100;
+  const clearance = 30;
+  const ungrouped = nodes.filter(n => {
+    const gs = nodeGroupsMap.get(n.id);
+    return !gs || gs.size === 0;
+  });
+  if (ungrouped.length === 0) return;
+
+  const ejectPass = () => {
+    const boxes = computeGroupWorldBoxes(groups, positions, nodeById, pad);
+    let moved = false;
+    ungrouped.forEach(node => {
+      const pos = positions.get(node.id);
+      if (!pos) return;
+      const w = node.width || 100;
+      const h = node.height || 60;
+      const hw = w / 2 + clearance;
+      const hh = h / 2 + clearance;
+      boxes.forEach(box => {
+        const cx = pos.x + w / 2;
+        const cy = pos.y + h / 2;
+        if (cx + hw <= box.minX || cx - hw >= box.maxX ||
+            cy + hh <= box.minY || cy - hh >= box.maxY) return;
+        const exitLeft = (cx + hw) - box.minX;
+        const exitRight = box.maxX - (cx - hw);
+        const exitUp = (cy + hh) - box.minY;
+        const exitDown = box.maxY - (cy - hh);
+        const min = Math.min(exitLeft, exitRight, exitUp, exitDown);
+        if (min === exitLeft) pos.x -= min;
+        else if (min === exitRight) pos.x += min;
+        else if (min === exitUp) pos.y -= min;
+        else pos.y += min;
+        moved = true;
+      });
+    });
+    return moved;
+  };
+
+  for (let pass = 0; pass < passes; pass++) {
+    if (!ejectPass()) return;
+    resolveOverlaps(positions, nodes, getRadius, config.padding, config.width, config.height, 2);
+  }
+  ejectPass();
+}
+
 function enforceGroupSeparation(positions, nodes, nodeGroupsMap, getRadius, minGroupDistance, minNodeDistance, padding, width, height, passes) {
   // Use the full minGroupDistance as the hard separation
   const separationThreshold = Math.max(minNodeDistance * 1.5, minGroupDistance * 0.8);
