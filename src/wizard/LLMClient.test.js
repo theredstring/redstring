@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { streamLLM, _makeAllRequired as makeAllRequired, _flattenDeepNesting as flattenDeepNesting, _stripNulls as stripNulls, _deepParseJsonStrings as deepParseJsonStrings, _condenseSchema as condenseSchema, _stripEmptyRequired as stripEmptyRequired } from './LLMClient.js';
+import { streamLLM, _makeAllRequired as makeAllRequired, _flattenDeepNesting as flattenDeepNesting, _stripNulls as stripNulls, _deepParseJsonStrings as deepParseJsonStrings, _condenseSchema as condenseSchema, _stripEmptyRequired as stripEmptyRequired, _normalizeTools as normalizeTools } from './LLMClient.js';
 import { getToolDefinitions, selectToolsForTurn } from './tools/schemas.js';
 import { listTools } from './tools/listTools.js';
 
@@ -455,6 +455,24 @@ describe('normalizeTools schema pipeline', () => {
     expect(params.required).toContain('graphName');
     expect(params.required).toContain('maxNodes');
     expect(params.properties.maxNodes.description).toContain('(optional)');
+  });
+
+  it('strictRequired (cloud default) makes createGraph require all properties', () => {
+    const createGraph = getToolDefinitions().find(t => t.name === 'createGraph');
+    // Default (strict) path — big-model behavior must not regress
+    const [normalized] = normalizeTools([createGraph]);
+    const req = new Set(normalized.function.parameters.required || []);
+    expect(req.has('name')).toBe(true);
+    // Optional props are forced required under the strict path
+    expect(req.size).toBeGreaterThan(1);
+    expect(req.has('color')).toBe(true);
+  });
+
+  it('strictRequired:false (local/small) preserves honest required arrays', () => {
+    const createGraph = getToolDefinitions().find(t => t.name === 'createGraph');
+    const [normalized] = normalizeTools([createGraph], { strictRequired: false });
+    // Only the genuinely-required param survives on the wire for local models
+    expect(normalized.function.parameters.required).toEqual(['name']);
   });
 
   it('zero optional properties after full pipeline across all tools', () => {

@@ -205,9 +205,17 @@ function condenseSchema(schema) {
 }
 
 /**
- * Normalize tool definitions for different providers
+ * Normalize tool definitions for different providers.
+ *
+ * @param {Array} tools - Tool definitions
+ * @param {Object} [opts]
+ * @param {boolean} [opts.strictRequired=true] - When true, apply makeAllRequired()
+ *   (marks every property required to collapse 2^N optional-branching — needed for
+ *   OpenAI-strict / Gemini function-calling quirks). Local/small models choke on
+ *   this pressure and fall out of the tool-call format into prose, so we skip it
+ *   for them and let the honest `required` arrays from schemas.js reach the wire.
  */
-function normalizeTools(tools) {
+function normalizeTools(tools, { strictRequired = true } = {}) {
   if (!tools || tools.length === 0) return undefined;
 
   return tools.map(tool => {
@@ -215,7 +223,7 @@ function normalizeTools(tools) {
     stripEmptyRequired(params);
     condenseSchema(params);
     flattenDeepNesting(params);
-    makeAllRequired(params);
+    if (strictRequired) makeAllRequired(params);
     return {
       type: 'function',
       function: {
@@ -301,12 +309,25 @@ export async function* streamLLM(messages, tools = [], config = {}, signal = nul
   const endpoint = config.endpoint || defaults.endpoint;
   const model = config.model || defaults.model;
   const apiKey = config.apiKey || '';
-  const temperature = config.temperature ?? defaults.temperature;
   const maxTokens = config.maxTokens ?? defaults.maxTokens;
 
-  console.error('🔵 streamLLM called with provider:', provider, 'model:', model, 'tools:', tools.length);
+  // Local/small models (LM Studio, Ollama, llama.cpp, etc.) need honest schemas and
+  // a low temperature for reliable native tool-calling.
+  const isLocal = provider === 'local' || /localhost|127\.0\.0\.1/.test(endpoint || '');
 
-  const normalizedTools = normalizeTools(tools);
+  // Temperature: 0.7 for cloud, 0.1 for local/small. The wizard profile always sends
+  // 0.7 (AISection hardcodes it — there is no temperature control in the AI settings UI),
+  // and THIS request parameter OVERRIDES LM Studio's own UI setting, so this is the only
+  // place the low-temperature fix can take effect. We treat the app-wide 0.7 default (or an
+  // unset value) as "not user-chosen" for local and drop it to 0.1; a genuinely different
+  // configured value is respected.
+  const temperature = isLocal
+    ? ((config.temperature == null || config.temperature === defaults.temperature) ? 0.1 : config.temperature)
+    : (config.temperature ?? defaults.temperature);
+
+  console.error('🔵 streamLLM called with provider:', provider, 'model:', model, 'tools:', tools.length, 'temp:', temperature, 'isLocal:', isLocal);
+
+  const normalizedTools = normalizeTools(tools, { strictRequired: !isLocal });
 
   // Normalize multimodal content blocks for the target provider
   const normalizedMessages = messages.map(msg => {
@@ -1265,5 +1286,5 @@ export async function callLLM(messages, tools = [], config = {}, signal = null) 
 }
 
 // Exported for testing
-export { makeAllRequired as _makeAllRequired, flattenDeepNesting as _flattenDeepNesting, stripNulls as _stripNulls, deepParseJsonStrings as _deepParseJsonStrings, condenseSchema as _condenseSchema, stripEmptyRequired as _stripEmptyRequired };
+export { makeAllRequired as _makeAllRequired, flattenDeepNesting as _flattenDeepNesting, stripNulls as _stripNulls, deepParseJsonStrings as _deepParseJsonStrings, condenseSchema as _condenseSchema, stripEmptyRequired as _stripEmptyRequired, normalizeTools as _normalizeTools };
 
