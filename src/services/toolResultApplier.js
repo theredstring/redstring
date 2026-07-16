@@ -140,6 +140,39 @@ function applyUnfoldPlan(unfoldPlan, { enrich = true, overwriteDescription = fal
   return applied;
 }
 
+/**
+ * Build a node's abstraction axis (the `ladder` shape) from an ordered list of
+ * names. The tool decided the order (specific → general); this resolves names to
+ * real prototypes (LAST match) and wires the chain via addToAbstractionChain.
+ * Returns a summary, or null if fewer than two members resolved (caller keeps
+ * the flat node pile — never a hard error).
+ */
+function applyAbstractionChain(orderNames, dimension = 'Generalization Axis') {
+  const names = Array.isArray(orderNames) ? orderNames.filter(Boolean) : [];
+  if (names.length < 2) return null;
+  const st = useGraphStore.getState();
+
+  const ids = [];
+  for (const name of names) {
+    const nl = String(name).toLowerCase().trim();
+    let id = null;
+    for (const [pid, proto] of st.nodePrototypes) {
+      if ((proto.name || '').toLowerCase().trim() === nl) id = pid; // LAST match
+    }
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  if (ids.length < 2) return null;
+
+  // Most-specific node owns the chain; each subsequent node is one rung MORE
+  // GENERAL ('below'), inserted relative to the previous rung to preserve order.
+  const ownerId = ids[0];
+  for (let i = 1; i < ids.length; i++) {
+    st.addToAbstractionChain(ownerId, dimension, 'below', ids[i], ids[i - 1]);
+  }
+  console.log('[Wizard] ladder: built abstraction axis for', ids.length, 'rungs (owner:', ownerId, ')');
+  return { dimension, ownerId, rungs: ids };
+}
+
 // Injectable enrichment hooks. Browser (LeftAIView) supplies the real
 // Wikipedia-backed implementations via configureToolResultApplier; a headless
 // Node host leaves these no-ops so the applier stays pure and non-blocking.
@@ -1312,6 +1345,17 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
 
     console.log('[Wizard] Successfully populated graph:', graphId);
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
+
+    // 3b. Ladder → build the abstraction axis instead of a disconnected pile.
+    // Falls back silently to the flat nodes if it can't resolve enough rungs.
+    if (result.shapeRouting === 'abstraction-axis') {
+      try {
+        const order = result.spec.abstractionOrder || result.spec.nodes.map(n => n.name);
+        applyAbstractionChain(order);
+      } catch (e) {
+        console.warn('[Wizard] ladder abstraction chain failed:', e);
+      }
+    }
 
     // 4. Auto-layout: offscreen layout immediately, then event for DOM-based override
     layoutAfterWizardMutation(graphId);

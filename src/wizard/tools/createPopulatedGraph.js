@@ -9,6 +9,7 @@ import { analyzeGraphQuality } from './graphQuality.js';
 import { classifyGraphShape } from './utils/classifyGraphShape.js';
 import { isEdgelessShape, isAbstractionShape } from './utils/graphShapes.js';
 import { planUnfold } from './utils/unfoldController.js';
+import { orderLadder } from './utils/ladderChain.js';
 import { newBuildId } from '../../services/oneShot.js';
 
 /**
@@ -95,6 +96,16 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   } else if (shape && isAbstractionShape(shape)) {
     shapeRouting = 'abstraction-axis';
     workingEdges = [];
+  }
+
+  // A2 — Ladder ordering. For an is-a ladder, decide the specific→general order
+  // (the applier wires it onto the abstraction axis). Default is the produced
+  // order; null model → produced order. Only computed for the abstraction route.
+  let abstractionOrder = null;
+  if (shapeRouting === 'abstraction-axis') {
+    try {
+      abstractionOrder = await orderLadder({ nodeNames: nodeSpecs.map((n) => n.name), buildId });
+    } catch { abstractionOrder = null; }
   }
 
   // A3 — Recursive unfold PLANNING. Decide (all via one-off calls) whether each
@@ -254,13 +265,16 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     unfoldNote: unfoldSummary
       ? `Each ${unfoldPlan.memberKind} was opened into its own definition graph of its contents.`
       : null,
-    // Include full spec for UI to apply. unfoldPlan rides here (stripped from the
-    // model payload) so the applier can build the nested definition graphs.
+    // A2 ladder — the specific→general order the applier wires onto the axis.
+    abstractionOrder: shapeRouting === 'abstraction-axis' ? abstractionOrder : null,
+    // Include full spec for UI to apply. unfoldPlan / abstractionOrder ride here
+    // (stripped from the model payload) so the applier can build them.
     spec: {
       nodes: nodeSpecs,
       edges: edgeSpecs,
       groups: groupSpecs,
-      unfoldPlan
+      unfoldPlan,
+      abstractionOrder: shapeRouting === 'abstraction-axis' ? abstractionOrder : null
     }
   };
 }
