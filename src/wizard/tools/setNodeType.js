@@ -6,42 +6,19 @@
  */
 
 import { resolvePaletteColor } from '../../ai/palettes.js';
+import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
 
 /**
- * Resolve a node prototype by name.
- * Uses strict matching for type resolution to prevent partial name collisions.
+ * Resolve a node prototype by name via the shared smart resolver.
+ * Uses strict substring matching for type resolution to prevent partial name
+ * collisions (e.g. "membrane" must not match "outer membrane").
  */
-function resolveProtoByName(name, nodePrototypes, strict = false) {
-    const queryLower = (name || '').toLowerCase().trim();
-    if (!queryLower) return null;
-
-    // Exact match first (case-insensitive)
-    for (const proto of nodePrototypes) {
-        if ((proto.name || '').toLowerCase().trim() === queryLower) {
-            return proto;
-        }
-    }
-
-    // Substring match fallback
-    for (const proto of nodePrototypes) {
-        const protoName = (proto.name || '').toLowerCase().trim();
-        if (!protoName) continue;
-
-        if (strict) {
-            // Strict: only match if the query CONTAINS the proto name (query is more specific)
-            // Prevents "membrane" from matching "outer membrane"
-            if (queryLower.includes(protoName) && queryLower !== protoName) {
-                return proto;
-            }
-        } else {
-            // Loose: match if either contains the other
-            if (protoName.includes(queryLower) || queryLower.includes(protoName)) {
-                return proto;
-            }
-        }
-    }
-
-    return null;
+async function resolveProtoByName(name, nodePrototypes, strict = false) {
+    const { match } = await resolveNodeSmart(name, nodePrototypes, {
+        callSite: strict ? 'setNodeType:type' : 'setNodeType:target',
+        substringMode: strict ? 'strict' : 'loose'
+    });
+    return match;
 }
 
 /**
@@ -60,7 +37,7 @@ export async function setNodeType(args, graphState) {
     const { nodePrototypes = [], activeGraphId } = graphState;
 
     // Resolve the target node (loose matching — user is naming a node they can see)
-    const targetProto = resolveProtoByName(nodeName, nodePrototypes, false);
+    const targetProto = await resolveProtoByName(nodeName, nodePrototypes, false);
     if (!targetProto) {
         throw new Error(`Node "${nodeName}" not found. Check the name and try again.`);
     }
@@ -81,7 +58,7 @@ export async function setNodeType(args, graphState) {
     }
 
     // Resolve the type node (STRICT matching to prevent partial collisions)
-    const typeProto = resolveProtoByName(typeName, nodePrototypes, true);
+    const typeProto = await resolveProtoByName(typeName, nodePrototypes, true);
 
     // Circular check (only if type node already exists)
     if (typeProto && typeProto.id === targetProto.id) {

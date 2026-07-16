@@ -25,17 +25,19 @@ export async function findDuplicateNode(newNodeName, existingNodes, llmCall) {
     return { node: exactMatch, confidence: 'exact' };
   }
   
-  // If we have too many nodes, only check the most similar ones by string similarity
+  // If we have too many nodes, cap how many the LLM sees — but do it in a
+  // RECALL-oriented way. A bigram-similarity cutoff would discard exactly the
+  // cases the LLM exists to catch: synonyms and abbreviations ("NYC" vs "New
+  // York City", "S.H.I.E.L.D." vs "Shield") have near-zero string overlap.
+  // So we never apply a hard cutoff — we just rank by similarity and keep a
+  // generous top slice so the closest candidates in each direction survive.
+  const MAX_LLM_CANDIDATES = 25;
   let nodesToCheck = existingNodes;
-  if (existingNodes.length > 20) {
+  if (existingNodes.length > MAX_LLM_CANDIDATES) {
     nodesToCheck = existingNodes
-      .map(n => ({
-        node: n,
-        similarity: stringSimilarity(newNodeName, n.name)
-      }))
-      .filter(item => item.similarity > 0.3) // Only check nodes with >30% string similarity
+      .map(n => ({ node: n, similarity: stringSimilarity(newNodeName, n.name) }))
       .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, 10) // Top 10 most similar
+      .slice(0, MAX_LLM_CANDIDATES)
       .map(item => item.node);
   }
   

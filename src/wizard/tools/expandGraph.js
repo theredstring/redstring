@@ -7,7 +7,7 @@
  */
 
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
-import { validateEdges } from './edgeValidator.js';
+import { validateEdgesSmart } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
 import { resolveGraphId } from './resolveGraphId.js';
 
@@ -79,7 +79,7 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
 
   // Validate edges: strip any that reference nodes not in the nodes array or existing graph
   const existingNodeNames = (graphState.nodePrototypes || []).map(p => p.name).filter(Boolean);
-  const { validEdges, droppedEdges } = validateEdges(nodeSpecs, edges || [], existingNodeNames);
+  const { validEdges, droppedEdges } = await validateEdgesSmart(nodeSpecs, edges || [], existingNodeNames);
 
   // Accept either definitionNode object OR a plain type string (like createPopulatedGraph allows).
   // Auto-construct definitionNode from type string so small models can use simple edge format.

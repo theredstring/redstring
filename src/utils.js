@@ -26,7 +26,7 @@ const dimensionCache = new Map();
 const MAX_CACHE_SIZE = 1000; // Prevent unbounded growth
 
 // --- getNodeDimensions Utility Function ---
-export const getNodeDimensions = (node, isPreviewing = false, descriptionContent = null, lineHeightBase = 39) => {
+export const getNodeDimensions = (node, isPreviewing = false, descriptionContent = null, lineHeightBase = 39, textSettingsOverride = null) => {
   // --- ADDED: Handle undefined nodes gracefully ---
   if (!node) {
     console.warn('[getNodeDimensions] Received undefined node, returning default dimensions');
@@ -65,7 +65,12 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // PERFORMANCE: Check cache first
   // Create cache key based on all properties that affect dimensions
   // Include text settings to invalidate cache when text size changes
-  const textSettings = useGraphStore.getState().textSettings;
+  // Callers (e.g. hover/control-panel previews) can pass a neutral override so their
+  // node geometry stays "standard" regardless of the user's global text/node-size sliders.
+  const baseTextSettings = useGraphStore.getState().textSettings;
+  const textSettings = textSettingsOverride
+    ? { ...baseTextSettings, ...textSettingsOverride }
+    : baseTextSettings;
   const nodeScale = textSettings.nodeScale ?? 1.0;
   const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}-${nodeScale}-${lineHeightBase}`;
 

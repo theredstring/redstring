@@ -1,4 +1,5 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { suggestGroupName } from './utils/suggestionCalls.js';
 
 /**
  * createGroup - Create a visual group containing specified nodes
@@ -64,15 +65,31 @@ export async function createGroup(args, graphState, cid, ensureSchedulerStarted)
     resolvedMemberIds = [...new Set([...resolvedMemberIds, ...foundIds])];
   }
 
-  console.error('[createGroup] Creating group:', name, '| members resolved:', resolvedMemberIds.length, '| memberNames:', memberNames);
+  // C5 — Group auto-naming. When no meaningful name was supplied, suggest a
+  // ≤3-word collective name from the members ({Mercury, Venus, Earth} → "Inner
+  // Planets"). Pre-fill only; a supplied name always wins. No model → keep 'Group'.
+  let finalName = name;
+  let nameSuggested = false;
+  if ((!name || name === 'Group') && memberNames.length >= 2) {
+    try {
+      const suggestion = await suggestGroupName({ memberNames });
+      if (suggestion && suggestion.name) {
+        finalName = suggestion.name;
+        nameSuggested = true;
+      }
+    } catch { /* best-effort */ }
+  }
+
+  console.error('[createGroup] Creating group:', finalName, '| members resolved:', resolvedMemberIds.length, '| memberNames:', memberNames);
 
   return {
     action: 'createGroup',
     graphId,
-    name,
+    name: finalName,
     color: color || '#8B0000',
     memberNames,
     memberInstanceIds: resolvedMemberIds,
+    nameSuggested,
     created: true
   };
 }

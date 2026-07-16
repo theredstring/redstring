@@ -13,6 +13,10 @@ import { measureTextWidth } from './services/textMeasurement.js';
  * to clip precisely instead of estimating characters — so labels never wrap or
  * overflow the node in compact previews. Returns the original text if it fits.
  */
+// Neutral text settings so previews compute "standard" node geometry regardless of
+// the user's global font-size / node-size sliders (used when ignoreGlobalScale is set).
+const STANDARD_TEXT_SETTINGS = { fontSize: 1, lineSpacing: 1, nodeScale: 1, connectionWidth: 1 };
+
 const truncateToWidth = (text, fontString, maxWidth) => {
   if (!text || maxWidth <= 0) return text;
   if (measureTextWidth(text, fontString) <= maxWidth) return text;
@@ -56,12 +60,10 @@ const ConnectionText = ({
   const midY = (sourcePoint.y + targetPoint.y) / 2;
   const angle = Math.atan2(dy, dx) * 180 / Math.PI;
   const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
-  const fontSize = Math.max(8, 34 * transform.scale * fontScale);
-  const strokeWidth = Math.max(1, (connection.strokeWidth || 6 * transform.scale) * fontScale * 0.32);
-  const baseLineHeight = 26;
-  // Floor at 115% of font size — tight but enough that wrapped lines never overlap
-  // when transform.scale is small.
-  const scaledLineHeight = Math.max(fontSize * 1.15, baseLineHeight * transform.scale * fontScale * lineHeightScale);
+  const fontSize = Math.max(8, 24 * transform.scale * fontScale);
+  const strokeWidth = Math.max(2, (connection.strokeWidth || 6 * transform.scale) * fontScale);
+  const baseLineHeight = 26; // Tighter line height for connections
+  const scaledLineHeight = baseLineHeight * transform.scale * fontScale * lineHeightScale;
 
   const displayName = connection.connectionName;
   const lines = [];
@@ -172,14 +174,18 @@ const UniversalNodeRenderer = ({
   renderContext = 'full', // 'full' | 'decomposition' | 'preview' - affects stroke/text rendering
 
   // Styling tweaks
-  cornerRadiusMultiplier = 56,
+  cornerRadiusMultiplier = 44,
 
   // Cap how large nodes can render relative to their natural canvas size.
   // In alignNodesHorizontally layouts the internal nodeScale is normally 1.0
   // (nodes fill the container). Pass e.g. 0.8 to render nodes at 80% — fonts,
   // padding, and corner radii all scale proportionally since they multiply by
   // the same nodeScale. The freed space goes to the connection gap.
-  maxNodeScale = 1.0
+  maxNodeScale = 1.0,
+
+  // When true, ignore the user's global connection-width slider so previews render
+  // connections at a fixed "standard" stroke regardless of that setting.
+  ignoreGlobalScale = false
 }) => {
   const theme = useTheme();
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
@@ -190,7 +196,8 @@ const UniversalNodeRenderer = ({
   const graphsMap = useGraphStore((state) => state.graphs);
   const activeGraphId = useGraphStore((state) => state.activeGraphId);
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
-  const connectionWidthGlobal = useGraphStore((state) => state.textSettings?.connectionWidth ?? 1.0);
+  const connectionWidthGlobalRaw = useGraphStore((state) => state.textSettings?.connectionWidth ?? 1.0);
+  const connectionWidthGlobal = ignoreGlobalScale ? 1.0 : connectionWidthGlobalRaw;
   // Global node size. getNodeDimensions() inflates node geometry (width, padding,
   // corner radius) AND the canvas font by this factor. The renderer's node dims come
   // from getNodeDimensions (so they're already inflated), so text/padding/rounding
@@ -376,7 +383,7 @@ const UniversalNodeRenderer = ({
           // Determine baseLineHeight for dimensions calculation
           const testBaseLineHeight = renderContext === 'decomposition' ? (node.isGroup ? 28 : 24) : 24;
           // Use the exact same getNodeDimensions function as Node.jsx
-          const dims = getNodeDimensions(node, false, null, testBaseLineHeight);
+          const dims = getNodeDimensions(node, false, null, testBaseLineHeight, ignoreGlobalScale ? STANDARD_TEXT_SETTINGS : null);
           width = dims.currentWidth;
           height = dims.currentHeight;
         }
@@ -394,7 +401,7 @@ const UniversalNodeRenderer = ({
           // Determine baseLineHeight for dimensions calculation
           const testBaseLineHeight = renderContext === 'decomposition' ? (node.isGroup ? 28 : 24) : 24;
           // Use the exact same getNodeDimensions function as Node.jsx
-          const dims = getNodeDimensions(node, false, null, testBaseLineHeight);
+          const dims = getNodeDimensions(node, false, null, testBaseLineHeight, ignoreGlobalScale ? STANDARD_TEXT_SETTINGS : null);
           width = dims.currentWidth;
           height = dims.currentHeight;
         }
@@ -1054,43 +1061,32 @@ const UniversalNodeRenderer = ({
           let baseFontSize, baseLineHeight, baseVerticalPadding, baseSingleLineSidePadding, baseMultiLineSidePadding, baseAverageCharWidth;
 
           if (renderContext === 'decomposition') {
-            // Decomposition view: tighter spacing, optimized for readability at small scales.
-            // Values are ~1.4× the pre-bake constants to match the new 1x node size baseline.
-            baseFontSize = node.isGroup ? 31 : 28;
-            baseLineHeight = node.isGroup ? 34 : 28;
-            baseVerticalPadding = node.isGroup ? 11 : 8;
-            baseSingleLineSidePadding = node.isGroup ? 22 : 17;
-            baseMultiLineSidePadding = node.isGroup ? 28 : 22;
-            baseAverageCharWidth = node.isGroup ? 18 : 15;
+            // Decomposition view: tighter spacing, optimized for readability at small scales
+            baseFontSize = node.isGroup ? 22 : 20;
+            baseLineHeight = node.isGroup ? 24 : 20; // ~1.0× font: tight line spacing like real nodes
+            baseVerticalPadding = node.isGroup ? 8 : 6; // Minimal vertical padding to maximize text space
+            baseSingleLineSidePadding = node.isGroup ? 16 : 12; // Tight side padding for small nodes
+            baseMultiLineSidePadding = node.isGroup ? 20 : 16; // Still compact for wrapped text
+            baseAverageCharWidth = node.isGroup ? 13 : 11; // Slightly narrower estimation for compact view
           } else {
-            // Full canvas view: match Node.jsx proportions exactly.
-            // Node.jsx renders 45px font in a ~252px wide node; these values must
-            // produce the same ratio so scaled-down previews look proportional.
-            baseFontSize = 45;
-            baseLineHeight = 39;
-            baseVerticalPadding = 14;
-            baseSingleLineSidePadding = 42; // NODE_PADDING * 1.4
-            baseMultiLineSidePadding = 42;
-            baseAverageCharWidth = 17;
+            // Full view: match the pre-resizable (0.8.2) node text proportions
+            baseFontSize = node.isGroup ? 30 : 24;
+            baseLineHeight = node.isGroup ? 24 : 24; // Tightened line height (isolated to previews/renderer)
+            baseVerticalPadding = node.isGroup ? 10 : 10;
+            baseSingleLineSidePadding = node.isGroup ? 30 : 22; // Match Node.jsx side padding
+            baseMultiLineSidePadding = node.isGroup ? 36 : 30; // Match Node.jsx multiline padding
+            baseAverageCharWidth = node.isGroup ? 14 : 12; // Match Node.jsx char width
           }
 
-          // Apply transform scale to all measurements. The node's box dims already
-          // include the global nodeScale (via getNodeDimensions), so fold nodeScale into
-          // text/padding here too — otherwise a bigger node keeps 45px text and gains a
-          // huge empty margin instead of scaling the way the canvas node does.
-          // Groups use fixed preview dims (not getNodeDimensions), so their box isn't
-          // inflated by nodeScale — don't fold it into their text or they'd overflow.
-          const textScale = transform.scale * (node.isGroup ? 1 : nodeScaleGlobal);
-          const computedFontSize = Math.max(8, baseFontSize * textScale * nodeFontScale);
-          const computedLineHeight = Math.max(10, baseLineHeight * textScale * nodeFontScale * nodeLineHeightScale);
-          let verticalPadding = baseVerticalPadding * textScale;
-          const singleLineSidePadding = baseSingleLineSidePadding * textScale;
-          const multiLineSidePadding = baseMultiLineSidePadding * textScale;
-          const averageCharWidth = baseAverageCharWidth * textScale * nodeFontScale;
+          // Apply transform (fit) scale to all measurements — the 0.8.2 behavior.
+          const computedFontSize = Math.max(8, baseFontSize * transform.scale * nodeFontScale);
+          const computedLineHeight = Math.max(10, baseLineHeight * transform.scale * nodeFontScale * nodeLineHeightScale);
+          let verticalPadding = baseVerticalPadding * transform.scale;
+          const singleLineSidePadding = baseSingleLineSidePadding * transform.scale;
+          const multiLineSidePadding = baseMultiLineSidePadding * transform.scale;
+          const averageCharWidth = baseAverageCharWidth * transform.scale * nodeFontScale;
 
-          // Corner radius matches the canvas: NODE_CORNER_RADIUS scales with nodeScale
-          // (and then the fit scale), independent of the text-driven node width.
-          const scaledCornerRadius = cornerRadiusMultiplier * textScale;
+          const scaledCornerRadius = cornerRadiusMultiplier * transform.scale;
           let cornerRadius;
           if (renderContext === 'decomposition') {
             // Decomposition view: clamp to half the short side so tiny nodes read as pills.
@@ -1164,8 +1160,8 @@ const UniversalNodeRenderer = ({
                 y={node.y}
                 width={node.width}
                 height={node.height}
-                rx={node.isGroup ? 28 * transform.scale : cornerRadius}
-                ry={node.isGroup ? 28 * transform.scale : cornerRadius}
+                rx={node.isGroup ? 20 * transform.scale : cornerRadius}
+                ry={node.isGroup ? 20 * transform.scale : cornerRadius}
                 fill={node.isGroup ? theme.canvas.bg : safeColor}
                 stroke={node.isGroup ? safeColor : (hasImage ? safeColor : 'none')}
                 strokeWidth={

@@ -1,7 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Merge, AlertTriangle, Check, X, Plus, ArrowRight } from 'lucide-react';
+import { Merge, AlertTriangle, Check, X, Plus, ArrowRight, Sparkles } from 'lucide-react';
 import useGraphStore from '../store/graphStore.js';
 import { NODE_DEFAULT_COLOR } from '../constants';
+import { findDuplicateNode } from '../services/aiDuplicateDetector.js';
+import { isOneShotAvailable, rawModelCall } from '../services/oneShot.js';
+
+// Max prototypes we run through the LLM in one AI scan (bounds cost/latency).
+const AI_SCAN_CAP = 40;
+
+/**
+ * Adapter turning the configured model into the (prompt, opts) => text callback
+ * that aiDuplicateDetector expects. Strips markdown fences so JSON.parse works
+ * with small models that wrap their output. Throws on no-model so the detector's
+ * own try/catch falls back cleanly.
+ */
+const makeLlmCall = () => async (prompt, opts = {}) => {
+  const text = await rawModelCall(prompt, {
+    maxTokens: opts.max_tokens ?? 200,
+    temperature: opts.temperature ?? 0.1,
+    callSite: 'duplicateManager'
+  });
+  if (text == null) throw new Error('No model configured');
+  return text.replace(/```(?:json)?\s*|\s*```/g, '').trim();
+};
 
 const DuplicateManager = ({ onClose }) => {
   const [duplicateGroups, setDuplicateGroups] = useState([]);
@@ -9,8 +30,80 @@ const DuplicateManager = ({ onClose }) => {
   const [threshold, setThreshold] = useState(0.8);
   const [showDefinitionOptions, setShowDefinitionOptions] = useState(null); // { groupIndex, duplicateIndex, type: 'merge'|'reverse'|'create' }
   const [selectedNodes, setSelectedNodes] = useState(new Map()); // Map<groupIndex, nodeId>
-  
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const [aiScanning, setAiScanning] = useState(false);
+  const [aiNote, setAiNote] = useState(null);
+
   const { findPotentialDuplicates, mergeNodePrototypes, addNodePrototype, mergeDefinitionGraphs } = useGraphStore();
+  const nodePrototypes = useGraphStore((s) => s.nodePrototypes);
+
+  // Detect whether a model is configured so we can offer the AI scan.
+  useEffect(() => {
+    let cancelled = false;
+    isOneShotAvailable().then((ok) => { if (!cancelled) setAiAvailable(ok); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * Augment the Levenshtein groups with semantic duplicates the string-similarity
+   * threshold can't see (synonyms/abbreviations). Only runs on user request and
+   * only when a model is configured — no-op otherwise, so default behavior is
+   * unchanged.
+   */
+  const runAiScan = async () => {
+    setAiScanning(true);
+    setAiNote(null);
+    try {
+      const llmCall = makeLlmCall();
+      const protos = Array.from(nodePrototypes.values())
+        .filter((p) => p?.name)
+        .map((p) => ({ id: p.id, name: p.name, description: p.description || '' }));
+
+      // Skip prototypes already surfaced by the Levenshtein pass.
+      const grouped = new Set();
+      duplicateGroups.forEach((g) => {
+        grouped.add(g.primary.id);
+        g.duplicates.forEach((d) => grouped.add(d.node.id));
+      });
+
+      const toCheck = protos.filter((p) => !grouped.has(p.id));
+      const capped = toCheck.slice(0, AI_SCAN_CAP);
+
+      const aiGroups = [];
+      const consumed = new Set(); // prevent A↔B appearing as two groups
+      for (const proto of capped) {
+        if (consumed.has(proto.id)) continue;
+        const others = protos.filter((p) => p.id !== proto.id && !consumed.has(p.id));
+        // eslint-disable-next-line no-await-in-loop
+        const match = await findDuplicateNode(proto.name, others, llmCall);
+        if (match?.node?.id && match.node.id !== proto.id) {
+          const primaryProto = nodePrototypes.get(match.node.id) || match.node;
+          aiGroups.push({
+            primary: primaryProto,
+            duplicates: [{ node: proto, similarity: 0, aiMatch: true, reasons: [`AI: ${match.reason || 'semantic duplicate'}`] }],
+            totalNodes: 2,
+            aiDetected: true
+          });
+          consumed.add(proto.id);
+          consumed.add(match.node.id);
+        }
+      }
+
+      setDuplicateGroups((prev) => [...aiGroups, ...prev]);
+      if (aiGroups.length === 0) {
+        setAiNote('AI found no additional semantic duplicates.');
+      } else if (toCheck.length > AI_SCAN_CAP) {
+        setAiNote(`Added ${aiGroups.length} AI-detected group(s). Checked first ${AI_SCAN_CAP} of ${toCheck.length} ungrouped nodes — run again to continue.`);
+      } else {
+        setAiNote(`Added ${aiGroups.length} AI-detected group(s).`);
+      }
+    } catch (error) {
+      console.error('AI duplicate scan failed:', error);
+      setAiNote('AI scan failed — see console.');
+    } finally {
+      setAiScanning(false);
+    }
+  };
 
   useEffect(() => {
     const loadDuplicates = () => {
@@ -156,17 +249,27 @@ const DuplicateManager = ({ onClose }) => {
 
       <div className="duplicate-manager-controls">
         <label className="threshold-control">
-          Similarity Threshold: 
-          <input 
-            type="range" 
-            min="0.5" 
-            max="1.0" 
+          Similarity Threshold:
+          <input
+            type="range"
+            min="0.5"
+            max="1.0"
             step="0.05"
             value={threshold}
             onChange={(e) => setThreshold(parseFloat(e.target.value))}
           />
           <span>{Math.round(threshold * 100)}%</span>
         </label>
+        {aiAvailable && (
+          <div className="ai-scan-row">
+            <button className="ai-scan-button" onClick={runAiScan} disabled={aiScanning}
+              title="Use your configured model to find synonym/abbreviation duplicates string matching misses">
+              <Sparkles size={16} />
+              <span>{aiScanning ? 'Scanning with AI…' : 'Scan with AI for semantic duplicates'}</span>
+            </button>
+            {aiNote && <span className="ai-scan-note">{aiNote}</span>}
+          </div>
+        )}
       </div>
 
       {duplicateGroups.length === 0 ? (
@@ -228,7 +331,7 @@ const DuplicateManager = ({ onClose }) => {
                       <div className="node-info">
                         <div className="node-name">{duplicate.node.name}</div>
                         <div className="node-meta">
-                          {Math.round(duplicate.similarity * 100)}% similarity • 
+                          {duplicate.aiMatch ? 'AI semantic match' : `${Math.round(duplicate.similarity * 100)}% similarity`} •
                           {duplicate.node.semanticMetadata ? ' Has semantic data' : ' No semantic data'}
                         </div>
                         {duplicate.node.description && (
@@ -366,6 +469,45 @@ const DuplicateManager = ({ onClose }) => {
           font-weight: bold;
           color: #4F46E5;
           min-width: 40px;
+        }
+
+        .ai-scan-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-top: 16px;
+          flex-wrap: wrap;
+        }
+
+        .ai-scan-button {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 14px;
+          border: 1px solid #4F46E5;
+          border-radius: 8px;
+          background: transparent;
+          color: #a5b4fc;
+          cursor: pointer;
+          font-size: 0.85rem;
+          font-weight: bold;
+          font-family: 'EmOne', sans-serif;
+          transition: all 0.2s;
+        }
+
+        .ai-scan-button:hover:not(:disabled) {
+          background: #4F46E5;
+          color: white;
+        }
+
+        .ai-scan-button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .ai-scan-note {
+          color: #9ca3af;
+          font-size: 0.8rem;
         }
 
         .no-duplicates {

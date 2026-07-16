@@ -72,6 +72,10 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
 
 import { measureTextWidth } from './services/textMeasurement.js';
 
+// Neutral text settings so the panel's node/connection previews render at a
+// "standard" size regardless of the user's global font/node-size/connection sliders.
+const STANDARD_TEXT_SETTINGS = { fontSize: 1, lineSpacing: 1, nodeScale: 1, connectionWidth: 1 };
+
 // Modes: 'nodes' | 'connections' | 'abstraction' | 'group' | 'nodegroup'
 const UnifiedBottomControlPanel = ({
   mode = 'nodes',
@@ -253,7 +257,7 @@ const UnifiedBottomControlPanel = ({
     }
 
     return selectedNodes.map((node) => {
-      const dims = getNodeDimensions(node, false, null);
+      const dims = getNodeDimensions(node, false, null, 39, STANDARD_TEXT_SETTINGS);
       return {
         node,
         width: dims.currentWidth,
@@ -418,7 +422,7 @@ const UnifiedBottomControlPanel = ({
       definitionGraphIds: nodeGroupPrototype?.definitionGraphIds || []
     };
 
-    const dimensions = getNodeDimensions(baseNode, false, null);
+    const dimensions = getNodeDimensions(baseNode, false, null, 39, STANDARD_TEXT_SETTINGS);
 
     return {
       ...baseNode,
@@ -469,41 +473,33 @@ const UnifiedBottomControlPanel = ({
       color: selectedGroup.color || theme.accent.primary
     };
 
-    // Size the box generously so the group reads like a canvas title tab, not a
-    // cramped chip. The renderer's group font is 45 * fitScale, so at the ~0.5 fit
-    // scale below the text lands at a readable ~22px; width/height are the *base*
-    // dims that get scaled by that same factor. Roughly a 2:1 tab with breathing
-    // room around the label (side padding + slack) so the outline isn't hugging text.
-    const name = selectedGroup.name || 'Group';
+    const dimensions = getNodeDimensions(baseNode, false, null);
+
     return {
       ...baseNode,
       x: 0,
       y: 0,
-      width: Math.max(400, name.length * 24 + 140),
-      height: 120,
+      width: Math.max(200, (selectedGroup.name?.length || 5) * 14),
+      height: 90,
       isGroup: true
     };
   }, [isGroup, selectedGroup]);
 
   const groupRendererMetrics = useMemo(() => {
-    // Hug the box at a fixed target scale: the fit scale comes out to `scale` in both
-    // axes (container = box * scale + padding), so the outline fills its container with
-    // no dead space and the label stays readable. Sizing width to box + padding (the
-    // old approach) instead let the fit-scale drift to ~1.0 and rendered the label at
-    // the full 45px canvas font.
-    const pad = mobileState.isMobile ? 10 : 16;
-    const scale = mobileState.isMobile ? 0.65 : 0.5;
+    const minHeight = mobileState.isMobile ? 64 : 110;
+    const heightExtra = mobileState.isMobile ? 6 : 20;
+    const pad = mobileState.isMobile ? 4 : 8;
     if (!groupRendererNode) {
       return {
         containerWidth: Math.min(320, viewportLimit),
-        containerHeight: mobileState.isMobile ? 64 : 88,
+        containerHeight: minHeight,
         padding: pad
       };
     }
 
     return {
-      containerWidth: Math.min(viewportLimit, groupRendererNode.width * scale + pad * 2),
-      containerHeight: groupRendererNode.height * scale + pad * 2,
+      containerWidth: Math.min(viewportLimit, Math.max(200, groupRendererNode.width + 48)),
+      containerHeight: Math.max(minHeight, groupRendererNode.height + heightExtra),
       padding: pad
     };
   }, [groupRendererNode, viewportLimit, mobileState.isMobile]);
@@ -553,6 +549,7 @@ const UnifiedBottomControlPanel = ({
                 containerWidth={nodeRendererMetrics.containerWidth}
                 containerHeight={nodeRendererMetrics.containerHeight}
                 padding={nodeRendererMetrics.padding}
+                ignoreGlobalScale={true}
                 onNodeClick={onNodeClick}
                 interactive={true}
               />
@@ -570,6 +567,7 @@ const UnifiedBottomControlPanel = ({
                   containerWidth={nodeGroupRendererMetrics.containerWidth}
                   containerHeight={nodeGroupRendererMetrics.containerHeight}
                   padding={nodeGroupRendererMetrics.padding}
+                  ignoreGlobalScale={true}
                   interactive={false}
                 />
               </div>
@@ -582,6 +580,7 @@ const UnifiedBottomControlPanel = ({
                 containerWidth={groupRendererMetrics.containerWidth}
                 containerHeight={groupRendererMetrics.containerHeight}
                 padding={groupRendererMetrics.padding}
+                ignoreGlobalScale={true}
                 interactive={false}
               />
             ) : null
@@ -650,9 +649,6 @@ const UnifiedBottomControlPanel = ({
               const layoutNodeCount = nodes.length + selfLoopCount;
               const nodeSpacing = layoutNodeCount * (isMobile ? 90 : 70);
 
-              // Sizes the container/gap only — the rendered label size is handled by
-              // connectionFontScale + the renderer's fit-to-gap logic, so this stays
-              // modest to keep the panel compact rather than spanning the viewport.
               const connectionLabelFont = isMobile
                 ? '22px "EmOne", sans-serif'
                 : '28px "EmOne", sans-serif';
@@ -692,9 +688,7 @@ const UnifiedBottomControlPanel = ({
                   containerWidth={calculatedWidth}
                   containerHeight={calculatedHeight}
                   minHorizontalSpacing={dynamicMinHorizontalSpacing}
-                  // Match hover's readable label size — the preset default (1) rendered
-                  // connection text at the ~8px floor once the fit scale got small.
-                  connectionFontScale={1.4}
+                  ignoreGlobalScale={true}
                   forceShowConnectionDots={inputMode === 'touch'}
                   onNodeClick={onNodeClick}
                   onConnectionClick={onPredicateClick}

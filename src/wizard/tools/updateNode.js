@@ -1,16 +1,14 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
 
 /**
  * updateNode - Update an existing node's properties
  */
 
 /**
- * Resolve a node by name from graph state
+ * Resolve a node by name from graph state via the shared smart resolver.
  */
-function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
-  const queryLower = (name || '').toLowerCase().trim();
-  if (!queryLower) return null;
-
+async function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
   const targetGraph = graphs.find(g => g.id === graphId);
   if (!targetGraph) return null;
 
@@ -20,25 +18,18 @@ function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
       ? Array.from(targetGraph.instances.values())
       : Object.values(targetGraph.instances || {});
 
-  // Try exact match first, then substring
-  for (const inst of instances) {
+  const candidates = instances.map(inst => {
     const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
-    const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
-    if (nodeName === queryLower) {
-      return { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
-    }
-  }
+    return {
+      instanceId: inst.id,
+      prototypeId: inst.prototypeId,
+      name: inst.name || proto?.name || '',
+      description: inst.description || proto?.description || ''
+    };
+  });
 
-  // Substring match fallback
-  for (const inst of instances) {
-    const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
-    const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
-    if (nodeName.includes(queryLower) || queryLower.includes(nodeName)) {
-      return { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
-    }
-  }
-
-  return null;
+  const { match } = await resolveNodeSmart(name, candidates, { callSite: 'updateNode' });
+  return match;
 }
 
 /**
@@ -63,7 +54,7 @@ export async function updateNode(args, graphState, cid, ensureSchedulerStarted) 
     throw new Error('No target graph specified and no active graph available.');
   }
 
-  const resolved = resolveNodeByName(lookupName, nodePrototypes, graphs, graphId);
+  const resolved = await resolveNodeByName(lookupName, nodePrototypes, graphs, graphId);
 
   if (resolved) {
     console.error('[updateNode] Resolved:', lookupName, '→', resolved.prototypeId);

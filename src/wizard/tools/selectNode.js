@@ -5,6 +5,8 @@
  * dispatches a UI action to select/focus it on the canvas.
  */
 
+import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
+
 export async function selectNode(args, graphState, cid, ensureSchedulerStarted) {
     const { name } = args;
     if (!name) {
@@ -52,6 +54,35 @@ export async function selectNode(args, graphState, cid, ensureSchedulerStarted) 
 
     if (allNodes.length === 0) {
         return { error: 'No nodes found in the active graph.' };
+    }
+
+    // High-confidence path: exact match, or a semantic pick from a configured
+    // model. Falls through to the heuristic scoring below when neither applies
+    // (no model / model unsure), so behavior is unchanged with zero models.
+    // C2 — also ask (on a genuine miss) whether the name is plausibly a distinct
+    // concept that belongs here, so the final error can offer to create it.
+    const smart = await resolveNodeSmart(name, allNodes, {
+        callSite: 'selectNode',
+        proposeMissing: true,
+        existingNames: allNodes.map(n => n.name).filter(Boolean)
+    });
+    if ((smart.method === 'exact' || smart.method === 'model') && smart.match) {
+        const m = smart.match;
+        return {
+            action: 'selectNode',
+            found: true,
+            ...(smart.method === 'model' ? { semanticMatch: true } : {}),
+            node: {
+                instanceId: m.instanceId,
+                prototypeId: m.prototypeId,
+                name: m.name,
+                color: m.color,
+                description: m.description
+            },
+            message: smart.method === 'model'
+                ? `Selected "${m.name}" (best semantic match for "${name}").`
+                : `Selected "${m.name}" on the canvas.`
+        };
     }
 
     // Find best match using word-level + fuzzy matching
@@ -113,7 +144,11 @@ export async function selectNode(args, graphState, cid, ensureSchedulerStarted) 
             };
         }
 
-        return { error: `No node found matching "${name}". Try a different name or use searchNodes to find candidates.` };
+        return {
+            error: `No node found matching "${name}". Try a different name or use searchNodes to find candidates.`,
+            // C2 — if the model judged this a plausible distinct concept, offer to create it.
+            ...(smart.proposedNode ? { proposedNode: smart.proposedNode } : {})
+        };
     }
 
     const match = best[0];

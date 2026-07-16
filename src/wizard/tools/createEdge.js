@@ -1,18 +1,16 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
 
 /**
  * createEdge - Connect two nodes by name
  */
 
 /**
- * Resolve a node by name from graph state
+ * Build the candidate list (instances + thing-groups) for a graph.
  */
-function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
-  const queryLower = (name || '').toLowerCase().trim();
-  if (!queryLower) return null;
-
+function buildCandidates(nodePrototypes, graphs, graphId) {
   const targetGraph = graphs.find(g => g.id === graphId);
-  if (!targetGraph) return null;
+  if (!targetGraph) return [];
 
   const instances = Array.isArray(targetGraph.instances)
     ? targetGraph.instances
@@ -20,50 +18,40 @@ function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
       ? Array.from(targetGraph.instances.values())
       : Object.values(targetGraph.instances || {});
 
-  // Exact match — take LAST match so newly created instances win over stale duplicates.
-  // (Rule from project memory: Maps iterate insertion-order; oldest first. Never break early.)
-  let exactMatch = null;
-  for (const inst of instances) {
+  const candidates = instances.map(inst => {
     const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
-    const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
-    if (nodeName === queryLower) {
-      exactMatch = { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
-    }
-  }
-  if (exactMatch) return exactMatch;
+    return {
+      instanceId: inst.id,
+      prototypeId: inst.prototypeId,
+      name: inst.name || proto?.name || '',
+      description: inst.description || proto?.description || ''
+    };
+  });
 
-  // Substring fallback — also LAST match, and warn so silent mis-wires are visible in logs.
-  let substringMatch = null;
-  for (const inst of instances) {
-    const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
-    const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
-    if (nodeName && (nodeName.includes(queryLower) || queryLower.includes(nodeName))) {
-      substringMatch = { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
-    }
-  }
-  if (substringMatch) {
-    console.warn('[createEdge] Substring fallback matched — may be wrong instance:', { query: name, matched: substringMatch.name });
-    return substringMatch;
-  }
-
-  // Thing-group names — also LAST match.
   const groups = Array.isArray(targetGraph.groups)
     ? targetGraph.groups
     : targetGraph.groups instanceof Map
       ? Array.from(targetGraph.groups.values())
       : Object.values(targetGraph.groups || {});
 
-  let groupMatch = null;
   for (const group of groups) {
     if (!group.linkedNodePrototypeId || !group.anchorInstanceId) continue;
-    const groupName = (group.name || '').toLowerCase().trim();
-    if (groupName === queryLower) {
-      groupMatch = { instanceId: group.anchorInstanceId, prototypeId: group.linkedNodePrototypeId, name: group.name };
-    }
+    candidates.push({
+      instanceId: group.anchorInstanceId,
+      prototypeId: group.linkedNodePrototypeId,
+      name: group.name || ''
+    });
   }
-  if (groupMatch) return groupMatch;
 
-  return null;
+  return candidates;
+}
+
+/**
+ * Resolve a node by name via the shared smart resolver (exact → model → substring).
+ */
+async function resolveNodeByName(name, candidates) {
+  const { match } = await resolveNodeSmart(name, candidates, { callSite: 'createEdge' });
+  return match;
 }
 
 /**
@@ -87,29 +75,18 @@ export async function createEdge(args, graphState, cid, ensureSchedulerStarted) 
     throw new Error('No target graph specified and no active graph available.');
   }
 
-  // Resolve source and target by name
-  const resolvedSource = resolveNodeByName(sourceId, nodePrototypes, graphs, graphId);
-  const resolvedTarget = resolveNodeByName(targetId, nodePrototypes, graphs, graphId);
+  // Resolve source and target by name (exact → model → substring)
+  const candidates = buildCandidates(nodePrototypes, graphs, graphId);
+  const resolvedSource = await resolveNodeByName(sourceId, candidates);
+  const resolvedTarget = await resolveNodeByName(targetId, candidates);
 
   if (!resolvedSource) {
-    const graph = graphs.find(g => g.id === graphId);
-    const instances = Array.isArray(graph?.instances) ? graph.instances : Object.values(graph?.instances || {});
-    const available = instances
-      .map(i => nodePrototypes.find(p => p.id === i.prototypeId)?.name || i.name)
-      .filter(Boolean)
-      .slice(0, 8)
-      .join(', ');
+    const available = candidates.map(c => c.name).filter(Boolean).slice(0, 8).join(', ');
     throw new Error(`Source node "${sourceId}" not found in graph. Available nodes: ${available || '(none)'}. Use readGraph to see all nodes.`);
   }
 
   if (!resolvedTarget) {
-    const graph = graphs.find(g => g.id === graphId);
-    const instances = Array.isArray(graph?.instances) ? graph.instances : Object.values(graph?.instances || {});
-    const available = instances
-      .map(i => nodePrototypes.find(p => p.id === i.prototypeId)?.name || i.name)
-      .filter(Boolean)
-      .slice(0, 8)
-      .join(', ');
+    const available = candidates.map(c => c.name).filter(Boolean).slice(0, 8).join(', ');
     throw new Error(`Target node "${targetId}" not found in graph. Available nodes: ${available || '(none)'}. Use readGraph to see all nodes.`);
   }
 

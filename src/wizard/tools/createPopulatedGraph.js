@@ -4,8 +4,11 @@
 
 import queueManager from '../../services/queue/Queue.js';
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
-import { validateEdges } from './edgeValidator.js';
+import { validateEdgesSmart } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
+import { classifyGraphShape } from './utils/classifyGraphShape.js';
+import { isEdgelessShape, isAbstractionShape } from './utils/graphShapes.js';
+import { newBuildId } from '../../services/oneShot.js';
 
 /**
  * Create a new graph and populate it with nodes, edges, and groups
@@ -68,8 +71,33 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     typeDescription: n.typeDescription || ''
   }));
 
+  // A3 — Shape routing. Classify the structural shape (from an explicit shape arg,
+  // else from the request/description/name if a model is available) and route the
+  // two shapes where drawing the model's canvas edges is WRONG:
+  //   - 'set'    → license NOT drawing edges (over-connection is a known failure)
+  //   - 'ladder' → route to the abstraction axis, not canvas edges
+  // Every other shape draws edges as given. No model → no classification, edges
+  // unchanged (identical to before). Correlated in the log via buildId.
+  const buildId = args.buildId || newBuildId();
+  let shape = (typeof args.shape === 'string' && args.shape) ? args.shape : null;
+  if (!shape) {
+    const request = args.request || description || name;
+    if (request) {
+      try { shape = await classifyGraphShape({ request, buildId }); } catch { shape = null; }
+    }
+  }
+  let workingEdges = edges || [];
+  let shapeRouting = null;
+  if (shape && isEdgelessShape(shape)) {
+    shapeRouting = 'nodes-only';
+    workingEdges = [];
+  } else if (shape && isAbstractionShape(shape)) {
+    shapeRouting = 'abstraction-axis';
+    workingEdges = [];
+  }
+
   // Validate edges: strip any that reference nodes not in the nodes array
-  const { validEdges, droppedEdges } = validateEdges(nodeSpecs, edges || []);
+  const { validEdges, droppedEdges } = await validateEdgesSmart(nodeSpecs, workingEdges);
 
   // Validation: each edge needs SOMETHING describing its connection type.
   // Accepted shapes (in order of preference):
@@ -159,6 +187,15 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     graphName: name || 'existing graph',
     description,
     color: resolvePaletteColor(activePalette, color || args.color), // Added color resolution
+    // A3 shape routing feedback (buildId correlates all one-shot calls this build)
+    buildId,
+    shape,
+    shapeRouting,
+    shapeNote: shapeRouting === 'nodes-only'
+      ? `Classified as "set": edges omitted (these items don't clearly relate).`
+      : shapeRouting === 'abstraction-axis'
+        ? `Classified as "ladder": this is an is-a hierarchy — route to the abstraction axis, not canvas edges.`
+        : null,
     // For ToolCallCard summary (counts)
     nodeCount: nodeSpecs.length,
     edgeCount: edgeSpecs.length,

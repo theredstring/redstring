@@ -41,6 +41,8 @@ import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
 import { applyOffscreenLayout } from './services/offscreenLayout.js';
+import { oneShotLabel, attachOneShotOutcome, isOneShotAvailable } from './services/oneShot.js';
+import { suggestAbstractionName } from './wizard/tools/utils/suggestionCalls.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS, buildChildGroupIdsIndex } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
 import { debugLogSync } from './utils/debugLogger.js';
@@ -3182,6 +3184,10 @@ function NodeCanvas() {
   const [videoAnimation, setVideoAnimation] = useState(null); // Y-key video animation state
   const [nodeNamePrompt, setNodeNamePrompt] = useState({ visible: false, name: '', color: null });
   const [connectionNamePrompt, setConnectionNamePrompt] = useState({ visible: false, name: '', color: null, edgeId: null });
+  // Tracks the last one-shot edge-label suggestion so we can (a) pre-fill it only
+  // while the field is untouched, and (b) log whether the user accepted/edited/ignored it.
+  const connectionSuggestionRef = useRef(null); // { edgeId, suggestion, callId }
+  const abstractionSuggestionRef = useRef(null); // { nodeId, direction, suggestion, callId, applied }
   const [abstractionPrompt, setAbstractionPrompt] = useState({ visible: false, name: '', color: null, direction: 'above', nodeId: null, carouselLevel: null });
   const [nodeGroupPrompt, setNodeGroupPrompt] = useState({ visible: false, name: '', color: null, groupId: null });
 
@@ -3189,6 +3195,136 @@ function NodeCanvas() {
   useEffect(() => {
 
   }, [abstractionPrompt]);
+
+  // Attach an accepted/edited/ignored outcome to the last edge-label suggestion.
+  const finalizeConnectionSuggestion = useCallback((finalName) => {
+    const s = connectionSuggestionRef.current;
+    connectionSuggestionRef.current = null;
+    if (!s || !s.callId) return;
+    if (!s.applied) { attachOneShotOutcome(s.callId, 'ignored'); return; }
+    const f = (finalName || '').trim().toLowerCase();
+    const sug = (s.suggestion || '').trim().toLowerCase();
+    attachOneShotOutcome(s.callId, f && f === sug ? 'accepted' : 'edited');
+  }, []);
+
+  // One-shot edge-label suggestion: when the connection prompt opens on an
+  // untouched field, ask the configured model (in the background) for a short
+  // verb-phrase label from source→target and pre-fill it as a suggestion the
+  // user can overwrite. No model / timeout / malformed → nothing happens and the
+  // field stays blank (identical to today).
+  useEffect(() => {
+    if (!connectionNamePrompt.visible || !connectionNamePrompt.edgeId) return;
+    if (connectionNamePrompt.name && connectionNamePrompt.name.trim()) return;
+
+    const edgeId = connectionNamePrompt.edgeId;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        if (!(await isOneShotAvailable())) return;
+        const edge = edgesMap.get(edgeId);
+        if (!edge) return;
+        const sourceName = nodeById.get(edge.sourceId)?.name || '';
+        const targetName = nodeById.get(edge.destinationId || edge.targetId)?.name || '';
+        if (!sourceName || !targetName) return;
+
+        // Existing connection-type names, offered to the model to prefer reuse.
+        const typeNames = new Set();
+        for (const e of edgesMap.values()) {
+          for (const pid of (e.definitionNodeIds || [])) {
+            const p = nodePrototypesMap.get(pid);
+            if (p?.name) typeNames.add(p.name);
+          }
+        }
+        const existing = Array.from(typeNames).slice(0, 20);
+
+        const result = await oneShotLabel({
+          callSite: 'edgeLabelSuggestion',
+          instruction:
+            'Suggest a short connection label (a verb phrase) for how the source relates to the target, read source → target. ' +
+            (existing.length ? `Prefer reusing one of these existing types if one fits: ${existing.join(', ')}. ` : '') +
+            'Examples: "directed by", "is a kind of", "causes".',
+          input: `${sourceName} → ${targetName}`,
+          maxWords: 4,
+          timeoutMs: 4000
+        });
+        if (cancelled || !result?.value) return;
+
+        // Store first so outcome logging works even under StrictMode double-invoke.
+        const suggestionRecord = { edgeId, suggestion: result.value, callId: result.callId, applied: false };
+        connectionSuggestionRef.current = suggestionRecord;
+
+        // User input always wins: only pre-fill if still open for THIS edge and untouched.
+        setConnectionNamePrompt((prev) => {
+          if (prev.visible && prev.edgeId === edgeId && (!prev.name || !prev.name.trim())) {
+            suggestionRecord.applied = true;
+            return { ...prev, name: result.value };
+          }
+          return prev;
+        });
+      } catch {
+        // Never disrupt the prompt.
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [connectionNamePrompt.visible, connectionNamePrompt.edgeId, edgesMap, nodeById, nodePrototypesMap]);
+
+  // C6 — Attach an accepted/edited/ignored outcome to the last abstraction-name suggestion.
+  const finalizeAbstractionSuggestion = useCallback((finalName) => {
+    const s = abstractionSuggestionRef.current;
+    abstractionSuggestionRef.current = null;
+    if (!s || !s.callId) return;
+    if (!s.applied) { attachOneShotOutcome(s.callId, 'ignored'); return; }
+    const f = (finalName || '').trim().toLowerCase();
+    const sug = (s.suggestion || '').trim().toLowerCase();
+    attachOneShotOutcome(s.callId, f && f === sug ? 'accepted' : 'edited');
+  }, []);
+
+  // C6 — Abstraction-axis name suggestion. When the add-above/below prompt opens
+  // on an untouched field, ask the model (background) for the name one rung
+  // more general / more specific and pre-fill it. NOTE: in this app "above" =
+  // MORE SPECIFIC and "below" = MORE GENERAL (see the prompt subtitle), which is
+  // the opposite of the usual convention — so we pass moreGeneral accordingly.
+  // No model / timeout / malformed → field stays blank (identical to today).
+  useEffect(() => {
+    if (!abstractionPrompt.visible || !abstractionPrompt.nodeId) return;
+    if (abstractionPrompt.name && abstractionPrompt.name.trim()) return;
+
+    const { nodeId, direction } = abstractionPrompt;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        if (!(await isOneShotAvailable())) return;
+        const nodeName = nodePrototypesMap.get(nodeId)?.name || '';
+        if (!nodeName) return;
+        const moreGeneral = direction === 'below'; // app: below = more general
+
+        const result = await suggestAbstractionName({
+          nodeName,
+          moreGeneral,
+          timeoutMs: 4000
+        });
+        if (cancelled || !result?.name) return;
+
+        const record = { nodeId, direction, suggestion: result.name, callId: result.callId, applied: false };
+        abstractionSuggestionRef.current = record;
+
+        setAbstractionPrompt((prev) => {
+          if (prev.visible && prev.nodeId === nodeId && prev.direction === direction && (!prev.name || !prev.name.trim())) {
+            record.applied = true;
+            return { ...prev, name: result.name };
+          }
+          return prev;
+        });
+      } catch {
+        // Never disrupt the prompt.
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [abstractionPrompt.visible, abstractionPrompt.nodeId, abstractionPrompt.direction, nodePrototypesMap]);
 
   // Dialog color picker state
   const [dialogColorPickerVisible, setDialogColorPickerVisible] = useState(false);
@@ -15076,9 +15212,10 @@ function NodeCanvas() {
                   isVisible={true}
                   leftPanelExpanded={leftPanelExpanded}
                   rightPanelExpanded={rightPanelExpanded}
-                  onClose={() => { setDialogColorPickerVisible(false); setConnectionNamePrompt({ visible: false, name: '', color: null, edgeId: null }); }}
+                  onClose={() => { finalizeConnectionSuggestion(null); setDialogColorPickerVisible(false); setConnectionNamePrompt({ visible: false, name: '', color: null, edgeId: null }); }}
                   onSubmit={({ name, color }) => {
                     if (name.trim()) {
+                      finalizeConnectionSuggestion(name);
                       const newConnectionNodeId = uuidv4();
                       storeActions.addNodePrototype({ id: newConnectionNodeId, name: name.trim(), description: '', picture: null, color: color || NODE_DEFAULT_COLOR, typeNodeId: null, definitionGraphIds: [] });
                       if (connectionNamePrompt.edgeId) {
@@ -15089,6 +15226,7 @@ function NodeCanvas() {
                     }
                   }}
                   onNodeSelect={(node) => {
+                    finalizeConnectionSuggestion(node?.name);
                     if (connectionNamePrompt.edgeId) {
                       storeActions.updateEdge(connectionNamePrompt.edgeId, (draft) => { draft.definitionNodeIds = [node.id]; });
                     }
@@ -15170,7 +15308,7 @@ function NodeCanvas() {
                 leftPanelExpanded={leftPanelExpanded}
                 rightPanelExpanded={rightPanelExpanded}
                 onClose={() => {
-
+                  finalizeAbstractionSuggestion(null);
 
                   setAbstractionPrompt({ visible: false, name: '', color: null, direction: 'above', nodeId: null, carouselLevel: null });
                   setCarouselPieMenuStage(1);
@@ -15180,9 +15318,10 @@ function NodeCanvas() {
                     setSelectedNodeIdForPieMenu(abstractionCarouselNode.id);
                   }
                 }}
-                onSubmit={handleAbstractionSubmit}
+                onSubmit={(payload) => { finalizeAbstractionSuggestion(payload?.name); handleAbstractionSubmit(payload); }}
                 onNodeSelect={(prototype) => {
                   if (!prototype) return;
+                  finalizeAbstractionSuggestion(prototype.name);
                   handleAbstractionSubmit({
                     name: prototype.name || '',
                     color: prototype.color,

@@ -7,7 +7,7 @@
  */
 
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
-import { validateEdges } from './edgeValidator.js';
+import { validateEdgesSmart } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
 
 /**
@@ -139,7 +139,7 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
     }));
 
     // Validate edges: strip any that reference nodes not in the nodes array
-    const { validEdges, droppedEdges } = validateEdges(nodeSpecs, edges || []);
+    const { validEdges, droppedEdges } = await validateEdgesSmart(nodeSpecs, edges || []);
 
     // Validation: each edge needs SOMETHING describing its connection type.
     // Accepted shapes (in order of preference):
