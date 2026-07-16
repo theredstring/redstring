@@ -8,6 +8,7 @@ import { validateEdgesSmart } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
 import { classifyGraphShape } from './utils/classifyGraphShape.js';
 import { isEdgelessShape, isAbstractionShape } from './utils/graphShapes.js';
+import { planUnfold } from './utils/unfoldController.js';
 import { newBuildId } from '../../services/oneShot.js';
 
 /**
@@ -95,6 +96,33 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     shapeRouting = 'abstraction-axis';
     workingEdges = [];
   }
+
+  // A3 — Recursive unfold PLANNING. Decide (all via one-off calls) whether each
+  // member should open into its own definition graph of its contents, and build
+  // a plan the applier executes against the real store. Null with no model /
+  // "no unfold" — identical flat behavior. Disabled via unfold:false or when
+  // routing to the abstraction axis (ladders are not nested definition graphs).
+  let unfoldPlan = null;
+  if (args.unfold !== false && shapeRouting !== 'abstraction-axis') {
+    const unfoldRequest = args.request || description || name;
+    try {
+      unfoldPlan = await planUnfold({
+        nodeSpecs,
+        request: unfoldRequest,
+        shape,
+        memberKind: args.memberKind,
+        buildId
+      });
+    } catch { unfoldPlan = null; }
+  }
+  const unfoldSummary = unfoldPlan
+    ? unfoldPlan.members.map((m) => ({
+        member: m.memberName,
+        kind: m.memberKind,
+        insideShape: m.insideShape,
+        count: m.nodes.length
+      }))
+    : null;
 
   // Validate edges: strip any that reference nodes not in the nodes array
   const { validEdges, droppedEdges } = await validateEdgesSmart(nodeSpecs, workingEdges);
@@ -220,11 +248,19 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     // Enrichment control
     enrich: enrich !== false,
     overwriteDescription: overwriteDescription || false,
-    // Include full spec for UI to apply
+    // A3 unfold — concise summary survives sanitizeResultForLLM (spec is stripped)
+    // so the agent can narrate what got unfolded. Null when nothing unfolds.
+    unfoldSummary,
+    unfoldNote: unfoldSummary
+      ? `Each ${unfoldPlan.memberKind} was opened into its own definition graph of its contents.`
+      : null,
+    // Include full spec for UI to apply. unfoldPlan rides here (stripped from the
+    // model payload) so the applier can build the nested definition graphs.
     spec: {
       nodes: nodeSpecs,
       edges: edgeSpecs,
-      groups: groupSpecs
+      groups: groupSpecs,
+      unfoldPlan
     }
   };
 }

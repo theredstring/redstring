@@ -46,6 +46,100 @@ function layoutAfterWizardMutation(graphId) {
   }
 }
 
+/**
+ * Execute an A3 unfold plan (from createPopulatedGraph's spec.unfoldPlan): for
+ * each member, create a definition graph and populate it with the member's
+ * contents. The tool decided the plan (all one-off calls, correlated by buildId);
+ * this is the store-side executor. Runs after the top graph is populated.
+ *
+ * Members are resolved by NAME against the live store (predictive IDs never
+ * match) — take the LAST match, since old prototypes accumulate in the Maps.
+ * Returns an array describing what was unfolded (member → def graph id + shape).
+ */
+function applyUnfoldPlan(unfoldPlan, { enrich = true, overwriteDescription = false } = {}) {
+  const applied = [];
+  const members = (unfoldPlan && Array.isArray(unfoldPlan.members)) ? unfoldPlan.members : [];
+  for (let idx = 0; idx < members.length; idx++) {
+    const member = members[idx];
+    if (!member || !member.memberName || !Array.isArray(member.nodes) || member.nodes.length === 0) continue;
+    try {
+      // Re-fetch fresh state each iteration — earlier iterations mutated the store.
+      const st = useGraphStore.getState();
+      const nameLower = member.memberName.toLowerCase().trim();
+
+      let realProtoId = null;
+      for (const [pid, proto] of st.nodePrototypes) {
+        if ((proto.name || '').toLowerCase().trim() === nameLower) realProtoId = pid; // LAST match
+      }
+      if (!realProtoId) {
+        console.warn('[Wizard] unfold: could not resolve member prototype:', member.memberName);
+        continue;
+      }
+
+      // Reuse an existing definition graph if the member already has one, else make one.
+      const proto = st.nodePrototypes.get(realProtoId);
+      let defGraphId = (proto?.definitionGraphIds && proto.definitionGraphIds[0]) || null;
+      if (defGraphId && st.graphs.get(defGraphId)?.instances?.size > 0) {
+        // Already populated — don't double-fill.
+        continue;
+      }
+      if (!defGraphId) {
+        defGraphId = `graph-def-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
+        st.createDefinitionGraphWithId(defGraphId, realProtoId);
+      }
+
+      const bulkData = {
+        nodes: member.nodes.map((n, i) => ({
+          name: n.name,
+          color: n.color || NODE_DEFAULT_COLOR,
+          description: n.description || '',
+          prototypeId: `proto-${Date.now()}-${idx}-${i}-${Math.random().toString(36).slice(2, 8)}`,
+          instanceId: `inst-${Date.now()}-${idx}-${i}-${Math.random().toString(36).slice(2, 8)}`,
+          x: Math.random() * 600 + 200,
+          y: Math.random() * 500 + 200,
+          semanticMetadata: wizardSemanticMetadata()
+        })),
+        edges: (member.edges || []).map(e => ({
+          source: e.source,
+          target: e.target,
+          type: e.type || 'relates to',
+          directionality: e.directionality || 'unidirectional',
+          definitionNode: e.definitionNode || null
+        })),
+        groups: []
+      };
+
+      st.applyBulkGraphUpdates(defGraphId, bulkData);
+      try { st.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] unfold cleanup failed:', e); }
+
+      // Non-active graphs need offscreen layout AND the DOM-based event (project
+      // convention — rs-trigger-auto-layout only fires for the active graph).
+      layoutAfterWizardMutation(defGraphId);
+      const gid = defGraphId;
+      setTimeout(() => {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gid } }));
+        }
+      }, 600);
+
+      if (enrich) {
+        const insideNames = member.nodes.map(n => n.name);
+        setTimeout(() => {
+          _enrichMultiple(insideNames, gid, { overwriteDescription }).catch(err => {
+            console.warn('[Auto-Enrich] Unfold enrichment failed:', err);
+          });
+        }, 1000);
+      }
+
+      applied.push({ member: member.memberName, graphId: defGraphId, shape: member.insideShape || null });
+      console.log('[Wizard] unfold: populated definition graph for', member.memberName, '→', defGraphId, `(${bulkData.nodes.length} nodes)`);
+    } catch (e) {
+      console.warn('[Wizard] unfold: failed for member', member?.memberName, e);
+    }
+  }
+  return applied;
+}
+
 // Injectable enrichment hooks. Browser (LeftAIView) supplies the real
 // Wikipedia-backed implementations via configureToolResultApplier; a headless
 // Node host leaves these no-ops so the applier stays pure and non-blocking.
@@ -1248,6 +1342,20 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
           console.warn('[Auto-Enrich] Batch enrichment failed:', err);
         });
       }, 1000);
+    }
+
+    // 6. A3 unfold — open each member into its own definition graph of its
+    // contents, per the plan the tool built. No plan (no model / no unfold) →
+    // no-op, identical to before.
+    if (result.spec.unfoldPlan) {
+      try {
+        applyUnfoldPlan(result.spec.unfoldPlan, {
+          enrich: result.enrich !== false,
+          overwriteDescription: result.overwriteDescription || false
+        });
+      } catch (e) {
+        console.warn('[Wizard] unfold plan application failed:', e);
+      }
     }
   } else if (result.action === 'importTabularAsGraph' && result.spec) {
     // Handle importTabularAsGraph — same pattern as createPopulatedGraph
