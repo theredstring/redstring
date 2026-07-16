@@ -11,7 +11,26 @@ import { isEdgelessShape, isAbstractionShape } from './utils/graphShapes.js';
 import { planUnfold } from './utils/unfoldController.js';
 import { orderLadder } from './utils/ladderChain.js';
 import { runStructureReview } from './utils/structureReview.js';
+import { conformNames } from './utils/conformNames.js';
 import { newBuildId } from '../../services/oneShot.js';
+
+/** Existing node names in a graph from the serialized graphState (for C7 style). */
+function existingGraphNodeNames(graphState, graphId) {
+  if (!graphState || !graphId) return [];
+  const graphs = graphState.graphs;
+  const g = Array.isArray(graphs)
+    ? graphs.find((x) => x.id === graphId)
+    : (graphs && typeof graphs.get === 'function' ? graphs.get(graphId) : null);
+  if (!g) return [];
+  const insts = Array.isArray(g.instances)
+    ? g.instances
+    : (g.instances instanceof Map ? Array.from(g.instances.values()) : Object.values(g.instances || {}));
+  const protoById = new Map();
+  const protos = graphState.nodePrototypes || [];
+  if (Array.isArray(protos)) for (const p of protos) protoById.set(p.id, p);
+  else if (protos instanceof Map) for (const [id, p] of protos) protoById.set(id, p);
+  return insts.map((i) => i.name || protoById.get(i.prototypeId)?.name).filter(Boolean);
+}
 
 /**
  * Create a new graph and populate it with nodes, edges, and groups
@@ -186,6 +205,27 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
       description: g.definedBy.description || ''
     } : undefined
   }));
+
+  // C7 — conform NEW model-generated names to the target graph's evident naming
+  // style. Only fires when populating a graph that already has ≥5 nodes (a
+  // brand-new graph has no style to match, so this is skipped by conformNames).
+  // Renaming a node remaps its edges/group memberships too. No model → no change.
+  if (targetGraphId) {
+    try {
+      const exampleNames = existingGraphNodeNames(graphState, targetGraphId);
+      const changes = await conformNames({ names: nodeSpecs.map((n) => n.name), exampleNames, buildId });
+      if (Object.keys(changes).length > 0) {
+        for (const n of nodeSpecs) if (changes[n.name]) n.name = changes[n.name];
+        for (const e of edgeSpecs) {
+          if (changes[e.source]) e.source = changes[e.source];
+          if (changes[e.target]) e.target = changes[e.target];
+        }
+        for (const g of groupSpecs) {
+          if (Array.isArray(g.memberNames)) g.memberNames = g.memberNames.map((m) => changes[m] || m);
+        }
+      }
+    } catch { /* keep original names */ }
+  }
 
   // Build graph spec for the low-level task (with proper definitionNode)
   const graphSpec = {
