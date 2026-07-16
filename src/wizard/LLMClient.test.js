@@ -664,6 +664,32 @@ describe('selectToolsForTurn', () => {
     expect(names).not.toContain('createGroup');
   });
 
+  it('excludes planTask for the small model tier (atomic ops only)', () => {
+    const tools = selectToolsForTurn({
+      graphState: { graphs: [], nodePrototypes: [], activeGraphId: null },
+      userMessage: 'map out all the locations in GTA San Andreas',
+      modelTier: 'small',
+    });
+
+    const names = tools.map(t => t.name);
+    expect(names).not.toContain('planTask');
+    // Atomic build tools remain available
+    expect(names).toContain('createGraph');
+    expect(names).toContain('expandGraph');
+    expect(names).toContain('populateDefinitionGraph');
+    expect(names).toContain('sketchGraph');
+  });
+
+  it('keeps planTask available for the large model tier', () => {
+    const tools = selectToolsForTurn({
+      graphState: { graphs: [], nodePrototypes: [], activeGraphId: null },
+      userMessage: 'build me a knowledge graph',
+      modelTier: 'large',
+    });
+
+    expect(tools.map(t => t.name)).toContain('planTask');
+  });
+
   it('always includes listTools so the LLM can discover all capabilities', () => {
     const tools = selectToolsForTurn({
       graphState: { graphs: [], nodePrototypes: [], activeGraphId: null },

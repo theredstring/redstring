@@ -969,9 +969,13 @@ const TOOL_TIERS = {
 export function selectToolsForTurn({ graphState, userMessage, hasTabularData = false, modelTier = 'large' }) {
     const allTools = getToolDefinitions();
 
-    // Small model whitelist: only the atomic ops they can reliably generate
+    // Small model whitelist: only the atomic ops they can reliably generate.
+    // planTask is deliberately excluded — plans are model-maintained state and small
+    // models cannot maintain it (observed: plan replaced/shrunk each resend, steps marked
+    // done without any tool running, producing a churn loop). Code-side planning
+    // (shape → fill → unfold → review) already covers builds.
     if (modelTier === 'small') {
-        const SMALL_MODEL_TOOLS = new Set(['planTask', 'createGraph', 'expandGraph', 'populateDefinitionGraph', 'sketchGraph', 'readGraph', 'updateNode', 'askMultipleChoice', 'switchToGraph']);
+        const SMALL_MODEL_TOOLS = new Set(['createGraph', 'expandGraph', 'populateDefinitionGraph', 'sketchGraph', 'readGraph', 'updateNode', 'askMultipleChoice', 'switchToGraph']);
         return allTools.filter(t => SMALL_MODEL_TOOLS.has(t.name));
     }
 

@@ -1025,7 +1025,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
           console.error(`[AgentLoop] ⚠️ Model returned text-only but plan is incomplete (${doneCount}/${plan.length} done). Nudge ${consecutiveNudges}/${MAX_CONSECUTIVE_NUDGES}.`);
           const availableToolList = modelTier === 'small'
-            ? '- sketchGraph — plan structure before building (required before expandGraph/populateDefinitionGraph)\n- expandGraph — add 2-3 nodes or edges to the current graph\n- populateDefinitionGraph — go inside an existing node to define what it is made of\n- planTask — mark a step done once you\'ve finished it'
+            ? '- sketchGraph — plan structure before building (required before expandGraph/populateDefinitionGraph)\n- expandGraph — add 2-3 nodes or edges to the current graph\n- populateDefinitionGraph — go inside an existing node to define what it is made of'
             : '- sketchGraph — plan graph structure before building (call this first, then createPopulatedGraph)\n- createPopulatedGraph — build a new graph with nodes and edges\n- expandGraph — add nodes or edges to an existing graph\n- populateDefinitionGraph — define the internals of a node\n- planTask — update a step\'s status to \'done\' once you\'ve finished it';
           messages.push({
             role: 'user',
@@ -1044,7 +1044,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           hasNudgedFirstIteration = true;
           console.error(`[AgentLoop] ⚠️ Text-only response on first iteration — nudging model to call tools if applicable.`);
           const firstIterToolHint = modelTier === 'small'
-            ? 'call planTask to create a plan, then expandGraph to add nodes or populateDefinitionGraph to go inside an existing node'
+            ? 'call expandGraph to add nodes or populateDefinitionGraph to go inside an existing node'
             : 'call planTask, createPopulatedGraph, or other tools';
           messages.push({
             role: 'user',
