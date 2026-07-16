@@ -68,6 +68,22 @@ describe('createPopulatedGraph', () => {
     expect(result.spec.edges[0].source).toBe('Node One');
   });
 
+  it('adds no shape/unfold/review side effects with no model configured (parity)', async () => {
+    const result = await createPopulatedGraph(
+      { name: 'Test Graph', nodes: [{ name: 'A' }, { name: 'B' }] },
+      { graphs: [], nodePrototypes: [] },
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+    // With no model, every one-off returns null → identical flat build.
+    expect(result.shape).toBeNull();
+    expect(result.shapeRouting).toBeNull();
+    expect(result.unfoldSummary).toBeNull();
+    expect(result.abstractionOrder).toBeNull();
+    expect(result.structureSuggestions).toEqual([]);
+    expect(result.spec.unfoldPlan).toBeNull();
+  });
+
   it('uses default color for nodes when not provided', async () => {
     const graphState = {
       graphs: [],

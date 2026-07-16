@@ -10,6 +10,8 @@ import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 import { validateEdgesSmart } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
 import { resolveGraphId } from './resolveGraphId.js';
+import { runStructureReview } from './utils/structureReview.js';
+import { newBuildId } from '../../services/oneShot.js';
 
 /**
  * Convert string to Title Case
@@ -146,10 +148,36 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   // Analyze graph quality for LLM feedback
   const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs);
 
+  // Part B — Structure review over the newly-added nodes/edges (free detection;
+  // model pass only on dense candidates, biased to suggest nothing). Surfaced in
+  // the result for the agent to relay; never auto-applied.
+  const buildId = args.buildId || newBuildId();
+  let structureSuggestions = [];
+  try {
+    const reviewNodes = nodeSpecs.map((n) => ({ id: n.name, name: n.name }));
+    const reviewEdges = edgeSpecs.map((e) => ({ sourceId: e.source, destinationId: e.target }));
+    const { suggestions } = await runStructureReview(reviewNodes, reviewEdges, { request: args.request, buildId });
+    structureSuggestions = suggestions.map((s) => ({
+      nodeNames: s.nodeNames,
+      action: s.action,
+      suggestedName: s.name,
+      coherenceCallId: s.coherenceCallId,
+      structureCallId: s.structureCallId,
+      nameCallId: s.nameCallId
+    }));
+  } catch { structureSuggestions = []; }
+
   // Return full spec so UI can apply it directly (same pattern as createPopulatedGraph)
   return {
     action: 'expandGraph',
     graphId, // Can be activeGraphId or targetGraphId
+    buildId,
+    structureSuggestions,
+    structureNote: structureSuggestions.length > 0
+      ? `Found ${structureSuggestions.length} region(s) that could be tightened: ` +
+        structureSuggestions.map((s) => `${s.action} {${s.nodeNames.join(', ')}}${s.suggestedName ? ` as "${s.suggestedName}"` : ''}`).join('; ') +
+        `. Offer these to the user; apply only if they agree.`
+      : null,
     // For ToolCallCard summary (counts)
     nodesAdded: nodeSpecs.map(n => n.name),
     edgesAdded: edgeSpecs,

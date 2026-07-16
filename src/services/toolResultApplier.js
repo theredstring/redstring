@@ -24,6 +24,30 @@ import useGraphStore from '../store/graphStore.js';
 import { resolveGraphId } from '../wizard/tools/resolveGraphId.js';
 import { applyOffscreenLayout } from './offscreenLayout.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
+import { attachOneShotOutcome } from './oneShot.js';
+
+// Part B — structure-review follow-through. The most recent build's group/fold
+// suggestions (with their one-shot callIds) are held here; when the user's next
+// action creates a matching group/fold, we attach an 'accepted' outcome to the
+// suggestion's call so the training log records the follow-through. Suggestions
+// are NEVER auto-applied — this only observes what the user chose to do.
+let __pendingStructureSuggestions = [];
+function noteStructureFollowThrough(groupName, memberNames) {
+  if (!__pendingStructureSuggestions.length) return;
+  const nl = String(groupName || '').toLowerCase().trim();
+  const memberSet = new Set((memberNames || []).map((m) => String(m || '').toLowerCase().trim()));
+  for (let i = 0; i < __pendingStructureSuggestions.length; i++) {
+    const s = __pendingStructureSuggestions[i];
+    const nameMatch = s.suggestedName && String(s.suggestedName).toLowerCase().trim() === nl;
+    const membersMatch = Array.isArray(s.nodeNames) && s.nodeNames.length > 0 &&
+      s.nodeNames.every((n) => memberSet.has(String(n || '').toLowerCase().trim()));
+    if (nameMatch || membersMatch) {
+      if (s.structureCallId) attachOneShotOutcome(s.structureCallId, 'accepted');
+      __pendingStructureSuggestions.splice(i, 1);
+      return;
+    }
+  }
+}
 
 /**
  * Lay out a graph the wizard just mutated.
@@ -250,6 +274,12 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     return;
   }
   const store = useGraphStore.getState();
+
+  // Remember any structure-review suggestions this build surfaced, so a later
+  // matching group/fold can be logged as accepted follow-through.
+  if (Array.isArray(result.structureSuggestions) && result.structureSuggestions.length > 0) {
+    __pendingStructureSuggestions = result.structureSuggestions.slice(0, 10);
+  }
 
   // Set context for the history stream
   if (toolCallId) {
@@ -800,6 +830,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       memberInstanceIds
     });
     console.log('[Wizard] Successfully created group:', result.name, '| members:', memberInstanceIds.length);
+    noteStructureFollowThrough(result.name, result.memberNames);
     return;
   }
 
@@ -1066,6 +1097,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     } else {
       console.log('[Wizard] condenseToNode: Created thing-group:', result.nodeName);
     }
+    noteStructureFollowThrough(result.nodeName, result.memberNames);
     return;
   }
 

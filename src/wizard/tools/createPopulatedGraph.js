@@ -10,6 +10,7 @@ import { classifyGraphShape } from './utils/classifyGraphShape.js';
 import { isEdgelessShape, isAbstractionShape } from './utils/graphShapes.js';
 import { planUnfold } from './utils/unfoldController.js';
 import { orderLadder } from './utils/ladderChain.js';
+import { runStructureReview } from './utils/structureReview.js';
 import { newBuildId } from '../../services/oneShot.js';
 
 /**
@@ -218,6 +219,28 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   // Analyze graph quality for LLM feedback
   const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs);
 
+  // Part B — Structure review. Deterministic cluster detection is free; the model
+  // pass runs only on dense candidates and is strongly biased to suggest nothing.
+  // Suggestions are surfaced in the result for the agent to relay; NEVER applied.
+  let structureSuggestions = [];
+  try {
+    const reviewNodes = nodeSpecs.map((n) => ({ id: n.name, name: n.name }));
+    const reviewEdges = edgeSpecs.map((e) => ({ sourceId: e.source, destinationId: e.target }));
+    const { suggestions } = await runStructureReview(reviewNodes, reviewEdges, {
+      request: args.request || description || name,
+      shape,
+      buildId
+    });
+    structureSuggestions = suggestions.map((s) => ({
+      nodeNames: s.nodeNames,
+      action: s.action,
+      suggestedName: s.name,
+      coherenceCallId: s.coherenceCallId,
+      structureCallId: s.structureCallId,
+      nameCallId: s.nameCallId
+    }));
+  } catch { structureSuggestions = []; }
+
   // Returns full spec so UI can apply it directly
   // Note: nodesAdded/edgesAdded are ARRAYS for ToolCallCard display
   return {
@@ -267,6 +290,14 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
       : null,
     // A2 ladder — the specific→general order the applier wires onto the axis.
     abstractionOrder: shapeRouting === 'abstraction-axis' ? abstractionOrder : null,
+    // Part B — cluster suggestions (group/fold) for the agent to relay. Never
+    // auto-applied; empty on clean builds and with no model.
+    structureSuggestions,
+    structureNote: structureSuggestions.length > 0
+      ? `Found ${structureSuggestions.length} region(s) that could be tightened: ` +
+        structureSuggestions.map((s) => `${s.action} {${s.nodeNames.join(', ')}}${s.suggestedName ? ` as "${s.suggestedName}"` : ''}`).join('; ') +
+        `. Offer these to the user; apply only if they agree (createGroup / condenseToNode).`
+      : null,
     // Include full spec for UI to apply. unfoldPlan / abstractionOrder ride here
     // (stripped from the model payload) so the applier can build them.
     spec: {
