@@ -20,9 +20,11 @@ import {
   oneShotChoice,
   oneShotBoolean,
   oneShotLabel,
+  oneShotList,
   parseChoice,
   parseBoolean,
   parseLabel,
+  parseList,
   optionLabel,
   logOneShotCall,
   attachOneShotOutcome,
@@ -104,6 +106,25 @@ describe('parseLabel', () => {
   });
 });
 
+describe('parseList', () => {
+  it('parses one item per line and strips numbering/bullets/quotes', () => {
+    expect(parseList('1. OK Computer\n2) Kid A\n- Amnesiac\n* "In Rainbows".', 12)).toEqual(
+      ['OK Computer', 'Kid A', 'Amnesiac', 'In Rainbows']
+    );
+  });
+  it('de-duplicates case-insensitively and caps at maxItems', () => {
+    expect(parseList('A\nA\nB\nC\nD', 2)).toEqual(['A', 'B']);
+  });
+  it('drops prose-length lines and returns null when nothing parseable', () => {
+    expect(parseList('a'.repeat(90), 5)).toBeNull();
+    expect(parseList('', 5)).toBeNull();
+    expect(parseList(null, 5)).toBeNull();
+  });
+  it('respects maxWordsPerItem', () => {
+    expect(parseList('Short One\nthis one has quite a lot of extra words', 5, 3)).toEqual(['Short One']);
+  });
+});
+
 describe('optionLabel', () => {
   it('handles strings and objects', () => {
     expect(optionLabel('foo')).toBe('foo');
@@ -124,6 +145,10 @@ describe('graceful fallback with no model', () => {
   });
   it('oneShotLabel returns null', async () => {
     expect(await oneShotLabel({ instruction: 'x' })).toBeNull();
+  });
+  it('oneShotList returns null', async () => {
+    expect(await oneShotList({ instruction: 'x' })).toBeNull();
+    expect(callLLM).not.toHaveBeenCalled();
   });
   it('still logs the (empty) call', async () => {
     await oneShotChoice({ instruction: 'x', options: ['a', 'b'] });
@@ -177,6 +202,18 @@ describe('oneShotBoolean / oneShotLabel with a model', () => {
     callLLM.mockResolvedValue('"directed by"');
     const r = await oneShotLabel({ instruction: 'label', maxWords: 4 });
     expect(r).toMatchObject({ value: 'directed by' });
+  });
+
+  it('list returns parsed items + callId', async () => {
+    callLLM.mockResolvedValue('1. Airbag\n2. Paranoid Android\n3. Exit Music');
+    const r = await oneShotList({ instruction: 'songs', maxItems: 12 });
+    expect(r.items).toEqual(['Airbag', 'Paranoid Android', 'Exit Music']);
+    expect(r.callId).toBeTruthy();
+  });
+
+  it('list returns null (fallback) when the model gives nothing parseable', async () => {
+    callLLM.mockResolvedValue('   ');
+    expect(await oneShotList({ instruction: 'songs' })).toBeNull();
   });
 });
 

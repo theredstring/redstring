@@ -317,6 +317,41 @@ export function parseLabel(raw, maxWords) {
   return s;
 }
 
+/**
+ * Parse a short list of items (one per line). Strips leading numbering / bullets
+ * and wrapping quotes/punctuation from each line. Returns a de-duplicated array
+ * of cleaned strings (at most maxItems), or null if nothing parseable.
+ * @param {string} raw
+ * @param {number} maxItems
+ * @param {number} [maxWordsPerItem]
+ */
+export function parseList(raw, maxItems, maxWordsPerItem) {
+  if (!raw || typeof raw !== 'string') return null;
+  const items = [];
+  const seen = new Set();
+  for (const line of raw.split('\n')) {
+    let s = line.trim();
+    if (!s) continue;
+    // Strip a leading list marker: "1.", "1)", "-", "*", "•".
+    s = s.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, '').trim();
+    // Peel wrapping quotes/markdown and trailing punctuation until stable.
+    let prev;
+    do {
+      prev = s;
+      s = s.replace(/^["'`*_\s]+|["'`*_\s]+$/g, '').trim();
+      s = s.replace(/[.;:]+$/g, '').trim();
+    } while (s !== prev);
+    if (!s || s.length > 80) continue;                 // long line → likely prose
+    if (maxWordsPerItem && s.split(/\s+/).length > maxWordsPerItem) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push(s);
+    if (items.length >= maxItems) break;
+  }
+  return items.length ? items : null;
+}
+
 function previewInput(input, labels) {
   const parts = [];
   if (input) parts.push(String(input).slice(0, 500));
@@ -406,4 +441,40 @@ export async function oneShotLabel({ instruction, input, maxWords = 4, callSite 
   const callId = logOneShotCall({ callSite, buildId, meta, instruction, input, rawResponse: raw, parsedResult: parsed, latencyMs });
   if (parsed === null) return null;
   return { value: parsed, callId };
+}
+
+/**
+ * Ask the model for a short LIST of item names, one per line. Constrained: at
+ * most `maxItems` cleaned strings back, or null (no model / timeout / malformed)
+ * so callers fall back to their existing behavior.
+ * @param {Object} p
+ * @param {string} p.instruction
+ * @param {string} [p.input]
+ * @param {number} [p.maxItems=12]
+ * @param {number} [p.maxWordsPerItem=8]
+ * @returns {Promise<{ items:string[], callId:string } | null>}
+ */
+export async function oneShotList({ instruction, input, maxItems = 12, maxWordsPerItem = 8, callSite = 'oneShotList', timeoutMs, buildId, meta }) {
+  const prompt =
+    `${instruction}\n\n` +
+    (input ? `Input:\n${input}\n\n` : '') +
+    `Answer with at most ${maxItems} items, ONE PER LINE. ` +
+    `Output only the item names — no numbering, no bullets, no commentary. ` +
+    `If you are unsure, output nothing.`;
+
+  // Lists need more room than a label; still bounded to keep small models honest.
+  const { raw, latencyMs } = await rawOneShot({ callSite, prompt, timeoutMs, maxTokens: 256 });
+  const parsed = parseList(raw, maxItems, maxWordsPerItem);
+  const callId = logOneShotCall({
+    callSite,
+    buildId,
+    meta,
+    instruction,
+    input: previewInput(input),
+    rawResponse: raw,
+    parsedResult: parsed ? parsed.join(' | ') : null,
+    latencyMs
+  });
+  if (parsed === null) return null;
+  return { items: parsed, callId };
 }
