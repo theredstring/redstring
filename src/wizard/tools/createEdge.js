@@ -1,5 +1,7 @@
 import { resolveGraphId } from './resolveGraphId.js';
 import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
+import { suggestRelationKind, suggestArrowDirection } from './utils/suggestionCalls.js';
+import { newBuildId } from '../../services/oneShot.js';
 
 /**
  * createEdge - Connect two nodes by name
@@ -93,6 +95,38 @@ export async function createEdge(args, graphState, cid, ensureSchedulerStarted) 
   console.error('[createEdge] Resolved source:', sourceId, '→', resolvedSource.instanceId);
   console.error('[createEdge] Resolved target:', targetId, '→', resolvedTarget.instanceId);
 
+  const buildId = args.buildId || newBuildId();
+
+  // C3 — relation kind. "kind of" is an is-a relation that belongs on the
+  // abstraction axis. We NEVER silently convert the requested edge; we surface a
+  // suggestion alongside it. No model → null → plain edge, as before.
+  let abstractionSuggestion = null;
+  try {
+    const rel = await suggestRelationKind({ sourceName: resolvedSource.name, targetName: resolvedTarget.name, buildId });
+    if (rel && rel.kind === 'kind-of') {
+      abstractionSuggestion = {
+        sourceName: resolvedSource.name,
+        targetName: resolvedTarget.name,
+        note: `"${resolvedSource.name}" may be a KIND of "${resolvedTarget.name}". Consider the abstraction axis (editAbstractionChain) instead of, or in addition to, this connection.`,
+        callId: rel.callId
+      };
+    }
+  } catch { abstractionSuggestion = null; }
+
+  // C4 — arrow direction for a verb-phrase label. Default keeps source→target;
+  // 'reverse' points the arrow back at the source. No model → default.
+  let directionality = 'unidirectional';
+  let arrowSuggested = false;
+  if (type && String(type).trim()) {
+    try {
+      const dir = await suggestArrowDirection({ sourceName: resolvedSource.name, targetName: resolvedTarget.name, label: type, buildId });
+      if (dir) {
+        arrowSuggested = true;
+        directionality = dir.arrowsToward === 'source' ? 'reverse' : 'unidirectional';
+      }
+    } catch { /* keep default */ }
+  }
+
   return {
     action: 'createEdge',
     graphId,
@@ -101,6 +135,11 @@ export async function createEdge(args, graphState, cid, ensureSchedulerStarted) 
     sourceInstanceId: resolvedSource.instanceId,
     targetInstanceId: resolvedTarget.instanceId,
     type: type || '',
+    // C4 direction (applier honors it); C3 abstraction suggestion for the agent.
+    directionality,
+    arrowSuggested,
+    abstractionSuggestion,
+    buildId,
     created: true
   };
 }

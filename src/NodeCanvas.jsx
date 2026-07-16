@@ -42,7 +42,7 @@ import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
 import { applyOffscreenLayout } from './services/offscreenLayout.js';
 import { oneShotLabel, attachOneShotOutcome, isOneShotAvailable } from './services/oneShot.js';
-import { suggestAbstractionName } from './wizard/tools/utils/suggestionCalls.js';
+import { suggestAbstractionName, suggestArrowDirection } from './wizard/tools/utils/suggestionCalls.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS, buildChildGroupIdsIndex } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
 import { debugLogSync } from './utils/debugLogger.js';
@@ -3206,6 +3206,42 @@ function NodeCanvas() {
     const sug = (s.suggestion || '').trim().toLowerCase();
     attachOneShotOutcome(s.callId, f && f === sug ? 'accepted' : 'edited');
   }, []);
+
+  // C4 — one-shot arrow direction. When the user confirms a verb-phrase
+  // connection label, ask the model (in the background) which way the arrow
+  // should point and pre-set it — but ONLY if the edge has no direction yet, and
+  // re-check inside the store write so a late suggestion never overrides a
+  // direction the user set in the meantime. No model → nothing happens.
+  const suggestEdgeArrowDirection = useCallback((edgeId, label) => {
+    if (!edgeId || !label || !label.trim()) return;
+    (async () => {
+      try {
+        if (!(await isOneShotAvailable())) return;
+        const edge = edgesMap.get(edgeId);
+        if (!edge) return;
+        // User already set a direction → leave it alone.
+        if (edge.directionality?.arrowsToward && edge.directionality.arrowsToward.size > 0) return;
+        const sourceInstId = edge.sourceId;
+        const targetInstId = edge.destinationId || edge.targetId;
+        const sourceName = nodeById.get(sourceInstId)?.name || '';
+        const targetName = nodeById.get(targetInstId)?.name || '';
+        if (!sourceName || !targetName) return;
+
+        const dir = await suggestArrowDirection({ sourceName, targetName, label: label.trim(), timeoutMs: 4000 });
+        if (!dir) return;
+        const towardId = dir.arrowsToward === 'source' ? sourceInstId : targetInstId;
+        storeActions.updateEdge(edgeId, (draft) => {
+          if (!draft.directionality) draft.directionality = { arrowsToward: new Set() };
+          if (!draft.directionality.arrowsToward) draft.directionality.arrowsToward = new Set();
+          // User input always wins: never override a direction already set.
+          if (draft.directionality.arrowsToward.size > 0) return;
+          draft.directionality.arrowsToward = new Set([towardId]);
+        });
+      } catch {
+        // Never disrupt connection creation.
+      }
+    })();
+  }, [edgesMap, nodeById, storeActions]);
 
   // One-shot edge-label suggestion: when the connection prompt opens on an
   // untouched field, ask the configured model (in the background) for a short
@@ -15220,6 +15256,7 @@ function NodeCanvas() {
                       storeActions.addNodePrototype({ id: newConnectionNodeId, name: name.trim(), description: '', picture: null, color: color || NODE_DEFAULT_COLOR, typeNodeId: null, definitionGraphIds: [] });
                       if (connectionNamePrompt.edgeId) {
                         storeActions.updateEdge(connectionNamePrompt.edgeId, (draft) => { draft.definitionNodeIds = [newConnectionNodeId]; });
+                        suggestEdgeArrowDirection(connectionNamePrompt.edgeId, name.trim());
                       }
                       setConnectionNamePrompt({ visible: false, name: '', color: null, edgeId: null });
                       setDialogColorPickerVisible(false);
@@ -15229,6 +15266,7 @@ function NodeCanvas() {
                     finalizeConnectionSuggestion(node?.name);
                     if (connectionNamePrompt.edgeId) {
                       storeActions.updateEdge(connectionNamePrompt.edgeId, (draft) => { draft.definitionNodeIds = [node.id]; });
+                      suggestEdgeArrowDirection(connectionNamePrompt.edgeId, node?.name);
                     }
                     setConnectionNamePrompt({ visible: false, name: '', color: null, edgeId: null });
                     setDialogColorPickerVisible(false);

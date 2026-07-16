@@ -428,7 +428,9 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         source: result.sourceName,
         target: result.targetName,
         type: result.type || 'relates to',
-        directionality: 'unidirectional',
+        // C4 — honor the suggested arrow direction ('reverse' points at source);
+        // defaults to source→target when no suggestion was made.
+        directionality: result.directionality || 'unidirectional',
         definitionNode: result.type ? { name: result.type, color: generateConnectionColor(result.type) } : null
       }]
     });

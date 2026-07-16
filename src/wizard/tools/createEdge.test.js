@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createEdge } from './createEdge.js';
 import queueManager from '../../services/queue/Queue.js';
+import { suggestRelationKind, suggestArrowDirection } from './utils/suggestionCalls.js';
 
 vi.mock('../../services/queue/Queue.js', () => ({
   default: {
@@ -12,6 +13,12 @@ vi.mock('../../services/queue/Queue.js', () => ({
     dequeue: vi.fn(),
     getQueue: vi.fn(() => ({ items: [], inflight: new Map(), byId: new Map() }))
   }
+}));
+
+// C3/C4 helpers mocked so no model is hit; default (undefined) → plain edge.
+vi.mock('./utils/suggestionCalls.js', () => ({
+  suggestRelationKind: vi.fn(),
+  suggestArrowDirection: vi.fn()
 }));
 
 const makeGraphState = () => ({
@@ -102,5 +109,58 @@ describe('createEdge', () => {
     await expect(
       createEdge({ sourceId: 'inst-1', targetId: 'inst-2' }, { graphs: [], nodePrototypes: [] }, mockCid, mockEnsureSchedulerStarted)
     ).rejects.toThrow('No target graph specified and no active graph available');
+  });
+
+  describe('C3/C4 suggestions', () => {
+    it('defaults to a plain unidirectional edge with no model', async () => {
+      const result = await createEdge(
+        { sourceId: 'Node A', targetId: 'Node B', type: 'connects' },
+        makeGraphState(), mockCid, mockEnsureSchedulerStarted
+      );
+      expect(result.directionality).toBe('unidirectional');
+      expect(result.arrowSuggested).toBe(false);
+      expect(result.abstractionSuggestion).toBeNull();
+      expect(result.created).toBe(true);
+    });
+
+    it('surfaces an abstraction suggestion for a kind-of relation, still creating the edge', async () => {
+      suggestRelationKind.mockResolvedValue({ kind: 'kind-of', callId: 'r' });
+      const result = await createEdge(
+        { sourceId: 'Node A', targetId: 'Node B', type: 'is a' },
+        makeGraphState(), mockCid, mockEnsureSchedulerStarted
+      );
+      expect(result.abstractionSuggestion).toMatchObject({ sourceName: 'Node A', targetName: 'Node B' });
+      expect(result.abstractionSuggestion.note).toMatch(/KIND of/);
+      expect(result.created).toBe(true); // edge is NOT silently dropped/converted
+      expect(result.type).toBe('is a');
+    });
+
+    it('reverses the arrow when the label points at the source', async () => {
+      suggestArrowDirection.mockResolvedValue({ arrowsToward: 'source', callId: 'a' });
+      const result = await createEdge(
+        { sourceId: 'Node A', targetId: 'Node B', type: 'made by' },
+        makeGraphState(), mockCid, mockEnsureSchedulerStarted
+      );
+      expect(result.directionality).toBe('reverse');
+      expect(result.arrowSuggested).toBe(true);
+    });
+
+    it('keeps unidirectional when the label points at the target', async () => {
+      suggestArrowDirection.mockResolvedValue({ arrowsToward: 'target', callId: 'a' });
+      const result = await createEdge(
+        { sourceId: 'Node A', targetId: 'Node B', type: 'directed' },
+        makeGraphState(), mockCid, mockEnsureSchedulerStarted
+      );
+      expect(result.directionality).toBe('unidirectional');
+      expect(result.arrowSuggested).toBe(true);
+    });
+
+    it('does not call arrow direction when there is no label', async () => {
+      await createEdge(
+        { sourceId: 'Node A', targetId: 'Node B' },
+        makeGraphState(), mockCid, mockEnsureSchedulerStarted
+      );
+      expect(suggestArrowDirection).not.toHaveBeenCalled();
+    });
   });
 });
