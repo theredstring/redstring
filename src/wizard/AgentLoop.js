@@ -11,6 +11,7 @@ import { buildContext, buildPersistentContextHeader, buildPlanContext, truncateC
 import { executeTool, getToolDefinitions } from './tools/index.js';
 import { selectToolsForTurn } from './tools/schemas.js';
 import { WIZARD_SYSTEM_PROMPT, SMALL_MODEL_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
+import { parseTextToolCalls } from './utils/parseTextToolCalls.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 
 // Safe for both ESM and CJS (esbuild bundle) contexts
@@ -867,6 +868,12 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       let yieldedChars = 0;
       const emittedToolStarts = new Set();  // Deduplicate tool_call_start events
 
+      // Small/local models sometimes write tool calls as prose (Task 5). For those,
+      // buffer the response text instead of streaming it live so the salvaged call
+      // spans can be stripped before anything renders as chat. Big/cloud models stream
+      // normally (they rarely produce the pattern) — their behavior is untouched.
+      const deferSalvageText = modelTier === 'small';
+
       let iterationHasYieldedText = false;
       // State for parsing <think>...</think> blocks emitted by local reasoning models
       // (Qwen, DeepSeek-R1 distills, etc. wrap their chain-of-thought in these tags)
@@ -914,11 +921,11 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
               if (openIdx >= 0) {
                 const before = remaining.slice(0, openIdx);
                 if (before) {
-                  if (yieldedAnyText && !iterationHasYieldedText) yield { type: 'response', content: '\n\n' };
+                  if (!deferSalvageText && yieldedAnyText && !iterationHasYieldedText) yield { type: 'response', content: '\n\n' };
                   iterationContent += before;
                   iterationHasYieldedText = true;
                   yieldedAnyText = true;
-                  yield { type: 'response', content: before };
+                  if (!deferSalvageText) yield { type: 'response', content: before };
                 }
                 inThinkTag = true;
                 remaining = remaining.slice(openIdx + '<think>'.length);
@@ -931,12 +938,14 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
                 }
                 const text = keep > 0 ? remaining.slice(0, remaining.length - keep) : remaining;
                 if (text) {
-                  if (yieldedAnyText && !iterationHasYieldedText) yield { type: 'response', content: '\n\n' };
+                  if (!deferSalvageText && yieldedAnyText && !iterationHasYieldedText) yield { type: 'response', content: '\n\n' };
                   iterationContent += text;
                   iterationHasYieldedText = true;
                   yieldedAnyText = true;
-                  console.error('[AgentLoop] Yielding text chunk:', JSON.stringify(text));
-                  yield { type: 'response', content: text };
+                  if (!deferSalvageText) {
+                    console.error('[AgentLoop] Yielding text chunk:', JSON.stringify(text));
+                    yield { type: 'response', content: text };
+                  }
                 }
                 if (keep > 0) tagBuf = remaining.slice(remaining.length - keep);
                 remaining = '';
@@ -958,6 +967,44 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           console.error('[AgentLoop] Yielding tool_call (final):', chunk.name);
           yield chunk;
         }
+      }
+
+      // Text tool-call salvage (Task 5): if the model produced NO native tool_calls but
+      // wrote one or more calls as prose, recover them and feed them through the normal
+      // dispatch path below. Only names offered this turn are accepted. This is harmless
+      // for big models (they rarely produce the pattern) and is the primary path for small
+      // local models that can't reliably emit native tool_calls.
+      if (iterationToolCalls.length === 0) {
+        const availableNames = new Set(tools.map(t => t.name));
+        const { calls: salvaged, remainingText } = parseTextToolCalls(iterationContent, availableNames);
+        if (salvaged.length > 0) {
+          console.error(`[AgentLoop] Salvaged ${salvaged.length} text tool-call(s) from prose:`, salvaged.map(c => c.name).join(', '));
+          iterationToolCalls = salvaged.map((c, idx) => ({
+            type: 'tool_call',
+            name: c.name,
+            args: c.arguments,
+            id: `salvaged-${iteration}-${idx}`
+          }));
+          // The matched call spans are stripped from what becomes the assistant's
+          // recorded content so the pseudo-calls don't linger in history as prose.
+          iterationContent = remainingText;
+          // Surface the recovered calls to the UI in written order.
+          for (const tc of iterationToolCalls) {
+            yield { type: 'tool_call_start', id: tc.id, name: tc.name };
+            yield { type: 'tool_call', name: tc.name, args: tc.args, id: tc.id };
+          }
+          // Render only the leftover prose (if any) for deferred small-tier text.
+          if (deferSalvageText && remainingText.trim()) {
+            yield { type: 'response', content: remainingText };
+          }
+        } else if (deferSalvageText && iterationContent.trim()) {
+          // No salvage — flush the prose we withheld during streaming.
+          yield { type: 'response', content: iterationContent };
+        }
+      } else if (deferSalvageText && iterationContent.trim()) {
+        // Native tool calls arrived alongside buffered text (rare for small models) —
+        // flush the prose that was withheld during streaming.
+        yield { type: 'response', content: iterationContent };
       }
 
       const planStatus = graphState._currentPlan

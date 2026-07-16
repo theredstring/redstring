@@ -193,3 +193,50 @@ describe('AgentLoop Plan-Churn Detection & Cap', () => {
     expect(nodeResults.length).toBeGreaterThan(3);
   });
 });
+
+describe('AgentLoop Text Tool-Call Salvage', () => {
+  const mockGraphState = {
+    activeGraphId: 'graph-1',
+    graphs: [{ id: 'graph-1', name: 'Test Graph' }],
+    nodePrototypes: []
+  };
+  const mockConfig = { provider: 'openrouter', apiKey: 'test-key', maxIterations: 6 };
+  const mockEnsureSchedulerStarted = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('dispatches a prose tool call when the model produces no native tool_calls', async () => {
+    let iteration = 0;
+    streamLLM.mockImplementation(async function* () {
+      if (iteration === 0) {
+        // Text-register tool call — no native tool_call event
+        yield { type: 'text', content: 'createGraph({"name": "GTA San Andreas Locations", "color": "sunset"})' };
+      } else {
+        yield { type: 'text', content: 'Done.' };
+      }
+      iteration++;
+    });
+    executeTool.mockImplementation(async (name, args) => ({ action: name, graphId: 'g-new', graphName: args?.name }));
+
+    const events = [];
+    for await (const event of runAgent('map GTA locations', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
+      events.push(event);
+      if (events.length > 50) break;
+    }
+
+    const toolCalls = events.filter(e => e.type === 'tool_call');
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0].name).toBe('createGraph');
+    expect(toolCalls[0].args).toEqual({ name: 'GTA San Andreas Locations', color: 'sunset' });
+
+    const toolResults = events.filter(e => e.type === 'tool_result' && e.name === 'createGraph');
+    expect(toolResults).toHaveLength(1);
+
+    // Terminates on its own (no infinite loop)
+    const doneEvent = events.find(e => e.type === 'done');
+    expect(doneEvent).toBeDefined();
+    expect(doneEvent.reason).not.toBe('max_iterations');
+  });
+});
