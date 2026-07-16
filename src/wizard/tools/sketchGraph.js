@@ -108,10 +108,10 @@ export async function sketchGraph(args) {
   const { name, nodes = [], edges = [], groups = [], palette } = args;
 
   if (!name) {
-    throw new Error('name is required — what graph/node is this sketch for?');
+    throw new Error('name is required — what graph/node is this sketch for? Example: sketchGraph({"name": "GTA Locations", "nodes": ["Los Santos", "San Fierro"]})');
   }
   if (!nodes || nodes.length === 0) {
-    throw new Error('At least one node is required in the sketch');
+    throw new Error('At least one node is required in the sketch. Example: sketchGraph({"name": "GTA Locations", "nodes": ["Los Santos", "San Fierro"]})');
   }
 
   // Parse shorthand into structured data

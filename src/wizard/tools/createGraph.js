@@ -11,7 +11,7 @@ import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 export async function createGraph(args, graphState, cid, ensureSchedulerStarted) {
   const { name, description = '', color, palette } = args;
   if (!name) {
-    throw new Error('name is required');
+    throw new Error('name is required. Example: createGraph({"name": "GTA San Andreas Locations"})');
   }
 
   const graphId = `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

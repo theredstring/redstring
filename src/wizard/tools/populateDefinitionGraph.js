@@ -88,10 +88,10 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
     const { nodeName, nodes = [], edges = [], groups = [], palette, enrich, overwriteDescription } = args;
 
     if (!nodeName) {
-        throw new Error('nodeName is required');
+        throw new Error('nodeName is required. Example: populateDefinitionGraph({"nodeName": "Los Santos", "nodes": "[{\\"name\\": \\"Grove Street\\"}]"})');
     }
     if ((!nodes || nodes.length === 0) && (!edges || edges.length === 0)) {
-        throw new Error('At least one node or edge is required to populate the definition graph');
+        throw new Error('At least one node or edge is required to populate the definition graph. Example: populateDefinitionGraph({"nodeName": "Los Santos", "nodes": "[{\\"name\\": \\"Grove Street\\"}]"})');
     }
 
     const { nodePrototypes = [] } = graphState;

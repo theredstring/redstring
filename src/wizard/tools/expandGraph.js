@@ -47,7 +47,7 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   const { nodes = [], edges = [], groups = [], targetGraphId, palette, enrich, overwriteDescription } = args;
 
   if ((!nodes || nodes.length === 0) && (!edges || edges.length === 0)) {
-    throw new Error('At least one node or edge is required');
+    throw new Error('At least one node or edge is required. Example: expandGraph({"nodes": "[{\\"name\\": \\"Los Santos\\"}]"})');
   }
 
   const { activeGraphId } = graphState;

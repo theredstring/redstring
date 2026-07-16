@@ -52,11 +52,11 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   console.error('[createPopulatedGraph] - edges detail:', JSON.stringify(edges));
 
   if (!name && !targetGraphId) {
-    throw new Error('Graph name is required when creating a new graph');
+    throw new Error('Graph name is required when creating a new graph. Example: createPopulatedGraph({"name": "GTA Locations", "nodes": "[{\\"name\\": \\"Los Santos\\"}]"})');
   }
 
   if (!nodes || nodes.length === 0) {
-    throw new Error('At least one node is required');
+    throw new Error('At least one node is required. Example: createPopulatedGraph({"name": "GTA Locations", "nodes": "[{\\"name\\": \\"Los Santos\\"}]"})');
   }
 
   // Generate a graph ID for the new graph or use targetGraphId
