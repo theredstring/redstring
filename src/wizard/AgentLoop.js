@@ -664,6 +664,20 @@ function updateGraphState(graphState, _toolName, _args, result) {
 const DEFAULT_MAX_ITERATIONS = 77;
 
 /**
+ * Tools that do NOT mutate graph data (planning, reads, meta). Used by the
+ * plan-churn detector to tell "planTask ran but nothing was actually built"
+ * apart from real progress. Everything not in this set is treated as mutating
+ * (createNode/createEdge/createGraph/expandGraph/populateDefinitionGraph/… ).
+ */
+const NON_MUTATING_TOOLS = new Set([
+  'planTask', 'sketchGraph', 'readGraph', 'search', 'selectNode', 'getNodeContext',
+  'inspectPrototype', 'inspectWorkspace', 'listTools', 'askMultipleChoice'
+]);
+
+/** Max planTask calls permitted per user turn (hard cap, all tiers). */
+const MAX_PLANTASK_CALLS = 3;
+
+/**
  * Sanitize tool results before sending to LLM conversation history.
  * Strips UI-only data (spec field, verbose arrays) to save tokens.
  * The original result is still yielded to the UI and used by updateGraphState.
@@ -795,6 +809,13 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   // Loop detection: track tool call signatures per iteration to detect cycles
   const iterationSignatures = [];
+  // Plan-churn detection & cap (all tiers). The exact-repeat detector can't see this
+  // because the plan text mutates on every planTask call. We track iterations where
+  // planTask fired but NO mutating tool ran, and lock planTask after 2 in a row. A
+  // separate hard cap limits planTask to MAX_PLANTASK_CALLS per turn regardless of pattern.
+  let consecutivePlanOnlyIterations = 0;
+  let planTaskLocked = false;
+  let planTaskCallCount = 0;
   // Track consecutive text-only nudges to prevent infinite nudge loops
   let consecutiveNudges = 0;
   const MAX_CONSECUTIVE_NUDGES = 3;
@@ -834,7 +855,12 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       const userMessageText = typeof userMessage === 'string'
         ? userMessage
         : (Array.isArray(userMessage) ? userMessage.filter(b => b.type === 'text').map(b => b.text).join(' ') : '');
-      const tools = selectToolsForTurn({ graphState, userMessage: userMessageText, hasTabularData, modelTier });
+      let tools = selectToolsForTurn({ graphState, userMessage: userMessageText, hasTabularData, modelTier });
+      // Once plan-churn is detected, strip planTask for the rest of the turn so the model
+      // is forced to execute rather than re-plan.
+      if (planTaskLocked) {
+        tools = tools.filter(t => t.name !== 'planTask');
+      }
 
       // Stream LLM response for this iteration
       // Track what we've yielded to prevent duplicates
@@ -1026,7 +1052,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           console.error(`[AgentLoop] ⚠️ Model returned text-only but plan is incomplete (${doneCount}/${plan.length} done). Nudge ${consecutiveNudges}/${MAX_CONSECUTIVE_NUDGES}.`);
           const availableToolList = modelTier === 'small'
             ? '- sketchGraph — plan structure before building (required before expandGraph/populateDefinitionGraph)\n- expandGraph — add 2-3 nodes or edges to the current graph\n- populateDefinitionGraph — go inside an existing node to define what it is made of'
-            : '- sketchGraph — plan graph structure before building (call this first, then createPopulatedGraph)\n- createPopulatedGraph — build a new graph with nodes and edges\n- expandGraph — add nodes or edges to an existing graph\n- populateDefinitionGraph — define the internals of a node\n- planTask — update a step\'s status to \'done\' once you\'ve finished it';
+            : ('- sketchGraph — plan graph structure before building (call this first, then createPopulatedGraph)\n- createPopulatedGraph — build a new graph with nodes and edges\n- expandGraph — add nodes or edges to an existing graph\n- populateDefinitionGraph — define the internals of a node'
+               // Don't advertise planTask once it's been locked out for churn.
+               + (planTaskLocked ? '' : '\n- planTask — update a step\'s status to \'done\' once you\'ve finished it'));
           messages.push({
             role: 'user',
             content: `Your plan is NOT complete (${doneCount}/${plan.length} steps done). These steps still need work:\n${stepList}\n\nYou MUST call a tool right now — do NOT write a text-only response. Call one of these immediately:\n${availableToolList}\n\nStart with the first incomplete step. Call the tool — do not announce it first, do not explain — just call it.`
@@ -1067,6 +1095,24 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // Execute tools sequentially
       for (const toolCall of iterationToolCalls) {
         if (abortSignal?.aborted) break;
+
+        // Hard cap / lock for planTask: once locked (churn) or over the per-turn cap,
+        // return a locked result WITHOUT modifying the stored plan, then move on.
+        if (toolCall.name === 'planTask') {
+          if (planTaskLocked || planTaskCallCount >= MAX_PLANTASK_CALLS) {
+            console.error(`[AgentLoop] planTask blocked (locked=${planTaskLocked}, count=${planTaskCallCount}/${MAX_PLANTASK_CALLS}). Returning locked result.`);
+            const lockedResult = { locked: true, message: 'Plan locked — execute the next incomplete step' };
+            yield { type: 'tool_result', name: toolCall.name, result: lockedResult, id: toolCall.id };
+            messages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify(lockedResult)
+            });
+            continue;
+          }
+          planTaskCallCount++;
+        }
+
         try {
           console.error('[AgentLoop] Executing tool:', toolCall.name);
 
@@ -1153,6 +1199,27 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             role: 'user',
             content: 'All plan steps are done. Respond to the user now with one sentence summarizing what you built. Do NOT call any more tools.'
           });
+        }
+      }
+
+      // Plan-churn detection (all tiers): planTask fired this iteration but nothing
+      // mutating did. Two such iterations in a row = the model is re-planning instead
+      // of acting — lock planTask for the rest of the turn and tell it to execute.
+      {
+        const calledPlanTaskThisIter = iterationToolCalls.some(tc => tc.name === 'planTask');
+        const ranMutatingThisIter = iterationToolCalls.some(tc => !NON_MUTATING_TOOLS.has(tc.name));
+        if (calledPlanTaskThisIter && !ranMutatingThisIter) {
+          consecutivePlanOnlyIterations++;
+          if (consecutivePlanOnlyIterations >= 2 && !planTaskLocked) {
+            planTaskLocked = true;
+            console.error(`[AgentLoop] ⚠️ Plan churn detected (${consecutivePlanOnlyIterations} consecutive planTask-only iterations). Locking planTask for the rest of the turn.`);
+            messages.push({
+              role: 'user',
+              content: 'Plan updates are locked. Execute the next incomplete step by calling an action tool.'
+            });
+          }
+        } else {
+          consecutivePlanOnlyIterations = 0;
         }
       }
 
