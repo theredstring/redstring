@@ -19,7 +19,8 @@ export const RENDERER_PRESETS = {
     interactive: true,
     showHoverEffects: true,
     showConnectionDots: true,
-    alignNodesHorizontally: true
+    alignNodesHorizontally: true,
+    connectionStrokeScale: 0.85 // Slightly thinner connection line for panel/preview representations
   },
 
   // For connection browser list items (compact triplets in right panel)

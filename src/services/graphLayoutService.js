@@ -444,11 +444,11 @@ function calculateSpring(pos1, pos2, targetDist, strength) {
  * Edge labels are rendered bold with a stroke outline, so we use a wider
  * character width factor (0.7) than the normal-weight estimate (0.55).
  * Adds a flat buffer for the stroke outline that extends beyond glyph bounds.
- * fontSize defaults to 54 — the canvas base connectionFontSize. Callers
- * should pass the resolved size (54 × textSettings.fontSize ×
+ * fontSize defaults to 59.4 — the canvas base connectionFontSize. Callers
+ * should pass the resolved size (59.4 × textSettings.fontSize ×
  * connectionLabelSize) so layout reserves the space labels actually occupy.
  */
-export function estimateEdgeLabelWidth(text, fontSize = 54) {
+export function estimateEdgeLabelWidth(text, fontSize = 59.4) {
   if (!text) return 0;
   // 0.7 accounts for fontWeight="bold" on edge labels
   const avgCharWidth = fontSize * 0.7;
@@ -544,9 +544,9 @@ export const FORCE_LAYOUT_DEFAULTS = {
   edgeLabelPadding: 60,           // total horizontal padding for edge label minimum (30px per side)
   edgeLabelClearancePadding: 30,  // extra gap between midpoints of different labeled edges
   // Base font used to reserve space for edge labels. MUST track the canvas
-  // renderer (NodeCanvas draws labels at 54 × textSettings.fontSize ×
+  // renderer (NodeCanvas draws labels at 59.4 × textSettings.fontSize ×
   // connectionLabelSize); callers pass the resolved size via options.
-  edgeLabelFontSize: 54,
+  edgeLabelFontSize: 59.4,
 
   // Advanced forces
   enableEdgeRepulsion: true, // Triplet repulsion
@@ -2291,7 +2291,7 @@ function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius
  * When nodeGroupsMap is provided, cross-group edges use weaker correction
  * and a larger minimum target to prevent undoing group separation.
  */
-function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDistance, passes, stiffness = 0.5, nodeGroupsMap = null, minGroupDistance = 0, edgeLabelFontSize = 54) {
+function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDistance, passes, stiffness = 0.5, nodeGroupsMap = null, minGroupDistance = 0, edgeLabelFontSize = 59.4) {
   for (let pass = 0; pass < passes; pass++) {
     edges.forEach(edge => {
       const p1 = positions.get(edge.sourceId);

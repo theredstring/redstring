@@ -29,10 +29,10 @@ export function useForceSimulation({
   onLayoutScaleMultiplierChange,
   onLayoutIterationPresetChange,
   onLayoutScalePresetChange,
-  // Resolved connection label font (54 × textSettings.fontSize ×
+  // Resolved connection label font (59.4 × textSettings.fontSize ×
   // connectionLabelSize) so labeled edges reserve the space the canvas
   // actually renders
-  connectionFontSize = 54,
+  connectionFontSize = 59.4,
 }) {
   // --- Defaults ---
   const {

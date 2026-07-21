@@ -63,8 +63,8 @@ export function applyOffscreenLayout(graphId) {
   const groups = Array.from(graph.groups?.values() || []);
 
   // Resolve the real rendered label font so labeled edges reserve the space
-  // the canvas actually draws (NodeCanvas base 54 × user text settings)
-  const edgeLabelFontSize = 54
+  // the canvas actually draws (NodeCanvas base 59.4 × user text settings)
+  const edgeLabelFontSize = 59.4
     * (st.textSettings?.fontSize || 1)
     * (st.connectionLabelSize ?? 1.0);
 

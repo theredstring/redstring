@@ -3,7 +3,7 @@ import CanvasModal from './CanvasModal';
 import MaroonSlider from './MaroonSlider.jsx';
 import useGraphStore from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
-import { Monitor, Grid3x3, Cable, Keyboard, Type, Brain, Info } from 'lucide-react';
+import { Monitor, Grid3x3, Cable, Keyboard, Scaling, PanelBottom, Brain, Info } from 'lucide-react';
 import AISection from './settings/AISection.jsx';
 import './SettingsModal.css';
 
@@ -111,10 +111,11 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const sectionIcons = {
     ai: <Brain size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     display: <Monitor size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
+    size: <Scaling size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
+    panels: <PanelBottom size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     grid: <Grid3x3 size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     connections: <Cable size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     keyboard: <Keyboard size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
-    text: <Type size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     about: <Info size={16} style={{ minWidth: '16px', flexShrink: 0 }} />
   };
 
@@ -143,7 +144,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={() => useGraphStore.getState().toggleShowEdgeGlowIndicators?.()}
             />
           </div>
-          <div className="settings-row">
+          <div className="settings-row settings-row--attached">
             <div className="settings-row-label">
               Hover Preview
               <div className="settings-row-description">Show a preview of the hovered Thing when hovering inside an expanded Thing's network.</div>
@@ -165,7 +166,14 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={(v) => useGraphStore.getState().setHoverPreviewSize?.(v)}
             />
           </div>
-          <div className="settings-section-subtitle">Size</div>
+        </div>
+      )
+    },
+    size: {
+      title: 'Size',
+      content: (
+        <div>
+          <div className="settings-section-subtitle">Nodes &amp; Menus</div>
           <div className="settings-slider-row">
             <MaroonSlider
               label="Node Size"
@@ -199,7 +207,66 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={(v) => useGraphStore.getState().setPieMenuScale?.(v)}
             />
           </div>
-          <div className="settings-section-subtitle">Control Panels</div>
+
+          <hr className="settings-section-divider" />
+
+          <div className="settings-section-subtitle">Text</div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Font Size"
+              value={textSettings?.fontSize ?? 1.0}
+              min={0.7}
+              max={2.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setTextFontSize?.(v)}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Line Spacing"
+              value={textSettings?.lineSpacing ?? 0.85}
+              min={0.7}
+              max={2.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setTextLineSpacing?.(v)}
+            />
+          </div>
+
+          <hr className="settings-section-divider" />
+
+          <div className="settings-section-subtitle">Connections</div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Label Size"
+              value={connectionLabelSize}
+              min={0.5}
+              max={2.0}
+              step={0.05}
+              suffix="x"
+              disabled={!showConnectionNames}
+              onChange={(v) => useGraphStore.getState().setConnectionLabelSize?.(v)}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Connection Width"
+              value={textSettings?.connectionWidth ?? 1.0}
+              min={0.25}
+              max={4.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setConnectionWidth?.(v)}
+            />
+          </div>
+        </div>
+      )
+    },
+    panels: {
+      title: 'Panels',
+      content: (
+        <div>
           <div className="settings-row">
             <div className="settings-row-label">
               Thing Panel
@@ -250,6 +317,112 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={() => useGraphStore.getState().toggleShowAbstractionControlPanel?.()}
             />
           </div>
+        </div>
+      )
+    },
+    grid: {
+      title: 'Grid',
+      content: (
+        <div>
+          <div className="settings-row">
+            <div className="settings-row-label">Grid Mode</div>
+            <OptionGroup
+              options={[
+                { label: 'Off', value: 'off' },
+                { label: 'On Move', value: 'hover' },
+                { label: 'Always', value: 'always' }
+              ]}
+              value={gridMode || 'off'}
+              onChange={(v) => useGraphStore.getState().setGridMode?.(v)}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Grid Size"
+              value={gridSize || 200}
+              min={20}
+              max={400}
+              step={5}
+              suffix="px"
+              onChange={(v) => useGraphStore.getState().setGridSize?.(v)}
+            />
+          </div>
+        </div>
+      )
+    },
+    connections: {
+      title: 'Connections',
+      content: (
+        <div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Show Connection Names
+              <div className="settings-row-description">Display labels on connections</div>
+            </div>
+            <Toggle
+              checked={!!showConnectionNames}
+              onChange={() => useGraphStore.getState().toggleShowConnectionNames?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Label Size"
+              value={connectionLabelSize}
+              min={0.5}
+              max={2.0}
+              step={0.05}
+              suffix="x"
+              disabled={!showConnectionNames}
+              onChange={(v) => useGraphStore.getState().setConnectionLabelSize?.(v)}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Connection Width"
+              value={textSettings?.connectionWidth ?? 1.0}
+              min={0.25}
+              max={4.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setConnectionWidth?.(v)}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Multi Connection Curve"
+              value={multiConnectionCurve}
+              min={0}
+              max={3.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setMultiConnectionCurve?.(v)}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">Routing Style</div>
+            <OptionGroup
+              options={[
+                { label: 'Straight', value: 'straight' },
+                { label: 'Manhattan', value: 'manhattan' },
+                { label: 'Clean', value: 'clean' }
+              ]}
+              value={routingStyle || 'straight'}
+              onChange={(v) => useGraphStore.getState().setRoutingStyle?.(v)}
+            />
+          </div>
+          {routingStyle === 'clean' && (
+            <div className="settings-slider-row">
+              <MaroonSlider
+                label="Connection Spacing"
+                value={cleanLaneSpacing || 200}
+                min={100}
+                max={400}
+                step={10}
+                suffix="px"
+                onChange={(v) => useGraphStore.getState().setCleanLaneSpacing?.(v)}
+              />
+            </div>
+          )}
         </div>
       )
     },
@@ -362,6 +535,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={() => useGraphStore.getState().toggleMiddleMouseZoom?.()}
             />
           </div>
+          <hr className="settings-section-divider" />
+
           <div className="settings-section-subtitle">Keyboard</div>
           <div className="settings-slider-row">
             <MaroonSlider
@@ -443,152 +618,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={(v) => useGraphStore.getState().setDragZoomAmount?.(v)}
               disabled={!dragZoomEnabled}
               suffix=""
-            />
-          </div>
-        </div>
-      )
-    },
-    grid: {
-      title: 'Grid',
-      content: (
-        <div>
-          <div className="settings-row">
-            <div className="settings-row-label">Grid Mode</div>
-            <OptionGroup
-              options={[
-                { label: 'Off', value: 'off' },
-                { label: 'On Move', value: 'hover' },
-                { label: 'Always', value: 'always' }
-              ]}
-              value={gridMode || 'off'}
-              onChange={(v) => useGraphStore.getState().setGridMode?.(v)}
-            />
-          </div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Grid Size"
-              value={gridSize || 200}
-              min={20}
-              max={400}
-              step={5}
-              suffix="px"
-              onChange={(v) => useGraphStore.getState().setGridSize?.(v)}
-            />
-          </div>
-        </div>
-      )
-    },
-    connections: {
-      title: 'Connections',
-      content: (
-        <div>
-          <div className="settings-row">
-            <div className="settings-row-label">
-              Show Connection Names
-              <div className="settings-row-description">Display labels on connections</div>
-            </div>
-            <Toggle
-              checked={!!showConnectionNames}
-              onChange={() => useGraphStore.getState().toggleShowConnectionNames?.()}
-            />
-          </div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Label Size"
-              value={connectionLabelSize}
-              min={0.5}
-              max={2.0}
-              step={0.05}
-              suffix="x"
-              disabled={!showConnectionNames}
-              onChange={(v) => useGraphStore.getState().setConnectionLabelSize?.(v)}
-            />
-          </div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Connection Width"
-              value={textSettings?.connectionWidth ?? 1.0}
-              min={0.25}
-              max={4.0}
-              step={0.05}
-              suffix="x"
-              onChange={(v) => useGraphStore.getState().setConnectionWidth?.(v)}
-            />
-          </div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Multi Connection Curve"
-              value={multiConnectionCurve}
-              min={0}
-              max={3.0}
-              step={0.05}
-              suffix="x"
-              onChange={(v) => useGraphStore.getState().setMultiConnectionCurve?.(v)}
-            />
-          </div>
-          <div className="settings-row">
-            <div className="settings-row-label">Routing Style</div>
-            <OptionGroup
-              options={[
-                { label: 'Straight', value: 'straight' },
-                { label: 'Manhattan', value: 'manhattan' },
-                { label: 'Clean', value: 'clean' }
-              ]}
-              value={routingStyle || 'straight'}
-              onChange={(v) => useGraphStore.getState().setRoutingStyle?.(v)}
-            />
-          </div>
-          {routingStyle === 'clean' && (
-            <div className="settings-slider-row">
-              <MaroonSlider
-                label="Connection Spacing"
-                value={cleanLaneSpacing || 200}
-                min={100}
-                max={400}
-                step={10}
-                suffix="px"
-                onChange={(v) => useGraphStore.getState().setCleanLaneSpacing?.(v)}
-              />
-            </div>
-          )}
-        </div>
-      )
-    },
-    text: {
-      title: 'Text',
-      content: (
-        <div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Font Size"
-              value={textSettings?.fontSize ?? 1.0}
-              min={0.7}
-              max={2.0}
-              step={0.05}
-              suffix="x"
-              onChange={(v) => useGraphStore.getState().setTextFontSize?.(v)}
-            />
-          </div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Line Spacing"
-              value={textSettings?.lineSpacing ?? 0.85}
-              min={0.7}
-              max={2.0}
-              step={0.05}
-              suffix="x"
-              onChange={(v) => useGraphStore.getState().setTextLineSpacing?.(v)}
-            />
-          </div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Node Size"
-              value={textSettings?.nodeScale ?? 1.0}
-              min={0.5}
-              max={2.0}
-              step={0.05}
-              suffix="x"
-              onChange={(v) => useGraphStore.getState().setNodeScale?.(v)}
             />
           </div>
         </div>
@@ -707,41 +736,14 @@ const SettingsModal = ({ isVisible, onClose }) => {
             flexShrink: 0
           }}
         >
-          <h3 style={{
-            margin: '0 0 16px 0',
-            fontSize: '1.1rem',
-            color: theme.canvas.textPrimary
-          }}>
+          <h3 className="settings-nav-heading">
             Settings
           </h3>
           {Object.keys(sections).map((key) => (
             <div
               key={key}
+              className={`settings-nav-item ${activeSection === key ? 'active' : ''}`}
               onClick={() => setActiveSection(key)}
-              style={{
-                padding: '10px 12px',
-                marginBottom: '4px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                backgroundColor: activeSection === key ? (theme.darkMode ? 'rgba(139, 0, 0, 0.25)' : 'rgba(139, 0, 0, 0.1)') : 'transparent',
-                color: activeSection === key ? (theme.darkMode ? '#ff9a9a' : theme.accent.primary) : theme.canvas.textSecondary,
-                fontWeight: activeSection === key ? 'bold' : 'normal',
-                fontSize: '0.85rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                transition: 'all 0.2s ease'
-              }}
-              onMouseEnter={(e) => {
-                if (activeSection !== key) {
-                  e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(139, 0, 0, 0.12)' : 'rgba(139, 0, 0, 0.05)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (activeSection !== key) {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }
-              }}
             >
               {sectionIcons[key]}
               {sections[key].title}

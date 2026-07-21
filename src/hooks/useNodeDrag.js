@@ -841,14 +841,22 @@ export const useNodeDrag = ({
           if (sub.labelRect) {
             sub.labelRect.setAttribute('x', labelX);
             sub.labelRect.setAttribute('y', labelY);
-            // Pivot the label's lift-scale off its own bbox center (fill-box), not a
-            // graph-coord px origin — a view-box px origin resolves in the wrong space
-            // inside the pan/zoom <g> and drifts the label off-center during the drag.
-            sub.labelRect.style.transformBox = 'fill-box';
-            sub.labelRect.style.transformOrigin = 'center';
+            // Re-center the 1.08 lift matrix on the pill's current bbox center. Uses the
+            // `transform` attribute (local user space) instead of CSS transform-box:fill-box,
+            // which — combined with the drag drop-shadow filter — clips the stroke. Clear any
+            // stale CSS transform so it can't fight the attribute.
+            const lcx = labelX + groupLabelWidth / 2;
+            const lcy = labelY + groupLabelHeight / 2;
+            const liftMatrix = `translate(${lcx} ${lcy}) scale(1.08) translate(${-lcx} ${-lcy})`;
+            sub.labelRect.setAttribute('transform', liftMatrix);
+            sub.labelRect.style.transform = '';
+            sub.labelRect.style.transformBox = '';
+            sub.labelRect.style.transformOrigin = '';
             if (sub.labelText) {
               sub.labelText.setAttribute('x', labelX + groupLabelWidth / 2);
               sub.labelText.setAttribute('y', labelY + groupLabelHeight / 2); // dominantBaseline:central centers it
+              // Pop the text with the pill, pivoting off the same center.
+              sub.labelText.setAttribute('transform', liftMatrix);
             }
           }
         } else if (sub.type === 'bg') {
@@ -870,14 +878,22 @@ export const useNodeDrag = ({
           if (sub.labelRect) {
             sub.labelRect.setAttribute('x', labelX);
             sub.labelRect.setAttribute('y', labelY);
-            // Pivot the label's lift-scale off its own bbox center (fill-box), not a
-            // graph-coord px origin — a view-box px origin resolves in the wrong space
-            // inside the pan/zoom <g> and drifts the label off-center during the drag.
-            sub.labelRect.style.transformBox = 'fill-box';
-            sub.labelRect.style.transformOrigin = 'center';
+            // Re-center the 1.08 lift matrix on the pill's current bbox center. Uses the
+            // `transform` attribute (local user space) instead of CSS transform-box:fill-box,
+            // which — combined with the drag drop-shadow filter — clips the stroke. Clear any
+            // stale CSS transform so it can't fight the attribute.
+            const lcx = labelX + groupLabelWidth / 2;
+            const lcy = labelY + groupLabelHeight / 2;
+            const liftMatrix = `translate(${lcx} ${lcy}) scale(1.08) translate(${-lcx} ${-lcy})`;
+            sub.labelRect.setAttribute('transform', liftMatrix);
+            sub.labelRect.style.transform = '';
+            sub.labelRect.style.transformBox = '';
+            sub.labelRect.style.transformOrigin = '';
             if (sub.labelText) {
               sub.labelText.setAttribute('x', labelX + groupLabelWidth / 2);
               sub.labelText.setAttribute('y', labelY + groupLabelHeight / 2); // dominantBaseline:central centers it
+              // Pop the text with the pill, pivoting off the same center.
+              sub.labelText.setAttribute('transform', liftMatrix);
             }
           }
         }
@@ -1296,6 +1312,14 @@ export const useNodeDrag = ({
       els.forEach(el => {
         el.style.transform = '';
         delete el.dataset.groupBaseTransform;
+      });
+    });
+    // Drop the pill lift matrix we set per-frame, so the label doesn't stay scaled
+    // if React's not-dragging re-render (which clears the `transform` prop) lags a frame.
+    dragGroupMetaRef.current.forEach(meta => {
+      meta.elements?.forEach(sub => {
+        if (sub.labelRect) sub.labelRect.removeAttribute('transform');
+        if (sub.labelText) sub.labelText.removeAttribute('transform');
       });
     });
     dragPositionsRef.current.clear();

@@ -2196,7 +2196,7 @@ function NodeCanvas() {
     layoutIterationPreset,
     groupLayoutAlgorithm,
     forceTunerSettings,
-    connectionFontSize: 54 * (textSettings?.fontSize || 1) * connectionLabelSize,
+    connectionFontSize: 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize,
     setZoomLevel,
     setPanOffset,
     canvasTransform: transform,
@@ -4053,6 +4053,24 @@ function NodeCanvas() {
   const [editingNodeIdOnCanvas, setEditingNodeIdOnCanvas] = useState(null); // For panel-less editing
   const [editingGroupId, setEditingGroupId] = useState(null); // For group inline editing
   const [tempGroupName, setTempGroupName] = useState(''); // Temporary name during editing
+  const groupEditInputRef = useRef(null); // The inline rename <input>, for touch outside-tap dismissal
+
+  // While renaming a group, a touch outside the input must commit + close the edit.
+  // On touch, the canvas tap handler calls preventDefault(), which suppresses the
+  // native focus change that would otherwise blur the input — so onBlur never fires
+  // and the edit stays open. Blur it explicitly here (which runs the onBlur commit).
+  useEffect(() => {
+    if (!editingGroupId) return;
+    const dismissOnOutsideTouch = (e) => {
+      const input = groupEditInputRef.current;
+      if (!input) return;
+      if (e.target === input || input.contains?.(e.target)) return;
+      input.blur();
+    };
+    // Capture phase so we still see the tap even if a child stops propagation.
+    document.addEventListener('touchstart', dismissOnOutsideTouch, true);
+    return () => document.removeEventListener('touchstart', dismissOnOutsideTouch, true);
+  }, [editingGroupId]);
   const [hasMouseMovedSinceDown, setHasMouseMovedSinceDown] = useState(false);
   const [hoveredEdgeInfo, setHoveredEdgeInfo] = useState(null); // Track hovered edge and which end
 
@@ -4253,6 +4271,15 @@ function NodeCanvas() {
   const [groupControlPanelShouldShow, setGroupControlPanelShouldShow] = useState(false);
   const [groupControlPanelVisible, setGroupControlPanelVisible] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
+  // Tracks the last group-title tap ({ id, time }) for touch double-tap (rename) detection.
+  const lastGroupTapRef = useRef({ id: null, time: 0 });
+  // Start position of an in-progress group-title touch, used by onTouchEnd to tell a
+  // tap from a drag. Set on touchstart, read on touchend.
+  const groupTouchStartRef = useRef(null);
+  // Removes the document-level touch listeners a group-title touch installed. Held here
+  // so onTouchEnd can clean up even when it stopPropagation()s (which prevents the
+  // document-level endListener from ever firing).
+  const groupTouchCleanupRef = useRef(null);
   // Preserve last selections during exit animations
   const [lastSelectedNodePrototypes, setLastSelectedNodePrototypes] = useState([]);
   const [lastSelectedGroup, setLastSelectedGroup] = useState(null);
@@ -11126,6 +11153,17 @@ function NodeCanvas() {
                         }
                       }
 
+                      // Lift-scale for the title pill + text while dragging: an explicit
+                      // centered matrix on the `transform` ATTRIBUTE (local user space), NOT
+                      // CSS transform-box:fill-box (which + the drag drop-shadow filter clips
+                      // the pill stroke). Both share this so the text pops with the pill.
+                      // During an active drag the pivot is re-centered per-frame in useNodeDrag.
+                      const groupLiftCx = labelX + labelWidth / 2;
+                      const groupLiftCy = labelY + labelHeight / 2;
+                      const groupLiftTransform = isGroupDragging
+                        ? `translate(${groupLiftCx} ${groupLiftCy}) scale(1.08) translate(${-groupLiftCx} ${-groupLiftCy})`
+                        : undefined;
+
                       // --- Build JSX for the title label (shared between regular and thing groups) ---
                       const titleLabel = (
                         <g className="group-label" style={{ cursor: 'pointer' }}
@@ -11195,6 +11233,9 @@ function NodeCanvas() {
                             const touch = e.touches[0];
                             const downX = touch.clientX;
                             const downY = touch.clientY;
+                            // Record the touch origin so onTouchEnd can distinguish a tap
+                            // (select the group) from a drag (move it).
+                            groupTouchStartRef.current = { groupId: group.id, downX, downY };
                             // Reset unconditionally — a prior pan can leave mouseMoved
                             // sticky-true, which would suppress the synthetic click's
                             // selection bailout (`if (mouseMoved.current) return;`).
@@ -11254,6 +11295,10 @@ function NodeCanvas() {
                                   stopPropagation: () => { try { ev.stopPropagation(); } catch { } }
                                 });
                               }
+                              // A tap (no drag) is handled by the element-level onTouchEnd,
+                              // which runs before this and stopPropagation()s — so on a tap
+                              // this document listener typically won't fire at all. Selection
+                              // lives there so it can claim the tap from the canvas handler.
                             };
                             const cleanup = () => {
                               try {
@@ -11261,7 +11306,12 @@ function NodeCanvas() {
                                 document.removeEventListener('touchend', endListener);
                                 document.removeEventListener('touchcancel', endListener);
                               } catch { }
+                              groupTouchCleanupRef.current = null;
                             };
+                            // Exposed so the element-level onTouchEnd can tear these down
+                            // itself — on a tap it stopPropagation()s, which prevents the
+                            // document-level endListener (the usual cleanup site) from firing.
+                            groupTouchCleanupRef.current = cleanup;
                             document.addEventListener('touchmove', moveListener, { passive: true });
                             document.addEventListener('touchend', endListener, { passive: true });
                             document.addEventListener('touchcancel', endListener, { passive: true });
@@ -11285,17 +11335,52 @@ function NodeCanvas() {
                               }
                             }, nodeLiftDelay);
                           }}
-                          onTouchEnd={() => {
-                            // Document-level endListener handles the real cleanup;
-                            // this is a defensive guard for the case where the
-                            // element-level event fires but the document one
-                            // somehow didn't (e.g. event-system quirk).
+                          onTouchEnd={(e) => {
                             clearTimeout(groupLongPressTimeout.current);
                             if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+
+                            const wasDragging = !!nodeDrag.draggingNodeInfoRef.current;
+                            const t = e.changedTouches?.[0];
+                            const start = groupTouchStartRef.current;
+                            // A tap = no group drag started and the finger barely moved.
+                            const isTap = !wasDragging && !!t && !!start && start.groupId === group.id &&
+                              Math.hypot(t.clientX - start.downX, t.clientY - start.downY) <= TOUCH_MOVEMENT_THRESHOLD;
+
+                            if (!isTap) return; // drag-end is handled by the document endListener
+
+                            // This tap belongs to the group title. Tear down our own
+                            // document listeners (the endListener won't fire once we
+                            // stopPropagation), claim the tap so the canvas touch handler
+                            // doesn't deselect us or spawn a plus sign, and stop the touch
+                            // from bubbling to that handler at all.
+                            groupTouchCleanupRef.current?.();
+                            ignoreCanvasClick.current = true;
+                            e.stopPropagation();
+
+                            if (editingGroupId === group.id) return;
+                            const now = Date.now();
+                            const last = lastGroupTapRef.current;
+                            if (last.id === group.id && (now - last.time) < 400) {
+                              // Double tap → inline rename (mirrors mouse dblclick).
+                              lastGroupTapRef.current = { id: null, time: 0 };
+                              setEditingGroupId(group.id);
+                              setTempGroupName(group.name || 'Group');
+                            } else {
+                              // Single tap → select (mirrors the mouse onClick path).
+                              lastGroupTapRef.current = { id: group.id, time: now };
+                              setSelectedGroup(group);
+                              setGroupControlPanelShouldShow(true);
+                              setNodeControlPanelShouldShow(false);
+                              setAbstractionControlPanelVisible(false);
+                              setAbstractionControlPanelShouldShow(false);
+                              setConnectionControlPanelVisible(false);
+                              setConnectionControlPanelShouldShow(false);
+                            }
                           }}
                           onTouchCancel={() => {
                             clearTimeout(groupLongPressTimeout.current);
                             if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                            groupTouchStartRef.current = null;
                           }}
                         >
                           <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20 * groupLabelScale} ry={20 * groupLabelScale}
@@ -11303,16 +11388,7 @@ function NodeCanvas() {
                             stroke={isNodeGroup ? "none" : strokeColor}
                             strokeWidth={isNodeGroup ? 0 : 6 * groupLabelScale}
                             pointerEvents="all"
-                            style={{
-                              transform: isGroupDragging ? `scale(1.08)` : 'scale(1)',
-                              // Pivot off the rect's own bounding box, not a px origin in graph
-                              // coords: this <rect> lives inside the pan/zoom <g>, so a view-box
-                              // px origin resolves in a different coordinate space and the 1.08
-                              // lift scales off-center (label drifts up-left, snaps back on drop).
-                              transformBox: 'fill-box',
-                              transformOrigin: 'center',
-                              filter: isGroupDragging ? 'drop-shadow(0px 5px 10px rgba(0,0,0,0.3))' : 'none'
-                            }}
+                            transform={groupLiftTransform}
                           />
                           {editingGroupId === group.id ? (
                             <foreignObject x={labelX} y={labelY} width={labelWidth} height={labelHeight}
@@ -11323,6 +11399,7 @@ function NodeCanvas() {
                                 boxSizing: 'border-box'
                               }}>
                                 <input
+                                  ref={groupEditInputRef}
                                   type="text"
                                   value={tempGroupName}
                                   onChange={(e) => { setTempGroupName(e.target.value); }}
@@ -11373,6 +11450,7 @@ function NodeCanvas() {
                               fill={isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode)}
                               fontWeight="bold" stroke="none" strokeWidth={0}
                               paintOrder="stroke fill" textAnchor="middle" dominantBaseline="central"
+                              transform={groupLiftTransform}
                             >
                               {labelText}
                             </text>
@@ -11592,7 +11670,7 @@ function NodeCanvas() {
                                 }
                               }
                             }
-                            const selfFontSize = 54 * (textSettings?.fontSize || 1) * connectionLabelSize;
+                            const selfFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
                             return (
                               <SelfLoopEdge
                                 key={`edge-${edge.id}`}
@@ -12868,7 +12946,7 @@ function NodeCanvas() {
 
                               {/* Connection name text — rendered after arrows so labels appear on top */}
                               {showConnectionNames && (() => {
-                                const connectionFontSize = 54 * (textSettings?.fontSize || 1) * connectionLabelSize;
+                                const connectionFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
                                 let midX;
                                 let midY;
                                 let angle;
@@ -13029,7 +13107,7 @@ function NodeCanvas() {
                                       dominantBaseline="middle"
                                       transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
                                       stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
-                                      strokeWidth="8"
+                                      strokeWidth={8 * (connectionFontSize / 54)}
                                       strokeLinecap="round"
                                       strokeLinejoin="round"
                                       paintOrder="stroke fill"
@@ -13087,7 +13165,7 @@ function NodeCanvas() {
                                 }
                               }
                             }
-                            const selfFontSize = 54 * (textSettings?.fontSize || 1) * connectionLabelSize;
+                            const selfFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
                             return (
                               <SelfLoopEdge
                                 key={`edge-${edge.id}`}
@@ -14228,7 +14306,7 @@ function NodeCanvas() {
 
                               {/* Connection name text — rendered after arrows so labels appear on top */}
                               {showConnectionNames && (() => {
-                                const connectionFontSize = 54 * (textSettings?.fontSize || 1) * connectionLabelSize;
+                                const connectionFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
                                 let midX;
                                 let midY;
                                 let angle;
@@ -14389,7 +14467,7 @@ function NodeCanvas() {
                                       dominantBaseline="middle"
                                       transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
                                       stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
-                                      strokeWidth="8"
+                                      strokeWidth={8 * (connectionFontSize / 54)}
                                       strokeLinecap="round"
                                       strokeLinejoin="round"
                                       paintOrder="stroke fill"
@@ -14713,7 +14791,14 @@ function NodeCanvas() {
                         {/* Edge pie menu — rendered inline at the edge midpoint */}
                         {(() => {
                           const anchor = edgePieMenuAnchorRef.current;
-                          const frozenButtons = edgePieMenuButtonsRef.current;
+                          // Prefer the frozen ref (survives edge deselection during exit animation),
+                          // but fall back to the live buttons on first show — the ref is populated by a
+                          // separate effect that runs after visibility flips, and a ref write triggers no
+                          // re-render, so without this fallback the menu wouldn't appear until the next
+                          // unrelated render (e.g. a mouse move).
+                          const frozenButtons = (edgePieMenuButtonsRef.current && edgePieMenuButtonsRef.current.length > 0)
+                            ? edgePieMenuButtonsRef.current
+                            : edgePieMenuButtons;
                           if (!edgePieMenuRendered || !anchor || !frozenButtons || frozenButtons.length === 0) return null;
 
                           // Space check: does the full button row fit on screen?
@@ -16042,7 +16127,7 @@ function NodeCanvas() {
         // (usually ~1-1.5s with substepped auto-layout speed)
         autoLayoutDuration={6000}
         // Resolved label font so labeled edges reserve real rendered width
-        connectionFontSize={54 * (textSettings?.fontSize || 1) * connectionLabelSize}
+        connectionFontSize={59.4 * (textSettings?.fontSize || 1) * connectionLabelSize}
         graphId={activeGraphId}
         storeActions={storeActions}
         layoutScalePreset={forceLayoutScalePreset}

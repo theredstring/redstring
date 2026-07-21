@@ -76,6 +76,19 @@ import { measureTextWidth } from './services/textMeasurement.js';
 // "standard" size regardless of the user's global font/node-size/connection sliders.
 const STANDARD_TEXT_SETTINGS = { fontSize: 1, lineSpacing: 1, nodeScale: 1, connectionWidth: 1 };
 
+// getNodeDimensions inflates node geometry by 1.4× globally (utils.js). The panel
+// previews want the pre-resizable (0.8.2) box size, so divide that factor back out.
+// Mirrors HoverVisionAid so the connection representation matches the hover preview.
+const LEGACY_DIM_SCALE = 1 / 1.4;
+// Node-box floors for the connection representation. Rendered at full nodeScale here
+// (unlike HoverVisionAid, which is also downscaled 0.6× by CSS), so these are a touch
+// smaller than the hover aid's 220×96 to leave more clearance for the connection label.
+const CONNECTION_NODE_MIN_WIDTH = 190;
+const CONNECTION_NODE_MIN_HEIGHT = 84;
+// Corner radius scaled to match the floors: kept below CONNECTION_NODE_MIN_HEIGHT/2 so
+// the boxes stay rounded rectangles (~0.45 ratio) instead of capping into pills.
+const CONNECTION_NODE_CORNER_RADIUS = 38;
+
 // Modes: 'nodes' | 'connections' | 'abstraction' | 'group' | 'nodegroup'
 const UnifiedBottomControlPanel = ({
   mode = 'nodes',
@@ -467,19 +480,27 @@ const UnifiedBottomControlPanel = ({
   const groupRendererNode = useMemo(() => {
     if (!isGroup || !selectedGroup) return null;
 
+    const groupName = selectedGroup.name || 'Group';
     const baseNode = {
       id: selectedGroup.id,
-      name: selectedGroup.name || 'Group',
+      name: groupName,
       color: selectedGroup.color || theme.accent.primary
     };
 
-    const dimensions = getNodeDimensions(baseNode, false, null);
+    // UniversalNodeRenderer decides wrapping via a fixed heuristic on the group node:
+    //   charsPerLine = floor((width - 2 * sidePadding) / avgCharWidth), sidePadding 30, avgCharWidth 14
+    // (scale-invariant — the fit scale cancels). If width doesn't leave room for the
+    // side padding, multi-word names wrap. Size the pill to keep the name on one line,
+    // mirroring the canvas group tag. Long names then scale down to fit (still one line).
+    const GROUP_SIDE_PADDING = 30;
+    const GROUP_AVG_CHAR_WIDTH = 14;
+    const width = Math.max(200, groupName.length * GROUP_AVG_CHAR_WIDTH + GROUP_SIDE_PADDING * 2 + 24);
 
     return {
       ...baseNode,
       x: 0,
       y: 0,
-      width: Math.max(200, (selectedGroup.name?.length || 5) * 14),
+      width,
       height: 90,
       isGroup: true
     };
@@ -609,7 +630,19 @@ const UnifiedBottomControlPanel = ({
                   });
                 }
               });
-              const nodes = Array.from(nodesMap.values());
+              // Give each node an explicit, floored box (matching HoverVisionAid) so
+              // short-name nodes don't collapse to tiny, pill-rounded boxes: without a
+              // floor, getNodeDimensions returns compact sizes → small text, and a height
+              // under ~88px makes the corner radius cap at height/2 (a full pill). Flooring
+              // at 220×96 keeps readable text and rounded-rectangle corners.
+              const nodes = Array.from(nodesMap.values()).map((n) => {
+                const dims = getNodeDimensions(n, false, null, 39, STANDARD_TEXT_SETTINGS);
+                return {
+                  ...n,
+                  width: Math.max(dims.currentWidth * LEGACY_DIM_SCALE, CONNECTION_NODE_MIN_WIDTH),
+                  height: Math.max(dims.currentHeight * LEGACY_DIM_SCALE, CONNECTION_NODE_MIN_HEIGHT)
+                };
+              });
 
               // Transform triples to the format expected by UniversalNodeRenderer
               const connections = triples.map(t => {
@@ -647,7 +680,11 @@ const UnifiedBottomControlPanel = ({
                 0
               );
               const layoutNodeCount = nodes.length + selfLoopCount;
-              const nodeSpacing = layoutNodeCount * (isMobile ? 90 : 70);
+              // Budget width for the actual (now floored) node boxes so the larger
+              // previews get enough room instead of being fit-scaled back down.
+              const nodeWidthBudget = nodes.reduce((sum, n) => sum + n.width * 0.4, 0)
+                + selfLoopCount * CONNECTION_NODE_MIN_WIDTH * 0.4;
+              const nodeSpacing = nodeWidthBudget + layoutNodeCount * (isMobile ? 90 : 70);
 
               const connectionLabelFont = isMobile
                 ? '22px "EmOne", sans-serif'
@@ -659,8 +696,8 @@ const UnifiedBottomControlPanel = ({
               }, 0);
 
               const connectionLabelSpace = Math.max(
-                isMobile ? 120 : 220,
-                Math.ceil(longestConnectionLabelWidth + (isMobile ? 70 : 180))
+                isMobile ? 140 : 230,
+                Math.ceil(longestConnectionLabelWidth + (isMobile ? 100 : 200))
               );
 
               // Container width — never exceeds available viewport.
@@ -670,24 +707,28 @@ const UnifiedBottomControlPanel = ({
                 baseSpacing + nodeSpacing + connectionLabelSpace
               );
 
-              const dynamicMinHorizontalSpacing = Math.max(
-                isMobile ? 60 : 80,
-                Math.min(connectionLabelSpace - 60, 380)
-              );
+              const dynamicMinHorizontalSpacing = Math.round(Math.max(
+                isMobile ? 72 : 92,
+                Math.min(connectionLabelSpace - 60, 400)
+              ) * 1.25); // More room between nodes so the connection line + label aren't scrunched
 
+              // Height tracks the (now shorter) 84px node boxes — enough for full-scale
+              // text without leaving the panel unnecessarily tall.
               const calculatedHeight = isMobile
-                ? Math.min(118, Math.max(78, calculatedWidth * 0.23))
-                : Math.min(138, Math.max(82, calculatedWidth * 0.25));
+                ? Math.min(130, Math.max(100, calculatedWidth * 0.23))
+                : Math.min(150, Math.max(112, calculatedWidth * 0.25));
 
               return (
                 <UniversalNodeRenderer
                   {...RENDERER_PRESETS.CONNECTION_PANEL}
+                  renderContext="full"
                   nodes={nodes}
                   connections={connections}
                   padding={isMobile ? 6 : 6}
                   containerWidth={calculatedWidth}
                   containerHeight={calculatedHeight}
                   minHorizontalSpacing={dynamicMinHorizontalSpacing}
+                  cornerRadiusMultiplier={CONNECTION_NODE_CORNER_RADIUS}
                   ignoreGlobalScale={true}
                   forceShowConnectionDots={inputMode === 'touch'}
                   onNodeClick={onNodeClick}

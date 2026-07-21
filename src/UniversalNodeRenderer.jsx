@@ -61,7 +61,11 @@ const ConnectionText = ({
   const angle = Math.atan2(dy, dx) * 180 / Math.PI;
   const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
   const fontSize = Math.max(8, 24 * transform.scale * fontScale);
-  const strokeWidth = Math.max(2, (connection.strokeWidth || 6 * transform.scale) * fontScale);
+  // The label's outline ("hole" effect) is intentionally lighter than the edge line
+  // stroke in these universal representations (hover preview, control panel, etc.).
+  // The actual canvas edge/label is rendered in NodeCanvas.jsx and is unaffected.
+  const LABEL_STROKE_SCALE = 0.6;
+  const strokeWidth = Math.max(1.5, (connection.strokeWidth || 6 * transform.scale) * fontScale * LABEL_STROKE_SCALE);
   const baseLineHeight = 26; // Tighter line height for connections
   const scaledLineHeight = baseLineHeight * transform.scale * fontScale * lineHeightScale;
 

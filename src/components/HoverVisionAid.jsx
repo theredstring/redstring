@@ -242,13 +242,13 @@ const HoverVisionAid = ({
       baseSpacing + nodeSpacing + connectionLabelSpace
     );
 
-    const dynamicMinHorizontalSpacing = Math.max(
+    const dynamicMinHorizontalSpacing = Math.round(Math.max(
       120,
       Math.min(
         connectionLabelSpace - 80,
         400
       )
-    );
+    ) * 1.15); // Slightly more room between nodes for the connection line
 
     containerStyle.marginTop = -20;
     content = (

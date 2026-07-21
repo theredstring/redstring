@@ -39,9 +39,9 @@ export const useGraphLayout = ({
     groupLayoutAlgorithm = 'force-directed',
     // Force tuner settings — individual force params for consistency with AI and interactive sim
     forceTunerSettings = null,
-    // Resolved connection label font (54 × textSettings.fontSize ×
+    // Resolved connection label font (59.4 × textSettings.fontSize ×
     // connectionLabelSize) so layout reserves the space labels actually render at
-    connectionFontSize = 54,
+    connectionFontSize = 59.4,
     // Zoom/pan control for zoom-to-fit after auto-layout
     setZoomLevel = null,
     setPanOffset = null,
