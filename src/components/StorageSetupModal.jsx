@@ -43,9 +43,6 @@ const StorageSetupModal = ({
   const modalWidth = isCompactLayout
     ? Math.min(Math.max(viewportSize.width - 24, 320), 540)
     : 600;
-  const modalHeight = isCompactLayout
-    ? Math.min(Math.max(viewportSize.height * 0.85, 400), 550)
-    : 600;
 
   const showBrowserStorageOption = !isElectron();
 
@@ -402,7 +399,7 @@ const StorageSetupModal = ({
 
   const renderNamingStep = () => (
     <>
-      <div style={{ textAlign: 'center', marginBottom: '44px', flexShrink: 0, marginTop: '-40px' }}>
+      <div style={{ textAlign: 'center', marginBottom: '32px', flexShrink: 0, marginTop: '16px' }}>
         <h2 style={{
           margin: '0 0 8px 0',
           color: theme.canvas.textPrimary,
@@ -493,7 +490,7 @@ const StorageSetupModal = ({
       onClose={onClose}
       title=""
       width={modalWidth}
-      height={modalHeight}
+      height="auto"
       position="center"
       margin={isCompactLayout ? 12 : 20}
       {...canvasModalProps}
@@ -501,10 +498,8 @@ const StorageSetupModal = ({
       <div style={{
         padding: isCompactLayout ? '16px' : '24px',
         boxSizing: 'border-box',
-        height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        justifyContent: 'center',
         position: 'relative'
       }}>
         {/* Close button - always available */}
