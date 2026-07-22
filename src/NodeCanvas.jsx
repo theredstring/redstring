@@ -16028,44 +16028,64 @@ function NodeCanvas() {
               // 1. Link the folder using WorkspaceService (for config persistence)
               await workspaceService.linkFolder(folderPath);
 
-              // 2. Create the .redstring file in the user's selected folder
+              // 2. Resolve the .redstring file in the user's selected folder
               const safeName = (universeName && universeName.trim()) ? universeName.trim() : "Universe";
-              const filename = `${safeName}.redstring`;
+              let filename = `${safeName}.redstring`;
 
-              // Create empty universe state
-              const emptyState = {
-                graph: { id: 'root', nodes: new Map(), edges: new Map() },
-                nodePrototypes: new Map(),
-                graphRegistry: new Map([['root', { id: 'root', nodes: new Map(), edges: new Map() }]]),
-                nodeDefinitionIndices: new Map()
+              const { importFromRedstring, validateFormatVersion } = await import('./formats/redstringFormat.js');
+
+              // Read a file's content (empty string if absent/unreadable).
+              // Cross-platform: browser getFileHandle throws on missing files;
+              // Electron returns a path and readFile fails — both caught here.
+              const readFolderFile = async (name) => {
+                try {
+                  const res = await getFileInFolder(folderPath, name, false);
+                  const handle = res?.handle || res;
+                  if (!handle) return '';
+                  const text = await readFile(handle);
+                  return (typeof text === 'string' ? text : '') || '';
+                } catch {
+                  return '';
+                }
               };
 
-              // SAFETY: Check whether a universe file with this name already
-              // exists in the folder before writing. If it does and has real
-              // content, link to it instead of overwriting — onboarding must
-              // never clobber an existing universe (e.g. if the user lost the
-              // welcome-seen flag after an app update and re-ran the flow).
-              let existingContent = null;
-              try {
-                const probeResult = await getFileInFolder(folderPath, filename, false);
-                const probeHandle = probeResult?.handle || probeResult;
-                if (probeHandle) {
-                  const text = await readFile(probeHandle);
-                  if (text && text.trim().length > 0) {
-                    existingContent = text;
+              // SAFETY: a folder from a previous session/install may already
+              // hold this universe file. Onboarding must ADOPT it (link + load
+              // its data) — never overwrite it with a fresh empty universe.
+              let adoptedStoreState = null;
+              const existingText = await readFolderFile(filename);
+              if (existingText && existingText.trim().length > 0) {
+                let parsed = null;
+                try { parsed = JSON.parse(existingText); } catch { parsed = null; }
+                const validation = parsed ? validateFormatVersion(parsed) : { valid: false };
+                if (parsed && validation.valid) {
+                  // Valid redstring universe — adopt it as-is.
+                  try {
+                    adoptedStoreState = importFromRedstring(parsed).storeState;
+                    console.log('[NodeCanvas] Onboarding: adopting existing universe file:', filename);
+                  } catch (importErr) {
+                    console.warn('[NodeCanvas] Onboarding: failed to import existing file, will not overwrite it:', importErr);
                   }
                 }
-              } catch {
-                // File doesn't exist — normal case, will create below.
+                if (!adoptedStoreState) {
+                  // Content we can't safely adopt — pick a fresh, non-colliding
+                  // name so we never clobber the existing file.
+                  let n = 1;
+                  while (true) {
+                    const candidate = `${safeName}-${n}.redstring`;
+                    const t = await readFolderFile(candidate);
+                    if (!t || t.trim().length === 0) { filename = candidate; break; }
+                    n += 1;
+                  }
+                  console.warn('[NodeCanvas] Onboarding: existing file could not be adopted; creating', filename, 'instead');
+                }
               }
 
               const fileHandleResult = await getFileInFolder(folderPath, filename, true);
               const fileHandle = fileHandleResult.handle || fileHandleResult;
 
-              if (existingContent) {
-                console.log('[NodeCanvas] Found existing universe file; linking without overwrite:', filename);
-              } else {
-                // Write initial empty state to the new/empty file
+              if (!adoptedStoreState) {
+                // New/empty file — write initial empty state.
                 await writeFile(fileHandle, JSON.stringify({
                   version: "1.0",
                   nodes: [],
@@ -16087,7 +16107,6 @@ function NodeCanvas() {
               const universeSlug = result?.createdUniverse?.slug;
               console.log('[NodeCanvas] Universe created via universeManagerService:', result);
               console.log('[NodeCanvas] Created universe slug:', universeSlug);
-              console.log('[NodeCanvas] Created universe object:', result?.createdUniverse);
 
               if (!universeSlug) {
                 console.error('[NodeCanvas] No slug returned from createUniverse!');
@@ -16106,6 +16125,20 @@ function NodeCanvas() {
                 console.log('[NodeCanvas] Registered file handle with universeBackend');
               } catch (handleError) {
                 console.warn('[NodeCanvas] Could not register file handle:', handleError);
+              }
+
+              // 4b. If we adopted an existing file, load ITS data into the
+              // store (tagged to this slug) so the first save preserves it
+              // instead of clobbering with the empty placeholder that
+              // createUniverse loaded.
+              if (adoptedStoreState && universeSlug) {
+                try {
+                  adoptedStoreState._universeSlug = universeSlug;
+                  storeActions.loadUniverseFromFile(adoptedStoreState);
+                  console.log('[NodeCanvas] Onboarding: loaded adopted universe data into store');
+                } catch (loadErr) {
+                  console.warn('[NodeCanvas] Onboarding: failed to load adopted universe data:', loadErr);
+                }
               }
 
               // 5. Update store state
