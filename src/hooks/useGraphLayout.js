@@ -55,6 +55,12 @@ export const useGraphLayout = ({
     gridMode = 'off',
     gridSize = 200,
     gridSnapMode = 'if-enabled',
+    // Live drag state. The auto-layout animation rewrites every node's position
+    // each frame; if it runs while the user is grabbing/dragging a node it fights
+    // (and overwrites) the drag, making nodes feel unpickable — notably while the
+    // wizard streams and keeps re-triggering layout as it adds nodes. We read this
+    // ref to skip starting, and to freeze an in-flight animation, on interaction.
+    draggingNodeInfoRef = null,
 }) => {
     // Whether bulk auto-placement should snap to the grid, given the current
     // grid mode and the user's snap preference. The standalone snap-to-grid
@@ -155,12 +161,26 @@ export const useGraphLayout = ({
         if (layoutAnimRef.current) cancelAnimationFrame(layoutAnimRef.current);
     }, []);
 
+    // Freeze any in-flight auto-layout animation, leaving nodes where they
+    // currently sit (no final-position snap). Called when the user starts
+    // interacting with a node so the layout tween stops fighting the grab.
+    const cancelAutoLayoutAnimation = useCallback(() => {
+        if (layoutAnimRef.current) {
+            cancelAnimationFrame(layoutAnimRef.current);
+            layoutAnimRef.current = null;
+        }
+    }, []);
+
     // Computes final positions with the batch engine, then moves each node
     // directly to its target with one eased motion. The animation is real
     // (edges/labels/groups all follow the nodes) but the path is direct —
     // no live-physics wandering, orbiting, or rotation.
     const applyAutoLayoutToActiveGraph = useCallback((opts = {}) => {
         const { animate = true, duration = 750 } = opts;
+        // Don't start a layout that would fight an active node grab/drag. This is
+        // the common case while the wizard streams: it keeps adding nodes (each
+        // re-triggering layout) as the user tries to pick a node up.
+        if (draggingNodeInfoRef?.current) return;
         if (!activeGraphId) {
             alert('No active graph is selected for auto-layout.');
             return;
@@ -448,6 +468,12 @@ export const useGraphLayout = ({
             const startTime = performance.now();
 
             const tick = (now) => {
+                // A node grab/drag started mid-animation — freeze in place and
+                // hand control to the drag rather than yanking nodes to the layout.
+                if (draggingNodeInfoRef?.current) {
+                    layoutAnimRef.current = null;
+                    return;
+                }
                 const t = Math.min(1, (now - startTime) / duration);
                 const k = easeInOutCubic(t);
 
@@ -626,6 +652,7 @@ export const useGraphLayout = ({
         moveOutOfBoundsNodesInBounds,
         applyAutoLayoutToActiveGraph,
         condenseGraphNodes,
-        snapActiveGraphToGrid
+        snapActiveGraphToGrid,
+        cancelAutoLayoutAnimation
     };
 };

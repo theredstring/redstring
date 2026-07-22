@@ -2183,7 +2183,8 @@ function NodeCanvas() {
     moveOutOfBoundsNodesInBounds,
     applyAutoLayoutToActiveGraph,
     condenseGraphNodes,
-    snapActiveGraphToGrid
+    snapActiveGraphToGrid,
+    cancelAutoLayoutAnimation
   } = useGraphLayout({
     activeGraphId,
     storeActions,
@@ -2208,7 +2209,8 @@ function NodeCanvas() {
     maxZoom: MAX_ZOOM,
     gridMode,
     gridSize,
-    gridSnapMode
+    gridSnapMode,
+    draggingNodeInfoRef
   });
 
 
@@ -6778,6 +6780,10 @@ function NodeCanvas() {
 
     // --- Single click initiation & Long press ---
     if (e.detail === 1) {
+      // Touching a node freezes any in-flight auto-layout tween so it can't yank
+      // the node out from under the grab during the lift delay (the wizard keeps
+      // re-triggering layout as it streams new nodes).
+      cancelAutoLayoutAnimation();
       isMouseDown.current = true;
       mouseDownPosition.current = { x: e.clientX, y: e.clientY };
       mouseMoved.current = false;
@@ -7369,14 +7375,19 @@ function NodeCanvas() {
                 // Check if this edge is curved (parallel edge)
                 const curveInfo = edgeCurveInfo.get(edge.id);
                 if (curveInfo && curveInfo.totalInPair > 1) {
-                  // Calculate distance to quadratic Bézier curve
-                  const ctrlPoint = calculateCurveControlPoint(x1, y1, x2, y2, curveInfo);
+                  // Calculate distance to quadratic Bézier curve. Must use the SAME
+                  // curveSpacing as the renderer (200 * multiConnectionCurve) — the
+                  // default (BASE_CURVE_SPACING = 100) bunches the hit-test curves at
+                  // half the drawn fan-out, so with 3+ parallel edges the nearest
+                  // computed curve no longer matches the one actually under the pointer.
+                  const ctrlPoint = calculateCurveControlPoint(x1, y1, x2, y2, curveInfo, curveSpacing);
                   if (ctrlPoint) {
                     distance = distanceToQuadraticBezier(
                       currentX, currentY,
                       x1, y1,           // P0 (start)
                       ctrlPoint.ctrlX, ctrlPoint.ctrlY,  // P1 (control point)
-                      x2, y2            // P2 (end)
+                      x2, y2,           // P2 (end)
+                      40                // finer sampling to disambiguate tightly packed curves
                     );
                   }
                 } else {
@@ -9866,7 +9877,7 @@ function NodeCanvas() {
     ];
     if (wizardEnabled) {
       options.push({
-        label: 'Grow with The Wizard',
+        label: 'Ask The Wizard',
         icon: <Sparkles size={14} />,
         action: () => {
           // Reuse the same new/current/ask preference as the node-define wizard flow.
@@ -10341,9 +10352,15 @@ function NodeCanvas() {
           clearTimeout(debounceTimer);
         }
         debounceTimer = setTimeout(() => {
+          debounceTimer = null;
+          // Don't yank a node the user is currently grabbing/holding/dragging.
+          // applyAutoLayoutToActiveGraph also guards the drag case, but the
+          // pre-lift hold (mouse down on a node, not yet lifted) isn't a drag yet.
+          if (draggingNodeInfoRef.current || (isMouseDown.current && startedOnNode.current)) {
+            return;
+          }
           clearLabelStabilization();
           triggerAutoLayout();
-          debounceTimer = null;
         }, 500);
       } else {
         // Non-active graph: apply offscreen layout so wizard-created graphs are
@@ -16242,7 +16259,7 @@ function NodeCanvas() {
               }
               openGrowGraphWizardWithPrompt({ newConversation: false });
             }}
-            title="Grow with The Wizard"
+            title="Ask The Wizard"
             message={
               askWizardGrowDialog.isBlank
                 ? `Open the AI Wizard to populate "${askWizardGrowDialog.subjectLabel}"?`

@@ -826,12 +826,41 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         }
       }
     }
-    store.createGroup(graphId, {
-      name: result.name,
-      color: result.color || theme.accent.primary,
-      memberInstanceIds
-    });
-    console.log('[Wizard] Successfully created group:', result.name, '| members:', memberInstanceIds.length);
+    // Idempotency: the wizard can emit createGroup for the same group more than
+    // once (retries, replays, re-listing an existing group). Creating blindly
+    // stacks duplicate groups with the same name/members, showing as overlapping
+    // outlines on the canvas. If a group with this name already exists in the
+    // graph, merge the resolved members into it instead of making a new one.
+    const nameLower = (result.name || '').toLowerCase().trim();
+    let existingGroupId = null;
+    if (graph?.groups && nameLower) {
+      for (const [gId, group] of graph.groups) {
+        if ((group.name || '').toLowerCase().trim() === nameLower) {
+          existingGroupId = gId;
+          break;
+        }
+      }
+    }
+
+    if (existingGroupId) {
+      store.updateGroup(graphId, existingGroupId, (group) => {
+        if (!Array.isArray(group.memberInstanceIds)) group.memberInstanceIds = [];
+        for (const instId of memberInstanceIds) {
+          if (!group.memberInstanceIds.includes(instId)) {
+            group.memberInstanceIds.push(instId);
+          }
+        }
+        if (result.color) group.color = result.color;
+      });
+      console.log('[Wizard] Merged into existing group:', result.name, '| members now:', memberInstanceIds.length);
+    } else {
+      store.createGroup(graphId, {
+        name: result.name,
+        color: result.color || theme.accent.primary,
+        memberInstanceIds
+      });
+      console.log('[Wizard] Successfully created group:', result.name, '| members:', memberInstanceIds.length);
+    }
     noteStructureFollowThrough(result.name, result.memberNames);
     return;
   }

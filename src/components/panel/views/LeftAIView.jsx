@@ -7,6 +7,7 @@ import apiKeyManager from '../../../services/apiKeyManager.js';
 import MultipleChoiceOverlay from '../../../ai/components/MultipleChoiceOverlay.jsx';
 import PlanCard from '../../../ai/components/PlanCard.jsx';
 import ThinkingBlock from '../../../ai/components/ThinkingBlock.jsx';
+import SteeringBlock from '../../../ai/components/SteeringBlock.jsx';
 import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.js';
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from '../../../constants.js';
@@ -477,6 +478,14 @@ const LeftAIView = ({ compact = false,
   const [currentInput, setCurrentInput] = React.useState('');
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [showAdvanced, setShowAdvanced] = React.useState(false);
+  // "See the loop steer the model" — surfaces the synthetic steering messages the agent loop
+  // injects (nudges, completion gates, churn locks). Defaults on so the negotiation is visible.
+  const [showSteering, setShowSteering] = React.useState(() => {
+    try { return localStorage.getItem('rs.wizard.showSteering') !== 'false'; } catch { return true; }
+  });
+  React.useEffect(() => {
+    try { localStorage.setItem('rs.wizard.showSteering', showSteering ? 'true' : 'false'); } catch { /* ignore */ }
+  }, [showSteering]);
   const [currentApiConfig, setCurrentApiConfig] = React.useState(null);
   const [showToolsDropdown, setShowToolsDropdown] = React.useState(false);
   const [wizardTools, setWizardTools] = React.useState([]);
@@ -1209,6 +1218,48 @@ const LeftAIView = ({ compact = false,
       messagesEndRef.current.scrollIntoView({ behavior, block: 'end' });
     }
   }, [messages]);
+
+  // Whether the wizard's thinking-dots row *wants* to be visible, derived from the
+  // streaming message. This value is volatile: on interleaved streaming deltas
+  // (thinking↔response tokens, a tool finishing then the next starting) the inputs
+  // below — active thinking, the last block's type — flip between two values on
+  // consecutive renders. Reading it directly to toggle the row's display made the
+  // dots blink off/on each frame (and restart their CSS animation), which is the
+  // flicker. We stabilize it with hysteresis just below.
+  const wizardDotsWanted = React.useMemo(() => {
+    if (viewMode !== 'wizard' || !isProcessing) return false;
+    const streamingMsg = messages.find(m => m.isStreaming);
+    if (!streamingMsg) return false;
+    const blocks = streamingMsg.contentBlocks;
+    const hasDefinitiveContent = blocks?.some(b =>
+      (b.type === 'text' && b.content) ||
+      (b.type === 'tool_call' && b.name !== 'planTask') ||
+      b.type === 'plan' ||
+      (b.type === 'thinking' && b.content) ||
+      (b.type === 'system_note' && b.content)
+    ) || !!streamingMsg.content;
+    const hasInlineDots = !hasDefinitiveContent;
+    const hasStreamingText = blocks?.some(b => b.type === 'text' && b.content);
+    const hasActiveThinking = blocks?.some(b => b.type === 'thinking' && !b.collapsed);
+    const lastBlock = blocks?.[blocks.length - 1];
+    const awaitingNextIteration =
+      (lastBlock?.type === 'tool_call' && (lastBlock?.status === 'completed' || lastBlock?.status === 'failed')) ||
+      lastBlock?.type === 'plan';
+    return !hasInlineDots && (!hasStreamingText || awaitingNextIteration) && !hasActiveThinking;
+  }, [viewMode, isProcessing, messages]);
+
+  // Hysteresis: show immediately, but defer hiding by a beat. A one-render dip to
+  // false during streaming chatter is cancelled by the next render flipping it back
+  // true, so the row settles to a steady "on" instead of strobing frame-to-frame.
+  const [wizardDotsVisible, setWizardDotsVisible] = React.useState(false);
+  React.useEffect(() => {
+    if (wizardDotsWanted) {
+      setWizardDotsVisible(true);
+      return;
+    }
+    const t = setTimeout(() => setWizardDotsVisible(false), 250);
+    return () => clearTimeout(t);
+  }, [wizardDotsWanted]);
 
   React.useEffect(() => { checkAPIKey(); }, []);
 
@@ -2256,6 +2307,14 @@ const LeftAIView = ({ compact = false,
                       blocks.push({ type: 'text', content: event.content || '' });
                     }
                     msg.content = (msg.content || '') + (event.content || '');
+                  } else if (event.type === 'steering') {
+                    // The loop injected a synthetic "user" message to steer the model —
+                    // the hidden second voice in the conversation. Collapse any open thinking
+                    // block, then record it as its own block so the UI can surface the
+                    // otherwise-invisible back-and-forth (gated by the "show steering" option).
+                    const openThinkIdx = blocks.findLastIndex(b => b.type === 'thinking' && !b.collapsed);
+                    if (openThinkIdx >= 0) blocks[openThinkIdx] = { ...blocks[openThinkIdx], collapsed: true };
+                    blocks.push({ type: 'steering', kind: event.kind || 'nudge', content: event.content || '' });
                   } else if (event.type === 'error') {
                     blocks.push({ type: 'text', content: `Error: ${event.message}` });
                     msg.content = `Error: ${event.message}`;
@@ -2867,6 +2926,19 @@ const LeftAIView = ({ compact = false,
             </span>
           </div>
 
+          <label
+            style={{ marginTop: '10px', paddingTop: '8px', borderTop: `1px solid ${theme.canvas.border}`, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+            title="Show the automatic steering messages the loop sends the model (nudges, completion gates, churn locks)."
+          >
+            <input
+              type="checkbox"
+              checked={showSteering}
+              onChange={(e) => setShowSteering(e.target.checked)}
+              style={{ cursor: 'pointer' }}
+            />
+            <span>Show loop ↔ model steering</span>
+          </label>
+
           <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: `1px solid ${theme.canvas.border}`, display: 'flex', gap: '8px' }}>
             <button
               className="ai-flat-button"
@@ -3183,6 +3255,15 @@ const LeftAIView = ({ compact = false,
                             />
                           );
                         }
+                        if (block.type === 'steering' && block.content && showSteering) {
+                          return (
+                            <SteeringBlock
+                              key={`steer-${i}`}
+                              kind={block.kind}
+                              content={block.content}
+                            />
+                          );
+                        }
                         if (block.type === 'system_note' && block.content) {
                           return (
                             <div key={`note-${i}`} style={{ fontSize: '11px', opacity: 0.5, fontStyle: 'italic', padding: '4px 0', userSelect: 'text' }}>
@@ -3311,9 +3392,11 @@ const LeftAIView = ({ compact = false,
 
               if (viewMode === 'wizard') {
                 // Always render in wizard mode to keep WizardLoadingText mounted
-                // (unmounting resets the scramble animation timer, so transitions never play)
+                // (unmounting resets the scramble animation timer, so transitions never play).
+                // Use the hysteresis-stabilized visibility (not the raw `showDots`) so the
+                // row can't strobe off/on across consecutive streaming deltas.
                 return (
-                  <div className="ai-thinking-row" style={showDots ? undefined : { display: 'none' }}>
+                  <div className="ai-thinking-row" style={wizardDotsVisible ? undefined : { display: 'none' }}>
                     <div className="ai-message-avatar"><img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} /></div>
                     <WizardLoadingText />
                     <span className="ai-thinking-dots">

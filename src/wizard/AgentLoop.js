@@ -1,6 +1,8 @@
 /**
  * AgentLoop - Main agent runtime loop
- * One LLM conversation that loops until task is complete (max 10 iterations)
+ * One LLM conversation that loops until task is complete (up to DEFAULT_MAX_ITERATIONS).
+ * The loop injects synthetic "user" messages to steer the model (nudges, completion
+ * gates, churn locks); each is surfaced to the UI as a `steering` event.
  */
 
 import fs from 'fs';
@@ -828,6 +830,19 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   // Track whether any text has been yielded across iterations so we can add
   // a paragraph separator between iteration text chunks
   let yieldedAnyText = false;
+  // Track whether any mutating tool has actually run this turn. Used to distinguish
+  // "model did the work then wrote a wrap-up" (trust its completion) from "model
+  // stalled without doing anything" (keep nudging).
+  let hasMutatedThisTurn = false;
+
+  // Steering: synthetic "user" messages the loop injects to keep the model on track —
+  // a hidden second voice in the conversation. `steer(kind, content)` pushes the message
+  // into `messages` AND returns a `steering` event to yield, so the UI can surface the
+  // otherwise-invisible back-and-forth between the loop and the model.
+  const steer = (kind, content) => {
+    messages.push({ role: 'user', content });
+    return { type: 'steering', kind, content };
+  };
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     // Rebuild context from (potentially mutated) graphState so LLM sees current state
@@ -1064,10 +1079,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           return;
         }
         console.error(`[AgentLoop] ⚠️ Model returned empty response (${consecutiveEmptyResponses}/${MAX_CONSECUTIVE_EMPTY}) at iteration ${iteration}. Nudging.`);
-        messages.push({
-          role: 'user',
-          content: 'Your previous response was empty. Please continue — either respond to the user or call the appropriate tools.'
-        });
+        yield steer('empty_response', 'Your previous response was empty. Please continue — either respond to the user or call the appropriate tools.');
         continue;
       }
       consecutiveEmptyResponses = 0;
@@ -1078,13 +1090,27 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         const planIncomplete = plan && plan.length > 0 && !plan.every(s => s.status === 'done');
 
         if (planIncomplete) {
-          consecutiveNudges++;
           const doneCount = plan.filter(s => s.status === 'done').length;
 
+          // Completion-signal reconciliation. A text-only response here means the model
+          // BELIEVES it's done — but the plan statuses say otherwise. The two signals have
+          // drifted: usually the model finished the work and forgot to flip the last
+          // planTask step to 'done'. If planTask is locked (churn), the model literally
+          // CANNOT reconcile the plan, so forcing it to keep calling action tools when it's
+          // already done just spins the loop. When it has done real work and is now wrapping
+          // up, trust the prose over the stale plan and stop.
+          if (planTaskLocked && hasMutatedThisTurn && iterationContent.trim().length > 0) {
+            console.error(`[AgentLoop] ✓ Plan shows ${doneCount}/${plan.length} but planTask is locked and the model signalled completion after real work. Trusting completion.`);
+            yield { type: 'done', iterations: iteration + 1, reason: 'model_done_plan_locked', planDone: doneCount, planTotal: plan.length };
+            return;
+          }
+
+          consecutiveNudges++;
+
           if (consecutiveNudges > MAX_CONSECUTIVE_NUDGES) {
-            // Too many nudges — model can't continue, stop gracefully
+            // Too many nudges — model can't/won't reconcile the plan, stop gracefully
             console.error(`[AgentLoop] ✗ Model nudged ${MAX_CONSECUTIVE_NUDGES} times but won't continue plan (${doneCount}/${plan.length} done). Stopping.`);
-            yield { type: 'done', iterations: iteration + 1, reason: 'nudge_limit' };
+            yield { type: 'done', iterations: iteration + 1, reason: 'nudge_limit', planDone: doneCount, planTotal: plan.length };
             return;
           }
 
@@ -1099,13 +1125,16 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           console.error(`[AgentLoop] ⚠️ Model returned text-only but plan is incomplete (${doneCount}/${plan.length} done). Nudge ${consecutiveNudges}/${MAX_CONSECUTIVE_NUDGES}.`);
           const availableToolList = modelTier === 'small'
             ? '- sketchGraph — plan structure before building (required before expandGraph/populateDefinitionGraph)\n- expandGraph — add 2-3 nodes or edges to the current graph\n- populateDefinitionGraph — go inside an existing node to define what it is made of'
-            : ('- sketchGraph — plan graph structure before building (call this first, then createPopulatedGraph)\n- createPopulatedGraph — build a new graph with nodes and edges\n- expandGraph — add nodes or edges to an existing graph\n- populateDefinitionGraph — define the internals of a node'
-               // Don't advertise planTask once it's been locked out for churn.
-               + (planTaskLocked ? '' : '\n- planTask — update a step\'s status to \'done\' once you\'ve finished it'));
-          messages.push({
-            role: 'user',
-            content: `Your plan is NOT complete (${doneCount}/${plan.length} steps done). These steps still need work:\n${stepList}\n\nYou MUST call a tool right now — do NOT write a text-only response. Call one of these immediately:\n${availableToolList}\n\nStart with the first incomplete step. Call the tool — do not announce it first, do not explain — just call it.`
-          });
+            : ('- sketchGraph — plan graph structure before building (call this first, then createPopulatedGraph)\n- createPopulatedGraph — build a new graph with nodes and edges\n- expandGraph — add nodes or edges to an existing graph\n- populateDefinitionGraph — define the internals of a node');
+
+          // Give the model an explicit completion EXIT, not just "call more tools". If planTask
+          // is available, the cleanest fix for a done-but-unmarked plan is to flip the statuses.
+          if (planTaskLocked) {
+            // Can't touch the plan — so let it either do remaining work or close out in prose.
+            yield steer('plan_incomplete', `Your plan still shows ${plan.length - doneCount} step(s) unfinished:\n${stepList}\n\nIf real work remains, call one of these now to do it:\n${availableToolList}\n\nOtherwise, if everything is actually built, reply to the user with a one-sentence summary of what you made.`);
+          } else {
+            yield steer('plan_incomplete', `You replied with text, but your plan still shows ${plan.length - doneCount} step(s) as unfinished:\n${stepList}\n\nDo exactly ONE of these now:\n• If the work for those steps is already finished, call planTask and set them to "done" — don't re-describe the plan, just flip the statuses so the plan matches reality.\n• If work genuinely remains, call an action tool:\n${availableToolList}\n\nDon't reply with text again until the plan statuses are accurate.`);
+          }
           continue; // Skip termination, continue the loop
         }
 
@@ -1121,10 +1150,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           const firstIterToolHint = modelTier === 'small'
             ? 'call expandGraph to add nodes or populateDefinitionGraph to go inside an existing node'
             : 'call planTask, createPopulatedGraph, or other tools';
-          messages.push({
-            role: 'user',
-            content: `If you intended to perform actions to complete this task (e.g., ${firstIterToolHint}), please call them now. If your previous response fully answered the user's question, no further action is needed.`
-          });
+          yield steer('first_iteration', `If you intended to perform actions to complete this task (e.g., ${firstIterToolHint}), please call them now. If your previous response fully answered the user's question, no further action is needed.`);
           continue;
         }
 
@@ -1174,6 +1200,10 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
           // Update graphState so subsequent tool calls see the latest state
           updateGraphState(graphState, toolCall.name, toolCall.args, result);
+
+          // Track that real (mutating) work happened this turn — lets a later text-only
+          // wrap-up be trusted as genuine completion rather than a stall.
+          if (!NON_MUTATING_TOOLS.has(toolCall.name)) hasMutatedThisTurn = true;
 
           // Stream tool result event
           yield {
@@ -1227,10 +1257,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           `"${d.nodeName}" (targetGraphId: "${d.graphId}", only ${d.nodeCount} node${d.nodeCount !== 1 ? 's' : ''})`
         ).join('; ');
         console.error('[AgentLoop] ⚠️ Sparse definition graph(s):', sparseDefinitionGraphs.map(d => d.nodeName).join(', '));
-        messages.push({
-          role: 'user',
-          content: `⚠️ Thin definition graph: ${details}. A definition graph needs at least 5 nodes to meaningfully describe what a concept is made of — what are its sub-components, aspects, stages, or processes? Call expandGraph now with targetGraphId set to the ID shown above to add more. Do NOT respond to the user until every definition graph has at least 5 nodes.`
-        });
+        yield steer('sparse_definition', `⚠️ Thin definition graph: ${details}. A definition graph needs at least 5 nodes to meaningfully describe what a concept is made of — what are its sub-components, aspects, stages, or processes? Call expandGraph now with targetGraphId set to the ID shown above to add more. Do NOT respond to the user until every definition graph has at least 5 nodes.`);
       }
 
       // If the plan just reached 100% via planTask AND no sparse definition graphs need work,
@@ -1242,10 +1269,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         const calledPlanTask = iterationToolCalls.some(tc => tc.name === 'planTask');
         if (planAllDone && calledPlanTask && sparseDefinitionGraphs.length === 0) {
           console.error('[AgentLoop] ✓ Plan is 100% complete. Injecting stop message.');
-          messages.push({
-            role: 'user',
-            content: 'All plan steps are done. Respond to the user now with one sentence summarizing what you built. Do NOT call any more tools.'
-          });
+          yield steer('plan_complete', 'All plan steps are done. Respond to the user now with one sentence summarizing what you built. Do NOT call any more tools.');
         }
       }
 
@@ -1260,10 +1284,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           if (consecutivePlanOnlyIterations >= 2 && !planTaskLocked) {
             planTaskLocked = true;
             console.error(`[AgentLoop] ⚠️ Plan churn detected (${consecutivePlanOnlyIterations} consecutive planTask-only iterations). Locking planTask for the rest of the turn.`);
-            messages.push({
-              role: 'user',
-              content: 'Plan updates are locked. Execute the next incomplete step by calling an action tool.'
-            });
+            yield steer('plan_locked', 'Plan updates are locked. Execute the next incomplete step by calling an action tool.');
           }
         } else {
           consecutivePlanOnlyIterations = 0;

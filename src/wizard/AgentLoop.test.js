@@ -17,6 +17,7 @@ vi.mock('./LLMClient.js', () => ({
 vi.mock('./ContextBuilder.js', () => ({
   buildContext: vi.fn(() => 'Mock context'),
   buildPersistentContextHeader: vi.fn(() => 'Mock persistent context'),
+  buildPlanContext: vi.fn(() => 'Mock plan context'),
   truncateContext: vi.fn((ctx) => ctx)
 }));
 
@@ -244,6 +245,51 @@ describe('AgentLoop', () => {
     });
   });
 
+
+  describe('steering visibility', () => {
+    it('emits a steering event (kind plan_incomplete) when the model stops but the plan is unfinished', async () => {
+      // Model always replies text-only, never marking the plan done.
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'All done!' };
+      });
+
+      const stateWithPlan = {
+        ...mockGraphState,
+        _currentPlan: [{ description: 'Build the graph', status: 'pending' }]
+      };
+
+      const events = [];
+      for await (const event of runAgent('Build a graph', stateWithPlan, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+        if (events.length > 50) break; // safety
+      }
+
+      const steering = events.filter(e => e.type === 'steering');
+      expect(steering.length).toBeGreaterThan(0);
+      expect(steering[0].kind).toBe('plan_incomplete');
+      // Reconciliation nudge offers the planTask completion exit (planTask not locked here).
+      expect(steering[0].content).toContain('planTask');
+
+      // After repeated text-only replies it gives up rather than looping forever.
+      const doneEvent = events[events.length - 1];
+      expect(doneEvent.type).toBe('done');
+      expect(doneEvent.reason).toBe('nudge_limit');
+    });
+
+    it('does not emit steering events when there is no active plan', async () => {
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'Here is your answer.' };
+      });
+
+      const events = [];
+      for await (const event of runAgent('A question', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      expect(events.some(e => e.type === 'steering')).toBe(false);
+      expect(events[events.length - 1]).toMatchObject({ type: 'done', reason: 'model_done' });
+    });
+  });
 
   describe('context building', () => {
     it('includes context in system prompt', async () => {

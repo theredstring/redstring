@@ -589,14 +589,40 @@ export function createStoreActions({
                       store.deleteNodePrototype(op.prototypeId);
                       results.push({ type: op.type, ok: true, id: op.prototypeId });
                       break;
-                    case 'createGroup':
-                      store.createGroup(op.graphId, op.groupData || {
+                    case 'createGroup': {
+                      const gData = op.groupData || {
                         name: op.name,
                         color: op.color,
                         memberInstanceIds: op.memberInstanceIds,
-                      });
+                      };
+                      // Idempotency: merge into an existing same-named group rather
+                      // than stacking a duplicate (duplicates render as overlapping
+                      // outlines on the canvas).
+                      const gNameLower = (gData.name || '').toLowerCase().trim();
+                      const targetGraph = op.graphId ? store.graphs.get(op.graphId) : null;
+                      let existingGid = null;
+                      if (targetGraph?.groups && gNameLower) {
+                        for (const [gId, group] of targetGraph.groups) {
+                          if ((group.name || '').toLowerCase().trim() === gNameLower) {
+                            existingGid = gId;
+                            break;
+                          }
+                        }
+                      }
+                      if (existingGid) {
+                        store.updateGroup(op.graphId, existingGid, (group) => {
+                          if (!Array.isArray(group.memberInstanceIds)) group.memberInstanceIds = [];
+                          for (const instId of (gData.memberInstanceIds || [])) {
+                            if (!group.memberInstanceIds.includes(instId)) group.memberInstanceIds.push(instId);
+                          }
+                          if (gData.color) group.color = gData.color;
+                        });
+                      } else {
+                        store.createGroup(op.graphId, gData);
+                      }
                       results.push({ type: op.type, ok: true, graphId: op.graphId });
                       break;
+                    }
                     case 'convertToNodeGroup':
                       store.convertGroupToNodeGroup(
                         op.graphId,
