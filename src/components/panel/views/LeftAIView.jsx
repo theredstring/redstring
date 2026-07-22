@@ -517,6 +517,17 @@ const LeftAIView = ({ compact = false,
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showModeMenu]);
   const [currentAgentRequest, setCurrentAgentRequest] = React.useState(null);
+  // Wizard runs share global state (isProcessing, the abort controller, and the
+  // single telemetryConversationIdRef the SSE stream routes to). Two runs at once
+  // corrupt each other — telemetry/streaming from run A lands in run B's bubble,
+  // which is what makes the dots/chips flicker between two states. So we serialize:
+  // a wizard ask made while a run is in flight is queued and auto-started when the
+  // current run finishes. isProcessingRef mirrors isProcessing for a race-free guard.
+  const isProcessingRef = React.useRef(false);
+  React.useEffect(() => { isProcessingRef.current = isProcessing; }, [isProcessing]);
+  const wizardSendQueueRef = React.useRef([]); // [{ message, opts, conversationId }]
+  const pendingDrainRef = React.useRef(null);   // ask waiting for its tab to become active
+  const [queuedSendCount, setQueuedSendCount] = React.useState(0);
   const [wizardStage, setWizardStage] = React.useState(null); // Track current wizard stage
   const [druidInstance, setDruidInstance] = React.useState(null); // Druid cognitive state manager
   // Synchronously hydrate conversations from localStorage to avoid async race conditions.
@@ -1262,6 +1273,38 @@ const LeftAIView = ({ compact = false,
     return () => clearTimeout(t);
   }, [wizardDotsWanted]);
 
+  // Drain the wizard send queue: when the active run finishes, start the next
+  // queued ask in the tab it was issued from. Runs strictly one at a time, so no
+  // two runs ever contend for the shared run state.
+  React.useEffect(() => {
+    if (isProcessing) return;
+    if (pendingDrainRef.current) return; // a drained ask is already awaiting its tab
+    if (wizardSendQueueRef.current.length === 0) return;
+    const next = wizardSendQueueRef.current.shift();
+    setQueuedSendCount(wizardSendQueueRef.current.length);
+    const targetExists = next.conversationId && conversations.some(c => c.id === next.conversationId);
+    if (targetExists && next.conversationId !== activeConversationIdRef.current) {
+      // Land on the issuing tab first; the effect below fires the send once the
+      // switch has committed (addMessage/telemetry bind to the active conversation,
+      // whose state + ref lag a switch by one commit).
+      pendingDrainRef.current = next;
+      handleTabSwitch(next.conversationId);
+    } else {
+      // Already on the tab (common case), or it was closed — run in the active tab.
+      const t = setTimeout(() => handleSendMessage(next.message, next.opts), 0);
+      return () => clearTimeout(t);
+    }
+  }, [isProcessing]);
+
+  // Fire a queued ask that was waiting for its issuing tab to become active.
+  React.useEffect(() => {
+    const pending = pendingDrainRef.current;
+    if (!pending || activeConversationId !== pending.conversationId) return;
+    pendingDrainRef.current = null;
+    const t = setTimeout(() => handleSendMessage(pending.message, pending.opts), 0);
+    return () => clearTimeout(t);
+  }, [activeConversationId]);
+
   React.useEffect(() => { checkAPIKey(); }, []);
 
   // Listen for API key changes from Settings modal
@@ -1665,7 +1708,20 @@ const LeftAIView = ({ compact = false,
 
   const handleSendMessage = async (overrideInput, sendOptions) => {
     const inputToUse = typeof overrideInput === 'string' ? overrideInput : currentInput;
-    if ((!inputToUse.trim() && pendingAttachments.length === 0) || isProcessing) return;
+    if (!inputToUse.trim() && pendingAttachments.length === 0) return;
+    // A run is already in flight — queue this ask (bound to the tab it targets)
+    // rather than dropping it or letting a second run clobber the shared run state.
+    // drainWizardQueue() below picks it up when the current run completes.
+    if (isProcessingRef.current) {
+      wizardSendQueueRef.current.push({
+        message: inputToUse,
+        opts: sendOptions,
+        conversationId: activeConversationIdRef.current,
+      });
+      setQueuedSendCount(wizardSendQueueRef.current.length);
+      if (typeof overrideInput !== 'string') setCurrentInput('');
+      return;
+    }
     // Optional display-override path used by programmatic dispatchers (e.g., the Ask The Wizard
     // chip). When set, the UI shows displayContent (a short summary) and the LLM's
     // conversation-history replay uses replayContent (defaults to displayContent), while the
@@ -1807,6 +1863,10 @@ const LeftAIView = ({ compact = false,
     }
     setCurrentInput('');
     setPendingAttachments([]);
+    // Set the ref synchronously (before the first await) so a second ask firing in
+    // the same tick is queued rather than starting a concurrent run. The effect
+    // mirror keeps it in sync for the many other setIsProcessing call sites.
+    isProcessingRef.current = true;
     setIsProcessing(true);
 
     // Druid Mode (Placeholder for full switch)
@@ -1848,11 +1908,17 @@ const LeftAIView = ({ compact = false,
   };
 
   const handleStopAgent = () => {
+    // Stop means stop — also discard any asks queued behind this run.
+    const hadQueued = wizardSendQueueRef.current.length > 0 || !!pendingDrainRef.current;
+    wizardSendQueueRef.current = [];
+    pendingDrainRef.current = null;
+    setQueuedSendCount(0);
     if (currentAgentRequest) {
       currentAgentRequest.abort();
       setCurrentAgentRequest(null);
+      isProcessingRef.current = false;
       setIsProcessing(false);
-      addMessage('system', 'Agent execution stopped by user.');
+      addMessage('system', hadQueued ? 'Agent execution stopped by user (queued asks cleared).' : 'Agent execution stopped by user.');
     }
   };
 
@@ -3618,6 +3684,20 @@ const LeftAIView = ({ compact = false,
               </div>
             )}
           </div>
+
+          {queuedSendCount > 0 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '4px 10px', margin: '0 0 6px',
+              fontSize: '11px', fontFamily: "'EmOne', sans-serif",
+              color: 'var(--canvas-text-muted)', opacity: 0.85
+            }}>
+              <span className="ai-thinking-dots" style={{ display: 'inline-flex', gap: '2px' }}>
+                <span>•</span><span>•</span><span>•</span>
+              </span>
+              {queuedSendCount === 1 ? '1 ask queued — starts when the current run finishes' : `${queuedSendCount} asks queued — start when the current run finishes`}
+            </div>
+          )}
 
           <div className="ai-input-container" style={{ marginBottom: toggleClearance }}>
             <textarea ref={inputRef} value={currentInput} onChange={(e) => {

@@ -50,6 +50,12 @@ export const useGraphLayout = ({
     // camera tweens to the zoom-to-fit target alongside the node motion
     canvasTransform = null,
     viewportSize = null,
+    // Panel-adjusted visible viewport (useViewportBounds) — the same rect the
+    // edge glow indicators frame against. Screen-space; converted to container
+    // coordinates via containerRef so zoom-to-fit centers on the area the user
+    // can actually see between the panels.
+    viewportBounds = null,
+    containerRef = null,
     maxZoom = 3,
     // Grid snapping — auto-layout aligns final positions to grid vertices per snapMode
     gridMode = 'off',
@@ -330,20 +336,35 @@ export const useGraphLayout = ({
             // Compute the zoom-to-fit camera target framed on the FINAL positions
             let cameraTarget = null;
             // Screen-space margins around the framed content. The margin is a
-            // fixed pixel breathing room; top/bottom add the UI that overlays
-            // the canvas (fixed header bar, floating bottom control panel).
+            // fixed pixel breathing room; bottom adds the floating bottom
+            // control panel that overlays the canvas within the visible area.
             const FIT_MARGIN = 20;
             const BOTTOM_PANEL_ALLOWANCE = 130;
-            const marginTop = HEADER_HEIGHT + FIT_MARGIN;
+            // Visible rect in CONTAINER coordinates (the space panOffset lives
+            // in). Prefer the panel-adjusted viewport (same rect the edge glow
+            // indicators use) so open panels don't hide the framed content;
+            // fall back to the raw window-sized viewport minus the header.
+            const containerRect = containerRef?.current?.getBoundingClientRect();
+            const visRect = (viewportBounds && containerRect)
+                ? {
+                    x: viewportBounds.x - containerRect.left,
+                    y: viewportBounds.y - containerRect.top,
+                    width: viewportBounds.width,
+                    height: viewportBounds.height
+                }
+                : viewportSize
+                    ? { x: 0, y: HEADER_HEIGHT, width: viewportSize.width, height: viewportSize.height - HEADER_HEIGHT }
+                    : null;
+            const marginTop = FIT_MARGIN;
             const marginBottom = BOTTOM_PANEL_ALLOWANCE + FIT_MARGIN;
-            // Visible-area center in screen space — the point the framed
+            // Visible-area center in container space — the point the framed
             // content should center on (shared by target, tween start, and
             // per-frame pan derivation so the motion doesn't drift)
-            const visCenterX = viewportSize ? viewportSize.width / 2 : 0;
-            const visCenterY = viewportSize
-                ? marginTop + (viewportSize.height - marginTop - marginBottom) / 2
+            const visCenterX = visRect ? visRect.x + visRect.width / 2 : 0;
+            const visCenterY = visRect
+                ? visRect.y + marginTop + (visRect.height - marginTop - marginBottom) / 2
                 : 0;
-            if (viewportSize && updates.length > 0 && (canvasTransform || (setZoomLevel && setPanOffset))) {
+            if (visRect && updates.length > 0 && (canvasTransform || (setZoomLevel && setPanOffset))) {
                 const finalPosById = new Map(updates.map(u => [u.instanceId, u]));
                 const dimsFor = (instanceId) => {
                     const node = layoutNodes.find(n => n.id === instanceId);
@@ -390,8 +411,8 @@ export const useGraphLayout = ({
                 const nodesCenterX = (minX + maxX) / 2;
                 const nodesCenterY = (minY + maxY) / 2;
 
-                const availW = Math.max(100, viewportSize.width - FIT_MARGIN * 2);
-                const availH = Math.max(100, viewportSize.height - marginTop - marginBottom);
+                const availW = Math.max(100, visRect.width - FIT_MARGIN * 2);
+                const availH = Math.max(100, visRect.height - marginTop - marginBottom);
                 // Fit everything in the visible area with the fixed margin —
                 // but never zoom IN past natural size to frame a small graph
                 let targetZoom = Math.min(availW / nodesWidth, availH / nodesHeight);
@@ -532,6 +553,8 @@ export const useGraphLayout = ({
         setPanOffset,
         canvasTransform,
         viewportSize,
+        viewportBounds,
+        containerRef,
         maxZoom,
         shouldSnapAutoLayout,
         gridSize

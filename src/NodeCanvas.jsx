@@ -2206,6 +2206,8 @@ function NodeCanvas() {
     setPanOffset,
     canvasTransform: transform,
     viewportSize,
+    viewportBounds,
+    containerRef,
     maxZoom: MAX_ZOOM,
     gridMode,
     gridSize,
@@ -6891,16 +6893,41 @@ function NodeCanvas() {
       const trackpadSensitivity = (trackpadZoomSensitivityRef.current ?? 0.5) * 13;
       const zoomDelta = deltaY * (isPinch ? trackpadSensitivity : SMOOTH_MOUSE_WHEEL_ZOOM_SENSITIVITY);
       const opId = ++zoomOpIdRef.current;
+      // Snapshots the worker computes against. The keyboard RAF loop mutates
+      // both refs during the async round-trip, so we must NOT apply the worker's
+      // absolute result — see re-derivation below.
+      const basePan = panOffsetRef.current;
+      const baseZoom = zoomLevelRef.current;
       try {
         const result = await canvasWorker.calculateZoom({
           deltaY: zoomDelta,
-          currentZoom: zoomLevelRef.current,
+          currentZoom: baseZoom,
           mousePos: { x: mouseX, y: mouseY },
-          panOffset: panOffsetRef.current,
+          panOffset: basePan,
           viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM,
         });
         if (opId === zoomOpIdRef.current) {
-          setPanAndZoom(result.panOffset, result.zoomLevel);
+          // Re-derive this pinch step against the LIVE refs, not the pre-await
+          // snapshot. While the worker runs, the keyboard loop (WASD pan +
+          // Shift/Space zoom) advances panOffsetRef/zoomLevelRef directly.
+          // Applying the worker's absolute pan/zoom would revert those every
+          // frame; with keyboard zoom also live, the two zoom sources oscillate
+          // and yank the anchored pan around ("goes bananas"). Instead take the
+          // worker's zoom *factor* and re-anchor the pan on current values so
+          // keyboard and pinch compose.
+          const factor = result.zoomLevel / baseZoom;
+          const liveZoom = zoomLevelRef.current;
+          const livePan = panOffsetRef.current;
+          const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, liveZoom * factor));
+          const actualFactor = newZoom / liveZoom;
+          const newPanX = livePan.x + (mouseX - livePan.x) * (1 - actualFactor);
+          const newPanY = livePan.y + (mouseY - livePan.y) * (1 - actualFactor);
+          const minX = viewportSize.width - canvasSize.width * newZoom;
+          const minY = viewportSize.height - canvasSize.height * newZoom;
+          setPanAndZoom({
+            x: Math.min(0, Math.max(minX, newPanX)),
+            y: Math.min(0, Math.max(minY, newPanY)),
+          }, newZoom);
         }
         setTimeout(() => {
           if (opId === zoomOpIdRef.current) {

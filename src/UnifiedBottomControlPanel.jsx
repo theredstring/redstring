@@ -437,12 +437,15 @@ const UnifiedBottomControlPanel = ({
 
     const dimensions = getNodeDimensions(baseNode, false, null, 39, STANDARD_TEXT_SETTINGS);
 
+    // Match the ÷1.4 (LEGACY_DIM_SCALE) convention used by HoverVisionAid and the
+    // connection-panel nodes so the pill hugs its label the same way. Passing the raw
+    // 1.4×-inflated currentWidth here left the box a factor of 1.4 too loose.
     return {
       ...baseNode,
       x: 0,
       y: 0,
-      width: Math.max(dimensions.currentWidth, 220),
-      height: Math.max(dimensions.currentHeight, 96)
+      width: Math.max(dimensions.currentWidth * LEGACY_DIM_SCALE, 220),
+      height: Math.max(dimensions.currentHeight * LEGACY_DIM_SCALE, 96)
     };
   }, [isNodeGroup, selectedGroup, nodeGroupPrototype]);
 
