@@ -25,7 +25,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, ArrowRight, Sparkles } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, ArrowRight, Sparkles } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -49,6 +49,7 @@ import { debugLogSync } from './utils/debugLogger.js';
 import { getNodeHitbox, getVisualConnectionEndpoints, getLineNodeIntersection } from './utils/canvas/nodeHitbox.js';
 import { stabilizeLabelPosition, clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
+import apiKeyManager from './services/apiKeyManager.js';
 
 // Import Zustand store and selectors/actions
 import useGraphStore, {
@@ -691,6 +692,8 @@ function NodeCanvas() {
   useEffect(() => { inputModeRef.current = inputMode; }, [inputMode]);
   const gridMode = useGraphStore(state => state.gridSettings?.mode || 'off');
   const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
+  const gridSnapMode = useGraphStore(state => state.gridSettings?.snapMode || 'if-enabled');
+  const gridAppearance = useGraphStore(state => state.gridSettings?.appearance || 'lattice');
   const dragZoomSettings = useGraphStore(state => state.dragZoomSettings || { enabled: true, zoomAmount: 0.45 });
   const enableAutoRouting = useGraphStore(state => state.autoLayoutSettings?.enableAutoRouting);
   const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
@@ -2179,7 +2182,8 @@ function NodeCanvas() {
   const {
     moveOutOfBoundsNodesInBounds,
     applyAutoLayoutToActiveGraph,
-    condenseGraphNodes
+    condenseGraphNodes,
+    snapActiveGraphToGrid
   } = useGraphLayout({
     activeGraphId,
     storeActions,
@@ -2201,7 +2205,10 @@ function NodeCanvas() {
     setPanOffset,
     canvasTransform: transform,
     viewportSize,
-    maxZoom: MAX_ZOOM
+    maxZoom: MAX_ZOOM,
+    gridMode,
+    gridSize,
+    gridSnapMode
   });
 
 
@@ -3377,6 +3384,9 @@ function NodeCanvas() {
   // Ask The Wizard dialog state (for node-define control panel)
   const [askWizardNodeDialog, setAskWizardNodeDialog] = useState(null); // { prototype }
   const [askWizardNodeDontAskAgain, setAskWizardNodeDontAskAgain] = useState(false);
+  // Ask The Wizard dialog state (for the canvas "Grow with The Wizard" action)
+  const [askWizardGrowDialog, setAskWizardGrowDialog] = useState(null); // { subjectLabel, isBlank }
+  const [askWizardGrowDontAskAgain, setAskWizardGrowDontAskAgain] = useState(false);
   const [wizardEnabled, setWizardEnabled] = useState(() => {
     try { return debugConfig.isWizardEnabled(); } catch { return false; }
   });
@@ -3386,6 +3396,21 @@ function NodeCanvas() {
     };
     const unsubscribe = debugConfig.addListener(handler);
     return unsubscribe;
+  }, []);
+
+  // Gate for every "Ask The Wizard" entry point: if no AI API key is configured,
+  // open Settings directly to the AI & API Keys section instead of invoking the wizard.
+  // Returns true if a key exists (caller may proceed), false if it opened settings.
+  const ensureWizardApiKey = useCallback(async () => {
+    try {
+      if (await apiKeyManager.hasAPIKey()) return true;
+    } catch (err) {
+      console.error('[NodeCanvas] API key check failed:', err);
+    }
+    try {
+      window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { section: 'ai' } }));
+    } catch { }
+    return false;
   }, []);
 
   // Shared helper used by both wizard prompts to emit an "About this graph" block.
@@ -3700,8 +3725,9 @@ function NodeCanvas() {
     };
   }, []);
 
-  const openWizardWithPrompt = useCallback((edges, { newConversation }) => {
+  const openWizardWithPrompt = useCallback(async (edges, { newConversation }) => {
     if (!edges || edges.length === 0) return;
+    if (!(await ensureWizardApiKey())) return;
     try {
       storeActions.setLeftPanelExpanded(true);
     } catch { }
@@ -3762,7 +3788,7 @@ function NodeCanvas() {
       storeActions.setSelectedEdgeId(null);
       storeActions.setSelectedEdgeIds(new Set());
     } catch { }
-  }, [buildWizardConnectionPrompt, storeActions]);
+  }, [buildWizardConnectionPrompt, ensureWizardApiKey, storeActions]);
 
   const buildWizardNodeDefinitionPrompt = useCallback((prototype, opts = {}) => {
     if (!prototype) return '';
@@ -3935,8 +3961,9 @@ function NodeCanvas() {
     };
   }, []);
 
-  const openNodeWizardWithPrompt = useCallback((prototype, { newConversation }) => {
+  const openNodeWizardWithPrompt = useCallback(async (prototype, { newConversation }) => {
     if (!prototype) return;
+    if (!(await ensureWizardApiKey())) return;
     try {
       storeActions.setLeftPanelExpanded(true);
     } catch { }
@@ -3994,7 +4021,150 @@ function NodeCanvas() {
     }
 
     setSelectedInstanceIds(new Set());
-  }, [buildWizardNodeDefinitionPrompt, storeActions]);
+  }, [buildWizardNodeDefinitionPrompt, ensureWizardApiKey, storeActions]);
+
+  // Build the "Grow with The Wizard" prompt for the active graph. Branches on whether the
+  // graph is blank (populate from scratch) or already has content (expand / deepen it).
+  const buildWizardGrowGraphPrompt = useCallback((opts = {}) => {
+    const includeInstructions = opts.includeInstructions === 'short' ? 'short' : 'full';
+    const st = useGraphStore.getState();
+    const graphs = st.graphs;
+    const nodePrototypesMap = st.nodePrototypes;
+    const activeId = st.activeGraphId;
+    const activeGraph = activeId ? graphs.get(activeId) : null;
+    if (!activeGraph) return '';
+    const activeGraphName = activeGraph.name || 'the active graph';
+
+    const instances = activeGraph.instances;
+    const instanceCount = instances instanceof Map
+      ? instances.size
+      : (instances ? Object.keys(instances).length : 0);
+    const isBlank = instanceCount === 0;
+
+    const graphCtxLines = buildGraphContextLines(activeGraph, nodePrototypesMap);
+    const lines = [];
+
+    if (isBlank) {
+      lines.push(`I have a blank graph "${activeGraphName}" and I'd like you to populate it from scratch.`);
+    } else {
+      lines.push(`I'd like you to expand and grow my existing graph "${activeGraphName}" — deepen and enrich it.`);
+    }
+    lines.push('');
+    lines.push('About this graph:');
+    lines.push(...graphCtxLines);
+    lines.push('');
+
+    if (includeInstructions === 'full') {
+      lines.push('Goals:');
+      if (isBlank) {
+        lines.push('- Populate this graph with a meaningful set of nodes that flesh out its subject. Use the graph name and description as the seed.');
+        lines.push('- Add connections between nodes where the relationship is genuinely meaningful and well-known. Prefer reusing existing connection prototypes from the project where possible.');
+        lines.push('- Give novel nodes a short description so the terms are clear.');
+      } else {
+        lines.push('- Grow the graph by adding new nodes and connections that extend the existing structure in meaningful directions. Build on what is already here rather than duplicating it.');
+        lines.push('- Where an existing node is a rich concept that lacks its own definition graph, consider populating a definition graph for it (populateDefinitionGraph) to show what it is composed of — but only when it genuinely adds depth.');
+        lines.push('- Add connections where the relationship is genuinely meaningful and well-known. Prefer reusing existing connection prototypes from the project.');
+        lines.push('- Give novel nodes a short description so the terms are clear.');
+      }
+      lines.push('');
+      lines.push('Before applying changes:');
+      if (isBlank) {
+        lines.push('- If the graph name/description is ambiguous about what direction to take, use the askMultipleChoice tool to ask ONE clarifying question before populating. Only ask if the scope is genuinely ambiguous.');
+      } else {
+        lines.push('- The direction to grow may be ambiguous. Use the askMultipleChoice tool to ask ONE clarifying question about what to focus on (e.g. which subtopic to expand, breadth vs depth) before making large changes. Only skip this if the intent is obvious.');
+      }
+      lines.push('- If you need more information about the subject, call search / searchNodes / readGraph / querySparql first.');
+      lines.push('');
+      lines.push('Tool-call rules (important):');
+      lines.push(`- Use expandGraph with targetGraphId="${activeGraph.id}" (the EXACT id, not the name) to add nodes and connections to this graph.`);
+      if (!isBlank) {
+        lines.push('- To give an existing node its own definition graph, use populateDefinitionGraph with nodeName="<the node name>".');
+      }
+      lines.push('- expandGraph edges accept a simple `type` string. Example edge:');
+      lines.push('    { "source": "Axioms", "target": "Logical Constraints", "type": "Establishes" }');
+      lines.push('- Use node names exactly as provided; do NOT pass node IDs you have not seen.');
+    } else {
+      // Short mode — full instructions were already given earlier in this conversation.
+      lines.push('Tool to use this time:');
+      lines.push(`- expandGraph with targetGraphId="${activeGraph.id}" (the EXACT id, not the name) to add nodes and connections to this graph.`);
+      if (!isBlank) {
+        lines.push('- populateDefinitionGraph with nodeName="<the node name>" to give an existing node its own definition graph, when it adds depth.');
+      }
+      lines.push('');
+      lines.push('(Reminder: same grow goals, askMultipleChoice-when-ambiguous, search-first guidance, and edge-shape rules as the previous Grow message in this conversation. Use node names, never IDs.)');
+    }
+
+    const subjectLabel = `"${activeGraphName}"`;
+    const summary = isBlank ? `Populate ${subjectLabel}` : `Grow ${subjectLabel}`;
+
+    return {
+      message: lines.join('\n'),
+      summary,
+      action: 'grow-graph',
+      subjectLabel,
+      isBlank
+    };
+  }, [buildGraphContextLines]);
+
+  // "Grow with The Wizard" — opens the AI Wizard seeded with the grow/populate prompt for the
+  // active graph. Mirrors openNodeWizardWithPrompt: gated on an API key, honors new/current.
+  const openGrowGraphWizardWithPrompt = useCallback(async ({ newConversation }) => {
+    const st = useGraphStore.getState();
+    if (!st.activeGraphId) return;
+    if (!(await ensureWizardApiKey())) return;
+
+    // New conversations always start with full instructions. For "Add to current",
+    // skip the instruction block if this conversation already saw a grow-graph action.
+    const includeInstructions = (() => {
+      if (newConversation) return 'full';
+      try {
+        return (typeof window !== 'undefined' && window.__rs_wizardConversationHasAction?.('grow-graph'))
+          ? 'short'
+          : 'full';
+      } catch {
+        return 'full';
+      }
+    })();
+
+    const built = buildWizardGrowGraphPrompt({ includeInstructions });
+    if (!built || !built.message) return;
+    const { message, summary, action, subjectLabel } = built;
+
+    try {
+      storeActions.setLeftPanelExpanded(true);
+    } catch { }
+    setLeftPanelInitialView('ai');
+
+    const send = () => {
+      try {
+        const detail = { message };
+        if (summary) {
+          detail.displayContent = summary;
+          detail.replayContent = summary;
+          detail.displayMetadata = {
+            kind: 'wizard-action-chip',
+            action,
+            label: subjectLabel,
+            fullPrompt: message
+          };
+        }
+        window.dispatchEvent(new CustomEvent('rs-send-wizard-message', { detail }));
+      } catch (err) {
+        console.error('[NodeCanvas] Failed to dispatch wizard message:', err);
+      }
+    };
+
+    if (newConversation) {
+      try {
+        window.dispatchEvent(new CustomEvent('rs-new-wizard-tab'));
+      } catch (err) {
+        console.error('[NodeCanvas] Failed to dispatch new wizard tab event:', err);
+      }
+      setTimeout(send, 0);
+    } else {
+      send();
+    }
+  }, [buildWizardGrowGraphPrompt, ensureWizardApiKey, storeActions]);
 
   // Listen for "Ask The Wizard" requests dispatched from the right panel's empty-components row.
   // Routes through the same pref-aware flow used by the bottom control panel button.
@@ -4073,6 +4243,11 @@ function NodeCanvas() {
   }, [editingGroupId]);
   const [hasMouseMovedSinceDown, setHasMouseMovedSinceDown] = useState(false);
   const [hoveredEdgeInfo, setHoveredEdgeInfo] = useState(null); // Track hovered edge and which end
+  // Mirror the nearest-hovered edge into a ref so click selection can pick the
+  // nearest of several overlapping connections (matching the hover highlight)
+  // without depending on which SVG hitbox happens to be on top.
+  const hoveredEdgeInfoRef = useRef(null);
+  useEffect(() => { hoveredEdgeInfoRef.current = hoveredEdgeInfo; }, [hoveredEdgeInfo]);
 
   // Hover vision aid state
   const [hoveredNodeForVision, setHoveredNodeForVision] = useState(null);
@@ -6468,6 +6643,26 @@ function NodeCanvas() {
     setHoveredEdgeInfo(null);
   }, []);
 
+  // Select an edge from a mouse click on its line/path hitbox. When several
+  // connections overlap, the topmost SVG hitbox receives the click but is not
+  // necessarily the one closest to the pointer, so we prefer the nearest edge
+  // computed by the hover hit-test (mirrored in hoveredEdgeInfoRef). Falls back
+  // to the clicked edge when no hover has been computed (e.g. the pointer never
+  // moved over the canvas first).
+  const selectEdgeFromClick = useCallback((clickedEdgeId, e) => {
+    const targetEdgeId = hoveredEdgeInfoRef.current?.edgeId || clickedEdgeId;
+    if (e.ctrlKey || e.metaKey) {
+      if (selectedEdgeIds.has(targetEdgeId)) {
+        storeActions.removeSelectedEdgeId(targetEdgeId);
+      } else {
+        storeActions.addSelectedEdgeId(targetEdgeId);
+      }
+    } else {
+      storeActions.clearSelectedEdgeIds();
+      storeActions.setSelectedEdgeId(targetEdgeId);
+    }
+  }, [selectedEdgeIds, storeActions]);
+
   // Shared pointer handlers for edge hitboxes (line stroke + label rect) so the
   // connection label text is just as clickable as the line itself.
   const getEdgeHitboxHandlers = useCallback((edgeId) => ({
@@ -7253,10 +7448,8 @@ function NodeCanvas() {
                   },
                   directionality: edge.directionality
                 });
-
-                if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
-                  break;
-                }
+                // Keep scanning: for overlapping connections we want the nearest
+                // edge to win, not the first one found within the threshold.
               }
             }
 
@@ -9646,18 +9839,65 @@ function NodeCanvas() {
     applyAutoLayoutToActiveGraph();
   }, [activeGraphId, applyAutoLayoutToActiveGraph]);
 
+  // Snap every node in the active graph to the grid (explicit user action —
+  // works regardless of whether the grid is currently enabled).
+  const snapToGrid = useCallback(() => {
+    if (!activeGraphId) return;
+    snapActiveGraphToGrid();
+  }, [activeGraphId, snapActiveGraphToGrid]);
+
   // Context Menu options for canvas background
   const getCanvasContextMenuOptions = useCallback(() => {
-    return [
+    const options = [
       {
         label: 'Auto Layout Web',
         icon: <LayoutGrid size={14} />,
         action: () => {
           triggerAutoLayout();
         }
+      },
+      {
+        label: 'Snap to Grid',
+        icon: <Grid3x3 size={14} />,
+        action: () => {
+          snapToGrid();
+        }
       }
     ];
-  }, [triggerAutoLayout]);
+    if (wizardEnabled) {
+      options.push({
+        label: 'Grow with The Wizard',
+        icon: <Sparkles size={14} />,
+        action: () => {
+          // Reuse the same new/current/ask preference as the node-define wizard flow.
+          const pref = (() => {
+            try { return debugConfig.getWizardNodePref(); } catch { return 'ask'; }
+          })();
+          if (pref === 'new') {
+            openGrowGraphWizardWithPrompt({ newConversation: true });
+            return;
+          }
+          if (pref === 'current') {
+            openGrowGraphWizardWithPrompt({ newConversation: false });
+            return;
+          }
+          const st = useGraphStore.getState();
+          const activeGraph = st.activeGraphId ? st.graphs.get(st.activeGraphId) : null;
+          if (!activeGraph) return;
+          const instances = activeGraph.instances;
+          const instanceCount = instances instanceof Map
+            ? instances.size
+            : (instances ? Object.keys(instances).length : 0);
+          setAskWizardGrowDontAskAgain(false);
+          setAskWizardGrowDialog({
+            subjectLabel: activeGraph.name || 'this graph',
+            isBlank: instanceCount === 0
+          });
+        }
+      });
+    }
+    return options;
+  }, [triggerAutoLayout, snapToGrid, wizardEnabled, openGrowGraphWizardWithPrompt]);
 
   // Context Menu options for nodes - core functionality without pie menu transition logic
   const getContextMenuOptions = useCallback((instanceId) => {
@@ -10346,6 +10586,8 @@ function NodeCanvas() {
         onSetGridMode={(m) => useGraphStore.getState().setGridMode(m)}
         gridSize={gridSize}
         onSetGridSize={(v) => useGraphStore.getState().setGridSize(v)}
+        gridAppearance={gridAppearance}
+        onSetGridAppearance={(a) => useGraphStore.getState().setGridAppearance(a)}
 
         // Drag zoom controls
         dragZoomEnabled={dragZoomSettings.enabled}
@@ -10361,6 +10603,9 @@ function NodeCanvas() {
         }}
         onAutoLayoutGraph={() => {
           triggerAutoLayout();
+        }}
+        onSnapToGrid={() => {
+          snapToGrid();
         }}
         onCondenseNodes={condenseGraphNodes}
         onLoadFromExternalLink={() => window.dispatchEvent(new CustomEvent('redstring:open-external-link'))}
@@ -10970,10 +11215,24 @@ function NodeCanvas() {
                     const dotR = Math.min(6, Math.max(3, gridSize * 0.06));
                     const lineColor = theme.darkMode ? "#716C6C" : "#979090";
                     const dotColor = theme.canvas.textPrimary;
+                    // Drag/hover always shows dots. In 'always' mode the appearance
+                    // setting picks the look: 'lattice' → lines, 'dot' → the same dots.
+                    const useDots = gridMode === 'hover' || gridAppearance === 'dot';
                     return (
                       <g className="grid-overlay" pointerEvents="none">
                         <defs>
-                          {gridMode === 'always' && (
+                          {useDots ? (
+                            <pattern
+                              id="grid-dots-pattern"
+                              x={0}
+                              y={0}
+                              width={gridSize}
+                              height={gridSize}
+                              patternUnits="userSpaceOnUse"
+                            >
+                              <circle cx={0} cy={0} r={dotR} fill={dotColor} opacity={0.3} />
+                            </pattern>
+                          ) : (
                             <pattern
                               id="grid-lines-pattern"
                               x={0}
@@ -10991,25 +11250,13 @@ function NodeCanvas() {
                               />
                             </pattern>
                           )}
-                          {gridMode === 'hover' && !!draggingNodeInfo && (
-                            <pattern
-                              id="grid-dots-pattern"
-                              x={0}
-                              y={0}
-                              width={gridSize}
-                              height={gridSize}
-                              patternUnits="userSpaceOnUse"
-                            >
-                              <circle cx={0} cy={0} r={dotR} fill={dotColor} opacity={0.3} />
-                            </pattern>
-                          )}
                         </defs>
                         <rect
                           x={canvasSize.offsetX}
                           y={canvasSize.offsetY}
                           width={canvasSize.width}
                           height={canvasSize.height}
-                          fill={`url(#${gridMode === 'always' ? 'grid-lines-pattern' : 'grid-dots-pattern'})`}
+                          fill={`url(#${useDots ? 'grid-dots-pattern' : 'grid-lines-pattern'})`}
                         />
                       </g>
                     );
@@ -12339,20 +12586,8 @@ function NodeCanvas() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     ignoreCanvasClick.current = true;
-
-                                    // Handle multiple selection with Ctrl/Cmd key
-                                    if (e.ctrlKey || e.metaKey) {
-                                      // Toggle this edge in the multiple selection
-                                      if (selectedEdgeIds.has(edge.id)) {
-                                        storeActions.removeSelectedEdgeId(edge.id);
-                                      } else {
-                                        storeActions.addSelectedEdgeId(edge.id);
-                                      }
-                                    } else {
-                                      // Single selection - clear multiple selection and set single edge
-                                      storeActions.clearSelectedEdgeIds();
-                                      storeActions.setSelectedEdgeId(edge.id);
-                                    }
+                                    // Select the nearest overlapping connection, not just the topmost hitbox
+                                    selectEdgeFromClick(edge.id, e);
                                   }}
                                   onDoubleClick={(e) => {
                                     e.stopPropagation();
@@ -12413,20 +12648,8 @@ function NodeCanvas() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     ignoreCanvasClick.current = true;
-
-                                    // Handle multiple selection with Ctrl/Cmd key
-                                    if (e.ctrlKey || e.metaKey) {
-                                      // Toggle this edge in the multiple selection
-                                      if (selectedEdgeIds.has(edge.id)) {
-                                        storeActions.removeSelectedEdgeId(edge.id);
-                                      } else {
-                                        storeActions.addSelectedEdgeId(edge.id);
-                                      }
-                                    } else {
-                                      // Single selection - clear multiple selection and set single edge
-                                      storeActions.clearSelectedEdgeIds();
-                                      storeActions.setSelectedEdgeId(edge.id);
-                                    }
+                                    // Select the nearest overlapping connection, not just the topmost hitbox
+                                    selectEdgeFromClick(edge.id, e);
                                   }}
                                   onDoubleClick={(e) => {
                                     e.stopPropagation();
@@ -12489,20 +12712,8 @@ function NodeCanvas() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     ignoreCanvasClick.current = true;
-
-                                    // Handle multiple selection with Ctrl/Cmd key
-                                    if (e.ctrlKey || e.metaKey) {
-                                      // Toggle this edge in the multiple selection
-                                      if (selectedEdgeIds.has(edge.id)) {
-                                        storeActions.removeSelectedEdgeId(edge.id);
-                                      } else {
-                                        storeActions.addSelectedEdgeId(edge.id);
-                                      }
-                                    } else {
-                                      // Single selection - clear multiple selection and set single edge
-                                      storeActions.clearSelectedEdgeIds();
-                                      storeActions.setSelectedEdgeId(edge.id);
-                                    }
+                                    // Select the nearest overlapping connection, not just the topmost hitbox
+                                    selectEdgeFromClick(edge.id, e);
                                   }}
                                   onDoubleClick={(e) => {
                                     e.stopPropagation();
@@ -13803,20 +14014,8 @@ function NodeCanvas() {
                                   style={{ cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
-
-                                    // Handle multiple selection with Ctrl/Cmd key
-                                    if (e.ctrlKey || e.metaKey) {
-                                      // Toggle this edge in the multiple selection
-                                      if (selectedEdgeIds.has(edge.id)) {
-                                        storeActions.removeSelectedEdgeId(edge.id);
-                                      } else {
-                                        storeActions.addSelectedEdgeId(edge.id);
-                                      }
-                                    } else {
-                                      // Single selection - clear multiple selection and set single edge
-                                      storeActions.clearSelectedEdgeIds();
-                                      storeActions.setSelectedEdgeId(edge.id);
-                                    }
+                                    // Select the nearest overlapping connection, not just the topmost hitbox
+                                    selectEdgeFromClick(edge.id, e);
                                   }}
                                   onDoubleClick={(e) => {
                                     e.stopPropagation();
@@ -13849,20 +14048,8 @@ function NodeCanvas() {
                                   style={{ cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
-
-                                    // Handle multiple selection with Ctrl/Cmd key
-                                    if (e.ctrlKey || e.metaKey) {
-                                      // Toggle this edge in the multiple selection
-                                      if (selectedEdgeIds.has(edge.id)) {
-                                        storeActions.removeSelectedEdgeId(edge.id);
-                                      } else {
-                                        storeActions.addSelectedEdgeId(edge.id);
-                                      }
-                                    } else {
-                                      // Single selection - clear multiple selection and set single edge
-                                      storeActions.clearSelectedEdgeIds();
-                                      storeActions.setSelectedEdgeId(edge.id);
-                                    }
+                                    // Select the nearest overlapping connection, not just the topmost hitbox
+                                    selectEdgeFromClick(edge.id, e);
                                   }}
                                   onDoubleClick={(e) => {
                                     e.stopPropagation();
@@ -16026,6 +16213,48 @@ function NodeCanvas() {
             showDontAskAgain={true}
             dontAskAgainChecked={askWizardNodeDontAskAgain}
             onDontAskAgainChange={setAskWizardNodeDontAskAgain}
+            containerRect={containerRef.current?.getBoundingClientRect()}
+            panOffset={panOffset}
+            zoomLevel={zoomLevel}
+          />
+        )
+      }
+
+      {/* Ask The Wizard dialog (grow-graph) */}
+      {
+        askWizardGrowDialog && (
+          <CanvasConfirmDialog
+            isOpen={true}
+            onClose={() => setAskWizardGrowDialog(null)}
+            onConfirm={() => {
+              const remember = askWizardGrowDontAskAgain;
+              setAskWizardGrowDialog(null);
+              if (remember) {
+                try { debugConfig.setWizardNodePref('new'); } catch { }
+              }
+              openGrowGraphWizardWithPrompt({ newConversation: true });
+            }}
+            onSecondaryConfirm={() => {
+              const remember = askWizardGrowDontAskAgain;
+              setAskWizardGrowDialog(null);
+              if (remember) {
+                try { debugConfig.setWizardNodePref('current'); } catch { }
+              }
+              openGrowGraphWizardWithPrompt({ newConversation: false });
+            }}
+            title="Grow with The Wizard"
+            message={
+              askWizardGrowDialog.isBlank
+                ? `Open the AI Wizard to populate "${askWizardGrowDialog.subjectLabel}"?`
+                : `Open the AI Wizard to grow and expand "${askWizardGrowDialog.subjectLabel}"?`
+            }
+            confirmLabel="New conversation"
+            secondaryConfirmLabel="Add to current"
+            cancelLabel="Cancel"
+            variant="info"
+            showDontAskAgain={true}
+            dontAskAgainChecked={askWizardGrowDontAskAgain}
+            onDontAskAgainChange={setAskWizardGrowDontAskAgain}
             containerRect={containerRef.current?.getBoundingClientRect()}
             panOffset={panOffset}
             zoomLevel={zoomLevel}

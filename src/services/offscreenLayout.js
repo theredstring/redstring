@@ -1,6 +1,7 @@
 import useGraphStore from '../store/graphStore.js';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from './graphLayoutService.js';
 import { getNodeDimensions } from '../utils.js';
+import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 
 /**
  * Compute and persist a force-directed layout for any graph, active or not.
@@ -92,6 +93,21 @@ export function applyOffscreenLayout(graphId) {
     const shiftX = 0 - (minX + maxX) / 2;
     const shiftY = 0 - (minY + maxY) / 2;
     updates = updates.map(u => ({ ...u, x: Math.round(u.x + shiftX), y: Math.round(u.y + shiftY) }));
+  }
+
+  // Grid snapping (same resolution as interactive auto-layout): snap when the
+  // user's preference is 'always', or 'if-enabled' and the grid isn't off.
+  const gridSize = st.gridSettings?.size || 200;
+  const gridMode = st.gridSettings?.mode || 'off';
+  const snapMode = st.gridSettings?.snapMode || 'if-enabled';
+  const shouldSnap = snapMode === 'always' || (snapMode === 'if-enabled' && gridMode !== 'off');
+  if (shouldSnap && gridSize > 0) {
+    const dimsById = new Map(layoutNodes.map(n => [n.id, { w: n.width, h: n.height }]));
+    updates = updates.map(u => {
+      const dims = dimsById.get(u.instanceId) || { w: 0, h: 0 };
+      const snapped = snapPositionToGrid(u.x, u.y, dims.w, dims.h, gridSize);
+      return { ...u, x: Math.round(snapped.x), y: Math.round(snapped.y) };
+    });
   }
 
   st.updateMultipleNodeInstancePositions(graphId, updates, {

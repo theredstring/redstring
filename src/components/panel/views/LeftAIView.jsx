@@ -800,6 +800,10 @@ const LeftAIView = ({ compact = false,
       // Load messages if tab switched, OR if we just hydrated and current messages are empty
       // Added check for activeConv.messages?.length > 0 to prevent infinite loop with empty [] arrays
       if (isTabSwitch || (isHydrated && messages.length === 0 && activeConv.messages?.length > 0)) {
+        // Land at the bottom instantly on tab switch rather than animating the
+        // whole history from top to bottom.
+        jumpToBottomRef.current = true;
+        isPinnedToBottomRef.current = true;
         setMessages(activeConv.messages || []);
       }
     }
@@ -856,7 +860,25 @@ const LeftAIView = ({ compact = false,
   }, [messages, activeConversationId]);
 
   const messagesEndRef = React.useRef(null);
+  const messagesContainerRef = React.useRef(null);
+  // Tracks whether the user is "pinned" to the bottom of the message list.
+  // While the wizard streams, `messages` updates constantly; if we auto-scrolled
+  // unconditionally the user could never scroll up to read earlier output — every
+  // update would teleport them back down. We only auto-scroll when they're already
+  // at (or near) the bottom, and treat any manual scroll-up as an opt-out.
+  const isPinnedToBottomRef = React.useRef(true);
+  // When switching tabs we want to land at the bottom instantly instead of
+  // smooth-scrolling the whole (possibly long) history from top to bottom.
+  const jumpToBottomRef = React.useRef(false);
   const inputRef = React.useRef(null);
+
+  // Recompute pinned state whenever the user scrolls the message list.
+  const handleMessagesScroll = React.useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isPinnedToBottomRef.current = distanceFromBottom <= 80;
+  }, []);
 
   // Auto-resize textarea when currentInput changes programmatically (send, undo, clear)
   React.useEffect(() => {
@@ -1162,12 +1184,29 @@ const LeftAIView = ({ compact = false,
     if (!messagesEndRef.current) return;
     const last = messages[messages.length - 1];
     const isWizardChip = last?.metadata?.kind === 'wizard-action-chip';
-    if (isWizardChip) {
+    if (jumpToBottomRef.current) {
+      // Tab switch: teleport to the bottom after layout settles, no animation.
+      jumpToBottomRef.current = false;
       requestAnimationFrame(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
       });
-    } else {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    } else if (isWizardChip) {
+      // Programmatic chips are a fresh user action — always scroll and re-pin.
+      isPinnedToBottomRef.current = true;
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+      });
+    } else if (isPinnedToBottomRef.current) {
+      // Only follow new/streaming content when the user hasn't scrolled up to read.
+      // A tall tool-call card can push the bottom far away in a single update; a
+      // smooth scroll across that whole distance reads as a top-to-bottom sweep.
+      // Teleport for large jumps, animate only small streaming deltas.
+      const el = messagesContainerRef.current;
+      const distanceFromBottom = el
+        ? el.scrollHeight - el.scrollTop - el.clientHeight
+        : 0;
+      const behavior = distanceFromBottom > (el ? el.clientHeight : 400) ? 'auto' : 'smooth';
+      messagesEndRef.current.scrollIntoView({ behavior, block: 'end' });
     }
   }, [messages]);
 
@@ -3015,7 +3054,7 @@ const LeftAIView = ({ compact = false,
           variant="danger"
         />
         <div className="ai-chat-mode">
-          <div className="ai-messages" style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: messages.length === 0 ? 'center' : 'flex-start' }}>
+          <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="ai-messages" style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: messages.length === 0 ? 'center' : 'flex-start' }}>
             {isHydrated && isConnected && messages.length === 0 && (
               <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 0' }}>
                 <svg id="wizard-full-body" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58.23 81.25" style={{ width: '150px', marginBottom: '16px' }}>

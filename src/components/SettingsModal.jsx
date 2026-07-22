@@ -45,6 +45,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
   // Pull live state from the store for reactive rendering
   const gridMode = useGraphStore(s => s.gridSettings?.mode);
   const gridSize = useGraphStore(s => s.gridSettings?.size);
+  const gridSnapMode = useGraphStore(s => s.gridSettings?.snapMode);
+  const gridAppearance = useGraphStore(s => s.gridSettings?.appearance);
   const dragZoomEnabled = useGraphStore(s => s.dragZoomSettings?.enabled);
   const dragZoomAmount = useGraphStore(s => s.dragZoomSettings?.zoomAmount);
   const textSettings = useGraphStore(s => s.textSettings);
@@ -336,6 +338,17 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={(v) => useGraphStore.getState().setGridMode?.(v)}
             />
           </div>
+          <div className="settings-row">
+            <div className="settings-row-label">Grid Appearance</div>
+            <OptionGroup
+              options={[
+                { label: 'Lattice', value: 'lattice' },
+                { label: 'Dot', value: 'dot' }
+              ]}
+              value={gridAppearance || 'lattice'}
+              onChange={(v) => useGraphStore.getState().setGridAppearance?.(v)}
+            />
+          </div>
           <div className="settings-slider-row">
             <MaroonSlider
               label="Grid Size"
@@ -345,6 +358,21 @@ const SettingsModal = ({ isVisible, onClose }) => {
               step={5}
               suffix="px"
               onChange={(v) => useGraphStore.getState().setGridSize?.(v)}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Snap to Grid
+              <div className="settings-row-description">When auto-layout aligns nodes to grid vertices</div>
+            </div>
+            <OptionGroup
+              options={[
+                { label: 'If Grid Enabled', value: 'if-enabled' },
+                { label: 'Always', value: 'always' },
+                { label: 'Never', value: 'never' }
+              ]}
+              value={gridSnapMode || 'if-enabled'}
+              onChange={(v) => useGraphStore.getState().setGridSnapMode?.(v)}
             />
           </div>
         </div>

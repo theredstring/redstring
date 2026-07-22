@@ -43,6 +43,8 @@ const RedstringMenu = ({
   onSetGridMode,
   gridSize,
   onSetGridSize,
+  gridAppearance,
+  onSetGridAppearance,
   // Drag zoom controls
   dragZoomEnabled,
   dragZoomAmount,
@@ -65,6 +67,7 @@ const RedstringMenu = ({
   onGenerateTestGraph,
   onOpenForceSim,
   onAutoLayoutGraph,
+  onSnapToGrid,
   onCondenseNodes
 }) => {
   const [isExiting, setIsExiting] = useState(false);
@@ -618,6 +621,21 @@ const RedstringMenu = ({
                               >
                                 Always {gridMode === 'always' ? '✓' : ''}
                               </div>
+                              <div className="submenu-divider" style={{ margin: '6px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
+                              <div
+                                className="submenu-item"
+                                onClick={() => onSetGridAppearance?.('lattice')}
+                                style={{ opacity: (gridAppearance || 'lattice') === 'lattice' ? 1 : 0.8, cursor: 'pointer' }}
+                              >
+                                Lattice {(gridAppearance || 'lattice') === 'lattice' ? '✓' : ''}
+                              </div>
+                              <div
+                                className="submenu-item"
+                                onClick={() => onSetGridAppearance?.('dot')}
+                                style={{ opacity: gridAppearance === 'dot' ? 1 : 0.8, cursor: 'pointer' }}
+                              >
+                                Dot {gridAppearance === 'dot' ? '✓' : ''}
+                              </div>
                               <div style={{ padding: '6px 6px 0 6px', width: '100%' }}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onMouseUp={(e) => e.stopPropagation()}
@@ -667,6 +685,19 @@ const RedstringMenu = ({
                         >
                           <LayoutGrid size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Auto Layout Web
+                        </div>
+
+                        <div
+                          className="submenu-item"
+                          onClick={() => {
+                            console.log('[View] Snap to Grid clicked');
+                            closeAllMenus();
+                            if (onSnapToGrid) onSnapToGrid();
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <Grid3x3 size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
+                          Snap to Grid
                         </div>
 
                         <div

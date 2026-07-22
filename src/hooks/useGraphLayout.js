@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS, deriveGroupVisualBounds } from '../services/graphLayoutService.js';
 import { getNodeDimensions } from '../utils'; // Assumed utility
+import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 import { HEADER_HEIGHT } from '../constants';
 
 /**
@@ -50,7 +51,16 @@ export const useGraphLayout = ({
     canvasTransform = null,
     viewportSize = null,
     maxZoom = 3,
+    // Grid snapping — auto-layout aligns final positions to grid vertices per snapMode
+    gridMode = 'off',
+    gridSize = 200,
+    gridSnapMode = 'if-enabled',
 }) => {
+    // Whether bulk auto-placement should snap to the grid, given the current
+    // grid mode and the user's snap preference. The standalone snap-to-grid
+    // action bypasses this (it's an explicit user request).
+    const shouldSnapAutoLayout = gridSnapMode === 'always'
+        || (gridSnapMode === 'if-enabled' && gridMode !== 'off');
     // ---------------------------------------------------------------------------
     // 1. Move Out of Bounds Nodes
     // ---------------------------------------------------------------------------
@@ -283,6 +293,18 @@ export const useGraphLayout = ({
                 }
             }
 
+            // Grid snapping: align each node's center to the nearest grid vertex,
+            // the same motion as picking up a node and dropping it with the grid on.
+            // Done before camera framing so the view frames the snapped positions.
+            if (shouldSnapAutoLayout && gridSize > 0) {
+                const dimsById = new Map(layoutNodes.map(n => [n.id, { w: n.width, h: n.height }]));
+                updates = updates.map(update => {
+                    const dims = dimsById.get(update.instanceId) || { w: 0, h: 0 };
+                    const snapped = snapPositionToGrid(update.x, update.y, dims.w, dims.h, gridSize);
+                    return { ...update, x: Math.round(snapped.x), y: Math.round(snapped.y) };
+                });
+            }
+
             if (resetConnectionLabelCache) resetConnectionLabelCache();
 
             // Compute the zoom-to-fit camera target framed on the FINAL positions
@@ -484,9 +506,82 @@ export const useGraphLayout = ({
         setPanOffset,
         canvasTransform,
         viewportSize,
-        maxZoom
+        maxZoom,
+        shouldSnapAutoLayout,
+        gridSize
     ]);
 
+    // ---------------------------------------------------------------------------
+    // 2b. Snap all nodes to grid (explicit user action)
+    // ---------------------------------------------------------------------------
+    // Snaps every node in the active graph to the nearest grid vertex with one
+    // eased motion, regardless of grid mode or snap preference. Mirrors the
+    // pick-up-and-drop snap so an explicit "Snap to Grid" always lands cleanly.
+    const snapAnimRef = useRef(null);
+    useEffect(() => () => {
+        if (snapAnimRef.current) cancelAnimationFrame(snapAnimRef.current);
+    }, []);
+
+    const snapActiveGraphToGrid = useCallback((opts = {}) => {
+        const { animate = true, duration = 300 } = opts;
+        if (!activeGraphId || !nodes || nodes.length === 0) return;
+        const size = gridSize > 0 ? gridSize : 200;
+
+        const targets = nodes.map(node => {
+            const dims = baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
+            const w = dims?.currentWidth ?? 0;
+            const h = dims?.currentHeight ?? 0;
+            const startX = typeof node.x === 'number' ? node.x : 0;
+            const startY = typeof node.y === 'number' ? node.y : 0;
+            const snapped = snapPositionToGrid(startX, startY, w, h, size);
+            return {
+                instanceId: node.id,
+                startX,
+                startY,
+                x: Math.round(snapped.x),
+                y: Math.round(snapped.y),
+            };
+        });
+
+        // Nothing to move — skip the animation entirely.
+        const moved = targets.some(t => t.x !== t.startX || t.y !== t.startY);
+        if (!moved) return;
+
+        const finishSnap = () => {
+            storeActions.updateMultipleNodeInstancePositions(
+                activeGraphId,
+                targets.map(t => ({ instanceId: t.instanceId, x: t.x, y: t.y })),
+                { finalize: true, source: 'snap-to-grid' }
+            );
+            if (resetConnectionLabelCache) resetConnectionLabelCache();
+        };
+
+        if (!animate) {
+            finishSnap();
+            return;
+        }
+
+        if (snapAnimRef.current) cancelAnimationFrame(snapAnimRef.current);
+        const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+        const startTime = performance.now();
+        const tick = (now) => {
+            const t = Math.min(1, (now - startTime) / duration);
+            const k = easeInOutCubic(t);
+            const frame = targets.map(target => ({
+                instanceId: target.instanceId,
+                x: target.startX + (target.x - target.startX) * k,
+                y: target.startY + (target.y - target.startY) * k,
+            }));
+            storeActions.updateMultipleNodeInstancePositions(activeGraphId, frame, { skipSave: true });
+            if (t < 1) {
+                snapAnimRef.current = requestAnimationFrame(tick);
+            } else {
+                snapAnimRef.current = null;
+                finishSnap();
+            }
+        };
+        snapAnimRef.current = requestAnimationFrame(tick);
+    }, [activeGraphId, nodes, baseDimsById, gridSize, storeActions, resetConnectionLabelCache]);
 
     // ---------------------------------------------------------------------------
     // 3. Condense Nodes
@@ -530,6 +625,7 @@ export const useGraphLayout = ({
     return {
         moveOutOfBoundsNodesInBounds,
         applyAutoLayoutToActiveGraph,
-        condenseGraphNodes
+        condenseGraphNodes,
+        snapActiveGraphToGrid
     };
 };

@@ -153,6 +153,29 @@ export function lineIntersectsRect(x1, y1, x2, y2, rect) {
 }
 
 /**
+ * Snap a node's top-left position so its center lands on the nearest grid vertex.
+ * This is the same motion used when a node is picked up and dropped with the grid
+ * enabled — the node's center (where the label sits) aligns to a grid intersection.
+ * @param {number} x - Node top-left X in canvas coordinates
+ * @param {number} y - Node top-left Y in canvas coordinates
+ * @param {number} nodeWidth - Width of the node
+ * @param {number} nodeHeight - Height of the node
+ * @param {number} gridSize - Grid cell size
+ * @returns {{x: number, y: number}} Snapped top-left coordinates
+ */
+export function snapPositionToGrid(x, y, nodeWidth, nodeHeight, gridSize) {
+  if (!gridSize || gridSize <= 0) return { x, y };
+  const centerX = x + nodeWidth / 2;
+  const centerY = y + nodeHeight / 2;
+  const snappedCenterX = Math.round(centerX / gridSize) * gridSize;
+  const snappedCenterY = Math.round(centerY / gridSize) * gridSize;
+  return {
+    x: snappedCenterX - nodeWidth / 2,
+    y: snappedCenterY - nodeHeight / 2,
+  };
+}
+
+/**
  * Snap coordinates to grid
  * @param {number} mouseX - Mouse X in canvas coordinates
  * @param {number} mouseY - Mouse Y in canvas coordinates

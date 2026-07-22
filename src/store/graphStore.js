@@ -141,7 +141,7 @@ import { generateDescription } from '../utils/actionDescriptions.js';
  * @property {boolean} showConnectionControlPanel - Whether the connection control panel is visible.
  * @property {boolean} showGroupControlPanel - Whether the group control panel is visible.
  * @property {boolean} showAbstractionControlPanel - Whether the abstraction chain control panel is visible.
- * @property {Object} gridSettings - `{ mode: 'off'|'hover'|'always', size: number }`.
+ * @property {Object} gridSettings - `{ mode: 'off'|'hover'|'always', size: number, snapMode: 'if-enabled'|'always'|'never', appearance: 'lattice'|'dot' }`.
  * @property {Object} dragZoomSettings - `{ enabled: boolean, zoomAmount: number }`.
  * @property {Object} autoLayoutSettings - Force-directed layout parameters.
  * @property {Object} forceTunerSettings - Advanced force tuner parameters (mirrors autoLayoutSettings structure).
@@ -752,14 +752,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       try {
         const modeRaw = localStorage.getItem('redstring_grid_mode');
         const sizeRaw = localStorage.getItem('redstring_grid_size');
+        const snapRaw = localStorage.getItem('redstring_grid_snap');
+        const appearanceRaw = localStorage.getItem('redstring_grid_appearance');
         const allowed = new Set(['off', 'hover', 'always']);
+        const snapAllowed = new Set(['if-enabled', 'always', 'never']);
+        const appearanceAllowed = new Set(['lattice', 'dot']);
         const mode = allowed.has(modeRaw) ? modeRaw : 'off';
+        const snapMode = snapAllowed.has(snapRaw) ? snapRaw : 'if-enabled';
+        const appearance = appearanceAllowed.has(appearanceRaw) ? appearanceRaw : 'lattice';
         let size = Number.parseInt(sizeRaw, 10);
         if (!Number.isFinite(size)) size = 200;
         size = Math.max(20, Math.min(400, Math.round(size)));
-        return { mode, size };
+        return { mode, size, snapMode, appearance };
       } catch (_) {
-        return { mode: 'off', size: 200 };
+        return { mode: 'off', size: 200, snapMode: 'if-enabled', appearance: 'lattice' };
       }
     })(),
     // Drag zoom settings
@@ -4328,6 +4334,38 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       const clamped = Math.max(20, Math.min(400, Math.round(v)));
       draft.gridSettings.size = clamped;
       try { localStorage.setItem('redstring_grid_size', String(clamped)); } catch (_) { }
+    })),
+    /**
+     * Sets when auto-layout (and other bulk placement) should snap nodes to the grid.
+     * `'if-enabled'` snaps only when the grid mode isn't off; `'always'` always snaps;
+     * `'never'` disables snapping. Persists to localStorage.
+     * @param {'if-enabled'|'always'|'never'} mode
+     */
+    setGridSnapMode: (mode) => set(produce((draft) => {
+      const allowed = ['if-enabled', 'always', 'never'];
+      if (!draft.gridSettings) draft.gridSettings = { mode: 'off', size: 200, snapMode: 'if-enabled' };
+      if (allowed.includes(mode)) {
+        draft.gridSettings.snapMode = mode;
+        try { localStorage.setItem('redstring_grid_snap', mode); } catch (_) { }
+      } else {
+        console.warn(`[setGridSnapMode] Invalid mode: ${mode}`);
+      }
+    })),
+    /**
+     * Sets the grid's visual appearance when the grid is drawn: `'lattice'` renders
+     * intersecting lines, `'dot'` renders dots at each vertex (the same dots shown
+     * while dragging). Persists to localStorage.
+     * @param {'lattice'|'dot'} appearance
+     */
+    setGridAppearance: (appearance) => set(produce((draft) => {
+      const allowed = ['lattice', 'dot'];
+      if (!draft.gridSettings) draft.gridSettings = { mode: 'off', size: 200, snapMode: 'if-enabled', appearance: 'lattice' };
+      if (allowed.includes(appearance)) {
+        draft.gridSettings.appearance = appearance;
+        try { localStorage.setItem('redstring_grid_appearance', appearance); } catch (_) { }
+      } else {
+        console.warn(`[setGridAppearance] Invalid appearance: ${appearance}`);
+      }
     })),
 
     /** Toggles drag-to-zoom (pinch/scroll zoom on drag). Persists to localStorage. */

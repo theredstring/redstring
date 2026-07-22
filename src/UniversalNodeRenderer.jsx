@@ -1073,13 +1073,22 @@ const UniversalNodeRenderer = ({
             baseMultiLineSidePadding = node.isGroup ? 20 : 16; // Still compact for wrapped text
             baseAverageCharWidth = node.isGroup ? 13 : 11; // Slightly narrower estimation for compact view
           } else {
-            // Full view: match the pre-resizable (0.8.2) node text proportions
-            baseFontSize = node.isGroup ? 30 : 24;
-            baseLineHeight = node.isGroup ? 24 : 24; // Tightened line height (isolated to previews/renderer)
+            // Full view: match canvas node proportions so text hugs the box like a real
+            // node. getNodeDimensions sizes the box by measuring the name at the canvas
+            // 45px font (buildNodeFontString) then geometry is inflated 1.4×; callers pass
+            // the box back down at ÷1.4 (LEGACY_DIM_SCALE). So the font that fills that box
+            // the way the canvas does is 45/1.4 ≈ 32 (non-group) and 40/1.4 ≈ 29 (group,
+            // canvas group font is 40px). Undersizing the font here is what left the extra
+            // left/right padding around short/medium labels.
+            baseFontSize = node.isGroup ? 30 : 32;
+            // Line height tracks the font at the canvas ratio (39/45 ≈ 0.87) so multi-line
+            // names keep the same tight spacing as on the canvas. Group line height must
+            // still cover the 30px glyph box so descenders (g/y/p) aren't clipped.
+            baseLineHeight = node.isGroup ? 36 : 28;
             baseVerticalPadding = node.isGroup ? 10 : 10;
             baseSingleLineSidePadding = node.isGroup ? 30 : 22; // Match Node.jsx side padding
             baseMultiLineSidePadding = node.isGroup ? 36 : 30; // Match Node.jsx multiline padding
-            baseAverageCharWidth = node.isGroup ? 14 : 12; // Match Node.jsx char width
+            baseAverageCharWidth = node.isGroup ? 14 : 16; // ~0.5× font, so wrap detection matches
           }
 
           // Apply transform (fit) scale to all measurements — the 0.8.2 behavior.
