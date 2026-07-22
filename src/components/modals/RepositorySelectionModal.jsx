@@ -19,6 +19,7 @@ import Modal from '../shared/Modal.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
+import { listUserRepos, createRepository } from '../../services/githubRepoService.js';
 
 import { universeManagerService } from '../../services/universeManagerService.js';
 
@@ -100,73 +101,7 @@ const RepositorySelectionModal = ({
     try {
       setLoading(true);
       setError(null);
-
-      // OAuth is required for UI repository browsing
-      // GitHub App is only used for backend operations
-      let token = await persistentAuth.getAccessToken();
-      if (!token) {
-        throw new Error('GitHub OAuth required to browse repositories. Please connect OAuth in Accounts & Access.');
-      }
-
-      const response = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100', {
-        headers: {
-          'Authorization': `token ${token}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      });
-
-      if (!response.ok) {
-        // Try to get error details from response body
-        const errorBody = await response.json().catch(() => ({}));
-        const errorMessage = errorBody?.message || errorBody?.error || '';
-
-        console.error('GitHub API error:', {
-          status: response.status,
-          statusText: response.statusText,
-          errorBody,
-          headers: response.headers
-        });
-
-        if (response.status === 401) {
-          // Try to refresh OAuth token
-          try {
-            await persistentAuth.refreshAccessToken?.();
-            token = await persistentAuth.getAccessToken();
-            if (!token) throw new Error('OAuth authentication expired. Please reconnect in Accounts & Access.');
-
-            // Retry the request with refreshed token
-            const retryResponse = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100', {
-              headers: {
-                'Authorization': `token ${token}`,
-                'Accept': 'application/vnd.github.v3+json'
-              }
-            });
-
-            if (!retryResponse.ok) {
-              throw new Error('OAuth authentication expired. Please reconnect in Accounts & Access.');
-            }
-
-            const repos = await retryResponse.json();
-            setRepositories(repos);
-            return;
-          } catch (e) {
-            throw new Error('OAuth authentication expired. Please reconnect in Accounts & Access.');
-          }
-        } else if (response.status === 403) {
-          // 403 could be rate limiting or insufficient permissions
-          if (errorMessage.includes('rate limit')) {
-            throw new Error('GitHub API rate limit exceeded. Please wait a few minutes and try again.');
-          } else if (errorMessage.includes('scope')) {
-            throw new Error(`Insufficient permissions. ${errorMessage}`);
-          } else {
-            throw new Error(`Access forbidden (403). ${errorMessage || 'Your token may lack necessary permissions (repo scope required).'}`);
-          }
-        } else {
-          throw new Error(`Failed to load repositories: ${response.status}. ${errorMessage}`);
-        }
-      }
-
-      const repos = await response.json();
+      const repos = await listUserRepos();
       setRepositories(repos);
     } catch (err) {
       console.error('Failed to load repositories:', err);
@@ -187,53 +122,10 @@ const RepositorySelectionModal = ({
       setCreatingRepo(true);
       setCreateRepoError(null);
 
-      // OAuth is required for creating repositories
-      let token = await persistentAuth.getAccessToken();
-      if (!token) {
-        throw new Error('GitHub OAuth required to create repositories. Please connect OAuth in Accounts & Access.');
-      }
-
-      const response = await fetch('https://api.github.com/user/repos', {
-        method: 'POST',
-        headers: {
-          'Authorization': `token ${token}`,
-          'Accept': 'application/vnd.github.v3+json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          name: trimmedName,
-          private: newRepoPrivate,
-          auto_init: true
-        })
+      const { repo: createdRepo } = await createRepository({
+        name: trimmedName,
+        isPrivate: newRepoPrivate
       });
-
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}));
-        const message = errorBody?.message || `Failed to create repository (status ${response.status})`;
-        throw new Error(message);
-      }
-
-      const createdRepo = await response.json();
-
-      // Tag with `redstring-universe` topic so the public ecosystem is discoverable
-      // via git-provider topic search (e.g. GitHub's search API). Best-effort —
-      // failure to set topics must not break repo creation.
-      try {
-        const ownerLogin = createdRepo.owner?.login || createdRepo.owner?.name;
-        if (ownerLogin && createdRepo.name) {
-          await fetch(`https://api.github.com/repos/${ownerLogin}/${createdRepo.name}/topics`, {
-            method: 'PUT',
-            headers: {
-              'Authorization': `token ${token}`,
-              'Accept': 'application/vnd.github+json',
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ names: ['redstring-universe'] })
-          });
-        }
-      } catch (topicErr) {
-        console.warn('[RepositorySelectionModal] Failed to set redstring-universe topic:', topicErr);
-      }
 
       setRepositories((prev) => [createdRepo, ...prev]);
       onAddToManagedList?.({

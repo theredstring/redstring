@@ -50,14 +50,15 @@ import ConfirmDialog from './components/shared/ConfirmDialog.jsx';
 import LocalFileConflictDialog from './components/shared/LocalFileConflictDialog.jsx';
 import SlotConflictDialog from './components/shared/SlotConflictDialog.jsx';
 import GitHubDeviceFlowModal from './components/modals/GitHubDeviceFlowModal.jsx';
+import { useGitHubDeviceFlow } from './hooks/useGitHubDeviceFlow.js';
+import { runPendingCallbacks, recheckAppOnFocus } from './services/githubAuthCallbacks.js';
 import {
-  requestDeviceCode as ghRequestDeviceCode,
-  pollForToken as ghPollForToken,
-  openVerificationUrl as ghOpenVerificationUrl,
-  getOAuthClientId as ghGetOAuthClientId,
-  getAppClientId as ghGetAppClientId,
-  getAppSlug as ghGetAppSlug
-} from './services/githubDeviceFlow.js';
+  connectOAuth as ghConnectOAuth,
+  connectApp as ghConnectApp,
+  detectAppInstall as ghDetectAppInstall,
+  disconnectOAuth as ghDisconnectOAuth,
+  disconnectApp as ghDisconnectApp
+} from './services/githubAuthFlows.js';
 import ConnectionStats from './components/universe-manager/ConnectionStats.jsx';
 import AuthSection from './components/universe-manager/AuthSection.jsx';
 import UniversesList from './components/universe-manager/UniversesList.jsx';
@@ -209,11 +210,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const [oauthConnectFailure, setOauthConnectFailure] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectingMessage, setConnectingMessage] = useState(null);
-  // Electron device-flow state. `cancelRef` is mutated by the poll loop so
-  // the user can abort without us needing to re-render to plumb a fresh
-  // cancellation token through.
-  const [deviceFlowState, setDeviceFlowState] = useState(null);
-  const deviceFlowCancelRef = useRef(null);
+  // Electron device-flow orchestration (shared hook drives GitHubDeviceFlowModal)
+  const { deviceFlowState, runDeviceFlow, cancelDeviceFlow } = useGitHubDeviceFlow();
   const [allowOAuthBackup, setAllowOAuthBackup] = useState(() => {
     try {
       return localStorage.getItem(getStorageKey('allow_oauth_backup')) !== 'false';
@@ -603,40 +601,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const hasApp = !!(serviceState.authStatus?.hasGitHubApp || serviceState.githubAppInstallation?.installationId);
   const dataAuthMethod = hasOAuth ? 'oauth' : (hasApp ? 'github-app' : null);
 
-  // Onboarding resume: the user chose "Sync with GitHub" during onboarding
-  // (StorageSetupModal → NodeCanvas armed the resume flags and created a
-  // browser-backed universe). Once GitHub auth is available — via the web
-  // OAuth redirect or Electron's device flow — open the repository picker
-  // for that universe. The step flag flips to 'repo-opened' so closing the
-  // picker doesn't re-trigger this; attaching a repo clears the flags and
-  // promotes the repo to source of truth (see handleAttachRepoCreateNew).
-  useEffect(() => {
-    let resume = false;
-    let step = null;
-    let onboardingSlug = null;
-    try {
-      resume = sessionStorage.getItem('redstring_onboarding_resume') === 'true';
-      step = sessionStorage.getItem('redstring_onboarding_step');
-      onboardingSlug = sessionStorage.getItem('redstring_onboarding_slug');
-    } catch {
-      return;
-    }
-    if (!resume || step !== 'repo') return;
-    if (!hasOAuth && !hasApp) return; // still waiting for auth
-    if (showRepositoryManager) return;
-
-    const universes = serviceState.universes || [];
-    const targetSlug = (onboardingSlug && universes.some((u) => u.slug === onboardingSlug))
-      ? onboardingSlug
-      : serviceState.activeUniverseSlug;
-    if (!targetSlug) return;
-
-    try { sessionStorage.setItem('redstring_onboarding_step', 'repo-opened'); } catch { }
-    umLog('[UniverseManager] Resuming git onboarding — opening repository picker for', targetSlug);
-    setRepositoryIntent('attach');
-    setRepositoryTargetSlug(targetSlug);
-    setShowRepositoryManager(true);
-  }, [hasOAuth, hasApp, serviceState.universes, serviceState.activeUniverseSlug, showRepositoryManager]);
+  // NOTE: git onboarding is now a self-contained wizard inside
+  // StorageSetupModal (create repo → universe → attach → promote git). The
+  // panel no longer auto-opens a repository picker on onboarding resume.
 
   useEffect(() => {
     if (!serviceState.activeUniverseSlug) return undefined;
@@ -741,341 +708,64 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   }, [allowOAuthBackup]);
 
+  // Post-redirect OAuth/App callback processing + focus-based App
+  // re-detection now live in services/githubAuthCallbacks.js (shared with
+  // the onboarding GitHub wizard, which must process callbacks with this
+  // panel closed). This effect is thin wiring: run the processors, translate
+  // results into panel feedback.
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
 
     let cancelled = false;
 
-    const safeSessionGet = (key) => {
+    const hasPendingCallback = (() => {
       try {
-        return sessionStorage.getItem(key);
+        return sessionStorage.getItem('github_oauth_pending') === 'true'
+          || sessionStorage.getItem('github_app_pending') === 'true'
+          || !!sessionStorage.getItem('github_oauth_result')
+          || !!sessionStorage.getItem('github_app_result');
       } catch {
-        return null;
-      }
-    };
-
-    const safeSessionRemove = (key) => {
-      try {
-        sessionStorage.removeItem(key);
-      } catch {
-        // ignore
-      }
-    };
-
-    const readSessionJSON = (key) => {
-      try {
-        const raw = sessionStorage.getItem(key);
-        if (!raw) return null;
-        const data = JSON.parse(raw);
-        sessionStorage.removeItem(key);
-        return data;
-      } catch (err) {
-        umWarn(`[UniverseManager] Failed to parse session data for ${key}:`, err);
-        sessionStorage.removeItem(key);
-        return null;
-      }
-    };
-
-    const cleanupUrl = () => {
-      try {
-        window.history.replaceState({}, document.title, window.location.pathname);
-      } catch {
-        // ignore
-      }
-    };
-
-    const processOAuthCallback = async () => {
-      const storedResult = readSessionJSON('github_oauth_result');
-      const urlParams = new URLSearchParams(window.location.search);
-      const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
-      const code = storedResult?.code || urlParams.get('code') || hashParams.get('code');
-      const stateValue = storedResult?.state || urlParams.get('state') || hashParams.get('state');
-      const expectedState = safeSessionGet('github_oauth_state');
-      const pending = safeSessionGet('github_oauth_pending') === 'true';
-
-      if (!code || !stateValue || !pending) {
         return false;
       }
-
-      if (expectedState && stateValue !== expectedState) {
-        setError('GitHub authentication state mismatch. Please retry.');
-        safeSessionRemove('github_oauth_pending');
-        safeSessionRemove('github_oauth_state');
-        cleanupUrl();
-        return false;
-      }
-
-      const redirectUri = universeManagerService.getOAuthRedirectUri();
-
-      try {
-        setIsConnecting(true);
-        const resp = await oauthFetch('/api/github/oauth/token', {
-          bypassCooldown: true,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, state: stateValue, redirect_uri: redirectUri })
-        });
-
-        if (!resp.ok) {
-          const message = await resp.text().catch(() => 'unknown error');
-          throw new Error(`Token exchange failed (${resp.status} ${message})`);
-        }
-
-        const tokenData = await resp.json();
-        const userResp = await fetch('https://api.github.com/user', {
-          headers: {
-            Authorization: `token ${tokenData.access_token}`,
-            Accept: 'application/vnd.github.v3+json'
-          }
-        });
-
-        if (!userResp.ok) {
-          const message = await userResp.text().catch(() => 'unknown error');
-          throw new Error(`Failed to fetch GitHub user (${userResp.status} ${message})`);
-        }
-
-        const userData = await userResp.json();
-        await persistentAuth.storeTokens(tokenData, userData);
-
-        if (!cancelled) {
-          await refreshAuth();
-          await refreshState();
-          setSyncStatus({ type: 'success', message: 'GitHub OAuth connected' });
-        }
-        // NOTE: the onboarding resume flags intentionally survive this point.
-        // OAuth connecting is step one — the resume effect below still needs
-        // them to open the repository picker, and repo attachment clears them.
-        return true;
-      } catch (err) {
-        if (!cancelled) {
-          umError('OAuth callback failed:', err);
-          setError(`GitHub OAuth failed: ${err.message}`);
-        }
-        return false;
-      } finally {
-        safeSessionRemove('github_oauth_pending');
-        safeSessionRemove('github_oauth_state');
-        setIsConnecting(false);
-        cleanupUrl();
-      }
-    };
-
-    const processAppCallback = async () => {
-      const storedResult = readSessionJSON('github_app_result');
-      const urlParams = new URLSearchParams(window.location.search);
-      const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
-      let installationId =
-        storedResult?.installation_id || urlParams.get('installation_id') || hashParams.get('installation_id');
-
-      const pending = safeSessionGet('github_app_pending') === 'true';
-
-      // CRITICAL FIX: If no installation_id, try to discover it via installations API
-      if (!installationId && pending) {
-        umLog('[UniverseManager] No installation_id in callback, attempting discovery...');
-        try {
-          // The listings endpoint now requires the user's OAuth token so it
-          // can scope results to this account (previously it returned every
-          // install of this App across every GitHub account, which let a
-          // stranger's install hijack this client). Pass it explicitly.
-          const userOauthToken = persistentAuth?.oauthCache?.accessToken
-            || persistentAuth?.githubAppCache?.accessToken
-            || null;
-          if (!userOauthToken) {
-            umWarn('[UniverseManager] Cannot discover install without OAuth token — connect OAuth first');
-          } else {
-            const listResp = await oauthFetch('/api/github/app/installations', {
-              bypassCooldown: true,
-              headers: { 'Authorization': `token ${userOauthToken}` }
-            });
-            if (listResp.ok) {
-              const installations = await listResp.json();
-              if (Array.isArray(installations) && installations.length > 0) {
-                // Prefer install whose account matches the OAuth user; fall
-                // back to most recent only if no account match. Belt-and-
-                // suspenders since the server now filters by user already.
-                const oauthLogin = (persistentAuth?.oauthCache?.user?.login || '').toLowerCase();
-                const accountMatch = oauthLogin
-                  ? installations.find((i) => (i?.account?.login || '').toLowerCase() === oauthLogin)
-                  : null;
-                const latest = accountMatch || installations[0];
-                installationId = latest?.id;
-                umLog('[UniverseManager] Discovered installation:', installationId, accountMatch ? `(account-matched ${oauthLogin})` : '(most recent fallback)');
-              } else {
-                umWarn('[UniverseManager] /api/github/app/installations returned empty list — App may not be installed on this account, or env vars are misconfigured');
-              }
-            } else {
-              const errText = await listResp.text().catch(() => '');
-              umWarn('[UniverseManager] Install discovery failed:', listResp.status, errText.slice(0, 200));
-            }
-          }
-        } catch (discoveryErr) {
-          umWarn('[UniverseManager] Installation discovery failed:', discoveryErr);
-        }
-      }
-
-      if (!installationId) return false;
-
-      try {
-        setIsConnecting(true);
-        umLog('[UniverseManager] Requesting installation token for:', installationId);
-
-        const resp = await oauthFetch('/api/github/app/installation-token', {
-          bypassCooldown: true,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ installation_id: installationId })
-        });
-
-        if (!resp.ok) {
-          const message = await resp.text().catch(() => 'unknown error');
-
-          // IMPROVED ERROR HANDLING: Provide specific guidance for common errors
-          let errorMessage = `Failed to obtain installation token (${resp.status})`;
-
-          if (resp.status === 401) {
-            errorMessage = 'GitHub OAuth authentication required. Please connect OAuth first, then retry the GitHub App installation.';
-          } else if (resp.status === 403) {
-            errorMessage = 'Installation not accessible. The GitHub App installation may not match your authenticated GitHub account.';
-          } else if (resp.status === 502) {
-            errorMessage = 'GitHub API gateway error. This may indicate the GitHub App configuration is incorrect. Please check GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY environment variables.';
-          } else if (resp.status === 404) {
-            errorMessage = 'Installation not found. Please reinstall the GitHub App.';
-          } else {
-            errorMessage += `: ${message}`;
-          }
-
-          throw new Error(errorMessage);
-        }
-
-        const tokenData = await resp.json();
-        const token = tokenData?.token;
-        if (!token) {
-          throw new Error('GitHub App token response missing token');
-        }
-
-        const tokenExpiresAtMs = tokenData.expires_at ? Date.parse(tokenData.expires_at) : null;
-
-        umLog('[UniverseManager] Storing GitHub App installation...');
-        await persistentAuth.storeAppInstallation({
-          installationId,
-          accessToken: token,
-          repositories: tokenData.repositories || [],
-          userData: tokenData.account || {},
-          permissions: tokenData.permissions || null,
-          tokenExpiresAt: Number.isFinite(tokenExpiresAtMs) ? tokenExpiresAtMs : null,
-          verification: tokenData.verification || null,
-          lastUpdated: Date.now()
-        });
-
-        if (!cancelled) {
-          await refreshAuth();
-          await refreshState();
-          setSyncStatus({ type: 'success', message: 'GitHub App connected' });
-        }
-        // NOTE: the onboarding resume flags intentionally survive this point —
-        // repo attachment is what completes onboarding and clears them.
-        return true;
-      } catch (err) {
-        if (!cancelled) {
-          umError('[UniverseManager] GitHub App callback failed:', err);
-          setError(`GitHub App connection failed: ${err.message}`);
-        }
-        return false;
-      } finally {
-        if (pending) safeSessionRemove('github_app_pending');
-        setIsConnecting(false);
-        cleanupUrl();
-      }
-    };
+    })();
 
     (async () => {
-      const oauthDone = await processOAuthCallback();
-      const appDone = await processAppCallback();
-      if ((oauthDone || appDone) && !cancelled) {
-        await refreshState();
+      if (hasPendingCallback) setIsConnecting(true);
+      try {
+        const { oauth, app } = await runPendingCallbacks();
+        if (cancelled) return;
+        if (oauth.error) setError(oauth.error);
+        if (app.error) setError(app.error);
+        if (oauth.handled || app.handled) {
+          await refreshAuth();
+          await refreshState();
+          setSyncStatus({
+            type: 'success',
+            message: app.handled ? 'GitHub App connected' : 'GitHub OAuth connected'
+          });
+        }
+      } catch (err) {
+        umWarn('[UniverseManager] Pending auth callback processing failed:', err?.message || err);
+      } finally {
+        if (!cancelled && hasPendingCallback) setIsConnecting(false);
       }
     })();
 
     // GitHub App installs don't always round-trip through our callback —
     // users frequently install the App on GitHub, then come back to the
-    // existing tab. The page is never reloaded, so `attemptAutoConnect`'s
-    // once-per-page-load guard means we never rediscover. Hook visibility
-    // change: when the tab regains focus AFTER the user opened our install
-    // flow (github_app_pending is set), force a fresh App discovery and
-    // run the callback handler again. This is the path that actually works
-    // for most users, including Electron's external-browser flow.
+    // existing tab. recheckAppOnFocus handles both the pending-install case
+    // and quiet background discovery when OAuth is connected but no App is
+    // known (debounced, honors sticky disconnect).
     const onVisibilityChange = async () => {
-      if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
-      const pending = safeSessionGet('github_app_pending') === 'true';
-
-      if (pending) {
-        try {
-          umLog('[UniverseManager] Tab regained focus with pending App install — re-running discovery');
-          if (isElectron()) {
-            // Electron: forceAppDiscovery can't discover (no server-minted
-            // tokens), but a parked user-to-server token from the Install
-            // click lets us query /user/installations directly — the same
-            // path as the manual Detect button, run automatically.
-            const parkedToken = persistentAuth.getAppUserToServerToken?.() || null;
-            if (parkedToken) {
-              try {
-                const install = await findAppInstallationDirect(parkedToken);
-                if (install) {
-                  await persistentAuth.storeAppInstallation({
-                    installationId: install.id,
-                    accessToken: parkedToken,
-                    repositories: [],
-                    userData: install.account || {}
-                  });
-                  persistentAuth.clearAppUserToServerToken?.();
-                }
-              } catch (electronErr) {
-                umWarn('[UniverseManager] Electron focus App discovery failed:', electronErr?.message || electronErr);
-              }
-            }
-          } else {
-            // Force a fresh app discovery (resets autoConnectAttempted-style
-            // guards and clears any sticky-disconnect flag, since this is a
-            // user-initiated install attempt).
-            await persistentAuth.forceAppDiscovery?.();
-          }
-          // Then run the URL-based callback path in case GitHub did include
-          // installation_id in the redirect after all.
-          const appDone = await processAppCallback();
-          if ((appDone || persistentAuth.hasAppInstallation?.()) && !cancelled) {
-            safeSessionRemove('github_app_pending');
-            await refreshAuth();
-            await refreshState();
-            setSyncStatus({ type: 'success', message: 'GitHub App linked' });
-          }
-        } catch (err) {
-          umWarn('[UniverseManager] Visibility-triggered App discovery failed:', err?.message || err);
-        }
-        return;
-      }
-
-      // No pending flag, but OAuth is connected and no App install is known:
-      // quietly re-check for one (the user may have installed the App on
-      // GitHub directly, or on another device). Uses attemptAppAutoConnect,
-      // which honors the sticky-disconnect flag — a deliberate App disconnect
-      // is never silently overridden. Debounced so tab-switching doesn't
-      // hammer the API; failures stay silent (the manual Detect button remains
-      // the explicit fallback).
-      if (isElectron()) return;
-      const canDiscover = persistentAuth.hasValidTokens?.() && !persistentAuth.hasAppInstallation?.();
-      if (!canDiscover) return;
-      const now = Date.now();
-      if (now - lastAppDiscoveryRef.current < 60000) return;
-      lastAppDiscoveryRef.current = now;
       try {
-        const ok = await persistentAuth.attemptAppAutoConnect?.();
-        if (ok && persistentAuth.hasAppInstallation?.() && !cancelled) {
+        const { detected } = await recheckAppOnFocus();
+        if (detected && !cancelled) {
           await refreshAuth();
           await refreshState();
-          setSyncStatus({ type: 'success', message: 'GitHub App detected and linked' });
+          setSyncStatus({ type: 'success', message: 'GitHub App linked' });
         }
       } catch (err) {
-        umWarn('[UniverseManager] Background App discovery failed:', err?.message || err);
+        umWarn('[UniverseManager] Focus App recheck failed:', err?.message || err);
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -1825,21 +1515,15 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       }
 
       // Decide primary-source UX:
-      // - Onboarding/git-only: auto-promote Git (no prompt) — preserves prior behavior.
+      // - Git-only (mobile): auto-promote Git (no prompt) — preserves prior behavior.
       // - Normal flow: prompt the user, but only when the initial save succeeded with Git auth.
       //   Without auth (skipGit) or after a failed save, Git doesn't actually have the data yet —
       //   offering to promote it would invite the wipe scenario this dialog is meant to prevent.
-      const resume = (() => { try { return sessionStorage.getItem('redstring_onboarding_resume') === 'true'; } catch { return false; } })();
-      const isOnboardingOrGitOnly = resume || deviceInfo.gitOnlyMode;
-
-      if (isOnboardingOrGitOnly) {
+      // (The onboarding GitHub wizard handles its own promotion via
+      //  gitOnboardingService; this path is panel-only now.)
+      if (deviceInfo.gitOnlyMode) {
         try {
           await universeManagerService.setPrimaryStorage(targetSlug, STORAGE_TYPES.GIT);
-          try {
-            sessionStorage.removeItem('redstring_onboarding_resume');
-            sessionStorage.removeItem('redstring_onboarding_step');
-            sessionStorage.removeItem('redstring_onboarding_slug');
-          } catch { }
         } catch (e) {
           umWarn('[UniverseManager] Failed to set Source of Truth after linking:', e);
         }
@@ -3850,138 +3534,19 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     return { lastSaved, status, statusColor, statusHint };
   };
 
-  /**
-   * Drive a GitHub Device Flow from start to token. Shows the modal with
-   * the user_code, polls in the background, and resolves with the token
-   * payload. Throws if the user cancels or the code expires.
-   */
-  const runDeviceFlow = useCallback(async ({ clientId, scope, title, subtitle }) => {
-    if (!clientId) {
-      throw new Error('GitHub client_id missing. Set VITE_GITHUB_CLIENT_ID and VITE_GITHUB_APP_CLIENT_ID at build time.');
-    }
-
-    const cancelSignal = { cancelled: false };
-    deviceFlowCancelRef.current = cancelSignal;
-
-    let code;
-    try {
-      code = await ghRequestDeviceCode({ clientId, scope });
-    } catch (err) {
-      deviceFlowCancelRef.current = null;
-      throw err;
-    }
-
-    setDeviceFlowState({
-      title,
-      subtitle,
-      userCode: code.userCode,
-      verificationUri: code.verificationUri,
-      verificationUriComplete: code.verificationUriComplete,
-      expiresAt: code.expiresAt,
-      status: 'pending',
-      errorMessage: null
-    });
-
-    // Auto-open browser to save the user one click. They can still copy
-    // the code manually from the modal if their browser launch fails.
-    ghOpenVerificationUrl(code.verificationUriComplete || code.verificationUri).catch(() => {});
-
-    try {
-      const tokenData = await ghPollForToken({
-        clientId,
-        deviceCode: code.deviceCode,
-        intervalMs: code.intervalMs,
-        expiresAt: code.expiresAt,
-        cancelSignal,
-        onTick: (status) => {
-          setDeviceFlowState((prev) => prev ? { ...prev, status } : prev);
-        }
-      });
-      return tokenData;
-    } finally {
-      deviceFlowCancelRef.current = null;
-      setDeviceFlowState(null);
-    }
-  }, []);
-
-  const cancelDeviceFlow = useCallback(() => {
-    if (deviceFlowCancelRef.current) {
-      deviceFlowCancelRef.current.cancelled = true;
-    }
-    setDeviceFlowState(null);
-  }, []);
-
+  // GitHub connect/disconnect/detect logic lives in services/githubAuthFlows.js
+  // (shared with the onboarding GitHub wizard). These handlers are thin
+  // wrappers that keep the panel's connecting/error/retry UX.
   const handleGitHubAuth = async () => {
     try {
       setIsConnecting(true);
       setOauthConnectFailure(null);
-      try {
-        sessionStorage.removeItem('github_oauth_pending');
-        sessionStorage.removeItem('github_oauth_state');
-        sessionStorage.removeItem('github_oauth_result');
-      } catch {
-        // ignore
-      }
-
-      // `repo` covers private repo file IO. `read:org` is required by
-      // /user/installations so we can list GitHub App installs across orgs.
-      const scopes = 'repo read:org';
-
-      if (isElectron()) {
-        // Electron: no oauth-server, no redstring.io. Use GitHub Device Flow
-        // directly against github.com with the embedded OAuth App client_id.
-        const clientId = ghGetOAuthClientId();
-        if (!clientId) {
-          throw new Error('Missing VITE_GITHUB_CLIENT_ID. Set it at build time before packaging Electron.');
-        }
-        umLog('[UniverseManager] Starting GitHub OAuth device flow');
-        const tokenData = await runDeviceFlow({
-          clientId,
-          scope: scopes,
-          title: 'Connect to GitHub',
-          subtitle: 'Authorize the Redstring OAuth App.'
-        });
-
-        if (!tokenData?.access_token) {
-          throw new Error('GitHub returned no access_token');
-        }
-
-        const userResp = await fetch('https://api.github.com/user', {
-          headers: {
-            Authorization: `token ${tokenData.access_token}`,
-            Accept: 'application/vnd.github.v3+json'
-          }
-        });
-        if (!userResp.ok) {
-          throw new Error(`Failed to fetch GitHub user (${userResp.status})`);
-        }
-        const userData = await userResp.json();
-        await persistentAuth.storeTokens(tokenData, userData);
-
+      const result = await ghConnectOAuth({ runDeviceFlow });
+      if (result?.connected) {
         const auth = await universeManagerService.refreshAuth();
         setServiceState((prev) => ({ ...prev, ...auth }));
-        setIsConnecting(false);
-      } else {
-        const resp = await oauthFetch('/api/github/oauth/client-id', { bypassCooldown: true });
-        if (!resp.ok) throw new Error('Failed to load OAuth configuration');
-        const { clientId } = await resp.json();
-        if (!clientId) throw new Error('GitHub OAuth client ID not configured');
-
-        const stateValue = Math.random().toString(36).slice(2);
-        const redirectUri = universeManagerService.getOAuthRedirectUri();
-        const oauthState = stateValue;
-
-        const authUrl = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
-          clientId
-        )}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(
-          scopes
-        )}&state=${encodeURIComponent(oauthState)}`;
-
-        // Browser: Store state and redirect
-        sessionStorage.setItem('github_oauth_state', stateValue);
-        sessionStorage.setItem('github_oauth_pending', 'true');
-        window.location.href = authUrl;
       }
+      // result.redirecting: page is unloading — nothing more to do.
     } catch (err) {
       umError('[UniverseManager] OAuth launch failed:', err);
       if (isOAuthUnreachableError(err)) {
@@ -3992,6 +3557,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       } else {
         setError(`OAuth authentication failed: ${err.message}`);
       }
+    } finally {
       setIsConnecting(false);
     }
   };
@@ -3999,7 +3565,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const handleGitHubDisconnect = async () => {
     try {
       setOauthConnectFailure(null);
-      await persistentAuth.clearTokens();
+      await ghDisconnectOAuth();
       const auth = await universeManagerService.refreshAuth();
       setServiceState((prev) => ({ ...prev, ...auth }));
       setSyncStatus({ type: 'success', message: 'GitHub OAuth disconnected' });
@@ -4009,130 +3575,24 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   };
 
-  /**
-   * Electron-only: query api.github.com/user/installations with the App's
-   * user-to-server token and pick the best matching install. Returns null
-   * if the App hasn't been installed on any account this user has access to.
-   */
-  const findAppInstallationDirect = async (userToServerToken) => {
-    const appSlug = ghGetAppSlug();
-    const resp = await fetch('https://api.github.com/user/installations', {
-      headers: {
-        Authorization: `Bearer ${userToServerToken}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28'
-      }
-    });
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => '');
-      throw new Error(`/user/installations failed (${resp.status}): ${body.slice(0, 200)}`);
-    }
-    const data = await resp.json();
-    const installations = Array.isArray(data?.installations) ? data.installations : [];
-
-    // The user-to-server token already scopes to this App, but on shared
-    // /user/installations responses we double-check by slug. App slugs are
-    // case-insensitive on GitHub's side.
-    const slugLc = String(appSlug || '').toLowerCase();
-    const filtered = slugLc
-      ? installations.filter((inst) => {
-          const candidate = String(inst?.app_slug || inst?.app?.slug || '').toLowerCase();
-          return !candidate || candidate === slugLc;
-        })
-      : installations;
-
-    if (filtered.length === 0) return null;
-
-    // Prefer install on the OAuth user's personal account; otherwise newest.
-    const oauthLogin = (
-      persistentAuth.oauthCache?.user?.login
-      || persistentAuth.oauthCache?.user?.username
-      || null
-    );
-    let chosen = null;
-    if (oauthLogin) {
-      const lc = String(oauthLogin).toLowerCase();
-      chosen = filtered.find((inst) => String(inst?.account?.login || '').toLowerCase() === lc) || null;
-    }
-    if (!chosen) {
-      chosen = filtered.slice().sort((a, b) => {
-        const at = new Date(a?.created_at || 0).getTime();
-        const bt = new Date(b?.created_at || 0).getTime();
-        return bt - at;
-      })[0] || filtered[0] || null;
-    }
-    return chosen;
-  };
-
   const handleGitHubAppDetect = async () => {
     try {
       setIsConnecting(true);
       setOauthConnectFailure(null);
-      umLog('[UniverseManager] User-triggered App install detection');
-
-      if (isElectron()) {
-        // Electron: skip oauth-server entirely. If we already have a stored
-        // user-to-server token (from a prior Install click), re-query
-        // installations with it. Otherwise kick off the device flow first.
-        let token =
-          persistentAuth.githubAppCache?.accessToken
-          || persistentAuth.getAppUserToServerToken?.()
-          || null;
-        if (!token) {
-          const appClientId = ghGetAppClientId();
-          if (!appClientId) {
-            throw new Error('Missing VITE_GITHUB_APP_CLIENT_ID. Set it at build time before packaging Electron.');
-          }
-          const tokenData = await runDeviceFlow({
-            clientId: appClientId,
-            title: 'Authorize Redstring App',
-            subtitle: 'Authorize the GitHub App so Redstring can find your installation.'
-          });
-          token = tokenData?.access_token;
-          if (!token) throw new Error('GitHub returned no access_token');
-        }
-
-        const install = await findAppInstallationDirect(token);
-        if (install) {
-          await persistentAuth.storeAppInstallation({
-            installationId: install.id,
-            accessToken: token,
-            repositories: [],
-            userData: install.account || {}
-          });
-          persistentAuth.clearAppUserToServerToken?.();
-          const auth = await universeManagerService.refreshAuth();
-          setServiceState((prev) => ({ ...prev, ...auth }));
-          setSyncStatus({
-            type: 'success',
-            message: `GitHub App linked (install ${install.id})`
-          });
-          try { safeSessionRemove('github_app_pending'); } catch { /* best effort */ }
-        } else {
-          // Park the token for the next Detect attempt — don't pollute the
-          // install slot (which would make hasAppInstallation() return true).
-          persistentAuth.saveAppUserToServerToken?.(token);
-          setSyncStatus({
-            type: 'warning',
-            message: 'No GitHub App install found yet. Install the App on a repo, then tap Detect install again.'
-          });
-        }
-        return;
-      }
-
-      const ok = await persistentAuth.forceAppDiscovery?.();
+      const result = await ghDetectAppInstall({ runDeviceFlow });
       const auth = await universeManagerService.refreshAuth();
       setServiceState((prev) => ({ ...prev, ...auth }));
-      if (ok && persistentAuth.hasAppInstallation?.()) {
+      if (result?.found) {
         setSyncStatus({
           type: 'success',
-          message: `GitHub App linked (install ${persistentAuth.githubAppCache?.installationId})`
+          message: `GitHub App linked (install ${result.installationId})`
         });
-        try { safeSessionRemove('github_app_pending'); } catch { /* best effort */ }
       } else {
         setSyncStatus({
           type: 'warning',
-          message: `No GitHub App install found for this account. Install the App on GitHub for ${persistentAuth.oauthCache?.user?.login || 'your GitHub account'}, then tap Detect install again.`
+          message: isElectron()
+            ? 'No GitHub App install found yet. Install the App on a repo, then tap Detect install again.'
+            : `No GitHub App install found for this account. Install the App on GitHub for ${persistentAuth.oauthCache?.user?.login || 'your GitHub account'}, then tap Detect install again.`
         });
       }
     } catch (err) {
@@ -4146,20 +3606,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const handleGitHubAppDisconnect = async () => {
     try {
       setOauthConnectFailure(null);
-      // Sticky: blocks attemptAppAutoConnect from silently re-discovering
-      // and re-installing the same install on the next init. Without this,
-      // clearing the App only "works" until the next page load.
-      await persistentAuth.clearAppInstallation({ sticky: true });
-      // Tear down any sync engines that were using the App provider so the
-      // next save attempt creates a fresh provider (OAuth, or nothing).
-      try {
-        const slugs = Array.from(universeBackend.gitSyncEngines?.keys?.() || []);
-        for (const slug of slugs) {
-          await universeBackend.removeGitSyncEngine?.(slug);
-        }
-      } catch (engineErr) {
-        umWarn('[UniverseManager] App disconnect: engine cleanup failed:', engineErr?.message || engineErr);
-      }
+      await ghDisconnectApp();
       const auth = await universeManagerService.refreshAuth();
       setServiceState((prev) => ({ ...prev, ...auth }));
       setSyncStatus({ type: 'success', message: 'GitHub App disconnected. Re-install to reconnect.' });
@@ -4173,103 +3620,21 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     try {
       setIsConnecting(true);
       setOauthConnectFailure(null);
-
-      const alreadyInstalled = hasApp && serviceState.githubAppInstallation?.installationId;
-
-      if (isElectron()) {
-        // Electron path — fully local, no oauth-server.
-        if (alreadyInstalled) {
-          const installationId = serviceState.githubAppInstallation.installationId;
-          const url = `https://github.com/settings/installations/${installationId}`;
-          umLog('[UniverseManager] App already installed, opening management page', url);
-          await ghOpenVerificationUrl(url);
-          return;
-        }
-
-        // First-time install: device-flow to get a user-to-server token,
-        // then check if the App is already on any of the user's accounts.
-        // If yes, store it as the install. If no, open the install URL and
-        // park the token so Detect can find the install afterward.
-        const appClientId = ghGetAppClientId();
-        if (!appClientId) {
-          throw new Error('Missing VITE_GITHUB_APP_CLIENT_ID. Set it at build time before packaging Electron.');
-        }
-        const appSlug = ghGetAppSlug();
-
-        let token = persistentAuth.getAppUserToServerToken?.() || null;
-        if (!token) {
-          const tokenData = await runDeviceFlow({
-            clientId: appClientId,
-            title: 'Authorize Redstring App',
-            subtitle: 'Authorize the GitHub App to enable live sync.'
-          });
-          token = tokenData?.access_token;
-          if (!token) throw new Error('GitHub returned no access_token');
-        }
-
-        const install = await findAppInstallationDirect(token);
-        if (install) {
-          await persistentAuth.storeAppInstallation({
-            installationId: install.id,
-            accessToken: token,
-            repositories: [],
-            userData: install.account || {}
-          });
-          persistentAuth.clearAppUserToServerToken?.();
-          const auth = await universeManagerService.refreshAuth();
-          setServiceState((prev) => ({ ...prev, ...auth }));
-          setSyncStatus({
-            type: 'success',
-            message: `GitHub App linked (install ${install.id})`
-          });
-          return;
-        }
-
-        // Not installed yet — park the token and direct the user to install.
-        persistentAuth.saveAppUserToServerToken?.(token);
-        sessionStorage.setItem('github_app_pending', 'true');
-        await ghOpenVerificationUrl(`https://github.com/apps/${encodeURIComponent(appSlug)}/installations/new`);
+      const result = await ghConnectApp({ runDeviceFlow });
+      if (result?.connected) {
+        const auth = await universeManagerService.refreshAuth();
+        setServiceState((prev) => ({ ...prev, ...auth }));
+        setSyncStatus({
+          type: 'success',
+          message: `GitHub App linked (install ${result.installationId})`
+        });
+      } else if (result?.installPending) {
         setSyncStatus({
           type: 'warning',
           message: 'Install the GitHub App in your browser, then come back and tap Detect install.'
         });
-        return;
       }
-
-      // Web path (unchanged) — relies on redstring.io OAuth server.
-      if (alreadyInstalled) {
-        const installationId = serviceState.githubAppInstallation.installationId;
-        try {
-          const resp = await oauthFetch(`/api/github/app/installation/${installationId}`, { bypassCooldown: true });
-          if (resp.ok) {
-            const data = await resp.json();
-            const accountLogin = data?.account?.login;
-            if (accountLogin) {
-              window.location.href = `https://github.com/settings/installations/${installationId}`;
-              return;
-            }
-          }
-        } catch (e) {
-          umWarn('[UniverseManager] Could not fetch installation details:', e);
-        }
-        window.location.href = 'https://github.com/settings/installations';
-        return;
-      }
-
-      let appName = 'redstring-semantic-sync';
-      try {
-        const resp = await oauthFetch('/api/github/app/info', { bypassCooldown: true });
-        if (resp.ok) {
-          const data = await resp.json();
-          appName = data.name || appName;
-        }
-      } catch {
-        // ignore
-      }
-
-      sessionStorage.setItem('github_app_pending', 'true');
-      const stateValue = Date.now().toString();
-      window.location.href = `https://github.com/apps/${appName}/installations/new?state=${stateValue}`;
+      // result.managing / result.installRedirect: navigation took over.
     } catch (err) {
       umError('[UniverseManager] GitHub App launch failed:', err);
       if (isOAuthUnreachableError(err)) {

@@ -1540,15 +1540,19 @@ function NodeCanvas() {
 
       if (cancelled) return;
 
-      // Suppress welcome modal if Git auth/app flow is pending or resuming
+      // Suppress the welcome modal only for a PANEL-initiated Git flow (a
+      // returning user connecting from the Universes panel). When the
+      // onboarding resume flag is set, the redirect belongs to the GitHub
+      // wizard and the modal must RE-OPEN at its git-connect step instead.
       let suppressForGitFlow = false;
       try {
         if (typeof window !== 'undefined') {
-          suppressForGitFlow = (
+          const onboardingResume = sessionStorage.getItem('redstring_onboarding_resume') === 'true';
+          const gitPending = (
             sessionStorage.getItem('github_oauth_pending') === 'true' ||
-            sessionStorage.getItem('github_app_pending') === 'true' ||
-            sessionStorage.getItem('redstring_onboarding_resume') === 'true'
+            sessionStorage.getItem('github_app_pending') === 'true'
           );
+          suppressForGitFlow = gitPending && !onboardingResume;
         }
       } catch { }
 
@@ -1654,14 +1658,21 @@ function NodeCanvas() {
     return () => window.removeEventListener('openOnboardingModal', handler);
   }, []);
 
-  // Resume Git onboarding after OAuth/App redirects by opening Federation panel and hiding modal
+  // Resume Git flow after OAuth/App redirects.
+  // - Onboarding wizard resume: re-open StorageSetupModal (it reads the
+  //   resume flags and lands on its git-connect step). Do NOT open the panel.
+  // - Panel-initiated connect (pending flags without the onboarding resume):
+  //   open the Federation panel so its callback handler runs, as before.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
       const pendingOAuth = sessionStorage.getItem('github_oauth_pending') === 'true';
       const pendingApp = sessionStorage.getItem('github_app_pending') === 'true';
       const resumeOnboarding = sessionStorage.getItem('redstring_onboarding_resume') === 'true';
-      if (pendingOAuth || pendingApp || resumeOnboarding) {
+      if (resumeOnboarding) {
+        setShowOnboardingModal(false);
+        setShowStorageSetupModal(true);
+      } else if (pendingOAuth || pendingApp) {
         storeActions.setLeftPanelExpanded(true);
         setLeftPanelInitialView('federation');
         setShowOnboardingModal(false);
@@ -15990,6 +16001,10 @@ function NodeCanvas() {
           try {
             localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
             localStorage.setItem('redstring-welcome-seen', 'true');
+            // Abandon any in-flight GitHub wizard so it restarts at selection.
+            sessionStorage.removeItem('redstring_onboarding_resume');
+            sessionStorage.removeItem('redstring_onboarding_step');
+            sessionStorage.removeItem('redstring_onboarding_slug');
           } catch { }
           setShowStorageSetupModal(false);
           // Dismissal leaves no universe (nothing is preloaded anymore), so
@@ -16134,36 +16149,21 @@ function NodeCanvas() {
             storeActions.setUniverseError(`Failed to set up workspace: ${error.message}`);
           }
         }}
-        onGitSetupSelected={async (universeName) => {
+        onGitSetupComplete={({ slug, name, warnings }) => {
+          // The GitHub wizard already created the universe, attached the repo,
+          // pushed, and promoted git to source of truth. Just finalize the
+          // app shell: mark onboarding done and reveal the Universes panel.
           try {
-            const safeName = (universeName && universeName.trim()) ? universeName.trim() : 'Universe';
-            console.log('[NodeCanvas] Git onboarding selected, universe name:', safeName);
-
-            // Mark onboarding as complete (scoped + unscoped for durability)
+            const safeName = (name && name.trim()) ? name.trim() : 'Universe';
             if (typeof window !== 'undefined') {
               localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
               localStorage.setItem('redstring-welcome-seen', 'true');
             }
 
-            // Create the universe NOW (browser-backed until the repo is
-            // attached) so it survives the OAuth redirect via the registry.
-            const { default: universeBackend } = await import('./services/universeBackend.js');
-            const universe = await universeBackend.createUniverse(safeName, {
-              enableLocal: false,
-              enableGit: false,
-              sourceOfTruth: 'browser'
-            });
-
-            // Arm the resume flow: after GitHub connects, UniverseManager
-            // auto-opens the repository picker for this universe and promotes
-            // the repo to source of truth once attached.
-            try {
-              sessionStorage.setItem('redstring_onboarding_resume', 'true');
-              sessionStorage.setItem('redstring_onboarding_step', 'repo');
-              if (universe?.slug) sessionStorage.setItem('redstring_onboarding_slug', universe.slug);
-            } catch { }
-
             setShowStorageSetupModal(false);
+            // No dedicated 'git' storage mode exists; browser mode is the
+            // in-app shell state for a git-primary universe (matches the
+            // prior git onboarding behavior).
             storeActions.setStorageMode('browser');
             storeActions.setUniverseConnected(true);
             storeActions.setUniverseLoaded(true, false);
@@ -16174,28 +16174,19 @@ function NodeCanvas() {
               }
             }, 100);
 
-            // Let an already-mounted UniverseManager pick up the new universe
-            if (typeof window !== 'undefined' && universe?.slug) {
+            if (typeof window !== 'undefined' && slug) {
               window.dispatchEvent(new CustomEvent('redstring:universe-created', {
-                detail: { slug: universe.slug, name: safeName }
+                detail: { slug, name: safeName }
               }));
             }
 
-            const { persistentAuth } = await import('./services/persistentAuth.js');
-            const { isElectron } = await import('./utils/fileAccessAdapter.js');
-            const alreadyConnected = persistentAuth.hasValidTokens?.() || persistentAuth.hasAppInstallation?.();
-
-            if (!alreadyConnected && !isElectron()) {
-              // Web: full-page OAuth redirect. On return, the pending/resume
-              // flags suppress onboarding and reopen the federation panel.
-              const { oauthAutoConnect } = await import('./services/oauthAutoConnect.js');
-              await oauthAutoConnect.triggerOAuthFlow();
+            if (Array.isArray(warnings) && warnings.length > 0) {
+              console.warn('[NodeCanvas] Git onboarding completed with warnings:', warnings);
             }
-            // Electron (device flow) or already connected: the federation
-            // panel is open and UniverseManager's resume effect takes over.
+            console.log('[NodeCanvas] Git onboarding complete. Active universe:', safeName);
           } catch (error) {
-            console.error('[NodeCanvas] Git onboarding setup failed:', error);
-            storeActions.setUniverseError(`Failed to start GitHub setup: ${error.message}`);
+            console.error('[NodeCanvas] Git onboarding finalize failed:', error);
+            storeActions.setUniverseError(`Failed to finalize GitHub setup: ${error.message}`);
           }
         }}
         onBrowserStorageSelected={async () => {
