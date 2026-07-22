@@ -1,22 +1,26 @@
 import React, { useState } from 'react';
 import CanvasModal from './CanvasModal';
 import { isElectron } from '../utils/fileAccessAdapter.js';
-import { FolderOpen, ArrowRightCircle, ArrowRight } from 'lucide-react';
+import { FolderOpen, ArrowRightCircle, ArrowRight, Github } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme.js';
 
 /**
  * Storage Setup Modal
- * Allows users to choose between folder-based storage and browser storage
- * Shown after welcome screen when user clicks "Get Started"
- * 
+ * Lets a first-time user choose where their universes live: a local folder,
+ * a GitHub repository, or browser storage (skip).
+ *
  * Flow:
- * 1. "Where should we save your work?" (Folder vs Skip)
- * 2. If Folder -> "Name your Universe"
+ * 1. "Where should we save your universes?" (Folder / GitHub / Skip)
+ *    - Mobile (no File System Access API): GitHub is the primary option and
+ *      the folder option is hidden — folder picking doesn't work there.
+ *    - Desktop: folder is primary, GitHub is optional.
+ * 2. Folder or GitHub -> "Name your Universe"
  */
 const StorageSetupModal = ({
   isVisible,
   onClose,
   onFolderSelected = null, // (folderPath, universeName) => void
+  onGitSetupSelected = null, // (universeName) => void
   onBrowserStorageSelected = null,
   ...canvasModalProps
 }) => {
@@ -29,6 +33,8 @@ const StorageSetupModal = ({
   // Step state: 'selection' | 'naming'
   const [step, setStep] = useState('selection');
   const [universeName, setUniverseName] = useState('Universe');
+  // Which path led to the naming step: 'folder' | 'git'
+  const [setupMode, setSetupMode] = useState('folder');
   // Temporary storage for the selected folder path/handle while we ask for the name
   const [tempFolderHandle, setTempFolderHandle] = useState(null);
 
@@ -42,6 +48,13 @@ const StorageSetupModal = ({
     : 600;
 
   const showBrowserStorageOption = !isElectron();
+
+  // No File System Access API (mobile browsers, iOS/Android): folder-based
+  // storage can't work, so git sync becomes the primary onboarding path.
+  const gitFirst = !isElectron() &&
+    typeof window !== 'undefined' && !('showSaveFilePicker' in window);
+  const showFolderOption = !gitFirst;
+  const showGitOption = !!onGitSetupSelected;
 
   React.useEffect(() => {
     const handleResize = () => {
@@ -78,6 +91,7 @@ const StorageSetupModal = ({
 
       if (handle) {
         setTempFolderHandle(handle);
+        setSetupMode('folder');
         setStep('naming');
       }
     } catch (e) {
@@ -85,10 +99,20 @@ const StorageSetupModal = ({
     }
   };
 
+  const handleGitChoice = () => {
+    setSetupMode('git');
+    setStep('naming');
+  };
+
   const handleConfirmUniverseCreation = () => {
+    const name = universeName || "MyUniverse";
+    if (setupMode === 'git') {
+      if (onGitSetupSelected) onGitSetupSelected(name);
+      return;
+    }
     if (onFolderSelected && tempFolderHandle) {
       // Pass both the handle and the name
-      onFolderSelected(tempFolderHandle, universeName || "MyUniverse");
+      onFolderSelected(tempFolderHandle, name);
     }
   };
 
@@ -97,6 +121,89 @@ const StorageSetupModal = ({
       onBrowserStorageSelected();
     }
   };
+
+  const renderGitCard = () => (
+    <div
+      style={{
+        backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
+        border: `2px solid ${theme.canvas.border}`,
+        borderRadius: '8px',
+        padding: isCompactLayout ? '16px' : '20px',
+        marginBottom: '16px',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease'
+      }}
+      onClick={handleGitChoice}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.1)' : '#fff';
+        e.currentTarget.style.borderColor = theme.canvas.border;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA';
+        e.currentTarget.style.borderColor = theme.canvas.border;
+      }}
+    >
+      <div style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: '12px',
+        marginBottom: '12px'
+      }}>
+        <div style={{
+          flexShrink: 0,
+          color: theme.canvas.textPrimary,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <Github size={32} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <h3 style={{
+            margin: '0 0 4px 0',
+            fontSize: isCompactLayout ? '1rem' : '1.1rem',
+            fontWeight: 'bold',
+            color: theme.canvas.textPrimary,
+            fontFamily: "'EmOne', sans-serif"
+          }}>
+            {gitFirst ? 'Sync with GitHub' : 'Sync with GitHub (Optional)'}
+          </h3>
+          <p style={{
+            margin: '4px 0 0 0',
+            fontSize: isCompactLayout ? '0.85rem' : '0.9rem',
+            color: theme.canvas.textPrimary,
+            lineHeight: '1.4'
+          }}>
+            Save your universes to a GitHub repository. Works on any device.
+          </p>
+        </div>
+      </div>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          handleGitChoice();
+        }}
+        style={{
+          width: '100%',
+          padding: isCompactLayout ? '10px' : '12px',
+          backgroundColor: gitFirst
+            ? (theme.darkMode ? '#EFE8E5' : '#260000')
+            : 'transparent',
+          color: gitFirst
+            ? (theme.darkMode ? '#260000' : '#EFE8E5')
+            : theme.canvas.textPrimary,
+          border: gitFirst ? 'none' : `2px solid ${theme.canvas.border}`,
+          borderRadius: '6px',
+          cursor: 'pointer',
+          fontSize: isCompactLayout ? '0.9rem' : '1rem',
+          fontWeight: 'bold',
+          fontFamily: "'EmOne', sans-serif"
+        }}
+      >
+        Connect GitHub
+      </button>
+    </div>
+  );
 
   const renderSelectionStep = () => (
     <>
@@ -125,7 +232,11 @@ const StorageSetupModal = ({
 
       {/* Start Button Options */}
       <div style={{ flexShrink: 0 }}>
+        {/* Git first on mobile (folder storage unavailable there) */}
+        {showGitOption && gitFirst && renderGitCard()}
+
         {/* Option A: Choose a Folder */}
+        {showFolderOption && (
         <div
           style={{
             backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
@@ -202,6 +313,10 @@ const StorageSetupModal = ({
             Select Folder
           </button>
         </div>
+        )}
+
+        {/* Git as an optional extra on desktop */}
+        {showGitOption && !gitFirst && renderGitCard()}
 
         {/* Option B: Browser Storage */}
         {showBrowserStorageOption && (
@@ -298,7 +413,9 @@ const StorageSetupModal = ({
           Name Your Universe
         </h2>
         <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: '0.95rem' }}>
-          This will be the name of your first .redstring file.
+          {setupMode === 'git'
+            ? "You'll connect GitHub next and pick a repository to sync it."
+            : 'This will be the name of your first .redstring file.'}
         </p>
       </div>
 
@@ -362,7 +479,7 @@ const StorageSetupModal = ({
             transition: 'all 0.2s'
           }}
         >
-          Create Universe
+          {setupMode === 'git' ? 'Continue to GitHub' : 'Create Universe'}
           <ArrowRight size={20} />
         </button>
 

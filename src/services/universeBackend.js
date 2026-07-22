@@ -444,20 +444,27 @@ class UniverseBackend {
         umWarn('[UniverseBackend] Failed to load file handles info:', error);
       }
 
-      // Create default universe if none exist
-      if (this.universes.size === 0) {
+      // Recovery only: if a returning user's registry vanished (cleared
+      // storage, key migration), recreate a default so their session works.
+      // First-time users get NO preloaded universe — onboarding must create
+      // one through an explicit linking choice (folder, git, or browser).
+      // A preloaded empty universe interferes with linking flows: it races
+      // git imports and can save empty state over real data.
+      if (this.universes.size === 0 && this.hasCompletedOnboarding()) {
         this.createSafeDefaultUniverse();
       }
 
-      // Set active universe
+      // Set active universe (null when no universes exist yet)
       this.activeUniverseSlug = activeSlug && this.universes.has(activeSlug)
         ? activeSlug
-        : this.universes.keys().next().value;
+        : (this.universes.keys().next().value || null);
 
       umLog('[UniverseBackend] Loaded', this.universes.size, 'universes, active:', this.activeUniverseSlug);
     } catch (error) {
       umError('[UniverseBackend] Failed to load from storage:', error);
-      this.createSafeDefaultUniverse();
+      if (this.hasCompletedOnboarding()) {
+        this.createSafeDefaultUniverse();
+      }
     }
   }
 
@@ -660,6 +667,29 @@ class UniverseBackend {
       lastModified,
       raw: mergedRaw
     };
+  }
+
+  /**
+   * True when this browser has completed (or dismissed) onboarding before.
+   * Distinguishes "returning user whose registry was lost" (recreate a
+   * default universe) from "genuine first launch" (create nothing — the
+   * onboarding flow owns universe creation).
+   *
+   * The welcome flag is written both unscoped and scoped (session/test-mode
+   * prefixes), so scan for any key ending in the base name.
+   */
+  hasCompletedOnboarding() {
+    if (typeof window === 'undefined' || !window.localStorage) return false;
+    try {
+      if (localStorage.getItem('redstring-welcome-seen') === 'true') return true;
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.endsWith('redstring-welcome-seen') || key.endsWith('redstring_workspace_folder_path'))) {
+          return true;
+        }
+      }
+    } catch (_) { /* storage unavailable — treat as first launch */ }
+    return false;
   }
 
   /**

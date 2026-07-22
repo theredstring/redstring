@@ -281,6 +281,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
   const deviceInfo = useMemo(() => detectDeviceInfo(), []);
   const autosaveRef = useRef({ cooldownUntil: 0, triggerAt: 0 });
+  // Debounce for background GitHub App discovery on tab focus (no pending flag)
+  const lastAppDiscoveryRef = useRef(0);
 
 
   const loadGraphStore = useCallback(async () => {
@@ -601,6 +603,41 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const hasApp = !!(serviceState.authStatus?.hasGitHubApp || serviceState.githubAppInstallation?.installationId);
   const dataAuthMethod = hasOAuth ? 'oauth' : (hasApp ? 'github-app' : null);
 
+  // Onboarding resume: the user chose "Sync with GitHub" during onboarding
+  // (StorageSetupModal → NodeCanvas armed the resume flags and created a
+  // browser-backed universe). Once GitHub auth is available — via the web
+  // OAuth redirect or Electron's device flow — open the repository picker
+  // for that universe. The step flag flips to 'repo-opened' so closing the
+  // picker doesn't re-trigger this; attaching a repo clears the flags and
+  // promotes the repo to source of truth (see handleAttachRepoCreateNew).
+  useEffect(() => {
+    let resume = false;
+    let step = null;
+    let onboardingSlug = null;
+    try {
+      resume = sessionStorage.getItem('redstring_onboarding_resume') === 'true';
+      step = sessionStorage.getItem('redstring_onboarding_step');
+      onboardingSlug = sessionStorage.getItem('redstring_onboarding_slug');
+    } catch {
+      return;
+    }
+    if (!resume || step !== 'repo') return;
+    if (!hasOAuth && !hasApp) return; // still waiting for auth
+    if (showRepositoryManager) return;
+
+    const universes = serviceState.universes || [];
+    const targetSlug = (onboardingSlug && universes.some((u) => u.slug === onboardingSlug))
+      ? onboardingSlug
+      : serviceState.activeUniverseSlug;
+    if (!targetSlug) return;
+
+    try { sessionStorage.setItem('redstring_onboarding_step', 'repo-opened'); } catch { }
+    umLog('[UniverseManager] Resuming git onboarding — opening repository picker for', targetSlug);
+    setRepositoryIntent('attach');
+    setRepositoryTargetSlug(targetSlug);
+    setShowRepositoryManager(true);
+  }, [hasOAuth, hasApp, serviceState.universes, serviceState.activeUniverseSlug, showRepositoryManager]);
+
   useEffect(() => {
     if (!serviceState.activeUniverseSlug) return undefined;
     const active = serviceState.universes.find(u => u.slug === serviceState.activeUniverseSlug);
@@ -805,11 +842,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           await refreshState();
           setSyncStatus({ type: 'success', message: 'GitHub OAuth connected' });
         }
-        // Clear resume flag now that OAuth is complete
-        try {
-          sessionStorage.removeItem('redstring_onboarding_resume');
-          sessionStorage.removeItem('redstring_onboarding_step');
-        } catch { }
+        // NOTE: the onboarding resume flags intentionally survive this point.
+        // OAuth connecting is step one — the resume effect below still needs
+        // them to open the repository picker, and repo attachment clears them.
         return true;
       } catch (err) {
         if (!cancelled) {
@@ -937,11 +972,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           await refreshState();
           setSyncStatus({ type: 'success', message: 'GitHub App connected' });
         }
-        // Clear resume flag now that App installation is complete
-        try {
-          sessionStorage.removeItem('redstring_onboarding_resume');
-          sessionStorage.removeItem('redstring_onboarding_step');
-        } catch { }
+        // NOTE: the onboarding resume flags intentionally survive this point —
+        // repo attachment is what completes onboarding and clears them.
         return true;
       } catch (err) {
         if (!cancelled) {
@@ -975,24 +1007,75 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     const onVisibilityChange = async () => {
       if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
       const pending = safeSessionGet('github_app_pending') === 'true';
-      if (!pending) return;
+
+      if (pending) {
+        try {
+          umLog('[UniverseManager] Tab regained focus with pending App install — re-running discovery');
+          if (isElectron()) {
+            // Electron: forceAppDiscovery can't discover (no server-minted
+            // tokens), but a parked user-to-server token from the Install
+            // click lets us query /user/installations directly — the same
+            // path as the manual Detect button, run automatically.
+            const parkedToken = persistentAuth.getAppUserToServerToken?.() || null;
+            if (parkedToken) {
+              try {
+                const install = await findAppInstallationDirect(parkedToken);
+                if (install) {
+                  await persistentAuth.storeAppInstallation({
+                    installationId: install.id,
+                    accessToken: parkedToken,
+                    repositories: [],
+                    userData: install.account || {}
+                  });
+                  persistentAuth.clearAppUserToServerToken?.();
+                }
+              } catch (electronErr) {
+                umWarn('[UniverseManager] Electron focus App discovery failed:', electronErr?.message || electronErr);
+              }
+            }
+          } else {
+            // Force a fresh app discovery (resets autoConnectAttempted-style
+            // guards and clears any sticky-disconnect flag, since this is a
+            // user-initiated install attempt).
+            await persistentAuth.forceAppDiscovery?.();
+          }
+          // Then run the URL-based callback path in case GitHub did include
+          // installation_id in the redirect after all.
+          const appDone = await processAppCallback();
+          if ((appDone || persistentAuth.hasAppInstallation?.()) && !cancelled) {
+            safeSessionRemove('github_app_pending');
+            await refreshAuth();
+            await refreshState();
+            setSyncStatus({ type: 'success', message: 'GitHub App linked' });
+          }
+        } catch (err) {
+          umWarn('[UniverseManager] Visibility-triggered App discovery failed:', err?.message || err);
+        }
+        return;
+      }
+
+      // No pending flag, but OAuth is connected and no App install is known:
+      // quietly re-check for one (the user may have installed the App on
+      // GitHub directly, or on another device). Uses attemptAppAutoConnect,
+      // which honors the sticky-disconnect flag — a deliberate App disconnect
+      // is never silently overridden. Debounced so tab-switching doesn't
+      // hammer the API; failures stay silent (the manual Detect button remains
+      // the explicit fallback).
+      if (isElectron()) return;
+      const canDiscover = persistentAuth.hasValidTokens?.() && !persistentAuth.hasAppInstallation?.();
+      if (!canDiscover) return;
+      const now = Date.now();
+      if (now - lastAppDiscoveryRef.current < 60000) return;
+      lastAppDiscoveryRef.current = now;
       try {
-        umLog('[UniverseManager] Tab regained focus with pending App install — re-running discovery');
-        // Force a fresh app discovery (resets autoConnectAttempted-style
-        // guards and clears any sticky-disconnect flag, since this is a
-        // user-initiated install attempt).
-        await persistentAuth.forceAppDiscovery?.();
-        // Then run the URL-based callback path in case GitHub did include
-        // installation_id in the redirect after all.
-        const appDone = await processAppCallback();
-        if ((appDone || persistentAuth.hasAppInstallation?.()) && !cancelled) {
-          safeSessionRemove('github_app_pending');
+        const ok = await persistentAuth.attemptAppAutoConnect?.();
+        if (ok && persistentAuth.hasAppInstallation?.() && !cancelled) {
           await refreshAuth();
           await refreshState();
-          setSyncStatus({ type: 'success', message: 'GitHub App linked' });
+          setSyncStatus({ type: 'success', message: 'GitHub App detected and linked' });
         }
       } catch (err) {
-        umWarn('[UniverseManager] Visibility-triggered App discovery failed:', err?.message || err);
+        umWarn('[UniverseManager] Background App discovery failed:', err?.message || err);
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -1755,6 +1838,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           try {
             sessionStorage.removeItem('redstring_onboarding_resume');
             sessionStorage.removeItem('redstring_onboarding_step');
+            sessionStorage.removeItem('redstring_onboarding_slug');
           } catch { }
         } catch (e) {
           umWarn('[UniverseManager] Failed to set Source of Truth after linking:', e);
@@ -4048,7 +4132,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       } else {
         setSyncStatus({
           type: 'warning',
-          message: 'No GitHub App install found for this account. Install the App on GitHub for grantiguess, then tap Detect install again.'
+          message: `No GitHub App install found for this account. Install the App on GitHub for ${persistentAuth.oauthCache?.user?.login || 'your GitHub account'}, then tap Detect install again.`
         });
       }
     } catch (err) {

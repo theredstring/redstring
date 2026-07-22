@@ -1665,6 +1665,7 @@ function NodeCanvas() {
         storeActions.setLeftPanelExpanded(true);
         setLeftPanelInitialView('federation');
         setShowOnboardingModal(false);
+        setShowStorageSetupModal(false);
       }
     } catch (e) {
       // ignore sessionStorage errors
@@ -15991,6 +15992,20 @@ function NodeCanvas() {
             localStorage.setItem('redstring-welcome-seen', 'true');
           } catch { }
           setShowStorageSetupModal(false);
+          // Dismissal leaves no universe (nothing is preloaded anymore), so
+          // steer to the Universes tab where setup can be finished.
+          import('./services/universeBackend.js').then(({ default: universeBackend }) => {
+            const existing = universeBackend.getAllUniverses?.() || [];
+            if (existing.length === 0) {
+              storeActions.setUniverseLoaded(true, false);
+              storeActions.setLeftPanelExpanded(true);
+              setTimeout(() => {
+                if (leftPanelRef.current) {
+                  leftPanelRef.current.setActiveView('federation');
+                }
+              }, 100);
+            }
+          }).catch(() => { });
         }}
         onFolderSelected={async (folderPath, universeName) => {
           try {
@@ -16119,6 +16134,70 @@ function NodeCanvas() {
             storeActions.setUniverseError(`Failed to set up workspace: ${error.message}`);
           }
         }}
+        onGitSetupSelected={async (universeName) => {
+          try {
+            const safeName = (universeName && universeName.trim()) ? universeName.trim() : 'Universe';
+            console.log('[NodeCanvas] Git onboarding selected, universe name:', safeName);
+
+            // Mark onboarding as complete (scoped + unscoped for durability)
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
+              localStorage.setItem('redstring-welcome-seen', 'true');
+            }
+
+            // Create the universe NOW (browser-backed until the repo is
+            // attached) so it survives the OAuth redirect via the registry.
+            const { default: universeBackend } = await import('./services/universeBackend.js');
+            const universe = await universeBackend.createUniverse(safeName, {
+              enableLocal: false,
+              enableGit: false,
+              sourceOfTruth: 'browser'
+            });
+
+            // Arm the resume flow: after GitHub connects, UniverseManager
+            // auto-opens the repository picker for this universe and promotes
+            // the repo to source of truth once attached.
+            try {
+              sessionStorage.setItem('redstring_onboarding_resume', 'true');
+              sessionStorage.setItem('redstring_onboarding_step', 'repo');
+              if (universe?.slug) sessionStorage.setItem('redstring_onboarding_slug', universe.slug);
+            } catch { }
+
+            setShowStorageSetupModal(false);
+            storeActions.setStorageMode('browser');
+            storeActions.setUniverseConnected(true);
+            storeActions.setUniverseLoaded(true, false);
+            storeActions.setLeftPanelExpanded(true);
+            setTimeout(() => {
+              if (leftPanelRef.current) {
+                leftPanelRef.current.setActiveView('federation');
+              }
+            }, 100);
+
+            // Let an already-mounted UniverseManager pick up the new universe
+            if (typeof window !== 'undefined' && universe?.slug) {
+              window.dispatchEvent(new CustomEvent('redstring:universe-created', {
+                detail: { slug: universe.slug, name: safeName }
+              }));
+            }
+
+            const { persistentAuth } = await import('./services/persistentAuth.js');
+            const { isElectron } = await import('./utils/fileAccessAdapter.js');
+            const alreadyConnected = persistentAuth.hasValidTokens?.() || persistentAuth.hasAppInstallation?.();
+
+            if (!alreadyConnected && !isElectron()) {
+              // Web: full-page OAuth redirect. On return, the pending/resume
+              // flags suppress onboarding and reopen the federation panel.
+              const { oauthAutoConnect } = await import('./services/oauthAutoConnect.js');
+              await oauthAutoConnect.triggerOAuthFlow();
+            }
+            // Electron (device flow) or already connected: the federation
+            // panel is open and UniverseManager's resume effect takes over.
+          } catch (error) {
+            console.error('[NodeCanvas] Git onboarding setup failed:', error);
+            storeActions.setUniverseError(`Failed to start GitHub setup: ${error.message}`);
+          }
+        }}
         onBrowserStorageSelected={async () => {
           try {
             console.log('[NodeCanvas] User selected browser storage option');
@@ -16131,6 +16210,23 @@ function NodeCanvas() {
 
             // Close storage setup modal
             setShowStorageSetupModal(false);
+
+            // No universe is preloaded anymore, so the skip path must create
+            // the browser-backed universe itself — an explicit user choice,
+            // not a preload.
+            try {
+              const { default: universeBackend } = await import('./services/universeBackend.js');
+              const existing = universeBackend.getAllUniverses?.() || [];
+              if (existing.length === 0) {
+                await universeBackend.createUniverse('Universe', {
+                  enableLocal: false,
+                  enableGit: false,
+                  sourceOfTruth: 'browser'
+                });
+              }
+            } catch (createError) {
+              console.warn('[NodeCanvas] Failed to create browser universe on skip:', createError);
+            }
 
             // Load empty universe in browser storage mode
             storeActions.setStorageMode('browser');
