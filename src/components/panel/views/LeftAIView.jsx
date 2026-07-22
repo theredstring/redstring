@@ -1,6 +1,6 @@
 import React from 'react';
 import { sanitizeHtml } from '../../../utils/sanitizeHtml.js';
-import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Brain, Wrench, Plus, X, ChevronDown, Paperclip, FileText } from 'lucide-react';
+import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Brain, Wrench, Plus, X, ChevronDown, Paperclip, FileText, XCircle, ArrowRightToLine } from 'lucide-react';
 import * as fileStorage from '../../../store/fileStorage.js';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
@@ -8,6 +8,7 @@ import MultipleChoiceOverlay from '../../../ai/components/MultipleChoiceOverlay.
 import PlanCard from '../../../ai/components/PlanCard.jsx';
 import ThinkingBlock from '../../../ai/components/ThinkingBlock.jsx';
 import SteeringBlock from '../../../ai/components/SteeringBlock.jsx';
+import { showContextMenu } from '../../GlobalContextMenu.jsx';
 import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.js';
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from '../../../constants.js';
@@ -2571,6 +2572,49 @@ const LeftAIView = ({ compact = false,
     });
   };
 
+  // Close every tab except `keepId`, then make it active.
+  const handleCloseOtherConversations = (keepId) => {
+    setConversations(prev => {
+      const kept = prev.filter(c => c.id === keepId);
+      if (kept.length === 0) return prev;
+      if (activeConversationId !== keepId) handleTabSwitch(keepId);
+      return kept;
+    });
+  };
+
+  // Close every tab positioned to the right of `id` in the visible tab order.
+  const handleCloseConversationsToRight = (id) => {
+    setConversations(prev => {
+      const idx = prev.findIndex(c => c.id === id);
+      if (idx === -1) return prev;
+      const filtered = prev.slice(0, idx + 1);
+      // If the active tab was among those closed, fall back to the anchor tab.
+      if (!filtered.some(c => c.id === activeConversationId)) handleTabSwitch(id);
+      return filtered;
+    });
+  };
+
+  // Right-click menu options for a tab, disabled when nothing to act on.
+  const getTabContextMenuOptions = (convId) => {
+    const idx = conversations.findIndex(c => c.id === convId);
+    const hasOthers = conversations.length > 1;
+    const hasRight = idx !== -1 && idx < conversations.length - 1;
+    return [
+      {
+        label: 'Close all others',
+        icon: <XCircle size={14} />,
+        disabled: !hasOthers,
+        action: () => handleCloseOtherConversations(convId)
+      },
+      {
+        label: 'Close all to the right',
+        icon: <ArrowRightToLine size={14} />,
+        disabled: !hasRight,
+        action: () => handleCloseConversationsToRight(convId)
+      }
+    ];
+  };
+
   const handleCopyConversation = () => {
     const conversationText = messages.map(msg => {
       const sender = msg.sender === 'user' ? 'User' : msg.sender === 'ai' ? 'AI' : 'System';
@@ -2969,8 +3013,14 @@ const LeftAIView = ({ compact = false,
             <div
               key={conv.id}
               className={`ai-tab ${activeConversationId === conv.id ? 'active' : ''}`}
+              data-has-context-menu="true"
               onClick={() => handleTabSwitch(conv.id)}
               onDoubleClick={() => handleTabDoubleClick(conv.id, conv.title)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                showContextMenu(e.clientX, e.clientY, getTabContextMenuOptions(conv.id));
+              }}
             >
               {editingTabId === conv.id ? (
                 <input
