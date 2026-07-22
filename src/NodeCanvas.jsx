@@ -11830,15 +11830,23 @@ function NodeCanvas() {
                     // 1. Normal edges: neither endpoint is a thing-group member
                     // 2. Anchor edges: at least one endpoint is an anchor → below backgrounds
                     // 3. Internal member edges: between non-anchor members → above backgrounds
+                    // Self-loops belong to a single node and bulge off its corner, so they must
+                    // always paint above thing-group backgrounds (never occluded by them),
+                    // regardless of group membership or anchor status. Route them all to the
+                    // above-groups layer and exclude them from the below-groups layers.
+                    const isSelfLoop = (e) => e.sourceId === e.destinationId;
                     const edgesBelowNodeGroups = visibleEdges.filter(e =>
+                      !isSelfLoop(e) &&
                       !nodeGroupMemberIds.has(e.sourceId) && !nodeGroupMemberIds.has(e.destinationId)
                     );
                     const edgesToAnchors = visibleEdges.filter(e =>
-                      anchorIds.has(e.sourceId) || anchorIds.has(e.destinationId)
+                      !isSelfLoop(e) &&
+                      (anchorIds.has(e.sourceId) || anchorIds.has(e.destinationId))
                     );
                     const edgesAboveNodeGroups = visibleEdges.filter(e =>
-                      (nodeGroupMemberIds.has(e.sourceId) || nodeGroupMemberIds.has(e.destinationId)) &&
-                      !anchorIds.has(e.sourceId) && !anchorIds.has(e.destinationId)
+                      isSelfLoop(e) ||
+                      ((nodeGroupMemberIds.has(e.sourceId) || nodeGroupMemberIds.has(e.destinationId)) &&
+                      !anchorIds.has(e.sourceId) && !anchorIds.has(e.destinationId))
                     );
 
                     // edgeCurveInfo is computed via useMemo and available in scope
@@ -11954,6 +11962,7 @@ function NodeCanvas() {
                                 handleEdgePointerDownTouch={handleEdgePointerDownTouch}
                                 connectionName={selfConnectionName}
                                 connectionFontSize={selfFontSize}
+                                connectionWidth={connectionWidth}
                                 placedLabelsRef={placedLabelsRef}
                               />
                             );
@@ -13413,6 +13422,7 @@ function NodeCanvas() {
                                 handleEdgePointerDownTouch={handleEdgePointerDownTouch}
                                 connectionName={selfConnectionName}
                                 connectionFontSize={selfFontSize}
+                                connectionWidth={connectionWidth}
                                 placedLabelsRef={placedLabelsRef}
                               />
                             );

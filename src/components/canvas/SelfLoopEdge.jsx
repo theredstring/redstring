@@ -21,6 +21,7 @@ const SelfLoopEdge = ({
   handleEdgePointerDownTouch,
   connectionName,
   connectionFontSize,
+  connectionWidth = 1,
   placedLabelsRef,
 }) => {
   const darkMode = useGraphStore(state => state.darkMode);
@@ -98,16 +99,19 @@ const SelfLoopEdge = ({
     });
   };
 
-  const mainStrokeWidth = '16';
-  const arrowPoints = '-18,22 18,22 0,-22';
-  const dotRadius = '16';
+  // Match regular-edge geometry so self-loops respond to the connection-width setting and
+  // carry the same visual weight as ordinary connections (regular main line = 27 * cw).
+  const cw = connectionWidth;
+  const mainStrokeWidth = 27 * cw;
+  const glowStrokeWidth = 20 * cw;
+  const hitStrokeWidth = Math.max(50, 44 * cw);
 
   const renderDot = (anchor) => (
     <g>
       <circle
         cx={anchor.x}
         cy={anchor.y}
-        r="20"
+        r={Math.round(36 * cw)}
         fill="transparent"
         style={{ cursor: 'pointer' }}
         onClick={toggleArrow}
@@ -116,7 +120,7 @@ const SelfLoopEdge = ({
       <circle
         cx={anchor.x}
         cy={anchor.y}
-        r={dotRadius}
+        r={Math.round(30 * cw)}
         fill={edgeColor}
         style={{ pointerEvents: 'none' }}
       />
@@ -130,7 +134,7 @@ const SelfLoopEdge = ({
           d={loop.path}
           fill="none"
           stroke={edgeColor}
-          strokeWidth="12"
+          strokeWidth={glowStrokeWidth}
           opacity={isSelected ? '0.3' : '0.2'}
           style={{ filter: `drop-shadow(0 0 8px ${edgeColor})` }}
           strokeLinecap="round"
@@ -150,7 +154,7 @@ const SelfLoopEdge = ({
         d={loop.path}
         fill="none"
         stroke="transparent"
-        strokeWidth="40"
+        strokeWidth={hitStrokeWidth}
         style={{ cursor: 'pointer' }}
         onPointerDown={handlePointerDown}
         onTouchStart={handleTouchStart}
@@ -161,14 +165,14 @@ const SelfLoopEdge = ({
       {hasArrow && (
         <g
           data-arrow="self"
-          transform={`translate(${loop.anchorB.x}, ${loop.anchorB.y}) rotate(${loop.arrowAngleB + 90})`}
+          transform={`translate(${loop.anchorB.x}, ${loop.anchorB.y}) rotate(${loop.arrowAngleB + 90}) scale(${cw})`}
           style={{ cursor: 'pointer' }}
           onClick={toggleArrow}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {(isSelected || isHovered) && (
             <polygon
-              points="-12,15 12,15 0,-15"
+              points="-18,23 18,23 0,-23"
               fill={edgeColor}
               stroke={edgeColor}
               strokeWidth="8"
@@ -179,7 +183,7 @@ const SelfLoopEdge = ({
             />
           )}
           <polygon
-            points={arrowPoints}
+            points="-26,34 26,34 0,-34"
             fill={edgeColor}
             stroke={edgeColor}
             strokeWidth="6"

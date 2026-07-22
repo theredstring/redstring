@@ -2601,6 +2601,12 @@ const LeftAIView = ({ compact = false,
     const hasRight = idx !== -1 && idx < conversations.length - 1;
     return [
       {
+        label: 'Close tab',
+        icon: <X size={14} />,
+        disabled: !hasOthers,
+        action: () => handleCloseConversation(convId)
+      },
+      {
         label: 'Close all others',
         icon: <XCircle size={14} />,
         disabled: !hasOthers,

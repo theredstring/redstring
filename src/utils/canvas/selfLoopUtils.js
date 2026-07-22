@@ -1,9 +1,14 @@
-const SELF_LOOP_BASE_RADIUS = 70;
-const SELF_LOOP_STEP_RADIUS = 35;
+// Loop radius scales with the node's corner radius so self-loops stay proportional on
+// variable-sized nodes (and don't collapse when a big node's corner radius would otherwise
+// exceed a fixed radius). The default node (180x100 → cornerR 50) reproduces the historic
+// fixed radii exactly: 50*1.4 = 70 for the first loop, 50*(1.4+0.7) = 105 for the second, etc.
+const SELF_LOOP_RADIUS_FACTOR = 1.4;
+const SELF_LOOP_STEP_FACTOR = 0.7;
+const DEFAULT_CORNER_R = 50; // Math.min(NODE_WIDTH, NODE_HEIGHT) / 2 for the default node
 const SELF_LOOP_HALF_GAP_DEG = 45;
 
-export function getSelfLoopRadius(pairIndex = 0) {
-  return SELF_LOOP_BASE_RADIUS + pairIndex * SELF_LOOP_STEP_RADIUS;
+export function getSelfLoopRadius(pairIndex = 0, cornerR = DEFAULT_CORNER_R) {
+  return cornerR * (SELF_LOOP_RADIUS_FACTOR + pairIndex * SELF_LOOP_STEP_FACTOR);
 }
 
 /**
@@ -26,9 +31,9 @@ export function getSelfLoopRadius(pairIndex = 0) {
  */
 export function calculateSelfLoopPath(nodeX, nodeY, nodeW, nodeH, curveInfo) {
   const pairIndex = curveInfo?.pairIndex ?? 0;
-  const R = getSelfLoopRadius(pairIndex);
 
   const cornerR = Math.min(nodeW, nodeH) / 2;
+  const R = getSelfLoopRadius(pairIndex, cornerR);
   const cornerCx = nodeX + cornerR;
   const cornerCy = nodeY + cornerR;
 
