@@ -4,14 +4,19 @@ import AuthSection from './universe-manager/AuthSection.jsx';
 import GitHubDeviceFlowModal from './modals/GitHubDeviceFlowModal.jsx';
 import { isElectron } from '../utils/fileAccessAdapter.js';
 import {
-  FolderOpen, ArrowRightCircle, ArrowRight, ArrowLeft, Github, Lock, Globe,
-  Loader2, CheckCircle, AlertCircle, Circle, RefreshCw
+  FolderOpen, Folder, ArrowRightCircle, ArrowRight, ArrowLeft, Github, Lock, Globe,
+  Loader2, CheckCircle, AlertCircle, Circle, RefreshCw, Save, X, Star, Upload, Key
 } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme.js';
 import { useGitHubDeviceFlow } from '../hooks/useGitHubDeviceFlow.js';
 import { persistentAuth } from '../services/persistentAuth.js';
+import universeBackend from '../services/universeBackend.js';
 import { getStorageKey } from '../utils/storageUtils.js';
 import { getStatusColors } from '../utils/statusColors.js';
+import {
+  saveWorkspaceHandle, getWorkspaceHandle, clearWorkspaceHandle,
+  checkWorkspacePermission, requestWorkspacePermission
+} from '../services/workspaceFolderService.js';
 import { runPendingCallbacks, recheckAppOnFocus } from '../services/githubAuthCallbacks.js';
 import {
   connectOAuth as ghConnectOAuth,
@@ -21,30 +26,33 @@ import {
   disconnectApp as ghDisconnectApp
 } from '../services/githubAuthFlows.js';
 import { listUserRepos } from '../services/githubRepoService.js';
-import { runGitOnboardingSetup, GIT_ONBOARDING_TASKS } from '../services/gitOnboardingService.js';
+import {
+  fillGitSlot, addLocalFileSlot, resolveLocalFileHandle, GIT_ONBOARDING_TASKS
+} from '../services/gitOnboardingService.js';
 
 /**
  * Storage Setup Modal — first-run onboarding.
- * Lets a first-time user choose where their universes live: a local folder,
- * a GitHub repository (guided wizard), or browser storage (skip).
  *
- * Flow:
- * 1. "Where should we save your universes?" (Folder / GitHub / Skip)
- *    - Mobile (no File System Access API): GitHub is the primary option and
- *      the folder option is hidden — folder picking doesn't work there.
- *    - Desktop: folder is primary, GitHub is optional.
- * 2. Folder -> "Name your Universe" -> create file in chosen folder.
- * 3. GitHub -> guided wizard, 1:1 with the Universes panel machinery:
- *      git-connect  — Accounts & Access (OAuth + GitHub App; web redirects /
- *                     Electron device flow; existing App installs are
- *                     discovered before ever showing the install page)
- *      git-repo     — create "Redstring-Universes" (preferred) or link an
- *                     existing repository
- *      git-name     — universe name + optional local .redstring copy (desktop)
- *      git-finishing— repo → universe → attach → push → promote git checklist
- *    The web OAuth/App-install redirects unload the page; sessionStorage
- *    resume flags (redstring_onboarding_resume/_step) reopen the wizard at
- *    git-connect on return.
+ * Mirrors the Universes panel's data model: the user sets up ONE universe and
+ * fills its storage slots — a GitHub repository slot and/or a local .redstring
+ * file slot — rather than creating a separate universe per storage type. The
+ * universe shell is created lazily the moment the first slot is filled (so
+ * nothing exists until the user actually links something), and every later
+ * slot fill attaches to that same universe.
+ *
+ * Steps:
+ *   slots         — the hub: name the universe (once), set an optional
+ *                   workspace folder, then add a Repository and/or Local File
+ *                   slot. Source of truth follows the panel rule (git wins).
+ *   git-connect   — Accounts & Access (OAuth + GitHub App; web redirects /
+ *                   Electron device flow; existing App installs are discovered
+ *                   before ever showing the install page)
+ *   git-repo      — create "Redstring-Universes" (preferred) or link existing
+ *   git-finishing — repo → universe → attach → push → promote git checklist
+ *
+ * The web OAuth/App-install redirects unload the page; sessionStorage resume
+ * flags (redstring_onboarding_resume/_step/_universe_name) reopen the wizard at
+ * git-connect, with the universe name preserved, on return.
  */
 const AUTH_EVENTS = ['tokenStored', 'tokenValidated', 'authExpired', 'appInstallationStored', 'appInstallationCleared'];
 
@@ -57,21 +65,30 @@ const readWizardResumeStep = () => {
       return 'git-connect';
     }
   } catch { /* ignore */ }
-  return 'selection';
+  return 'slots';
+};
+
+const readResumeUniverseName = () => {
+  try {
+    const stored = sessionStorage.getItem('redstring_onboarding_universe_name');
+    if (stored && stored.trim()) return stored;
+  } catch { /* ignore */ }
+  return 'Universe';
 };
 
 const clearWizardResumeFlags = () => {
   try {
     sessionStorage.removeItem('redstring_onboarding_resume');
     sessionStorage.removeItem('redstring_onboarding_step');
+    sessionStorage.removeItem('redstring_onboarding_universe_name');
   } catch { /* ignore */ }
 };
 
 const StorageSetupModal = ({
   isVisible,
   onClose,
-  onFolderSelected = null, // (folderPath, universeName) => void
-  onGitSetupComplete = null, // ({ slug, name, warnings }) => void
+  onUniverseReady = null, // ({ slug, name, warnings }) => void — a slot was filled; load it into the shell, keep modal open
+  onFinishOnboarding = null, // () => void — finalize: mark seen + close (user is already in a universe)
   onBrowserStorageSelected = null,
   ...canvasModalProps
 }) => {
@@ -82,12 +99,32 @@ const StorageSetupModal = ({
     height: typeof window !== 'undefined' ? window.innerHeight : 900
   }));
 
-  // Step state: 'selection' | 'naming' (folder path)
-  //           | 'git-connect' | 'git-repo' | 'git-name' | 'git-finishing'
+  // Step: 'slots' (hub) | 'git-connect' | 'git-repo' | 'git-finishing'
   const [step, setStep] = useState(readWizardResumeStep);
-  const [universeName, setUniverseName] = useState('Universe');
-  // Temporary storage for the selected folder path/handle while we ask for the name
-  const [tempFolderHandle, setTempFolderHandle] = useState(null);
+  const [universeName, setUniverseName] = useState(readResumeUniverseName);
+
+  // The one universe being set up. Its slug is assigned on the first slot fill
+  // and reused by every later fill so all slots land on the same universe.
+  const universeSlugRef = useRef(null);
+  // Which slots are filled this session, for the hub's card badges.
+  const [slotStatus, setSlotStatus] = useState({
+    git: { done: false, label: null },
+    local: { done: false, label: null }
+  });
+  // Current source of truth for the universe ('git' | 'local' | 'browser').
+  const [sourceOfTruth, setSourceOfTruth] = useState('browser');
+  const anySlotFilled = slotStatus.git.done || slotStatus.local.done;
+  const bothSlotsFilled = slotStatus.git.done && slotStatus.local.done;
+
+  // --- Workspace folder (global location; where local files land) ---
+  const [workspaceFolder, setWorkspaceFolder] = useState(() => {
+    try { return localStorage.getItem('redstring_workspace_folder_name') || null; } catch { return null; }
+  });
+  const [workspaceNeedsPermission, setWorkspaceNeedsPermission] = useState(false);
+
+  // --- Local file slot ---
+  const [localBusy, setLocalBusy] = useState(false);
+  const [localError, setLocalError] = useState(null);
 
   // --- GitHub wizard state ---
   const [authStatus, setAuthStatus] = useState(() => {
@@ -110,11 +147,9 @@ const StorageSetupModal = ({
   const [repoListLoading, setRepoListLoading] = useState(false);
   const [repoListError, setRepoListError] = useState(null);
   const [selectedRepo, setSelectedRepo] = useState(null);
-  const [linkLocalFile, setLinkLocalFile] = useState(false);
   const [taskStates, setTaskStates] = useState({});
   const [finishError, setFinishError] = useState(null);
   const [finishRunning, setFinishRunning] = useState(false);
-  const createdSlugRef = useRef(null);
 
   const { deviceFlowState, runDeviceFlow, cancelDeviceFlow } = useGitHubDeviceFlow();
 
@@ -134,21 +169,21 @@ const StorageSetupModal = ({
 
   const showBrowserStorageOption = !isElectron();
 
-  // No File System Access API (mobile browsers, iOS/Android): folder-based
-  // storage can't work, so git sync becomes the primary onboarding path.
+  // No File System Access API (mobile browsers): folder/local-file storage
+  // can't work, so git becomes the only storage path.
   const gitFirst = !isElectron() &&
     typeof window !== 'undefined' && !('showSaveFilePicker' in window);
-  const showFolderOption = !gitFirst;
-  const showGitOption = !!onGitSetupComplete;
   const canLinkLocalFile = isElectron() ||
     (typeof window !== 'undefined' && 'showSaveFilePicker' in window);
+  const showLocalSlot = canLinkLocalFile;
+  const showWorkspaceRow = canLinkLocalFile;
+  const showGitOption = !!onUniverseReady;
+  // Once a slot exists, the universe is created with its name — lock the input.
+  const nameLocked = anySlotFilled;
 
   React.useEffect(() => {
     const handleResize = () => {
-      setViewportSize({
-        width: window.innerWidth,
-        height: window.innerHeight
-      });
+      setViewportSize({ width: window.innerWidth, height: window.innerHeight });
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -175,10 +210,28 @@ const StorageSetupModal = ({
     } catch { /* ignore */ }
   }, [allowOAuthBackup]);
 
+  // Restore the workspace folder handle/permission state on mount.
+  useEffect(() => {
+    if (!isVisible || !showWorkspaceRow) return;
+    (async () => {
+      try {
+        const handle = await getWorkspaceHandle();
+        if (handle) {
+          const name = typeof handle === 'string' ? handle.split(/[/\\]/).pop() : handle.name;
+          if (name) setWorkspaceFolder(name);
+          const permState = await checkWorkspacePermission();
+          if (permState && permState !== 'granted') setWorkspaceNeedsPermission(true);
+        }
+      } catch (e) {
+        console.warn('[StorageSetupModal] Failed to restore workspace folder handle:', e);
+      }
+    })();
+  }, [isVisible, showWorkspaceRow]);
+
   // git-connect step: process any pending OAuth/App redirect callback
-  // (single-flight — safe alongside the panel), then check for an existing
-  // App install so we never prompt an install the user already has. Also
-  // re-detect on tab focus (covers install-in-another-tab).
+  // (single-flight — safe alongside the panel), then check for an existing App
+  // install so we never prompt an install the user already has. Also re-detect
+  // on tab focus (covers install-in-another-tab).
   useEffect(() => {
     if (!isVisible || step !== 'git-connect') return undefined;
     let cancelled = false;
@@ -191,14 +244,6 @@ const StorageSetupModal = ({
           setAuthNotice({ type: 'error', message: oauth.error || app.error });
         }
         refreshAuthStatus();
-
-        // Existing-install check: surface the backend's standard discovery
-        // (/api/github/app/installations) before the user touches anything.
-        const status = persistentAuth.getAuthStatus();
-        if (!isElectron() && status.hasOAuthTokens && !status.hasGitHubApp) {
-          await persistentAuth.attemptAppAutoConnect?.();
-          if (!cancelled) refreshAuthStatus();
-        }
       } catch (err) {
         console.warn('[StorageSetupModal] Pending auth callback processing failed:', err?.message || err);
       }
@@ -221,42 +266,130 @@ const StorageSetupModal = ({
     };
   }, [isVisible, step, refreshAuthStatus]);
 
-  const handleFolderChoice = async () => {
-    try {
-      const { pickFolder } = await import('../utils/fileAccessAdapter.js');
-      const handle = await pickFolder();
-
-      if (handle) {
-        setTempFolderHandle(handle);
-        setStep('naming');
+  // Auto-detect an existing GitHub App install once OAuth is connected, using
+  // forceAppDiscovery (same path as the manual "Detect install" button, which
+  // clears any stale sticky-disconnect flag — correct during onboarding). On
+  // Electron discovery needs a device-flow token, so this no-ops there.
+  const appDiscoveryTriedRef = useRef(false);
+  useEffect(() => {
+    if (!isVisible || step !== 'git-connect' || !hasOAuth || hasApp) {
+      appDiscoveryTriedRef.current = false;
+      return undefined;
+    }
+    if (appDiscoveryTriedRef.current) return undefined;
+    appDiscoveryTriedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        await persistentAuth.forceAppDiscovery?.();
+        if (!cancelled) refreshAuthStatus();
+      } catch (err) {
+        console.warn('[StorageSetupModal] App auto-discovery failed:', err?.message || err);
       }
+    })();
+    return () => { cancelled = true; };
+  }, [isVisible, step, hasOAuth, hasApp, refreshAuthStatus]);
+
+  // --- Workspace folder handlers (mirror UniversesList) ---
+
+  const handlePickWorkspaceFolder = async () => {
+    try {
+      if (window.electron?.fileSystem?.pickFolder) {
+        const folderPath = await window.electron.fileSystem.pickFolder();
+        if (!folderPath) return;
+        setWorkspaceFolder(folderPath.split(/[/\\]/).pop());
+        setWorkspaceNeedsPermission(false);
+        await saveWorkspaceHandle(folderPath);
+        return;
+      }
+      if (!('showDirectoryPicker' in window)) {
+        alert('Directory picker is not supported in this browser.');
+        return;
+      }
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      setWorkspaceFolder(handle.name);
+      setWorkspaceNeedsPermission(false);
+      await saveWorkspaceHandle(handle);
     } catch (e) {
-      console.error("Failed to pick folder", e);
+      if (e.name !== 'AbortError') console.error('[StorageSetupModal] Failed to pick workspace folder:', e);
     }
   };
 
-  const handleGitChoice = () => {
-    // Arm the resume flags BEFORE any redirect can happen — the web OAuth
-    // and App-install flows unload the page, and these flags are what bring
-    // the user back into the wizard at git-connect.
+  const handleClearWorkspaceFolder = async () => {
+    setWorkspaceFolder(null);
+    setWorkspaceNeedsPermission(false);
+    await clearWorkspaceHandle();
+  };
+
+  const handleRegrantWorkspacePermission = async () => {
+    try {
+      const result = await requestWorkspacePermission();
+      if (result === 'granted') setWorkspaceNeedsPermission(false);
+    } catch (e) {
+      console.error('[StorageSetupModal] Failed to re-grant workspace permission:', e);
+    }
+  };
+
+  // --- Slot fill handlers ---
+
+  const handleAddRepository = () => {
+    // Arm the resume flags BEFORE any redirect can happen — the web OAuth and
+    // App-install flows unload the page, and these flags (plus the persisted
+    // universe name) bring the user back into the wizard at git-connect.
     try {
       sessionStorage.setItem('redstring_onboarding_resume', 'true');
       sessionStorage.setItem('redstring_onboarding_step', 'git-connect');
+      sessionStorage.setItem('redstring_onboarding_universe_name', (universeName || 'Universe').trim() || 'Universe');
     } catch { /* ignore */ }
     setAuthNotice(null);
-    setStep('git-connect');
+    // Already fully connected from a prior slot fill this session? Skip to repo.
+    setStep((hasOAuth && hasApp) ? 'git-repo' : 'git-connect');
   };
 
-  const handleConfirmUniverseCreation = () => {
-    if (onFolderSelected && tempFolderHandle) {
-      // Pass both the handle and the name
-      onFolderSelected(tempFolderHandle, universeName || "MyUniverse");
+  const handleAddLocalFile = async () => {
+    setLocalBusy(true);
+    setLocalError(null);
+    const finalName = (universeName && universeName.trim()) ? universeName.trim() : 'Universe';
+    // Resolve the handle NOW, while we still hold the click's user activation.
+    const handle = await resolveLocalFileHandle(finalName);
+    if (!handle) {
+      setLocalBusy(false);
+      setLocalError('No file location chosen.');
+      return;
+    }
+    const fileName = isElectron() && typeof handle === 'string'
+      ? handle.split(/[/\\]/).pop()
+      : (handle?.name || `${finalName}.redstring`);
+    try {
+      const result = await addLocalFileSlot({
+        universeName: finalName,
+        localFileHandle: handle,
+        reuseSlug: universeSlugRef.current
+      });
+      universeSlugRef.current = result.slug;
+      setSlotStatus((prev) => ({ ...prev, local: { done: true, label: fileName } }));
+      // Local becomes source of truth only if git hasn't already claimed it.
+      setSourceOfTruth((prev) => (prev === 'git' ? 'git' : 'local'));
+      onUniverseReady?.({ slug: result.slug, name: finalName, warnings: result.warnings });
+    } catch (err) {
+      if (err?.slug) universeSlugRef.current = err.slug;
+      setLocalError(err.message || 'Could not link a local file.');
+    } finally {
+      setLocalBusy(false);
     }
   };
 
   const handleBrowserStorageChoice = () => {
-    if (onBrowserStorageSelected) {
-      onBrowserStorageSelected();
+    if (onBrowserStorageSelected) onBrowserStorageSelected();
+  };
+
+  const handleToggleSourceOfTruth = async (type) => {
+    if (!universeSlugRef.current || sourceOfTruth === type) return;
+    try {
+      await universeBackend.setSourceOfTruth(universeSlugRef.current, type);
+      setSourceOfTruth(type);
+    } catch (err) {
+      console.warn('[StorageSetupModal] Failed to set source of truth:', err?.message || err);
     }
   };
 
@@ -268,7 +401,6 @@ const StorageSetupModal = ({
       setAuthNotice(null);
       const result = await ghConnectOAuth({ runDeviceFlow });
       if (result?.connected) refreshAuthStatus();
-      // result.redirecting: page is unloading — resume flags bring us back.
     } catch (err) {
       setAuthNotice({ type: 'error', message: `OAuth authentication failed: ${err.message}` });
     } finally {
@@ -353,30 +485,38 @@ const StorageSetupModal = ({
     setFinishRunning(true);
     setTaskStates({});
     try {
-      const result = await runGitOnboardingSetup({
+      const result = await fillGitSlot({
         repoChoice,
         repoName: newRepoName,
         isPrivate: newRepoPrivate,
         existingRepo: selectedRepo,
         universeName: finalName,
-        linkLocalFile: canLinkLocalFile && linkLocalFile,
         authMethod: hasOAuth ? 'oauth' : 'github-app',
-        reuseSlug: createdSlugRef.current,
+        reuseSlug: universeSlugRef.current,
         onProgress: (taskId, status, detail) => {
           setTaskStates((prev) => ({ ...prev, [taskId]: { status, detail } }));
         }
       });
-      createdSlugRef.current = result.slug;
+      universeSlugRef.current = result.slug;
       clearWizardResumeFlags();
       setFinishRunning(false);
-      if (onGitSetupComplete) {
-        onGitSetupComplete({ slug: result.slug, name: finalName, warnings: result.warnings });
-      }
+      setSlotStatus((prev) => ({ ...prev, git: { done: true, label: `@${result.owner}/${result.repo}` } }));
+      setSourceOfTruth('git'); // git wins as source of truth when present
+      onUniverseReady?.({ slug: result.slug, name: finalName, warnings: result.warnings });
+      // Reset the git sub-state and return to the hub.
+      setSelectedRepo(null);
+      setShowRepoList(false);
+      setStep('slots');
     } catch (err) {
-      if (err?.slug) createdSlugRef.current = err.slug;
+      if (err?.slug) universeSlugRef.current = err.slug;
       setFinishError(err.message || 'Setup failed');
       setFinishRunning(false);
     }
+  };
+
+  const leaveGitFlow = () => {
+    clearWizardResumeFlags();
+    setStep('slots');
   };
 
   // --- Shared UI atoms (existing modal idiom) ---
@@ -398,12 +538,9 @@ const StorageSetupModal = ({
     gap: '8px'
   });
 
-  const backButton = (targetStep, onBeforeBack = null) => (
+  const backButton = (onBack) => (
     <button
-      onClick={() => {
-        if (onBeforeBack) onBeforeBack();
-        setStep(targetStep);
-      }}
+      onClick={onBack}
       style={{
         background: 'none',
         border: 'none',
@@ -439,93 +576,104 @@ const StorageSetupModal = ({
     </div>
   );
 
-  const renderGitCard = () => (
+  const cardBadge = (label, tone) => (
+    <span style={{
+      fontSize: '0.68rem',
+      fontWeight: 700,
+      padding: '2px 7px',
+      borderRadius: 10,
+      color: tone,
+      border: `1px solid ${tone}`,
+      fontFamily: "'EmOne', sans-serif",
+      whiteSpace: 'nowrap'
+    }}>
+      {label}
+    </span>
+  );
+
+  // A guided storage-slot card (Repository / Local File) that acts on the one
+  // universe. When filled it shows a status badge instead of the action button.
+  const renderSlotCard = ({ icon, title, description, done, doneBadge, doneDetail, actionLabel, onAction, busy, error, actionSolid }) => (
     <div
       style={{
         backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
-        border: `2px solid ${theme.canvas.border}`,
+        border: `2px solid ${done ? statusColors.success : theme.canvas.border}`,
         borderRadius: '8px',
         padding: isCompactLayout ? '16px' : '20px',
         marginBottom: '16px',
-        cursor: 'pointer',
         transition: 'all 0.2s ease'
       }}
-      onClick={handleGitChoice}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.1)' : '#fff';
-        e.currentTarget.style.borderColor = theme.canvas.border;
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA';
-        e.currentTarget.style.borderColor = theme.canvas.border;
-      }}
     >
-      <div style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: '12px',
-        marginBottom: '12px'
-      }}>
-        <div style={{
-          flexShrink: 0,
-          color: theme.canvas.textPrimary,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          <Github size={32} />
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: done ? 0 : '12px' }}>
+        <div style={{ flexShrink: 0, color: theme.canvas.textPrimary, display: 'flex', alignItems: 'center' }}>
+          {icon}
         </div>
-        <div style={{ flex: 1 }}>
-          <h3 style={{
-            margin: '0 0 4px 0',
-            fontSize: isCompactLayout ? '1rem' : '1.1rem',
-            fontWeight: 'bold',
-            color: theme.canvas.textPrimary,
-            fontFamily: "'EmOne', sans-serif"
-          }}>
-            {gitFirst ? 'Sync with GitHub' : 'Sync with GitHub (Optional)'}
-          </h3>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: '4px' }}>
+            <h3 style={{
+              margin: 0,
+              fontSize: isCompactLayout ? '1rem' : '1.1rem',
+              fontWeight: 'bold',
+              color: theme.canvas.textPrimary,
+              fontFamily: "'EmOne', sans-serif"
+            }}>
+              {title}
+            </h3>
+            {done && cardBadge(doneBadge, statusColors.success)}
+          </div>
           <p style={{
             margin: '4px 0 0 0',
             fontSize: isCompactLayout ? '0.85rem' : '0.9rem',
             color: theme.canvas.textPrimary,
-            lineHeight: '1.4'
+            lineHeight: '1.4',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
           }}>
-            Save your universes to a GitHub repository. Works on any device.
+            {done ? (doneDetail || description) : description}
           </p>
         </div>
       </div>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          handleGitChoice();
-        }}
-        style={{
-          width: '100%',
-          padding: isCompactLayout ? '10px' : '12px',
-          backgroundColor: gitFirst
-            ? (theme.darkMode ? '#EFE8E5' : '#260000')
-            : 'transparent',
-          color: gitFirst
-            ? (theme.darkMode ? '#260000' : '#EFE8E5')
-            : theme.canvas.textPrimary,
-          border: gitFirst ? 'none' : `2px solid ${theme.canvas.border}`,
-          borderRadius: '6px',
-          cursor: 'pointer',
-          fontSize: isCompactLayout ? '0.9rem' : '1rem',
-          fontWeight: 'bold',
-          fontFamily: "'EmOne', sans-serif"
-        }}
-      >
-        Connect GitHub
-      </button>
+      {!done && (
+        <>
+          {error && (
+            <div style={{ margin: '0 0 10px 0', fontSize: '0.78rem', color: statusColors.error, fontFamily: "'EmOne', sans-serif" }}>
+              {error}
+            </div>
+          )}
+          <button
+            onClick={onAction}
+            disabled={busy}
+            style={{
+              width: '100%',
+              padding: isCompactLayout ? '10px' : '12px',
+              backgroundColor: actionSolid ? (theme.darkMode ? '#EFE8E5' : '#260000') : 'transparent',
+              color: actionSolid ? (theme.darkMode ? '#260000' : '#EFE8E5') : theme.canvas.textPrimary,
+              border: actionSolid ? 'none' : `2px solid ${theme.canvas.border}`,
+              borderRadius: '6px',
+              cursor: busy ? 'wait' : 'pointer',
+              fontSize: isCompactLayout ? '0.9rem' : '1rem',
+              fontWeight: 'bold',
+              fontFamily: "'EmOne', sans-serif",
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              opacity: busy ? 0.7 : 1
+            }}
+          >
+            {busy ? <Loader2 size={18} style={{ animation: 'rs-onboarding-spin 1s linear infinite' }} /> : null}
+            {busy ? 'Setting up…' : actionLabel}
+          </button>
+        </>
+      )}
     </div>
   );
 
-  const renderSelectionStep = () => (
+  const renderSlotsStep = () => (
     <>
+      <style>{'@keyframes rs-onboarding-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'}</style>
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '16px' : '24px', flexShrink: 0 }}>
+      <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '14px' : '20px', flexShrink: 0 }}>
         <h1 style={{
           margin: '0 0 4px 0',
           color: theme.accent.primary,
@@ -537,252 +685,263 @@ const StorageSetupModal = ({
           Welcome to Redstring
         </h1>
         <h2 style={{
-          margin: '0 0 8px 0',
+          margin: '0 0 4px 0',
           color: theme.canvas.textPrimary,
-          fontSize: isCompactLayout ? '1.2rem' : '1.5rem',
+          fontSize: isCompactLayout ? '1.1rem' : '1.35rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
-          Where should we save your universes?
+          {anySlotFilled ? 'Add another place to save, or get connected' : 'Set up your first universe'}
         </h2>
       </div>
 
-      {/* Start Button Options */}
-      <div style={{ flexShrink: 0 }}>
-        {/* Git first on mobile (folder storage unavailable there) */}
-        {showGitOption && gitFirst && renderGitCard()}
-
-        {/* Option A: Choose a Folder */}
-        {showFolderOption && (
-        <div
-          style={{
-            backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
-            border: `2px solid ${theme.canvas.border}`,
-            borderRadius: '8px',
-            padding: isCompactLayout ? '16px' : '20px',
-            marginBottom: '16px',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease'
-          }}
-          onClick={handleFolderChoice}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.1)' : '#fff';
-            e.currentTarget.style.borderColor = theme.canvas.border;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA';
-            e.currentTarget.style.borderColor = theme.canvas.border;
-          }}
-        >
+      {/* Universe name */}
+      <div style={{ marginBottom: '14px', flexShrink: 0 }}>
+        <label style={{
+          display: 'block',
+          marginBottom: '6px',
+          fontWeight: 'bold',
+          fontSize: '0.8rem',
+          color: theme.canvas.textPrimary,
+          fontFamily: "'EmOne', sans-serif"
+        }}>
+          Universe name
+        </label>
+        {nameLocked ? (
           <div style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: '12px',
-            marginBottom: '12px'
+            padding: '10px 14px',
+            fontSize: '1.05rem',
+            fontWeight: 'bold',
+            borderRadius: '8px',
+            border: `2px solid ${theme.canvas.border}`,
+            backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+            color: theme.canvas.textPrimary,
+            fontFamily: "'EmOne', sans-serif"
           }}>
-            <div style={{
-              flexShrink: 0,
-              color: theme.canvas.textPrimary,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <FolderOpen size={32} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <h3 style={{
-                margin: '0 0 4px 0',
-                fontSize: isCompactLayout ? '1rem' : '1.1rem',
-                fontWeight: 'bold',
-                color: theme.canvas.textPrimary,
-                fontFamily: "'EmOne', sans-serif"
-              }}>
-                Choose a Folder
-              </h3>
-              <p style={{
-                margin: '4px 0 0 0',
-                fontSize: isCompactLayout ? '0.85rem' : '0.9rem',
-                color: theme.canvas.textPrimary,
-                lineHeight: '1.4'
-              }}>
-                Save all universes in one place. Works across sessions.
-              </p>
-            </div>
+            {universeName || 'Universe'}
           </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleFolderChoice();
-            }}
+        ) : (
+          <input
+            type="text"
+            value={universeName}
+            onChange={(e) => setUniverseName(e.target.value)}
+            placeholder="Universe"
             style={{
               width: '100%',
-              padding: isCompactLayout ? '10px' : '12px',
-              backgroundColor: theme.darkMode ? '#EFE8E5' : '#260000',
-              color: theme.darkMode ? '#260000' : '#EFE8E5',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: isCompactLayout ? '0.9rem' : '1rem',
-              fontWeight: 'bold',
-              fontFamily: "'EmOne', sans-serif"
+              padding: '10px 14px',
+              fontSize: '1.05rem',
+              borderRadius: '8px',
+              border: `2px solid ${theme.canvas.border}`,
+              backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
+              color: theme.canvas.textPrimary,
+              boxSizing: 'border-box',
+              fontFamily: "'EmOne', sans-serif",
+              outline: 'none'
             }}
-          >
-            Select Folder
-          </button>
+          />
+        )}
+      </div>
+
+      {/* Workspace folder (desktop) — global location where local files land */}
+      {showWorkspaceRow && (
+        <div style={{ marginBottom: '16px', flexShrink: 0 }}>
+          <div style={{
+            padding: '10px 12px',
+            backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+            borderRadius: 6,
+            border: `1px solid ${theme.canvas.border}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+              {workspaceFolder
+                ? <FolderOpen size={18} color={theme.accent.primary} />
+                : <Folder size={18} color={theme.canvas.textSecondary} />}
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 600, color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif" }}>
+                  Workspace Folder
+                </span>
+                <span style={{
+                  fontSize: '0.65rem',
+                  color: workspaceFolder ? theme.canvas.textPrimary : theme.canvas.textSecondary,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  fontFamily: "'EmOne', sans-serif"
+                }}>
+                  {workspaceFolder || 'Recommended — where local files are kept'}
+                </span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <button
+                onClick={handlePickWorkspaceFolder}
+                title={workspaceFolder ? 'Change workspace folder' : 'Choose workspace folder'}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '5px 9px', borderRadius: 6, cursor: 'pointer',
+                  border: `1px solid ${theme.canvas.border}`,
+                  background: 'transparent', color: theme.canvas.textPrimary,
+                  fontSize: '0.72rem', fontFamily: "'EmOne', sans-serif"
+                }}
+              >
+                {workspaceFolder ? <FolderOpen size={14} /> : <Upload size={14} />}
+                {workspaceFolder ? 'Change' : 'Choose'}
+              </button>
+              {workspaceFolder && (
+                <button
+                  onClick={handleClearWorkspaceFolder}
+                  title="Unlink workspace folder"
+                  style={{
+                    display: 'flex', alignItems: 'center',
+                    padding: '5px', borderRadius: 6, cursor: 'pointer',
+                    border: `1px solid ${theme.canvas.border}`,
+                    background: 'transparent', color: theme.canvas.textPrimary
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+          {workspaceFolder && workspaceNeedsPermission && (
+            <div style={{
+              marginTop: 6, padding: '6px 10px',
+              backgroundColor: theme.alert.warning.bg,
+              borderRadius: 6, border: `1px solid ${theme.alert.warning.border}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+              fontSize: '0.66rem', color: theme.alert.warning.text, fontFamily: "'EmOne', sans-serif"
+            }}>
+              <span>Folder access was lost on reload.</span>
+              <button
+                onClick={handleRegrantWorkspacePermission}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '2px 8px', borderRadius: 6, cursor: 'pointer',
+                  border: `1px solid ${theme.alert.warning.text}`,
+                  background: 'transparent', color: theme.alert.warning.text,
+                  fontSize: '0.62rem', fontFamily: "'EmOne', sans-serif"
+                }}
+              >
+                <Key size={12} /> Re-grant
+              </button>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* Storage slots for this one universe */}
+      <div style={{ flexShrink: 0 }}>
+        {showGitOption && renderSlotCard({
+          icon: <Github size={32} />,
+          title: gitFirst ? 'Sync with GitHub' : 'GitHub Repository',
+          description: 'Save this universe to a GitHub repository. Works on any device.',
+          done: slotStatus.git.done,
+          doneBadge: 'Connected ✓',
+          doneDetail: slotStatus.git.label,
+          actionLabel: 'Add Repository',
+          onAction: handleAddRepository,
+          actionSolid: gitFirst
+        })}
+
+        {showLocalSlot && renderSlotCard({
+          icon: <Save size={32} />,
+          title: 'Local File',
+          description: 'Keep a .redstring file on your computer, in your workspace folder.',
+          done: slotStatus.local.done,
+          doneBadge: 'Saved ✓',
+          doneDetail: slotStatus.local.label,
+          actionLabel: 'Add Local File',
+          onAction: handleAddLocalFile,
+          busy: localBusy,
+          error: localError,
+          actionSolid: false
+        })}
+
+        {/* Source of truth line, once at least one slot is filled */}
+        {anySlotFilled && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            marginBottom: '16px', fontSize: '0.8rem',
+            color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif"
+          }}>
+            <span style={{ fontWeight: 600 }}>Source of truth:</span>
+            {bothSlotsFilled ? (
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[
+                  { key: 'git', label: 'GitHub' },
+                  { key: 'local', label: 'Local File' }
+                ].map(({ key, label }) => {
+                  const active = sourceOfTruth === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => handleToggleSourceOfTruth(key)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 4,
+                        padding: '3px 9px', borderRadius: 6, cursor: 'pointer',
+                        border: `1px solid ${theme.canvas.brand}`,
+                        backgroundColor: active ? theme.canvas.brand : 'transparent',
+                        color: active ? '#DEDADA' : theme.canvas.brand,
+                        fontSize: '0.72rem', fontWeight: 600, fontFamily: "'EmOne', sans-serif"
+                      }}
+                    >
+                      <Star size={11} fill={active ? '#DEDADA' : 'none'} />
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <span style={{ color: theme.accent.primary, fontWeight: 700 }}>
+                {sourceOfTruth === 'git' ? 'GitHub' : sourceOfTruth === 'local' ? 'Local File' : 'Browser'}
+              </span>
+            )}
+          </div>
         )}
 
-        {/* Git as an optional extra on desktop */}
-        {showGitOption && !gitFirst && renderGitCard()}
-
-        {/* Option B: Browser Storage */}
-        {showBrowserStorageOption && (
+        {/* Skip (browser) — only before the user is in any universe */}
+        {showBrowserStorageOption && !anySlotFilled && (
           <div
             style={{
               backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
               border: `2px solid ${theme.canvas.border}`,
               borderRadius: '8px',
-              padding: isCompactLayout ? '16px' : '20px',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease'
+              padding: isCompactLayout ? '14px' : '16px',
+              cursor: 'pointer'
             }}
             onClick={handleBrowserStorageChoice}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.1)' : '#fff';
-              e.currentTarget.style.borderColor = theme.canvas.border;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA';
-              e.currentTarget.style.borderColor = theme.canvas.border;
-            }}
           >
-            <div style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: '12px',
-              marginBottom: '12px'
-            }}>
-              <div style={{
-                flexShrink: 0,
-                color: theme.canvas.textPrimary,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <ArrowRightCircle size={32} />
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <ArrowRightCircle size={26} color={theme.canvas.textPrimary} style={{ flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
                 <h3 style={{
-                  margin: '0 0 4px 0',
-                  fontSize: isCompactLayout ? '1rem' : '1.1rem',
-                  fontWeight: 'bold',
-                  color: theme.canvas.textPrimary,
-                  fontFamily: "'EmOne', sans-serif"
+                  margin: '0 0 2px 0', fontSize: '1rem', fontWeight: 'bold',
+                  color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif"
                 }}>
-                  Skip Folder Setup
+                  Skip For Now
                 </h3>
-                <div style={{
-                  marginBottom: '6px',
-                  fontStyle: 'italic',
-                  color: theme.canvas.textPrimary,
-                  fontSize: '0.85rem'
-                }}>
-                  Finish Set Up on the Universes Tab in the Left Panel
+                <div style={{ fontStyle: 'italic', color: theme.canvas.textSecondary, fontSize: '0.8rem' }}>
+                  Finish setup later on the Universes tab.
                 </div>
               </div>
             </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleBrowserStorageChoice();
-              }}
-              style={{
-                width: '100%',
-                padding: isCompactLayout ? '10px' : '12px',
-                backgroundColor: 'transparent',
-                color: theme.canvas.textPrimary,
-                border: `2px solid ${theme.canvas.border}`,
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: isCompactLayout ? '0.9rem' : '1rem',
-                fontWeight: 'bold',
-                fontFamily: "'EmOne', sans-serif"
-              }}
-            >
-              Skip For Now
-            </button>
           </div>
         )}
       </div>
-    </>
-  );
 
-  const renderNamingStep = () => (
-    <>
-      <div style={{ textAlign: 'center', marginBottom: '32px', flexShrink: 0, marginTop: '16px' }}>
-        <h2 style={{
-          margin: '0 0 8px 0',
-          color: theme.canvas.textPrimary,
-          fontSize: isCompactLayout ? '1.3rem' : '1.6rem',
-          fontWeight: 'bold',
-          fontFamily: "'EmOne', sans-serif"
-        }}>
-          Name Your Universe
-        </h2>
-        <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: '0.95rem' }}>
-          This will be the name of your first .redstring file.
-        </p>
-      </div>
-
-      <div style={{
-        flexShrink: 0,
-        padding: '0 20px'
-      }}>
-        <label style={{
-          display: 'block',
-          marginBottom: '8px',
-          fontWeight: 'bold',
-          color: theme.canvas.textPrimary,
-          fontSize: '0.9rem'
-        }}>
-          Universe Name
-        </label>
-        <input
-          type="text"
-          value={universeName}
-          onChange={(e) => setUniverseName(e.target.value)}
-          placeholder="Universe"
-          autoFocus
-          style={{
-            width: '100%',
-            padding: '12px 16px',
-            fontSize: '1.1rem',
-            borderRadius: '8px',
-            border: `2px solid ${theme.canvas.border}`,
-            backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
-            color: theme.canvas.textPrimary,
-            boxSizing: 'border-box',
-            fontFamily: "'EmOne', sans-serif",
-            marginBottom: '24px',
-            outline: 'none'
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && universeName.trim()) {
-              handleConfirmUniverseCreation();
-            }
-          }}
-        />
-
-        <button
-          onClick={handleConfirmUniverseCreation}
-          disabled={!universeName.trim()}
-          style={primaryButtonStyle(!!universeName.trim())}
-        >
-          Create Universe
-          <ArrowRight size={20} />
-        </button>
-
-      </div>
+      {/* Get Connected — finishes onboarding once at least one slot is filled */}
+      {anySlotFilled && (
+        <div style={{ marginTop: isCompactLayout ? '10px' : '14px', flexShrink: 0 }}>
+          <button
+            onClick={() => onFinishOnboarding?.()}
+            style={{ ...primaryButtonStyle(true), padding: isCompactLayout ? '12px' : '14px' }}
+          >
+            Get Connected
+            <ArrowRight size={20} />
+          </button>
+        </div>
+      )}
     </>
   );
 
@@ -790,7 +949,7 @@ const StorageSetupModal = ({
 
   const renderGitConnectStep = () => (
     <>
-      {backButton('selection', clearWizardResumeFlags)}
+      {backButton(leaveGitFlow)}
       <div style={{ textAlign: 'center', marginBottom: '16px', flexShrink: 0 }}>
         <h2 style={{
           margin: '0 0 8px 0',
@@ -868,7 +1027,7 @@ const StorageSetupModal = ({
     </>
   );
 
-  const repoCardStyle = (isPrimary) => ({
+  const repoCardStyle = () => ({
     backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
     border: `2px solid ${theme.canvas.border}`,
     borderRadius: '8px',
@@ -878,7 +1037,7 @@ const StorageSetupModal = ({
 
   const renderGitRepoStep = () => (
     <>
-      {backButton('git-connect')}
+      {backButton(() => setStep('git-connect'))}
       <div style={{ textAlign: 'center', marginBottom: '16px', flexShrink: 0 }}>
         <h2 style={{
           margin: '0 0 8px 0',
@@ -890,12 +1049,12 @@ const StorageSetupModal = ({
           Choose a Repository
         </h2>
         <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: '0.9rem' }}>
-          Your universes live as .redstring files inside a GitHub repository.
+          <strong>{universeName || 'Universe'}</strong> will live as a .redstring file inside this repository.
         </p>
       </div>
 
       {/* Preferred: create a new repo */}
-      <div style={repoCardStyle(true)}>
+      <div style={repoCardStyle()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
           <Github size={22} color={theme.canvas.textPrimary} />
           <h3 style={{
@@ -949,18 +1108,18 @@ const StorageSetupModal = ({
             if (!newRepoName.trim()) return;
             setRepoChoice('create');
             setSelectedRepo(null);
-            setStep('git-name');
+            startFinishing();
           }}
           disabled={!newRepoName.trim()}
           style={primaryButtonStyle(!!newRepoName.trim())}
         >
-          Use This Repository
+          Create Universe Here
           <ArrowRight size={18} />
         </button>
       </div>
 
       {/* Or link an existing repo */}
-      <div style={repoCardStyle(false)}>
+      <div style={repoCardStyle()}>
         <div
           style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
           onClick={() => {
@@ -1033,7 +1192,7 @@ const StorageSetupModal = ({
                     onClick={() => {
                       setRepoChoice('existing');
                       setSelectedRepo(repo);
-                      setStep('git-name');
+                      startFinishing();
                     }}
                     style={{
                       display: 'flex',
@@ -1066,105 +1225,7 @@ const StorageSetupModal = ({
     </>
   );
 
-  const renderGitNameStep = () => {
-    const repoLabel = repoChoice === 'create'
-      ? newRepoName
-      : (selectedRepo?.full_name || selectedRepo?.name || 'repository');
-    return (
-      <>
-        {backButton('git-repo')}
-        <div style={{ textAlign: 'center', marginBottom: '24px', flexShrink: 0 }}>
-          <h2 style={{
-            margin: '0 0 8px 0',
-            color: theme.canvas.textPrimary,
-            fontSize: isCompactLayout ? '1.2rem' : '1.5rem',
-            fontWeight: 'bold',
-            fontFamily: "'EmOne', sans-serif"
-          }}>
-            Name Your Universe
-          </h2>
-          <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: '0.9rem' }}>
-            It will be created in <strong>{repoLabel}</strong>, with GitHub as the source of truth.
-          </p>
-        </div>
-
-        <div style={{ flexShrink: 0, padding: '0 12px' }}>
-          <label style={{
-            display: 'block',
-            marginBottom: '8px',
-            fontWeight: 'bold',
-            color: theme.canvas.textPrimary,
-            fontSize: '0.9rem'
-          }}>
-            Universe Name
-          </label>
-          <input
-            type="text"
-            value={universeName}
-            onChange={(e) => setUniverseName(e.target.value)}
-            placeholder="Universe"
-            autoFocus
-            style={{
-              width: '100%',
-              padding: '12px 16px',
-              fontSize: '1.1rem',
-              borderRadius: '8px',
-              border: `2px solid ${theme.canvas.border}`,
-              backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
-              color: theme.canvas.textPrimary,
-              boxSizing: 'border-box',
-              fontFamily: "'EmOne', sans-serif",
-              marginBottom: '16px',
-              outline: 'none'
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && universeName.trim()) {
-                startFinishing();
-              }
-            }}
-          />
-
-          {canLinkLocalFile && (
-            <label style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: '8px',
-              fontSize: '0.82rem',
-              color: theme.canvas.textPrimary,
-              fontFamily: "'EmOne', sans-serif",
-              marginBottom: '20px',
-              lineHeight: 1.4
-            }}>
-              <input
-                type="checkbox"
-                checked={linkLocalFile}
-                onChange={(e) => setLinkLocalFile(e.target.checked)}
-                style={{ marginTop: '2px' }}
-              />
-              <span>
-                Also save a local .redstring file copy.
-                <span style={{ color: theme.canvas.textSecondary }}> GitHub stays the source of truth.</span>
-              </span>
-            </label>
-          )}
-
-          <button
-            onClick={startFinishing}
-            disabled={!universeName.trim()}
-            style={primaryButtonStyle(!!universeName.trim())}
-          >
-            Create Universe
-            <ArrowRight size={20} />
-          </button>
-        </div>
-      </>
-    );
-  };
-
   const renderGitFinishingStep = () => {
-    const visibleTasks = GIT_ONBOARDING_TASKS.filter(
-      (t) => t.id !== 'local-file' || (canLinkLocalFile && linkLocalFile)
-    );
     return (
       <>
         <style>{'@keyframes rs-onboarding-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'}</style>
@@ -1187,7 +1248,7 @@ const StorageSetupModal = ({
           padding: '0 12px',
           fontFamily: "'EmOne', sans-serif"
         }}>
-          {visibleTasks.map((task) => {
+          {GIT_ONBOARDING_TASKS.map((task) => {
             const state = taskStates[task.id];
             const status = state?.status || 'pending';
             const icon = status === 'done'
@@ -1234,7 +1295,7 @@ const StorageSetupModal = ({
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
               <button
-                onClick={() => setStep('git-name')}
+                onClick={() => setStep('git-repo')}
                 style={{
                   flex: 1,
                   padding: '10px',
@@ -1263,14 +1324,12 @@ const StorageSetupModal = ({
 
   const renderStep = () => {
     switch (step) {
-      case 'naming': return renderNamingStep();
       case 'git-connect': return renderGitConnectStep();
       case 'git-repo': return renderGitRepoStep();
-      case 'git-name': return renderGitNameStep();
       case 'git-finishing': return renderGitFinishingStep();
-      case 'selection':
+      case 'slots':
       default:
-        return renderSelectionStep();
+        return renderSlotsStep();
     }
   };
 

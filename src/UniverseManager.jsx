@@ -277,6 +277,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const pendingLocalLinkRef = useRef(null);
   const graphStoreModuleRef = useRef(null);
 
+  // Guards the auth-expired dialog to one appearance per expiry episode. The
+  // sync engine re-fires `redstring:auth-expired` on every 401 while a token
+  // stays expired, so without this the dialog reopens faster than the user can
+  // dismiss it. Reset when auth is actually restored (see reauth listener).
+  const authExpiredEpisodeRef = useRef(false);
   const deviceInfo = useMemo(() => detectDeviceInfo(), []);
   const autosaveRef = useRef({ cooldownUntil: 0, triggerAt: 0 });
   // Debounce for background GitHub App discovery on tab focus (no pending flag)
@@ -405,11 +410,18 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         // Clear any stale state
         await refreshAuth();
 
-        // Show prominent dialog prompting re-authentication
-        setAuthExpiredDialog({
-          message: detail.message || 'GitHub authentication has expired.',
-          authMethod: detail.authMethod || 'oauth'
-        });
+        // The sync engine re-fires this event on EVERY 401 while a token stays
+        // expired (probe + write retries on backoff), so only surface the dialog
+        // once per expiry episode. Otherwise dismissing it just races the next
+        // background 401 — which is why it took several presses to clear. The
+        // episode ref is reset when auth is actually restored (reauth listener).
+        if (!authExpiredEpisodeRef.current) {
+          authExpiredEpisodeRef.current = true;
+          setAuthExpiredDialog({
+            message: detail.message || 'GitHub authentication has expired.',
+            authMethod: detail.authMethod || 'oauth'
+          });
+        }
 
         // Clear any success status
         setSyncStatus(null);
@@ -578,18 +590,24 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
   useEffect(() => {
     const listener = () => refreshAuth();
+    // A successful (re)auth ends the current auth-expired episode, so a future
+    // genuine expiry is allowed to surface the dialog again.
+    const reauthListener = () => {
+      authExpiredEpisodeRef.current = false;
+      refreshAuth();
+    };
 
-    persistentAuth.on('tokenStored', listener);
-    persistentAuth.on('tokenValidated', listener);
+    persistentAuth.on('tokenStored', reauthListener);
+    persistentAuth.on('tokenValidated', reauthListener);
     persistentAuth.on('authExpired', listener);
-    persistentAuth.on('appInstallationStored', listener);
+    persistentAuth.on('appInstallationStored', reauthListener);
     persistentAuth.on('appInstallationCleared', listener);
 
     return () => {
-      persistentAuth.off('tokenStored', listener);
-      persistentAuth.off('tokenValidated', listener);
+      persistentAuth.off('tokenStored', reauthListener);
+      persistentAuth.off('tokenValidated', reauthListener);
       persistentAuth.off('authExpired', listener);
-      persistentAuth.off('appInstallationStored', listener);
+      persistentAuth.off('appInstallationStored', reauthListener);
       persistentAuth.off('appInstallationCleared', listener);
     };
   }, [refreshAuth]);

@@ -96,6 +96,19 @@ app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
     if (allowedOrigins.has(origin)) return callback(null, true);
+    // Local development: the app is served from a Vite port (e.g.
+    // http://localhost:4001) and calls this server directly at :3002, which
+    // is cross-origin. Auto-allow localhost/127.0.0.1 origins when NOT in
+    // production so onboarding/auth work out of the box without needing
+    // CORS_ORIGINS set. Production (NODE_ENV=production) never takes this path.
+    if ((process.env.NODE_ENV || 'development').toLowerCase() !== 'production') {
+      try {
+        const host = new URL(origin).hostname;
+        if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') {
+          return callback(null, true);
+        }
+      } catch { /* invalid Origin */ }
+    }
     // Cloud Run domains are shared/registrable infrastructure, so this broad
     // allowance is opt-in via ALLOW_CLOUDRUN_ORIGINS=true. Prefer setting
     // CORS_ORIGINS to the exact staging/prod hosts instead.

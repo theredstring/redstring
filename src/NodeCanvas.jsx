@@ -16001,10 +16001,11 @@ function NodeCanvas() {
           try {
             localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
             localStorage.setItem('redstring-welcome-seen', 'true');
-            // Abandon any in-flight GitHub wizard so it restarts at selection.
+            // Abandon any in-flight GitHub wizard so it restarts at the hub.
             sessionStorage.removeItem('redstring_onboarding_resume');
             sessionStorage.removeItem('redstring_onboarding_step');
             sessionStorage.removeItem('redstring_onboarding_slug');
+            sessionStorage.removeItem('redstring_onboarding_universe_name');
           } catch { }
           setShowStorageSetupModal(false);
           // Dismissal leaves no universe (nothing is preloaded anymore), so
@@ -16022,190 +16023,31 @@ function NodeCanvas() {
             }
           }).catch(() => { });
         }}
-        onFolderSelected={async (folderPath, universeName) => {
-          try {
-            if (folderPath) {
-              // 1. Link the folder using WorkspaceService (for config persistence)
-              await workspaceService.linkFolder(folderPath);
-
-              // 2. Resolve the .redstring file in the user's selected folder
-              const safeName = (universeName && universeName.trim()) ? universeName.trim() : "Universe";
-              let filename = `${safeName}.redstring`;
-
-              const { importFromRedstring, validateFormatVersion } = await import('./formats/redstringFormat.js');
-
-              // Read a file's content (empty string if absent/unreadable).
-              // Cross-platform: browser getFileHandle throws on missing files;
-              // Electron returns a path and readFile fails — both caught here.
-              const readFolderFile = async (name) => {
-                try {
-                  const res = await getFileInFolder(folderPath, name, false);
-                  const handle = res?.handle || res;
-                  if (!handle) return '';
-                  const text = await readFile(handle);
-                  return (typeof text === 'string' ? text : '') || '';
-                } catch {
-                  return '';
-                }
-              };
-
-              // SAFETY: a folder from a previous session/install may already
-              // hold this universe file. Onboarding must ADOPT it (link + load
-              // its data) — never overwrite it with a fresh empty universe.
-              let adoptedStoreState = null;
-              const existingText = await readFolderFile(filename);
-              if (existingText && existingText.trim().length > 0) {
-                let parsed = null;
-                try { parsed = JSON.parse(existingText); } catch { parsed = null; }
-                const validation = parsed ? validateFormatVersion(parsed) : { valid: false };
-                if (parsed && validation.valid) {
-                  // Valid redstring universe — adopt it as-is.
-                  try {
-                    adoptedStoreState = importFromRedstring(parsed).storeState;
-                    console.log('[NodeCanvas] Onboarding: adopting existing universe file:', filename);
-                  } catch (importErr) {
-                    console.warn('[NodeCanvas] Onboarding: failed to import existing file, will not overwrite it:', importErr);
-                  }
-                }
-                if (!adoptedStoreState) {
-                  // Content we can't safely adopt — pick a fresh, non-colliding
-                  // name so we never clobber the existing file.
-                  let n = 1;
-                  while (true) {
-                    const candidate = `${safeName}-${n}.redstring`;
-                    const t = await readFolderFile(candidate);
-                    if (!t || t.trim().length === 0) { filename = candidate; break; }
-                    n += 1;
-                  }
-                  console.warn('[NodeCanvas] Onboarding: existing file could not be adopted; creating', filename, 'instead');
-                }
-              }
-
-              const fileHandleResult = await getFileInFolder(folderPath, filename, true);
-              const fileHandle = fileHandleResult.handle || fileHandleResult;
-
-              if (!adoptedStoreState) {
-                // New/empty file — write initial empty state.
-                await writeFile(fileHandle, JSON.stringify({
-                  version: "1.0",
-                  nodes: [],
-                  edges: [],
-                  graphs: [{ id: 'root', name: 'Root', nodes: [], edges: [] }],
-                  prototypes: [],
-                  metadata: { name: safeName, created: new Date().toISOString() }
-                }, null, 2));
-                console.log('[NodeCanvas] Created universe file:', filename);
-              }
-
-              // 3. Create Universe in universeManagerService so it appears in UniversesList
-              const result = await universeManagerService.createUniverse(safeName, {
-                enableLocal: true,
-                enableGit: false,
-                sourceOfTruth: 'local'
-              });
-
-              const universeSlug = result?.createdUniverse?.slug;
-              console.log('[NodeCanvas] Universe created via universeManagerService:', result);
-              console.log('[NodeCanvas] Created universe slug:', universeSlug);
-
-              if (!universeSlug) {
-                console.error('[NodeCanvas] No slug returned from createUniverse!');
-              }
-
-              // 4. Register the file handle with universeBackend so it can save to the file
-              // Use the bridge's sendCommand to set the file handle
-              try {
-                const { default: universeBackend } = await import('./services/universeBackend.js');
-                console.log('[NodeCanvas] Calling setFileHandle with slug:', universeSlug);
-                await universeBackend.setFileHandle(universeSlug, fileHandle, {
-                  displayPath: filename,
-                  fileName: filename,
-                  suppressNotification: true
-                });
-                console.log('[NodeCanvas] Registered file handle with universeBackend');
-              } catch (handleError) {
-                console.warn('[NodeCanvas] Could not register file handle:', handleError);
-              }
-
-              // 4b. If we adopted an existing file, load ITS data into the
-              // store (tagged to this slug) so the first save preserves it
-              // instead of clobbering with the empty placeholder that
-              // createUniverse loaded.
-              if (adoptedStoreState && universeSlug) {
-                try {
-                  adoptedStoreState._universeSlug = universeSlug;
-                  storeActions.loadUniverseFromFile(adoptedStoreState);
-                  console.log('[NodeCanvas] Onboarding: loaded adopted universe data into store');
-                } catch (loadErr) {
-                  console.warn('[NodeCanvas] Onboarding: failed to load adopted universe data:', loadErr);
-                }
-              }
-
-              // 5. Update store state
-              storeActions.setStorageMode('folder');
-              storeActions.setUniverseConnected(true);
-              storeActions.setUniverseLoaded(true, true);
-
-              // 6. Update WorkspaceService config
-              workspaceService.config.activeUniverse = filename;
-              workspaceService.config.lastOpened = Date.now();
-              await workspaceService.saveConfig();
-
-              // 7. Mark onboarding as complete (scoped + unscoped for durability)
-              if (typeof window !== 'undefined') {
-                localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
-                localStorage.setItem('redstring-welcome-seen', 'true');
-              }
-
-              // 8. Close modal and open Panel
-              setShowStorageSetupModal(false);
-              storeActions.setLeftPanelExpanded(true);
-
-              setTimeout(() => {
-                if (leftPanelRef.current) {
-                  leftPanelRef.current.setActiveView('federation');
-                }
-              }, 100);
-
-              // 9. Notify UniverseManager to refresh its state
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('redstring:universe-created', {
-                  detail: { slug: universeSlug, name: safeName }
-                }));
-                console.log('[NodeCanvas] Dispatched universe-created event');
-              }
-
-              console.log('[NodeCanvas] Workspace setup complete. Active universe:', safeName);
-            }
-          } catch (error) {
-            console.error('[NodeCanvas] Folder setup failed:', error);
-            storeActions.setUniverseError(`Failed to set up workspace: ${error.message}`);
-          }
-        }}
-        onGitSetupComplete={({ slug, name, warnings }) => {
-          // The GitHub wizard already created the universe, attached the repo,
-          // pushed, and promoted git to source of truth. Just finalize the
-          // app shell: mark onboarding done and reveal the Universes panel.
+        onUniverseReady={async ({ slug, name, warnings }) => {
+          // A storage slot was filled on the one onboarding universe (git repo
+          // and/or local file — the modal owns all the actual repo/file work
+          // now). Load that universe into the app shell so the canvas shows it,
+          // but do NOT finalize onboarding: the modal returns to its slot hub so
+          // the user can add another slot or click "Get Connected".
+          // Finalization (welcome-seen + close) happens in onFinishOnboarding.
           try {
             const safeName = (name && name.trim()) ? name.trim() : 'Universe';
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
-              localStorage.setItem('redstring-welcome-seen', 'true');
-            }
 
-            setShowStorageSetupModal(false);
-            // No dedicated 'git' storage mode exists; browser mode is the
-            // in-app shell state for a git-primary universe (matches the
-            // prior git onboarding behavior).
-            storeActions.setStorageMode('browser');
+            // Pick a storage mode from the universe's source of truth. Mark the
+            // universe loaded WITH a backing file (git repo or local file counts
+            // as the persistent store) — otherwise the canvas stays on the
+            // loading screen (gated by !hasUniverseFile) until a manual refresh.
+            let mode = 'local';
+            try {
+              const { default: universeBackend } = await import('./services/universeBackend.js');
+              const universe = slug ? universeBackend.getUniverse?.(slug) : null;
+              const sot = universe?.sourceOfTruth;
+              mode = sot === 'git' ? 'git' : sot === 'browser' ? 'browser' : 'local';
+            } catch { /* fall back to 'local' */ }
+
+            storeActions.setStorageMode(mode);
             storeActions.setUniverseConnected(true);
-            storeActions.setUniverseLoaded(true, false);
-            storeActions.setLeftPanelExpanded(true);
-            setTimeout(() => {
-              if (leftPanelRef.current) {
-                leftPanelRef.current.setActiveView('federation');
-              }
-            }, 100);
+            storeActions.setUniverseLoaded(true, true);
 
             if (typeof window !== 'undefined' && slug) {
               window.dispatchEvent(new CustomEvent('redstring:universe-created', {
@@ -16214,13 +16056,30 @@ function NodeCanvas() {
             }
 
             if (Array.isArray(warnings) && warnings.length > 0) {
-              console.warn('[NodeCanvas] Git onboarding completed with warnings:', warnings);
+              console.warn('[NodeCanvas] Universe slot filled with warnings:', warnings);
             }
-            console.log('[NodeCanvas] Git onboarding complete. Active universe:', safeName);
+            console.log('[NodeCanvas] Universe slot configured. Active universe:', safeName, 'mode:', mode);
           } catch (error) {
-            console.error('[NodeCanvas] Git onboarding finalize failed:', error);
-            storeActions.setUniverseError(`Failed to finalize GitHub setup: ${error.message}`);
+            console.error('[NodeCanvas] onUniverseReady failed:', error);
+            storeActions.setUniverseError(`Failed to load universe: ${error.message}`);
           }
+        }}
+        onFinishOnboarding={() => {
+          // User clicked "Get Connected" (or dismissed) with at least one
+          // universe set up. Finalize: mark onboarding seen, clear any wizard
+          // resume flags, and close the modal — the universe is already loaded
+          // into the shell, so the user lands on the canvas.
+          try {
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
+              localStorage.setItem('redstring-welcome-seen', 'true');
+              sessionStorage.removeItem('redstring_onboarding_resume');
+              sessionStorage.removeItem('redstring_onboarding_step');
+              sessionStorage.removeItem('redstring_onboarding_slug');
+              sessionStorage.removeItem('redstring_onboarding_universe_name');
+            }
+          } catch { }
+          setShowStorageSetupModal(false);
         }}
         onBrowserStorageSelected={async () => {
           try {
