@@ -166,6 +166,13 @@ const StorageSetupModal = ({
   const modalWidth = isCompactLayout
     ? Math.min(Math.max(viewportSize.width - 24, 320), 540)
     : 600;
+  // Fixed height so every step renders in the same frame (and centering is
+  // exact — CanvasModal only truly centers a numeric-height modal). Sized to
+  // fit the tallest step (git-connect's AuthSection); denser steps on small
+  // screens scroll inside the content area. Clamped to the viewport.
+  const modalHeight = isCompactLayout
+    ? Math.min(Math.max(viewportSize.height - 24, 440), 620)
+    : Math.min(Math.max(viewportSize.height - 40, 420), 520);
 
   const showBrowserStorageOption = !isElectron();
 
@@ -1341,7 +1348,7 @@ const StorageSetupModal = ({
       onClose={onClose}
       title=""
       width={modalWidth}
-      height="auto"
+      height={modalHeight}
       position="center"
       margin={isCompactLayout ? 12 : 20}
       {...canvasModalProps}

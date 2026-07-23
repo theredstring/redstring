@@ -1602,6 +1602,39 @@ const LeftAIView = ({ compact = false,
     }
   }, [hasAPIKey]);
 
+  // Live health probe: the connection flag is otherwise latched (mcpClient.connect
+  // reports connected optimistically and nothing re-checks), so the status dot can
+  // show "online" long after the bridge daemon has actually gone away. Poll the
+  // bridge health endpoint so the indicator reflects real reachability.
+  React.useEffect(() => {
+    if (!hasAPIKey) return;
+    let cancelled = false;
+
+    const probe = async () => {
+      // Don't fight an in-flight connect/agent run — leave the flag as-is.
+      if (isProcessing) return;
+      let alive = false;
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 4000) : null;
+      try {
+        const res = await bridgeFetch('/api/bridge/health', controller ? { signal: controller.signal } : undefined);
+        alive = !!(res && res.ok);
+      } catch {
+        alive = false;
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+      if (cancelled) return;
+      setIsConnected((prev) => (prev === alive ? prev : alive));
+      // Keep mcpClient's latched flag honest so callTool guards match reality.
+      if (mcpClient) mcpClient._isConnected = alive;
+    };
+
+    probe();
+    const interval = setInterval(probe, 8000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [hasAPIKey, isProcessing]);
+
   const initializeConnection = async () => {
     try {
       setIsProcessing(true);
