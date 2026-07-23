@@ -542,7 +542,7 @@ const UniversesList = ({
           ) : universes.length === 0 ? (
             <div style={{
               padding: '30px 20px',
-              textAlign: 'center',
+              textAlign: 'left',
               color: theme.canvas.brand,
               fontSize: '0.9rem',
               background: theme.canvas.inactive,
@@ -550,7 +550,7 @@ const UniversesList = ({
               border: `1px dashed ${theme.canvas.border}`,
               fontStyle: 'italic'
             }}>
-              No universes found. Create one to get started.
+              No universes found.<br />Create one to get started.
             </div>
           ) : (
             universes.map((universe) => {

@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { HEADER_HEIGHT } from './constants';
 import { universeManagerService } from './services/universeManagerService';
 import saveCoordinator from './services/SaveCoordinator';
 import { useViewportBounds } from './hooks/useViewportBounds';
 import useGraphStore from './store/graphStore.js';
 
-const SaveStatusDisplay = () => {
+const SaveStatusDisplay = ({ hidden = false }) => {
   const [statusText, setStatusText] = useState('Loading...');
   const [isCTA, setIsCTA] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
@@ -15,6 +15,21 @@ const SaveStatusDisplay = () => {
     try {
       window.dispatchEvent(new CustomEvent('redstring:open-federation'));
     } catch { }
+  };
+
+  // Guards against the synthetic click that follows touchend from firing
+  // openFederation a second time. React registers onTouchEnd as passive, so
+  // preventDefault() isn't available there — use a flag instead.
+  const touchHandledRef = useRef(false);
+  const handleClick = () => {
+    if (touchHandledRef.current) return;
+    openFederation();
+  };
+  const handleTouchEnd = () => {
+    if (!isCTA) return;
+    touchHandledRef.current = true;
+    openFederation();
+    setTimeout(() => { touchHandledRef.current = false; }, 400);
   };
 
   const leftPanelExpanded = useGraphStore(state => state.leftPanelExpanded);
@@ -197,11 +212,11 @@ const SaveStatusDisplay = () => {
 
         cursor: isCTA ? 'pointer' : 'default',
         textDecoration: 'none',
-        opacity: isVisible ? 1 : 0,
+        opacity: (isVisible && !hidden) ? 1 : 0,
         transition: 'opacity 1s ease',
-        pointerEvents: isVisible ? 'auto' : 'none'
+        pointerEvents: (isVisible && !hidden) ? 'auto' : 'none'
       }}
-      onClick={openFederation}
+      onClick={handleClick}
       onMouseEnter={(e) => {
         if (!isCTA) return;
         try {
@@ -210,6 +225,26 @@ const SaveStatusDisplay = () => {
         } catch { }
       }}
       onMouseLeave={(e) => {
+        if (!isCTA) return;
+        try {
+          e.currentTarget.style.transform = 'scale(1)';
+        } catch { }
+      }}
+      onTouchStart={(e) => {
+        if (!isCTA) return;
+        try {
+          e.currentTarget.style.transform = 'scale(1.06)';
+          e.currentTarget.style.transition = 'opacity 1s ease, transform 120ms ease';
+        } catch { }
+      }}
+      onTouchEnd={(e) => {
+        if (!isCTA) return;
+        try {
+          e.currentTarget.style.transform = 'scale(1)';
+        } catch { }
+        handleTouchEnd(e);
+      }}
+      onTouchCancel={(e) => {
         if (!isCTA) return;
         try {
           e.currentTarget.style.transform = 'scale(1)';

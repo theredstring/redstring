@@ -23,7 +23,8 @@ const AuthSection = ({
   onLogout,
   requiresLogin = false,
   syncStatus,
-  isSlim = false
+  isSlim = false,
+  minimal = false
 }) => {
   const theme = useTheme();
 
@@ -38,10 +39,11 @@ const AuthSection = ({
   return (
     <div data-auth-section="true" style={{ color: theme.canvas.textPrimary }}>
       <PanelSegment
-        title="Accounts & Access"
-        icon={<Settings size={18} />}
+        title={minimal ? undefined : 'Accounts & Access'}
+        icon={minimal ? undefined : <Settings size={18} />}
         isSlim={isSlim}
       >
+      {!minimal && (
       <div
         style={{
           border: `1px solid ${theme.canvas.border}`,
@@ -62,6 +64,7 @@ const AuthSection = ({
           <div>{hasOAuth ? 'OAuth available for browsing' : 'Connect OAuth to browse repositories'}</div>
         </div>
       </div>
+      )}
 
       <div style={{ display: 'grid', gap: 10, gridTemplateColumns: isSlim ? '1fr' : '1fr 1fr' }}>
         <div

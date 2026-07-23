@@ -47,6 +47,7 @@ const PanelIconButton = ({
   strokeWidth = 2,
   hoverStrokeWidth,
   hoverTextColor,
+  labelFontSize = 13,
   style = {},
   className = ''
 }) => {
@@ -141,7 +142,7 @@ const PanelIconButton = ({
     >
       {label && labelPosition === 'left' && (
         <span style={{ 
-          fontSize: '13px', 
+          fontSize: `${labelFontSize}px`,
           fontWeight: 600, 
           fontFamily: "'EmOne', sans-serif",
           color: 'inherit'
@@ -165,7 +166,7 @@ const PanelIconButton = ({
 
       {label && labelPosition === 'right' && (
         <span style={{ 
-          fontSize: '13px', 
+          fontSize: `${labelFontSize}px`,
           fontWeight: 600, 
           fontFamily: "'EmOne', sans-serif",
           color: 'inherit'

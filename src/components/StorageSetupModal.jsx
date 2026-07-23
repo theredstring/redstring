@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import CanvasModal from './CanvasModal';
 import AuthSection from './universe-manager/AuthSection.jsx';
 import GitHubDeviceFlowPanel from './modals/GitHubDeviceFlowPanel.jsx';
+import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isElectron } from '../utils/fileAccessAdapter.js';
 import {
   FolderOpen, Folder, ArrowRightCircle, ArrowRight, ArrowLeft, Github, Lock, Globe,
@@ -12,6 +13,7 @@ import { useGitHubDeviceFlow } from '../hooks/useGitHubDeviceFlow.js';
 import { persistentAuth } from '../services/persistentAuth.js';
 import universeBackend from '../services/universeBackend.js';
 import { getStorageKey } from '../utils/storageUtils.js';
+import { MODAL_CLOSE_ICON_SIZE } from '../constants.js';
 import { getStatusColors } from '../utils/statusColors.js';
 import {
   saveWorkspaceHandle, getWorkspaceHandle, clearWorkspaceHandle,
@@ -528,44 +530,38 @@ const StorageSetupModal = ({
 
   // --- Shared UI atoms (existing modal idiom) ---
 
-  const primaryButtonStyle = (enabled) => ({
-    width: '100%',
-    padding: isCompactLayout ? '10px' : '12px',
-    backgroundColor: enabled ? (theme.darkMode ? '#EFE8E5' : '#260000') : (theme.darkMode ? 'rgba(255,255,255,0.1)' : '#ccc'),
-    color: enabled && theme.darkMode ? '#260000' : '#EFE8E5',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: enabled ? 'pointer' : 'not-allowed',
-    fontSize: isCompactLayout ? '0.9rem' : '1rem',
-    fontWeight: 'bold',
-    fontFamily: "'EmOne', sans-serif",
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '8px'
-  });
+  // Full-width, centered solid pill CTA built on the shared PanelIconButton so
+  // primary actions share the same hover system as every other icon button.
+  const primaryCta = ({ label, onClick, disabled = false, icon = ArrowRight, iconLeft = false, large = false }) => (
+    <div style={{ display: 'flex', justifyContent: 'center' }}>
+      <PanelIconButton
+        label={label}
+        icon={icon}
+        size={large ? 20 : 16}
+        labelFontSize={large ? 15 : 13}
+        labelPosition={iconLeft ? 'right' : 'left'}
+        variant="solid"
+        onClick={onClick}
+        disabled={disabled}
+        style={large ? { padding: '10px 22px' } : undefined}
+      />
+    </div>
+  );
 
+  // Left-side mirror of the close button: icon-only, same dimensions/position.
   const backButton = (onBack) => (
-    <button
+    <PanelIconButton
+      icon={ArrowLeft}
       onClick={onBack}
+      title="Back"
+      size={MODAL_CLOSE_ICON_SIZE}
       style={{
-        background: 'none',
-        border: 'none',
-        color: theme.canvas.textPrimary,
-        opacity: 0.7,
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-        fontSize: '0.85rem',
-        fontFamily: "'EmOne', sans-serif",
-        padding: '4px 0',
-        marginBottom: '8px'
+        position: 'absolute',
+        top: isCompactLayout ? '12px' : '16px',
+        left: isCompactLayout ? '12px' : '16px',
+        zIndex: 10
       }}
-    >
-      <ArrowLeft size={16} />
-      Back
-    </button>
+    />
   );
 
   const noticeBanner = authNotice && (
@@ -632,7 +628,7 @@ const StorageSetupModal = ({
         </div>
         <p style={{
           margin: '2px 0 0 0',
-          fontSize: isCompactLayout ? '0.74rem' : '0.78rem',
+          fontSize: isCompactLayout ? '0.72rem' : '0.78rem',
           color: theme.canvas.textSecondary,
           lineHeight: '1.35',
           overflow: 'hidden',
@@ -648,31 +644,13 @@ const StorageSetupModal = ({
         )}
       </div>
       {!done && (
-        <button
+        <PanelIconButton
+          label={busy ? 'Setting up…' : actionLabel}
+          variant={actionSolid ? 'solid' : 'outline'}
           onClick={onAction}
           disabled={busy}
-          style={{
-            flexShrink: 0,
-            padding: isCompactLayout ? '8px 12px' : '9px 14px',
-            backgroundColor: actionSolid ? (theme.darkMode ? '#EFE8E5' : '#260000') : 'transparent',
-            color: actionSolid ? (theme.darkMode ? '#260000' : '#EFE8E5') : theme.canvas.textPrimary,
-            border: actionSolid ? 'none' : `2px solid ${theme.canvas.border}`,
-            borderRadius: '6px',
-            cursor: busy ? 'wait' : 'pointer',
-            fontSize: isCompactLayout ? '0.8rem' : '0.85rem',
-            fontWeight: 'bold',
-            fontFamily: "'EmOne', sans-serif",
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-            whiteSpace: 'nowrap',
-            opacity: busy ? 0.7 : 1
-          }}
-        >
-          {busy ? <Loader2 size={16} style={{ animation: 'rs-onboarding-spin 1s linear infinite' }} /> : null}
-          {busy ? 'Setting up…' : actionLabel}
-        </button>
+          style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+        />
       )}
     </div>
   );
@@ -695,11 +673,11 @@ const StorageSetupModal = ({
         <h2 style={{
           margin: 0,
           color: theme.canvas.textPrimary,
-          fontSize: isCompactLayout ? '0.95rem' : '1.05rem',
+          fontSize: isCompactLayout ? '0.85rem' : '1.05rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
-          {anySlotFilled ? 'Add another place to save, or get connected' : 'Set up your first universe'}
+          {anySlotFilled ? 'Add another place to save or get connected' : 'Set up your first universe'}
         </h2>
       </div>
 
@@ -754,19 +732,19 @@ const StorageSetupModal = ({
       {showWorkspaceRow && (
         <div style={{ marginBottom: '10px', flexShrink: 0 }}>
           <div style={{
-            padding: '10px 12px',
+            padding: isCompactLayout ? '10px 12px' : '12px 14px',
             backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-            borderRadius: 6,
+            borderRadius: 8,
             border: `1px solid ${theme.canvas.border}`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: 10
+            gap: 12
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
               {workspaceFolder
-                ? <FolderOpen size={18} color={theme.accent.primary} />
-                : <Folder size={18} color={theme.canvas.textSecondary} />}
+                ? <FolderOpen size={22} color={theme.accent.primary} />
+                : <Folder size={22} color={theme.canvas.textSecondary} />}
               <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 <span style={{ fontSize: '0.72rem', fontWeight: 600, color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif" }}>
                   Workspace Folder
@@ -777,38 +755,27 @@ const StorageSetupModal = ({
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   fontFamily: "'EmOne', sans-serif"
                 }}>
-                  {workspaceFolder || 'Recommended — where local files are kept'}
+                  {workspaceFolder || 'Where local files are kept'}
                 </span>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-              <button
-                onClick={handlePickWorkspaceFolder}
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
+              <PanelIconButton
+                icon={workspaceFolder ? FolderOpen : Upload}
+                label={workspaceFolder ? 'Change' : 'Choose'}
                 title={workspaceFolder ? 'Change workspace folder' : 'Choose workspace folder'}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '5px 9px', borderRadius: 6, cursor: 'pointer',
-                  border: `1px solid ${theme.canvas.border}`,
-                  background: 'transparent', color: theme.canvas.textPrimary,
-                  fontSize: '0.72rem', fontFamily: "'EmOne', sans-serif"
-                }}
-              >
-                {workspaceFolder ? <FolderOpen size={14} /> : <Upload size={14} />}
-                {workspaceFolder ? 'Change' : 'Choose'}
-              </button>
+                variant="outline"
+                size={14}
+                onClick={handlePickWorkspaceFolder}
+              />
               {workspaceFolder && (
-                <button
-                  onClick={handleClearWorkspaceFolder}
+                <PanelIconButton
+                  icon={X}
                   title="Unlink workspace folder"
-                  style={{
-                    display: 'flex', alignItems: 'center',
-                    padding: '5px', borderRadius: 6, cursor: 'pointer',
-                    border: `1px solid ${theme.canvas.border}`,
-                    background: 'transparent', color: theme.canvas.textPrimary
-                  }}
-                >
-                  <X size={14} />
-                </button>
+                  variant="outline"
+                  size={14}
+                  onClick={handleClearWorkspaceFolder}
+                />
               )}
             </div>
           </div>
@@ -843,7 +810,7 @@ const StorageSetupModal = ({
         {showGitOption && renderSlotCard({
           icon: <Github size={22} />,
           title: gitFirst ? 'Sync with GitHub' : 'GitHub Repository',
-          description: 'Save to a GitHub repository. Works on any device.',
+          description: 'Sync across devices',
           done: slotStatus.git.done,
           doneBadge: 'Connected ✓',
           doneDetail: slotStatus.git.label,
@@ -855,7 +822,7 @@ const StorageSetupModal = ({
         {showLocalSlot && renderSlotCard({
           icon: <Save size={22} />,
           title: 'Local File',
-          description: 'Keep a .redstring file in your workspace folder.',
+          description: 'Save locally on this device',
           done: slotStatus.local.done,
           doneBadge: 'Saved ✓',
           doneDetail: slotStatus.local.label,
@@ -882,21 +849,16 @@ const StorageSetupModal = ({
                 ].map(({ key, label }) => {
                   const active = sourceOfTruth === key;
                   return (
-                    <button
+                    <PanelIconButton
                       key={key}
+                      icon={Star}
+                      label={label}
+                      size={12}
+                      active={active}
+                      filled={active}
+                      variant="outline"
                       onClick={() => handleToggleSourceOfTruth(key)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 4,
-                        padding: '3px 9px', borderRadius: 6, cursor: 'pointer',
-                        border: `1px solid ${theme.canvas.brand}`,
-                        backgroundColor: active ? theme.canvas.brand : 'transparent',
-                        color: active ? '#DEDADA' : theme.canvas.brand,
-                        fontSize: '0.72rem', fontWeight: 600, fontFamily: "'EmOne', sans-serif"
-                      }}
-                    >
-                      <Star size={11} fill={active ? '#DEDADA' : 'none'} />
-                      {label}
-                    </button>
+                    />
                   );
                 })}
               </div>
@@ -938,18 +900,10 @@ const StorageSetupModal = ({
         )}
       </div>
 
-      {/* Get Connected — finishes onboarding once at least one slot is filled */}
-      {anySlotFilled && (
-        <div style={{ marginTop: isCompactLayout ? '6px' : '8px', flexShrink: 0 }}>
-          <button
-            onClick={() => onFinishOnboarding?.()}
-            style={{ ...primaryButtonStyle(true), padding: isCompactLayout ? '10px' : '12px' }}
-          >
-            Get Connected
-            <ArrowRight size={18} />
-          </button>
-        </div>
-      )}
+      {/* Get Connected — always visible, greyed out until a slot is filled */}
+      <div style={{ marginTop: isCompactLayout ? '6px' : '8px', flexShrink: 0 }}>
+        {primaryCta({ label: 'Get Connected', onClick: () => onFinishOnboarding?.(), disabled: !anySlotFilled, large: true })}
+      </div>
     </>
   );
 
@@ -969,7 +923,7 @@ const StorageSetupModal = ({
           {(isElectron() && deviceFlowState) ? (deviceFlowState.title || 'Connect GitHub') : 'Connect GitHub'}
         </h2>
         {!(isElectron() && deviceFlowState) && (
-          <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: '0.9rem' }}>
+          <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: isCompactLayout ? '0.8rem' : '0.9rem' }}>
             Redstring uses GitHub OAuth to browse your repositories and the GitHub App to sync your universes.
           </p>
         )}
@@ -1005,6 +959,7 @@ const StorageSetupModal = ({
           onGitHubAppDisconnect={handleWizardAppDisconnect}
           onGitHubAppDetect={handleWizardAppDetect}
           isSlim={isCompactLayout}
+          minimal
         />
       )}
 
@@ -1012,14 +967,7 @@ const StorageSetupModal = ({
 
       {!(isElectron() && deviceFlowState) && (
       <div style={{ marginTop: '16px' }}>
-        <button
-          onClick={() => setStep('git-repo')}
-          disabled={!(hasOAuth && hasApp)}
-          style={primaryButtonStyle(hasOAuth && hasApp)}
-        >
-          Continue
-          <ArrowRight size={18} />
-        </button>
+        {primaryCta({ label: 'Continue', onClick: () => setStep('git-repo'), disabled: !(hasOAuth && hasApp) })}
         {!(hasOAuth && hasApp) && (
           <div style={{
             marginTop: '8px',
@@ -1077,7 +1025,7 @@ const StorageSetupModal = ({
         }}>
           Choose a Repository
         </h2>
-        <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: '0.9rem' }}>
+        <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: isCompactLayout ? '0.8rem' : '0.9rem' }}>
           <strong>{universeName || 'Universe'}</strong> will live as a .redstring file inside this repository.
         </p>
       </div>
@@ -1132,19 +1080,16 @@ const StorageSetupModal = ({
           <Lock size={13} />
           Private repository
         </label>
-        <button
-          onClick={() => {
+        {primaryCta({
+          label: 'Create Universe Here',
+          disabled: !newRepoName.trim(),
+          onClick: () => {
             if (!newRepoName.trim()) return;
             setRepoChoice('create');
             setSelectedRepo(null);
             startFinishing();
-          }}
-          disabled={!newRepoName.trim()}
-          style={primaryButtonStyle(!!newRepoName.trim())}
-        >
-          Create Universe Here
-          <ArrowRight size={18} />
-        </button>
+          }
+        })}
       </div>
 
       {/* Or link an existing repo */}
@@ -1185,21 +1130,14 @@ const StorageSetupModal = ({
             {repoListError && (
               <div style={{ padding: '10px', fontSize: '0.8rem', color: statusColors.error }}>
                 {repoListError}
-                <button
+                <PanelIconButton
+                  icon={RefreshCw}
+                  label="Retry"
+                  variant="ghost"
+                  size={14}
                   onClick={loadRepoList}
-                  style={{
-                    marginLeft: '8px',
-                    background: 'none',
-                    border: 'none',
-                    color: theme.canvas.textPrimary,
-                    textDecoration: 'underline',
-                    cursor: 'pointer',
-                    fontSize: '0.8rem',
-                    fontFamily: "'EmOne', sans-serif"
-                  }}
-                >
-                  Retry
-                </button>
+                  style={{ marginLeft: '4px' }}
+                />
               </div>
             )}
             {!repoListLoading && !repoListError && Array.isArray(repoList) && repoList.length === 0 && (
@@ -1322,28 +1260,20 @@ const StorageSetupModal = ({
             }}>
               {finishError}
             </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <PanelIconButton
+                icon={ArrowLeft}
+                label="Back"
+                variant="outline"
                 onClick={() => setStep('git-repo')}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  backgroundColor: 'transparent',
-                  color: theme.canvas.textPrimary,
-                  border: `2px solid ${theme.canvas.border}`,
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontSize: '0.9rem',
-                  fontWeight: 'bold',
-                  fontFamily: "'EmOne', sans-serif"
-                }}
-              >
-                Back
-              </button>
-              <button onClick={startFinishing} style={{ ...primaryButtonStyle(true), flex: 1, width: 'auto' }}>
-                <RefreshCw size={16} />
-                Retry
-              </button>
+              />
+              <PanelIconButton
+                icon={RefreshCw}
+                label="Retry"
+                labelPosition="right"
+                variant="solid"
+                onClick={startFinishing}
+              />
             </div>
           </div>
         )}
@@ -1372,41 +1302,36 @@ const StorageSetupModal = ({
       height={modalHeight}
       position="center"
       margin={isCompactLayout ? 12 : 20}
+      contentStyle={{ overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column' }}
+      disableBackdrop
+      disableEscapeClose
       {...canvasModalProps}
     >
       <div style={{
-        padding: isCompactLayout ? '14px' : '20px',
+        padding: isCompactLayout ? '14px' : '20px 32px',
         boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
-        position: 'relative'
+        justifyContent: 'center',
+        position: 'relative',
+        flex: 1,
+        minHeight: 0,
+        overflow: 'hidden'
       }}>
         {/* Close button - always available (except mid-finish) */}
         {!finishRunning && (
-          <button
+          <PanelIconButton
+            icon={X}
             onClick={onClose}
+            title="Close"
+            size={MODAL_CLOSE_ICON_SIZE}
             style={{
               position: 'absolute',
               top: isCompactLayout ? '12px' : '16px',
               right: isCompactLayout ? '12px' : '16px',
-              background: 'none',
-              border: 'none',
-              color: theme.canvas.textPrimary,
-              opacity: 0.6,
-              cursor: 'pointer',
-              padding: '6px',
-              borderRadius: '4px',
-              fontSize: '16px',
-              fontWeight: 'bold',
-              fontFamily: "'EmOne', sans-serif",
-              zIndex: 10,
-              transition: 'opacity 0.2s'
+              zIndex: 10
             }}
-            onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-            onMouseLeave={(e) => e.currentTarget.style.opacity = '0.6'}
-          >
-            ✕
-          </button>
+          />
         )}
 
         {renderStep()}

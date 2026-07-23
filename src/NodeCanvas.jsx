@@ -1272,6 +1272,8 @@ function NodeCanvas() {
       x: (srcCX + dstCX) / 2,
       y: (srcCY + dstCY) / 2,
       angle: Math.atan2(dy, dx),
+      sourceId: edge.sourceId,
+      destinationId: edge.destinationId || edge.targetId,
     };
   }, [selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById]);
 
@@ -1414,12 +1416,22 @@ function NodeCanvas() {
           let welcomeSeen = typeof window !== 'undefined' && localStorage.getItem(getStorageKey('redstring-welcome-seen')) === 'true';
 
           // Self-heal: if localStorage flag is missing but the backend already
-          // has universes, treat as onboarded and rewrite the flag.
+          // has a REAL universe (not just the auto-created empty placeholder),
+          // treat as onboarded and rewrite the flag. Mirrors the hasRealUniverse
+          // check below — existing.length > 0 alone isn't enough, since a
+          // placeholder universe with no file handle/git link doesn't mean the
+          // user ever went through onboarding.
           if (!welcomeSeen) {
             try {
               const mod = await import('./services/universeBackend.js');
               const existing = mod.default?.getAllUniverses?.() || [];
-              if (existing.length > 0) {
+              const hasRealUniverse = existing.some(u =>
+                u.localFile?.hadFileHandle ||
+                u.localFile?.lastSaved ||
+                u.metadata?.lastSaved ||
+                u.gitRepo?.enabled
+              );
+              if (hasRealUniverse) {
                 welcomeSeen = true;
                 if (typeof window !== 'undefined') {
                   try { localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true'); } catch { }
@@ -4959,7 +4971,12 @@ function NodeCanvas() {
     } else if (!shouldShow && edgePieMenuVisible) {
       setEdgePieMenuVisible(false);
     }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, edgePieMenuVisible, selectedEdgeMidpoint]);
+    // draggingNodeInfo is not read above, but is a dep so this effect re-runs when a
+    // drag involving this edge's endpoints ends — re-asserting `edgePieMenuRendered`
+    // (which the isVisible-driven outro animation clears mid-drag, see the inline
+    // render block below) and refreshing the anchor to the node's settled position,
+    // so the menu plays its intro (pop) animation back in on release.
+  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, edgePieMenuVisible, selectedEdgeMidpoint, draggingNodeInfo]);
 
   // --- Group Control Panel Management ---
   useEffect(() => {
@@ -15132,6 +15149,18 @@ function NodeCanvas() {
                             : edgePieMenuButtons;
                           if (!edgePieMenuRendered || !anchor || !frozenButtons || frozenButtons.length === 0) return null;
 
+                          // Hide (outro) while a node this edge is attached to is being dragged —
+                          // mirrors the node's own PieMenu (isVisible gated on draggingNodeInfo above).
+                          // The anchor position is frozen mid-drag (nodeById doesn't update during
+                          // DOM-bypass drag), so without this the menu would float detached from the
+                          // connection until it snaps to the new spot on drop.
+                          const draggedNodeIds = !draggingNodeInfo ? null
+                            : draggingNodeInfo.instanceId ? new Set([draggingNodeInfo.instanceId])
+                            : draggingNodeInfo.primaryId ? new Set([draggingNodeInfo.primaryId, ...Object.keys(draggingNodeInfo.relativeOffsets || {})])
+                            : (draggingNodeInfo.groupId && draggingNodeInfo.memberOffsets) ? new Set(draggingNodeInfo.memberOffsets.map(m => m.id))
+                            : null;
+                          const edgeAttachedToDraggedNode = Boolean(draggedNodeIds && (draggedNodeIds.has(anchor.sourceId) || draggedNodeIds.has(anchor.destinationId)));
+
                           // Space check: does the full button row fit on screen?
                           // Use correct canvas→screen conversion: (canvasX - offsetX) * zoom + pan + rectLeft
                           const ns = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
@@ -15176,7 +15205,7 @@ function NodeCanvas() {
                               anchorAngle={anchor.angle ?? 0}
                               buttons={displayButtons}
                               nodeScale={textSettings?.nodeScale ?? 1.0}
-                              isVisible={edgePieMenuVisible}
+                              isVisible={edgePieMenuVisible && !edgeAttachedToDraggedNode}
                               onHoverChange={handlePieMenuHoverChange}
                               onExitAnimationComplete={() => {
                                 edgePieMenuAnchorRef.current = null;
@@ -15842,7 +15871,7 @@ function NodeCanvas() {
       />
 
       {/* SaveStatusDisplay Component */}
-      <SaveStatusDisplay />
+      <SaveStatusDisplay hidden={showStorageSetupModal} />
 
       {/* NodeControlPanel Component - with animation */}
       {

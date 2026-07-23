@@ -1,4 +1,4 @@
-export const NODE_WIDTH = 180;
+export const NODE_WIDTH = 120;
 export const NODE_HEIGHT = 100;
 export const LONG_PRESS_DURATION = 250;
 export const LERP_SPEED = 0.8;

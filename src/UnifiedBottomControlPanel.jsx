@@ -82,8 +82,8 @@ const STANDARD_TEXT_SETTINGS = { fontSize: 1, lineSpacing: 1, nodeScale: 1, conn
 const LEGACY_DIM_SCALE = 1 / 1.4;
 // Node-box floors for the connection representation. Rendered at full nodeScale here
 // (unlike HoverVisionAid, which is also downscaled 0.6× by CSS), so these are a touch
-// smaller than the hover aid's 220×96 to leave more clearance for the connection label.
-const CONNECTION_NODE_MIN_WIDTH = 190;
+// smaller than the hover aid's 100×96 to leave more clearance for the connection label.
+const CONNECTION_NODE_MIN_WIDTH = 130;
 const CONNECTION_NODE_MIN_HEIGHT = 84;
 // Corner radius scaled to match the floors: kept below CONNECTION_NODE_MIN_HEIGHT/2 so
 // the boxes stay rounded rectangles (~0.45 ratio) instead of capping into pills.
@@ -444,7 +444,7 @@ const UnifiedBottomControlPanel = ({
       ...baseNode,
       x: 0,
       y: 0,
-      width: Math.max(dimensions.currentWidth * LEGACY_DIM_SCALE, 220),
+      width: Math.max(dimensions.currentWidth * LEGACY_DIM_SCALE, 150),
       height: Math.max(dimensions.currentHeight * LEGACY_DIM_SCALE, 96)
     };
   }, [isNodeGroup, selectedGroup, nodeGroupPrototype]);
@@ -637,7 +637,7 @@ const UnifiedBottomControlPanel = ({
               // short-name nodes don't collapse to tiny, pill-rounded boxes: without a
               // floor, getNodeDimensions returns compact sizes → small text, and a height
               // under ~88px makes the corner radius cap at height/2 (a full pill). Flooring
-              // at 220×96 keeps readable text and rounded-rectangle corners.
+              // at 130×84 keeps readable text and rounded-rectangle corners.
               const nodes = Array.from(nodesMap.values()).map((n) => {
                 const dims = getNodeDimensions(n, false, null, 39, STANDARD_TEXT_SETTINGS);
                 return {

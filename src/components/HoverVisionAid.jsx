@@ -203,7 +203,7 @@ const HoverVisionAid = ({
             ...hoveredConn.source,
             x: 0,
             y: 0,
-            width: Math.max(sourceDims.currentWidth * LEGACY_DIM_SCALE, 220),
+            width: Math.max(sourceDims.currentWidth * LEGACY_DIM_SCALE, 100),
             height: Math.max(sourceDims.currentHeight * LEGACY_DIM_SCALE, 96)
           }
         ]
@@ -212,14 +212,14 @@ const HoverVisionAid = ({
             ...hoveredConn.source,
             x: 0,
             y: 0,
-            width: Math.max(sourceDims.currentWidth * LEGACY_DIM_SCALE, 220),
+            width: Math.max(sourceDims.currentWidth * LEGACY_DIM_SCALE, 100),
             height: Math.max(sourceDims.currentHeight * LEGACY_DIM_SCALE, 96)
           },
           {
             ...hoveredConn.target,
             x: 0,
             y: 0,
-            width: Math.max(targetDims.currentWidth * LEGACY_DIM_SCALE, 220),
+            width: Math.max(targetDims.currentWidth * LEGACY_DIM_SCALE, 100),
             height: Math.max(targetDims.currentHeight * LEGACY_DIM_SCALE, 96)
           }
         ];
@@ -292,7 +292,7 @@ const HoverVisionAid = ({
     const hoveredNodeData = displayed.node;
     // 1. Prepare node with REAL dimensions (non-preview)
     const dims = getNodeDimensions(hoveredNodeData, false, null, 39, STANDARD_TEXT_SETTINGS);
-    const nodeWidth = Math.max(dims.currentWidth * LEGACY_DIM_SCALE, 220);
+    const nodeWidth = Math.max(dims.currentWidth * LEGACY_DIM_SCALE, 100);
     const nodeHeight = Math.max(dims.currentHeight * LEGACY_DIM_SCALE, 96);
 
     // 2. Calculate container to fit (sync with Control Panel logic)

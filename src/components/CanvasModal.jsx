@@ -19,7 +19,9 @@ const CanvasModal = ({
   margin = 20,
   className = '',
   disableBackdrop = false, // Disable backdrop click to close
-  fullScreenOverlay = false // Cover entire viewport including panels
+  disableEscapeClose = false, // Disable Escape key to close
+  fullScreenOverlay = false, // Cover entire viewport including panels
+  contentStyle = null // Override the scrollable content wrapper (e.g. { overflow: 'hidden' })
 }) => {
   const modalRef = useRef(null);
   const openedAtRef = useRef(0);
@@ -42,14 +44,14 @@ const CanvasModal = ({
     if (!isVisible) return;
 
     const handleEscape = (e) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !disableEscapeClose) {
         onClose();
       }
     };
 
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [isVisible, onClose]);
+  }, [isVisible, onClose, disableEscapeClose]);
 
   // Handle backdrop click. Suppress the ghost-click that fires immediately
   // after a touch on the element that opened this modal — on touch devices
@@ -135,7 +137,7 @@ const CanvasModal = ({
           right: 0,
           bottom: 0,
           backgroundColor: fullScreenOverlay ? 'rgba(0, 0, 0, 0.85)' : 'rgba(0, 0, 0, 0.5)',
-          zIndex: fullScreenOverlay ? 20000 : 9998, // Higher z-index for full screen
+          zIndex: fullScreenOverlay ? 20200 : 20100, // Above panels (10000-10002) and TypeList (19999-20000)
           backdropFilter: fullScreenOverlay ? 'blur(4px)' : 'blur(2px)',
           ...(fullScreenOverlay && {
             // Ensure it covers absolutely everything
@@ -161,7 +163,7 @@ const CanvasModal = ({
           backgroundColor: theme.canvas.bg,
           borderRadius: '12px',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-          zIndex: fullScreenOverlay ? 20001 : 9999, // Higher z-index for full screen
+          zIndex: fullScreenOverlay ? 20201 : 20101, // Above panels (10000-10002) and TypeList (19999-20000)
           fontFamily: "'EmOne', sans-serif",
           overflow: 'hidden',
           display: 'flex',
@@ -215,7 +217,9 @@ const CanvasModal = ({
           style={{
             padding: '16px',
             overflowY: 'auto',
-            flex: 1
+            flex: 1,
+            minHeight: 0,
+            ...(contentStyle || {})
           }}
         >
           {children}
