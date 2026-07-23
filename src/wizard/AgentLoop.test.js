@@ -144,6 +144,73 @@ describe('AgentLoop', () => {
     });
   });
 
+  describe('token usage accounting', () => {
+    it('surfaces a usage event with running per-ask totals', async () => {
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'Done.' };
+        yield { type: 'usage', usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 } };
+      });
+
+      const events = [];
+      for await (const event of runAgent('Hi', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      const usage = events.find(e => e.type === 'usage');
+      expect(usage).toBeDefined();
+      expect(usage.promptTokens).toBe(100);
+      expect(usage.completionTokens).toBe(20);
+      expect(usage.askTotalTokens).toBe(120);
+    });
+
+    it('sums usage across iterations into the ask total', async () => {
+      let iteration = 0;
+      streamLLM.mockImplementation(async function* () {
+        if (iteration === 0) {
+          yield { type: 'tool_call', name: 'createNode', args: { name: 'N' }, id: 'c1' };
+          yield { type: 'usage', usage: { promptTokens: 200, completionTokens: 50, totalTokens: 250 } };
+          iteration++;
+        } else {
+          yield { type: 'text', content: 'Finished.' };
+          yield { type: 'usage', usage: { promptTokens: 300, completionTokens: 40, totalTokens: 340 } };
+        }
+      });
+      executeTool.mockResolvedValue({ nodeId: 'node-1', name: 'N' });
+
+      const events = [];
+      for await (const event of runAgent('Create', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      const usageEvents = events.filter(e => e.type === 'usage');
+      expect(usageEvents.length).toBe(2);
+      // Running ask total accumulates: 250 then 250 + 340 = 590.
+      expect(usageEvents[0].askTotalTokens).toBe(250);
+      expect(usageEvents[usageEvents.length - 1].askTotalTokens).toBe(590);
+    });
+
+    it('stops with reason token_budget when the per-ask budget is exceeded', async () => {
+      streamLLM.mockImplementation(async function* () {
+        // A large single-call usage that blows past the budget.
+        yield { type: 'tool_call', name: 'createNode', args: { name: 'Big' }, id: 'c1' };
+        yield { type: 'usage', usage: { promptTokens: 600000, completionTokens: 0, totalTokens: 600000 } };
+      });
+      executeTool.mockResolvedValue({ nodeId: 'node-1', name: 'Big' });
+
+      const events = [];
+      for await (const event of runAgent('Go', mockGraphState, { ...mockConfig, maxAskTokens: 500000 }, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      const doneEvent = events[events.length - 1];
+      expect(doneEvent.type).toBe('done');
+      expect(doneEvent.reason).toBe('token_budget');
+      expect(doneEvent.askTotalTokens).toBe(600000);
+      // The breaker fires before the tool call is executed for this iteration.
+      expect(executeTool).not.toHaveBeenCalled();
+    });
+  });
+
   describe('multi-tool iteration', () => {
     it('loops through tool execution and LLM verification', async () => {
       let iteration = 0;

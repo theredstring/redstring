@@ -6,6 +6,22 @@ import debugConfig from '../../utils/debugConfig.js';
 import './AISection.css';
 
 /**
+ * Read a stored wizard iteration cap, preserving an explicit 0 (= ∞ on the
+ * slider). Absent/empty/NaN → default. Number(null) is 0, so the raw string is
+ * guarded before coercion.
+ */
+function readStoredIterations(key, def) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null || raw === '') return def;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : def;
+  } catch {
+    return def;
+  }
+}
+
+/**
  * AI Settings Section - Adapted to Settings Modal patterns
  * Uses settings-row, selects, and inline controls
  */
@@ -28,8 +44,11 @@ const AISection = () => {
   const [allowKeyEdit, setAllowKeyEdit] = useState(true);
   const [localPresets] = useState(() => apiKeyManager.getLocalProviderPresets());
   const [selectedPreset, setSelectedPreset] = useState(null);
-  const [maxIterationsLocal, setMaxIterationsLocal] = useState(() => Number(localStorage.getItem('rs.wizard.maxIterationsLocal') ?? 177) || 177);
-  const [maxIterationsCloud, setMaxIterationsCloud] = useState(() => Number(localStorage.getItem('rs.wizard.maxIterationsCloud') ?? 77) || 77);
+  // Preserve an explicit stored 0 (= ∞ on the slider) instead of coercing it back
+  // to the default via ||. Absent/empty/NaN → default. (Number(null) is 0, so the
+  // raw string is guarded before coercion.)
+  const [maxIterationsLocal, setMaxIterationsLocal] = useState(() => readStoredIterations('rs.wizard.maxIterationsLocal', 177));
+  const [maxIterationsCloud, setMaxIterationsCloud] = useState(() => readStoredIterations('rs.wizard.maxIterationsCloud', 77));
   const [connectionTestResult, setConnectionTestResult] = useState(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [wizardConnectionPref, setWizardConnectionPref] = useState(() => {
@@ -859,7 +878,7 @@ const AISection = () => {
       <div className="settings-row">
         <div className="settings-row-label">
           Local model iterations
-          <div className="settings-row-description">Max tool calls per turn for local/small models. 0 = unlimited</div>
+          <div className="settings-row-description">Max tool calls per turn for local/small models. 0 = max (capped at 300)</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <input
@@ -880,7 +899,7 @@ const AISection = () => {
       <div className="settings-row">
         <div className="settings-row-label">
           Cloud model iterations
-          <div className="settings-row-description">Max tool calls per turn for cloud models. 0 = unlimited</div>
+          <div className="settings-row-description">Max tool calls per turn for cloud models. 0 = max (capped at 100)</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <input

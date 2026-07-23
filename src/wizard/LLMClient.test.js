@@ -336,6 +336,66 @@ describe('LLMClient', () => {
       expect(chunks).toEqual([]);
     });
   });
+
+  describe('streamLLM - token usage', () => {
+    it('emits a usage chunk from an OpenAI-format final chunk (choices: [])', async () => {
+      global.fetch.mockResolvedValue(createMockFetchResponse([
+        'data: {"choices":[{"delta":{"content":"Hi"}}]}',
+        'data: {"choices":[],"usage":{"prompt_tokens":1200,"completion_tokens":34,"total_tokens":1234}}',
+        'data: [DONE]'
+      ]));
+
+      const chunks = [];
+      for await (const chunk of streamLLM([{ role: 'user', content: 'Hi' }], [], { provider: 'openrouter', apiKey: 'k' })) {
+        chunks.push(chunk);
+      }
+
+      const usage = chunks.find(c => c.type === 'usage');
+      expect(usage).toEqual({ type: 'usage', usage: { promptTokens: 1200, completionTokens: 34, totalTokens: 1234 } });
+    });
+
+    it('requests usage in the stream via stream_options', async () => {
+      global.fetch.mockResolvedValue(createMockFetchResponse(['data: [DONE]']));
+
+      for await (const _ of streamLLM([{ role: 'user', content: 'Hi' }], [], { provider: 'openrouter', apiKey: 'k' })) { /* drain */ }
+
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body.stream_options).toEqual({ include_usage: true });
+    });
+
+    it('emits a usage chunk from Gemini usageMetadata', async () => {
+      global.fetch.mockResolvedValue(createMockFetchResponse([
+        'data: {"candidates":[{"content":{"parts":[{"text":"Hello"}]}}]}',
+        'data: {"candidates":[{"content":{"parts":[]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":900,"candidatesTokenCount":40,"totalTokenCount":940}}'
+      ]));
+
+      const chunks = [];
+      for await (const chunk of streamLLM([{ role: 'user', content: 'Hi' }], [], { provider: 'google', apiKey: 'k', model: 'gemini-2.5-flash' })) {
+        chunks.push(chunk);
+      }
+
+      const usage = chunks.find(c => c.type === 'usage');
+      // completion derived from total - prompt (thinking-model safe).
+      expect(usage).toEqual({ type: 'usage', usage: { promptTokens: 900, completionTokens: 40, totalTokens: 940 } });
+    });
+
+    it('emits a usage chunk from Anthropic message_start + message_delta', async () => {
+      global.fetch.mockResolvedValue(createMockFetchResponse([
+        'data: {"type":"message_start","message":{"usage":{"input_tokens":500,"output_tokens":0}}}',
+        'data: {"type":"content_block_delta","delta":{"type":"text","text":"Hi"}}',
+        'data: {"type":"message_delta","usage":{"output_tokens":25}}',
+        'data: {"type":"message_stop"}'
+      ]));
+
+      const chunks = [];
+      for await (const chunk of streamLLM([{ role: 'user', content: 'Hi' }], [], { provider: 'anthropic', apiKey: 'k' })) {
+        chunks.push(chunk);
+      }
+
+      const usage = chunks.find(c => c.type === 'usage');
+      expect(usage).toEqual({ type: 'usage', usage: { promptTokens: 500, completionTokens: 25, totalTokens: 525 } });
+    });
+  });
 });
 
 describe('normalizeTools schema pipeline', () => {

@@ -31,6 +31,31 @@ import { getAllTabularData, clearTabularData } from '../../../services/tabularDa
 // Shared Components
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 
+// Ask-queue safety bounds. MAX_WIZARD_QUEUE caps how many asks can pile up
+// behind a running one; MAX_CONSECUTIVE_ASK_ERRORS pauses auto-draining after
+// this many back-to-back hard failures so a broken config can't drain a whole
+// queue into wasted API calls.
+const MAX_WIZARD_QUEUE = 10;
+const MAX_CONSECUTIVE_ASK_ERRORS = 3;
+
+/**
+ * Read a wizard iteration-cap setting from localStorage, preserving an explicit
+ * 0 (= ∞ intent; the server clamps it to the per-tier hard ceiling). Only an
+ * absent/empty/NaN value falls back to the default — note Number(null) is 0, so
+ * the raw string must be guarded before coercion (a plain `||`/`??` would either
+ * drop the intended 0 or treat "missing" as 0).
+ */
+function readWizardIterations(key, def) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null || raw === '') return def;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : def;
+  } catch {
+    return def;
+  }
+}
+
 /**
  * Build the update object for a node from a server enrichment match.
  * Shared between single and batch enrichment.
@@ -528,6 +553,11 @@ const LeftAIView = ({ compact = false,
   const wizardSendQueueRef = React.useRef([]); // [{ message, opts, conversationId }]
   const pendingDrainRef = React.useRef(null);   // ask waiting for its tab to become active
   const [queuedSendCount, setQueuedSendCount] = React.useState(0);
+  // Ask-queue circuit breaker: count consecutive hard failures so a queue of
+  // asks that all error can't silently burn API calls one after another. Paused
+  // draining resumes only when the user manually sends again or hits Stop.
+  const consecutiveAskErrorsRef = React.useRef(0);
+  const queuePausedRef = React.useRef(false);
   const [wizardStage, setWizardStage] = React.useState(null); // Track current wizard stage
   const [druidInstance, setDruidInstance] = React.useState(null); // Druid cognitive state manager
   // Synchronously hydrate conversations from localStorage to avoid async race conditions.
@@ -1278,6 +1308,7 @@ const LeftAIView = ({ compact = false,
   // two runs ever contend for the shared run state.
   React.useEffect(() => {
     if (isProcessing) return;
+    if (queuePausedRef.current) return; // breaker tripped — wait for manual resume
     if (pendingDrainRef.current) return; // a drained ask is already awaiting its tab
     if (wizardSendQueueRef.current.length === 0) return;
     const next = wizardSendQueueRef.current.shift();
@@ -1739,6 +1770,21 @@ const LeftAIView = ({ compact = false,
     }
   };
 
+  // Record a hard ask failure. After MAX_CONSECUTIVE_ASK_ERRORS in a row, trip the
+  // breaker: clear the queue and pause auto-draining so a broken config (bad key,
+  // endpoint down) can't drain every queued ask into wasted API calls.
+  const recordAskFailure = () => {
+    consecutiveAskErrorsRef.current += 1;
+    const hasQueued = wizardSendQueueRef.current.length > 0 || !!pendingDrainRef.current;
+    if (consecutiveAskErrorsRef.current >= MAX_CONSECUTIVE_ASK_ERRORS && hasQueued) {
+      queuePausedRef.current = true;
+      wizardSendQueueRef.current = [];
+      pendingDrainRef.current = null;
+      setQueuedSendCount(0);
+      addMessage('system', `Paused queued asks after ${MAX_CONSECUTIVE_ASK_ERRORS} consecutive errors. Fix the issue, then send again to resume.`);
+    }
+  };
+
   const handleSendMessage = async (overrideInput, sendOptions) => {
     const inputToUse = typeof overrideInput === 'string' ? overrideInput : currentInput;
     if (!inputToUse.trim() && pendingAttachments.length === 0) return;
@@ -1746,15 +1792,34 @@ const LeftAIView = ({ compact = false,
     // rather than dropping it or letting a second run clobber the shared run state.
     // drainWizardQueue() below picks it up when the current run completes.
     if (isProcessingRef.current) {
-      wizardSendQueueRef.current.push({
+      const q = wizardSendQueueRef.current;
+      const targetConv = activeConversationIdRef.current;
+      // Dedup: don't queue an ask identical to one already waiting (same text +
+      // tab). Guards against double-dispatch (e.g. a programmatic event firing twice).
+      const isDupe = q.some(item => item.message === inputToUse && item.conversationId === targetConv);
+      if (isDupe) {
+        if (typeof overrideInput !== 'string') setCurrentInput('');
+        return;
+      }
+      // Bound the queue so runaway enqueueing can't pile up unbounded work.
+      if (q.length >= MAX_WIZARD_QUEUE) {
+        addMessage('system', `Ask queue is full (${MAX_WIZARD_QUEUE}). This ask was not queued — wait for the current runs to finish.`);
+        if (typeof overrideInput !== 'string') setCurrentInput('');
+        return;
+      }
+      q.push({
         message: inputToUse,
         opts: sendOptions,
-        conversationId: activeConversationIdRef.current,
+        conversationId: targetConv,
       });
-      setQueuedSendCount(wizardSendQueueRef.current.length);
+      setQueuedSendCount(q.length);
       if (typeof overrideInput !== 'string') setCurrentInput('');
       return;
     }
+    // A manual (non-queued) send means the user is actively driving — clear any
+    // tripped breaker so queued asks can drain again after this run.
+    queuePausedRef.current = false;
+    consecutiveAskErrorsRef.current = 0;
     // Optional display-override path used by programmatic dispatchers (e.g., the Ask The Wizard
     // chip). When set, the UI shows displayContent (a short summary) and the LLM's
     // conversation-history replay uses replayContent (defaults to displayContent), while the
@@ -1907,9 +1972,11 @@ const LeftAIView = ({ compact = false,
       try {
         // Reuse the autonomous agent handler but with Druid prompt
         await handleAutonomousAgent(messagePayload, 'druid');
+        consecutiveAskErrorsRef.current = 0; // a completed ask resets the breaker
       } catch (error) {
         console.error('Druid error:', error);
         addMessage('system', `Druid error: ${error.message}`);
+        recordAskFailure();
       } finally {
         setIsProcessing(false);
       }
@@ -1931,9 +1998,11 @@ const LeftAIView = ({ compact = false,
       } else {
         await handleQuestion(messagePayload);
       }
+      consecutiveAskErrorsRef.current = 0; // a completed ask resets the breaker
     } catch (error) {
       console.error('[AI Collaboration] Error processing message:', error);
       addMessage('system', `Error: ${error.message}`);
+      recordAskFailure();
     } finally {
       setIsProcessing(false);
       setCurrentAgentRequest(null);
@@ -1946,6 +2015,9 @@ const LeftAIView = ({ compact = false,
     wizardSendQueueRef.current = [];
     pendingDrainRef.current = null;
     setQueuedSendCount(0);
+    // Reset the error breaker so a fresh send after Stop drains normally.
+    queuePausedRef.current = false;
+    consecutiveAskErrorsRef.current = 0;
     if (currentAgentRequest) {
       currentAgentRequest.abort();
       setCurrentAgentRequest(null);
@@ -2227,8 +2299,11 @@ const LeftAIView = ({ compact = false,
               model: apiConfig.model,
               settings: {
                 ...apiConfig.settings,
-                maxIterationsLocal: Number(localStorage.getItem('rs.wizard.maxIterationsLocal')) || 177,
-                maxIterationsCloud: Number(localStorage.getItem('rs.wizard.maxIterationsCloud')) || 77,
+                // Preserve an explicit 0 (= ∞ intent, clamped to the tier ceiling
+                // server-side) instead of coercing it back to the default via ||.
+                // Absent/empty/NaN → default. Number(null) is 0, so guard raw first.
+                maxIterationsLocal: readWizardIterations('rs.wizard.maxIterationsLocal', 177),
+                maxIterationsCloud: readWizardIterations('rs.wizard.maxIterationsCloud', 77),
               },
               modelTier: apiConfig.modelTier || 'large'
             } : null
@@ -2415,6 +2490,14 @@ const LeftAIView = ({ compact = false,
                     const openThinkIdx = blocks.findLastIndex(b => b.type === 'thinking' && !b.collapsed);
                     if (openThinkIdx >= 0) blocks[openThinkIdx] = { ...blocks[openThinkIdx], collapsed: true };
                     blocks.push({ type: 'steering', kind: event.kind || 'nudge', content: event.content || '' });
+                  } else if (event.type === 'usage') {
+                    // Running per-ask token totals from the agent loop. Each event
+                    // carries the cumulative ask totals, so last-write wins.
+                    msg.tokenUsage = {
+                      promptTokens: event.askPromptTokens || 0,
+                      completionTokens: event.askCompletionTokens || 0,
+                      totalTokens: event.askTotalTokens || 0
+                    };
                   } else if (event.type === 'error') {
                     blocks.push({ type: 'text', content: `Error: ${event.message}` });
                     msg.content = `Error: ${event.message}`;
@@ -2779,6 +2862,9 @@ const LeftAIView = ({ compact = false,
         if (msg.metadata.isComplete !== undefined) {
           meta.push(`\n  Complete: ${msg.metadata.isComplete}`);
         }
+      }
+      if (msg.tokenUsage?.totalTokens > 0) {
+        meta.push(`\n  Tokens: ${msg.tokenUsage.totalTokens.toLocaleString()} (prompt ${msg.tokenUsage.promptTokens.toLocaleString()} + completion ${msg.tokenUsage.completionTokens.toLocaleString()})`);
       }
 
       if (meta.length > 0) {
@@ -3442,6 +3528,14 @@ const LeftAIView = ({ compact = false,
                     ) : null}
                     {hasDefinitiveContent && <div className="ai-message-timestamp" style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: message.sender === 'user' ? 'flex-end' : 'flex-start' }}>
                       {new Date(message.timestamp).toLocaleTimeString()}
+                      {message.sender === 'ai' && message.tokenUsage?.totalTokens > 0 && (
+                        <span
+                          style={{ opacity: 0.6, fontSize: '11px' }}
+                          title={`Prompt ${message.tokenUsage.promptTokens.toLocaleString()} + completion ${message.tokenUsage.completionTokens.toLocaleString()} tokens across this ask`}
+                        >
+                          · {message.tokenUsage.totalTokens.toLocaleString()} tok
+                        </span>
+                      )}
                       {message.sender === 'user' && (
                         <button
                           onClick={() => {

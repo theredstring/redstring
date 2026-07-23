@@ -146,6 +146,19 @@ function stripNulls(obj) {
 }
 
 /**
+ * Normalize an OpenAI-format `usage` object (OpenRouter / OpenAI / local) into
+ * the provider-agnostic { promptTokens, completionTokens, totalTokens } shape
+ * the agent loop accumulates. Returns null if no usage is present.
+ */
+function normalizeOpenAIUsage(usage) {
+  if (!usage) return null;
+  const promptTokens = usage.prompt_tokens || 0;
+  const completionTokens = usage.completion_tokens || 0;
+  const totalTokens = usage.total_tokens || (promptTokens + completionTokens);
+  return { promptTokens, completionTokens, totalTokens };
+}
+
+/**
  * Reconstruct nested objects from JSON strings in Gemini function call args.
  * Gemini may return nested objects as JSON strings when schemas were simplified.
  * Also handles plain strings for object fields (wraps as { name: value }).
@@ -360,7 +373,9 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
     ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
     max_tokens: maxTokens,
     temperature,
-    stream: true
+    stream: true,
+    // Ask for token usage in the stream's final chunk (choices: []) for accounting.
+    stream_options: { include_usage: true }
   };
 
   // #region agent log
@@ -410,6 +425,12 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
 
           try {
             const chunk = JSON.parse(data);
+
+            // Token accounting — the include_usage final chunk carries usage with
+            // choices: [], so read it before the `!choice` guard would skip it.
+            const orUsage = normalizeOpenAIUsage(chunk.usage);
+            if (orUsage) yield { type: 'usage', usage: orUsage };
+
             const choice = chunk.choices?.[0];
             if (!choice) continue;
 
@@ -640,6 +661,10 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
   let buffer = '';
   let currentToolCall = null;
   let toolArgsBuffer = '';
+  // Token accounting: Anthropic reports input_tokens on message_start and a
+  // cumulative output_tokens on each message_delta. Hold the input so we can
+  // emit a complete usage event when the deltas land.
+  let anthropicInputTokens = 0;
 
   try {
     while (true) {
@@ -661,6 +686,23 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
 
           try {
             const chunk = JSON.parse(data);
+
+            // Token accounting. input_tokens arrive on message_start; a cumulative
+            // output_tokens arrives on each message_delta — emit the running total.
+            if (chunk.type === 'message_start' && chunk.message?.usage) {
+              anthropicInputTokens = chunk.message.usage.input_tokens || 0;
+            }
+            if (chunk.type === 'message_delta' && chunk.usage) {
+              const completionTokens = chunk.usage.output_tokens || 0;
+              yield {
+                type: 'usage',
+                usage: {
+                  promptTokens: anthropicInputTokens,
+                  completionTokens,
+                  totalTokens: anthropicInputTokens + completionTokens
+                }
+              };
+            }
 
             // Text content
             if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text') {
@@ -757,7 +799,10 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
     ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
     max_tokens: maxTokens,
     temperature,
-    stream: true
+    stream: true,
+    // Request token usage in the final stream chunk. Servers that don't support
+    // it (some local backends) simply ignore the field.
+    stream_options: { include_usage: true }
   };
 
   const headers = {
@@ -811,6 +856,11 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
 
           try {
             const chunk = JSON.parse(data);
+
+            // Token accounting — include_usage final chunk has choices: [].
+            const oaUsage = normalizeOpenAIUsage(chunk.usage);
+            if (oaUsage) yield { type: 'usage', usage: oaUsage };
+
             const choice = chunk.choices?.[0];
             if (!choice) continue;
 
@@ -1143,6 +1193,23 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
 
         try {
           const chunk = JSON.parse(data);
+
+          // Token accounting. Gemini streams usageMetadata (cumulative for this
+          // call) as a top-level sibling of `candidates`, typically on the final
+          // chunk — read it BEFORE the `!candidate` guard so a usage-only tail
+          // chunk is never skipped. The consumer takes the last usage per call.
+          if (chunk.usageMetadata) {
+            const u = chunk.usageMetadata;
+            const promptTokens = u.promptTokenCount || 0;
+            const totalTokens = u.totalTokenCount || 0;
+            // Gemini 2.5 thinking models bill thoughts as output; totalTokenCount
+            // already includes them, so derive completion from total when present.
+            const completionTokens = totalTokens
+              ? Math.max(0, totalTokens - promptTokens)
+              : ((u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0));
+            yield { type: 'usage', usage: { promptTokens, completionTokens, totalTokens } };
+          }
+
           const candidate = chunk.candidates?.[0];
           if (!candidate) continue;
 

@@ -769,6 +769,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   const hasTabularData = Array.isArray(graphState?._tabularData) && graphState._tabularData.length > 0;
   const maxIterations = config.maxIterations || DEFAULT_MAX_ITERATIONS;
+  // Hard per-ask token budget (cost ceiling independent of iteration count). 0 or
+  // absent → no budget cap (iteration cap still applies).
+  const maxAskTokens = (config.maxAskTokens && config.maxAskTokens > 0) ? config.maxAskTokens : Infinity;
 
   // Build static system prompt template (context will be appended fresh each iteration)
   const systemPromptTemplate = baseSystemPrompt
@@ -844,6 +847,11 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     return { type: 'steering', kind, content };
   };
 
+  // Per-ask token accounting, summed across every iteration's LLM call. Surfaced
+  // to the UI/logs and used as a hard per-ask cost ceiling (see maxAskTokens).
+  let askPromptTokens = 0;
+  let askCompletionTokens = 0;
+
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     // Rebuild context from (potentially mutated) graphState so LLM sees current state
     {
@@ -866,6 +874,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     try {
       let iterationContent = '';
       let iterationToolCalls = [];
+      let iterationUsage = null; // last usage chunk this call (providers report cumulative)
 
       // Re-evaluate tool selection each iteration (graphState changes after tool execution)
       const userMessageText = typeof userMessage === 'string'
@@ -898,6 +907,11 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         if (chunk.type === 'thinking') {
           // Native thinking tokens (Anthropic extended thinking) — pass straight through
           yield { type: 'thinking', content: chunk.content };
+          continue;
+        }
+        if (chunk.type === 'usage') {
+          // Providers report cumulative usage for the call, so last-seen wins.
+          iterationUsage = chunk.usage;
           continue;
         }
         if (chunk.type === 'text') {
@@ -981,6 +995,35 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           iterationToolCalls.push(chunk);
           console.error('[AgentLoop] Yielding tool_call (final):', chunk.name);
           yield chunk;
+        }
+      }
+
+      // Fold this iteration's token usage into the per-ask running total and surface
+      // it (per-iteration + running ask totals) so the UI and server logs can show
+      // real spend. Providers that don't report usage simply leave iterationUsage null.
+      if (iterationUsage) {
+        askPromptTokens += iterationUsage.promptTokens || 0;
+        askCompletionTokens += iterationUsage.completionTokens || 0;
+        yield {
+          type: 'usage',
+          iteration: iteration + 1,
+          promptTokens: iterationUsage.promptTokens || 0,
+          completionTokens: iterationUsage.completionTokens || 0,
+          totalTokens: iterationUsage.totalTokens || 0,
+          askPromptTokens,
+          askCompletionTokens,
+          askTotalTokens: askPromptTokens + askCompletionTokens
+        };
+
+        // Hard per-ask cost ceiling. Stop once cumulative spend crosses the budget,
+        // regardless of how many iterations remain. Runs after this iteration's tool
+        // calls have already been yielded so no in-flight work is lost.
+        const askTotalTokens = askPromptTokens + askCompletionTokens;
+        if (askTotalTokens > maxAskTokens) {
+          console.error(`[AgentLoop] Per-ask token budget reached (${askTotalTokens} > ${maxAskTokens}) at iteration ${iteration + 1}. Stopping.`);
+          yield { type: 'system_note', content: `Stopped: this ask reached its token budget (${askTotalTokens.toLocaleString()} tokens). Send "continue" to keep going.` };
+          yield { type: 'done', iterations: iteration + 1, reason: 'token_budget', askPromptTokens, askCompletionTokens, askTotalTokens };
+          return;
         }
       }
 

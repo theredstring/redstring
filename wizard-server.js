@@ -214,18 +214,38 @@ app.post('/api/wizard', async (req, res) => {
       cid: config?.cid || `wizard-${Date.now()}`,
       conversationHistory: conversationHistory || [],
       systemPrompt: config?.systemPrompt,
-      // Use per-tier user-configured iteration limits; 0 = unlimited (9999).
-      // Defaults: 177 for local/small models, 77 for cloud models.
+      // Use per-tier user-configured iteration limits, clamped to a HARD ceiling
+      // so no config (or bug) can produce a runaway cloud bill. 0 / negative / ∞
+      // intent maps to the tier ceiling — NOT the old 9999 footgun.
+      // Defaults: 177 local/small, 77 cloud/large. Ceilings: 300 local (cheap),
+      // 100 cloud (costs money; default 77 fits comfortably under it).
       maxIterations: (() => {
         const isSmall = apiConfig.modelTier === 'small';
+        const ceiling = isSmall ? 300 : 100;
+        const dflt = isSmall ? 177 : 77;
         const configured = isSmall
           ? apiConfig.settings?.maxIterationsLocal
           : apiConfig.settings?.maxIterationsCloud;
+        let n = dflt;
         if (configured != null && Number.isFinite(Number(configured))) {
-          const n = Number(configured);
-          return n === 0 ? 9999 : n;
+          n = Math.floor(Number(configured));
         }
-        return isSmall ? 177 : 77;
+        // 0 / negative / ∞ intent → tier ceiling; everything clamped to [1, ceiling].
+        if (n <= 0) n = ceiling;
+        return Math.min(Math.max(1, n), ceiling);
+      })(),
+      // Hard per-ask token budget — a cost ceiling independent of iteration count.
+      // The loop aborts once cumulative usage crosses this. Default 500k; any
+      // configured value is clamped to a code ceiling so no ask can run away.
+      maxAskTokens: (() => {
+        const HARD_CEILING = 2000000;
+        const DEFAULT = 500000;
+        const configured = apiConfig.settings?.maxAskTokens;
+        let n = DEFAULT;
+        if (configured != null && Number.isFinite(Number(configured)) && Number(configured) > 0) {
+          n = Math.floor(Number(configured));
+        }
+        return Math.min(n, HARD_CEILING);
       })(),
       contextItems: req.body.contextItems || []
     };
@@ -252,10 +272,24 @@ app.post('/api/wizard', async (req, res) => {
       }
     });
 
+    let lastUsage = null;
     try {
       for await (const event of runAgent(message, graphState || {}, llmConfig, ensureSchedulerStarted, abortController.signal)) {
+        if (event.type === 'usage') lastUsage = event;
         res.write(`data: ${JSON.stringify(event)}\n\n`);
         // Delay now handled in AgentLoop.js to prevent tool execution before browser renders
+      }
+      // Per-ask token accounting — one line per ask so spend is inspectable in logs.
+      if (lastUsage) {
+        console.log('[Wizard] Token usage:', {
+          cid: llmConfig.cid,
+          provider: llmConfig.provider,
+          model: llmConfig.model,
+          iterations: lastUsage.iteration,
+          promptTokens: lastUsage.askPromptTokens,
+          completionTokens: lastUsage.askCompletionTokens,
+          totalTokens: lastUsage.askTotalTokens
+        });
       }
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     } catch (error) {
