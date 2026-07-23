@@ -6,10 +6,12 @@ import { measureTextWidth } from '../services/textMeasurement.js';
 import useGraphStore from '../store/graphStore.js';
 
 // Minecraft-toolbar-style timing: after the pointer leaves, hold the preview at
-// full opacity for PREFADE_MS, then fade it out over FADE_MS. Any new hover
-// during the hold or fade snaps back to full opacity and switches instantly.
+// full opacity for PREFADE_MS, then fade it out over FADE_MS. The preview fades
+// IN over FADE_IN_MS (deliberately quicker than the fade-out) when it first
+// appears. Switching between two already-visible subjects stays an instant swap.
 const PREFADE_MS = 250;
 const FADE_MS = 250;
+const FADE_IN_MS = 120;
 
 // Neutral text settings so the hover preview renders a "standard" node/connection
 // regardless of the user's global font-size / node-size / connection-width sliders.
@@ -23,8 +25,8 @@ const STANDARD_TEXT_SETTINGS = { fontSize: 1, lineSpacing: 1, nodeScale: 1, conn
  *
  * The live hover props feed a small internal state machine that decouples what
  * is *displayed* from what is currently hovered, so the preview can linger and
- * fade after the pointer leaves without any fade-in or resize animation on the
- * way back in.
+ * fade after the pointer leaves, quick-fade in when it first appears, and swap
+ * instantly between subjects that are already on screen.
  */
 const HoverVisionAid = ({
   hoveredNode,
@@ -86,24 +88,39 @@ const HoverVisionAid = ({
 
   const prefadeTimer = useRef(null);
   const fadeTimer = useRef(null);
+  const fadeInRaf = useRef(null);
 
   useEffect(() => {
     const clearTimers = () => {
       if (prefadeTimer.current) { clearTimeout(prefadeTimer.current); prefadeTimer.current = null; }
       if (fadeTimer.current) { clearTimeout(fadeTimer.current); fadeTimer.current = null; }
+      if (fadeInRaf.current) { cancelAnimationFrame(fadeInRaf.current); fadeInRaf.current = null; }
     };
 
     const subject = targetRef.current;
 
     if (subject) {
-      // Hovering something: cancel any pending hold/fade, snap to full opacity,
-      // and switch content instantly. If it's the same subject we were already
-      // showing (re-hover during the hold), the keyed wrapper below doesn't
-      // remount — nothing visibly changes, we just kill the timer.
+      // Hovering something: cancel any pending hold/fade and show the subject.
+      // If it was already fully on screen (switching subjects, or re-hovering
+      // during the hold), swap content instantly at full opacity. If it was
+      // absent or mid-fade-out, quick-fade it in (FADE_IN_MS < FADE_MS).
+      const wasVisible = Boolean(displayedRef.current) && !fadeTimer.current;
       clearTimers();
       displayedRef.current = subject;
       setDisplayed(subject);
-      setFadeStyle({ opacity: 1, transition: 'none' });
+      if (wasVisible) {
+        setFadeStyle({ opacity: 1, transition: 'none' });
+      } else {
+        // Start transparent, then transition to full opacity on the next frame
+        // so the browser has a painted 0-opacity frame to animate from.
+        setFadeStyle({ opacity: 0, transition: 'none' });
+        fadeInRaf.current = requestAnimationFrame(() => {
+          fadeInRaf.current = requestAnimationFrame(() => {
+            fadeInRaf.current = null;
+            setFadeStyle({ opacity: 1, transition: `opacity ${FADE_IN_MS}ms ease` });
+          });
+        });
+      }
       return;
     }
 
@@ -128,6 +145,7 @@ const HoverVisionAid = ({
   useEffect(() => () => {
     if (prefadeTimer.current) clearTimeout(prefadeTimer.current);
     if (fadeTimer.current) clearTimeout(fadeTimer.current);
+    if (fadeInRaf.current) cancelAnimationFrame(fadeInRaf.current);
   }, []);
 
   if (!displayed) {
