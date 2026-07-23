@@ -4271,13 +4271,94 @@ function NodeCanvas() {
   const [activePieMenuItemForVision, setActivePieMenuItemForVision] = useState(null);
   const activePieMenuItemRef = useRef(null);
 
-  const clearVisionAid = useCallback(() => {
+  // Hover intent delay: require the pointer to dwell on a target for a short
+  // beat before we treat it as "hovered". Prevents the vision aid / edge glow
+  // from flickering on as the pointer merely sweeps across nodes and edges.
+  const HOVER_ENTER_DELAY_MS = 180;
+  const hoverCommitTimerRef = useRef(null);
+  const committedHoverKeyRef = useRef('none');
+  const pendingHoverKeyRef = useRef('none');
+
+  const applyHoverCandidate = useCallback((candidate) => {
+    if (candidate.kind === 'node') {
+      setHoveredNodeForVision(candidate.node);
+      setHoveredConnectionForVision(null);
+      setHoveredEdgeInfo(null);
+    } else if (candidate.kind === 'connection') {
+      setHoveredNodeForVision(null);
+      setHoveredConnectionForVision(candidate.connection);
+      setHoveredEdgeInfo(candidate.edgeInfo);
+    } else {
+      setHoveredNodeForVision(null);
+      setHoveredConnectionForVision(null);
+      setHoveredEdgeInfo(null);
+    }
+  }, []);
+
+  // Cancel any pending dwell timer and clear all hover state immediately.
+  const clearHoverImmediate = useCallback(() => {
+    if (hoverCommitTimerRef.current) {
+      clearTimeout(hoverCommitTimerRef.current);
+      hoverCommitTimerRef.current = null;
+    }
+    pendingHoverKeyRef.current = 'none';
+    committedHoverKeyRef.current = 'none';
     setHoveredNodeForVision(null);
     setHoveredConnectionForVision(null);
-    setActivePieMenuItemForVision(null);
-    activePieMenuItemRef.current = null;
     setHoveredEdgeInfo(null);
   }, []);
+
+  // Route a detected hover candidate through the dwell timer. Entering a target
+  // waits HOVER_ENTER_DELAY_MS; leaving a target (or landing on empty canvas)
+  // clears instantly so nothing gets "stuck" behind the pointer.
+  const commitHoverTarget = useCallback((candidate) => {
+    const key = candidate.kind === 'none' ? 'none' : `${candidate.kind}:${candidate.id}`;
+
+    if (key === 'none') {
+      if (committedHoverKeyRef.current !== 'none' || pendingHoverKeyRef.current !== 'none') {
+        clearHoverImmediate();
+      }
+      return;
+    }
+
+    // Already showing this exact target — nothing to do.
+    if (key === committedHoverKeyRef.current) {
+      if (hoverCommitTimerRef.current) {
+        clearTimeout(hoverCommitTimerRef.current);
+        hoverCommitTimerRef.current = null;
+      }
+      pendingHoverKeyRef.current = key;
+      return;
+    }
+
+    // This target is already counting down — let its timer keep running.
+    if (key === pendingHoverKeyRef.current && hoverCommitTimerRef.current) return;
+
+    // New target: drop whatever is currently shown, then start its dwell timer.
+    if (hoverCommitTimerRef.current) clearTimeout(hoverCommitTimerRef.current);
+    if (committedHoverKeyRef.current !== 'none') {
+      committedHoverKeyRef.current = 'none';
+      setHoveredNodeForVision(null);
+      setHoveredConnectionForVision(null);
+      setHoveredEdgeInfo(null);
+    }
+    pendingHoverKeyRef.current = key;
+    hoverCommitTimerRef.current = setTimeout(() => {
+      hoverCommitTimerRef.current = null;
+      committedHoverKeyRef.current = key;
+      applyHoverCandidate(candidate);
+    }, HOVER_ENTER_DELAY_MS);
+  }, [applyHoverCandidate, clearHoverImmediate]);
+
+  useEffect(() => () => {
+    if (hoverCommitTimerRef.current) clearTimeout(hoverCommitTimerRef.current);
+  }, []);
+
+  const clearVisionAid = useCallback(() => {
+    clearHoverImmediate();
+    setActivePieMenuItemForVision(null);
+    activePieMenuItemRef.current = null;
+  }, [clearHoverImmediate]);
 
   const handlePieMenuHoverChange = useCallback((button) => {
     if (button?.label) {
@@ -4705,10 +4786,8 @@ function NodeCanvas() {
   const carouselClosedByClickAwayRef = useRef(false);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
   const clearLabelsOnMouseMove = useCallback(() => {
-    setHoveredEdgeInfo(null);
-    setHoveredNodeForVision(null);
-    setHoveredConnectionForVision(null);
-  }, []);
+    clearHoverImmediate();
+  }, [clearHoverImmediate]);
 
   // --- Graph Change Cleanup ---
   useEffect(() => {
@@ -7232,8 +7311,11 @@ function NodeCanvas() {
 
     // Avoid per-frame logging during drag; logs removed for performance
 
-    // Schedule RAF-throttled label clearing only when not dragging or panning
-    if (!draggingNodeInfo && !isPanning && !pinchRef.current.active) {
+    // Schedule RAF-throttled label clearing only while the mouse is pressed
+    // (but not dragging/panning). When the mouse is up, the hover-detection RAF
+    // below is the sole authority and drives clearing through the dwell timer —
+    // clearing here every frame would cancel that timer before it can elapse.
+    if (isMouseDown.current && !draggingNodeInfo && !isPanning && !pinchRef.current.active) {
       pendingLabelClear.current = e;
       if (!labelClearScheduled.current) {
         labelClearScheduled.current = true;
@@ -7277,17 +7359,13 @@ function NodeCanvas() {
           // the user is interacting via touch (touchscreens fire hover events
           // inconsistently and the vision-aid preview gets stuck on tap).
           if (semanticOrbitActiveRef.current || inputModeRef.current === 'touch') {
-            setHoveredNodeForVision(null);
-            setHoveredConnectionForVision(null);
-            setHoveredEdgeInfo(null);
+            clearHoverImmediate();
             return;
           }
 
           // PieMenu buttons take priority over nodes and connections.
           if (activePieMenuItemRef.current) {
-            setHoveredNodeForVision(null);
-            setHoveredConnectionForVision(null);
-            setHoveredEdgeInfo(null);
+            clearHoverImmediate();
             return;
           }
 
@@ -7297,20 +7375,21 @@ function NodeCanvas() {
 
           if (hoveredNode) {
             const dims = baseDimsById.get(hoveredNode.id);
-            setHoveredNodeForVision(prev => prev?.id === hoveredNode.id ? prev : {
+            commitHoverTarget({
+              kind: 'node',
               id: hoveredNode.id,
-              name: hoveredNode.name,
-              color: hoveredNode.color,
-              width: dims?.currentWidth ?? NODE_WIDTH,
-              height: dims?.currentHeight ?? NODE_HEIGHT,
-              prototypeId: hoveredNode.prototypeId
+              node: {
+                id: hoveredNode.id,
+                name: hoveredNode.name,
+                color: hoveredNode.color,
+                width: dims?.currentWidth ?? NODE_WIDTH,
+                height: dims?.currentHeight ?? NODE_HEIGHT,
+                prototypeId: hoveredNode.prototypeId
+              }
             });
-            setHoveredConnectionForVision(null);
-            setHoveredEdgeInfo(null);
           } else {
-            setHoveredNodeForVision(null);
-
             let foundHoveredEdgeInfo = null;
+            let foundConnectionPayload = null;
             let closestDistance = Infinity;
 
             for (let i = visibleEdges.length - 1; i >= 0; i--) {
@@ -7474,7 +7553,7 @@ function NodeCanvas() {
                   }
                 }
 
-                setHoveredConnectionForVision(prev => prev?.id === edge.id ? prev : {
+                foundConnectionPayload = {
                   id: edge.id,
                   name: connectionName,
                   color: connectionColor,
@@ -7497,20 +7576,21 @@ function NodeCanvas() {
                     prototypeId: targetInstance.prototypeId
                   },
                   directionality: edge.directionality
-                });
+                };
                 // Keep scanning: for overlapping connections we want the nearest
                 // edge to win, not the first one found within the threshold.
               }
             }
 
-            setHoveredEdgeInfo(prev => {
-              if (!prev && !foundHoveredEdgeInfo) return prev;
-              if (prev && foundHoveredEdgeInfo && prev.edgeId === foundHoveredEdgeInfo.edgeId) return prev;
-              return foundHoveredEdgeInfo;
-            });
-
-            if (!foundHoveredEdgeInfo) {
-              setHoveredConnectionForVision(null);
+            if (foundHoveredEdgeInfo) {
+              commitHoverTarget({
+                kind: 'connection',
+                id: foundHoveredEdgeInfo.edgeId,
+                edgeInfo: foundHoveredEdgeInfo,
+                connection: foundConnectionPayload
+              });
+            } else {
+              commitHoverTarget({ kind: 'none' });
             }
           }
         }); // Close RAF callback
@@ -7811,9 +7891,7 @@ function NodeCanvas() {
     startedOnNode.current = false;
     mouseMoved.current = false;
     // PERFORMANCE: Clear all hover states once at interaction start instead of every frame during drag
-    setHoveredEdgeInfo(null);
-    setHoveredNodeForVision(null);
-    setHoveredConnectionForVision(null);
+    clearHoverImmediate();
     setLastInteractionType('mouse_down');
 
     if ((isMac && e.metaKey) || (!isMac && e.ctrlKey)) {

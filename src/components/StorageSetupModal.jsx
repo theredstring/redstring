@@ -599,72 +599,73 @@ const StorageSetupModal = ({
         backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
         border: `2px solid ${done ? statusColors.success : theme.canvas.border}`,
         borderRadius: '8px',
-        padding: isCompactLayout ? '16px' : '20px',
-        marginBottom: '16px',
+        padding: isCompactLayout ? '10px 12px' : '12px 14px',
+        marginBottom: '10px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
         transition: 'all 0.2s ease'
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: done ? 0 : '12px' }}>
-        <div style={{ flexShrink: 0, color: theme.canvas.textPrimary, display: 'flex', alignItems: 'center' }}>
-          {icon}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: '4px' }}>
-            <h3 style={{
-              margin: 0,
-              fontSize: isCompactLayout ? '1rem' : '1.1rem',
-              fontWeight: 'bold',
-              color: theme.canvas.textPrimary,
-              fontFamily: "'EmOne', sans-serif"
-            }}>
-              {title}
-            </h3>
-            {done && cardBadge(doneBadge, statusColors.success)}
-          </div>
-          <p style={{
-            margin: '4px 0 0 0',
-            fontSize: isCompactLayout ? '0.85rem' : '0.9rem',
+      <div style={{ flexShrink: 0, color: theme.canvas.textPrimary, display: 'flex', alignItems: 'center' }}>
+        {icon}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <h3 style={{
+            margin: 0,
+            fontSize: isCompactLayout ? '0.92rem' : '1rem',
+            fontWeight: 'bold',
             color: theme.canvas.textPrimary,
-            lineHeight: '1.4',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis'
+            fontFamily: "'EmOne', sans-serif"
           }}>
-            {done ? (doneDetail || description) : description}
-          </p>
+            {title}
+          </h3>
+          {done && cardBadge(doneBadge, statusColors.success)}
         </div>
+        <p style={{
+          margin: '2px 0 0 0',
+          fontSize: isCompactLayout ? '0.74rem' : '0.78rem',
+          color: theme.canvas.textSecondary,
+          lineHeight: '1.35',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap'
+        }}>
+          {done ? (doneDetail || description) : description}
+        </p>
+        {!done && error && (
+          <div style={{ margin: '4px 0 0 0', fontSize: '0.74rem', color: statusColors.error, fontFamily: "'EmOne', sans-serif" }}>
+            {error}
+          </div>
+        )}
       </div>
       {!done && (
-        <>
-          {error && (
-            <div style={{ margin: '0 0 10px 0', fontSize: '0.78rem', color: statusColors.error, fontFamily: "'EmOne', sans-serif" }}>
-              {error}
-            </div>
-          )}
-          <button
-            onClick={onAction}
-            disabled={busy}
-            style={{
-              width: '100%',
-              padding: isCompactLayout ? '10px' : '12px',
-              backgroundColor: actionSolid ? (theme.darkMode ? '#EFE8E5' : '#260000') : 'transparent',
-              color: actionSolid ? (theme.darkMode ? '#260000' : '#EFE8E5') : theme.canvas.textPrimary,
-              border: actionSolid ? 'none' : `2px solid ${theme.canvas.border}`,
-              borderRadius: '6px',
-              cursor: busy ? 'wait' : 'pointer',
-              fontSize: isCompactLayout ? '0.9rem' : '1rem',
-              fontWeight: 'bold',
-              fontFamily: "'EmOne', sans-serif",
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              opacity: busy ? 0.7 : 1
-            }}
-          >
-            {busy ? <Loader2 size={18} style={{ animation: 'rs-onboarding-spin 1s linear infinite' }} /> : null}
-            {busy ? 'Setting up…' : actionLabel}
-          </button>
-        </>
+        <button
+          onClick={onAction}
+          disabled={busy}
+          style={{
+            flexShrink: 0,
+            padding: isCompactLayout ? '8px 12px' : '9px 14px',
+            backgroundColor: actionSolid ? (theme.darkMode ? '#EFE8E5' : '#260000') : 'transparent',
+            color: actionSolid ? (theme.darkMode ? '#260000' : '#EFE8E5') : theme.canvas.textPrimary,
+            border: actionSolid ? 'none' : `2px solid ${theme.canvas.border}`,
+            borderRadius: '6px',
+            cursor: busy ? 'wait' : 'pointer',
+            fontSize: isCompactLayout ? '0.8rem' : '0.85rem',
+            fontWeight: 'bold',
+            fontFamily: "'EmOne', sans-serif",
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            whiteSpace: 'nowrap',
+            opacity: busy ? 0.7 : 1
+          }}
+        >
+          {busy ? <Loader2 size={16} style={{ animation: 'rs-onboarding-spin 1s linear infinite' }} /> : null}
+          {busy ? 'Setting up…' : actionLabel}
+        </button>
       )}
     </div>
   );
@@ -673,11 +674,11 @@ const StorageSetupModal = ({
     <>
       <style>{'@keyframes rs-onboarding-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'}</style>
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '14px' : '20px', flexShrink: 0 }}>
+      <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '10px' : '12px', flexShrink: 0 }}>
         <h1 style={{
-          margin: '0 0 4px 0',
+          margin: '0 0 2px 0',
           color: theme.accent.primary,
-          fontSize: isCompactLayout ? '1.5rem' : '1.8rem',
+          fontSize: isCompactLayout ? '1.25rem' : '1.45rem',
           fontWeight: '600',
           fontFamily: "'EmOne', sans-serif",
           letterSpacing: '0.05em'
@@ -685,9 +686,9 @@ const StorageSetupModal = ({
           Welcome to Redstring
         </h1>
         <h2 style={{
-          margin: '0 0 4px 0',
+          margin: 0,
           color: theme.canvas.textPrimary,
-          fontSize: isCompactLayout ? '1.1rem' : '1.35rem',
+          fontSize: isCompactLayout ? '0.95rem' : '1.05rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
@@ -696,12 +697,12 @@ const StorageSetupModal = ({
       </div>
 
       {/* Universe name */}
-      <div style={{ marginBottom: '14px', flexShrink: 0 }}>
+      <div style={{ marginBottom: '10px', flexShrink: 0 }}>
         <label style={{
           display: 'block',
-          marginBottom: '6px',
+          marginBottom: '4px',
           fontWeight: 'bold',
-          fontSize: '0.8rem',
+          fontSize: '0.76rem',
           color: theme.canvas.textPrimary,
           fontFamily: "'EmOne', sans-serif"
         }}>
@@ -709,8 +710,8 @@ const StorageSetupModal = ({
         </label>
         {nameLocked ? (
           <div style={{
-            padding: '10px 14px',
-            fontSize: '1.05rem',
+            padding: '8px 12px',
+            fontSize: '0.95rem',
             fontWeight: 'bold',
             borderRadius: '8px',
             border: `2px solid ${theme.canvas.border}`,
@@ -728,8 +729,8 @@ const StorageSetupModal = ({
             placeholder="Universe"
             style={{
               width: '100%',
-              padding: '10px 14px',
-              fontSize: '1.05rem',
+              padding: '8px 12px',
+              fontSize: '0.95rem',
               borderRadius: '8px',
               border: `2px solid ${theme.canvas.border}`,
               backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
@@ -744,7 +745,7 @@ const StorageSetupModal = ({
 
       {/* Workspace folder (desktop) — global location where local files land */}
       {showWorkspaceRow && (
-        <div style={{ marginBottom: '16px', flexShrink: 0 }}>
+        <div style={{ marginBottom: '10px', flexShrink: 0 }}>
           <div style={{
             padding: '10px 12px',
             backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
@@ -833,9 +834,9 @@ const StorageSetupModal = ({
       {/* Storage slots for this one universe */}
       <div style={{ flexShrink: 0 }}>
         {showGitOption && renderSlotCard({
-          icon: <Github size={32} />,
+          icon: <Github size={22} />,
           title: gitFirst ? 'Sync with GitHub' : 'GitHub Repository',
-          description: 'Save this universe to a GitHub repository. Works on any device.',
+          description: 'Save to a GitHub repository. Works on any device.',
           done: slotStatus.git.done,
           doneBadge: 'Connected ✓',
           doneDetail: slotStatus.git.label,
@@ -845,9 +846,9 @@ const StorageSetupModal = ({
         })}
 
         {showLocalSlot && renderSlotCard({
-          icon: <Save size={32} />,
+          icon: <Save size={22} />,
           title: 'Local File',
-          description: 'Keep a .redstring file on your computer, in your workspace folder.',
+          description: 'Keep a .redstring file in your workspace folder.',
           done: slotStatus.local.done,
           doneBadge: 'Saved ✓',
           doneDetail: slotStatus.local.label,
@@ -862,7 +863,7 @@ const StorageSetupModal = ({
         {anySlotFilled && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-            marginBottom: '16px', fontSize: '0.8rem',
+            marginBottom: '10px', marginTop: '2px', fontSize: '0.78rem',
             color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif"
           }}>
             <span style={{ fontWeight: 600 }}>Source of truth:</span>
@@ -907,21 +908,21 @@ const StorageSetupModal = ({
               backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
               border: `2px solid ${theme.canvas.border}`,
               borderRadius: '8px',
-              padding: isCompactLayout ? '14px' : '16px',
+              padding: isCompactLayout ? '10px 12px' : '12px 14px',
               cursor: 'pointer'
             }}
             onClick={handleBrowserStorageChoice}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <ArrowRightCircle size={26} color={theme.canvas.textPrimary} style={{ flexShrink: 0 }} />
-              <div style={{ flex: 1 }}>
+              <ArrowRightCircle size={22} color={theme.canvas.textPrimary} style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <h3 style={{
-                  margin: '0 0 2px 0', fontSize: '1rem', fontWeight: 'bold',
+                  margin: 0, fontSize: '0.95rem', fontWeight: 'bold',
                   color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif"
                 }}>
                   Skip For Now
                 </h3>
-                <div style={{ fontStyle: 'italic', color: theme.canvas.textSecondary, fontSize: '0.8rem' }}>
+                <div style={{ fontStyle: 'italic', color: theme.canvas.textSecondary, fontSize: '0.74rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   Finish setup later on the Universes tab.
                 </div>
               </div>
@@ -932,13 +933,13 @@ const StorageSetupModal = ({
 
       {/* Get Connected — finishes onboarding once at least one slot is filled */}
       {anySlotFilled && (
-        <div style={{ marginTop: isCompactLayout ? '10px' : '14px', flexShrink: 0 }}>
+        <div style={{ marginTop: isCompactLayout ? '6px' : '8px', flexShrink: 0 }}>
           <button
             onClick={() => onFinishOnboarding?.()}
-            style={{ ...primaryButtonStyle(true), padding: isCompactLayout ? '12px' : '14px' }}
+            style={{ ...primaryButtonStyle(true), padding: isCompactLayout ? '10px' : '12px' }}
           >
             Get Connected
-            <ArrowRight size={20} />
+            <ArrowRight size={18} />
           </button>
         </div>
       )}
@@ -1346,7 +1347,7 @@ const StorageSetupModal = ({
       {...canvasModalProps}
     >
       <div style={{
-        padding: isCompactLayout ? '16px' : '24px',
+        padding: isCompactLayout ? '14px' : '20px',
         boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
