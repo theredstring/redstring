@@ -665,13 +665,12 @@ const StorageSetupModal = ({
           color: theme.accent.primary,
           fontSize: isCompactLayout ? '1.25rem' : '1.45rem',
           fontWeight: '600',
-          fontFamily: "'EmOne', sans-serif",
-          letterSpacing: '0.05em'
+          fontFamily: "'EmOne', sans-serif"
         }}>
           Welcome to Redstring
         </h1>
         <h2 style={{
-          margin: 0,
+          margin: '0 0 22px 0',
           color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '0.85rem' : '1.05rem',
           fontWeight: 'bold',
@@ -822,7 +821,7 @@ const StorageSetupModal = ({
         {showLocalSlot && renderSlotCard({
           icon: <Save size={22} />,
           title: 'Local File',
-          description: 'Save locally on this device',
+          description: 'Save on this device',
           done: slotStatus.local.done,
           doneBadge: 'Saved ✓',
           doneDetail: slotStatus.local.label,
@@ -1308,7 +1307,7 @@ const StorageSetupModal = ({
       {...canvasModalProps}
     >
       <div style={{
-        padding: isCompactLayout ? '14px' : '20px 32px',
+        padding: isCompactLayout ? '14px 24px' : '20px 32px',
         boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
