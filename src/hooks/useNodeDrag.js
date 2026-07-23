@@ -1249,7 +1249,7 @@ export const useNodeDrag = ({
   // Clear DOM Transforms (called on drag end or cancel)
   // ---------------------------------------------------------------------------
   const clearDOMTransforms = useCallback((options = {}) => {
-    const { animateDrop = false } = options;
+    const { animateDrop = false, zoomRestore = null } = options;
     // Stop any in-flight lift ramp so it can't write a scale back onto a node
     // after we've cleared its transform below.
     if (liftRafRef.current) {
@@ -1293,7 +1293,10 @@ export const useNodeDrag = ({
         // effect re-queries the live element by id after that commit.
         entries.push({ id, cx, cy, fromScale });
       });
-      dropPendingRef.current = entries.length > 0 ? { entries } : null;
+      // zoomRestore ({ fromZoom, toZoom }) rides along so the settle ramp can
+      // sync itself to the zoom-restore animation instead of racing it — see
+      // the drop layout effect.
+      dropPendingRef.current = entries.length > 0 ? { entries, zoomRestore } : null;
     }
 
     // Snapshot elements before clearing refs so we can defer restoring the
@@ -1389,30 +1392,69 @@ export const useNodeDrag = ({
       el.style.transform = `scale(${fromScale})`;
     });
 
+    // When a drag-zoom restore is animating the canvas back in (250ms), a
+    // fixed 50ms settle RACES it: on-screen size = base × zoom × liftScale,
+    // and the lift collapses 5× faster than the zoom recovers — so the node
+    // visibly shrinks BELOW its resting size, then swells back as the zoom
+    // catches up (a dip-and-swell pulse at every edge). Instead, drive the
+    // settle off the restore's actual zoom progress so the on-screen size
+    // interpolates monotonically from release size to resting size. A clock
+    // fallback (restore duration + margin) finishes the ramp if the zoom
+    // animation stalls or is interrupted.
+    const zr = pending.zoomRestore &&
+      Math.abs(pending.zoomRestore.toZoom - pending.zoomRestore.fromZoom) > 1e-6
+      ? pending.zoomRestore
+      : null;
+
     const start = performance.now();
-    const step = () => {
-      const t = Math.min(1, (performance.now() - start) / DROP_DURATION);
-      const eased = 1 - Math.pow(1 - t, 3); // ease-out
-      targets.forEach(({ el, cx, cy, fromScale }) => {
-        const scale = fromScale + (1 - fromScale) * eased;
-        el.style.transform = `scale(${scale})`;
-        el.style.transformOrigin = `${cx}px ${cy}px`;
+    const finish = () => {
+      dropRafRef.current = null;
+      // Hand the node back to React's natural (transform-free) render and
+      // restore CSS-driven transitions for future hover/scale animations.
+      targets.forEach(({ el }) => {
+        el.style.transform = '';
+        el.style.transformOrigin = '';
+        el.style.transition = '';
       });
-      if (t < 1) {
+    };
+    const step = () => {
+      let done;
+      if (zr) {
+        // Progress = how far the live zoom has traveled toward its target,
+        // clamped; the clock term takes over if the zoom stalls.
+        const z = zoomLevelRef.current;
+        const zoomP = (z - zr.fromZoom) / (zr.toZoom - zr.fromZoom);
+        const clockP = (performance.now() - start) / (DRAG_ZOOM_ANIMATION_DURATION + 100);
+        const p = Math.min(1, Math.max(zoomP, clockP, 0));
+        targets.forEach(({ el, cx, cy, fromScale }) => {
+          // Lerp the node's on-screen scale factor (zoom × liftScale) from its
+          // release value to its resting value, then divide out the current
+          // zoom to get the lift scale to apply this frame. Monotonic on-screen
+          // size by construction, whatever the zoom animation's easing.
+          const onScreen = zr.fromZoom * fromScale + (zr.toZoom - zr.fromZoom * fromScale) * p;
+          const scale = onScreen / z;
+          el.style.transform = `scale(${scale})`;
+          el.style.transformOrigin = `${cx}px ${cy}px`;
+        });
+        done = p >= 1;
+      } else {
+        const t = Math.min(1, (performance.now() - start) / DROP_DURATION);
+        const eased = 1 - Math.pow(1 - t, 3); // ease-out
+        targets.forEach(({ el, cx, cy, fromScale }) => {
+          const scale = fromScale + (1 - fromScale) * eased;
+          el.style.transform = `scale(${scale})`;
+          el.style.transformOrigin = `${cx}px ${cy}px`;
+        });
+        done = t >= 1;
+      }
+      if (!done) {
         dropRafRef.current = requestAnimationFrame(step);
       } else {
-        dropRafRef.current = null;
-        // Hand the node back to React's natural (transform-free) render and
-        // restore CSS-driven transitions for future hover/scale animations.
-        targets.forEach(({ el }) => {
-          el.style.transform = '';
-          el.style.transformOrigin = '';
-          el.style.transition = '';
-        });
+        finish();
       }
     };
     dropRafRef.current = requestAnimationFrame(step);
-  }, [draggingNodeInfo, containerRef]);
+  }, [draggingNodeInfo, containerRef, zoomLevelRef]);
 
   // ---------------------------------------------------------------------------
   // Centralized reset of pre-drag refs after a zoom-restore completes (or is
@@ -1834,7 +1876,16 @@ export const useNodeDrag = ({
         );
       }
 
-      clearDOMTransforms({ animateDrop: true });
+      // If a zoom restore is about to run (see needsZoomRestore below), hand
+      // the settle animation the zoom endpoints so it can sync to the restore
+      // instead of racing it (the dip-and-swell pulse at drop).
+      const willRestoreZoom = preDragZoomLevel !== null && dragZoomSettings.enabled;
+      clearDOMTransforms({
+        animateDrop: true,
+        zoomRestore: willRestoreZoom
+          ? { fromZoom: zoomLevelRef.current, toZoom: preDragZoomLevel }
+          : null,
+      });
 
       // Reset scale 1.15 → 1 synchronously so it batches into the same React
       // commit as the position flush above. Previously this was wrapped in
