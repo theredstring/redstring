@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import CanvasModal from './CanvasModal';
 import AuthSection from './universe-manager/AuthSection.jsx';
-import GitHubDeviceFlowModal from './modals/GitHubDeviceFlowModal.jsx';
+import GitHubDeviceFlowPanel from './modals/GitHubDeviceFlowPanel.jsx';
 import { isElectron } from '../utils/fileAccessAdapter.js';
 import {
   FolderOpen, Folder, ArrowRightCircle, ArrowRight, ArrowLeft, Github, Lock, Globe,
@@ -958,39 +958,59 @@ const StorageSetupModal = ({
   const renderGitConnectStep = () => (
     <>
       {backButton(leaveGitFlow)}
-      <div style={{ textAlign: 'center', marginBottom: '16px', flexShrink: 0 }}>
+      <div style={{ textAlign: 'center', marginBottom: (isElectron() && deviceFlowState) ? '10px' : '16px', flexShrink: 0 }}>
         <h2 style={{
-          margin: '0 0 8px 0',
+          margin: (isElectron() && deviceFlowState) ? 0 : '0 0 8px 0',
           color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '1.2rem' : '1.5rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
-          Connect GitHub
+          {(isElectron() && deviceFlowState) ? (deviceFlowState.title || 'Connect GitHub') : 'Connect GitHub'}
         </h2>
-        <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: '0.9rem' }}>
-          Redstring uses GitHub OAuth to browse your repositories and the GitHub App to sync your universes.
-        </p>
+        {!(isElectron() && deviceFlowState) && (
+          <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: '0.9rem' }}>
+            Redstring uses GitHub OAuth to browse your repositories and the GitHub App to sync your universes.
+          </p>
+        )}
       </div>
 
-      <AuthSection
-        statusBadge={statusBadge}
-        hasApp={hasApp}
-        hasOAuth={hasOAuth}
-        dataAuthMethod={hasOAuth ? 'oauth' : (hasApp ? 'github-app' : null)}
-        isConnecting={isConnecting}
-        allowOAuthBackup={allowOAuthBackup}
-        onSetAllowOAuthBackup={setAllowOAuthBackup}
-        onGitHubAuth={handleWizardGitHubAuth}
-        onGitHubDisconnect={handleWizardOAuthDisconnect}
-        onGitHubApp={handleWizardGitHubApp}
-        onGitHubAppDisconnect={handleWizardAppDisconnect}
-        onGitHubAppDetect={handleWizardAppDetect}
-        isSlim={isCompactLayout}
-      />
+      {/* Electron device flow embeds inline here rather than as a stacked
+          modal (which would render behind this wizard's overlay). */}
+      {isElectron() && deviceFlowState ? (
+        <GitHubDeviceFlowPanel
+          compact
+          onCancel={cancelDeviceFlow}
+          title={deviceFlowState.title || 'Connect to GitHub'}
+          subtitle={deviceFlowState.subtitle}
+          userCode={deviceFlowState.userCode}
+          verificationUri={deviceFlowState.verificationUri}
+          verificationUriComplete={deviceFlowState.verificationUriComplete}
+          expiresAt={deviceFlowState.expiresAt}
+          status={deviceFlowState.status}
+          errorMessage={deviceFlowState.errorMessage}
+        />
+      ) : (
+        <AuthSection
+          statusBadge={statusBadge}
+          hasApp={hasApp}
+          hasOAuth={hasOAuth}
+          dataAuthMethod={hasOAuth ? 'oauth' : (hasApp ? 'github-app' : null)}
+          isConnecting={isConnecting}
+          allowOAuthBackup={allowOAuthBackup}
+          onSetAllowOAuthBackup={setAllowOAuthBackup}
+          onGitHubAuth={handleWizardGitHubAuth}
+          onGitHubDisconnect={handleWizardOAuthDisconnect}
+          onGitHubApp={handleWizardGitHubApp}
+          onGitHubAppDisconnect={handleWizardAppDisconnect}
+          onGitHubAppDetect={handleWizardAppDetect}
+          isSlim={isCompactLayout}
+        />
+      )}
 
       {noticeBanner}
 
+      {!(isElectron() && deviceFlowState) && (
       <div style={{ marginTop: '16px' }}>
         <button
           onClick={() => setStep('git-repo')}
@@ -1032,6 +1052,7 @@ const StorageSetupModal = ({
           </button>
         )}
       </div>
+      )}
     </>
   );
 
@@ -1391,20 +1412,6 @@ const StorageSetupModal = ({
         {renderStep()}
       </div>
     </CanvasModal>
-
-    {/* Electron device-flow modal (OAuth + App authorize) */}
-    <GitHubDeviceFlowModal
-      isOpen={!!deviceFlowState}
-      onCancel={cancelDeviceFlow}
-      title={deviceFlowState?.title || 'Connect to GitHub'}
-      subtitle={deviceFlowState?.subtitle}
-      userCode={deviceFlowState?.userCode}
-      verificationUri={deviceFlowState?.verificationUri}
-      verificationUriComplete={deviceFlowState?.verificationUriComplete}
-      expiresAt={deviceFlowState?.expiresAt}
-      status={deviceFlowState?.status}
-      errorMessage={deviceFlowState?.errorMessage}
-    />
     </>
   );
 };
