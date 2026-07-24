@@ -5,7 +5,7 @@ import GitHubDeviceFlowPanel from './modals/GitHubDeviceFlowPanel.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isElectron } from '../utils/fileAccessAdapter.js';
 import {
-  FolderOpen, Folder, ArrowRightCircle, ArrowRight, ArrowLeft, Github, Lock, Globe,
+  FolderOpen, Folder, ArrowRight, ArrowLeft, Github, Lock, Globe,
   Loader2, CheckCircle, AlertCircle, Circle, RefreshCw, Save, X, Star, Upload, Key
 } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme.js';
@@ -175,8 +175,6 @@ const StorageSetupModal = ({
   const modalHeight = isCompactLayout
     ? Math.min(Math.max(viewportSize.height - 24, 440), 620)
     : Math.min(Math.max(viewportSize.height - 40, 420), 520);
-
-  const showBrowserStorageOption = !isElectron();
 
   // No File System Access API (mobile browsers): folder/local-file storage
   // can't work, so git becomes the only storage path.
@@ -386,10 +384,6 @@ const StorageSetupModal = ({
     } finally {
       setLocalBusy(false);
     }
-  };
-
-  const handleBrowserStorageChoice = () => {
-    if (onBrowserStorageSelected) onBrowserStorageSelected();
   };
 
   const handleToggleSourceOfTruth = async (type) => {
@@ -869,34 +863,6 @@ const StorageSetupModal = ({
           </div>
         )}
 
-        {/* Skip (browser) — only before the user is in any universe */}
-        {showBrowserStorageOption && !anySlotFilled && (
-          <div
-            style={{
-              backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
-              border: `2px solid ${theme.canvas.border}`,
-              borderRadius: '8px',
-              padding: isCompactLayout ? '10px 12px' : '12px 14px',
-              cursor: 'pointer'
-            }}
-            onClick={handleBrowserStorageChoice}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <ArrowRightCircle size={22} color={theme.canvas.textPrimary} style={{ flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <h3 style={{
-                  margin: 0, fontSize: '0.95rem', fontWeight: 'bold',
-                  color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif"
-                }}>
-                  Skip For Now
-                </h3>
-                <div style={{ fontStyle: 'italic', color: theme.canvas.textSecondary, fontSize: '0.74rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  Finish setup later on the Universes tab.
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Get Connected — always visible, greyed out until a slot is filled */}
