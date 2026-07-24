@@ -27,6 +27,9 @@ const PieMenu = ({
   anchor = null, // { x, y } in SVG canvas coords — alternative to node+nodeDimensions
   anchorAngle = 0, // radians — rotates line mode to match edge slope
   nodeScale = 1.0, // global node scale — bubbles and icons scale proportionally
+  pageCount = 1, // number of selectable pages; chevrons render only when > 1
+  currentPage = 0, // active page index
+  onPageChange = null, // (nextPageIndex) => void — invoked by the ◀ / ▶ chevrons
 }) => {
   const pieMenuScale = useGraphStore(s => s.textSettings?.pieMenuScale ?? 1.0);
 
@@ -220,8 +223,102 @@ const PieMenu = ({
   const isCarouselMode = !hasAnchorMode && buttons.some(button => button.position);
   const isLineMode = hasAnchorMode; // anchor mode = horizontal line of buttons
 
+  // Page-switching chevrons: bare < / > arrows (stroked, no surrounding shape)
+  // flanking the outer bounds of the circular menu. The hitbox is an invisible
+  // rectangle around the arm bounds. Only shown for the default (circular) node
+  // menu with >1 page.
+  const showChevrons = pageCount > 1 && typeof onPageChange === 'function' && !isLineMode && !isCarouselMode;
+  let chevronGeometry = null;
+  if (showChevrons) {
+    // Distance from the node center out to the outer edge of the East/West bubbles.
+    const halfExtentX = currentWidth / 2 + totalVisualOffset + bSize / 2;
+    const chevronHeight = bSize * 1.7;          // tall arrow
+    const chevronDepth = chevronHeight * 0.3;   // horizontal reach of the < / > point
+    const fillThickness = 22 * scale;           // thickness of the #DEDADA chevron band
+    const border = strokeWidth;                 // maroon outline weight (matches bubbles)
+    const gap = bPad * 0.75;                     // space between menu edge and the arrow point
+    chevronGeometry = {
+      chevronHeight,
+      chevronDepth,
+      fillThickness,
+      border,
+      leftX: nodeCenterX - halfExtentX - gap - chevronDepth / 2,
+      rightX: nodeCenterX + halfExtentX + gap + chevronDepth / 2,
+      centerY: nodeCenterY,
+    };
+  }
+
+  const renderChevron = (side) => {
+    if (!chevronGeometry) return null;
+    const { chevronHeight: h, chevronDepth: d, fillThickness, border, leftX, rightX, centerY } = chevronGeometry;
+    const isLeft = side === 'left';
+    const cx = isLeft ? leftX : rightX;
+    const outerWidth = fillThickness + border * 2; // maroon band = fill + outline on both sides
+    const halfOuter = outerWidth / 2;
+    // Two arms meeting at a horizontal point: '<' points left, '>' points right.
+    const points = isLeft
+      ? `${d / 2},${-h / 2} ${-d / 2},0 ${d / 2},${h / 2}`
+      : `${-d / 2},${-h / 2} ${d / 2},0 ${-d / 2},${h / 2}`;
+    // Wrap around so both chevrons are always actionable (with 2 pages either toggles).
+    const nextPage = isLeft
+      ? (currentPage - 1 + pageCount) % pageCount
+      : (currentPage + 1) % pageCount;
+    const activate = (e) => {
+      e.stopPropagation();
+      if (e.cancelable) e.preventDefault();
+      if (animationState === 'shrinking' || !isVisible) return;
+      onPageChange(nextPage);
+    };
+    return (
+      <g
+        key={`pie-chevron-${side}`}
+        transform={`translate(${cx}, ${centerY})`}
+        style={{
+          cursor: 'pointer',
+          opacity: animationState === 'shrinking' ? 0 : 1,
+          transition: 'opacity 0.15s ease',
+          WebkitTapHighlightColor: 'transparent',
+          touchAction: 'manipulation',
+        }}
+        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+        onTouchStart={(e) => { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }}
+        onTouchEnd={activate}
+        onClick={activate}
+      >
+        {/* Invisible rectangular hitbox around the (thick) arm bounds */}
+        <rect
+          x={-(d / 2 + halfOuter)}
+          y={-(h / 2 + halfOuter)}
+          width={d + halfOuter * 2}
+          height={h + halfOuter * 2}
+          fill="transparent"
+        />
+        {/* Maroon outer band (drawn wider, underneath) forms the outline */}
+        <polyline
+          points={points}
+          fill="none"
+          stroke="maroon"
+          strokeWidth={outerWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {/* #DEDADA interior (bubble fill) sits on top, leaving the maroon as an outline */}
+        <polyline
+          points={points}
+          fill="none"
+          stroke="#DEDADA"
+          strokeWidth={fillThickness}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </g>
+    );
+  };
+
   return (
     <g className="pie-menu">
+      {showChevrons && renderChevron('left')}
+      {showChevrons && renderChevron('right')}
       {buttons.map((button, index) => {
         let bubbleX, bubbleY;
 

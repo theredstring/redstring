@@ -25,7 +25,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, ArrowRight, Sparkles } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, ArrowRight, Sparkles, Copy, Scaling } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -4248,6 +4248,7 @@ function NodeCanvas() {
   const [isLeftPanelInputFocused, setIsLeftPanelInputFocused] = useState(false);
   const [isPieMenuRendered, setIsPieMenuRendered] = useState(false); // Controls if PieMenu is in DOM for animation
   const [currentPieMenuData, setCurrentPieMenuData] = useState(null); // Holds { node, buttons, nodeDimensions }
+  const [pieMenuPage, setPieMenuPage] = useState(0); // 0 = primary node options, 1 = secondary options (Duplicate / Ask The Wizard / Change Size)
   const [editingNodeIdOnCanvas, setEditingNodeIdOnCanvas] = useState(null); // For panel-less editing
   const [editingGroupId, setEditingGroupId] = useState(null); // For group inline editing
   const [tempGroupName, setTempGroupName] = useState(''); // Temporary name during editing
@@ -6131,6 +6132,47 @@ function NodeCanvas() {
         return []; // Return empty array to hide all buttons during carousel exit
       }
 
+      // Page 2 of the default node menu: secondary options reached via the ▶ chevron.
+      // Duplicate and Ask The Wizard are wired up; Change Size is a placeholder for a
+      // larger, separate effort (it requires an instance-size data migration).
+      if (pieMenuPage === 1) {
+        return [
+          {
+            id: 'duplicate', label: 'Duplicate', icon: Copy, action: (instanceId) => {
+              const instance = nodes.find(n => n.id === instanceId);
+              if (!instance || !activeGraphId) return;
+              // Drop the copy slightly down-right of the original so it's visibly distinct.
+              const offset = 40;
+              const newInstanceId = uuidv4();
+              storeActions.addNodeInstance(
+                activeGraphId,
+                instance.prototypeId,
+                { x: instance.x + offset, y: instance.y + offset },
+                newInstanceId
+              );
+              // Move selection (and the pie menu) to the new copy.
+              setSelectedInstanceIds(new Set([newInstanceId]));
+              setSelectedNodeIdForPieMenu(newInstanceId);
+            }
+          },
+          {
+            id: 'ask-wizard', label: 'Ask The Wizard', icon: Sparkles, action: (instanceId) => {
+              const instance = nodes.find(n => n.id === instanceId);
+              if (!instance) return;
+              // Route through the same pref-aware "Ask The Wizard" flow used elsewhere.
+              window.dispatchEvent(new CustomEvent('rs-ask-wizard-define-node', {
+                detail: { prototypeId: instance.prototypeId }
+              }));
+            }
+          },
+          {
+            // Placeholder — intentionally not wired up yet. Changing per-instance size
+            // is a larger project (new data version + migration).
+            id: 'change-size', label: 'Change Size', icon: Scaling, action: () => {}
+          }
+        ];
+      }
+
       return [
         {
           id: 'expand-tab',
@@ -6279,7 +6321,7 @@ function NodeCanvas() {
         }
       ];
     }
-  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, Sparkles, Scaling, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
 
   // Data for the decomposition CONTROL PANEL (mirrors the decomposition pie-menu state).
   // Non-null whenever a node is being previewed/decomposed; supplies the current definition
@@ -6324,6 +6366,12 @@ function NodeCanvas() {
   useEffect(() => {
     setCurrentPieMenuData(prev => prev ? { ...prev, buttons: targetPieMenuButtons } : prev);
   }, [targetPieMenuButtons]);
+
+  // Reset the pie menu back to its first page whenever the targeted node changes
+  // (including when the menu closes). Page state only applies to the default node menu.
+  useEffect(() => {
+    setPieMenuPage(0);
+  }, [selectedNodeIdForPieMenu]);
 
   // Effect to restore view state on graph change or center if no stored state.
   // IMPORTANT: Does NOT depend on graphsMap — we read it imperatively to avoid
@@ -15030,6 +15078,9 @@ function NodeCanvas() {
                             nodeDimensions={currentPieMenuData.nodeDimensions}
                             nodeScale={textSettings?.nodeScale ?? 1.0}
                             focusedNode={carouselFocusedNode}
+                            pageCount={(!abstractionCarouselVisible && !(previewingNodeId && previewingNodeId === selectedNodeIdForPieMenu)) ? 2 : 1}
+                            currentPage={pieMenuPage}
+                            onPageChange={setPieMenuPage}
                             isVisible={(
                               currentPieMenuData?.node?.id === selectedNodeIdForPieMenu &&
                               (!isTransitioningPieMenu || abstractionPrompt.visible || carouselAnimationState === 'exiting') &&
