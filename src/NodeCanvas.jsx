@@ -88,7 +88,9 @@ import {
   DARK_MODE_BG_COLOR,
   LIGHT_MODE_BG_COLOR,
   EXCLUSIVE_PANEL_MODE_THRESHOLD,
-  THUMBNAIL_MAX_DIMENSION
+  THUMBNAIL_MAX_DIMENSION,
+  nextNodeSizeStep,
+  nodeSizeLabel
 } from './constants';
 
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -1151,6 +1153,7 @@ function NodeCanvas() {
       if (prev &&
         prev.x === instance.x && prev.y === instance.y &&
         prev.scale === instance.scale &&
+        prev.sizeMul === instance.sizeMul &&
         prev.prototypeId === instance.prototypeId &&
         prev.name === prototype.name &&
         prev.color === prototype.color &&
@@ -1215,8 +1218,9 @@ function NodeCanvas() {
 
     for (const n of nodes) {
       // Create a stable key based only on properties that affect dimensions
-      // (not position x/y or scale which change during drag)
-      const cacheKey = `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}`;
+      // (not position x/y or scale which change during drag). sizeMul IS included:
+      // it's the persistent per-instance size, so different sizes get distinct dims.
+      const cacheKey = `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}-${n.sizeMul || 1}`;
 
       // Check if we have cached dimensions for this node's dimensional properties
       let dims = cache.get(cacheKey);
@@ -1231,7 +1235,7 @@ function NodeCanvas() {
     }
 
     // Clean up cache entries for nodes that no longer exist
-    const currentCacheKeys = new Set(nodes.map(n => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}`));
+    const currentCacheKeys = new Set(nodes.map(n => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}-${n.sizeMul || 1}`));
     for (const key of cache.keys()) {
       if (!currentCacheKeys.has(key)) {
         cache.delete(key);
@@ -6323,8 +6327,8 @@ function NodeCanvas() {
       }
 
       // Page 2 of the default node menu: secondary options reached via the ▶ chevron.
-      // Duplicate and Ask The Wizard are wired up; Change Size is a placeholder for a
-      // larger, separate effort (it requires an instance-size data migration).
+      // Change Size cycles the per-instance size (stored in instance.scale) through the
+      // discrete steps M → L → XL → XS → S → M, layering on top of the global node-size scope.
       if (pieMenuPage === 1) {
         return [
           {
@@ -6430,9 +6434,31 @@ function NodeCanvas() {
             }
           },
           {
-            // Placeholder — intentionally not wired up yet. Changing per-instance size
-            // is a larger project (new data version + migration).
-            id: 'change-size', label: 'Change Size', icon: Scaling, action: () => {}
+            // Cycle this instance's per-instance size, stored in instance.sizeMul (a
+            // continuous float persisted in the .redstring file). NOT instance.scale —
+            // that field is the transient drag-lift transform register (1 at rest), so
+            // reusing it would make nodes re-wrap text on grab and lose their size on
+            // drop. nextNodeSizeStep snaps the current value to the nearest named step
+            // and advances (M → L → XL → XS → S → M). getNodeDimensions + Node.jsx fold
+            // sizeMul into an effective node scale, so both the box and its label grow
+            // together, on top of the global node-size scope.
+            id: 'change-size',
+            label: (() => {
+              const inst = nodes.find(n => n.id === selectedNodeIdForPieMenu);
+              return `Size: ${nodeSizeLabel(inst?.sizeMul ?? 1.0)}`;
+            })(),
+            icon: Scaling,
+            action: (instanceId) => {
+              const instance = nodes.find(n => n.id === instanceId);
+              if (!instance || !activeGraphId) return;
+              const next = nextNodeSizeStep(instance.sizeMul ?? 1.0);
+              storeActions.updateNodeInstance(
+                activeGraphId,
+                instanceId,
+                (inst) => { inst.sizeMul = next; },
+                { type: 'node_resize', finalize: true }
+              );
+            }
           },
           {
             id: 'open-in-panel', label: 'Open in Panel', icon: NotebookText, action: (instanceId) => {

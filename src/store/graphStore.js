@@ -135,6 +135,7 @@ import { generateDescription } from '../utils/actionDescriptions.js';
  * @property {boolean} showConnectionNames - Whether connection labels are visible on the canvas.
  * @property {boolean} showEdgeGlowIndicators - Whether edges show directional glow effects.
  * @property {boolean} showHoverPreview - Whether hovering a node shows a preview card.
+ * @property {boolean} hoverPreviewZoomOnly - When true, the hover preview only appears while zoomed out (small on-canvas text); when false it appears at any zoom.
  * @property {number} hoverPreviewSize - Scale multiplier for hover preview cards.
  * @property {boolean} showNodeControlPanel - Whether the single-node control panel is visible.
  * @property {boolean} showMultipleNodesControlPanel - Whether the multi-node control panel is visible.
@@ -728,6 +729,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     showHoverPreview: (() => {
       try {
         const saved = localStorage.getItem('redstring_show_hover_preview');
+        return saved === null ? true : saved === 'true';
+      } catch (_) {
+        return true;
+      }
+    })(),
+    hoverPreviewZoomOnly: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_hover_preview_zoom_only');
         return saved === null ? true : saved === 'true';
       } catch (_) {
         return true;
@@ -4204,6 +4213,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.showHoverPreview = !draft.showHoverPreview;
       try {
         localStorage.setItem('redstring_show_hover_preview', draft.showHoverPreview);
+      } catch (_) { }
+    })),
+    /** Toggles whether the hover preview is limited to zoomed-out views (small on-canvas text). Persists to localStorage. */
+    toggleHoverPreviewZoomOnly: () => set(produce((draft) => {
+      draft.hoverPreviewZoomOnly = !draft.hoverPreviewZoomOnly;
+      try {
+        localStorage.setItem('redstring_hover_preview_zoom_only', draft.hoverPreviewZoomOnly);
       } catch (_) { }
     })),
     /** Toggles the single-node control panel. Persists to localStorage. */

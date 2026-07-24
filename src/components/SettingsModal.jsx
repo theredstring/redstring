@@ -70,6 +70,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
   const darkMode = useGraphStore(s => s.darkMode);
   const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
+  const hoverPreviewZoomOnly = useGraphStore(s => s.hoverPreviewZoomOnly ?? true);
   const hoverPreviewSize = useGraphStore(s => s.hoverPreviewSize ?? 1.0);
   const showNodeControlPanel = useGraphStore(s => s.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore(s => s.showMultipleNodesControlPanel ?? true);
@@ -86,9 +87,9 @@ const SettingsModal = ({ isVisible, onClose }) => {
     : 600;
 
   // Toggle helper
-  const Toggle = ({ checked, onChange }) => (
-    <label className="settings-toggle">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+  const Toggle = ({ checked, onChange, disabled = false }) => (
+    <label className="settings-toggle" style={disabled ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span className="settings-toggle-track" />
       <span className="settings-toggle-thumb" />
     </label>
@@ -154,6 +155,17 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <Toggle
               checked={!!showHoverPreview}
               onChange={() => useGraphStore.getState().toggleShowHoverPreview?.()}
+            />
+          </div>
+          <div className="settings-row settings-row--attached">
+            <div className="settings-row-label">
+              Only When Zoomed Out
+              <div className="settings-row-description">Only show the hover preview when zoomed out far enough that on-canvas text is small. When off, it shows at any zoom level.</div>
+            </div>
+            <Toggle
+              checked={!!hoverPreviewZoomOnly}
+              disabled={!showHoverPreview}
+              onChange={() => useGraphStore.getState().toggleHoverPreviewZoomOnly?.()}
             />
           </div>
           <div className="settings-slider-row">

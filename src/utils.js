@@ -71,7 +71,19 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   const textSettings = textSettingsOverride
     ? { ...baseTextSettings, ...textSettingsOverride }
     : baseTextSettings;
-  const nodeScale = textSettings.nodeScale ?? 1.0;
+  const globalNodeScale = textSettings.nodeScale ?? 1.0;
+  // Per-instance size (instance.sizeMul) layers ON TOP of the global node-size scope.
+  // `nodeScale` below is the EFFECTIVE scale — geometry and text both derive from it,
+  // so per-instance sizing scales the label along with the node automatically.
+  // NOTE: this is sizeMul, NOT instance.scale — `scale` is the transient drag-lift
+  // register (1 at rest, ~1.15 mid-grab) and must never drive layout, or nodes would
+  // re-wrap their text on every grab. sizeMul is the persistent, saved size.
+  // Neutral-preview callers pass textSettingsOverride to keep geometry canonical
+  // regardless of the user's sliders — they likewise ignore per-instance size.
+  const instanceSizeMul = textSettingsOverride ? 1.0 : (node.sizeMul ?? 1.0);
+  const nodeScale = globalNodeScale * instanceSizeMul;
+  // Effective nodeScale already encodes instanceScale, so it distinguishes two
+  // instances of the same prototype at different sizes in the dimension cache.
   const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}-${nodeScale}-${lineHeightBase}`;
 
   const cached = dimensionCache.get(cacheKey);

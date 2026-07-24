@@ -64,16 +64,22 @@ const Node = ({
 }) => {
   const theme = useTheme();
   const textSettings = useGraphStore(state => state.textSettings);
+  // Effective node scale = global node-size scope × this instance's per-instance size.
+  // Both the box geometry and the label font derive from it, so a resized instance grows
+  // as a coherent whole (kept in lock-step with getNodeDimensions, which folds in the
+  // same instance.sizeMul). Uses sizeMul (persistent, saved size), NOT instance.scale —
+  // `scale` is the transient drag-lift transform register and must not affect layout.
   const globalNodeScale = textSettings?.nodeScale ?? 1.0;
+  const effNodeScale = globalNodeScale * (node?.sizeMul ?? 1.0);
 
   // Fallback to unscaled constants if NodeCanvas didn't pass scaled values
-  const effPadding = scaledPadding ?? NODE_PADDING * globalNodeScale;
-  const effCornerRadius = scaledCornerRadius ?? NODE_CORNER_RADIUS * globalNodeScale;
+  const effPadding = scaledPadding ?? NODE_PADDING * effNodeScale;
+  const effCornerRadius = scaledCornerRadius ?? NODE_CORNER_RADIUS * effNodeScale;
 
   // Font size for the "Define … With a New Web" placeholder shown when a decomposed
   // node has no definition yet. The preview's inner-network area is large, so a fixed
   // size reads as tiny — scale it to the area's width (which already folds in
-  // globalNodeScale) so it stays proportional to the node. Clamped to a sane range.
+  // effNodeScale) so it stays proportional to the node. Clamped to a sane range.
   const decompPlaceholderFont = Math.max(16, Math.min(52, innerNetworkWidth * 0.05));
 
   // Destructure properties from the hydrated node object
@@ -206,7 +212,7 @@ const Node = ({
     // Depend on the scale/text settings too: getNodeDimensions folds these in, but
     // the `node` reference doesn't change when a slider moves — so without these deps
     // the memo returns stale wrapping widths until the node is dragged (new ref).
-  }, [node, textSettings.nodeScale, textSettings.fontSize, textSettings.lineSpacing]);
+  }, [node, node.sizeMul, textSettings.nodeScale, textSettings.fontSize, textSettings.lineSpacing]);
   // Carve out the node's horizontal padding on both sides so the pinned text width
   // exactly matches the wrapping target getNodeDimensions used (currentWidth - 2 * sP).
   // Must use the SCALED padding — a fixed carve-out (was 60px) doesn't shrink with the
@@ -372,8 +378,8 @@ const Node = ({
             y={contentAreaY + 0.01}
             width={innerNetworkWidth}
             height={innerNetworkHeight}
-            rx={22 * globalNodeScale}
-            ry={22 * globalNodeScale}
+            rx={22 * effNodeScale}
+            ry={22 * effNodeScale}
           />
         </clipPath>
 
@@ -386,8 +392,8 @@ const Node = ({
               y={contentAreaY + 0.01}
               width={innerNetworkWidth}
               height={innerNetworkHeight}
-              rx={22 * globalNodeScale}
-              ry={22 * globalNodeScale}
+              rx={22 * effNodeScale}
+              ry={22 * effNodeScale}
               fill="black"
             />
           </mask>
@@ -432,9 +438,9 @@ const Node = ({
             height: '100%',
             padding: (() => {
               if (nodeThumbnailSrc) {
-                return `${31 * globalNodeScale}px ${effPadding}px ${25 * globalNodeScale}px`;
+                return `${31 * effNodeScale}px ${effPadding}px ${25 * effNodeScale}px`;
               }
-              return `${34 * globalNodeScale}px ${effPadding}px`;
+              return `${34 * effNodeScale}px ${effPadding}px`;
             })(),
             boxSizing: 'border-box',
             pointerEvents: isEditingOnCanvas ? 'auto' : 'none',
@@ -457,10 +463,10 @@ const Node = ({
             <span
               className="node-name-text"
               style={{
-                fontSize: `${45 * textSettings.fontSize * globalNodeScale}px`,
+                fontSize: `${45 * textSettings.fontSize * effNodeScale}px`,
                 fontWeight: 'bold',
                 color: nodeTextColor,
-                lineHeight: `${39 * textSettings.fontSize * textSettings.lineSpacing * globalNodeScale}px`,
+                lineHeight: `${39 * textSettings.fontSize * textSettings.lineSpacing * effNodeScale}px`,
                 whiteSpace: 'normal',
                 overflowWrap: 'break-word',
                 wordBreak: 'break-word',
@@ -529,8 +535,8 @@ const Node = ({
               y={contentAreaY}
               width={innerNetworkWidth}
               height={innerNetworkHeight}
-              rx={22 * globalNodeScale}
-              ry={22 * globalNodeScale}
+              rx={22 * effNodeScale}
+              ry={22 * effNodeScale}
               fill={theme.canvas.bg}
             />
 
@@ -546,7 +552,7 @@ const Node = ({
                   edges={currentGraphEdges}
                   width={innerNetworkWidth}
                   height={innerNetworkHeight}
-                  padding={14 * globalNodeScale}
+                  padding={14 * effNodeScale}
                 />
               </g>
             ) : (
@@ -624,10 +630,10 @@ const Node = ({
               padding: '12px 8px 4px',
               boxSizing: 'border-box',
               fontFamily: "'EmOne', sans-serif",
-              fontSize: `${40 * textSettings.fontSize * globalNodeScale}px`,
+              fontSize: `${40 * textSettings.fontSize * effNodeScale}px`,
               color: nodeTextColor,
               fontWeight: 'normal',
-              lineHeight: `${33 * textSettings.fontSize * textSettings.lineSpacing * globalNodeScale}px`,
+              lineHeight: `${33 * textSettings.fontSize * textSettings.lineSpacing * effNodeScale}px`,
               textAlign: 'center',
               wordWrap: 'break-word',
               overflowWrap: 'break-word',

@@ -23,6 +23,36 @@ export const AVERAGE_CHAR_WIDTH = 14; // Approx width per char for 20px bold fon
 export const WRAPPED_NODE_HEIGHT = 110; // Height for text-only nodes when text wraps
 export const LINE_HEIGHT_ESTIMATE = 28; // Approx height of one line of text (px) - reduced from 32 for tighter spacing
 
+// --- Per-instance node size steps ---
+// Discrete multipliers applied ON TOP of the user's global textSettings.nodeScale.
+// Index 2 (1.0) is the default "Medium". Stored in instance.scale (a continuous float),
+// so these are simply five chosen points on that continuum — a future free-drag resize
+// can write arbitrary values and still cycle sanely (nextNodeSizeStep snaps first).
+export const NODE_SIZE_STEPS = [0.5, 0.75, 1.0, 1.5, 2.0]; // XS, S, M, L, XL
+export const NODE_SIZE_LABELS = ['XS', 'S', 'M', 'L', 'XL'];
+export const NODE_SIZE_DEFAULT_INDEX = 2; // Medium
+
+// Snap an arbitrary scale to the nearest defined step index.
+export const nearestNodeSizeIndex = (scale) => {
+  const s = (typeof scale === 'number' && scale > 0) ? scale : NODE_SIZE_STEPS[NODE_SIZE_DEFAULT_INDEX];
+  let best = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < NODE_SIZE_STEPS.length; i++) {
+    const d = Math.abs(NODE_SIZE_STEPS[i] - s);
+    if (d < bestDist) { bestDist = d; best = i; }
+  }
+  return best;
+};
+
+// Cycle order per product spec: M → L → XL → XS → S → M …
+// Ascending array with (idx + 1) % len yields exactly that when starting at Medium.
+export const nextNodeSizeStep = (scale) => {
+  const idx = nearestNodeSizeIndex(scale);
+  return NODE_SIZE_STEPS[(idx + 1) % NODE_SIZE_STEPS.length];
+};
+
+export const nodeSizeLabel = (scale) => NODE_SIZE_LABELS[nearestNodeSizeIndex(scale)];
+
 export const EDGE_MARGIN = 75; // Pixels from viewport edge for decomposed view placement
 
 export const TRACKPAD_ZOOM_SENSITIVITY = 6.5;     // Slightly increased sensitivity for trackpad pinch-zooming (macOS)

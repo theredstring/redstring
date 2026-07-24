@@ -56,9 +56,9 @@ describe('P3.1 — v4 export shape (emitV4: true)', () => {
   const state = buildState();
   const ex = exportToRedstring(state, null, { emitV4: true });
 
-  it('emits format redstring-v4.0.0', () => {
-    expect(ex.format).toBe('redstring-v4.0.0');
-    expect(ex.metadata.version).toBe('4.0.0');
+  it('emits format redstring-v4.1.0', () => {
+    expect(ex.format).toBe('redstring-v4.1.0');
+    expect(ex.metadata.version).toBe('4.1.0');
   });
 
   it('has NO top-level relationships section', () => {

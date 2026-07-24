@@ -14,7 +14,7 @@ import { runMigrations } from './migrations.js';
 import { safeJsonParse, stripDangerousKeys } from '../utils/safeJson.js';
 
 // Current format version
-export const CURRENT_FORMAT_VERSION = '4.0.0';
+export const CURRENT_FORMAT_VERSION = '4.1.0';
 
 // v4 dataset structure gate (D10). All phases 3–6 complete; v4 is live.
 export const EMIT_V4 = true;
@@ -24,6 +24,17 @@ export const MIN_SUPPORTED_VERSION = '1.0.0';
 
 // Version history and breaking changes
 export const VERSION_HISTORY = {
+  '4.1.0': {
+    date: '2026-07',
+    changes: [
+      'Per-instance node size: new optional instance field redstring:sizeMultiplier (in visualProperties) drives visual node dimensions and label size, layered on top of the global node-size scope',
+      'Distinct from redstring:spatialScale, which remains the transient drag-lift register',
+      'Same v4 dataset shape as 4.0.0 — additive, optional field only, no structural change'
+    ],
+    // Non-breaking: the field is optional and defaults to 1.0 (Medium), so 4.0.0 files
+    // (which lack it) load unchanged and render at Medium.
+    breaking: false
+  },
   '4.0.0': {
     date: '2026-06',
     changes: [
@@ -651,7 +662,13 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
           // Visual state properties
           "redstring:visualProperties": {
             "redstring:expanded": instance.expanded,
-            "redstring:visible": instance.visible
+            "redstring:visible": instance.visible,
+            // Persistent per-instance size multiplier (4.1.0). Distinct from
+            // spatialScale, which is the transient drag-lift register. Emitted only
+            // when non-default (≠ 1) so Medium-sized instances round-trip unchanged.
+            ...(instance.sizeMul != null && instance.sizeMul !== 1
+              ? { "redstring:sizeMultiplier": instance.sizeMul }
+              : {})
           },
           
           // Preserve original prototype reference for internal use
@@ -1069,9 +1086,9 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     // (P2.4); SCHEME_IRI is what every prototype's skos:inScheme points at.
     "@id": SCHEME_IRI,
     "@type": ["redstring:CognitiveSpace", "skos:ConceptScheme"],
-    "format": emitV4 ? 'redstring-v4.0.0' : `redstring-v${CURRENT_FORMAT_VERSION}`,
+    "format": `redstring-v${CURRENT_FORMAT_VERSION}`,
     "metadata": {
-      "version": emitV4 ? '4.0.0' : CURRENT_FORMAT_VERSION,
+      "version": CURRENT_FORMAT_VERSION,
       // Preserve the original creation timestamp across saves. It was being
       // re-stamped to "now" on every export, making the universe's true
       // creation date unrecoverable after the first save.
@@ -1369,6 +1386,15 @@ export const importFromRedstring = (redstringData, storeActions) => {
               convertedInstance.visible = visibleValue;
             } else if (instance.visible !== undefined) {
               convertedInstance.visible = instance.visible;
+            }
+
+            // Persistent per-instance size multiplier (4.1.0). Only assign when
+            // present so pre-4.1.0 files leave it undefined → renders at Medium (1.0).
+            const sizeMulValue = visual['redstring:sizeMultiplier'];
+            if (sizeMulValue !== undefined) {
+              convertedInstance.sizeMul = sizeMulValue;
+            } else if (instance.sizeMul !== undefined) {
+              convertedInstance.sizeMul = instance.sizeMul;
             }
 
             // Group anchor properties

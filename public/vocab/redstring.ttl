@@ -270,6 +270,12 @@ rs:spatialScale
   rdfs:range xsd:double ;
   rdfs:comment "Scale factor for an Instance or Prototype node on the canvas."@en .
 
+rs:sizeMultiplier
+  a owl:DatatypeProperty ;
+  rdfs:label "size multiplier"@en ;
+  rdfs:range xsd:double ;
+  rdfs:comment "Persistent per-instance size multiplier (default 1.0), layered on top of the global node-size scope. Distinct from spatialScale, which is a transient drag-lift value."@en .
+
 rs:panOffset
   a owl:DatatypeProperty ;
   rdfs:label "pan offset"@en ;

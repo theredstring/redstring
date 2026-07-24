@@ -112,7 +112,7 @@ export const KNOWN_INSTANCE_KEYS = new Set([
   'redstring:containedIn', 'redstring:spatialContext', 'redstring:visualProperties',
   'redstring:prototypeId', 'redstring:isGroupAnchor', 'redstring:anchorForGroupId',
   // legacy flat (read)
-  'id', 'prototypeId', 'name', 'description', 'x', 'y', 'scale',
+  'id', 'prototypeId', 'name', 'description', 'x', 'y', 'scale', 'sizeMul',
   'expanded', 'visible', 'isGroupAnchor', 'anchorForGroupId',
   '_preserved'
 ]);
@@ -246,6 +246,14 @@ export const quarantineUnknownFields = (data, version) => {
  *     metadata bookkeeping is centralized in `runMigrations`.
  * Both steps therefore carry no per-step body today; the structure is in place
  * for the future 3.0.0 → 4.0.0 step (P3.3), which will have real reshaping.
+ *
+ * Note on 4.0.0 → 4.1.0 (per-instance node size): intentionally NO ledger step.
+ * `stageOf` keys on the MAJOR version only, so a minor bump within v4 is never
+ * selected here — and none is needed: 4.1.0 adds one additive, optional field
+ * (redstring:sizeMultiplier in an instance's visualProperties). A 4.0.0 file simply
+ * lacks it → the reader leaves sizeMul undefined → the node renders at Medium (1.0).
+ * So a 4.0.0 file takes the runMigrations fast path unchanged and re-stamps to 4.1.0
+ * on the next save.
  */
 export const MIGRATIONS = [
   {

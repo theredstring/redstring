@@ -53,6 +53,7 @@ const HoverVisionAid = ({
   zoomLevel = 1
 }) => {
   const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
+  const hoverPreviewZoomOnly = useGraphStore((state) => state.hoverPreviewZoomOnly ?? true);
   const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 1.0);
 
   // On no-mouse (touch) devices there is no real hover — a tap would otherwise pop this
@@ -176,9 +177,11 @@ const HoverVisionAid = ({
   // Zoom-based visibility: a hard on/off threshold (shown only when zoomed out
   // enough that text gets small), not a ramp. Applied to a nested wrapper so it
   // fades independently of, and simultaneously with, the hover fade-in/out.
-  // Pie-menu item chips are exempt — they're a button label, not a legibility
-  // aid, so they show at every zoom level.
-  const zoomOpacity = (isItem || zoomLevel <= ZOOM_HIDE_THRESHOLD) ? 1 : 0;
+  // Gated by the "zoom only" setting (on by default): when off, node/connection
+  // previews show at any zoom. Pie-menu item chips are always exempt — they're a
+  // button label, not a legibility aid, so they show at every zoom level.
+  const zoomGated = hoverPreviewZoomOnly && !isItem && zoomLevel > ZOOM_HIDE_THRESHOLD;
+  const zoomOpacity = zoomGated ? 0 : 1;
 
   // Pre-resizable fixed preview dimensions (reverted from node-size scaling).
   const CONNECTION_PREVIEW_HEIGHT = 180;
