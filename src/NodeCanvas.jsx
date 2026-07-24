@@ -17,7 +17,7 @@ import UnifiedBottomControlPanel from './UnifiedBottomControlPanel.jsx';
 import EdgeGlowIndicator from './components/EdgeGlowIndicator.jsx'; // Import the EdgeGlowIndicator component
 import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToCivilization component
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
-import { getNodeDimensions } from './utils.js';
+import { getNodeDimensions, generateThumbnail } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeasurement.js';
 import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
@@ -25,7 +25,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, ArrowRight, Sparkles, Copy, Scaling } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, ArrowRight, Sparkles, Copy, CopyPlus, Scaling, TextSearch, ImagePlus } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -87,7 +87,8 @@ import {
   MODAL_CLOSE_ICON_SIZE,
   DARK_MODE_BG_COLOR,
   LIGHT_MODE_BG_COLOR,
-  EXCLUSIVE_PANEL_MODE_THRESHOLD
+  EXCLUSIVE_PANEL_MODE_THRESHOLD,
+  THUMBNAIL_MAX_DIMENSION
 } from './constants';
 
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -6138,7 +6139,7 @@ function NodeCanvas() {
       if (pieMenuPage === 1) {
         return [
           {
-            id: 'duplicate', label: 'Duplicate', icon: Copy, action: (instanceId) => {
+            id: 'duplicate', label: 'Duplicate', icon: CopyPlus, action: (instanceId) => {
               const instance = nodes.find(n => n.id === instanceId);
               if (!instance || !activeGraphId) return;
               // Drop the copy slightly down-right of the original so it's visibly distinct.
@@ -6153,6 +6154,72 @@ function NodeCanvas() {
               // Move selection (and the pie menu) to the new copy.
               setSelectedInstanceIds(new Set([newInstanceId]));
               setSelectedNodeIdForPieMenu(newInstanceId);
+            }
+          },
+          {
+            id: 'copy', label: 'Copy', icon: Copy, action: (instanceId) => {
+              // Copy this node (and any edges among the selection) to the clipboard,
+              // same path as Ctrl/Cmd+C so it can be pasted anywhere.
+              const currentGraph = graphsMap.get(activeGraphId);
+              if (!currentGraph || !instanceId) return;
+              const copied = copySelection(new Set([instanceId]), currentGraph, nodePrototypesMap, edgesMap);
+              if (copied) clipboardRef.current = copied;
+            }
+          },
+          {
+            id: 'add-image', label: 'Add Image', icon: ImagePlus, action: (instanceId) => {
+              // Mirrors the panel's Add Image: pick a file, store it (full + thumbnail)
+              // on the node's prototype as data URLs. User uploads persist in-file.
+              const instance = nodes.find(n => n.id === instanceId);
+              const prototypeId = instance?.prototypeId;
+              if (!prototypeId) return;
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.accept = 'image/*';
+              input.onchange = (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (loadEvent) => {
+                  const fullImageSrc = loadEvent.target?.result;
+                  if (typeof fullImageSrc !== 'string') return;
+                  const img = new Image();
+                  img.onload = async () => {
+                    try {
+                      const aspectRatio = (img.naturalHeight > 0 && img.naturalWidth > 0) ? (img.naturalHeight / img.naturalWidth) : 1;
+                      const thumbSrc = await generateThumbnail(fullImageSrc, THUMBNAIL_MAX_DIMENSION);
+                      storeActions.updateNodePrototype(prototypeId, draft => {
+                        Object.assign(draft, { imageSrc: fullImageSrc, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
+                        // User image replaces any auto-enriched Wikipedia thumbnail — clear
+                        // the flag so the save system persists it in-file.
+                        if (draft.semanticMetadata?.autoEnriched) {
+                          draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
+                        }
+                      });
+                    } catch (error) {
+                      console.error('[PieMenu] Add Image failed:', error);
+                    }
+                  };
+                  img.src = fullImageSrc;
+                };
+                reader.readAsDataURL(file);
+              };
+              input.click();
+            }
+          },
+          {
+            id: 'semantic-search', label: 'Semantic Search', icon: TextSearch, action: (instanceId) => {
+              // Mirrors the right panel's Text Search: open Semantic Discovery for this
+              // node's name (and trigger the search directly if the view is already up).
+              const instance = nodes.find(n => n.id === instanceId);
+              const query = instance?.name || '';
+              if (!query.trim()) return;
+              try {
+                window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query } }));
+                if (typeof window.triggerSemanticSearch === 'function') {
+                  window.triggerSemanticSearch(query);
+                }
+              } catch { }
             }
           },
           {
@@ -6321,7 +6388,7 @@ function NodeCanvas() {
         }
       ];
     }
-  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, Sparkles, Scaling, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage, graphsMap, edgesMap, nodePrototypesMap, clipboardRef, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, CopyPlus, Sparkles, Scaling, TextSearch, ImagePlus, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
 
   // Data for the decomposition CONTROL PANEL (mirrors the decomposition pie-menu state).
   // Non-null whenever a node is being previewed/decomposed; supplies the current definition
