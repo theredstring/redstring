@@ -310,9 +310,11 @@ const PieMenu = ({
     // Distance from the node center out to the outer edge of the East/West bubbles.
     const halfExtentX = currentWidth / 2 + totalVisualOffset + bSize / 2;
     const maxChevronHeight = bSize * 2.5;             // ceiling so tall image nodes don't over-stretch it
-    const chevronHeight = Math.min(currentHeight, maxChevronHeight); // match node height, capped
-    const chevronDepth = 26 * scale + chevronHeight * 0.1; // widens with height, but only gently
-    const fillThickness = 14 * scale + chevronHeight * 0.03; // band thickness, grows slightly with height
+    const chevronHeight = Math.min(currentHeight, maxChevronHeight); // vertical span, capped
+    // Depth & thickness keep growing past the height cap, up to their own larger ceiling.
+    const girthHeight = Math.min(currentHeight, bSize * 6);
+    const chevronDepth = 26 * scale + girthHeight * 0.1; // widens with height, but only gently
+    const fillThickness = 14 * scale + girthHeight * 0.03; // band thickness, grows slightly with height
     const border = strokeWidth;                 // maroon outline weight (matches bubbles)
     const gap = bPad * 1.5;                      // space between menu edge and the arrow point
     chevronGeometry = {

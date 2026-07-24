@@ -580,14 +580,26 @@ export function useForceSimulation({
     }
 
     // Center force — toward the graph's initial centroid, keeping the layout
-    // where the user left it instead of dragging it toward the canvas origin
+    // where the user left it instead of dragging it toward the canvas origin.
+    // Unconnected (degree-0) nodes have no springs reeling them in, so their
+    // resting radius is set purely by repulsion vs. this centering pull and
+    // they drift further out than connected clusters. Give them a stronger
+    // centering pull so they pack tighter without affecting connected nodes.
     const centerTarget = state.centroid || computeCentroid(nodes) || { x: 0, y: 0 };
+    const connectedIds = new Set();
+    edges.forEach(edge => {
+      connectedIds.add(edge.sourceId);
+      connectedIds.add(edge.destinationId);
+    });
     nodes.forEach(node => {
       if (draggedIds.has(node.id)) return;
       const vel = velocities.get(node.id);
       if (vel) {
-        vel.vx += (centerTarget.x - node.x) * centerStrength * state.alpha;
-        vel.vy += (centerTarget.y - node.y) * centerStrength * state.alpha;
+        const cs = connectedIds.has(node.id)
+          ? centerStrength
+          : centerStrength * (FORCE_LAYOUT_DEFAULTS.isolatedCenterBoost || 1);
+        vel.vx += (centerTarget.x - node.x) * cs * state.alpha;
+        vel.vy += (centerTarget.y - node.y) * cs * state.alpha;
       }
     });
 

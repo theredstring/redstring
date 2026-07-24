@@ -31,7 +31,7 @@ const STANDARD_TEXT_SETTINGS = { fontSize: 1, lineSpacing: 1, nodeScale: 1, conn
 // baseline: 1x on the slider = HOVER_PREVIEW_BASE_SCALE actual scale. Keeping the
 // slider centered on 1x (rather than exposing the raw 0.6 factor) makes the
 // default read as "normal" while still letting users scale up or down from there.
-const HOVER_PREVIEW_BASE_SCALE = 0.6;
+const HOVER_PREVIEW_BASE_SCALE = 0.66;
 
 /**
  * HoverVisionAid displays a high-fidelity preview of nodes or connections
@@ -86,7 +86,11 @@ const HoverVisionAid = ({
       return { kind: 'node', key: `n:${hoveredNode.id}`, node: hoveredNode };
     }
     if (hasItem) {
-      return { kind: 'item', key: `i:${activePieMenuItem.id ?? activePieMenuItem.label}`, item: activePieMenuItem };
+      // Include the label in the key (not just the id): some pie items (e.g. the
+      // size cycler) keep a stable id but change their label on click, and the
+      // display is gated on this key. Keying on label too lets the chip text
+      // update in place — an instant swap since the chip is already visible.
+      return { kind: 'item', key: `i:${activePieMenuItem.id ?? ''}:${activePieMenuItem.label}`, item: activePieMenuItem };
     }
     return null;
   }, [showHoverPreview, noHoverDevice, hoveredConnection, hoveredNode, activePieMenuItem]);

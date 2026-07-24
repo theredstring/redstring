@@ -510,6 +510,7 @@ export const FORCE_LAYOUT_DEFAULTS = {
   repulsionStrength: 2200,     // Refined value from tuner (was 500000)
   attractionStrength: 0.05,    // Refined value from tuner (was 0.2)
   centerStrength: 0.015,       // Gentler centering
+  isolatedCenterBoost: 2.5,    // Extra centering pull for degree-0 nodes (no springs) so they pack tighter
 
   // Distance parameters
   targetLinkDistance: 400,    // Much longer target distance
@@ -1973,15 +1974,21 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       }
     }
 
-    // Centering force
+    // Centering force. Degree-0 (unconnected) nodes have no springs reeling
+    // them in, so they drift further out than connected clusters — give them
+    // an extra centering pull so they pack tighter without affecting the rest.
     const centerStrength = isSparse ? config.centerStrength * 1.5 : config.centerStrength;
+    const isolatedBoost = config.isolatedCenterBoost || FORCE_LAYOUT_DEFAULTS.isolatedCenterBoost || 1;
     nodes.forEach(node => {
       const pos = positions.get(node.id);
       const force = forces.get(node.id);
       if (!pos || !force) return;
 
+      const nodeCenterStrength = (adjacency.get(node.id) || []).length === 0
+        ? centerStrength * isolatedBoost
+        : centerStrength;
       const center = calculateCentering(pos, centerX, centerY,
-        centerStrength * centerMult * alpha);
+        nodeCenterStrength * centerMult * alpha);
       force.fx += center.fx;
       force.fy += center.fy;
     });

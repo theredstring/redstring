@@ -6434,30 +6434,10 @@ function NodeCanvas() {
             }
           },
           {
-            // Cycle this instance's per-instance size, stored in instance.sizeMul (a
-            // continuous float persisted in the .redstring file). NOT instance.scale —
-            // that field is the transient drag-lift transform register (1 at rest), so
-            // reusing it would make nodes re-wrap text on grab and lose their size on
-            // drop. nextNodeSizeStep snaps the current value to the nearest named step
-            // and advances (M → L → XL → XS → S → M). getNodeDimensions + Node.jsx fold
-            // sizeMul into an effective node scale, so both the box and its label grow
-            // together, on top of the global node-size scope.
-            id: 'change-size',
-            label: (() => {
-              const inst = nodes.find(n => n.id === selectedNodeIdForPieMenu);
-              return `Size: ${nodeSizeLabel(inst?.sizeMul ?? 1.0)}`;
-            })(),
-            icon: Scaling,
-            action: (instanceId) => {
-              const instance = nodes.find(n => n.id === instanceId);
-              if (!instance || !activeGraphId) return;
-              const next = nextNodeSizeStep(instance.sizeMul ?? 1.0);
-              storeActions.updateNodeInstance(
-                activeGraphId,
-                instanceId,
-                (inst) => { inst.sizeMul = next; },
-                { type: 'node_resize', finalize: true }
-              );
+            id: 'orbit', label: 'Semantic Orbit', icon: Orbit, action: (instanceId) => {
+              setSemanticOrbitActive(true);
+              setSelectedNodeIdForPieMenu(null);
+              setNodeControlPanelVisible(false);
             }
           },
           {
@@ -6611,10 +6591,39 @@ function NodeCanvas() {
           }
         },
         {
-          id: 'orbit', label: 'Semantic Orbit', icon: Orbit, action: (instanceId) => {
-            setSemanticOrbitActive(true);
-            setSelectedNodeIdForPieMenu(null);
-            setNodeControlPanelVisible(false);
+          // Cycle this instance's per-instance size, stored in instance.sizeMul (a
+          // continuous float persisted in the .redstring file). NOT instance.scale —
+          // that field is the transient drag-lift transform register (1 at rest), so
+          // reusing it would make nodes re-wrap text on grab and lose their size on
+          // drop. nextNodeSizeStep snaps the current value to the nearest named step
+          // and advances (M → L → XL → XS → S → M). getNodeDimensions + Node.jsx fold
+          // sizeMul into an effective node scale, so both the box and its label grow
+          // together, on top of the global node-size scope.
+          id: 'change-size',
+          label: (() => {
+            const inst = nodes.find(n => n.id === selectedNodeIdForPieMenu);
+            return `Size: ${nodeSizeLabel(inst?.sizeMul ?? 1.0)}`;
+          })(),
+          icon: Scaling,
+          action: (instanceId) => {
+            const instance = nodes.find(n => n.id === instanceId);
+            if (!instance || !activeGraphId) return;
+            const next = nextNodeSizeStep(instance.sizeMul ?? 1.0);
+            storeActions.updateNodeInstance(
+              activeGraphId,
+              instanceId,
+              (inst) => { inst.sizeMul = next; },
+              { type: 'node_resize', finalize: true }
+            );
+            // The hover chip snapshots its label when the pointer enters the
+            // button, so it would otherwise keep showing the pre-click size.
+            // Refresh it in place (same id → same chip, instant text swap) so it
+            // tracks the new size while the pointer stays on the button.
+            if (activePieMenuItemRef.current?.id === 'change-size') {
+              const refreshedItem = { id: 'change-size', label: `Size: ${nodeSizeLabel(next)}` };
+              setActivePieMenuItemForVision(refreshedItem);
+              activePieMenuItemRef.current = refreshedItem;
+            }
           }
         }
       ];
@@ -9567,6 +9576,21 @@ function NodeCanvas() {
   // Effect to prepare and render PieMenu when selectedNodeIdForPieMenu changes and not transitioning
   useEffect(() => {
     if (selectedNodeIdForPieMenu && !isTransitioningPieMenu && !semanticOrbitActive) {
+      // If the pie-menu node is being lifted/dragged, dismiss the menu INSTANTLY rather
+      // than playing the shrink-out. Lifting kicks off the drag zoom-out (a ~250ms RAF
+      // that pans/zooms the canvas every frame), and the PieMenu lives inside that zoomed
+      // SVG group — so animating the 100ms shrink at the same time makes the bubbles
+      // appear to flash/recede "further back" as the canvas pulls away from their frozen
+      // canvas-space position. A deliberate grab shouldn't wait on a shrink anyway; the
+      // menu re-pops on drop when the node re-selects. Idempotent (no-op once torn down).
+      const isDraggingThisNode = draggingNodeInfo &&
+        (draggingNodeInfo.primaryId === selectedNodeIdForPieMenu ||
+         draggingNodeInfo.instanceId === selectedNodeIdForPieMenu);
+      if (isDraggingThisNode) {
+        setIsPieMenuRendered(false);
+        setCurrentPieMenuData(null);
+        return;
+      }
       const node = nodes.find(n => n.id === selectedNodeIdForPieMenu);
       if (node) {
         // Check if we're in carousel mode and have dynamic dimensions
@@ -9618,7 +9642,7 @@ function NodeCanvas() {
     }
     // If isTransitioningPieMenu is true, we don't change currentPieMenuData or isPieMenuRendered here.
     // The existing menu plays its exit animation, and onExitAnimationComplete handles the next steps.
-  }, [selectedNodeIdForPieMenu, nodes, previewingNodeId, isTransitioningPieMenu, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNodeScale, carouselFocusedNodeDimensions, carouselFocusedNode]);
+  }, [selectedNodeIdForPieMenu, nodes, previewingNodeId, isTransitioningPieMenu, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNodeScale, carouselFocusedNodeDimensions, carouselFocusedNode, draggingNodeInfo]);
 
   useEffect(() => {
     if (!isPieMenuRendered) {

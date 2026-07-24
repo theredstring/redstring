@@ -475,7 +475,14 @@ const Node = ({
                 display: 'inline-block',
                 width: '100%',
                 maxWidth: previewTextMaxWidth ? `${previewTextMaxWidth}px` : '100%',
-                transition: 'color 0.3s ease',
+                // Grow the font in lock-step with the box (foreignObject width/height +
+                // container padding all transition 0.3s ease). Without this the font
+                // jumps to full size instantly while the box is still growing, so a
+                // resized node's text wraps for ~0.3s before the box catches up. Both
+                // width and font scale by the same effNodeScale and fit at the start
+                // and end sizes, so syncing their transitions keeps the text fitting
+                // at every intermediate frame.
+                transition: 'color 0.3s ease, font-size 0.3s ease, line-height 0.3s ease',
                 hyphens: 'auto',
               }}
               lang="en"
@@ -493,30 +500,23 @@ const Node = ({
         clipPath={`url(#${clipPathId})`}
       > */}
       {hasThumbnail && (
-        <foreignObject
+        // Native SVG <image> rather than a <foreignObject><img>. A foreignObject spins up a
+        // full HTML layout context inside the SVG (heavy, esp. on WebKit); when a node is
+        // lifted it remounts into a separate "dragging node" render slot, and re-laying-out
+        // that subtree on the same frames starves the PieMenu's CSS shrink — the exit
+        // animation visibly stutters for image nodes. A native <image> is a cheap leaf
+        // element, so the remount is nearly free. clipPath gives the rounded corners and
+        // preserveAspectRatio="xMidYMid slice" reproduces objectFit: cover.
+        <image
           x={nodeX + effPadding}
           y={contentAreaY}
           width={imageWidth}
           height={imageHeight}
+          href={nodeThumbnailSrc}
+          preserveAspectRatio="xMidYMid slice"
           clipPath={`url(#${clipPathId})`}
-          style={{ overflow: 'hidden' }}
-        >
-          <img
-            xmlns="http://www.w3.org/1999/xhtml"
-            src={nodeThumbnailSrc}
-            alt=""
-            draggable={false}
-            onDragStart={(e) => e.preventDefault()}
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              display: 'block',
-              userSelect: 'none',
-              WebkitUserDrag: 'none',
-            }}
-          />
-        </foreignObject>
+          style={{ userSelect: 'none', WebkitUserDrag: 'none', pointerEvents: 'none' }}
+        />
       )}
       {/* </g> */}
 
