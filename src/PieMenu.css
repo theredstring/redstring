@@ -62,6 +62,71 @@
   }
 }
 
+/* Hover-grow for each bubble's contents. Nested inside .pie-menu-bubble-inner so its
+   scale transition never fights the pop/shrink transform on the parent. Origin is the
+   bubble's local (0,0) center — same basis the pop animation scales about. */
+.pie-bubble-hover {
+  transform: scale(1);
+  transition: transform 0.15s ease;
+}
+.pie-bubble-hover:hover {
+  transform: scale(1.10);
+}
+
+/* --- Page-switch chevrons: delayed intro, outro, and hover-grow --- */
+
+/* Base (hidden) state before the delayed intro fires */
+.pie-chevron-intro {
+  opacity: 0;
+  transform: scale(0.55);
+  will-change: transform, opacity;
+}
+
+/* Delayed pop-in, staggered slightly after the pie menu bubbles start */
+.pie-chevron-intro.is-popping {
+  animation-name: pie-chevron-in;
+  animation-duration: 260ms;
+  animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation-delay: 150ms;
+  animation-fill-mode: forwards;
+}
+
+/* Steady resting state */
+.pie-chevron-intro.is-steady {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Outro, mirrors the bubble shrink */
+.pie-chevron-intro.is-shrinking {
+  opacity: 1;
+  transform: scale(1);
+  animation-name: pie-chevron-out;
+  animation-duration: 120ms;
+  animation-timing-function: cubic-bezier(0.6, -0.28, 0.735, 0.045);
+  animation-fill-mode: forwards;
+}
+
+@keyframes pie-chevron-in {
+  0% { opacity: 0; transform: scale(0.55); }
+  70% { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pie-chevron-out {
+  0% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.55); }
+}
+
+/* Hover-grow, nested so it doesn't fight the intro transform */
+.pie-chevron-hover {
+  transform: scale(1);
+  transition: transform 0.15s ease;
+}
+.pie-chevron-hover:hover {
+  transform: scale(1.15);
+}
+
 /* Class for when the bubble is animating out */
 .pie-menu-bubble-inner.animating-out {
   /* Explicitly start from visible state if transitioning from popped-and-visible */

@@ -269,14 +269,19 @@ const PieMenu = ({
       if (animationState === 'shrinking' || !isVisible) return;
       onPageChange(nextPage);
     };
+
+    // Intro/outro is driven by the shared pie-menu animation state; the delayed
+    // pop-in is handled in CSS (animation-delay on .pie-chevron-intro.is-popping).
+    let introClass = 'is-steady';
+    if (animationState === 'popping') introClass = 'is-popping';
+    else if (animationState === 'shrinking') introClass = 'is-shrinking';
+
     return (
       <g
         key={`pie-chevron-${side}`}
         transform={`translate(${cx}, ${centerY})`}
         style={{
           cursor: 'pointer',
-          opacity: animationState === 'shrinking' ? 0 : 1,
-          transition: 'opacity 0.15s ease',
           WebkitTapHighlightColor: 'transparent',
           touchAction: 'manipulation',
         }}
@@ -285,32 +290,38 @@ const PieMenu = ({
         onTouchEnd={activate}
         onClick={activate}
       >
-        {/* Invisible rectangular hitbox around the (thick) arm bounds */}
-        <rect
-          x={-(d / 2 + halfOuter)}
-          y={-(h / 2 + halfOuter)}
-          width={d + halfOuter * 2}
-          height={h + halfOuter * 2}
-          fill="transparent"
-        />
-        {/* Maroon outer band (drawn wider, underneath) forms the outline */}
-        <polyline
-          points={points}
-          fill="none"
-          stroke="maroon"
-          strokeWidth={outerWidth}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        {/* #DEDADA interior (bubble fill) sits on top, leaving the maroon as an outline */}
-        <polyline
-          points={points}
-          fill="none"
-          stroke="#DEDADA"
-          strokeWidth={fillThickness}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        {/* Delayed intro / outro wrapper */}
+        <g className={`pie-chevron-intro ${introClass}`}>
+          {/* Hover-grow wrapper (nested so it doesn't fight the intro transform) */}
+          <g className="pie-chevron-hover">
+            {/* Invisible rectangular hitbox around the (thick) arm bounds */}
+            <rect
+              x={-(d / 2 + halfOuter)}
+              y={-(h / 2 + halfOuter)}
+              width={d + halfOuter * 2}
+              height={h + halfOuter * 2}
+              fill="transparent"
+            />
+            {/* Maroon outer band (drawn wider, underneath) forms the outline */}
+            <polyline
+              points={points}
+              fill="none"
+              stroke="maroon"
+              strokeWidth={outerWidth}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {/* #DEDADA interior (bubble fill) sits on top, leaving the maroon as an outline */}
+            <polyline
+              points={points}
+              fill="none"
+              stroke="#DEDADA"
+              strokeWidth={fillThickness}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </g>
+        </g>
       </g>
     );
   };
@@ -547,24 +558,28 @@ const PieMenu = ({
                 }}
                 ref={bubbleRefs.current[index]} // Assign ref to the inner g
               >
-                <circle
-                  cx="0"
-                  cy="0"
-                  r={bSize / 2}
-                  fill="#DEDADA"
-                  stroke="maroon"
-                  strokeWidth={strokeWidth}
-                />
-                {IconComponent && (
-                  <IconComponent
-                    x={-iSize / 2}
-                    y={-iSize / 2}
-                    width={iSize}
-                    height={iSize}
-                    color="maroon"
-                    fill={button.fill || 'none'}
+                {/* Hover-grow wrapper: nested so its scale transition does not fight the
+                    pop/shrink transform on the parent. */}
+                <g className="pie-bubble-hover">
+                  <circle
+                    cx="0"
+                    cy="0"
+                    r={bSize / 2}
+                    fill="#DEDADA"
+                    stroke="maroon"
+                    strokeWidth={strokeWidth}
                   />
-                )}
+                  {IconComponent && (
+                    <IconComponent
+                      x={-iSize / 2}
+                      y={-iSize / 2}
+                      width={iSize}
+                      height={iSize}
+                      color="maroon"
+                      fill={button.fill || 'none'}
+                    />
+                  )}
+                </g>
               </g>
             </g>
           </g>
