@@ -510,7 +510,9 @@ export const FORCE_LAYOUT_DEFAULTS = {
   repulsionStrength: 2200,     // Refined value from tuner (was 500000)
   attractionStrength: 0.05,    // Refined value from tuner (was 0.2)
   centerStrength: 0.015,       // Gentler centering
-  isolatedCenterBoost: 2.5,    // Extra centering pull for degree-0 nodes (no springs) so they pack tighter
+  isolatedCenterBoost: 2.5,    // Interactive sim: extra centering pull for degree-0 nodes (no springs) so they pack tighter
+  isolatedSpacingFactor: 0.8,  // Batch layout: trims the minSpacing term for unconnected nodes (only binds for small nodes)
+  isolatedGapFactor: 1.05,     // Batch layout: edge gap between unconnected nodes as a fraction of largest node diameter (was 1.15). Lower = tighter; 1.0 = touching.
 
   // Distance parameters
   targetLinkDistance: 400,    // Much longer target distance
@@ -1974,21 +1976,15 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       }
     }
 
-    // Centering force. Degree-0 (unconnected) nodes have no springs reeling
-    // them in, so they drift further out than connected clusters — give them
-    // an extra centering pull so they pack tighter without affecting the rest.
+    // Centering force
     const centerStrength = isSparse ? config.centerStrength * 1.5 : config.centerStrength;
-    const isolatedBoost = config.isolatedCenterBoost || FORCE_LAYOUT_DEFAULTS.isolatedCenterBoost || 1;
     nodes.forEach(node => {
       const pos = positions.get(node.id);
       const force = forces.get(node.id);
       if (!pos || !force) return;
 
-      const nodeCenterStrength = (adjacency.get(node.id) || []).length === 0
-        ? centerStrength * isolatedBoost
-        : centerStrength;
       const center = calculateCentering(pos, centerX, centerY,
-        nodeCenterStrength * centerMult * alpha);
+        centerStrength * centerMult * alpha);
       force.fx += center.fx;
       force.fy += center.fy;
     });
@@ -2166,7 +2162,17 @@ function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius
   isolatedNodes.forEach(n => {
     maxDiameter = Math.max(maxDiameter, getRadius(n) * 2);
   });
-  const spacing = Math.max(minSpacing, maxDiameter * 1.15);
+  // The overall spread scales directly with `spacing`, and for an all-isolated
+  // graph the collision floor (maxDiameter × gapFactor) is what binds — not
+  // minSpacing. gapFactor is the edge-to-edge breathing room as a fraction of
+  // the largest node's diameter (1.0 = largest nodes just touch); lower it to
+  // pack unconnected nodes tighter. isolatedSpacingFactor still trims the
+  // minSpacing term for the rare small-node case where it binds instead.
+  const isolatedSpacingFactor = config.isolatedSpacingFactor
+    ?? FORCE_LAYOUT_DEFAULTS.isolatedSpacingFactor ?? 1;
+  const gapFactor = config.isolatedGapFactor
+    ?? FORCE_LAYOUT_DEFAULTS.isolatedGapFactor ?? 1.15;
+  const spacing = Math.max(minSpacing * isolatedSpacingFactor, maxDiameter * gapFactor);
 
   // Occupied bodies + layout bounds
   const occupied = [];

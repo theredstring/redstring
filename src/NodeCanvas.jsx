@@ -25,7 +25,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, Sparkles, Copy, CopyPlus, Scaling, TextSearch, ImagePlus, NotebookText } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, Sparkles, Copy, CopyPlus, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -9576,19 +9576,14 @@ function NodeCanvas() {
   // Effect to prepare and render PieMenu when selectedNodeIdForPieMenu changes and not transitioning
   useEffect(() => {
     if (selectedNodeIdForPieMenu && !isTransitioningPieMenu && !semanticOrbitActive) {
-      // If the pie-menu node is being lifted/dragged, dismiss the menu INSTANTLY rather
-      // than playing the shrink-out. Lifting kicks off the drag zoom-out (a ~250ms RAF
-      // that pans/zooms the canvas every frame), and the PieMenu lives inside that zoomed
-      // SVG group — so animating the 100ms shrink at the same time makes the bubbles
-      // appear to flash/recede "further back" as the canvas pulls away from their frozen
-      // canvas-space position. A deliberate grab shouldn't wait on a shrink anyway; the
-      // menu re-pops on drop when the node re-selects. Idempotent (no-op once torn down).
+      // If the pie-menu node is being lifted/dragged, FREEZE currentPieMenuData so the
+      // shrink-out animation keeps playing from where the menu was. `nodes` is a dep of
+      // this effect and the lift writes a LIFT_SCALE onto the node every frame, so without
+      // this early return we'd rebuild the menu data mid-shrink and re-pop the bubbles.
       const isDraggingThisNode = draggingNodeInfo &&
         (draggingNodeInfo.primaryId === selectedNodeIdForPieMenu ||
          draggingNodeInfo.instanceId === selectedNodeIdForPieMenu);
       if (isDraggingThisNode) {
-        setIsPieMenuRendered(false);
-        setCurrentPieMenuData(null);
         return;
       }
       const node = nodes.find(n => n.id === selectedNodeIdForPieMenu);
@@ -10367,8 +10362,9 @@ function NodeCanvas() {
     snapActiveGraphToGrid();
   }, [activeGraphId, snapActiveGraphToGrid]);
 
-  // Context Menu options for canvas background
-  const getCanvasContextMenuOptions = useCallback(() => {
+  // Context Menu options for canvas background.
+  // clientX/clientY are the right-click screen coords (used to place a paste).
+  const getCanvasContextMenuOptions = useCallback((clientX, clientY) => {
     const options = [
       {
         label: 'Auto Layout Web',
@@ -10385,6 +10381,69 @@ function NodeCanvas() {
         }
       }
     ];
+
+    // Paste — only when the clipboard holds Redstring-ready node content and
+    // there's an active graph to drop it into. The label reflects the shape of
+    // what was copied (connections between selected nodes are captured on copy):
+    //   1 node                              → Paste Thing
+    //   many nodes, no connections          → Paste Things
+    //   exactly 2 nodes + 1 directed edge   → Paste Triplet
+    //   many nodes + any connections        → Paste Web
+    const clip = clipboardRef.current;
+    if (activeGraphId && Array.isArray(clip?.nodes) && clip.nodes.length > 0) {
+      const nodeCount = clip.nodes.length;
+      const edges = Array.isArray(clip.edges) ? clip.edges : [];
+      const edgeCount = edges.length;
+
+      let pasteLabel;
+      if (edgeCount === 0) {
+        pasteLabel = nodeCount === 1 ? 'Paste Thing' : 'Paste Things';
+      } else if (nodeCount === 2 && edgeCount === 1) {
+        const arrows = edges[0]?.edgeData?.directionality?.arrowsToward;
+        const arrowCount = arrows instanceof Set ? arrows.size : (Array.isArray(arrows) ? arrows.length : 0);
+        pasteLabel = arrowCount > 0 ? 'Paste Triplet' : 'Paste Web';
+      } else {
+        pasteLabel = 'Paste Web';
+      }
+
+      options.push({
+        label: pasteLabel,
+        icon: <ClipboardPaste size={14} />,
+        action: () => {
+          const currentGraph = graphsMap.get(activeGraphId);
+          if (!currentGraph) return;
+
+          // Convert the right-click screen point to canvas coords (mirrors the
+          // Cmd/Ctrl+V handler in useCanvasKeyboard.js).
+          const svgElement = document.querySelector('.canvas');
+          const rect = svgElement?.getBoundingClientRect();
+          let targetPos;
+          if (rect && typeof clientX === 'number' && typeof clientY === 'number') {
+            targetPos = {
+              x: (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX,
+              y: (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY
+            };
+          } else {
+            targetPos = {
+              x: clip.originalCenter.x + 50,
+              y: clip.originalCenter.y + 50
+            };
+          }
+
+          const result = pasteClipboard(
+            clip,
+            activeGraphId,
+            targetPos,
+            storeActions,
+            currentGraph,
+            getNodeDimensions
+          );
+          if (result?.newInstanceIds) {
+            setSelectedInstanceIds(new Set(result.newInstanceIds));
+          }
+        }
+      });
+    }
     if (wizardEnabled) {
       options.push({
         label: 'Ask The Wizard',
@@ -10418,7 +10477,7 @@ function NodeCanvas() {
       });
     }
     return options;
-  }, [triggerAutoLayout, snapToGrid, wizardEnabled, openGrowGraphWizardWithPrompt]);
+  }, [triggerAutoLayout, snapToGrid, wizardEnabled, openGrowGraphWizardWithPrompt, activeGraphId, graphsMap, storeActions, canvasSize, setSelectedInstanceIds]);
 
   // Context Menu options for nodes - core functionality without pie menu transition logic
   const getContextMenuOptions = useCallback((instanceId) => {
@@ -11474,7 +11533,7 @@ function NodeCanvas() {
           onContextMenu={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            showContextMenu(e.clientX, e.clientY, getCanvasContextMenuOptions());
+            showContextMenu(e.clientX, e.clientY, getCanvasContextMenuOptions(e.clientX, e.clientY));
           }}
         >
           {isUniverseLoading ? (

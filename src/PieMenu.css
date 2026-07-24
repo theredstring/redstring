@@ -3,9 +3,14 @@
 /* Inner wrapper of each bubble that performs the pop-up animation. */
 .pie-menu-bubble-inner {
   /* Default state: hidden, before pop or after shrink */
-  opacity: 0; 
+  opacity: 0;
   transform: translate(var(--start-x), var(--start-y)) scale(0);
-  will-change: transform, opacity;
+  /* NOTE: no `will-change: transform` here. It promoted each bubble to its own GPU
+     layer, and lifting a node runs the drag zoom-out which mutates the parent SVG
+     transform on the main thread every frame. WebKit then presents a frame where the
+     promoted bubble layer hasn't caught up to the new parent transform — the shrinking
+     bubbles flash "further back" for one frame. Rendering in the normal SVG paint tree
+     keeps them in lockstep with the zoom. The pop/shrink are short and don't need it. */
   /* Removed direct animation props here, will be applied by stateful classes */
 }
 

@@ -177,7 +177,7 @@ const PieMenu = ({
           const listener = (event) => handleAnimationEnd(event, index);
           currentRef.addEventListener('animationend', listener);
           // Store listener for cleanup
-          currentRef._animationEndListener = listener; 
+          currentRef._animationEndListener = listener;
         }
       });
     }

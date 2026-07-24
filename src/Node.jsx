@@ -76,6 +76,11 @@ const Node = ({
   const effPadding = scaledPadding ?? NODE_PADDING * effNodeScale;
   const effCornerRadius = scaledCornerRadius ?? NODE_CORNER_RADIUS * effNodeScale;
 
+  // Selection stroke scales with the node's size (mostly proportional, lightly damped
+  // so tiny nodes keep a visible outline). Blend keeps 12 anchored at effNodeScale 1:
+  // e.g. XL (2×) → ~22, XS (0.5×) → ~7.
+  const selectionStrokeWidth = 12 * (0.15 + 0.85 * effNodeScale);
+
   // Font size for the "Define … With a New Web" placeholder shown when a decomposed
   // node has no definition yet. The preview's inner-network area is large, so a fixed
   // size reads as tiny — scale it to the area's width (which already folds in
@@ -411,9 +416,9 @@ const Node = ({
         height={currentHeight - 12}
         fill={safeColor}
         stroke={isSelected ? 'black' : 'none'}
-        strokeWidth={12}
+        strokeWidth={selectionStrokeWidth}
         mask={isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 ? `url(#${idPrefix}node-mask-${instanceId})` : undefined}
-        style={{ transition: 'width 0.3s ease, height 0.3s ease, fill 0.2s ease' }}
+        style={{ transition: 'width 0.3s ease, height 0.3s ease, fill 0.2s ease, stroke-width 0.3s ease' }}
       />
 
       <foreignObject
