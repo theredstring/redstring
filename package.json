@@ -89,7 +89,7 @@
     "@chenglou/pretext": "^0.0.5",
     "@inrupt/solid-client": "^1.23.1",
     "@inrupt/solid-client-authn-browser": "^3.1.0",
-    "@modelcontextprotocol/sdk": "^1.17.1",
+    "@modelcontextprotocol/sdk": "^1.24.0",
     "@octokit/rest": "^22.0.0",
     "@rdfjs/parser-jsonld": "^2.1.3",
     "@rdfjs/parser-n3": "^2.1.0",
