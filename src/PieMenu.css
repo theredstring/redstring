@@ -62,6 +62,37 @@
   }
 }
 
+/* Page-change transition: outgoing page scales/fades out in place... */
+.pie-menu-bubble-inner.is-page-out {
+  opacity: 1;
+  transform: translate(0, 0) scale(1);
+  animation-name: pie-bubble-page-out;
+  animation-duration: 160ms; /* matches PAGE_OUT_MS in PieMenu.jsx */
+  animation-timing-function: cubic-bezier(0.6, -0.28, 0.735, 0.045);
+  animation-fill-mode: forwards;
+}
+
+/* ...then the incoming page pops back in. */
+.pie-menu-bubble-inner.is-page-in {
+  opacity: 0;
+  transform: translate(0, 0) scale(0.3);
+  animation-name: pie-bubble-page-in;
+  animation-duration: 320ms; /* matches PAGE_IN_MS in PieMenu.jsx */
+  animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation-fill-mode: forwards;
+}
+
+@keyframes pie-bubble-page-out {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(0, 0) scale(0.3); }
+}
+
+@keyframes pie-bubble-page-in {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.3); }
+  70% { opacity: 1; transform: translate(0, 0) scale(1.02); }
+  100% { opacity: 1; transform: translate(0, 0) scale(1); }
+}
+
 /* Hover-grow for each bubble's contents. Nested inside .pie-menu-bubble-inner so its
    scale transition never fights the pop/shrink transform on the parent. Origin is the
    bubble's local (0,0) center — same basis the pop animation scales about. */
@@ -124,7 +155,7 @@
   transition: transform 0.15s ease;
 }
 .pie-chevron-hover:hover {
-  transform: scale(1.15);
+  transform: scale(1.10);
 }
 
 /* Class for when the bubble is animating out */

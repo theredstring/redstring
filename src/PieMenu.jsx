@@ -36,12 +36,84 @@ const PieMenu = ({
   // animationState can be: null (initial/hidden), 'popping', 'visible_steady', 'shrinking'
   const [animationState, setAnimationState] = useState(null);
 
-  const bubbleRefs = useRef([]);
-  // Ensure bubbleRefs array is the same length as buttons
-  // This needs to be robust against buttons array changing length
+  // Page-change transition: the buttons we actually render lag the incoming `buttons`
+  // prop so the outgoing page can shrink out before the incoming page pops in.
+  // pagePhase: 'steady' | 'out' | 'in'
+  const PAGE_OUT_MS = 160;
+  const PAGE_IN_MS = 320;
+  const [displayedButtons, setDisplayedButtons] = useState(buttons);
+  const [pagePhase, setPagePhase] = useState('steady');
+  const prevPageRef = useRef(currentPage);
+  const pageTimersRef = useRef([]);
+  // Tracks which node the menu is on, so a page change that coincides with a node
+  // change (e.g. Duplicate re-selecting the new copy) is treated as a fresh open
+  // rather than an animated page flip.
+  const prevNodeIdRef = useRef(node?.id ?? null);
+  // Always points at the freshest buttons prop so a transition swap picks up the
+  // latest page contents even if the parent re-syncs `buttons` mid-animation.
+  const latestButtonsRef = useRef(buttons);
+  latestButtonsRef.current = buttons;
+  const transitioningRef = useRef(false);
+
   useEffect(() => {
-    bubbleRefs.current = Array(buttons.length).fill().map((_, i) => bubbleRefs.current[i] || React.createRef());
-  }, [buttons.length]);
+    const clearTimers = () => { pageTimersRef.current.forEach(clearTimeout); pageTimersRef.current = []; };
+    // While the menu is closing/hidden, freeze what's displayed: the shrink animation
+    // must play on the exact page + button state that was showing. Don't react to the
+    // parent resetting the page or flipping button state (e.g. Save) during the exit,
+    // and cancel any in-flight page transition so it can't swap content mid-shrink.
+    if (!isVisible) {
+      clearTimers();
+      transitioningRef.current = false;
+      return;
+    }
+    // A different node → this is a fresh menu, not a page flip. Swap instantly
+    // (no out/in animation) and re-baseline the page so no transition fires.
+    const nodeId = node?.id ?? null;
+    if (nodeId !== prevNodeIdRef.current) {
+      prevNodeIdRef.current = nodeId;
+      clearTimers();
+      transitioningRef.current = false;
+      prevPageRef.current = currentPage;
+      setPagePhase('steady');
+      setDisplayedButtons(buttons);
+      return;
+    }
+    if (currentPage !== prevPageRef.current) {
+      prevPageRef.current = currentPage;
+      clearTimers();
+      transitioningRef.current = true;
+      // Shrink the currently displayed page out...
+      setPagePhase('out');
+      const t1 = setTimeout(() => {
+        // ...then swap in the new page's buttons and pop them in.
+        setDisplayedButtons(latestButtonsRef.current);
+        setPagePhase('in');
+        const t2 = setTimeout(() => {
+          setPagePhase('steady');
+          setDisplayedButtons(latestButtonsRef.current); // final sync to latest contents
+          transitioningRef.current = false;
+        }, PAGE_IN_MS);
+        pageTimersRef.current.push(t2);
+      }, PAGE_OUT_MS);
+      pageTimersRef.current.push(t1);
+    } else if (!transitioningRef.current) {
+      // Same page and not mid-transition — keep displayed buttons in sync with
+      // prop-level changes (e.g. Save/Unsave label + fill flips), no transition.
+      setDisplayedButtons(buttons);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buttons, currentPage, node?.id]);
+
+  // Clean up any pending page-transition timers on unmount
+  useEffect(() => () => { pageTimersRef.current.forEach(clearTimeout); }, []);
+
+  const bubbleRefs = useRef([]);
+  // Ensure bubbleRefs array matches the buttons actually rendered (displayedButtons,
+  // which lags `buttons` during page transitions / freezes on close), so the
+  // pop/shrink animation-end counting below lines up with what's on screen.
+  useEffect(() => {
+    bubbleRefs.current = Array(displayedButtons.length).fill().map((_, i) => bubbleRefs.current[i] || React.createRef());
+  }, [displayedButtons.length]);
 
   const animationsEndedCountRef = useRef(0);
   const autoCloseTimerRef = useRef(null);
@@ -62,28 +134,28 @@ const PieMenu = ({
         ////console.log("[PieMenu] Setting animationState to 'shrinking'");
         setAnimationState('shrinking');
         animationsEndedCountRef.current = 0; // Reset for shrink-out listeners
-      } else if (animationState === null && buttons && buttons.length > 0 && node) {
+      } else if (animationState === null && displayedButtons && displayedButtons.length > 0 && node) {
         // Edge case: component was mounted with isVisible=false but had data (e.g. quick toggle by parent)
         // It might have briefly been set to 'popping' then immediately to 'shrinking'.
         // If it ends up here (isVisible=false, animationState=null, but has data), it implies it should be hidden.
         // This state should ideally be caught by the render null logic.
       }
     }
-  }, [isVisible, animationState, buttons, node]); // Added buttons/node to handle edge cases like initial hide with data
+  }, [isVisible, animationState, displayedButtons, node]); // displayedButtons/node handle edge cases like initial hide with data
 
   const handleAnimationEnd = useCallback((event, buttonIndex) => {
     //console.log(`[PieMenu] handleAnimationEnd for button ${buttonIndex}. Animation: ${event.animationName}, current animationState: ${animationState}`);
     if (event.target === bubbleRefs.current[buttonIndex]?.current) {
       if (animationState === 'popping' && event.animationName === 'pie-bubble-pop') {
         animationsEndedCountRef.current += 1;
-        if (animationsEndedCountRef.current >= buttons.length) {
+        if (animationsEndedCountRef.current >= displayedButtons.length) {
           //console.log("[PieMenu] All pop-in animations ended. Setting animationState to 'visible_steady'.");
           setAnimationState('visible_steady');
           animationsEndedCountRef.current = 0;
         }
       } else if (animationState === 'shrinking' && event.animationName === 'pie-bubble-shrink-out') {
         animationsEndedCountRef.current += 1;
-        if (animationsEndedCountRef.current >= buttons.length) {
+        if (animationsEndedCountRef.current >= displayedButtons.length) {
           //console.log("[PieMenu] All shrink animations ended. Calling onExitAnimationComplete.");
           onExitAnimationComplete && onExitAnimationComplete();
           setAnimationState(null); // Reset state after exit is complete
@@ -91,7 +163,7 @@ const PieMenu = ({
         }
       }
     }
-  }, [animationState, buttons, onExitAnimationComplete]);
+  }, [animationState, displayedButtons, onExitAnimationComplete]);
 
   // Effect to add/remove event listeners for exit animation
   useEffect(() => {
@@ -207,10 +279,15 @@ const PieMenu = ({
   let dynamicClassName = 'pie-menu-bubble-inner';
   if (animationState === 'popping') {
     dynamicClassName += ' is-popping';
+  } else if (animationState === 'shrinking') {
+    // Menu-close shrink takes priority over any in-flight page transition
+    dynamicClassName += ' is-shrinking';
+  } else if (pagePhase === 'out') {
+    dynamicClassName += ' is-page-out';
+  } else if (pagePhase === 'in') {
+    dynamicClassName += ' is-page-in';
   } else if (animationState === 'visible_steady') {
     dynamicClassName += ' is-visible-steady';
-  } else if (animationState === 'shrinking') {
-    dynamicClassName += ' is-shrinking';
   } else if (isVisible) {
     // Fallback if isVisible is true but animationState is somehow null (should become 'popping')
     // Or if it just became visible and 'popping' state is next render cycle
@@ -220,7 +297,7 @@ const PieMenu = ({
   //console.log(`[PieMenu] Render: Rendering PieMenu. isVisible=${isVisible}, animationState=${animationState}`);
   
   // Check if this is a carousel mode (buttons have position property)
-  const isCarouselMode = !hasAnchorMode && buttons.some(button => button.position);
+  const isCarouselMode = !hasAnchorMode && displayedButtons.some(button => button.position);
   const isLineMode = hasAnchorMode; // anchor mode = horizontal line of buttons
 
   // Page-switching chevrons: bare < / > arrows (stroked, no surrounding shape)
@@ -259,14 +336,16 @@ const PieMenu = ({
     const points = isLeft
       ? `${d / 2},${-h / 2} ${-d / 2},0 ${d / 2},${h / 2}`
       : `${-d / 2},${-h / 2} ${d / 2},0 ${-d / 2},${h / 2}`;
-    // Wrap around so both chevrons are always actionable (with 2 pages either toggles).
+    // Both chevrons are always present and loop around: left wraps to the last page,
+    // right wraps to the first.
+    const available = true;
     const nextPage = isLeft
       ? (currentPage - 1 + pageCount) % pageCount
       : (currentPage + 1) % pageCount;
     const activate = (e) => {
       e.stopPropagation();
       if (e.cancelable) e.preventDefault();
-      if (animationState === 'shrinking' || !isVisible) return;
+      if (!available || animationState === 'shrinking' || !isVisible) return;
       onPageChange(nextPage);
     };
 
@@ -290,6 +369,21 @@ const PieMenu = ({
         onTouchEnd={activate}
         onClick={activate}
       >
+        {/* Availability wrapper: fades/scales the chevron out (and stops it eating
+            taps) when there's no page in its direction, so it animates on page change.
+            Timings mirror the bubble page transition — an appearing chevron waits out
+            the out-phase then grows in over PAGE_IN_MS; a disappearing one leaves over
+            PAGE_OUT_MS — so it stays in lockstep with the incoming/outgoing page. */}
+        <g
+          style={{
+            opacity: available ? 1 : 0,
+            transform: available ? 'scale(1)' : 'scale(0.6)',
+            transition: available
+              ? `opacity ${PAGE_IN_MS}ms ease ${PAGE_OUT_MS}ms, transform ${PAGE_IN_MS}ms cubic-bezier(0.34, 1.56, 0.64, 1) ${PAGE_OUT_MS}ms`
+              : `opacity ${PAGE_OUT_MS}ms ease, transform ${PAGE_OUT_MS}ms cubic-bezier(0.6, -0.28, 0.735, 0.045)`,
+            pointerEvents: available ? 'auto' : 'none',
+          }}
+        >
         {/* Delayed intro / outro wrapper */}
         <g className={`pie-chevron-intro ${introClass}`}>
           {/* Hover-grow wrapper (nested so it doesn't fight the intro transform) */}
@@ -322,6 +416,7 @@ const PieMenu = ({
             />
           </g>
         </g>
+        </g>
       </g>
     );
   };
@@ -330,13 +425,13 @@ const PieMenu = ({
     <g className="pie-menu">
       {showChevrons && renderChevron('left')}
       {showChevrons && renderChevron('right')}
-      {buttons.map((button, index) => {
+      {displayedButtons.map((button, index) => {
         let bubbleX, bubbleY;
 
         if (isLineMode) {
           // Line mode: buttons along the edge slope, offset perpendicular (upward side)
           const step = bSize + bPad;
-          const n = buttons.length;
+          const n = displayedButtons.length;
           const t = index - (n - 1) / 2; // centered index: -1.5, -0.5, 0.5, 1.5 for n=4
 
           // Along-edge unit vector
@@ -406,7 +501,7 @@ const PieMenu = ({
           // Original circular positioning logic
           // Determine the effective index for positioning.
           // If there's only one button, it should always take the "top-right" slot (index 1).
-          const effectiveIndex = buttons.length === 1 ? 1 : index;
+          const effectiveIndex = displayedButtons.length === 1 ? 1 : index;
 
           if (effectiveIndex >= NUM_FIXED_POSITIONS) return null; // Use effectiveIndex for check
 
@@ -460,11 +555,14 @@ const PieMenu = ({
         const startDY = nodeCenterY - bubbleY;
 
         let animationDelayMs;
-        if (buttons.length === 1) {
+        if (pagePhase === 'out' || pagePhase === 'in') {
+          // Page transitions run without stagger so the swap timing stays deterministic
+          animationDelayMs = 0;
+        } else if (displayedButtons.length === 1) {
           animationDelayMs = 0; // No delay if only one button
         } else if (animationState === 'shrinking') {
           // Reverse stagger for shrinking: last button (index N-1) gets 0 delay, first (index 0) gets (N-1)*delay
-          animationDelayMs = (buttons.length - 1 - index) * STAGGER_DELAY;
+          animationDelayMs = (displayedButtons.length - 1 - index) * STAGGER_DELAY;
         } else { // For popping or steady
           animationDelayMs = index * STAGGER_DELAY;
         }
