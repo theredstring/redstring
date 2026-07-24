@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { Trash2, Plus, ArrowUpFromDot, ArrowRight, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles } from 'lucide-react';
+import { Trash2, Plus, ArrowUpFromDot, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles, NotebookText } from 'lucide-react';
 import UniversalNodeRenderer from './UniversalNodeRenderer';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
@@ -964,7 +964,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
                   onMouseLeave={clearActionHover}
                 >
-                  <ArrowRight size={iconSize} />
+                  <NotebookText size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -1071,7 +1071,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
                   onMouseLeave={clearActionHover}
                 >
-                  <ArrowRight size={iconSize} />
+                  <NotebookText size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -1129,7 +1129,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
                   onMouseLeave={clearActionHover}
                 >
-                  <ArrowRight size={iconSize} />
+                  <NotebookText size={iconSize} />
                 </div>
                 {wizardEnabled && onAskWizard && (
                   <div

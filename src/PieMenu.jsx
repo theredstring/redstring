@@ -309,11 +309,12 @@ const PieMenu = ({
   if (showChevrons) {
     // Distance from the node center out to the outer edge of the East/West bubbles.
     const halfExtentX = currentWidth / 2 + totalVisualOffset + bSize / 2;
-    const chevronHeight = bSize * 1.7;          // tall arrow
-    const chevronDepth = chevronHeight * 0.3;   // horizontal reach of the < / > point
-    const fillThickness = 22 * scale;           // thickness of the #DEDADA chevron band
+    const maxChevronHeight = bSize * 2.5;             // ceiling so tall image nodes don't over-stretch it
+    const chevronHeight = Math.min(currentHeight, maxChevronHeight); // match node height, capped
+    const chevronDepth = 26 * scale + chevronHeight * 0.1; // widens with height, but only gently
+    const fillThickness = 14 * scale + chevronHeight * 0.03; // band thickness, grows slightly with height
     const border = strokeWidth;                 // maroon outline weight (matches bubbles)
-    const gap = bPad * 0.75;                     // space between menu edge and the arrow point
+    const gap = bPad * 1.5;                      // space between menu edge and the arrow point
     chevronGeometry = {
       chevronHeight,
       chevronDepth,

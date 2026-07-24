@@ -42,6 +42,8 @@ export const useCanvasKeyboard = ({
     draggingNodeInfoRef,
     performDragUpdateRef,
     isAnimatingZoomRef,
+    minZoom, // dynamic MIN_ZOOM from NodeCanvas — must match wheel/trackpad clamp
+    maxZoom, // dynamic MAX_ZOOM from NodeCanvas — must match wheel/trackpad clamp
     // UI State flags
     isPaused,
     nodeNamePrompt,
@@ -93,6 +95,8 @@ export const useCanvasKeyboard = ({
         draggingNodeInfoRef,
         performDragUpdateRef,
         isAnimatingZoomRef,
+        minZoom,
+        maxZoom,
         // UI State flags
         isPaused,
         nodeNamePrompt,
@@ -172,8 +176,16 @@ export const useCanvasKeyboard = ({
                 mousePositionRef,
                 isAnimatingZoomRef,
                 viewportBounds,
-                keyboardSettings
+                keyboardSettings,
+                minZoom,
+                maxZoom
             } = params;
+
+            // Match the wheel/trackpad zoom bounds (dynamic MIN_ZOOM/MAX_ZOOM from
+            // NodeCanvas). Falling back to the old hardcoded 0.1/3.0 would let the
+            // trackpad zoom out further than the keyboard, then snap on the way back in.
+            const zoomFloor = minZoom ?? MIN_ZOOM;
+            const zoomCeil = maxZoom ?? MAX_ZOOM;
 
             // Calculate delta time in seconds, capped to prevent huge jumps after tab freeze
             const deltaTime = Math.min(0.05, (currentTime - lastFrameTime) / 1000);
@@ -239,7 +251,7 @@ export const useCanvasKeyboard = ({
 
                 if (zoomMultiplier !== 1) {
                     const prevZoom = zoomLevelRef.current;
-                    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prevZoom * zoomMultiplier));
+                    const newZoom = Math.max(zoomFloor, Math.min(zoomCeil, prevZoom * zoomMultiplier));
 
                     if (newZoom !== prevZoom) {
                         zoomLevelRef.current = newZoom;

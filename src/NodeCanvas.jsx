@@ -25,7 +25,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, ArrowRight, Sparkles, Copy, CopyPlus, Scaling, TextSearch, ImagePlus } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, Sparkles, Copy, CopyPlus, Scaling, TextSearch, ImagePlus, NotebookText } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -4578,6 +4578,13 @@ function NodeCanvas() {
   const [edgePieMenuRendered, setEdgePieMenuRendered] = useState(false);
   const edgePieMenuAnchorRef = useRef(null);   // frozen on show, held through exit animation
   const edgePieMenuButtonsRef = useRef(null);  // frozen on show, held through exit animation
+  // Track prior selection/drag state so the management effect only *forces* the menu
+  // open on a genuine show trigger (edge just selected, or a drag just released) — not
+  // on every incidental re-run. Without this, a button action that dismisses the menu
+  // (setEdgePieMenuVisible(false)) but leaves the edge selected would be immediately
+  // re-shown by the effect, replaying the intro pop animation.
+  const prevEdgePieShouldShowRef = useRef(false);
+  const prevEdgePieDraggingRef = useRef(false);
 
   // Pending swap operation state
   const [pendingSwapOperation, setPendingSwapOperation] = useState(null);
@@ -4794,6 +4801,85 @@ function NodeCanvas() {
     animateCanvasView(finalPan, tz);
   }, [previewingNodeId, nodes, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM]);
 
+  // When a node is selected (single click), gently frame it on the canvas so the
+  // PieMenu buttons and page chevrons have room — the same animated zoom used by the
+  // abstraction carousel / decompose views, but for ordinary selection. Frames
+  // against the usable region (panels/header/typelist excluded) — the same bounds
+  // the edge glow uses — and sizes the zoom off the pie-menu button cluster so the
+  // buttons and chevrons stay on-screen. Flip FOCUS_ON_SELECT_ENABLED to disable.
+  const FOCUS_ON_SELECT_ENABLED = true;
+  const FOCUS_FILL_WIDE = 0.5;    // desktop: cluster fills ~50% of the region half-width
+  const FOCUS_FILL_NARROW = 0.9;  // mobile: fill nearly the whole half-width
+  const FOCUS_WIDTH_WIDE = 1200;  // px: at/above this usable width, use WIDE
+  const FOCUS_WIDTH_NARROW = 480; // px: at/below this usable width, use NARROW
+  const FOCUS_VERTICAL_BIAS = 0.0; // radial menu → keep the node centered vertically
+  // Skip the animation when the node is already essentially framed, so we don't yank
+  // the view on every click — only re-frame when the menu would otherwise be clipped
+  // or the node is small/off to the side.
+  const FOCUS_SKIP_ZOOM_RATIO = 0.12; // within 12% of target zoom → close enough
+  const FOCUS_SKIP_PAN_PX = 48;       // within 48px of target pan → close enough
+  const prevFocusPieNodeIdRef = useRef(null);
+  useEffect(() => {
+    const was = prevFocusPieNodeIdRef.current;
+    const id = selectedNodeIdForPieMenu;
+    prevFocusPieNodeIdRef.current = id;
+
+    if (!FOCUS_ON_SELECT_ENABLED) return;
+    // Only on a fresh focus (new node), not re-fires for the same node.
+    if (!id || id === was) return;
+    // Other framing owners take precedence; don't fight them, and don't animate
+    // mid-drag or mid-transition.
+    if (abstractionCarouselVisible || previewingNodeId || isTransitioningPieMenu) return;
+    if (draggingNodeInfoRef.current) return;
+
+    const node = nodes.find(n => n.id === id);
+    if (!node) return;
+    const dims = getNodeDimensions(node, false, null);
+    const centerX = node.x + dims.currentWidth / 2;
+    const centerY = node.y + dims.currentHeight / 2;
+
+    const vb = viewportBounds;
+    const regionCenterX = vb.x + vb.width / 2;
+    const regionCenterY = vb.y + vb.height / 2;
+
+    // 0 on wide regions → 1 on narrow regions, interpolated by usable width.
+    const narrowness = Math.max(0, Math.min(1,
+      (FOCUS_WIDTH_WIDE - vb.width) / (FOCUS_WIDTH_WIDE - FOCUS_WIDTH_NARROW)
+    ));
+
+    // Half horizontal reach of the pie-menu cluster (node half-width + outer button
+    // ring) in canvas units — same derivation as the carousel framing, so it tracks
+    // BUBBLE_SIZE/BUBBLE_PADDING and the node/pie scale settings automatically:
+    // halfW + 3·bSize + 3·bPad.
+    const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
+    const bSize = 120 * pieScale; // BUBBLE_SIZE
+    const bPad = 32 * pieScale;   // BUBBLE_PADDING
+    const clusterHalfReach = dims.currentWidth / 2 + 3 * bSize + 3 * bPad;
+    const fillFrac = FOCUS_FILL_WIDE + (FOCUS_FILL_NARROW - FOCUS_FILL_WIDE) * narrowness;
+    const referenceZoom = (vb.width * 0.5 * fillFrac) / clusterHalfReach;
+    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
+
+    const verticalBias = vb.height * FOCUS_VERTICAL_BIAS;
+    const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
+    const targetPanY = (regionCenterY - verticalBias) - (centerY - canvasSize.offsetY) * tz;
+    const minPanX = viewportSize.width - canvasSize.width * tz;
+    const minPanY = viewportSize.height - canvasSize.height * tz;
+    const finalPan = {
+      x: Math.min(Math.max(targetPanX, minPanX), 0),
+      y: Math.min(Math.max(targetPanY, minPanY), 0),
+    };
+
+    // Already essentially framed? Leave the view where it is.
+    const curZoom = zoomLevelRef.current;
+    const curPan = panOffsetRef.current;
+    const zoomClose = Math.abs(tz - curZoom) <= curZoom * FOCUS_SKIP_ZOOM_RATIO;
+    const panClose = Math.abs(finalPan.x - curPan.x) <= FOCUS_SKIP_PAN_PX
+      && Math.abs(finalPan.y - curPan.y) <= FOCUS_SKIP_PAN_PX;
+    if (zoomClose && panClose) return;
+
+    animateCanvasView(finalPan, tz);
+  }, [selectedNodeIdForPieMenu, abstractionCarouselVisible, previewingNodeId, isTransitioningPieMenu, nodes, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings]);
+
   // Track current definition index for each node per graph context (nodeId-graphId -> index)
   const [nodeDefinitionIndices, setNodeDefinitionIndices] = useState(new Map());
 
@@ -4969,18 +5055,30 @@ function NodeCanvas() {
     const nodesSelected = selectedInstanceIds.size > 0;
     const singleEdgeSelected = selectedEdgeId !== null && selectedEdgeIds.size === 0;
     const shouldShow = Boolean(singleEdgeSelected && !nodesSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
+    const dragging = Boolean(draggingNodeInfo);
+    // Only re-assert visibility on a genuine show trigger: the edge just became the
+    // sole selection, or a drag just released (the menu outros mid-drag, see the
+    // inline render block, and must pop back in on drop). On any other re-run where
+    // shouldShow is merely still-true (e.g. a button dismissed the menu without
+    // deselecting the edge), leave visibility alone so we don't replay the intro.
+    const roseIntoShow = shouldShow && !prevEdgePieShouldShowRef.current;
+    const dragJustEnded = prevEdgePieDraggingRef.current && !dragging;
+    prevEdgePieShouldShowRef.current = shouldShow;
+    prevEdgePieDraggingRef.current = dragging;
     if (shouldShow) {
       if (selectedEdgeMidpoint) edgePieMenuAnchorRef.current = selectedEdgeMidpoint;
-      setEdgePieMenuVisible(true);
-      setEdgePieMenuRendered(true);
-    } else if (!shouldShow && edgePieMenuVisible) {
+      if (roseIntoShow || dragJustEnded) {
+        setEdgePieMenuVisible(true);
+        setEdgePieMenuRendered(true);
+      }
+    } else if (edgePieMenuVisible) {
       setEdgePieMenuVisible(false);
     }
-    // draggingNodeInfo is not read above, but is a dep so this effect re-runs when a
-    // drag involving this edge's endpoints ends — re-asserting `edgePieMenuRendered`
-    // (which the isVisible-driven outro animation clears mid-drag, see the inline
-    // render block below) and refreshing the anchor to the node's settled position,
-    // so the menu plays its intro (pop) animation back in on release.
+    // draggingNodeInfo drives the dragJustEnded branch above: when a drag involving
+    // this edge's endpoints ends, the effect re-asserts `edgePieMenuRendered` (which
+    // the isVisible-driven outro animation clears mid-drag, see the inline render
+    // block below) and refreshes the anchor to the node's settled position, so the
+    // menu plays its intro (pop) animation back in on release.
   }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, edgePieMenuVisible, selectedEdgeMidpoint, draggingNodeInfo]);
 
   // --- Group Control Panel Management ---
@@ -6283,6 +6381,14 @@ function NodeCanvas() {
             // Placeholder — intentionally not wired up yet. Changing per-instance size
             // is a larger project (new data version + migration).
             id: 'change-size', label: 'Change Size', icon: Scaling, action: () => {}
+          },
+          {
+            id: 'open-in-panel', label: 'Open in Panel', icon: NotebookText, action: (instanceId) => {
+              const instance = nodes.find(n => n.id === instanceId);
+              if (!instance) return;
+              storeActions.openRightPanelNodeTab(instance.prototypeId, instance.name);
+              if (!rightPanelExpanded) storeActions.setRightPanelExpanded(true);
+            }
           }
         ];
       }
@@ -9967,7 +10073,7 @@ function NodeCanvas() {
       {
         id: 'edge-open-panel',
         label: 'Open in Panel',
-        icon: ArrowRight,
+        icon: NotebookText,
         action: () => {
           const defNodeId = getDefinitionNodeId();
           if (defNodeId) {
