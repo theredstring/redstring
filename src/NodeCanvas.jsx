@@ -4230,6 +4230,9 @@ function NodeCanvas() {
   const [pieMenuColorPickerPosition, setPieMenuColorPickerPosition] = useState({ x: 0, y: 0 });
   const [activePieMenuColorNodeId, setActivePieMenuColorNodeId] = useState(null);
   const [nodeSelectionGrid, setNodeSelectionGrid] = useState({ visible: false, position: { x: 0, y: 0 } });
+  // Pie-menu "Swap": UnifiedSelector prompt to re-point this instance at an existing
+  // prototype or a brand-new Thing.
+  const [swapPrompt, setSwapPrompt] = useState({ visible: false, instanceId: null, name: '', color: null });
 
   // Carousel PieMenu stage state
   const [carouselPieMenuStage, setCarouselPieMenuStage] = useState(1); // 1 = main stage, 2 = position selection stage
@@ -5610,6 +5613,42 @@ function NodeCanvas() {
     }
   }, [activePieMenuColorNodeId, nodes, storeActions]);
 
+  // Re-point an existing instance at a different prototype (pie-menu "Swap").
+  // Edges reference instance IDs, so every connection stays attached — only the
+  // instance's prototypeId changes. Position is nudged so the node keeps its
+  // center despite the new prototype's (possibly different) dimensions. This is the
+  // same operation the abstraction carousel performs on swap.
+  const performInstanceSwap = useCallback((instanceId, newPrototypeId) => {
+    const instance = nodes.find(n => n.id === instanceId);
+    if (!instance || !activeGraphId || !newPrototypeId) return;
+    if (instance.prototypeId === newPrototypeId) return; // no-op
+    // Read fresh from the store so a prototype created moments ago (new-Thing swap) resolves.
+    const newPrototype = useGraphStore.getState().nodePrototypes.get(newPrototypeId);
+    if (!newPrototype) return;
+
+    const originalDimensions = getNodeDimensions(instance, false, null);
+    const tempNodeWithNewPrototype = {
+      ...instance,
+      prototypeId: newPrototypeId,
+      name: newPrototype.name || instance.name,
+      color: newPrototype.color || instance.color,
+      thumbnailSrc: newPrototype.thumbnailSrc || instance.thumbnailSrc,
+      definitionGraphIds: newPrototype.definitionGraphIds || []
+    };
+    const newDimensions = getNodeDimensions(tempNodeWithNewPrototype, false, null);
+
+    const centerX = instance.x + originalDimensions.currentWidth / 2;
+    const centerY = instance.y + originalDimensions.currentHeight / 2;
+    const newX = centerX - newDimensions.currentWidth / 2;
+    const newY = centerY - newDimensions.currentHeight / 2;
+
+    storeActions.updateNodeInstance(activeGraphId, instanceId, (inst) => {
+      inst.prototypeId = newPrototypeId;
+      inst.x = newX;
+      inst.y = newY;
+    }, { finalize: true });
+  }, [nodes, activeGraphId, storeActions]);
+
   // Pie Menu Button Configuration - now targetPieMenuButtons and dynamic
   const targetPieMenuButtons = useMemo(() => {
     const selectedNode = selectedNodeIdForPieMenu ? nodes.find(n => n.id === selectedNodeIdForPieMenu) : null;
@@ -6167,6 +6206,14 @@ function NodeCanvas() {
             }
           },
           {
+            id: 'swap', label: 'Swap', icon: SendToBack, action: (instanceId) => {
+              // Open the unified selector: pick an existing Thing or make a new one to
+              // re-point this instance at, keeping all connections (see performInstanceSwap).
+              const instance = nodes.find(n => n.id === instanceId);
+              setSwapPrompt({ visible: true, instanceId, name: '', color: instance?.color ?? null });
+            }
+          },
+          {
             id: 'add-image', label: 'Add Image', icon: ImagePlus, action: (instanceId) => {
               // Mirrors the panel's Add Image: pick a file, store it (full + thumbnail)
               // on the node's prototype as data URLs. User uploads persist in-file.
@@ -6388,7 +6435,7 @@ function NodeCanvas() {
         }
       ];
     }
-  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage, graphsMap, edgesMap, nodePrototypesMap, clipboardRef, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, CopyPlus, Sparkles, Scaling, TextSearch, ImagePlus, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage, graphsMap, edgesMap, nodePrototypesMap, clipboardRef, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, CopyPlus, Sparkles, Scaling, TextSearch, ImagePlus, SendToBack, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
 
   // Data for the decomposition CONTROL PANEL (mirrors the decomposition pie-menu state).
   // Non-null whenever a node is being previewed/decomposed; supplies the current definition
@@ -15776,8 +15823,43 @@ function NodeCanvas() {
 
           {/* Single UnifiedSelector instance with dynamic props */}
           {(() => {
-            const anyVisible = nodeNamePrompt.visible || connectionNamePrompt.visible || abstractionPrompt.visible || nodeGroupPrompt.visible;
+            const anyVisible = nodeNamePrompt.visible || connectionNamePrompt.visible || abstractionPrompt.visible || nodeGroupPrompt.visible || swapPrompt.visible;
             if (!anyVisible) return null;
+            if (swapPrompt.visible) {
+              const closeSwap = () => setSwapPrompt({ visible: false, instanceId: null, name: '', color: null });
+              return (
+                <UnifiedSelector
+                  mode="node-creation"
+                  isVisible={true}
+                  leftPanelExpanded={leftPanelExpanded}
+                  rightPanelExpanded={rightPanelExpanded}
+                  onClose={() => { setDialogColorPickerVisible(false); closeSwap(); }}
+                  onSubmit={({ name, color }) => {
+                    // Make a new Thing and swap this instance onto it.
+                    if (name.trim() && swapPrompt.instanceId) {
+                      const newProtoId = uuidv4();
+                      storeActions.addNodePrototype({ id: newProtoId, name: name.trim(), description: '', picture: null, color: color || NODE_DEFAULT_COLOR, typeNodeId: null, definitionGraphIds: [] });
+                      performInstanceSwap(swapPrompt.instanceId, newProtoId);
+                    }
+                    setDialogColorPickerVisible(false);
+                    closeSwap();
+                  }}
+                  onNodeSelect={(prototype) => {
+                    // Swap this instance onto the chosen existing Thing.
+                    if (prototype?.id && swapPrompt.instanceId) {
+                      performInstanceSwap(swapPrompt.instanceId, prototype.id);
+                    }
+                    setDialogColorPickerVisible(false);
+                    closeSwap();
+                  }}
+                  initialName={swapPrompt.name}
+                  initialColor={swapPrompt.color}
+                  title="Swap Thing"
+                  subtitle="Choose a Thing to swap to, or make a new one.<br />Connections are kept."
+                  searchTerm={swapPrompt.name}
+                />
+              );
+            }
             if (nodeNamePrompt.visible) {
               return (
                 <UnifiedSelector
@@ -16210,6 +16292,7 @@ function NodeCanvas() {
           />
         )
       }
+
 
 
 
