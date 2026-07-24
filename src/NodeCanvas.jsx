@@ -25,7 +25,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, Sparkles, Copy, CopyPlus, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -4899,9 +4899,6 @@ function NodeCanvas() {
     if (!FOCUS_ON_SELECT_ENABLED) return;
     // Only on a fresh focus (new node), not re-fires for the same node.
     if (!id || id === was) return;
-    // Don't zoom when the single selection came from the rubber-band selection box
-    // (only direct node clicks should frame). Consume the flag either way.
-    if (wasSelectionBox.current) { wasSelectionBox.current = false; return; }
     // Other framing owners take precedence; don't fight them, and don't animate
     // mid-drag or mid-transition.
     if (abstractionCarouselVisible || previewingNodeId || isTransitioningPieMenu) return;
@@ -5717,7 +5714,6 @@ function NodeCanvas() {
   // Ensure async zoom results apply in order to avoid ghost frames
   const zoomOpIdRef = useRef(0);
   const selectionBaseRef = useRef(new Set());
-  const wasSelectionBox = useRef(false);
   const wasDrawingConnection = useRef(false);
   // Atomic re-entry guard for handleMouseUp. Multiple release paths
   // (window+capture pointerup, React onMouseUp/onTouchEnd) can synchronously
@@ -6350,7 +6346,7 @@ function NodeCanvas() {
             }
           },
           {
-            id: 'copy', label: 'Copy', icon: Copy, action: (instanceId) => {
+            id: 'copy', label: 'Copy', icon: ClipboardCopy, action: (instanceId) => {
               // Copy this node (and any edges among the selection) to the clipboard,
               // same path as Ctrl/Cmd+C so it can be pasted anywhere.
               const currentGraph = graphsMap.get(activeGraphId);
@@ -7194,9 +7190,6 @@ function NodeCanvas() {
 
   const handleNodeMouseDown = (nodeData, e) => { // nodeData is now a hydrated node (instance + prototype)
     e.stopPropagation();
-    // A direct press on a node is not a box selection — allow the focus-on-select
-    // zoom for the selection this interaction produces.
-    wasSelectionBox.current = false;
     if (suppressNextMouseDownRef.current) {
       suppressNextMouseDownRef.current = false;
       return;
@@ -8478,9 +8471,6 @@ function NodeCanvas() {
                 else final.delete(nd.id);
               }
             });
-            // Mark this selection as coming from the rubber-band box so the
-            // focus-on-select zoom skips it (only direct node clicks should zoom).
-            wasSelectionBox.current = true;
             setSelectedInstanceIds(final);
           })
           .catch(error => {
@@ -9533,6 +9523,14 @@ function NodeCanvas() {
 
     }
 
+    // While a rubber-band selection box is still being dragged, don't pop the pie
+    // menu (or trigger the focus-on-select zoom) for whatever it momentarily covers.
+    // Wait until mouse-up commits the selection — selectionStart clears to null then,
+    // re-running this effect (it's a dep) so a committed single-node landing frames.
+    if (selectionStart) {
+      return;
+    }
+
     if (selectedInstanceIds.size === 1) {
       const instanceId = [...selectedInstanceIds][0];
 
@@ -9572,7 +9570,7 @@ function NodeCanvas() {
 
       setSelectedNodeIdForPieMenu(null);
     }
-  }, [selectedInstanceIds, isTransitioningPieMenu, abstractionPrompt.visible, abstractionCarouselVisible, selectedNodeIdForPieMenu, carouselAnimationState, justCompletedCarouselExit]); // Added carousel protection flags
+  }, [selectedInstanceIds, isTransitioningPieMenu, abstractionPrompt.visible, abstractionCarouselVisible, selectedNodeIdForPieMenu, carouselAnimationState, justCompletedCarouselExit, selectionStart]); // Added carousel protection flags + box-selection gate
   // Effect to prepare and render PieMenu when selectedNodeIdForPieMenu changes and not transitioning
   useEffect(() => {
     if (selectedNodeIdForPieMenu && !isTransitioningPieMenu && !semanticOrbitActive) {
@@ -10395,13 +10393,25 @@ function NodeCanvas() {
       const edges = Array.isArray(clip.edges) ? clip.edges : [];
       const edgeCount = edges.length;
 
+      // A triplet is strictly subject → connection → object: exactly 2 nodes,
+      // exactly 1 connection between them, pointing exactly one way.
+      // Everything else with connections is a Web. Specifically NOT a triplet:
+      //   - more than 2 nodes
+      //   - undirected connection (0 arrows)
+      //   - doubly-connected / bidirectional (2 arrows)
+      const soleEdgeArrows = edgeCount === 1
+        ? edges[0]?.edgeData?.directionality?.arrowsToward
+        : null;
+      const arrowCount = soleEdgeArrows instanceof Set
+        ? soleEdgeArrows.size
+        : (Array.isArray(soleEdgeArrows) ? soleEdgeArrows.length : 0);
+      const isTriplet = nodeCount === 2 && edgeCount === 1 && arrowCount === 1;
+
       let pasteLabel;
       if (edgeCount === 0) {
         pasteLabel = nodeCount === 1 ? 'Paste Thing' : 'Paste Things';
-      } else if (nodeCount === 2 && edgeCount === 1) {
-        const arrows = edges[0]?.edgeData?.directionality?.arrowsToward;
-        const arrowCount = arrows instanceof Set ? arrows.size : (Array.isArray(arrows) ? arrows.length : 0);
-        pasteLabel = arrowCount > 0 ? 'Paste Triplet' : 'Paste Web';
+      } else if (isTriplet) {
+        pasteLabel = 'Paste Triplet';
       } else {
         pasteLabel = 'Paste Web';
       }

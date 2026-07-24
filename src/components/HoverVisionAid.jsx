@@ -201,8 +201,12 @@ const HoverVisionAid = ({
   // Hover Preview Size setting scales node and connection previews: slider 1x maps
   // to HOVER_PREVIEW_BASE_SCALE actual scale. The pie-menu item label is a fixed
   // text pill, not a node preview, so it renders at its original full size (1.0)
-  // and ignores the slider entirely (chips must not scale down).
-  const previewScale = isItem ? 1.0 : hoverPreviewSize * HOVER_PREVIEW_BASE_SCALE;
+  // and ignores the slider entirely (chips must not scale down). Connection previews
+  // get a small extra boost so the triplet reads a touch larger than a lone node.
+  const CONNECTION_PREVIEW_SCALE_BOOST = 1.1;
+  const previewScale = isItem
+    ? 1.0
+    : hoverPreviewSize * HOVER_PREVIEW_BASE_SCALE * (isConnection ? CONNECTION_PREVIEW_SCALE_BOOST : 1);
 
   const containerStyle = {
     position: 'absolute',
@@ -312,6 +316,8 @@ const HoverVisionAid = ({
           containerHeight={CONNECTION_PREVIEW_HEIGHT}
           minHorizontalSpacing={dynamicMinHorizontalSpacing}
           cornerRadiusMultiplier={44}
+          connectionFontScale={1.2}
+          connectionStrokeScale={0.7}
           ignoreGlobalScale={true}
           interactive={false}
           showHoverEffects={false}

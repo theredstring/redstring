@@ -76,10 +76,18 @@ const Node = ({
   const effPadding = scaledPadding ?? NODE_PADDING * effNodeScale;
   const effCornerRadius = scaledCornerRadius ?? NODE_CORNER_RADIUS * effNodeScale;
 
-  // Selection stroke scales with the node's size (mostly proportional, lightly damped
-  // so tiny nodes keep a visible outline). Blend keeps 12 anchored at effNodeScale 1:
-  // e.g. XL (2×) → ~22, XS (0.5×) → ~7.
-  const selectionStrokeWidth = 12 * (0.15 + 0.85 * effNodeScale);
+  // Selection stroke scales gently with the node's size — only ~40% of the size change
+  // is applied, so larger nodes get a modestly heavier outline rather than a big jump.
+  // Anchored at 12 for normal size: XS (0.5×) → ~9.6, M (1×) → 12, L (1.5×) → ~14.4,
+  // XL (2×) → ~16.8.
+  const selectionStrokeWidth = 12 * (0.6 + 0.4 * effNodeScale);
+
+  // Single duration/easing for every size-coupled transition: box width/height,
+  // container padding, label font-size/line-height/wrap max-width, and selection
+  // stroke. These MUST stay in lock-step — if any one desyncs, the label wraps
+  // mid-resize (a small clamp/box against a still-large font, or vice-versa).
+  // Tune the resize speed here.
+  const SIZE_TRANSITION = '0.16s ease';
 
   // Font size for the "Define … With a New Web" placeholder shown when a decomposed
   // node has no definition yet. The preview's inner-network area is large, so a fixed
@@ -416,9 +424,11 @@ const Node = ({
         height={currentHeight - 12}
         fill={safeColor}
         stroke={isSelected ? 'black' : 'none'}
-        strokeWidth={selectionStrokeWidth}
         mask={isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 ? `url(#${idPrefix}node-mask-${instanceId})` : undefined}
-        style={{ transition: 'width 0.3s ease, height 0.3s ease, fill 0.2s ease, stroke-width 0.3s ease' }}
+        // strokeWidth MUST be an inline style, not an SVG attribute: the .node.selected
+        // CSS rule would otherwise override an attribute. Inline style wins, so the
+        // size-scaled width actually takes effect.
+        style={{ strokeWidth: selectionStrokeWidth, transition: `width ${SIZE_TRANSITION}, height ${SIZE_TRANSITION}, fill 0.2s ease, stroke-width ${SIZE_TRANSITION}` }}
       />
 
       <foreignObject
@@ -427,7 +437,7 @@ const Node = ({
         width={currentWidth}
         height={textAreaHeight}
         style={{
-          transition: 'width 0.3s ease, height 0.3s ease',
+          transition: `width ${SIZE_TRANSITION}, height ${SIZE_TRANSITION}`,
           overflow: 'hidden'
         }}
       >
@@ -451,7 +461,7 @@ const Node = ({
             pointerEvents: isEditingOnCanvas ? 'auto' : 'none',
             userSelect: 'none',
             minWidth: 0,
-            transition: 'padding 0.3s ease',
+            transition: `padding ${SIZE_TRANSITION}`,
           }}
         >
           {isEditingOnCanvas ? (
@@ -480,14 +490,15 @@ const Node = ({
                 display: 'inline-block',
                 width: '100%',
                 maxWidth: previewTextMaxWidth ? `${previewTextMaxWidth}px` : '100%',
-                // Grow the font in lock-step with the box (foreignObject width/height +
-                // container padding all transition 0.3s ease). Without this the font
-                // jumps to full size instantly while the box is still growing, so a
-                // resized node's text wraps for ~0.3s before the box catches up. Both
-                // width and font scale by the same effNodeScale and fit at the start
-                // and end sizes, so syncing their transitions keeps the text fitting
-                // at every intermediate frame.
-                transition: 'color 0.3s ease, font-size 0.3s ease, line-height 0.3s ease',
+                // Grow/shrink the font AND the wrap clamp (max-width) in lock-step with
+                // the box (foreignObject width/height + container padding all transition
+                // 0.3s ease). Without the font transition, a growing node's text jumps to
+                // full size while the box is still growing → wraps for ~0.3s. Without the
+                // max-width transition, a shrinking node's clamp snaps to the final small
+                // width instantly while the font is still large → also wraps. Everything
+                // scales by the same effNodeScale and fits at both endpoints, so syncing
+                // all of them keeps the text fitting at every intermediate frame.
+                transition: `color 0.3s ease, font-size ${SIZE_TRANSITION}, line-height ${SIZE_TRANSITION}, max-width ${SIZE_TRANSITION}`,
                 hyphens: 'auto',
               }}
               lang="en"

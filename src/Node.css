@@ -21,9 +21,10 @@
 }
 
 .node.selected>.node-background {
-  /* Use node-background directly for stroke */
+  /* Use node-background directly for stroke.
+     stroke-width is set via inline style in Node.jsx (selectionStrokeWidth) so it can
+     scale with node size — a CSS stroke-width here would override that inline value. */
   stroke: black;
-  stroke-width: 8px;
 }
 
 .node.dragging>.node-background {
