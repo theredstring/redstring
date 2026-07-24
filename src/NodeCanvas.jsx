@@ -4641,6 +4641,10 @@ function NodeCanvas() {
     }
   }, [abstractionPrompt.visible, carouselPieMenuStage, selectedNodeIdForPieMenu, abstractionCarouselNode]);
 
+  // Set when the carousel closes via Back (not click-away) so the return node gets
+  // framed with the same focus-on-select zoom once it's re-selected. Consumed by a
+  // dedicated effect below (declared after focusNodeInView to avoid a TDZ).
+  const pendingCarouselReturnFocusRef = useRef(null);
   const onCarouselExitAnimationComplete = useCallback(() => {
     // Capture the node ID before cleaning up
     const nodeIdToShowPieMenu = abstractionCarouselNode?.id;
@@ -4721,6 +4725,9 @@ function NodeCanvas() {
       if (nodeIdToShowPieMenu) {
         setSelectedInstanceIds(new Set([nodeIdToShowPieMenu])); // Restore selection
         setSelectedNodeIdForPieMenu(nodeIdToShowPieMenu);
+        // Frame the returned node with the focus-on-select zoom (the focus effect
+        // itself skips this — the id is unchanged from during the carousel).
+        pendingCarouselReturnFocusRef.current = nodeIdToShowPieMenu;
       }
     } else {
       // Reset the flag so subsequent opens behave normally
@@ -4808,31 +4815,25 @@ function NodeCanvas() {
   // the edge glow uses — and sizes the zoom off the pie-menu button cluster so the
   // buttons and chevrons stay on-screen. Flip FOCUS_ON_SELECT_ENABLED to disable.
   const FOCUS_ON_SELECT_ENABLED = true;
-  const FOCUS_FILL_WIDE = 0.5;    // desktop: cluster fills ~50% of the region half-width
-  const FOCUS_FILL_NARROW = 0.9;  // mobile: fill nearly the whole half-width
+  const FOCUS_FILL_WIDE = 0.96;   // desktop: cluster fills ~68% of the region half-width
+  const FOCUS_FILL_NARROW = 0.96; // mobile: fill nearly the whole half-width
   const FOCUS_WIDTH_WIDE = 1200;  // px: at/above this usable width, use WIDE
   const FOCUS_WIDTH_NARROW = 480; // px: at/below this usable width, use NARROW
-  const FOCUS_VERTICAL_BIAS = 0.0; // radial menu → keep the node centered vertically
+  const FOCUS_VERTICAL_BIAS = 0.1; // fraction of region height to lift the node above center
+                                   // (matches the carousel/decompose framings — a dead-center
+                                   // node + radial menu reads as sitting too low)
   // Skip the animation when the node is already essentially framed, so we don't yank
   // the view on every click — only re-frame when the menu would otherwise be clipped
   // or the node is small/off to the side.
   const FOCUS_SKIP_ZOOM_RATIO = 0.12; // within 12% of target zoom → close enough
   const FOCUS_SKIP_PAN_PX = 48;       // within 48px of target pan → close enough
   const prevFocusPieNodeIdRef = useRef(null);
-  useEffect(() => {
-    const was = prevFocusPieNodeIdRef.current;
-    const id = selectedNodeIdForPieMenu;
-    prevFocusPieNodeIdRef.current = id;
 
-    if (!FOCUS_ON_SELECT_ENABLED) return;
-    // Only on a fresh focus (new node), not re-fires for the same node.
-    if (!id || id === was) return;
-    // Other framing owners take precedence; don't fight them, and don't animate
-    // mid-drag or mid-transition.
-    if (abstractionCarouselVisible || previewingNodeId || isTransitioningPieMenu) return;
-    if (draggingNodeInfoRef.current) return;
-
-    const node = nodes.find(n => n.id === id);
+  // Frame a single node with the pie-menu-aware zoom. Shared by focus-on-select and
+  // recompose (collapsing a decomposed node) so both land at the exact same view.
+  const focusNodeInView = useCallback((nodeId) => {
+    if (!FOCUS_ON_SELECT_ENABLED || !nodeId) return;
+    const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
     const dims = getNodeDimensions(node, false, null);
     const centerX = node.x + dims.currentWidth / 2;
@@ -4856,7 +4857,13 @@ function NodeCanvas() {
     const bPad = 32 * pieScale;   // BUBBLE_PADDING
     const clusterHalfReach = dims.currentWidth / 2 + 3 * bSize + 3 * bPad;
     const fillFrac = FOCUS_FILL_WIDE + (FOCUS_FILL_NARROW - FOCUS_FILL_WIDE) * narrowness;
-    const referenceZoom = (vb.width * 0.5 * fillFrac) / clusterHalfReach;
+    // The pie menu is radial — its buttons extend up/down as far as left/right — so
+    // fit the cluster to BOTH the region width and its (typelist-reduced) height,
+    // taking the tighter of the two. Otherwise the bottom row of buttons spills into
+    // the TypeList bar when it's open, since vb.height already excludes it.
+    const referenceZoomH = (vb.width * 0.5 * fillFrac) / clusterHalfReach;
+    const referenceZoomV = (vb.height * 0.5 * fillFrac) / clusterHalfReach;
+    const referenceZoom = Math.min(referenceZoomH, referenceZoomV);
     const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
 
     const verticalBias = vb.height * FOCUS_VERTICAL_BIAS;
@@ -4878,7 +4885,52 @@ function NodeCanvas() {
     if (zoomClose && panClose) return;
 
     animateCanvasView(finalPan, tz);
-  }, [selectedNodeIdForPieMenu, abstractionCarouselVisible, previewingNodeId, isTransitioningPieMenu, nodes, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings]);
+  }, [nodes, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings]);
+
+  useEffect(() => {
+    const was = prevFocusPieNodeIdRef.current;
+    const id = selectedNodeIdForPieMenu;
+    prevFocusPieNodeIdRef.current = id;
+
+    if (!FOCUS_ON_SELECT_ENABLED) return;
+    // Only on a fresh focus (new node), not re-fires for the same node.
+    if (!id || id === was) return;
+    // Don't zoom when the single selection came from the rubber-band selection box
+    // (only direct node clicks should frame). Consume the flag either way.
+    if (wasSelectionBox.current) { wasSelectionBox.current = false; return; }
+    // Other framing owners take precedence; don't fight them, and don't animate
+    // mid-drag or mid-transition.
+    if (abstractionCarouselVisible || previewingNodeId || isTransitioningPieMenu) return;
+    if (draggingNodeInfoRef.current) return;
+
+    focusNodeInView(id);
+  }, [selectedNodeIdForPieMenu, abstractionCarouselVisible, previewingNodeId, isTransitioningPieMenu, focusNodeInView]);
+
+  // When a decomposed node is recomposed (collapsed back to a normal node), frame it
+  // with the exact same pie-menu-aware zoom as focus-on-select. Fires on the
+  // previewingNodeId node -> null transition (both the Compose and Decompose-toggle
+  // paths clear it). If the node no longer exists (e.g. a graph switch also cleared
+  // preview) focusNodeInView no-ops on the missing-node guard.
+  const prevRecomposeNodeIdRef = useRef(null);
+  useEffect(() => {
+    const was = prevRecomposeNodeIdRef.current;
+    prevRecomposeNodeIdRef.current = previewingNodeId;
+    if (!was || previewingNodeId) return; // recompose = node -> null only
+    if (abstractionCarouselVisible || isTransitioningPieMenu || draggingNodeInfoRef.current) return;
+    focusNodeInView(was);
+  }, [previewingNodeId, abstractionCarouselVisible, isTransitioningPieMenu, focusNodeInView]);
+
+  // When the abstraction carousel closes via Back, frame the node it returns to with
+  // the same focus-on-select zoom. onCarouselExitAnimationComplete stashes the node id
+  // in pendingCarouselReturnFocusRef (only for Back, not click-away); once the carousel
+  // is hidden we consume it here.
+  useEffect(() => {
+    if (abstractionCarouselVisible) return;
+    const returnId = pendingCarouselReturnFocusRef.current;
+    if (!returnId) return;
+    pendingCarouselReturnFocusRef.current = null;
+    focusNodeInView(returnId);
+  }, [abstractionCarouselVisible, focusNodeInView]);
 
   // Track current definition index for each node per graph context (nodeId-graphId -> index)
   const [nodeDefinitionIndices, setNodeDefinitionIndices] = useState(new Map());
@@ -7107,6 +7159,9 @@ function NodeCanvas() {
 
   const handleNodeMouseDown = (nodeData, e) => { // nodeData is now a hydrated node (instance + prototype)
     e.stopPropagation();
+    // A direct press on a node is not a box selection — allow the focus-on-select
+    // zoom for the selection this interaction produces.
+    wasSelectionBox.current = false;
     if (suppressNextMouseDownRef.current) {
       suppressNextMouseDownRef.current = false;
       return;
@@ -8388,6 +8443,9 @@ function NodeCanvas() {
                 else final.delete(nd.id);
               }
             });
+            // Mark this selection as coming from the rubber-band box so the
+            // focus-on-select zoom skips it (only direct node clicks should zoom).
+            wasSelectionBox.current = true;
             setSelectedInstanceIds(final);
           })
           .catch(error => {
@@ -10973,6 +11031,7 @@ function NodeCanvas() {
         onCreateNewThing={() => storeActions.createNewGraph({ name: 'New Thing' })}
         onOpenComponentSearch={() => setHeaderSearchVisible(true)}
         onOpenAllThingsSearch={() => setHeaderAllThingsSearchVisible(true)}
+        onActionHoverChange={handlePieMenuHoverChange}
         isExclusivePanelMode={shouldPanelsBeExclusive}
         // Receive debug props
         debugMode={debugMode}
@@ -15815,6 +15874,7 @@ function NodeCanvas() {
                 hoveredNode={hoveredNodeForVision}
                 hoveredConnection={hoveredConnectionForVision}
                 activePieMenuItem={activePieMenuItemForVision}
+                zoomLevel={zoomLevel}
               />
             </>
           )}

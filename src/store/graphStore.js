@@ -741,10 +741,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     hoverPreviewSize: (() => {
       try {
         const saved = localStorage.getItem('redstring_hover_preview_size');
-        const v = saved === null ? 0.75 : parseFloat(saved);
-        return Number.isFinite(v) ? v : 0.75;
+        const v = saved === null ? 1.0 : parseFloat(saved);
+        return Number.isFinite(v) ? v : 1.0;
       } catch (_) {
-        return 0.75;
+        return 1.0;
       }
     })(),
     // Grid visualization settings

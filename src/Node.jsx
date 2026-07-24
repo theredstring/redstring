@@ -174,7 +174,10 @@ const Node = ({
   const edgesMap = useGraphStore((state) => isPreviewing ? state.edges : null);
   const nodePrototypesMap = useGraphStore((state) => isPreviewing ? state.nodePrototypes : null);
   const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
-  const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 0.75);
+  const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 1.0);
+  // Slider 1x maps to this actual scale (keep in sync with HoverVisionAid).
+  const HOVER_PREVIEW_BASE_SCALE = 0.6;
+  const hoverPreviewScale = hoverPreviewSize * HOVER_PREVIEW_BASE_SCALE;
 
   // Determine display title: prefer current graph title in preview, else node name
   const currentGraphName = useMemo(() => {
@@ -643,8 +646,8 @@ const Node = ({
       {/* Hover Preview - Styled like HoverVisionAid for consistency */}
       {isPreviewing && showHoverPreview && hoveredInnerNodeData && (() => {
         // Base dimensions (smaller than before) scaled by the user's hover preview size setting
-        const hpWidth = Math.round(194 * hoverPreviewSize);
-        const hpHeight = Math.round(70 * hoverPreviewSize);
+        const hpWidth = Math.round(194 * hoverPreviewScale);
+        const hpHeight = Math.round(70 * hoverPreviewScale);
         return (
         <foreignObject
           x={nodeX + effPadding + (innerNetworkWidth / 2) - (hpWidth / 2)}
@@ -681,8 +684,8 @@ const Node = ({
               containerHeight={hpHeight}
               padding={8}
               scaleMode="fixed"
-              minNodeSize={Math.round(160 * hoverPreviewSize)}
-              maxNodeSize={Math.round(240 * hoverPreviewSize)}
+              minNodeSize={Math.round(160 * hoverPreviewScale)}
+              maxNodeSize={Math.round(240 * hoverPreviewScale)}
               cornerRadiusMultiplier={32}
               nodeFontScale={1.0}
               interactive={false}

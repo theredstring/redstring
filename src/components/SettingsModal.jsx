@@ -70,7 +70,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
   const darkMode = useGraphStore(s => s.darkMode);
   const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
-  const hoverPreviewSize = useGraphStore(s => s.hoverPreviewSize ?? 0.75);
+  const hoverPreviewSize = useGraphStore(s => s.hoverPreviewSize ?? 1.0);
   const showNodeControlPanel = useGraphStore(s => s.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore(s => s.showMultipleNodesControlPanel ?? true);
   const showConnectionControlPanel = useGraphStore(s => s.showConnectionControlPanel ?? false);
@@ -159,7 +159,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-slider-row">
             <MaroonSlider
               label="Hover Preview Size"
-              value={hoverPreviewSize ?? 0.75}
+              value={hoverPreviewSize ?? 1.0}
               min={0.5}
               max={1.5}
               step={0.05}

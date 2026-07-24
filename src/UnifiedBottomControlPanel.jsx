@@ -88,6 +88,10 @@ const CONNECTION_NODE_MIN_HEIGHT = 84;
 // Corner radius scaled to match the floors: kept below CONNECTION_NODE_MIN_HEIGHT/2 so
 // the boxes stay rounded rectangles (~0.45 ratio) instead of capping into pills.
 const CONNECTION_NODE_CORNER_RADIUS = 38;
+// Node-box floors for the single/multi-select node representation. Mirror HoverVisionAid's
+// single-node preview (100×96) so the control-panel pills match the hover aid.
+const NODE_PREVIEW_MIN_WIDTH = 100;
+const NODE_PREVIEW_MIN_HEIGHT = 96;
 
 // Modes: 'nodes' | 'connections' | 'abstraction' | 'group' | 'nodegroup'
 const UnifiedBottomControlPanel = ({
@@ -271,10 +275,13 @@ const UnifiedBottomControlPanel = ({
 
     return selectedNodes.map((node) => {
       const dims = getNodeDimensions(node, false, null, 39, STANDARD_TEXT_SETTINGS);
+      // Match the ÷1.4 (LEGACY_DIM_SCALE) convention used by HoverVisionAid and the
+      // connection/nodegroup previews so each pill hugs its label the same way. Passing
+      // the raw 1.4×-inflated currentWidth/Height left the boxes a factor of 1.4 too loose.
       return {
         node,
-        width: dims.currentWidth,
-        height: dims.currentHeight
+        width: Math.max(dims.currentWidth * LEGACY_DIM_SCALE, NODE_PREVIEW_MIN_WIDTH),
+        height: Math.max(dims.currentHeight * LEGACY_DIM_SCALE, NODE_PREVIEW_MIN_HEIGHT)
       };
     });
   }, [isNodes, isDecompose, selectedNodes]);

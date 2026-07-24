@@ -25,6 +25,9 @@ const Header = ({
   onCreateNewThing,
   onOpenComponentSearch,
   onOpenAllThingsSearch,
+  // Hover-chip preview (mirrors the pie-menu hover chip in NodeCanvas): fired
+  // with { id, label } while hovering a circular header button, null on leave.
+  onActionHoverChange,
   // Responsive layout
   isExclusivePanelMode = false,
   // Receive debug props
@@ -776,6 +779,7 @@ const Header = ({
                   circle.style.transform = 'scale(1.06)';
                   circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
                 }
+                onActionHoverChange?.({ id: `header-${action.key}`, label: action.title });
               }}
               onMouseLeave={(e) => {
                 const circle = e.currentTarget.querySelector('.header-btn-circle');
@@ -783,6 +787,7 @@ const Header = ({
                   circle.style.transform = 'scale(1)';
                   circle.style.boxShadow = 'none';
                 }
+                onActionHoverChange?.(null);
               }}
             >
               <div
@@ -942,6 +947,7 @@ const Header = ({
                   circle.style.transform = 'scale(1.06)';
                   circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
                 }
+                onActionHoverChange?.({ id: `header-${action.key}`, label: action.title });
               }}
               onMouseLeave={(e) => {
                 const circle = e.currentTarget.querySelector('.header-btn-circle');
@@ -949,6 +955,7 @@ const Header = ({
                   circle.style.transform = 'scale(1)';
                   circle.style.boxShadow = 'none';
                 }
+                onActionHoverChange?.(null);
               }}
             >
               <div
@@ -1010,6 +1017,7 @@ const Header = ({
               circle.style.transform = 'scale(1.06)';
               circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
             }
+            onActionHoverChange?.({ id: 'header-hamburger', label: isHamburgerOpen ? 'Close menu' : 'Open menu' });
           }}
           onMouseLeave={(e) => {
             const circle = e.currentTarget.querySelector('.header-btn-circle');
@@ -1017,6 +1025,7 @@ const Header = ({
               circle.style.transform = 'scale(1)';
               circle.style.boxShadow = 'none';
             }
+            onActionHoverChange?.(null);
           }}
         >
           <div

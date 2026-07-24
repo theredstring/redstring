@@ -13,9 +13,25 @@ const PREFADE_MS = 250;
 const FADE_MS = 250;
 const FADE_IN_MS = 120;
 
+// The preview exists to make small (zoomed-out) nodes legible. Once the user is
+// zoomed in far enough that on-canvas node text is already readable, it becomes
+// redundant. Default canvas zoom is 1.0 (comfortably readable); the aid is shown
+// only once you zoom out past ZOOM_HIDE_THRESHOLD, where text starts to get small.
+// It's a hard on/off threshold — opacity does NOT track the zoom level — but it
+// fades over ZOOM_FADE_MS when crossing. Runs orthogonally to the hover fade
+// above (nested opacity) so the two don't fight each other.
+const ZOOM_HIDE_THRESHOLD = 0.25;
+const ZOOM_FADE_MS = 200;
+
 // Neutral text settings so the hover preview renders a "standard" node/connection
 // regardless of the user's global font-size / node-size / connection-width sliders.
 const STANDARD_TEXT_SETTINGS = { fontSize: 1, lineSpacing: 1, nodeScale: 1, connectionWidth: 1 };
+
+// The "Hover Preview Size" slider is a relative multiplier around a sensible
+// baseline: 1x on the slider = HOVER_PREVIEW_BASE_SCALE actual scale. Keeping the
+// slider centered on 1x (rather than exposing the raw 0.6 factor) makes the
+// default read as "normal" while still letting users scale up or down from there.
+const HOVER_PREVIEW_BASE_SCALE = 0.6;
 
 /**
  * HoverVisionAid displays a high-fidelity preview of nodes or connections
@@ -33,10 +49,11 @@ const HoverVisionAid = ({
   hoveredConnection,
   activePieMenuItem,
   headerHeight = 60,
-  verticalOffset = -25
+  verticalOffset = -25,
+  zoomLevel = 1
 }) => {
   const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
-  const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 0.6);
+  const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 1.0);
 
   // On no-mouse (touch) devices there is no real hover — a tap would otherwise pop this
   // preview up unexpectedly, so suppress the node/connection hover previews entirely.
@@ -156,6 +173,13 @@ const HoverVisionAid = ({
   const isNode = displayed.kind === 'node';
   const isItem = displayed.kind === 'item';
 
+  // Zoom-based visibility: a hard on/off threshold (shown only when zoomed out
+  // enough that text gets small), not a ramp. Applied to a nested wrapper so it
+  // fades independently of, and simultaneously with, the hover fade-in/out.
+  // Pie-menu item chips are exempt — they're a button label, not a legibility
+  // aid, so they show at every zoom level.
+  const zoomOpacity = (isItem || zoomLevel <= ZOOM_HIDE_THRESHOLD) ? 1 : 0;
+
   // Pre-resizable fixed preview dimensions (reverted from node-size scaling).
   const CONNECTION_PREVIEW_HEIGHT = 180;
   const connectionLabelFont = '28px "EmOne", sans-serif';
@@ -167,10 +191,11 @@ const HoverVisionAid = ({
 
   let content = null;
 
-  // Hover Preview Size setting is the direct scale (default 0.6x) for node and
-  // connection previews. The pie-menu item label is a fixed text pill, not a node
-  // preview, so it renders at its original full size (1.0) and ignores the slider.
-  const previewScale = isItem ? 1.0 : hoverPreviewSize;
+  // Hover Preview Size setting scales node and connection previews: slider 1x maps
+  // to HOVER_PREVIEW_BASE_SCALE actual scale. The pie-menu item label is a fixed
+  // text pill, not a node preview, so it renders at its original full size (1.0)
+  // and ignores the slider entirely (chips must not scale down).
+  const previewScale = isItem ? 1.0 : hoverPreviewSize * HOVER_PREVIEW_BASE_SCALE;
 
   const containerStyle = {
     position: 'absolute',
@@ -333,7 +358,7 @@ const HoverVisionAid = ({
     content = (
       <div
         style={{
-          minWidth: 140,
+          minWidth: 40,
           height: pieMenuHeight,
           borderRadius: pieMenuHeight / 2,
           border: '2px solid maroon',
@@ -358,8 +383,21 @@ const HoverVisionAid = ({
   return (
     <div className="hover-vision-aid" style={containerStyle}>
       {/* Keyed by subject so switching preview (e.g. connection → node) remounts
-          the renderer at its final size — no width/height resize tween. */}
-      <div key={displayed.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          the renderer at its final size — no width/height resize tween.
+          Zoom fade lives on this wrapper: its opacity multiplies with the hover
+          fade on the parent (nested opacity), so zooming in fades the aid out
+          without disturbing the hover-driven fade-in/out. */}
+      <div
+        key={displayed.key}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          opacity: zoomOpacity,
+          transition: `opacity ${ZOOM_FADE_MS}ms ease`,
+          willChange: 'opacity'
+        }}
+      >
         {content}
       </div>
     </div>
