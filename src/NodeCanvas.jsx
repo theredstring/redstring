@@ -177,13 +177,13 @@ const GLIDE_FRICTION_MAX = 0.985;               // clamp ceiling for glide frict
 // direction, anchored to the last pinch midpoint. Velocity is tracked in
 // log-zoom space (d(ln zoom)/dt) so it decays multiplicatively like the pinch
 // itself. Kept deliberately "slight": low boost + heavy friction = a short tail.
-const ZOOM_MOMENTUM_BOOST = 1.0;                // scales the release velocity into the glide (1 = launch at measured finger speed)
+const ZOOM_MOMENTUM_BOOST = 0.8;                // scales the release velocity into the glide (<1 = coast launches gentler than the fingers)
 const ZOOM_MOMENTUM_FRICTION = 0.86;            // per-frame retention of zoom velocity for gentle releases (short coast)
 const ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY = 0.91; // retention for violent flicks — same fast-flick ramp idea as TOUCH_PAN_FRICTION_HIGH_VELOCITY
 const ZOOM_HIGH_VELOCITY_THRESHOLD = 0.003;     // |d(ln zoom)/dt| above which the high-velocity friction starts ramping in
 const ZOOM_HIGH_VELOCITY_RAMP = 0.005;          // velocity range over which friction lerps from base to high
-const ZOOM_MOMENTUM_MIN_SPEED = 0.00025;        // |d(ln zoom)/dt| threshold to launch and to stop the glide
-const ZOOM_MOMENTUM_MAX_SPEED = 0.012;          // cap on launch velocity so a fast pinch can't fling the zoom
+const ZOOM_MOMENTUM_MIN_SPEED = 0.0004;         // |d(ln zoom)/dt| threshold to launch and to stop the glide (deliberate slow releases stay put)
+const ZOOM_MOMENTUM_MAX_SPEED = 0.009;          // cap on launch velocity so a fast pinch can't fling the zoom
 const PINCH_GLIDE_STRENGTH_VEL_RANGE = 0.8;     // velocity multiplier sweep for the strength slider: 0.6× at 0 → 1.4× at 1 (0.5 = 1×)
 const PINCH_GLIDE_STRENGTH_FRICTION_RANGE = 0.08; // friction offset sweep for the strength slider (±0.04 around default)
 
