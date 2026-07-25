@@ -24,6 +24,7 @@ import { create } from 'zustand';
 
 const useImageCache = create((set, get) => ({
   images: {}, // { [protoId]: { thumbnailSrc: string, imageAspectRatio: number } }
+  loading: {}, // { [protoId]: true } — a user upload is being read/decoded (drives the shimmer placeholder)
 
   /** Store a thumbnail for a node prototype */
   setImage: (protoId, data) => set(state => ({
@@ -40,8 +41,21 @@ const useImageCache = create((set, get) => ({
     return { images: next };
   }),
 
+  /** Mark a prototype's image as loading (upload in progress) — shows a shimmer placeholder */
+  startImageLoading: (protoId) => set(state => (
+    state.loading[protoId] ? state : { loading: { ...state.loading, [protoId]: true } }
+  )),
+
+  /** Clear the loading flag for a prototype */
+  stopImageLoading: (protoId) => set(state => {
+    if (!state.loading[protoId]) return state;
+    const next = { ...state.loading };
+    delete next[protoId];
+    return { loading: next };
+  }),
+
   /** Clear all cached images */
-  clearAll: () => set({ images: {} })
+  clearAll: () => set({ images: {}, loading: {} })
 }));
 
 /**

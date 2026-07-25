@@ -3,6 +3,7 @@ import { THUMBNAIL_MAX_DIMENSION } from '../../constants.js';
 import { generateThumbnail, loadImageFileAsDataUrl } from '../../utils.js';
 import SharedPanelContent from './SharedPanelContent.jsx';
 import useGraphStore from "../../store/graphStore.js";
+import useImageCache from '../../services/imageCache.js';
 import ColorPicker from '../../ColorPicker.jsx';
 import PanelColorPickerPortal from '../PanelColorPickerPortal.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
@@ -231,6 +232,8 @@ const PanelContentWrapper = memo(({
       const file = e.target.files?.[0];
       cleanup();
       if (!file) return;
+      const cache = useImageCache.getState();
+      cache.startImageLoading(nodeId); // shimmer placeholder while decoding
       try {
         // HEIC-aware read (tablet/phone cameras default to HEIC, which browsers
         // can't decode natively) — see loadImageFileAsDataUrl.
@@ -249,6 +252,8 @@ const PanelContentWrapper = memo(({
       } catch (error) {
         console.error('Image add failed:', error);
         alert(error?.message || 'Could not add this image.');
+      } finally {
+        cache.stopImageLoading(nodeId);
       }
     };
     // Cancelled picker fires no onchange; clean up on next window focus.

@@ -745,6 +745,47 @@ class GitSyncEngine {
   }
 
   /**
+   * Inform the engine that the remote WAS read this session by an external
+   * path — universeBackend's `loadFromGitDirect` reads through the provider
+   * and bypasses the engine entirely, so without this call the engine still
+   * believes the remote is unobserved. The first autosave after the user
+   * edits would then run `_firstContactCheck`, compare the EDITED store
+   * against the remote, and flag a false conflict — silently blocking every
+   * save ("stuck on Saving...") until refresh discards the user's work.
+   *
+   * A stale SHA is safe to seed: the write path asserts it, detects the
+   * divergence, and pull-and-compares instead of overwriting.
+   *
+   * @param {Object} observation
+   * @param {string|null} [observation.sha] - Remote file SHA from the read
+   *   (`null` = confirmed absent). `undefined` leaves first-contact armed.
+   * @param {number} [observation.nodeCount] - Node count of the remote
+   *   content; ratchets the shrink-to-zero floor upward.
+   */
+  markRemoteObserved({ sha, nodeCount } = {}) {
+    if ((typeof sha === 'string' && sha) || sha === null) {
+      this.lastKnownRemoteSha = sha;
+    }
+    const count = Number(nodeCount);
+    if (Number.isFinite(count) && count > this.lastCommittedNodeCount) {
+      this.lastCommittedNodeCount = count;
+      this._persistFloor();
+    }
+  }
+
+  /**
+   * Forget that the remote was observed, re-arming `_firstContactCheck` for
+   * the next write. Called when remote content was READ but ultimately NOT
+   * applied to the store (e.g. a background load discarded in favor of the
+   * user's racing edits) — pushing the store over that remote must go
+   * through pull-and-compare, not assert a SHA from a read the store never
+   * absorbed. The node-count floor deliberately stays armed.
+   */
+  invalidateRemoteObservation() {
+    this.lastKnownRemoteSha = undefined;
+  }
+
+  /**
    * Count node prototypes in raw .redstring file data (NOT store state — for
    * store snapshots use `_countNodes`). Handles the current prototypeSpace
    * shape and the legacy top-level nodePrototypes shape.

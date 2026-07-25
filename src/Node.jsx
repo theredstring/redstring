@@ -161,6 +161,11 @@ const Node = ({
   // Unique ID for the clip path - incorporate prefix and INSTANCE ID
   const clipPathId = `${idPrefix}node-clip-${instanceId}`;
   const innerClipPathId = `${idPrefix}node-inner-clip-${instanceId}`;
+  const shimmerGradId = `${idPrefix}node-shimmer-${instanceId}`;
+
+  // A user upload is being read/decoded (e.g. HEIC transcode) but no thumbnail
+  // exists yet — reserve the image slot and render a shimmer placeholder.
+  const isImageLoading = node.imageLoading === true && !hasThumbnail;
 
   // Calculate image position based on dynamic textAreaHeight
   const contentAreaY = nodeY + textAreaHeight;
@@ -533,6 +538,43 @@ const Node = ({
           clipPath={`url(#${clipPathId})`}
           style={{ userSelect: 'none', WebkitUserDrag: 'none', pointerEvents: 'none' }}
         />
+      )}
+
+      {/* Loading shimmer — fills the reserved image slot while a user upload is
+          read/decoded. A neutral base with a translucent highlight band that
+          sweeps upward (SMIL <animate>, so it runs even inside the lifted-node
+          render slot without React re-renders). */}
+      {isImageLoading && imageWidth > 0 && imageHeight > 0 && (
+        <g clipPath={`url(#${clipPathId})`} style={{ pointerEvents: 'none' }}>
+          <defs>
+            <linearGradient id={shimmerGradId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ffffff" stopOpacity="0" />
+              <stop offset="50%" stopColor="#ffffff" stopOpacity="0.5" />
+              <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <rect
+            x={nodeX + effPadding}
+            y={contentAreaY}
+            width={imageWidth}
+            height={imageHeight}
+            fill="#cfcfcf"
+          />
+          <rect
+            x={nodeX + effPadding}
+            width={imageWidth}
+            height={Math.max(20, imageHeight * 0.5)}
+            fill={`url(#${shimmerGradId})`}
+          >
+            <animate
+              attributeName="y"
+              from={contentAreaY + imageHeight}
+              to={contentAreaY - Math.max(20, imageHeight * 0.5)}
+              dur="1.2s"
+              repeatCount="indefinite"
+            />
+          </rect>
+        </g>
       )}
       {/* </g> */}
 

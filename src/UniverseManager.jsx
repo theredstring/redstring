@@ -824,6 +824,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
     const handleSlotConflict = (event) => {
       const conflict = event.detail;
+      // Claim the event so the always-mounted fallback dialog in
+      // UniverseManagerBootstrap doesn't double-render it.
+      if (conflict) conflict.__handledByUM = true;
       umLog('[UniverseManager] Slot conflict detected:', conflict);
 
       const universe = serviceState.universes.find(u => u.slug === conflict.universeSlug);

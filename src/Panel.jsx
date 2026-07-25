@@ -7,6 +7,7 @@ import ToggleSlider from './components/ToggleSlider.jsx';
 import { v4 as uuidv4 } from 'uuid';
 import './Panel.css'
 import { generateThumbnail, loadImageFileAsDataUrl } from './utils'; // Import thumbnail generator
+import useImageCache from './services/imageCache.js';
 import ToggleButton from './ToggleButton'; // Import the new component
 import PanelResizerHandle from './components/PanelResizerHandle.jsx';
 import ColorPicker from './ColorPicker'; // Import the new ColorPicker component
@@ -1566,6 +1567,8 @@ const Panel = memo(forwardRef(
         const file = e.target.files?.[0];
         cleanup();
         if (!file) return;
+        const cache = useImageCache.getState();
+        cache.startImageLoading(nodeId); // shimmer placeholder while decoding
         try {
           // HEIC-aware read (tablet/phone cameras default to HEIC, which
           // browsers can't decode natively) — see loadImageFileAsDataUrl.
@@ -1584,6 +1587,8 @@ const Panel = memo(forwardRef(
         } catch (error) {
           console.error('Image add failed:', error);
           alert(error?.message || 'Could not add this image.');
+        } finally {
+          cache.stopImageLoading(nodeId);
         }
       };
       // If the picker is dismissed without a selection, onchange never fires;

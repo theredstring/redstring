@@ -1250,6 +1250,7 @@ const SharedPanelContent = ({
   const wikiSearchRef = useRef(null);
   const [wikiIsSearching, setWikiIsSearching] = useState(false);
   const cachedImage = useImageCache(state => (nodeData?.id ? state.images[nodeData.id] : null));
+  const imageLoading = useImageCache(state => (nodeData?.id ? !!state.loading[nodeData.id] : false));
 
   // Auto-enrich external links (but not bio descriptions) on mount if none exist
   useEffect(() => {
@@ -1768,7 +1769,27 @@ const SharedPanelContent = ({
                 />
               </div>
             )}
-            {!hasImage && (
+            {!hasImage && imageLoading && (
+              <div style={{
+                width: '100%',
+                aspectRatio: '1 / 1',
+                borderRadius: '6px',
+                overflow: 'hidden',
+                position: 'relative',
+                background: '#cfcfcf'
+              }}>
+                <style>{`@keyframes panelImgShimmer { 0% { transform: translateY(100%); } 100% { transform: translateY(-100%); } }`}</style>
+                <div style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  height: '60%',
+                  background: 'linear-gradient(to top, rgba(255,255,255,0) 0%, rgba(255,255,255,0.55) 50%, rgba(255,255,255,0) 100%)',
+                  animation: 'panelImgShimmer 1.2s ease-in-out infinite'
+                }} />
+              </div>
+            )}
+            {!hasImage && !imageLoading && (
               <div style={{
                 marginRight: '15px',
                 color: theme.canvas.textSecondary,
@@ -1780,7 +1801,7 @@ const SharedPanelContent = ({
                 No image uploaded.<br />Upload or pull from Wikipedia.
               </div>
             )}
-            {!hasImage && (
+            {!hasImage && !imageLoading && (
               <button
                 onClick={() => wikiSearchRef.current?.()}
                 disabled={wikiIsSearching}

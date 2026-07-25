@@ -699,6 +699,8 @@ function NodeCanvas() {
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
   // Image cache for auto-enriched thumbnails (separate store, never saved)
   const imageCacheMap = useImageCache(state => state.images);
+  // Per-prototype "upload in progress" flags — drive the shimmer placeholder.
+  const loadingImagesMap = useImageCache(state => state.loading);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
   const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
@@ -1165,6 +1167,8 @@ function NodeCanvas() {
       const effectiveThumb = (cached && !prototype.thumbnailSrc)
         ? cached.thumbnailSrc
         : (prototype.thumbnailSrc || null);
+      // Show the shimmer only while there's no image to show yet.
+      const imageLoading = Boolean(loadingImagesMap[instance.prototypeId]) && !effectiveThumb;
 
       const prev = prevMap.get(id);
       // Reuse old reference if nothing meaningful changed
@@ -1176,6 +1180,7 @@ function NodeCanvas() {
         prev.name === prototype.name &&
         prev.color === prototype.color &&
         prev.thumbnailSrc === effectiveThumb &&
+        prev.imageLoading === imageLoading &&
         prev.description === prototype.description &&
         prev.definitionGraphIds === prototype.definitionGraphIds) {
         result.push(prev);
@@ -1189,6 +1194,7 @@ function NodeCanvas() {
           ...imageOverrides,
           ...instance,
           name: prototype.name,
+          imageLoading,
         };
         result.push(node);
         newMap.set(id, node);
@@ -1207,7 +1213,7 @@ function NodeCanvas() {
     }
 
     return result;
-  }, [instances, nodePrototypesMap, imageCacheMap]);
+  }, [instances, nodePrototypesMap, imageCacheMap, loadingImagesMap]);
 
   const edges = useMemo(() => {
     if (!graphEdgeIds || !edgesMap) return [];
@@ -1238,7 +1244,7 @@ function NodeCanvas() {
       // Create a stable key based only on properties that affect dimensions
       // (not position x/y or scale which change during drag). sizeMul IS included:
       // it's the persistent per-instance size, so different sizes get distinct dims.
-      const cacheKey = `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}-${n.sizeMul || 1}`;
+      const cacheKey = `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${n.imageLoading ? 'loading' : 'idle'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}-${n.sizeMul || 1}`;
 
       // Check if we have cached dimensions for this node's dimensional properties
       let dims = cache.get(cacheKey);
@@ -1253,7 +1259,7 @@ function NodeCanvas() {
     }
 
     // Clean up cache entries for nodes that no longer exist
-    const currentCacheKeys = new Set(nodes.map(n => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}-${n.sizeMul || 1}`));
+    const currentCacheKeys = new Set(nodes.map(n => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${n.imageLoading ? 'loading' : 'idle'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}-${n.sizeMul || 1}`));
     for (const key of cache.keys()) {
       if (!currentCacheKeys.has(key)) {
         cache.delete(key);
@@ -6555,6 +6561,8 @@ function NodeCanvas() {
                 const file = e.target.files?.[0];
                 cleanup();
                 if (!file) return;
+                const cache = useImageCache.getState();
+                cache.startImageLoading(prototypeId); // shimmer placeholder while decoding
                 try {
                   // HEIC-aware read (tablet/phone cameras default to HEIC, which
                   // browsers can't decode natively) — see loadImageFileAsDataUrl.
@@ -6572,6 +6580,8 @@ function NodeCanvas() {
                 } catch (error) {
                   console.error('[PieMenu] Add Image failed:', error);
                   alert(error?.message || 'Could not add this image.');
+                } finally {
+                  cache.stopImageLoading(prototypeId);
                 }
               };
               // Cancelled picker fires no onchange; clean up on next focus.

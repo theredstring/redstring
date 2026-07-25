@@ -147,6 +147,28 @@ describe('first-contact gate: never write to a remote never read this session', 
     await expect(engine.forceCommit(storeWithNodes(2))).rejects.toThrow('500');
     expect(provider.writes.length).toBe(0);
   });
+
+  it('markRemoteObserved (direct-load seeding) skips first-contact and arms the floor', async () => {
+    engine.markRemoteObserved({ sha: 'sha-direct', nodeCount: 12 });
+    const result = await engine.forceCommit(storeWithNodes(4));
+    expect(result).toBe(true);
+    expect(provider.reads).toBe(0); // no first-contact read needed
+    expect(provider.writes.length).toBe(1);
+    expect(engine.lastCommittedNodeCount >= 4).toBe(true);
+  });
+
+  it('invalidateRemoteObservation re-arms first-contact after a discarded load', async () => {
+    engine.markRemoteObserved({ sha: 'sha-direct', nodeCount: 12 });
+    engine.invalidateRemoteObservation();
+    provider.readFileRawWithMeta = async () => {
+      provider.reads++;
+      return { content: remoteRedstringWithNodes(12), sha: 'sha-remote' };
+    };
+    // Remote has data the store never absorbed → conflict, not overwrite
+    await expect(engine.forceCommit(storeWithNodes(1))).rejects.toThrow(/never loaded/);
+    expect(provider.reads).toBe(1);
+    expect(provider.writes.length).toBe(0);
+  });
 });
 
 describe('remoteConflictPending blocks every push except the resolution save', () => {

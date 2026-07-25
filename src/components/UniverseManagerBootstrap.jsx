@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import SlotConflictDialog from './shared/SlotConflictDialog.jsx';
 
 /**
  * Universe Backend Bootstrap - COMPLETELY DECOUPLED
@@ -9,6 +10,14 @@ import React, { useEffect, useRef } from 'react';
  */
 export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
   const initRef = useRef(false);
+  // Fallback slot-conflict dialog. The rich handler lives in UniverseManager,
+  // which only mounts while the Universe Manager modal is OPEN — a conflict
+  // fired during normal canvas use (e.g. the git engine refusing to overwrite
+  // remote data it never loaded) previously had NO visible surface: saves
+  // silently blocked, the UI hung on "Saving...", and a refresh discarded the
+  // user's unsaved work. This component is always mounted, so it renders the
+  // dialog whenever no UniverseManager instance claimed the event.
+  const [fallbackConflict, setFallbackConflict] = useState(null);
   const backendRef = useRef(null);
   const commandListenerRef = useRef(null);
   const backendInitPromiseRef = useRef(null);
@@ -299,6 +308,68 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
       backendStatusUnsubscribeRef.current = null;
     };
   }, []);
+
+  // Always-mounted listener for slot conflicts. Defers one tick so a mounted
+  // UniverseManager (which claims the event synchronously via __handledByUM)
+  // wins; otherwise this fallback surfaces the choice.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handleConflict = (event) => {
+      const conflict = event.detail;
+      if (!conflict) return;
+      setTimeout(() => {
+        if (conflict.__handledByUM) return;
+        console.warn('[UniverseManagerBootstrap] Slot conflict with no mounted handler — showing fallback dialog');
+        setFallbackConflict(conflict);
+      }, 100);
+    };
+
+    window.addEventListener('redstring:slot-conflict', handleConflict);
+    return () => window.removeEventListener('redstring:slot-conflict', handleConflict);
+  }, []);
+
+  const resolveFallbackConflict = async (choice) => {
+    const conflict = fallbackConflict;
+    setFallbackConflict(null);
+    if (!conflict) return;
+    try {
+      const module = await import('../services/universeBackend.js');
+      const backend = module.default || module.universeBackend;
+      if (choice === null) {
+        backend.cancelPendingConflict(conflict.universeSlug);
+        return;
+      }
+      await backend.resolveConflict(conflict.universeSlug, choice);
+    } catch (error) {
+      console.error('[UniverseManagerBootstrap] Failed to resolve slot conflict:', error);
+    }
+  };
+
+  if (fallbackConflict) {
+    return (
+      <SlotConflictDialog
+        isOpen={true}
+        universeName={fallbackConflict.universeName}
+        localSlot={{
+          nodeCount: fallbackConflict.localData?.nodeCount,
+          graphCount: fallbackConflict.localData?.graphCount,
+          timestamp: fallbackConflict.localData?.timestamp,
+          path: 'This device (current session)'
+        }}
+        gitSlot={{
+          nodeCount: fallbackConflict.gitData?.nodeCount,
+          graphCount: fallbackConflict.gitData?.graphCount,
+          timestamp: fallbackConflict.gitData?.timestamp,
+          repoLabel: 'Git Repository',
+          path: 'Remote universe file'
+        }}
+        onChooseLocal={() => resolveFallbackConflict('local')}
+        onChooseGit={() => resolveFallbackConflict('git')}
+        onCancel={() => resolveFallbackConflict(null)}
+      />
+    );
+  }
 
   return null;
 }

@@ -60,6 +60,9 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // Use getters to access node properties
   const nodeName = node.getName ? node.getName() : (node.name || 'Unnamed Node'); // Handle potential plain objects gracefully for now?
   const thumbnailSrc = node.getThumbnailSrc ? node.getThumbnailSrc() : node.thumbnailSrc; // Use getter
+  // A user upload being read/decoded reserves the image slot (square placeholder)
+  // so the shimmer has somewhere to render before the real thumbnail exists.
+  const imageLoading = node.imageLoading === true;
   // const imageSrc = node.getImageSrc ? node.getImageSrc() : node.imageSrc; // If needed for dimensions
 
   // PERFORMANCE: Check cache first
@@ -84,14 +87,14 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   const nodeScale = globalNodeScale * instanceSizeMul;
   // Effective nodeScale already encodes instanceScale, so it distinguishes two
   // instances of the same prototype at different sizes in the dimension cache.
-  const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}-${nodeScale}-${lineHeightBase}`;
+  const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${imageLoading ? 'loading' : 'idle'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}-${nodeScale}-${lineHeightBase}`;
 
   const cached = dimensionCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
-  const hasImage = Boolean(thumbnailSrc); // Check based on thumbnail
+  const hasImage = Boolean(thumbnailSrc) || imageLoading; // Check based on thumbnail (or a pending upload)
   // We can't easily get naturalWidth/Height from a src string here.
   // We might need to pass pre-calculated image dimensions into the node data itself,
   // or adjust the logic to not rely on naturalWidth/Height if possible.

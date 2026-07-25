@@ -309,6 +309,10 @@ class UniverseBackend {
     // File and Git engine management
     this.fileHandles = new Map(); // slug -> FileSystemFileHandle
     this.gitSyncEngines = new Map(); // slug -> GitSyncEngine
+    // slug -> { sha, nodeCount, ts } from direct provider reads that bypass
+    // the engine (loadFromGitDirect). Seeded into the engine at creation so
+    // its first-contact check knows the remote was already read this session.
+    this.remoteObservations = new Map();
 
     // Status and initialization
     this.statusHandlers = new Set();
@@ -1454,6 +1458,18 @@ class UniverseBackend {
                       if (userHasData) {
                         umWarn(`[UniverseBackend] Skipping background load: user has ${currentNodes} nodes / ${currentGraphs} graphs already in the store. Bg load would wipe live edits.`);
                         this.notifyStatus('info', `Kept your edits — background load discarded`);
+                        // The remote was READ but its content was NOT applied —
+                        // the store holds the user's racing edits instead. The
+                        // engine-path load seeds the SHA at read time, which
+                        // would let the next autosave overwrite repo content
+                        // that never reached this store. Un-observe so the next
+                        // commit goes through first-contact pull-and-compare
+                        // and surfaces the choice to the user.
+                        try {
+                          this.remoteObservations.delete(activeUniverse.slug);
+                          const engine = this.gitSyncEngines.get(activeUniverse.slug);
+                          if (engine) engine.invalidateRemoteObservation();
+                        } catch (_) { /* non-fatal */ }
                         return;
                       }
                     } catch (_) { /* if counts fail, conservatively allow the load */ }
@@ -1658,8 +1674,18 @@ class UniverseBackend {
                 storeState._universeSlug = this.activeUniverseSlug;
               }
 
-              store.loadUniverseFromFile(storeState);
+              const applied = store.loadUniverseFromFile(storeState);
               umLog('[UniverseBackend] Successfully loaded universe data into store');
+
+              // The git-read observation attached to this state (sha + node
+              // count) is promoted to the engine ONLY here — at actual apply.
+              // Promoting at read time reopened the wipe race: a background
+              // load that gets DISCARDED (user edited during the timeout)
+              // would have seeded the SHA, letting the next autosave push
+              // the near-empty store over the repo without first-contact.
+              if (applied !== false && storeState?._gitObservation?.universeSlug) {
+                this._recordRemoteObservation(storeState._gitObservation.universeSlug, storeState._gitObservation);
+              }
               return true;
             } catch (error) {
               umError('[UniverseBackend] Failed to load universe data into store:', error);
@@ -2122,6 +2148,18 @@ class UniverseBackend {
 
     // Register engine
     this.gitSyncEngines.set(universeSlug, engine);
+
+    // Seed first-contact state from any direct provider read that happened
+    // before the engine existed (loadFromGitDirect during boot). A stale SHA
+    // is safe — the write path detects divergence and pull-and-compares.
+    const priorObservation = this.remoteObservations.get(universeSlug);
+    if (priorObservation) {
+      engine.markRemoteObserved(priorObservation);
+      umLog(`[UniverseBackend] Seeded engine with prior remote observation for ${universeSlug}`, {
+        sha: priorObservation.sha ? String(priorObservation.sha).substring(0, 8) : priorObservation.sha,
+        nodeCount: priorObservation.nodeCount
+      });
+    }
 
     // Start engine
     try {
@@ -4436,7 +4474,56 @@ class UniverseBackend {
         umWarn('[UniverseBackend] Failed to commit migrated data to git:', writeErr);
       }
     }
+    // Tag so apply-time promotion keeps this.remoteObservations current —
+    // ensureGitSyncEngine seeds a RECREATED engine from it (provider swaps,
+    // universe switches), not just the first engine instance.
+    this._tagGitObservation(storeState, universe.slug, {
+      sha: gitSyncEngine.lastKnownRemoteSha,
+      nodeCount: this.analyzeStoreData(storeState).nodeCount
+    });
     return storeState;
+  }
+
+  /**
+   * Record that the remote universe file was read (or created) this session
+   * by a path that bypasses the GitSyncEngine. Seeds the engine immediately
+   * if it exists, otherwise `ensureGitSyncEngine` applies it at creation.
+   * Without this, the engine's first-contact check would compare the remote
+   * against a store the user has since edited and flag a false conflict —
+   * blocking every save until refresh discards the edits.
+   */
+  /**
+   * Attach a git-read observation to a store-state object (non-enumerable so
+   * it never serializes into saves). Promoted to the engine only when the
+   * state is actually APPLIED to the store — see the loadUniverseFromFile
+   * wrapper in setupStoreOperations.
+   */
+  _tagGitObservation(storeState, universeSlug, { sha, nodeCount } = {}) {
+    if (!storeState || typeof storeState !== 'object') return;
+    try {
+      Object.defineProperty(storeState, '_gitObservation', {
+        value: { universeSlug, sha, nodeCount },
+        enumerable: false,
+        configurable: true
+      });
+    } catch (_) { /* non-fatal */ }
+  }
+
+  _recordRemoteObservation(universeSlug, { sha, nodeCount } = {}) {
+    try {
+      const observation = {
+        sha,
+        nodeCount: Number.isFinite(Number(nodeCount)) ? Number(nodeCount) : 0,
+        ts: Date.now()
+      };
+      this.remoteObservations.set(universeSlug, observation);
+      const engine = this.gitSyncEngines.get(universeSlug);
+      if (engine) {
+        engine.markRemoteObserved(observation);
+      }
+    } catch (error) {
+      umWarn('[UniverseBackend] Failed to record remote observation:', error);
+    }
   }
 
   /**
@@ -4610,9 +4697,22 @@ class UniverseBackend {
       let readFailed = false;
       let confirmedMissing = false;
       let lastReadError = null;
-      const isNotFound = (err) => typeof err?.message === 'string' && err.message.startsWith('File not found');
+      let remoteSha; // SHA of the content we read — seeds the engine's first-contact state
+      const isNotFound = (err) => err?.code === 'FILE_NOT_FOUND' || (typeof err?.message === 'string' && err.message.startsWith('File not found'));
+      // Prefer the meta-read so the engine can be told which remote version
+      // this session observed; `provider` may be swapped to OAuth below, so
+      // resolve it at call time.
+      const readRemote = async (path) => {
+        if (typeof provider.readFileRawWithMeta === 'function') {
+          const result = await provider.readFileRawWithMeta(path);
+          remoteSha = result?.sha;
+          return result?.content;
+        }
+        remoteSha = undefined;
+        return provider.readFileRaw(path);
+      };
       try {
-        content = await provider.readFileRaw(filePath);
+        content = await readRemote(filePath);
       } catch (readError) {
         content = null;
         readFailed = true;
@@ -4628,7 +4728,7 @@ class UniverseBackend {
       // empty file and fork the universe in the repo).
       if (confirmedMissing && canonicalPath !== filePath) {
         try {
-          content = await provider.readFileRaw(canonicalPath);
+          content = await readRemote(canonicalPath);
           confirmedMissing = false;
           lastReadError = null;
           umLog(`[UniverseBackend] loadFromGitDirect: found universe at canonical path ${canonicalPath} (raw name ${fileName} was missing)`);
@@ -4645,7 +4745,7 @@ class UniverseBackend {
       // state on top of a file that actually exists but the App can't see.
       if (readFailed && !content && (await swapToOauth())) {
         try {
-          content = await provider.readFileRaw(filePath);
+          content = await readRemote(filePath);
           confirmedMissing = false;
           lastReadError = null;
         } catch (oauthReadError) {
@@ -4673,8 +4773,9 @@ class UniverseBackend {
               setTimeout(() => resolve(exportToRedstring(initialStoreState)), 0);
             }
           });
+          let createResult = null;
           try {
-            await provider.writeFileRaw(canonicalPath, JSON.stringify(initialRedstring, null, 2));
+            createResult = await provider.writeFileRaw(canonicalPath, JSON.stringify(initialRedstring, null, 2));
           } catch (writeErr) {
             // Swap to OAuth when the App token can't determine whether the
             // file exists (FILE_INFO_UNKNOWN — 401/403/5xx on the probe), or
@@ -4688,13 +4789,21 @@ class UniverseBackend {
               || msg.includes('422')
               || msg.includes('409');
             if (shouldSwap && (await swapToOauth())) {
-              await provider.writeFileRaw(canonicalPath, JSON.stringify(initialRedstring, null, 2));
+              createResult = await provider.writeFileRaw(canonicalPath, JSON.stringify(initialRedstring, null, 2));
             } else {
               throw writeErr;
             }
           }
           this.notifyStatus('success', `Created new universe file at ${canonicalPath}`);
           const { storeState } = importFromRedstring(initialRedstring);
+          // We just created the file — once this state is APPLIED to the
+          // store, the engine may treat the remote as observed. (Tag, don't
+          // record: promotion happens at the loadUniverseFromFile choke
+          // point so a discarded load never seeds the engine.)
+          this._tagGitObservation(storeState, universe.slug, {
+            sha: createResult?.content?.sha,
+            nodeCount: 0
+          });
           return storeState;
         } catch (createErr) {
           umWarn('[UniverseBackend] Failed to create initial universe file on Git:', createErr);
@@ -4715,12 +4824,24 @@ class UniverseBackend {
       if (importResult.version?.migrated) {
         try {
           const migratedJson = JSON.stringify(exportToRedstring(storeState));
-          await provider.writeFileRaw(canonicalPath, migratedJson);
+          const migrateResult = await provider.writeFileRaw(canonicalPath, migratedJson);
+          if (migrateResult?.content?.sha) remoteSha = migrateResult.content.sha;
           umLog(`[UniverseBackend] Wrote migrated data back to git direct (${importResult.version.imported} → ${importResult.version.current})`);
         } catch (writeErr) {
           umWarn('[UniverseBackend] Failed to write migrated data back to git (direct):', writeErr);
         }
       }
+      // This session HAS read the remote. Tag the state so that WHEN it is
+      // applied to the store, the engine learns the remote was observed
+      // (sha + node-count floor) and its first-contact check doesn't later
+      // flag a false conflict against a store the user has since edited.
+      // Tagging (not recording) matters: if this load result is discarded
+      // in favor of live user edits, the engine must stay unobserved so the
+      // first commit still pulls-and-compares.
+      this._tagGitObservation(storeState, universe.slug, {
+        sha: remoteSha,
+        nodeCount: this.analyzeStoreData(storeState).nodeCount
+      });
       return storeState;
     } catch (error) {
       umWarn('[UniverseBackend] Direct Git read failed:', error);
