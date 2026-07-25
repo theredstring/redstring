@@ -82,7 +82,8 @@ class GitSyncEngine {
     this.statusHandler = null;
 
     // Optimistic concurrency state.
-    // `undefined` = we've never observed the remote (first write probes);
+    // `undefined` = we've never observed the remote — the first write runs
+    //               _firstContactCheck (read-before-write, never blind);
     // `null`      = remote confirmed absent (create);
     // string      = SHA from our last successful read or write.
     // Every push asserts this SHA — a mismatch means another device moved
@@ -96,9 +97,12 @@ class GitSyncEngine {
     this.onRemoteDivergence = null;
 
     // True while a remote divergence awaits user resolution. Blocks the
-    // autosave queue (updateState/processPendingCommits); forceCommit still
-    // works so the conflict-resolution save can go through, and clears the
-    // flag on success.
+    // autosave queue (updateState/processPendingCommits) AND forceCommit —
+    // only a forceCommit carrying `isConflictResolution: true` (the explicit
+    // resolution save) may push, and it clears the flag on success. Without
+    // the forceCommit block, GitAutosavePolicy's retry loop would re-push
+    // with the now-known SHA and overwrite the very data the user is being
+    // asked to adjudicate.
     this.remoteConflictPending = false;
 
     // Restore the persisted commit floor for this universe slug. Without this,
@@ -592,9 +596,19 @@ class GitSyncEngine {
    */
   async _commitToRemote(jsonString) {
     const path = this.getLatestPath();
-    const options = this.lastKnownRemoteSha !== undefined
-      ? { expectedSha: this.lastKnownRemoteSha }
-      : {}; // never observed the remote — provider probes for the SHA
+
+    // NEVER write to a remote this session has not read. Before the first
+    // write of a session, pull the remote and run the same safety decision
+    // used for diverged pushes. The old behavior (provider probes for the
+    // SHA and overwrites) is how a save racing a slow universe load could
+    // wipe a populated repo: on a device with no persisted guard state
+    // (fresh mobile browser, evicted localStorage) every "did the repo have
+    // data" floor reads zero, so nothing downstream stops the overwrite.
+    if (this.lastKnownRemoteSha === undefined) {
+      await this._firstContactCheck(path);
+    }
+
+    const options = { expectedSha: this.lastKnownRemoteSha };
 
     try {
       const result = await this.provider.writeFileRaw(path, jsonString, options);
@@ -648,6 +662,115 @@ class GitSyncEngine {
   }
 
   /**
+   * First-contact safety check: read the remote before the FIRST write of a
+   * session (`lastKnownRemoteSha === undefined`).
+   *
+   * This is the structural fix for the mobile repo-wipe class of bug: a
+   * git-only universe on a slow connection times out its initial load, the
+   * UI is released with a near-empty store, an incidental edit unblocks the
+   * autosave pipeline, and the first push lands on a repo this session never
+   * read. Every existing floor/guard is armed from device-local storage
+   * (localStorage floors, universe metadata) which a fresh or evicted mobile
+   * browser doesn't have — so the only reliable arbiter is the remote itself.
+   *
+   * Outcomes:
+   * - confirmed 404 → `lastKnownRemoteSha = null`, write proceeds as create
+   * - readable but empty/unparseable → write proceeds (git history retains)
+   * - readable with data → arm the node-count floor from the REMOTE, then run
+   *   `onRemoteDivergence`; only an explicit 'overwrite' verdict (contents
+   *   equivalent / remote effectively empty) lets the write proceed. Anything
+   *   else surfaces the conflict flow and throws REMOTE_CONFLICT.
+   * - unreadable (auth/network/5xx) → throw; unknown remote content must
+   *   never be overwritten.
+   *
+   * @private
+   * @param {string} path - Remote universe file path.
+   */
+  async _firstContactCheck(path) {
+    console.warn('[GitSyncEngine] First write of this session — reading remote before any overwrite');
+
+    let remote;
+    try {
+      remote = await this.provider.readFileRawWithMeta(path);
+    } catch (error) {
+      if (error?.code === 'FILE_NOT_FOUND' || (error?.message || '').includes('File not found')) {
+        this.lastKnownRemoteSha = null; // confirmed absent — creating is safe
+        return;
+      }
+      // Remote content is UNKNOWN, not missing — refuse to write over it.
+      console.error('[GitSyncEngine] First-contact read failed (not a 404) — refusing to write:', error?.message || error);
+      throw error;
+    }
+
+    this.lastKnownRemoteSha = remote.sha;
+
+    let remoteData = null;
+    try {
+      remoteData = remote.content && remote.content.trim() ? JSON.parse(remote.content) : null;
+    } catch (parseError) {
+      console.warn('[GitSyncEngine] First-contact remote content is unparseable — overwriting (git history retains it):', parseError.message);
+      return;
+    }
+    if (remoteData === null) return; // empty file — safe to overwrite
+
+    // Arm the shrink-to-zero floor from what the remote ACTUALLY holds, not
+    // from device-local storage that may never have existed on this device.
+    const remoteNodeCount = this._countNodesInRedstringData(remoteData);
+    if (remoteNodeCount > this.lastCommittedNodeCount) {
+      this.lastCommittedNodeCount = remoteNodeCount;
+      this._persistFloor();
+    }
+
+    const recognizedShape = !!(remoteData.prototypeSpace || remoteData.nodePrototypes);
+    if (recognizedShape && remoteNodeCount === 0) return; // genuinely empty universe file
+
+    // The remote has data this session never loaded. Reuse the divergence
+    // decision machinery: only a handler that proves the contents equivalent
+    // (or the remote effectively empty) may green-light the write.
+    let decision = 'conflict';
+    if (typeof this.onRemoteDivergence === 'function') {
+      try {
+        decision = await this.onRemoteDivergence({ remoteData, universeSlug: this.universeSlug });
+      } catch (handlerError) {
+        console.warn('[GitSyncEngine] onRemoteDivergence handler failed during first contact — treating as conflict:', handlerError);
+      }
+    }
+    if (decision === 'overwrite') return;
+
+    this.remoteConflictPending = true;
+    this.notifyStatus('warning', 'The repository has existing data that was never loaded this session — choose which version to keep.');
+    const conflictError = new Error('Remote universe has data this session never loaded — refusing to overwrite until resolved.');
+    conflictError.code = 'REMOTE_CONFLICT';
+    throw conflictError;
+  }
+
+  /**
+   * Count node prototypes in raw .redstring file data (NOT store state — for
+   * store snapshots use `_countNodes`). Handles the current prototypeSpace
+   * shape and the legacy top-level nodePrototypes shape.
+   *
+   * @private
+   * @param {Object} redstringData - Parsed .redstring JSON.
+   * @returns {number} Prototype count, 0 if the shape is unrecognized.
+   */
+  _countNodesInRedstringData(redstringData) {
+    if (!redstringData || typeof redstringData !== 'object') return 0;
+    const candidates = [redstringData.prototypeSpace?.prototypes, redstringData.nodePrototypes];
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      if (Array.isArray(candidate)) {
+        if (candidate.length > 0) return candidate.length;
+        continue;
+      }
+      if (typeof candidate === 'object') {
+        const count = Object.keys(candidate).length;
+        if (count > 0) return count;
+      }
+    }
+    return 0;
+  }
+
+  /**
    * Check circuit breaker status and manage API call rate
    */
   checkCircuitBreaker() {
@@ -697,6 +820,17 @@ class GitSyncEngine {
     // Check if operations are paused
     if (this.isPaused) {
       console.log('[GitSyncEngine] Operations paused, skipping commit');
+      return;
+    }
+
+    // A conflict is awaiting user resolution. Commits queued BEFORE the
+    // conflict surfaced must not retry — the SHA is known by now, so the
+    // write would succeed and overwrite the data being adjudicated. Drop
+    // the queue; the resolution save supersedes it.
+    if (this.remoteConflictPending) {
+      console.warn('[GitSyncEngine] Discarding pending commits: remote conflict awaiting resolution');
+      this.pendingCommits = [];
+      this.hasChanges = false;
       return;
     }
 
@@ -885,14 +1019,28 @@ class GitSyncEngine {
    * @param {Object} [options={}]
    * @param {boolean} [options.allowEmpty=false] - Permit committing zero
    *   nodes over a previously non-empty remote (intentional clear).
+   * @param {boolean} [options.isConflictResolution=false] - This is the
+   *   explicit conflict-resolution save; permitted to push while
+   *   `remoteConflictPending` is set (and clears it on success).
    * @returns {Promise<boolean>} `true` if committed; `false` if skipped
-   *   (rate limited / no changes). Throws on failure or unresolved conflict.
+   *   (rate limited / no changes / conflict pending). Throws on failure or
+   *   unresolved conflict.
    */
   async forceCommit(storeState, options = {}) {
     try {
       // Identity guard — see updateState for rationale.
       if (storeState?._universeSlug && storeState._universeSlug !== this.universeSlug) {
         console.warn(`[GitSyncEngine] Refusing forceCommit: state belongs to "${storeState._universeSlug}" but this engine syncs "${this.universeSlug}"`);
+        return false;
+      }
+
+      // A conflict is awaiting the user's decision. Only the explicit
+      // resolution save may push — without this, GitAutosavePolicy's retry
+      // loop (and manual Save Now) would re-push with the now-known SHA and
+      // overwrite the very data the user is being asked to adjudicate.
+      if (this.remoteConflictPending && !options.isConflictResolution) {
+        console.warn('[GitSyncEngine] Refusing forceCommit: remote conflict pending user resolution.');
+        this.notifyStatus('warning', 'Save blocked: resolve the version conflict first.');
         return false;
       }
 
@@ -929,6 +1077,10 @@ class GitSyncEngine {
 
       if (this.lastCommittedHash === currentHash) {
         console.log('[GitSyncEngine] Redundant commit prevented - content unchanged');
+        // A resolution save whose chosen content already matches the last
+        // commit still resolves the conflict — clear the block so autosave
+        // resumes instead of staying wedged for the session.
+        if (options.isConflictResolution) this.remoteConflictPending = false;
         this.notifyStatus('info', 'No changes to commit');
         return false;
       }
@@ -1045,6 +1197,15 @@ class GitSyncEngine {
     try {
       const redstringData = JSON.parse(content);
       console.log('[GitSyncEngine] Successfully parsed Redstring data');
+      // Arm the shrink-to-zero floor from what the remote actually holds.
+      // On a device that never committed (fresh mobile browser, evicted
+      // localStorage) the persisted floor is 0 — this re-arms the guard
+      // from truth the moment the remote is read.
+      const remoteNodeCount = this._countNodesInRedstringData(redstringData);
+      if (remoteNodeCount > this.lastCommittedNodeCount) {
+        this.lastCommittedNodeCount = remoteNodeCount;
+        this._persistFloor();
+      }
       return redstringData;
     } catch (parseError) {
       console.warn('[GitSyncEngine] Failed to parse JSON, file may be corrupted:', parseError.message);

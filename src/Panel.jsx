@@ -6,7 +6,7 @@ import { ArrowLeftFromLine, ArrowRightFromLine, Info, ImagePlus, XCircle, BookOp
 import ToggleSlider from './components/ToggleSlider.jsx';
 import { v4 as uuidv4 } from 'uuid';
 import './Panel.css'
-import { generateThumbnail } from './utils'; // Import thumbnail generator
+import { generateThumbnail, loadImageFileAsDataUrl } from './utils'; // Import thumbnail generator
 import ToggleButton from './ToggleButton'; // Import the new component
 import PanelResizerHandle from './components/PanelResizerHandle.jsx';
 import ColorPicker from './ColorPicker'; // Import the new ColorPicker component
@@ -1566,43 +1566,25 @@ const Panel = memo(forwardRef(
         const file = e.target.files?.[0];
         cleanup();
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = async (loadEvent) => {
-          const fullImageSrc = loadEvent.target?.result;
-          if (typeof fullImageSrc !== 'string') return;
-          const img = new Image();
-          img.onload = async () => {
-            try {
-              const aspectRatio = (img.naturalHeight > 0 && img.naturalWidth > 0) ? img.naturalHeight / img.naturalWidth : 1;
-              const thumbSrc = await generateThumbnail(fullImageSrc, THUMBNAIL_MAX_DIMENSION);
-              const nodeDataToSave = { imageSrc: fullImageSrc, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio };
-              console.log('Calling store updateNodePrototype with image data:', nodeId, nodeDataToSave); // Keep log for this one
-              // Call store action directly (using prop). Clear the
-              // auto-enriched flag: this is now a USER image, so the save
-              // system must persist it in-file rather than stripping it as a
-              // re-fetchable Wikipedia thumbnail.
-              storeActions.updateNodePrototype(nodeId, draft => {
-                Object.assign(draft, nodeDataToSave);
-                if (draft.semanticMetadata?.autoEnriched) {
-                  draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
-                }
-              });
-            } catch (error) {
-              // console.error("Thumbnail/save failed:", error);
-              // Handle error appropriately, e.g., show a message to the user
+        try {
+          // HEIC-aware read (tablet/phone cameras default to HEIC, which
+          // browsers can't decode natively) — see loadImageFileAsDataUrl.
+          const { dataUrl, width, height } = await loadImageFileAsDataUrl(file);
+          const aspectRatio = (width > 0 && height > 0) ? height / width : 1;
+          const thumbSrc = await generateThumbnail(dataUrl, THUMBNAIL_MAX_DIMENSION);
+          // Clear the auto-enriched flag: this is now a USER image, so the save
+          // system must persist it in-file rather than stripping it as a
+          // re-fetchable Wikipedia thumbnail.
+          storeActions.updateNodePrototype(nodeId, draft => {
+            Object.assign(draft, { imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
+            if (draft.semanticMetadata?.autoEnriched) {
+              draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
             }
-          };
-          img.onerror = (error) => {
-            // console.error('Image load failed:', error);
-            // Handle error appropriately
-          };
-          img.src = fullImageSrc;
-        };
-        reader.onerror = (error) => {
-          // console.error('FileReader failed:', error);
-          // Handle error appropriately
-        };
-        reader.readAsDataURL(file);
+          });
+        } catch (error) {
+          console.error('Image add failed:', error);
+          alert(error?.message || 'Could not add this image.');
+        }
       };
       // If the picker is dismissed without a selection, onchange never fires;
       // remove the orphaned input on the next window focus.

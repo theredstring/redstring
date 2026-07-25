@@ -257,7 +257,7 @@ describe('GitAutosavePolicy', () => {
       expect(policy.retryCount).toBe(3);
     });
 
-    it('should clear batch after max retries', async () => {
+    it('keeps the batch after max retries so the next change re-triggers a full commit', async () => {
       const error = new Error('Persistent error');
 
       policy.retryCount = policy.maxRetries;
@@ -265,7 +265,9 @@ describe('GitAutosavePolicy', () => {
 
       await policy.handleCommitError(error, 'test');
 
-      expect(policy.currentBatch).toHaveLength(0);
+      // Batch retained — dropping it silently lost the user's last edits
+      // from Git when they stopped editing before the engine recovered.
+      expect(policy.currentBatch).toHaveLength(1);
       expect(policy.retryCount).toBe(0);
     });
   });

@@ -17,7 +17,7 @@ import UnifiedBottomControlPanel from './UnifiedBottomControlPanel.jsx';
 import EdgeGlowIndicator from './components/EdgeGlowIndicator.jsx'; // Import the EdgeGlowIndicator component
 import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToCivilization component
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
-import { getNodeDimensions, generateThumbnail } from './utils.js';
+import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeasurement.js';
 import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
@@ -177,10 +177,13 @@ const GLIDE_FRICTION_MAX = 0.985;               // clamp ceiling for glide frict
 // direction, anchored to the last pinch midpoint. Velocity is tracked in
 // log-zoom space (d(ln zoom)/dt) so it decays multiplicatively like the pinch
 // itself. Kept deliberately "slight": low boost + heavy friction = a short tail.
-const ZOOM_MOMENTUM_BOOST = 0.85;               // scales the release velocity into the glide (a touch under 1 = slight)
-const ZOOM_MOMENTUM_FRICTION = 0.82;            // per-frame retention of zoom velocity (lower = shorter coast)
-const ZOOM_MOMENTUM_MIN_SPEED = 0.0004;         // |d(ln zoom)/dt| threshold to launch and to stop the glide
-const ZOOM_MOMENTUM_MAX_SPEED = 0.02;           // cap on launch velocity so a fast pinch can't fling the zoom
+const ZOOM_MOMENTUM_BOOST = 1.15;               // scales the release velocity into the glide (>1 offsets finger deceleration in the last sampled frames)
+const ZOOM_MOMENTUM_FRICTION = 0.86;            // per-frame retention of zoom velocity for gentle releases (short coast)
+const ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY = 0.93; // retention for violent flicks — same fast-flick ramp idea as TOUCH_PAN_FRICTION_HIGH_VELOCITY
+const ZOOM_HIGH_VELOCITY_THRESHOLD = 0.003;     // |d(ln zoom)/dt| above which the high-velocity friction starts ramping in
+const ZOOM_HIGH_VELOCITY_RAMP = 0.005;          // velocity range over which friction lerps from base to high
+const ZOOM_MOMENTUM_MIN_SPEED = 0.00025;        // |d(ln zoom)/dt| threshold to launch and to stop the glide
+const ZOOM_MOMENTUM_MAX_SPEED = 0.03;           // cap on launch velocity so a fast pinch can't fling the zoom
 
 
 /**
@@ -2307,15 +2310,32 @@ function NodeCanvas() {
   // Launch a brief zoom coast after a pinch releases (touch only). `initialVel`
   // is the release velocity in log-zoom space (per ms); the anchor pins the last
   // pinch midpoint so the coasting zoom stays centered on the same world point.
-  const startZoomMomentum = useCallback((initialVel, anchorClient, anchorWorld) => {
+  const startZoomMomentum = useCallback((initialVel, anchorClient, anchorWorld, minZoomBound, maxZoomBound) => {
     if (!Number.isFinite(initialVel) || !anchorClient || !anchorWorld) return false;
     // A new inertial gesture supersedes any in-flight pan/zoom glide.
     stopPanMomentum();
     stopZoomMomentum();
 
+    // The glide must stop exactly where a manual pinch would — the caller (the
+    // touch pinch handler) owns the authoritative zoom bounds and passes them
+    // in. Without this the glide clamps to the dynamic fit-to-canvas MIN_ZOOM,
+    // which on a large canvas floors below the pinch's limit and lets the coast
+    // sail past the max zoom-out point. Fall back to the dynamic bounds.
+    const effMinZoom = Number.isFinite(minZoomBound) ? minZoomBound : MIN_ZOOM;
+    const effMaxZoom = Number.isFinite(maxZoomBound) ? maxZoomBound : MAX_ZOOM;
+
     let vel = initialVel * ZOOM_MOMENTUM_BOOST;
     vel = Math.max(-ZOOM_MOMENTUM_MAX_SPEED, Math.min(ZOOM_MOMENTUM_MAX_SPEED, vel));
     if (Math.abs(vel) < ZOOM_MOMENTUM_MIN_SPEED) return false;
+
+    // Violent flicks coast farther: lerp friction toward the high-velocity
+    // retention as launch speed rises (same shape as the touch pan glide).
+    let friction = ZOOM_MOMENTUM_FRICTION;
+    const launchSpeed = Math.abs(vel);
+    if (launchSpeed > ZOOM_HIGH_VELOCITY_THRESHOLD) {
+      const overshoot = Math.min(1, (launchSpeed - ZOOM_HIGH_VELOCITY_THRESHOLD) / ZOOM_HIGH_VELOCITY_RAMP);
+      friction = ZOOM_MOMENTUM_FRICTION + (ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY - ZOOM_MOMENTUM_FRICTION) * overshoot;
+    }
 
     zoomMomentumRef.current.vel = vel;
     zoomMomentumRef.current.anchorClient = { x: anchorClient.x, y: anchorClient.y };
@@ -2341,7 +2361,7 @@ function NodeCanvas() {
 
       const prevZoom = zoomLevelRef.current;
       let newZoom = prevZoom * Math.exp(ref.vel * dt);
-      const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
+      const clampedZoom = Math.max(effMinZoom, Math.min(effMaxZoom, newZoom));
 
       const rect = container.getBoundingClientRect();
       const world = ref.anchorWorld;
@@ -2353,7 +2373,7 @@ function NodeCanvas() {
       setPanAndZoom(newPan, clampedZoom);
 
       // Decay velocity, frame-time compensated like the pan glide.
-      ref.vel *= Math.pow(ZOOM_MOMENTUM_FRICTION, dt / PAN_MOMENTUM_FRAME);
+      ref.vel *= Math.pow(friction, dt / PAN_MOMENTUM_FRAME);
 
       // Stop once the coast is imperceptible or we've hit a zoom bound.
       const hitBound = clampedZoom !== newZoom;
@@ -6531,41 +6551,28 @@ function NodeCanvas() {
               input.style.opacity = '0';
               document.body.appendChild(input);
               const cleanup = () => { try { input.remove(); } catch { } };
-              input.onchange = (e) => {
+              input.onchange = async (e) => {
                 const file = e.target.files?.[0];
                 cleanup();
-                if (!file) { alert('[pie] no file selected'); return; }
-                alert(`[pie] 1 file selected: ${file.name} | type="${file.type}" | ${Math.round(file.size / 1024)} KB`);
-                const reader = new FileReader();
-                reader.onerror = () => alert(`[pie] FileReader error: ${reader.error?.name} ${reader.error?.message}`);
-                reader.onload = (loadEvent) => {
-                  const fullImageSrc = loadEvent.target?.result;
-                  if (typeof fullImageSrc !== 'string') { alert('[pie] reader result not a string'); return; }
-                  alert(`[pie] 2 file read ok, dataURL length=${fullImageSrc.length}, prefix=${fullImageSrc.slice(0, 30)}`);
-                  const img = new Image();
-                  img.onerror = () => alert('[pie] 3 FAILED: browser could not decode this image (format unsupported? e.g. HEIC)');
-                  img.onload = async () => {
-                    alert(`[pie] 3 decoded ok: ${img.naturalWidth}x${img.naturalHeight}`);
-                    try {
-                      const aspectRatio = (img.naturalHeight > 0 && img.naturalWidth > 0) ? (img.naturalHeight / img.naturalWidth) : 1;
-                      const thumbSrc = await generateThumbnail(fullImageSrc, THUMBNAIL_MAX_DIMENSION);
-                      alert(`[pie] 4 thumbnail generated, length=${thumbSrc?.length}`);
-                      storeActions.updateNodePrototype(prototypeId, draft => {
-                        Object.assign(draft, { imageSrc: fullImageSrc, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
-                        // User image replaces any auto-enriched Wikipedia thumbnail — clear
-                        // the flag so the save system persists it in-file.
-                        if (draft.semanticMetadata?.autoEnriched) {
-                          draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
-                        }
-                      });
-                      alert('[pie] 5 SAVED to store — done');
-                    } catch (error) {
-                      alert(`[pie] 4 FAILED in thumbnail/save: ${error?.name} ${error?.message}`);
+                if (!file) return;
+                try {
+                  // HEIC-aware read (tablet/phone cameras default to HEIC, which
+                  // browsers can't decode natively) — see loadImageFileAsDataUrl.
+                  const { dataUrl, width, height } = await loadImageFileAsDataUrl(file);
+                  const aspectRatio = (width > 0 && height > 0) ? (height / width) : 1;
+                  const thumbSrc = await generateThumbnail(dataUrl, THUMBNAIL_MAX_DIMENSION);
+                  storeActions.updateNodePrototype(prototypeId, draft => {
+                    Object.assign(draft, { imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
+                    // User image replaces any auto-enriched Wikipedia thumbnail — clear
+                    // the flag so the save system persists it in-file.
+                    if (draft.semanticMetadata?.autoEnriched) {
+                      draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
                     }
-                  };
-                  img.src = fullImageSrc;
-                };
-                reader.readAsDataURL(file);
+                  });
+                } catch (error) {
+                  console.error('[PieMenu] Add Image failed:', error);
+                  alert(error?.message || 'Could not add this image.');
+                }
               };
               // Cancelled picker fires no onchange; clean up on next focus.
               window.addEventListener('focus', () => setTimeout(cleanup, 300), { once: true });
@@ -13801,15 +13808,24 @@ function NodeCanvas() {
                                 const destDotX = curveDestDot ? curveDestDot.x : (straightDotDest ? straightDotDest.x : destArrowX);
                                 const destDotY = curveDestDot ? curveDestDot.y : (straightDotDest ? straightDotDest.y : destArrowY);
 
-                                // Register the endpoint orbs so touch input can hit-test them
-                                // (and win over the node underneath). Must match the same
-                                // visibility gate the orb <circle>s render under, below.
-                                if ((isHovered || isSelected) && (!enableAutoRouting || routingStyle === 'straight' || useCurve)) {
+                                // Register touch hit-targets for a hovered/selected connection so
+                                // touch input can toggle arrows and win over the node underneath.
+                                //   - Endpoints WITHOUT an arrow → the "add arrow" orbs (only shown
+                                //     for the same routings the orb <circle>s render under, below).
+                                //   - Endpoints WITH an arrow → the arrowhead itself, so a tap on it
+                                //     removes the arrow. Arrowheads render for every routing, so this
+                                //     isn't gated on the orb routing condition.
+                                if (isHovered || isSelected) {
                                   const orbR = Math.round(36 * connectionWidth);
-                                  if (!arrowsToward.has(sourceNode.id)) {
+                                  const showDots = !enableAutoRouting || routingStyle === 'straight' || useCurve;
+                                  if (arrowsToward.has(sourceNode.id)) {
+                                    connectionOrbHitsRef.current.push({ cx: sourceArrowX, cy: sourceArrowY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
+                                  } else if (showDots) {
                                     connectionOrbHitsRef.current.push({ cx: sourceDotX, cy: sourceDotY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
                                   }
-                                  if (!arrowsToward.has(destNode.id)) {
+                                  if (arrowsToward.has(destNode.id)) {
+                                    connectionOrbHitsRef.current.push({ cx: destArrowX, cy: destArrowY, r: orbR, edgeId: edge.id, nodeId: destNode.id });
+                                  } else if (showDots) {
                                     connectionOrbHitsRef.current.push({ cx: destDotX, cy: destDotY, r: orbR, edgeId: edge.id, nodeId: destNode.id });
                                   }
                                 }
@@ -15159,15 +15175,24 @@ function NodeCanvas() {
                                 const destDotX = curveDestDot ? curveDestDot.x : (straightDotDest ? straightDotDest.x : destArrowX);
                                 const destDotY = curveDestDot ? curveDestDot.y : (straightDotDest ? straightDotDest.y : destArrowY);
 
-                                // Register the endpoint orbs so touch input can hit-test them
-                                // (and win over the node underneath). Must match the same
-                                // visibility gate the orb <circle>s render under, below.
-                                if ((isHovered || isSelected) && (!enableAutoRouting || routingStyle === 'straight' || useCurve)) {
+                                // Register touch hit-targets for a hovered/selected connection so
+                                // touch input can toggle arrows and win over the node underneath.
+                                //   - Endpoints WITHOUT an arrow → the "add arrow" orbs (only shown
+                                //     for the same routings the orb <circle>s render under, below).
+                                //   - Endpoints WITH an arrow → the arrowhead itself, so a tap on it
+                                //     removes the arrow. Arrowheads render for every routing, so this
+                                //     isn't gated on the orb routing condition.
+                                if (isHovered || isSelected) {
                                   const orbR = Math.round(36 * connectionWidth);
-                                  if (!arrowsToward.has(sourceNode.id)) {
+                                  const showDots = !enableAutoRouting || routingStyle === 'straight' || useCurve;
+                                  if (arrowsToward.has(sourceNode.id)) {
+                                    connectionOrbHitsRef.current.push({ cx: sourceArrowX, cy: sourceArrowY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
+                                  } else if (showDots) {
                                     connectionOrbHitsRef.current.push({ cx: sourceDotX, cy: sourceDotY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
                                   }
-                                  if (!arrowsToward.has(destNode.id)) {
+                                  if (arrowsToward.has(destNode.id)) {
+                                    connectionOrbHitsRef.current.push({ cx: destArrowX, cy: destArrowY, r: orbR, edgeId: edge.id, nodeId: destNode.id });
+                                  } else if (showDots) {
                                     connectionOrbHitsRef.current.push({ cx: destDotX, cy: destDotY, r: orbR, edgeId: edge.id, nodeId: destNode.id });
                                   }
                                 }

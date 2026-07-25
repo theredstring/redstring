@@ -1,6 +1,6 @@
 import React, { useState, useMemo, memo } from 'react';
 import { THUMBNAIL_MAX_DIMENSION } from '../../constants.js';
-import { generateThumbnail } from '../../utils.js';
+import { generateThumbnail, loadImageFileAsDataUrl } from '../../utils.js';
 import SharedPanelContent from './SharedPanelContent.jsx';
 import useGraphStore from "../../store/graphStore.js";
 import ColorPicker from '../../ColorPicker.jsx';
@@ -230,46 +230,26 @@ const PanelContentWrapper = memo(({
     input.onchange = async (e) => {
       const file = e.target.files?.[0];
       cleanup();
-      if (!file) { alert('[img] no file selected'); return; }
-      alert(`[img] 1 file selected: ${file.name} | type="${file.type}" | ${Math.round(file.size / 1024)} KB`);
-
-      const reader = new FileReader();
-      reader.onerror = (err) => alert(`[img] FileReader error: ${reader.error?.name} ${reader.error?.message}`);
-      reader.onload = async (loadEvent) => {
-        const fullImageSrc = loadEvent.target?.result;
-        if (typeof fullImageSrc !== 'string') { alert('[img] reader result not a string'); return; }
-        alert(`[img] 2 file read ok, dataURL length=${fullImageSrc.length}, prefix=${fullImageSrc.slice(0, 30)}`);
-
-        const img = new Image();
-        img.onerror = () => alert('[img] 3 FAILED: browser could not decode this image (format unsupported? e.g. HEIC)');
-        img.onload = async () => {
-          alert(`[img] 3 decoded ok: ${img.naturalWidth}x${img.naturalHeight}`);
-          try {
-            const aspectRatio = (img.naturalHeight > 0 && img.naturalWidth > 0) ? (img.naturalHeight / img.naturalWidth) : 1;
-            const thumbSrc = await generateThumbnail(fullImageSrc, THUMBNAIL_MAX_DIMENSION);
-            alert(`[img] 4 thumbnail generated, length=${thumbSrc?.length}`);
-            const nodeDataToSave = {
-              imageSrc: fullImageSrc,
-              thumbnailSrc: thumbSrc,
-              imageAspectRatio: aspectRatio
-            };
-            storeActions.updateNodePrototype(nodeId, draft => {
-              Object.assign(draft, nodeDataToSave);
-              // User image replaces any auto-enriched Wikipedia thumbnail —
-              // clear the flag so the save system persists it in-file instead
-              // of stripping it as re-fetchable.
-              if (draft.semanticMetadata?.autoEnriched) {
-                draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
-              }
-            });
-            alert('[img] 5 SAVED to store — done');
-          } catch (error) {
-            alert(`[img] 4 FAILED in thumbnail/save: ${error?.name} ${error?.message}`);
+      if (!file) return;
+      try {
+        // HEIC-aware read (tablet/phone cameras default to HEIC, which browsers
+        // can't decode natively) — see loadImageFileAsDataUrl.
+        const { dataUrl, width, height } = await loadImageFileAsDataUrl(file);
+        const aspectRatio = (width > 0 && height > 0) ? (height / width) : 1;
+        const thumbSrc = await generateThumbnail(dataUrl, THUMBNAIL_MAX_DIMENSION);
+        storeActions.updateNodePrototype(nodeId, draft => {
+          Object.assign(draft, { imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
+          // User image replaces any auto-enriched Wikipedia thumbnail —
+          // clear the flag so the save system persists it in-file instead
+          // of stripping it as re-fetchable.
+          if (draft.semanticMetadata?.autoEnriched) {
+            draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
           }
-        };
-        img.src = fullImageSrc;
-      };
-      reader.readAsDataURL(file);
+        });
+      } catch (error) {
+        console.error('Image add failed:', error);
+        alert(error?.message || 'Could not add this image.');
+      }
     };
     // Cancelled picker fires no onchange; clean up on next window focus.
     window.addEventListener('focus', () => setTimeout(cleanup, 300), { once: true });

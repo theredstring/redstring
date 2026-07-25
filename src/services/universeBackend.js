@@ -3025,7 +3025,9 @@ class UniverseBackend {
     // Save to Git if enabled and sync engine is available
     if (!skipGit && universe.gitRepo.enabled && this.gitSyncEngines.has(universe.slug)) {
       try {
-        await this.saveToGit(universe, redstringData);
+        await this.saveToGit(universe, redstringData, {
+          isConflictResolution: options?.isConflictResolution === true
+        });
         results.push('git');
       } catch (error) {
         umError('[UniverseBackend] Git save failed:', error);
@@ -3083,25 +3085,30 @@ class UniverseBackend {
   /**
    * Save to Git repository
    */
-  async saveToGit(universe, redstringData) {
+  async saveToGit(universe, redstringData, options = {}) {
     const gitSyncEngine = this.gitSyncEngines.get(universe.slug);
     if (!gitSyncEngine) {
       throw new Error('Git sync engine not configured for this universe');
     }
 
     umLog('[UniverseBackend] Saving to Git via existing sync engine (no restart)');
+    const commitOptions = { isConflictResolution: options?.isConflictResolution === true };
 
     try {
       // Use the GitSyncEngine's existing export logic
       if (this.storeOperations?.getState) {
         const storeState = this.storeOperations.getState();
         // Force commit through the existing GitSyncEngine which handles SHA conflicts properly
-        const committed = await gitSyncEngine.forceCommit(storeState);
+        const committed = await gitSyncEngine.forceCommit(storeState, commitOptions);
         if (committed === false) {
-          // forceCommit returns false for BOTH "content already committed"
-          // (fine — remote is current) and "rate-limited skip" (NOT fine —
-          // nothing was pushed). Reporting a rate-limited skip as success
-          // updates lastSync for a commit that never happened.
+          // forceCommit returns false for "content already committed"
+          // (fine — remote is current), "rate-limited skip", and "conflict
+          // pending" (both NOT fine — nothing was pushed). Reporting a
+          // skip as success updates lastSync for a commit that never
+          // happened.
+          if (gitSyncEngine.remoteConflictPending) {
+            throw new Error('Commit blocked — repository version conflict awaiting resolution');
+          }
           const currentHash = gitSyncEngine.generateStateHash(storeState);
           if (gitSyncEngine.lastCommittedHash !== currentHash) {
             throw new Error('Commit skipped (rate limited) — changes not yet pushed');
@@ -3128,7 +3135,7 @@ class UniverseBackend {
         try {
           if (this.storeOperations?.getState) {
             const storeState = this.storeOperations.getState();
-            await gitSyncEngine.forceCommit(storeState);
+            await gitSyncEngine.forceCommit(storeState, commitOptions);
             this.notifyStatus('success', 'Conflict resolved with retry');
           } else {
             throw new Error('Store operations not available for retry');

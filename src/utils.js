@@ -386,4 +386,61 @@ export const generateThumbnail = (imageSource, maxDimension) => {
       reject(new Error("Invalid image source type"));
     }
   });
-}; 
+};
+
+// Decode a data URL into an HTMLImageElement (resolves with the loaded <img>).
+const decodeDataUrl = (dataUrl) => new Promise((resolve, reject) => {
+  const img = new Image();
+  img.onload = () => resolve(img);
+  img.onerror = () => reject(new Error('decode-failed'));
+  img.src = dataUrl;
+});
+
+const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(reader.error || new Error('read-failed'));
+  reader.readAsDataURL(blob);
+});
+
+/**
+ * Reads a user-selected image File into a browser-decodable data URL.
+ *
+ * Handles HEIC/HEIF (the default format for iPhone and many Android tablet
+ * cameras), which browsers cannot decode natively via <img> — attempting to
+ * do so fails silently and no image ever appears. We first try a native decode
+ * (fast path for JPEG/PNG/WebP/GIF), and only if that fails do we lazy-load
+ * heic-to to transcode to JPEG. The lazy import keeps the decoder (a libheif
+ * wasm build) out of the main bundle until a HEIC/HEIF is actually chosen.
+ *
+ * @param {File} file - The image file from a file input.
+ * @returns {Promise<{ dataUrl: string, width: number, height: number }>}
+ * @throws {Error} with a user-presentable .message if the image can't be read/decoded.
+ */
+export const loadImageFileAsDataUrl = async (file) => {
+  if (!file) throw new Error('No file provided');
+
+  // Fast path: read + native decode. Works for JPEG/PNG/WebP/GIF.
+  const rawDataUrl = await blobToDataUrl(file);
+  try {
+    const img = await decodeDataUrl(rawDataUrl);
+    return { dataUrl: rawDataUrl, width: img.naturalWidth, height: img.naturalHeight };
+  } catch {
+    // Native decode failed — most commonly HEIC/HEIF. Try transcoding to JPEG.
+  }
+
+  let jpegBlob;
+  try {
+    const { heicTo } = await import('heic-to');
+    jpegBlob = await heicTo({ blob: file, type: 'image/jpeg', quality: 0.9 });
+  } catch (err) {
+    // Surface the real decoder error so genuinely-unsupported files are
+    // distinguishable from library/transcode failures.
+    const reason = err?.message || err?.name || String(err);
+    throw new Error(`Couldn't read this image (${file.type || 'unknown type'}): ${reason}. Try a JPEG or PNG.`);
+  }
+
+  const convertedUrl = await blobToDataUrl(jpegBlob);
+  const img = await decodeDataUrl(convertedUrl);
+  return { dataUrl: convertedUrl, width: img.naturalWidth, height: img.naturalHeight };
+};

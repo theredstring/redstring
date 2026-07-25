@@ -4,6 +4,7 @@ import { GitSyncEngine } from '../../src/services/gitSyncEngine.js';
 const buildStoreState = () => {
   const graphs = new Map();
   const nodePrototypes = new Map();
+  nodePrototypes.set('p1', { id: 'p1', name: 'N1' });
   const edges = new Map();
   const graphId = 'g1';
   graphs.set(graphId, {
@@ -33,10 +34,13 @@ describe('GitSyncEngine', () => {
   let provider;
 
   beforeEach(() => {
+    if (typeof window !== 'undefined' && window.localStorage) window.localStorage.clear();
+    const notFound = () => { const e = new Error('File not found: x'); e.code = 'FILE_NOT_FOUND'; throw e; };
     provider = {
       name: 'mock',
       writeFileRaw: vi.fn(),
-      readFileRaw: vi.fn()
+      readFileRaw: vi.fn(),
+      readFileRawWithMeta: vi.fn().mockImplementation(async () => notFound())
     };
   });
 
@@ -44,30 +48,28 @@ describe('GitSyncEngine', () => {
     vi.useRealTimers();
   });
 
-  it('forceCommit writes universe and backup files', async () => {
+  it('forceCommit writes the universe file', async () => {
     const engine = new GitSyncEngine(provider);
     const state = buildStoreState();
 
-    provider.writeFileRaw.mockResolvedValueOnce({ ok: true });
     provider.writeFileRaw.mockResolvedValueOnce({ ok: true });
 
     const ok = await engine.forceCommit(state);
     expect(ok).toBe(true);
-    expect(provider.writeFileRaw).toHaveBeenCalledTimes(2);
+    expect(provider.writeFileRaw).toHaveBeenCalledTimes(1);
     expect(provider.writeFileRaw.mock.calls[0][0]).toBe('universes/default/universe.redstring');
-    expect(provider.writeFileRaw.mock.calls[1][0]).toMatch(/^universes\/default\/backups\/\d{8}-\d{6}\.redstring$/);
   });
 
   it('loadFromGit returns parsed data when file exists', async () => {
     const engine = new GitSyncEngine(provider);
-    const state = buildStoreState();
     const serialized = JSON.stringify({ hello: 'world', metadata: {}, prototypeSpace: {}, spatialGraphs: {}, relationships: {} });
-    provider.readFileRaw.mockResolvedValueOnce(serialized);
+    provider.readFileRawWithMeta.mockResolvedValueOnce({ content: serialized, sha: 'sha-1' });
 
     const data = await engine.loadFromGit();
     expect(data).toBeDefined();
     expect(data.hello).toBe('world');
-    expect(provider.readFileRaw).toHaveBeenCalledWith('universes/default/universe.redstring');
+    expect(provider.readFileRawWithMeta).toHaveBeenCalledWith('universes/default/universe.redstring');
+    expect(engine.lastKnownRemoteSha).toBe('sha-1');
   });
 
   it('processPendingCommits keeps queue on 409 conflict and retries later', async () => {
@@ -89,8 +91,7 @@ describe('GitSyncEngine', () => {
     // Advance time to allow retry window
     vi.advanceTimersByTime(2500);
 
-    // Next attempts succeed
-    provider.writeFileRaw.mockResolvedValueOnce({ ok: true });
+    // Next attempt succeeds
     provider.writeFileRaw.mockResolvedValueOnce({ ok: true });
 
     await engine.processPendingCommits();
@@ -117,13 +118,10 @@ describe('GitSyncEngine', () => {
 
     // Unblock first write and complete both
     resolveWrite({ ok: true });
-    provider.writeFileRaw.mockResolvedValueOnce({ ok: true });
 
     await Promise.all([p1, p2]);
 
-    // Two writes total (universe + backup) despite two cycles
-    expect(provider.writeFileRaw).toHaveBeenCalledTimes(2);
+    // One write despite two cycles: the second cycle hit the in-progress lock
+    expect(provider.writeFileRaw).toHaveBeenCalledTimes(1);
   });
 });
-
-

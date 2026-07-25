@@ -24,13 +24,18 @@ const NODE_DOUBLE_TAP_MS = 400;
 // panned past this distance, treat it as the tail of the pinch and glide the
 // zoom rather than as a single-finger pan/tap.
 const PINCH_GLIDE_HANDOFF_MS = 250;
-const PINCH_GLIDE_HANDOFF_MOVE = 32;
+// Generous move allowance: on a violent flick the trailing finger is still
+// travelling fast when the first finger lifts and can cover a lot of ground in
+// its last ~50ms on the glass. A tight threshold here rejected exactly the
+// flicks that most deserve a glide. The time window above still distinguishes
+// "tail of the pinch" from "kept the finger down to pan".
+const PINCH_GLIDE_HANDOFF_MOVE = 80;
 // Release-velocity sampling for the pinch glide (mirrors the pan glide's
 // window approach). Velocity is measured on the RAW finger-driven target zoom,
 // not the eased/applied zoom — the applied zoom lags the fingers and keeps
 // "moving" after they stop, which made the glide fire inconsistently.
 const PINCH_ZOOM_VELOCITY_WINDOW_MS = 100;  // how far back to sample for release velocity
-const PINCH_ZOOM_STATIONARY_GAP_MS = 80;    // last sample older than this at lift = fingers had stopped, no glide
+const PINCH_ZOOM_STATIONARY_GAP_MS = 110;   // last sample older than this at lift = fingers had stopped, no glide (generous — abrupt lifts can skip a couple frames)
 
 export const useCanvasTouch = ({
     containerRef,
@@ -609,9 +614,11 @@ export const useCanvasTouch = ({
         // zoom velocity to a brief coast (see the all-fingers-lifted branch below).
         if (pinchRef.current.active) {
             // Compute release velocity from the sampled raw-target-zoom history
-            // (same windowed approach as pan momentum): velocity over the last
-            // ~100ms of samples, zeroed if the fingers had already stopped
-            // zooming before the lift (stationary gap).
+            // (same windowed approach as pan momentum), zeroed if the fingers had
+            // already stopped zooming before the lift (stationary gap). A violent
+            // flick is still ACCELERATING at lift, so averaging the whole window
+            // undersells it — measure both the full window and a short recent
+            // slice and launch with whichever is faster (same sign of motion).
             let releaseZoomVel = 0;
             {
                 const hist = pinchRef.current.zoomHist || [];
@@ -619,19 +626,27 @@ export const useCanvasTouch = ({
                 if (hist.length >= 2) {
                     const last = hist[hist.length - 1];
                     if (nowEnd - last.t <= PINCH_ZOOM_STATIONARY_GAP_MS) {
-                        // Walk back to the oldest sample inside the velocity window.
-                        let first = hist[0];
-                        for (let i = hist.length - 2; i >= 0; i--) {
-                            if (last.t - hist[i].t <= PINCH_ZOOM_VELOCITY_WINDOW_MS) {
-                                first = hist[i];
-                            } else {
-                                break;
+                        const velOverWindow = (windowMs) => {
+                            let first = null;
+                            for (let i = hist.length - 2; i >= 0; i--) {
+                                if (last.t - hist[i].t <= windowMs) {
+                                    first = hist[i];
+                                } else {
+                                    break;
+                                }
                             }
-                        }
-                        const span = last.t - first.t;
-                        if (span > 0) {
-                            releaseZoomVel = (last.lz - first.lz) / span;
-                        }
+                            if (!first) return 0;
+                            const span = last.t - first.t;
+                            return span > 0 ? (last.lz - first.lz) / span : 0;
+                        };
+                        const fullVel = velOverWindow(PINCH_ZOOM_VELOCITY_WINDOW_MS);
+                        const recentVel = velOverWindow(PINCH_ZOOM_VELOCITY_WINDOW_MS / 2.5);
+                        // Peak-biased pick, but only when both agree on direction —
+                        // a reversal at the end (pinch out, snap back in) should not
+                        // launch in the stale direction.
+                        releaseZoomVel = Math.abs(recentVel) > Math.abs(fullVel) && recentVel * fullVel >= 0
+                            ? recentVel
+                            : fullVel;
                     }
                 }
             }
@@ -686,7 +701,9 @@ export const useCanvasTouch = ({
                 // Slight pinch glide: coast the zoom in the release direction,
                 // anchored to the last pinch midpoint. No-ops below its speed
                 // threshold, so a deliberate hold-then-lift doesn't drift.
-                startZoomMomentum?.(releaseZoomVel, releaseAnchorClient, releaseAnchorWorld);
+                // Pass the pinch's own zoom bounds so the coast stops exactly
+                // where a manual pinch would, not at the looser dynamic MIN_ZOOM.
+                startZoomMomentum?.(releaseZoomVel, releaseAnchorClient, releaseAnchorWorld, MIN_ZOOM, MAX_ZOOM);
             }
             return;
         }
@@ -712,7 +729,7 @@ export const useCanvasTouch = ({
                 isMouseDown.current = false;
                 mouseMoved.current = false;
                 panVelocityHistoryRef.current = [];
-                startZoomMomentum?.(pending.vel, pending.anchorClient, pending.anchorWorld);
+                startZoomMomentum?.(pending.vel, pending.anchorClient, pending.anchorWorld, MIN_ZOOM, MAX_ZOOM);
                 return;
             }
             // Otherwise the leftover finger became a real pan/tap — fall through.
