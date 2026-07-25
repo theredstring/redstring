@@ -13821,8 +13821,8 @@ function NodeCanvas() {
                                       </g>
                                     )}
 
-                                    {/* Hover Dots - visible when hovering straight edges or curved parallel edges */}
-                                    {isHovered && (!enableAutoRouting || routingStyle === 'straight' || useCurve) && (
+                                    {/* Endpoint Dots - visible when hovering OR when the connection is selected (straight edges or curved parallel edges) */}
+                                    {(isHovered || isSelected) && (!enableAutoRouting || routingStyle === 'straight' || useCurve) && (
                                       <>
                                         {/* Source Dot - only show if arrow not pointing toward source */}
                                         {!arrowsToward.has(sourceNode.id) && (
@@ -15158,8 +15158,8 @@ function NodeCanvas() {
                                       </g>
                                     )}
 
-                                    {/* Hover Dots - visible when hovering straight edges or curved parallel edges */}
-                                    {isHovered && (!enableAutoRouting || routingStyle === 'straight' || useCurve) && (
+                                    {/* Endpoint Dots - visible when hovering OR when the connection is selected (straight edges or curved parallel edges) */}
+                                    {(isHovered || isSelected) && (!enableAutoRouting || routingStyle === 'straight' || useCurve) && (
                                       <>
                                         {/* Source Dot - only show if arrow not pointing toward source */}
                                         {!arrowsToward.has(sourceNode.id) && (
