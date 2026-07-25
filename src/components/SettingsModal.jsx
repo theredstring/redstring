@@ -639,6 +639,10 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={() => useGraphStore.getState().toggleConnectionDrawEdgePan?.()}
             />
           </div>
+
+          <hr className="settings-section-divider" />
+
+          <div className="settings-section-subtitle">Zoom</div>
           <div className="settings-row">
             <div className="settings-row-label">
               Zoom on Drag

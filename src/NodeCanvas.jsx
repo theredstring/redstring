@@ -179,7 +179,7 @@ const GLIDE_FRICTION_MAX = 0.985;               // clamp ceiling for glide frict
 // itself. Kept deliberately "slight": low boost + heavy friction = a short tail.
 const ZOOM_MOMENTUM_BOOST = 0.85;               // scales the release velocity into the glide (a touch under 1 = slight)
 const ZOOM_MOMENTUM_FRICTION = 0.82;            // per-frame retention of zoom velocity (lower = shorter coast)
-const ZOOM_MOMENTUM_MIN_SPEED = 0.0006;         // |d(ln zoom)/dt| threshold to launch and to stop the glide
+const ZOOM_MOMENTUM_MIN_SPEED = 0.0004;         // |d(ln zoom)/dt| threshold to launch and to stop the glide
 const ZOOM_MOMENTUM_MAX_SPEED = 0.02;           // cap on launch velocity so a fast pinch can't fling the zoom
 
 
@@ -4382,6 +4382,51 @@ function NodeCanvas() {
   const hoveredEdgeInfoRef = useRef(null);
   useEffect(() => { hoveredEdgeInfoRef.current = hoveredEdgeInfo; }, [hoveredEdgeInfo]);
 
+  // Currently-visible connection endpoint "orbs" (the arrow-direction toggles that
+  // appear on a hovered/selected connection). Populated fresh each render by the
+  // edge-render blocks with each orb's SVG-space center + radius so touch input can
+  // hit-test them BEFORE the node/canvas handlers claim the tap. Nodes paint on top
+  // of edges, so without this an orb sitting over a node border loses the touch to
+  // the node; this ref lets the touch layer give orbs priority. Entries:
+  // { cx, cy, r, edgeId, nodeId }.
+  const connectionOrbHitsRef = useRef([]);
+
+  // Hit-test a client-space point against the visible connection orbs and, on a hit,
+  // toggle that connection's arrow toward the orb's node (mirrors handleArrowClick).
+  // Returns true if a toggle happened so the touch layer can swallow the gesture and
+  // skip node selection / canvas deselection. Prefers the nearest orb on overlap.
+  const tryToggleConnectionOrbAtPoint = useCallback((clientX, clientY) => {
+    const orbs = connectionOrbHitsRef.current;
+    if (!orbs || orbs.length === 0 || !containerRef.current) return false;
+    const rect = containerRef.current.getBoundingClientRect();
+    const px = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+    const py = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+    let best = null;
+    let bestDist = Infinity;
+    for (const orb of orbs) {
+      const dx = px - orb.cx;
+      const dy = py - orb.cy;
+      const dist = Math.hypot(dx, dy);
+      // Slight radius padding so a finger that lands just outside the transparent
+      // hit disc still registers (touch is far less precise than a mouse).
+      if (dist <= orb.r * 1.15 && dist < bestDist) {
+        best = orb;
+        bestDist = dist;
+      }
+    }
+    if (!best) return false;
+    storeActions.updateEdge(best.edgeId, (draft) => {
+      if (!draft.directionality) draft.directionality = { arrowsToward: new Set() };
+      if (!draft.directionality.arrowsToward) draft.directionality.arrowsToward = new Set();
+      if (draft.directionality.arrowsToward.has(best.nodeId)) {
+        draft.directionality.arrowsToward.delete(best.nodeId);
+      } else {
+        draft.directionality.arrowsToward.add(best.nodeId);
+      }
+    });
+    return true;
+  }, [containerRef, panOffsetRef, zoomLevelRef, canvasSize, storeActions]);
+
   // Hover vision aid state
   const [hoveredNodeForVision, setHoveredNodeForVision] = useState(null);
   const [hoveredConnectionForVision, setHoveredConnectionForVision] = useState(null);
@@ -7701,6 +7746,7 @@ function NodeCanvas() {
     scheduleGestureBlockClear,
     touchSettings,
     nodeLiftDelay,
+    tryToggleConnectionOrbAtPoint,
   });
 
   // Prevent native long-press context menu on touch devices (iOS/Android)
@@ -12605,6 +12651,9 @@ function NodeCanvas() {
 
                     return (
                       <>
+                        {/* Rebuild the visible-orb hit list fresh each render before the
+                            edge blocks below push their endpoint orbs into it. */}
+                        {void (connectionOrbHitsRef.current = [])}
                         {/* Edges below thing-group backgrounds: normal edges + anchor-connected edges */}
                         {edgesBelowNodeGroups.concat(edgesToAnchors).map((edge, idx) => {
                           let sourceNode = nodeById.get(edge.sourceId);
@@ -13737,6 +13786,19 @@ function NodeCanvas() {
                                 const sourceDotY = curveSourceDot ? curveSourceDot.y : (straightDotSource ? straightDotSource.y : sourceArrowY);
                                 const destDotX = curveDestDot ? curveDestDot.x : (straightDotDest ? straightDotDest.x : destArrowX);
                                 const destDotY = curveDestDot ? curveDestDot.y : (straightDotDest ? straightDotDest.y : destArrowY);
+
+                                // Register the endpoint orbs so touch input can hit-test them
+                                // (and win over the node underneath). Must match the same
+                                // visibility gate the orb <circle>s render under, below.
+                                if ((isHovered || isSelected) && (!enableAutoRouting || routingStyle === 'straight' || useCurve)) {
+                                  const orbR = Math.round(36 * connectionWidth);
+                                  if (!arrowsToward.has(sourceNode.id)) {
+                                    connectionOrbHitsRef.current.push({ cx: sourceDotX, cy: sourceDotY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
+                                  }
+                                  if (!arrowsToward.has(destNode.id)) {
+                                    connectionOrbHitsRef.current.push({ cx: destDotX, cy: destDotY, r: orbR, edgeId: edge.id, nodeId: destNode.id });
+                                  }
+                                }
 
                                 const handleArrowClick = (nodeId, e) => {
                                   e.stopPropagation();
@@ -15074,6 +15136,19 @@ function NodeCanvas() {
                                 const sourceDotY = curveSourceDot ? curveSourceDot.y : (straightDotSource ? straightDotSource.y : sourceArrowY);
                                 const destDotX = curveDestDot ? curveDestDot.x : (straightDotDest ? straightDotDest.x : destArrowX);
                                 const destDotY = curveDestDot ? curveDestDot.y : (straightDotDest ? straightDotDest.y : destArrowY);
+
+                                // Register the endpoint orbs so touch input can hit-test them
+                                // (and win over the node underneath). Must match the same
+                                // visibility gate the orb <circle>s render under, below.
+                                if ((isHovered || isSelected) && (!enableAutoRouting || routingStyle === 'straight' || useCurve)) {
+                                  const orbR = Math.round(36 * connectionWidth);
+                                  if (!arrowsToward.has(sourceNode.id)) {
+                                    connectionOrbHitsRef.current.push({ cx: sourceDotX, cy: sourceDotY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
+                                  }
+                                  if (!arrowsToward.has(destNode.id)) {
+                                    connectionOrbHitsRef.current.push({ cx: destDotX, cy: destDotY, r: orbR, edgeId: edge.id, nodeId: destNode.id });
+                                  }
+                                }
 
                                 const handleArrowClick = (nodeId, e) => {
                                   e.stopPropagation();

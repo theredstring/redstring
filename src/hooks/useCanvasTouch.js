@@ -19,6 +19,12 @@ const TOUCH_MOVEMENT_THRESHOLD = 12; // Higher than mouse
 // drag-start during the first hold.
 const LONG_PRESS_DURATION = 450;
 const NODE_DOUBLE_TAP_MS = 400;
+// Pinch-glide handoff window: two fingers rarely lift on the same event, so a
+// pinch ends 2→1→0. If the leftover finger lifts within this window and hasn't
+// panned past this distance, treat it as the tail of the pinch and glide the
+// zoom rather than as a single-finger pan/tap.
+const PINCH_GLIDE_HANDOFF_MS = 200;
+const PINCH_GLIDE_HANDOFF_MOVE = 24;
 
 export const useCanvasTouch = ({
     containerRef,
@@ -88,9 +94,15 @@ export const useCanvasTouch = ({
     scheduleGestureBlockClear,
     touchSettings,
     nodeLiftDelay,
+    tryToggleConnectionOrbAtPoint,
 }) => {
     // --- Refs moved to hook ---
     const lastTouchRef = useRef({ x: 0, y: 0 });
+
+    // Set true when a touch lands on a connection endpoint orb (arrow toggle).
+    // The orb toggle fires on touchstart; the matching touchend must then be
+    // swallowed so it doesn't fall through to node selection / canvas deselect.
+    const orbTapConsumedRef = useRef(false);
 
     const touchState = useRef({
         isDragging: false,
@@ -130,6 +142,14 @@ export const useCanvasTouch = ({
     // lifts and both runs; deliberate taps are unaffected because their own
     // touchstart resets it.
     const multiTouchGestureRef = useRef(false);
+
+    // Carries a pinch's residual zoom velocity across the brief single-finger
+    // phase that a staggered two-finger lift produces (2 → 1 → 0 fingers). The
+    // first finger's lift tears down the pinch, so by the time the last finger
+    // is up pinchRef.active is already false and its velocity is gone. We stash
+    // it here on the 2→1 transition and consume it when the final finger lifts
+    // promptly without panning. Null whenever no pinch handoff is pending.
+    const pinchGlidePendingRef = useRef(null);
 
     // Mirror selectedInstanceIds in a ref so the deferred single-tap selection
     // (fires 300ms after touchend) reads the latest value, not a stale closure.
@@ -289,6 +309,19 @@ export const useCanvasTouch = ({
             ignoreCanvasClick.current = false;
         }
 
+        // Connection endpoint orbs take priority over a bare-canvas tap: if this
+        // single-finger touch lands on a visible orb, toggle the arrow and swallow
+        // the gesture (no pan / no deselect).
+        if (e.touches && e.touches.length === 1 && tryToggleConnectionOrbAtPoint) {
+            const t = e.touches[0];
+            if (tryToggleConnectionOrbAtPoint(t.clientX, t.clientY)) {
+                orbTapConsumedRef.current = true;
+                if (ignoreCanvasClick) ignoreCanvasClick.current = true;
+                if (e && e.cancelable) { e.preventDefault(); e.stopPropagation(); }
+                return;
+            }
+        }
+
         if (e && e.cancelable) {
             e.preventDefault();
             e.stopPropagation();
@@ -348,6 +381,9 @@ export const useCanvasTouch = ({
             // A brand-new one-finger gesture — the previous multi-touch
             // sequence (if any) is over, so taps may spawn the plus sign again.
             multiTouchGestureRef.current = false;
+            // Not the tail of a pinch — a real new touch. Drop any pending glide
+            // handoff so it can't fire on this unrelated gesture.
+            pinchGlidePendingRef.current = null;
             const t = e.touches[0];
             lastTouchRef.current = { x: t.clientX, y: t.clientY };
             isMouseDown.current = true;
@@ -543,6 +579,15 @@ export const useCanvasTouch = ({
     };
 
     const handleTouchEndCanvas = (e) => {
+        // The matching touchstart toggled a connection orb — swallow this end so it
+        // doesn't run canvas tap logic (which would deselect the connection).
+        if (orbTapConsumedRef.current) {
+            orbTapConsumedRef.current = false;
+            if (ignoreCanvasClick) ignoreCanvasClick.current = true;
+            if (e && e.cancelable) { e.preventDefault(); e.stopPropagation(); }
+            return;
+        }
+
         // Don't intercept touches on UI overlays (panels, modals, buttons)
         // But always process if a canvas gesture (pan/pinch/drag) is active
         const hasActiveGesture = isMouseDown.current || pinchRef.current.active || touchState.current.isDragging;
@@ -586,6 +631,18 @@ export const useCanvasTouch = ({
                 mouseMoved.current = false;
                 startedOnNode.current = false;
                 mouseDownPosition.current = { x: t.clientX, y: t.clientY };
+                // Stash the pinch's release velocity so the final finger's lift
+                // (or a genuine pan) can decide whether to glide the zoom.
+                if (releaseAnchorClient && releaseAnchorWorld) {
+                    pinchGlidePendingRef.current = {
+                        vel: releaseZoomVel,
+                        anchorClient: releaseAnchorClient,
+                        anchorWorld: releaseAnchorWorld,
+                        time: performance.now(),
+                        startX: t.clientX,
+                        startY: t.clientY,
+                    };
+                }
             } else {
                 // All fingers lifted - clear everything
                 setPanStart(null);
@@ -600,6 +657,34 @@ export const useCanvasTouch = ({
             }
             return;
         }
+
+        // Staggered pinch-lift handoff: the pinch already ended on the first
+        // finger's lift (above), leaving a pending glide. If the last finger is
+        // now up and it lifted promptly without panning, this is the tail of the
+        // pinch — launch the zoom glide and swallow the event (no pan/tap).
+        if (pinchGlidePendingRef.current && (!e.touches || e.touches.length === 0)) {
+            const pending = pinchGlidePendingRef.current;
+            pinchGlidePendingRef.current = null;
+            const up = normalizeTouchEvent(e);
+            const moved = Math.hypot(up.clientX - pending.startX, up.clientY - pending.startY);
+            const elapsed = performance.now() - pending.time;
+            if (elapsed < PINCH_GLIDE_HANDOFF_MS && moved < PINCH_GLIDE_HANDOFF_MOVE) {
+                // Mirror the all-fingers-lifted pinch cleanup + click suppression.
+                if (ignoreCanvasClick) ignoreCanvasClick.current = true;
+                armGestureBlock?.();
+                scheduleGestureBlockClear?.();
+                setPanStart(null);
+                panSourceRef.current = null;
+                setIsPanning(false);
+                isMouseDown.current = false;
+                mouseMoved.current = false;
+                panVelocityHistoryRef.current = [];
+                startZoomMomentum?.(pending.vel, pending.anchorClient, pending.anchorWorld);
+                return;
+            }
+            // Otherwise the leftover finger became a real pan/tap — fall through.
+        }
+
         const { clientX, clientY } = normalizeTouchEvent(e);
         // Determine if this was a tap (minimal movement). Use a larger threshold for touch.
         const dxEnd = clientX - (mouseDownPosition.current?.x || clientX);
@@ -726,12 +811,22 @@ export const useCanvasTouch = ({
         e.stopPropagation();
         if (isPaused || !activeGraphId) return;
 
+        const touch = e.touches[0];
+        if (!touch) return;
+
+        // Connection endpoint orbs take priority over the node underneath them.
+        // Nodes paint on top of edges, so an orb sitting on a node's border would
+        // otherwise lose the tap to node selection. Hit-test first and, on a hit,
+        // toggle the arrow and swallow the gesture.
+        if (tryToggleConnectionOrbAtPoint && tryToggleConnectionOrbAtPoint(touch.clientX, touch.clientY)) {
+            orbTapConsumedRef.current = true;
+            if (ignoreCanvasClick) ignoreCanvasClick.current = true;
+            return;
+        }
+
         // Do NOT call e.preventDefault() here - React's onTouchStart is passive by default.
         // We rely on CSS touch-action: none to prevent scrolling.
         stopPanMomentum();
-
-        const touch = e.touches[0];
-        if (!touch) return;
 
         // A fresh one-finger touch on a node ends any prior multi-touch
         // sequence. Node touchstart stopPropagation()s, so the canvas-level
@@ -971,6 +1066,9 @@ export const useCanvasTouch = ({
     };
 
     const handleNodeTouchCancel = (nodeData, e) => {
+        if (orbTapConsumedRef.current) {
+            orbTapConsumedRef.current = false;
+        }
         if (e) {
             try { if (e.cancelable) e.preventDefault(); e.stopPropagation(); } catch { }
         }
@@ -1027,6 +1125,15 @@ export const useCanvasTouch = ({
     };
 
     const handleNodeTouchEnd = (nodeData, e) => {
+        // The matching touchstart toggled a connection orb over this node — swallow
+        // the end so it doesn't toggle node selection.
+        if (orbTapConsumedRef.current) {
+            orbTapConsumedRef.current = false;
+            if (e) { try { e.stopPropagation(); if (e.cancelable) e.preventDefault(); } catch { } }
+            if (ignoreCanvasClick) ignoreCanvasClick.current = true;
+            isMouseDown.current = false;
+            return;
+        }
         if (e) {
             e.stopPropagation();
             if (e.cancelable) {
