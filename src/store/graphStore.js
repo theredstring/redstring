@@ -149,7 +149,7 @@ import { generateDescription } from '../utils/actionDescriptions.js';
  * @property {Object} textSettings - `{ fontSize, lineSpacing, nodeScale, connectionWidth, plusSignScale, pieMenuScale }`.
  * @property {Object} keyboardSettings - `{ zoomSensitivity, panSensitivity }` in range [0, 1].
  * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
- * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity }`.
+ * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength }`.
  */
 
 // Enable Immer plugins
@@ -903,9 +903,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!Number.isFinite(trackpadPanSensitivity)) trackpadPanSensitivity = 0.5;
         trackpadPanSensitivity = Math.max(0.1, Math.min(1.0, trackpadPanSensitivity));
 
-        return { zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity };
+        const pinchGlideRaw = localStorage.getItem('redstring_touch_pinch_glide_enabled');
+        const pinchGlideEnabled = pinchGlideRaw === null ? true : pinchGlideRaw === 'true';
+
+        const pinchGlideStrengthRaw = localStorage.getItem('redstring_touch_pinch_glide_strength');
+        let pinchGlideStrength = pinchGlideStrengthRaw !== null ? parseFloat(pinchGlideStrengthRaw) : 0.5;
+        if (!Number.isFinite(pinchGlideStrength)) pinchGlideStrength = 0.5;
+        pinchGlideStrength = Math.max(0.0, Math.min(1.0, pinchGlideStrength));
+
+        return { zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength };
       } catch (_) {
-        return { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomSensitivity: 0.5, trackpadPanSensitivity: 0.5 };
+        return { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomSensitivity: 0.5, trackpadPanSensitivity: 0.5, pinchGlideEnabled: true, pinchGlideStrength: 0.5 };
       }
     })(),
 
@@ -4788,6 +4796,32 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.touchSettings.glideStrength = v;
       try {
         localStorage.setItem('redstring_touch_glide_strength', String(v));
+      } catch (_) { }
+    })),
+
+    /** Toggles momentum/glide zoom after a two-finger pinch release. Persists to localStorage. */
+    toggleTouchPinchGlide: () => set(produce((draft) => {
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, pinchGlideEnabled: true, pinchGlideStrength: 0.5 };
+      draft.touchSettings.pinchGlideEnabled = draft.touchSettings.pinchGlideEnabled === false;
+      try {
+        localStorage.setItem('redstring_touch_pinch_glide_enabled', String(draft.touchSettings.pinchGlideEnabled));
+      } catch (_) { }
+    })),
+
+    /**
+     * Sets how far pinch-zoom glide coasts after release. Range [0, 1]. Persists to localStorage.
+     * @param {number} value
+     */
+    setTouchPinchGlideStrength: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
+        console.warn(`[setTouchPinchGlideStrength] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, pinchGlideEnabled: true, pinchGlideStrength: 0.5 };
+      draft.touchSettings.pinchGlideStrength = v;
+      try {
+        localStorage.setItem('redstring_touch_pinch_glide_strength', String(v));
       } catch (_) { }
     })),
 

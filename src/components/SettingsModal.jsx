@@ -63,6 +63,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const mouseGlideStrength = useGraphStore(s => s.mouseSettings?.glideStrength ?? 0.1);
   const nodeLiftDelay = useGraphStore(s => s.mouseSettings?.nodeLiftDelay ?? 250);
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
+  const touchPinchGlideEnabled = useGraphStore(s => s.touchSettings?.pinchGlideEnabled ?? true);
+  const touchPinchGlideStrength = useGraphStore(s => s.touchSettings?.pinchGlideStrength ?? 0.5);
   const routingStyle = useGraphStore(s => s.routingStyle);
   const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
   const multiConnectionCurve = useGraphStore(s => s.autoLayoutSettings?.multiConnectionCurve ?? 1.0);
@@ -512,6 +514,27 @@ const SettingsModal = ({ isVisible, onClose }) => {
               step={0.05}
               onChange={(v) => useGraphStore.getState().setTouchGlideStrength?.(v)}
               disabled={!touchGlideEnabled}
+              suffix=""
+            />
+          </div>
+          <div className="settings-row settings-row--attached">
+            <div className="settings-row-label">
+              Pinch Glide
+              <div className="settings-row-description">Keep zooming with momentum after you release a two-finger pinch</div>
+            </div>
+            <Toggle
+              checked={!!touchPinchGlideEnabled}
+              onChange={() => useGraphStore.getState().toggleTouchPinchGlide?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              value={touchPinchGlideStrength ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setTouchPinchGlideStrength?.(v)}
+              disabled={!touchPinchGlideEnabled}
               suffix=""
             />
           </div>

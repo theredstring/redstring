@@ -177,13 +177,15 @@ const GLIDE_FRICTION_MAX = 0.985;               // clamp ceiling for glide frict
 // direction, anchored to the last pinch midpoint. Velocity is tracked in
 // log-zoom space (d(ln zoom)/dt) so it decays multiplicatively like the pinch
 // itself. Kept deliberately "slight": low boost + heavy friction = a short tail.
-const ZOOM_MOMENTUM_BOOST = 1.15;               // scales the release velocity into the glide (>1 offsets finger deceleration in the last sampled frames)
+const ZOOM_MOMENTUM_BOOST = 1.0;                // scales the release velocity into the glide (1 = launch at measured finger speed)
 const ZOOM_MOMENTUM_FRICTION = 0.86;            // per-frame retention of zoom velocity for gentle releases (short coast)
-const ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY = 0.93; // retention for violent flicks — same fast-flick ramp idea as TOUCH_PAN_FRICTION_HIGH_VELOCITY
+const ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY = 0.91; // retention for violent flicks — same fast-flick ramp idea as TOUCH_PAN_FRICTION_HIGH_VELOCITY
 const ZOOM_HIGH_VELOCITY_THRESHOLD = 0.003;     // |d(ln zoom)/dt| above which the high-velocity friction starts ramping in
 const ZOOM_HIGH_VELOCITY_RAMP = 0.005;          // velocity range over which friction lerps from base to high
 const ZOOM_MOMENTUM_MIN_SPEED = 0.00025;        // |d(ln zoom)/dt| threshold to launch and to stop the glide
-const ZOOM_MOMENTUM_MAX_SPEED = 0.03;           // cap on launch velocity so a fast pinch can't fling the zoom
+const ZOOM_MOMENTUM_MAX_SPEED = 0.012;          // cap on launch velocity so a fast pinch can't fling the zoom
+const PINCH_GLIDE_STRENGTH_VEL_RANGE = 0.8;     // velocity multiplier sweep for the strength slider: 0.6× at 0 → 1.4× at 1 (0.5 = 1×)
+const PINCH_GLIDE_STRENGTH_FRICTION_RANGE = 0.08; // friction offset sweep for the strength slider (±0.04 around default)
 
 
 /**
@@ -2318,6 +2320,12 @@ function NodeCanvas() {
   // pinch midpoint so the coasting zoom stays centered on the same world point.
   const startZoomMomentum = useCallback((initialVel, anchorClient, anchorWorld, minZoomBound, maxZoomBound) => {
     if (!Number.isFinite(initialVel) || !anchorClient || !anchorWorld) return false;
+
+    // Pinch glide is opt-out and strength-adjustable in Settings → Input → Touch.
+    const touchPrefs = useGraphStore.getState().touchSettings;
+    if (touchPrefs?.pinchGlideEnabled === false) return false;
+    const strength = Math.max(0, Math.min(1, touchPrefs?.pinchGlideStrength ?? 0.5));
+
     // A new inertial gesture supersedes any in-flight pan/zoom glide.
     stopPanMomentum();
     stopZoomMomentum();
@@ -2330,7 +2338,9 @@ function NodeCanvas() {
     const effMinZoom = Number.isFinite(minZoomBound) ? minZoomBound : MIN_ZOOM;
     const effMaxZoom = Number.isFinite(maxZoomBound) ? maxZoomBound : MAX_ZOOM;
 
-    let vel = initialVel * ZOOM_MOMENTUM_BOOST;
+    // Strength scales the launch kick around 1× at the 0.5 default.
+    const strengthVelScale = 1 + (strength - 0.5) * PINCH_GLIDE_STRENGTH_VEL_RANGE;
+    let vel = initialVel * ZOOM_MOMENTUM_BOOST * strengthVelScale;
     vel = Math.max(-ZOOM_MOMENTUM_MAX_SPEED, Math.min(ZOOM_MOMENTUM_MAX_SPEED, vel));
     if (Math.abs(vel) < ZOOM_MOMENTUM_MIN_SPEED) return false;
 
@@ -2342,6 +2352,9 @@ function NodeCanvas() {
       const overshoot = Math.min(1, (launchSpeed - ZOOM_HIGH_VELOCITY_THRESHOLD) / ZOOM_HIGH_VELOCITY_RAMP);
       friction = ZOOM_MOMENTUM_FRICTION + (ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY - ZOOM_MOMENTUM_FRICTION) * overshoot;
     }
+    // Strength also stretches/shrinks the coast, mirroring the pan glide's
+    // GLIDE_STRENGTH_FRICTION_RANGE treatment. Clamped well below 1.
+    friction = Math.max(0.78, Math.min(0.95, friction + (strength - 0.5) * PINCH_GLIDE_STRENGTH_FRICTION_RANGE));
 
     zoomMomentumRef.current.vel = vel;
     zoomMomentumRef.current.anchorClient = { x: anchorClient.x, y: anchorClient.y };
