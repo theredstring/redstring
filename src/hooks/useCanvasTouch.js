@@ -57,6 +57,7 @@ export const useCanvasTouch = ({
     setPanAndZoom,
     stopPanMomentum,
     startZoomMomentum,
+    stopZoomMomentum,
     storeActions,
     selectedInstanceIds,
     setSelectedInstanceIds,
@@ -338,9 +339,12 @@ export const useCanvasTouch = ({
             e.stopPropagation();
         }
         // Only stop momentum if we're starting a new gesture with actual touches
-        // Don't clear momentum during cleanup/end events
+        // Don't clear momentum during cleanup/end events. A fresh touch halts
+        // both glides — stopPanMomentum deliberately no longer stops the zoom
+        // glide itself (see stopPanMomentum in NodeCanvas), so stop it here.
         if (e.touches && e.touches.length > 0) {
             stopPanMomentum();
+            stopZoomMomentum?.();
         }
         isTouchDeviceRef.current = true;
 
@@ -402,24 +406,33 @@ export const useCanvasTouch = ({
             mouseMoved.current = false;
             setPanStart({ x: t.clientX, y: t.clientY });
             panSourceRef.current = 'touch';
-            // Attach document-level listeners to keep pan active even if finger leaves canvas
+            // Attach document-level listeners to keep pan active even if finger leaves canvas.
+            // Removal MUST be in finally: if handleTouchEndCanvas ever throws, a bare
+            // sequential call would skip removal and leak all three listeners — every
+            // leaked moveListener then re-processes every future touchmove, degrading
+            // performance progressively until refresh.
             try {
                 const moveListener = (ev) => handleTouchMoveCanvas(ev);
-                const endListener = (ev) => {
-                    handleTouchEndCanvas(ev);
+                const removeAll = () => {
                     try {
                         document.removeEventListener('touchmove', moveListener, { passive: false });
                         document.removeEventListener('touchend', endListener, { passive: false });
                         document.removeEventListener('touchcancel', cancelListener, { passive: false });
                     } catch { }
                 };
-                const cancelListener = (ev) => {
-                    handleTouchEndCanvas(ev);
+                const endListener = (ev) => {
                     try {
-                        document.removeEventListener('touchmove', moveListener, { passive: false });
-                        document.removeEventListener('touchend', endListener, { passive: false });
-                        document.removeEventListener('touchcancel', cancelListener, { passive: false });
-                    } catch { }
+                        handleTouchEndCanvas(ev);
+                    } finally {
+                        removeAll();
+                    }
+                };
+                const cancelListener = (ev) => {
+                    try {
+                        handleTouchEndCanvas(ev);
+                    } finally {
+                        removeAll();
+                    }
                 };
                 document.addEventListener('touchmove', moveListener, { passive: false });
                 document.addEventListener('touchend', endListener, { passive: false });
@@ -450,6 +463,16 @@ export const useCanvasTouch = ({
     };
 
     const handleTouchMoveCanvas = (e) => {
+        // Every canvas touchmove arrives twice: React onTouchMove AND the
+        // document moveListener attached in handleTouchStartCanvas. Without
+        // dedup the entire move pipeline (pinch math, setPanAndZoom, velocity
+        // sampling, handleMouseMove) runs twice per event — measurable jank on
+        // slower mobile browsers. Tag the underlying native event so only the
+        // first arrival does the work.
+        const nativeMoveEvent = e.nativeEvent || e;
+        if (nativeMoveEvent.__rsCanvasMoveHandled) return;
+        try { nativeMoveEvent.__rsCanvasMoveHandled = true; } catch { }
+
         // Avoid per-move preventDefault/stopPropagation; rely on CSS `touch-action: none`
 
         // CRITICAL: If a node drag is active, let the document listener handle it exclusively
@@ -486,6 +509,7 @@ export const useCanvasTouch = ({
                     multiTouchGestureRef.current = true;
                     // Stop momentum and panning
                     stopPanMomentum();
+                    stopZoomMomentum?.();
                     isMouseDown.current = false;
                     setIsPanning(false);
                     setPanStart(null);
@@ -877,6 +901,7 @@ export const useCanvasTouch = ({
         // Do NOT call e.preventDefault() here - React's onTouchStart is passive by default.
         // We rely on CSS touch-action: none to prevent scrolling.
         stopPanMomentum();
+        stopZoomMomentum?.();
 
         // A fresh one-finger touch on a node ends any prior multi-touch
         // sequence. Node touchstart stopPropagation()s, so the canvas-level

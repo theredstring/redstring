@@ -2077,13 +2077,11 @@ function NodeCanvas() {
     panMomentumRef.current.lastTime = 0;
     panMomentumRef.current.source = null;
     panMomentumRef.current.active = false;
-    // Any fresh touch that stops the pan glide should also stop a pinch glide.
-    if (zoomMomentumRef.current.animationId) {
-      cancelAnimationFrame(zoomMomentumRef.current.animationId);
-      zoomMomentumRef.current.animationId = null;
-    }
-    zoomMomentumRef.current.active = false;
-    zoomMomentumRef.current.vel = 0;
+    // Deliberately does NOT stop the pinch-zoom glide. handleMouseUp's
+    // pan-finalize path calls stopPanMomentum on the same touchend that just
+    // launched the zoom glide (the duplicated React + document touchend run),
+    // so coupling the two here killed the glide in the same tick it started.
+    // Fresh touchstarts stop the zoom glide explicitly via stopZoomMomentum.
     isPanningOrZooming.current = false;
     panVelocityHistoryRef.current = [];
   }, []);
@@ -2377,6 +2375,11 @@ function NodeCanvas() {
         isPanningOrZooming.current = false;
         return;
       }
+
+      // Re-assert every frame: the duplicated touchend run (React + document
+      // listener) goes through handleMouseUp → stopPanMomentum, which clears
+      // this flag right after the glide launches.
+      isPanningOrZooming.current = true;
 
       const prevZoom = zoomLevelRef.current;
       let newZoom = prevZoom * Math.exp(ref.vel * dt);
@@ -7742,6 +7745,7 @@ function NodeCanvas() {
     setPanAndZoom,
     stopPanMomentum,
     startZoomMomentum,
+    stopZoomMomentum,
     storeActions,
     selectedInstanceIds,
     setSelectedInstanceIds,
