@@ -12863,6 +12863,13 @@ function NodeCanvas() {
                           // hovered position instead of tracking the moving node.
                           const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
                           const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
+                          // Selected connections get the same endpoint-dot affordances as hovered
+                          // ones: the line shortens, dots sit at the pulled-back preview position,
+                          // and curved edges trim to their arrowhead depth. `isHovered` is force-
+                          // cleared during a node drag (see above), so routing selection geometry
+                          // through this flag — which stays true across the drag — keeps a selected
+                          // edge's dots tracking the moving node in lockstep with its arrowheads.
+                          const isActive = isHovered || isSelected;
 
 
 
@@ -12982,10 +12989,10 @@ function NodeCanvas() {
                           // This ensures the curve shape stays consistent
                           let shouldShortenSource = isCurvedEdge
                             ? false  // Never change curve endpoints
-                            : (isHovered || arrowsToward.has(sourceNode.id));
+                            : (isActive || arrowsToward.has(sourceNode.id));
                           let shouldShortenDest = isCurvedEdge
                             ? false  // Never change curve endpoints
-                            : (isHovered || arrowsToward.has(destNode.id));
+                            : (isActive || arrowsToward.has(destNode.id));
                           if (enableAutoRouting && routingStyle === 'manhattan') {
                             // In Manhattan mode, never shorten for hover—only for actual arrows
                             shouldShortenSource = arrowsToward.has(sourceNode.id);
@@ -13049,7 +13056,7 @@ function NodeCanvas() {
                           const isStraightRouting = !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean'));
                           let lineStartX = startX, lineStartY = startY, lineEndX = endX, lineEndY = endY;
                           let straightDotSource = null, straightDotDest = null;
-                          if (isHovered && isStraightRouting && !isCurvedEdge && length > 0) {
+                          if (isActive && isStraightRouting && !isCurvedEdge && length > 0) {
                             const ux = dx / length, uy = dy / length;
                             const previewBack = POLY_TIP * connectionWidth + 8;
                             if (!arrowsToward.has(sourceNode.id) && sourceIntersection) {
@@ -13204,7 +13211,7 @@ function NodeCanvas() {
                           // arrow-less curve ends to the border too — making hover match arrow-active
                           // geometry exactly (same parallelPath → same trim, arrows, dots).
                           let curveStartX = startX, curveStartY = startY, curveEndX = endX, curveEndY = endY;
-                          if (isCurvedEdge && isHovered) {
+                          if (isCurvedEdge && isActive) {
                             const hoverBorder = getVisualConnectionEndpoints(
                               sourceNode, destNode, sNodeDims, eNodeDims,
                               selectedInstanceIds.has(sourceNode.id),
@@ -13283,7 +13290,7 @@ function NodeCanvas() {
                           // so line and arrow stay in lockstep.
                           let trimmedPath = null;
                           const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
-                            (isHovered || hasSourceArrow || hasDestArrow);
+                            (isActive || hasSourceArrow || hasDestArrow);
                           if (shouldTrimCurve) {
                             // On hover OR with a real arrow, pull the curve back to the arrowhead's
                             // base depth (trimT) so a plain hover looks like a preview arrow — the
@@ -13291,10 +13298,10 @@ function NodeCanvas() {
                             // an arrowhead would go.
                             const tStart = curvedArrowPlacement
                               ? curvedArrowPlacement.source.trimT
-                              : (isHovered ? 0.08 : 0);
+                              : (isActive ? 0.08 : 0);
                             const tEnd = curvedArrowPlacement
                               ? curvedArrowPlacement.dest.trimT
-                              : (isHovered ? 0.92 : 1);
+                              : (isActive ? 0.92 : 1);
                             trimmedPath = getTrimmedBezierPath(
                               parallelPath.startX, parallelPath.startY,
                               parallelPath.ctrlX, parallelPath.ctrlY,
@@ -14353,6 +14360,13 @@ function NodeCanvas() {
                           // hovered position instead of tracking the moving node.
                           const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
                           const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
+                          // Selected connections get the same endpoint-dot affordances as hovered
+                          // ones: the line shortens, dots sit at the pulled-back preview position,
+                          // and curved edges trim to their arrowhead depth. `isHovered` is force-
+                          // cleared during a node drag (see above), so routing selection geometry
+                          // through this flag — which stays true across the drag — keeps a selected
+                          // edge's dots tracking the moving node in lockstep with its arrowheads.
+                          const isActive = isHovered || isSelected;
 
 
 
@@ -14472,10 +14486,10 @@ function NodeCanvas() {
                           // This ensures the curve shape stays consistent
                           let shouldShortenSource = isCurvedEdge
                             ? false  // Never change curve endpoints
-                            : (isHovered || arrowsToward.has(sourceNode.id));
+                            : (isActive || arrowsToward.has(sourceNode.id));
                           let shouldShortenDest = isCurvedEdge
                             ? false  // Never change curve endpoints
-                            : (isHovered || arrowsToward.has(destNode.id));
+                            : (isActive || arrowsToward.has(destNode.id));
                           if (enableAutoRouting && routingStyle === 'manhattan') {
                             // In Manhattan mode, never shorten for hover—only for actual arrows
                             shouldShortenSource = arrowsToward.has(sourceNode.id);
@@ -14539,7 +14553,7 @@ function NodeCanvas() {
                           const isStraightRouting = !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean'));
                           let lineStartX = startX, lineStartY = startY, lineEndX = endX, lineEndY = endY;
                           let straightDotSource = null, straightDotDest = null;
-                          if (isHovered && isStraightRouting && !isCurvedEdge && length > 0) {
+                          if (isActive && isStraightRouting && !isCurvedEdge && length > 0) {
                             const ux = dx / length, uy = dy / length;
                             const previewBack = POLY_TIP * connectionWidth + 8;
                             if (!arrowsToward.has(sourceNode.id) && sourceIntersection) {
@@ -14694,7 +14708,7 @@ function NodeCanvas() {
                           // arrow-less curve ends to the border too — making hover match arrow-active
                           // geometry exactly (same parallelPath → same trim, arrows, dots).
                           let curveStartX = startX, curveStartY = startY, curveEndX = endX, curveEndY = endY;
-                          if (isCurvedEdge && isHovered) {
+                          if (isCurvedEdge && isActive) {
                             const hoverBorder = getVisualConnectionEndpoints(
                               sourceNode, destNode, sNodeDims, eNodeDims,
                               selectedInstanceIds.has(sourceNode.id),
@@ -14773,7 +14787,7 @@ function NodeCanvas() {
                           // so line and arrow stay in lockstep.
                           let trimmedPath = null;
                           const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
-                            (isHovered || hasSourceArrow || hasDestArrow);
+                            (isActive || hasSourceArrow || hasDestArrow);
                           if (shouldTrimCurve) {
                             // On hover OR with a real arrow, pull the curve back to the arrowhead's
                             // base depth (trimT) so a plain hover looks like a preview arrow — the
@@ -14781,10 +14795,10 @@ function NodeCanvas() {
                             // an arrowhead would go.
                             const tStart = curvedArrowPlacement
                               ? curvedArrowPlacement.source.trimT
-                              : (isHovered ? 0.08 : 0);
+                              : (isActive ? 0.08 : 0);
                             const tEnd = curvedArrowPlacement
                               ? curvedArrowPlacement.dest.trimT
-                              : (isHovered ? 0.92 : 1);
+                              : (isActive ? 0.92 : 1);
                             trimmedPath = getTrimmedBezierPath(
                               parallelPath.startX, parallelPath.startY,
                               parallelPath.ctrlX, parallelPath.ctrlY,
