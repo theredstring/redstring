@@ -49,6 +49,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const gridAppearance = useGraphStore(s => s.gridSettings?.appearance);
   const dragZoomEnabled = useGraphStore(s => s.dragZoomSettings?.enabled);
   const dragZoomAmount = useGraphStore(s => s.dragZoomSettings?.zoomAmount);
+  const focusOnSelectEnabled = useGraphStore(s => s.focusOnSelectEnabled !== false);
   const textSettings = useGraphStore(s => s.textSettings);
   const keyboardSettings = useGraphStore(s => s.keyboardSettings);
   const touchSettings = useGraphStore(s => s.touchSettings);
@@ -658,6 +659,16 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={(v) => useGraphStore.getState().setDragZoomAmount?.(v)}
               disabled={!dragZoomEnabled}
               suffix=""
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Zoom on Select
+              <div className="settings-row-description">Zoom to frame a single Thing when you select it. Ignored when multiple Things are selected.</div>
+            </div>
+            <Toggle
+              checked={!!focusOnSelectEnabled}
+              onChange={() => useGraphStore.getState().toggleFocusOnSelectEnabled?.()}
             />
           </div>
         </div>

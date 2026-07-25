@@ -791,6 +791,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return { enabled: true, zoomAmount: 0.45 };
       }
     })(),
+    // Focus-on-select: zoom to frame a single node when it's selected. Persists to localStorage.
+    focusOnSelectEnabled: (() => {
+      try {
+        const raw = localStorage.getItem('redstring_focus_on_select_enabled');
+        return raw ? raw === 'true' : true;
+      } catch (_) {
+        return true;
+      }
+    })(),
     // Connections visualization/layout settings
     autoLayoutSettings: getDefaultAutoLayoutSettings(),
     forceTunerSettings: getDefaultForceTunerSettings(),
@@ -4413,6 +4422,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.dragZoomSettings.zoomAmount = clamped;
       try {
         localStorage.setItem('redstring_drag_zoom_amount', String(clamped));
+      } catch (_) { }
+    })),
+
+    /** Toggles focus-on-select (zoom to frame a single node when selected). Persists to localStorage. */
+    toggleFocusOnSelectEnabled: () => set(produce((draft) => {
+      draft.focusOnSelectEnabled = !draft.focusOnSelectEnabled;
+      try {
+        localStorage.setItem('redstring_focus_on_select_enabled', String(draft.focusOnSelectEnabled));
       } catch (_) { }
     })),
 

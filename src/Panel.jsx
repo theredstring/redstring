@@ -1554,8 +1554,17 @@ const Panel = memo(forwardRef(
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = 'image/*';
+      // Mobile Safari (and some mobile browsers) only open the file picker when
+      // the input is actually in the DOM. Attach it off-screen, then remove it
+      // once a file is chosen or the picker is dismissed.
+      input.style.position = 'fixed';
+      input.style.left = '-9999px';
+      input.style.opacity = '0';
+      document.body.appendChild(input);
+      const cleanup = () => { try { input.remove(); } catch { } };
       input.onchange = async (e) => {
         const file = e.target.files?.[0];
+        cleanup();
         if (!file) return;
         const reader = new FileReader();
         reader.onload = async (loadEvent) => {
@@ -1595,6 +1604,9 @@ const Panel = memo(forwardRef(
         };
         reader.readAsDataURL(file);
       };
+      // If the picker is dismissed without a selection, onchange never fires;
+      // remove the orphaned input on the next window focus.
+      window.addEventListener('focus', () => setTimeout(cleanup, 300), { once: true });
       input.click();
     };
 

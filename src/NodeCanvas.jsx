@@ -712,6 +712,7 @@ function NodeCanvas() {
   const gridSnapMode = useGraphStore(state => state.gridSettings?.snapMode || 'if-enabled');
   const gridAppearance = useGraphStore(state => state.gridSettings?.appearance || 'lattice');
   const dragZoomSettings = useGraphStore(state => state.dragZoomSettings || { enabled: true, zoomAmount: 0.45 });
+  const focusOnSelectEnabled = useGraphStore(state => state.focusOnSelectEnabled !== false);
   const enableAutoRouting = useGraphStore(state => state.autoLayoutSettings?.enableAutoRouting);
   const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
   const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
@@ -4991,16 +4992,18 @@ function NodeCanvas() {
     const id = selectedNodeIdForPieMenu;
     prevFocusPieNodeIdRef.current = id;
 
-    if (!FOCUS_ON_SELECT_ENABLED) return;
+    if (!FOCUS_ON_SELECT_ENABLED || !focusOnSelectEnabled) return;
     // Only on a fresh focus (new node), not re-fires for the same node.
     if (!id || id === was) return;
     // Other framing owners take precedence; don't fight them, and don't animate
     // mid-drag or mid-transition.
     if (abstractionCarouselVisible || previewingNodeId || isTransitioningPieMenu) return;
     if (draggingNodeInfoRef.current) return;
+    // Multi-selection: no single node to frame, so skip the focus-on-select zoom.
+    if (selectedInstanceIdsRef.current.size > 1) return;
 
     focusNodeInView(id);
-  }, [selectedNodeIdForPieMenu, abstractionCarouselVisible, previewingNodeId, isTransitioningPieMenu, focusNodeInView]);
+  }, [selectedNodeIdForPieMenu, abstractionCarouselVisible, previewingNodeId, isTransitioningPieMenu, focusNodeInView, focusOnSelectEnabled]);
 
   // When a decomposed node is recomposed (collapsed back to a normal node), frame it
   // with the exact same pie-menu-aware zoom as focus-on-select. Fires on the
@@ -6468,8 +6471,17 @@ function NodeCanvas() {
               const input = document.createElement('input');
               input.type = 'file';
               input.accept = 'image/*';
+              // Mobile Safari (and some mobile browsers) only open the file
+              // picker when the input is in the DOM. Attach it off-screen and
+              // remove it once a file is chosen or the picker is dismissed.
+              input.style.position = 'fixed';
+              input.style.left = '-9999px';
+              input.style.opacity = '0';
+              document.body.appendChild(input);
+              const cleanup = () => { try { input.remove(); } catch { } };
               input.onchange = (e) => {
                 const file = e.target.files?.[0];
+                cleanup();
                 if (!file) return;
                 const reader = new FileReader();
                 reader.onload = (loadEvent) => {
@@ -6496,6 +6508,8 @@ function NodeCanvas() {
                 };
                 reader.readAsDataURL(file);
               };
+              // Cancelled picker fires no onchange; clean up on next focus.
+              window.addEventListener('focus', () => setTimeout(cleanup, 300), { once: true });
               input.click();
             }
           },
