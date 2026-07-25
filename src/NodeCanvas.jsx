@@ -172,6 +172,16 @@ const GLIDE_STRENGTH_FRICTION_RANGE = 0.12;     // total friction span the glide
 const GLIDE_FRICTION_MIN = 0.80;                // clamp floor for glide friction (very short coast)
 const GLIDE_FRICTION_MAX = 0.985;               // clamp ceiling for glide friction (long coast, never near-perpetual)
 
+// --- Pinch-zoom glide (touch only) ---
+// After the fingers lift from a pinch, the zoom coasts briefly in the same
+// direction, anchored to the last pinch midpoint. Velocity is tracked in
+// log-zoom space (d(ln zoom)/dt) so it decays multiplicatively like the pinch
+// itself. Kept deliberately "slight": low boost + heavy friction = a short tail.
+const ZOOM_MOMENTUM_BOOST = 0.85;               // scales the release velocity into the glide (a touch under 1 = slight)
+const ZOOM_MOMENTUM_FRICTION = 0.82;            // per-frame retention of zoom velocity (lower = shorter coast)
+const ZOOM_MOMENTUM_MIN_SPEED = 0.0006;         // |d(ln zoom)/dt| threshold to launch and to stop the glide
+const ZOOM_MOMENTUM_MAX_SPEED = 0.02;           // cap on launch velocity so a fast pinch can't fling the zoom
+
 
 /**
  * Root canvas component for Redstring's graph interface.
@@ -358,6 +368,10 @@ function NodeCanvas() {
   const lastPanVelocityRef = useRef({ vx: 0, vy: 0 });
   const lastPanSampleRef = useRef({ time: 0 });
   const panMomentumRef = useRef({ animationId: null, vx: 0, vy: 0, lastTime: 0, source: null, active: false });
+  // Pinch-zoom glide state (touch only). `vel` is in log-zoom space (per ms);
+  // `anchorClient`/`anchorWorld` pin the last pinch midpoint so the coasting
+  // zoom keeps the same point under the fingers' last position.
+  const zoomMomentumRef = useRef({ animationId: null, vel: 0, lastTime: 0, anchorClient: null, anchorWorld: null, active: false });
   // Track the source of current panning for momentum decisions
   const panSourceRef = useRef(null); // 'touch', 'trackpad', 'mouse', null
   const panVelocityHistoryRef = useRef([]); // History of recent pan positions for momentum calculation
@@ -2051,6 +2065,13 @@ function NodeCanvas() {
     panMomentumRef.current.lastTime = 0;
     panMomentumRef.current.source = null;
     panMomentumRef.current.active = false;
+    // Any fresh touch that stops the pan glide should also stop a pinch glide.
+    if (zoomMomentumRef.current.animationId) {
+      cancelAnimationFrame(zoomMomentumRef.current.animationId);
+      zoomMomentumRef.current.animationId = null;
+    }
+    zoomMomentumRef.current.active = false;
+    zoomMomentumRef.current.vel = 0;
     isPanningOrZooming.current = false;
     panVelocityHistoryRef.current = [];
   }, []);
@@ -2272,6 +2293,80 @@ function NodeCanvas() {
     viewportSize.height / canvasSize.height,
     0.05  // Absolute minimum
   );
+
+  const stopZoomMomentum = useCallback(() => {
+    if (zoomMomentumRef.current.animationId) {
+      cancelAnimationFrame(zoomMomentumRef.current.animationId);
+    }
+    zoomMomentumRef.current.animationId = null;
+    zoomMomentumRef.current.vel = 0;
+    zoomMomentumRef.current.active = false;
+  }, []);
+
+  // Launch a brief zoom coast after a pinch releases (touch only). `initialVel`
+  // is the release velocity in log-zoom space (per ms); the anchor pins the last
+  // pinch midpoint so the coasting zoom stays centered on the same world point.
+  const startZoomMomentum = useCallback((initialVel, anchorClient, anchorWorld) => {
+    if (!Number.isFinite(initialVel) || !anchorClient || !anchorWorld) return false;
+    // A new inertial gesture supersedes any in-flight pan/zoom glide.
+    stopPanMomentum();
+    stopZoomMomentum();
+
+    let vel = initialVel * ZOOM_MOMENTUM_BOOST;
+    vel = Math.max(-ZOOM_MOMENTUM_MAX_SPEED, Math.min(ZOOM_MOMENTUM_MAX_SPEED, vel));
+    if (Math.abs(vel) < ZOOM_MOMENTUM_MIN_SPEED) return false;
+
+    zoomMomentumRef.current.vel = vel;
+    zoomMomentumRef.current.anchorClient = { x: anchorClient.x, y: anchorClient.y };
+    zoomMomentumRef.current.anchorWorld = { x: anchorWorld.x, y: anchorWorld.y };
+    zoomMomentumRef.current.lastTime = performance.now();
+    zoomMomentumRef.current.active = true;
+    isPanningOrZooming.current = true;
+
+    const step = (time) => {
+      const ref = zoomMomentumRef.current;
+      if (!ref.active) return;
+      const lastTime = ref.lastTime || time;
+      const dt = Math.min(32, Math.max(1, time - lastTime));
+      ref.lastTime = time;
+
+      const container = containerRef.current;
+      const canvas = canvasSizeRef.current;
+      if (!container || !canvas) {
+        stopZoomMomentum();
+        isPanningOrZooming.current = false;
+        return;
+      }
+
+      const prevZoom = zoomLevelRef.current;
+      let newZoom = prevZoom * Math.exp(ref.vel * dt);
+      const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
+
+      const rect = container.getBoundingClientRect();
+      const world = ref.anchorWorld;
+      const client = ref.anchorClient;
+      const newPan = {
+        x: client.x - rect.left - (world.x - canvas.offsetX) * clampedZoom,
+        y: client.y - rect.top - (world.y - canvas.offsetY) * clampedZoom,
+      };
+      setPanAndZoom(newPan, clampedZoom);
+
+      // Decay velocity, frame-time compensated like the pan glide.
+      ref.vel *= Math.pow(ZOOM_MOMENTUM_FRICTION, dt / PAN_MOMENTUM_FRAME);
+
+      // Stop once the coast is imperceptible or we've hit a zoom bound.
+      const hitBound = clampedZoom !== newZoom;
+      if (hitBound || Math.abs(ref.vel) < ZOOM_MOMENTUM_MIN_SPEED) {
+        stopZoomMomentum();
+        isPanningOrZooming.current = false;
+        return;
+      }
+      ref.animationId = requestAnimationFrame(step);
+    };
+
+    zoomMomentumRef.current.animationId = requestAnimationFrame(step);
+    return true;
+  }, [stopPanMomentum, stopZoomMomentum, setPanAndZoom, MIN_ZOOM]);
 
   // Stable culling compute. Reads every input from refs so it can be invoked
   // imperatively from `transform.onTransformChangeRef` (which fires on every
@@ -7543,6 +7638,7 @@ function NodeCanvas() {
     setZoomLevel,
     setPanAndZoom,
     stopPanMomentum,
+    startZoomMomentum,
     storeActions,
     selectedInstanceIds,
     setSelectedInstanceIds,
@@ -7921,28 +8017,38 @@ function NodeCanvas() {
                   }
                 }
 
+                const sourceEndpoint = {
+                  id: sourceInstance.id,
+                  name: sourceInstance.name,
+                  color: sourceInstance.color,
+                  width: sourceDims.currentWidth,
+                  height: isSourcePreviewing ? NODE_HEIGHT : sourceDims.currentHeight,
+                  prototypeId: sourceInstance.prototypeId
+                };
+                const targetEndpoint = {
+                  id: targetInstance.id,
+                  name: targetInstance.name,
+                  color: targetInstance.color,
+                  width: targetDims.currentWidth,
+                  height: isTargetPreviewing ? NODE_HEIGHT : targetDims.currentHeight,
+                  prototypeId: targetInstance.prototypeId
+                };
+                // Orient the preview to match the canvas: whichever endpoint sits
+                // further left on the canvas is shown on the left of the hover aid.
+                // Our brains can't easily re-map a connection whose on-canvas
+                // left→right order is reversed in the preview. Arrows are keyed by
+                // node id (directionality.arrowsToward), so swapping the display
+                // order of source/target is lossless.
+                const flipForCanvasOrder = targetInstance.x < sourceInstance.x;
+
                 foundConnectionPayload = {
                   id: edge.id,
                   name: connectionName,
                   color: connectionColor,
                   definitionNodeIds: edge.definitionNodeIds,
                   typeNodeId: edge.typeNodeId,
-                  source: {
-                    id: sourceInstance.id,
-                    name: sourceInstance.name,
-                    color: sourceInstance.color,
-                    width: sourceDims.currentWidth,
-                    height: isSourcePreviewing ? NODE_HEIGHT : sourceDims.currentHeight,
-                    prototypeId: sourceInstance.prototypeId
-                  },
-                  target: {
-                    id: targetInstance.id,
-                    name: targetInstance.name,
-                    color: targetInstance.color,
-                    width: targetDims.currentWidth,
-                    height: isTargetPreviewing ? NODE_HEIGHT : targetDims.currentHeight,
-                    prototypeId: targetInstance.prototypeId
-                  },
+                  source: flipForCanvasOrder ? targetEndpoint : sourceEndpoint,
+                  target: flipForCanvasOrder ? sourceEndpoint : targetEndpoint,
                   directionality: edge.directionality
                 };
                 // Keep scanning: for overlapping connections we want the nearest
@@ -8732,6 +8838,12 @@ function NodeCanvas() {
       setLastInteractionType('plus_sign_shown');
     } else {
       if (nodeNamePrompt.visible) return;
+      // A plus sign that's morphing into a node is committed — don't let a
+      // stray/ghost canvas click cancel it mid-animation. On touch, tapping the
+      // UnifiedSelector's submit/card fires a delayed synthesized click ~300ms
+      // later that lands on the (now-uncovered) canvas; without this guard it
+      // flips the morph to 'disappear' and the node is silently lost.
+      if (plusSign && plusSign.mode === 'morph') return;
       setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
       setLastInteractionType('plus_sign_hidden');
     }

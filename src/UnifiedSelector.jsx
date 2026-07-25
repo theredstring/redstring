@@ -320,6 +320,10 @@ const UnifiedSelector = ({
                 <button
                   onTouchEnd={(e) => {
                     e.stopPropagation();
+                    // Suppress the delayed synthesized click that would otherwise
+                    // land on the canvas after this dialog closes and either cancel
+                    // the morphing plus sign or spawn a stray one.
+                    if (e.cancelable) e.preventDefault();
                     touchHandledRef.current = true;
                     handleSubmit();
                     setTimeout(() => { touchHandledRef.current = false; }, 400);
@@ -465,6 +469,10 @@ const UnifiedSelector = ({
                         onTouchEnd={(e) => {
                           e.stopPropagation();
                           if (cardTouchRef.current.moved) return;
+                          // Suppress the delayed synthesized click that would
+                          // otherwise land on the canvas after this dialog closes
+                          // (a scroll gesture already bailed above, so taps only).
+                          if (e.cancelable) e.preventDefault();
                           touchHandledRef.current = true;
                           onNodeSelect?.(prototype);
                           setTimeout(() => { touchHandledRef.current = false; }, 400);

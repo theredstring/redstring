@@ -331,6 +331,7 @@ const PieMenu = ({
   const renderChevron = (side) => {
     if (!chevronGeometry) return null;
     const { chevronHeight: h, chevronDepth: d, fillThickness, border, leftX, rightX, centerY } = chevronGeometry;
+    const hitPad = 24 * scale;                  // extra invisible padding to enlarge the tap target
     const isLeft = side === 'left';
     const cx = isLeft ? leftX : rightX;
     const outerWidth = fillThickness + border * 2; // maroon band = fill + outline on both sides
@@ -391,12 +392,13 @@ const PieMenu = ({
         <g className={`pie-chevron-intro ${introClass}`}>
           {/* Hover-grow wrapper (nested so it doesn't fight the intro transform) */}
           <g className="pie-chevron-hover">
-            {/* Invisible rectangular hitbox around the (thick) arm bounds */}
+            {/* Invisible rectangular hitbox around the (thick) arm bounds,
+                padded out a bit so the chevrons are easier to hit/tap. */}
             <rect
-              x={-(d / 2 + halfOuter)}
-              y={-(h / 2 + halfOuter)}
-              width={d + halfOuter * 2}
-              height={h + halfOuter * 2}
+              x={-(d / 2 + halfOuter + hitPad)}
+              y={-(h / 2 + halfOuter + hitPad)}
+              width={d + halfOuter * 2 + hitPad * 2}
+              height={h + halfOuter * 2 + hitPad * 2}
               fill="transparent"
             />
             {/* Maroon outer band (drawn wider, underneath) forms the outline */}

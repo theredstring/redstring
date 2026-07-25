@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import UnifiedBottomControlPanel from './UnifiedBottomControlPanel';
 import useGraphStore from './store/graphStore.js';
 import { CONNECTION_DEFAULT_COLOR } from './constants';
@@ -28,6 +28,26 @@ const ConnectionControlPanel = ({
     return graphsMap.get(activeGraphId)?.instances;
   }, [activeGraphId, graphsMap]);
 
+  // Orient a connection so the endpoint that sits further LEFT on the canvas is
+  // shown on the left of the control panel. Two connections pointing opposite
+  // ways read identically once both are laid out left-to-right by canvas
+  // position — our brains can't easily re-map a reversed left→right order.
+  // Arrows are keyed by node id (directionality.arrowsToward), so swapping the
+  // display order of the two endpoints is lossless. Ties keep the semantic
+  // source on the left.
+  const orientEndpoints = useCallback((edge) => {
+    const srcId = edge.sourceId;
+    const dstId = edge.destinationId || edge.targetId;
+    const srcNode = instances?.get(srcId) || null;
+    const dstNode = instances?.get(dstId) || null;
+    const srcX = srcNode?.x ?? 0;
+    const dstX = dstNode?.x ?? 0;
+    if (dstX < srcX) {
+      return { leftId: dstId, rightId: srcId, leftNode: dstNode, rightNode: srcNode };
+    }
+    return { leftId: srcId, rightId: dstId, leftNode: srcNode, rightNode: dstNode };
+  }, [instances]);
+
   // Convert edges to triples format for UnifiedBottomControlPanel
   const triples = useMemo(() => {
     const edges = selectedEdge ? [selectedEdge] : selectedEdges;
@@ -35,8 +55,7 @@ const ConnectionControlPanel = ({
 
 
     return edges.map(edge => {
-      const sourceNode = instances.get(edge.sourceId);
-      const targetNode = instances.get(edge.destinationId || edge.targetId);
+      const { leftId, rightId, leftNode: sourceNode, rightNode: targetNode } = orientEndpoints(edge);
       const sourcePrototype = sourceNode ? nodePrototypesMap.get(sourceNode.prototypeId) : null;
       const targetPrototype = targetNode ? nodePrototypesMap.get(targetNode.prototypeId) : null;
       // Use EXACT same logic as ConnectionBrowser (lines 468-481)
@@ -61,18 +80,19 @@ const ConnectionControlPanel = ({
         }
       }
 
-      // Calculate arrow states from directionality
+      // Calculate arrow states from directionality. Left/right are canvas-order
+      // positions (see orientEndpoints), not the edge's semantic source/target.
       const arrowsToward = edge.directionality?.arrowsToward || new Set();
-      const hasLeftArrow = arrowsToward.has(edge.sourceId); // Arrow points TO source (left side)
-      const hasRightArrow = arrowsToward.has(edge.destinationId || edge.targetId); // Arrow points TO target (right side)
+      const hasLeftArrow = arrowsToward.has(leftId); // Arrow points TO the left (leftmost-on-canvas) node
+      const hasRightArrow = arrowsToward.has(rightId); // Arrow points TO the right (rightmost-on-canvas) node
 
       // Ensure we have a proper string ID
       const edgeId = typeof edge.id === 'string' ? edge.id : edge.id?.id || String(edge.id);
-      
+
       const triple = {
         id: edgeId,
-        sourceId: edge.sourceId,
-        destinationId: edge.destinationId || edge.targetId,
+        sourceId: leftId,
+        destinationId: rightId,
         color: connectionColor,
         directionality: edge.directionality,
         subject: {
@@ -97,50 +117,54 @@ const ConnectionControlPanel = ({
 
       return triple;
     });
-  }, [selectedEdge, selectedEdges, edgePrototypesMap, nodePrototypesMap, instances]);
+  }, [selectedEdge, selectedEdges, edgePrototypesMap, nodePrototypesMap, instances, orientEndpoints]);
 
+  // Toggle the arrow on the endpoint currently shown on the LEFT of the panel.
+  // Which store-node that maps to depends on canvas orientation (orientEndpoints),
+  // so resolve the left node id from the edge rather than assuming edge.sourceId.
   const handleToggleLeftArrow = (tripleId) => {
     const updateEdge = useGraphStore.getState().updateEdge;
-    // Use the actual edge ID, not the definition node ID
     const edges = selectedEdge ? [selectedEdge] : selectedEdges;
-    const actualEdgeId = edges[0]?.id || tripleId;
-    
-    updateEdge(actualEdgeId, (draft) => {
+    const edge = edges.find(e => e.id === tripleId || String(e.id) === String(tripleId)) || edges[0];
+    if (!edge) return;
+    const { leftId } = orientEndpoints(edge);
+
+    updateEdge(edge.id, (draft) => {
       if (!draft.directionality) {
         draft.directionality = { arrowsToward: new Set() };
       }
       if (!draft.directionality.arrowsToward) {
         draft.directionality.arrowsToward = new Set();
       }
-      
-      // Toggle arrow pointing TO source (left side)
-      if (draft.directionality.arrowsToward.has(draft.sourceId)) {
-        draft.directionality.arrowsToward.delete(draft.sourceId);
+
+      if (draft.directionality.arrowsToward.has(leftId)) {
+        draft.directionality.arrowsToward.delete(leftId);
       } else {
-        draft.directionality.arrowsToward.add(draft.sourceId);
+        draft.directionality.arrowsToward.add(leftId);
       }
     });
   };
 
+  // Toggle the arrow on the endpoint currently shown on the RIGHT of the panel.
   const handleToggleRightArrow = (tripleId) => {
     const updateEdge = useGraphStore.getState().updateEdge;
-    // Use the actual edge ID, not the definition node ID
     const edges = selectedEdge ? [selectedEdge] : selectedEdges;
-    const actualEdgeId = edges.find(e => e.id === tripleId || String(e.id) === String(tripleId))?.id || tripleId;
-    
-    updateEdge(actualEdgeId, (draft) => {
+    const edge = edges.find(e => e.id === tripleId || String(e.id) === String(tripleId)) || edges[0];
+    if (!edge) return;
+    const { rightId } = orientEndpoints(edge);
+
+    updateEdge(edge.id, (draft) => {
       if (!draft.directionality) {
         draft.directionality = { arrowsToward: new Set() };
       }
       if (!draft.directionality.arrowsToward) {
         draft.directionality.arrowsToward = new Set();
       }
-      
-      // Toggle arrow pointing TO target (right side)
-      if (draft.directionality.arrowsToward.has(draft.destinationId || draft.targetId)) {
-        draft.directionality.arrowsToward.delete(draft.destinationId || draft.targetId);
+
+      if (draft.directionality.arrowsToward.has(rightId)) {
+        draft.directionality.arrowsToward.delete(rightId);
       } else {
-        draft.directionality.arrowsToward.add(draft.destinationId || draft.targetId);
+        draft.directionality.arrowsToward.add(rightId);
       }
     });
   };

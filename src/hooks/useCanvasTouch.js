@@ -39,6 +39,7 @@ export const useCanvasTouch = ({
     setZoomLevel,
     setPanAndZoom,
     stopPanMomentum,
+    startZoomMomentum,
     storeActions,
     selectedInstanceIds,
     setSelectedInstanceIds,
@@ -115,6 +116,20 @@ export const useCanvasTouch = ({
 
     const longPressingInstanceIdRef = useRef(null);
     const touchMultiPanRef = useRef(false);
+
+    // True from the moment a touch sequence goes multi-touch (pinch) until a
+    // fresh single-finger touchstart (canvas or node) begins a new gesture.
+    // Ending a pinch must carry no tap semantics whatsoever — the last finger's
+    // lift otherwise reads as an implicit tap (deselecting nodes, dismissing
+    // panels, spawning/dismissing the plus sign). ignoreCanvasClick alone can't
+    // express this: handleTouchEndCanvas runs twice per touchend (React
+    // onTouchEnd + the document listener attached in handleTouchStartCanvas),
+    // and the duplicate run falls into the tap path and consumes
+    // ignoreCanvasClick when the FIRST finger lifts — leaving the second
+    // finger's lift free to read as a bare-canvas tap. This ref survives both
+    // lifts and both runs; deliberate taps are unaffected because their own
+    // touchstart resets it.
+    const multiTouchGestureRef = useRef(false);
 
     // Mirror selectedInstanceIds in a ref so the deferred single-tap selection
     // (fires 300ms after touchend) reads the latest value, not a stale closure.
@@ -307,10 +322,12 @@ export const useCanvasTouch = ({
                 centerClient: { x: centerX, y: centerY },
                 centerWorld: { x: worldX, y: worldY },
                 lastCenterClient: { x: centerX, y: centerY },
-                lastDist: dist
+                lastDist: dist,
+                zoomVel: 0
             };
             pinchSmoothingRef.current.lastFrameTime = performance.now();
             armGestureBlock?.();
+            multiTouchGestureRef.current = true;
             // Cancel any in-progress one-finger pan when second finger is placed
             isMouseDown.current = false;
             setIsPanning(false);
@@ -328,6 +345,9 @@ export const useCanvasTouch = ({
 
         // Handle single touch - synthesize mouse event only once
         if (e.touches && e.touches.length === 1) {
+            // A brand-new one-finger gesture — the previous multi-touch
+            // sequence (if any) is over, so taps may spawn the plus sign again.
+            multiTouchGestureRef.current = false;
             const t = e.touches[0];
             lastTouchRef.current = { x: t.clientX, y: t.clientY };
             isMouseDown.current = true;
@@ -411,10 +431,12 @@ export const useCanvasTouch = ({
                         centerClient: { x: centerX, y: centerY },
                         centerWorld: { x: worldX, y: worldY },
                         lastCenterClient: { x: centerX, y: centerY },
-                        lastDist: dist
+                        lastDist: dist,
+                        zoomVel: 0
                     };
                     pinchSmoothingRef.current.lastFrameTime = performance.now();
                     armGestureBlock?.();
+                    multiTouchGestureRef.current = true;
                     // Stop momentum and panning
                     stopPanMomentum();
                     isMouseDown.current = false;
@@ -471,6 +493,14 @@ export const useCanvasTouch = ({
                     y: centerY - rect.top - (worldY - canvasSize.offsetY) * newZoom,
                 };
                 setPanAndZoom(newPan, newZoom);
+                // Track zoom velocity (log-space, per ms) for the release glide.
+                // EMA-smoothed so the launch velocity reflects the sustained pinch
+                // rate, not a single noisy final frame.
+                if (prevZoom > 0 && newZoom > 0) {
+                    const instRate = Math.log(newZoom / prevZoom) / dt;
+                    const prevVel = pinchRef.current.zoomVel || 0;
+                    pinchRef.current.zoomVel = prevVel * 0.6 + instRate * 0.4;
+                }
                 pinchRef.current.lastDist = dist;
                 pinchRef.current.lastCenterClient = { x: centerX, y: centerY };
             }
@@ -522,8 +552,13 @@ export const useCanvasTouch = ({
             e.preventDefault();
             e.stopPropagation();
         }
-        // End pinch if active – no glide for two-finger gesture on touch
+        // End pinch if active. When the last finger lifts we hand the residual
+        // zoom velocity to a brief coast (see the all-fingers-lifted branch below).
         if (pinchRef.current.active) {
+            // Capture the release velocity + anchor before tearing down pinch state.
+            const releaseZoomVel = pinchRef.current.zoomVel || 0;
+            const releaseAnchorClient = pinchRef.current.lastCenterClient;
+            const releaseAnchorWorld = pinchRef.current.centerWorld;
             pinchRef.current.active = false;
             isPanningOrZooming.current = false;
             // Any multi-touch gesture must suppress the synthetic click that follows.
@@ -558,6 +593,10 @@ export const useCanvasTouch = ({
                 setIsPanning(false);
                 isMouseDown.current = false;
                 mouseMoved.current = false;
+                // Slight pinch glide: coast the zoom in the release direction,
+                // anchored to the last pinch midpoint. No-ops below its speed
+                // threshold, so a deliberate hold-then-lift doesn't drift.
+                startZoomMomentum?.(releaseZoomVel, releaseAnchorClient, releaseAnchorWorld);
             }
             return;
         }
@@ -577,6 +616,22 @@ export const useCanvasTouch = ({
         };
         // Route to mouseUp to reuse inertia/glide for single-finger pan
         handleMouseUp(synthetic);
+        // A pinch happened somewhere in this touch sequence — its ending must
+        // carry NO tap semantics. The last finger of a pinch nearly always
+        // reads as a "tap" below (near-zero movement from the mouseDownPosition
+        // reset at the 2→1 transition), which would deselect nodes, dismiss
+        // panels / the pie menu, and dismiss or spawn the plus sign. Zooming is
+        // pure navigation: selection, panels, and an existing plus sign all
+        // survive it; only an explicit fresh tap (which resets this flag on its
+        // touchstart) interacts with them. Keep ignoreCanvasClick armed so the
+        // browser's synthesized click after touchend is blocked in
+        // handleCanvasClick too (handleTouchStartCanvas clears it on the next
+        // bare-canvas touch).
+        if (multiTouchGestureRef.current) {
+            if (ignoreCanvasClick) ignoreCanvasClick.current = true;
+            touchMultiPanRef.current = false;
+            return;
+        }
         // If an edge / node / UI element handled this tap, it raised
         // ignoreCanvasClick.current to claim the tap. Bail before touching
         // selection — otherwise we'd undo the work the element-level handler
@@ -627,7 +682,10 @@ export const useCanvasTouch = ({
             if (selectedNodeIdForPieMenu) {
                 setSelectedNodeIdForPieMenu(null);
             }
-            if (plusSign && !nodeNamePrompt.visible) {
+            // Never cancel a plus sign that's already committed to morphing into
+            // a node — a stray tap (e.g. the ghost touchend that bubbles here
+            // after the UnifiedSelector closes) must not abort node creation.
+            if (plusSign && plusSign.mode !== 'morph' && !nodeNamePrompt.visible) {
                 setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
             }
 
@@ -674,6 +732,14 @@ export const useCanvasTouch = ({
 
         const touch = e.touches[0];
         if (!touch) return;
+
+        // A fresh one-finger touch on a node ends any prior multi-touch
+        // sequence. Node touchstart stopPropagation()s, so the canvas-level
+        // reset in handleTouchStartCanvas never runs for node taps — without
+        // this, every node tap after a pinch would be suppressed as pinch-end.
+        if (e.touches.length === 1) {
+            multiTouchGestureRef.current = false;
+        }
 
         if (suppressMouseDownResetTimeoutRef.current) {
             clearTimeout(suppressMouseDownResetTimeoutRef.current);
@@ -1012,7 +1078,10 @@ export const useCanvasTouch = ({
             touchState.current.isDragging ||
             !!draggingNodeInfo ||
             drawingConnectionFromRef.current;
-        if (!touchState.current.hasMovedPastThreshold && !wasDragOrConnection && touchState.current.dragNodeId === nodeData.id) {
+        // multiTouchGestureRef: a finger that started on a node and became half
+        // of a pinch can end with near-zero movement — that lift is pinch-end,
+        // not a tap, and must not toggle the node's selection.
+        if (!touchState.current.hasMovedPastThreshold && !wasDragOrConnection && !multiTouchGestureRef.current && touchState.current.dragNodeId === nodeData.id) {
             // This was a tap, not a drag
             // Light haptic feedback for tap completion
             if (typeof navigator !== 'undefined' && navigator.vibrate) {
