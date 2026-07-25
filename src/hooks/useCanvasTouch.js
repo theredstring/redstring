@@ -19,17 +19,6 @@ const TOUCH_MOVEMENT_THRESHOLD = 12; // Higher than mouse
 // drag-start during the first hold.
 const LONG_PRESS_DURATION = 450;
 const NODE_DOUBLE_TAP_MS = 400;
-// Pinch-glide handoff window: two fingers rarely lift on the same event, so a
-// pinch ends 2→1→0. If the leftover finger lifts within this window and hasn't
-// panned past this distance, treat it as the tail of the pinch and glide the
-// zoom rather than as a single-finger pan/tap.
-const PINCH_GLIDE_HANDOFF_MS = 250;
-// Generous move allowance: on a violent flick the trailing finger is still
-// travelling fast when the first finger lifts and can cover a lot of ground in
-// its last ~50ms on the glass. A tight threshold here rejected exactly the
-// flicks that most deserve a glide. The time window above still distinguishes
-// "tail of the pinch" from "kept the finger down to pan".
-const PINCH_GLIDE_HANDOFF_MOVE = 80;
 // Release-velocity sampling for the pinch glide (mirrors the pan glide's
 // window approach). Velocity is measured on the RAW finger-driven target zoom,
 // not the eased/applied zoom — the applied zoom lags the fingers and keeps
@@ -154,14 +143,6 @@ export const useCanvasTouch = ({
     // lifts and both runs; deliberate taps are unaffected because their own
     // touchstart resets it.
     const multiTouchGestureRef = useRef(false);
-
-    // Carries a pinch's residual zoom velocity across the brief single-finger
-    // phase that a staggered two-finger lift produces (2 → 1 → 0 fingers). The
-    // first finger's lift tears down the pinch, so by the time the last finger
-    // is up pinchRef.active is already false and its velocity is gone. We stash
-    // it here on the 2→1 transition and consume it when the final finger lifts
-    // promptly without panning. Null whenever no pinch handoff is pending.
-    const pinchGlidePendingRef = useRef(null);
 
     // Mirror selectedInstanceIds in a ref so the deferred single-tap selection
     // (fires 300ms after touchend) reads the latest value, not a stale closure.
@@ -396,9 +377,6 @@ export const useCanvasTouch = ({
             // A brand-new one-finger gesture — the previous multi-touch
             // sequence (if any) is over, so taps may spawn the plus sign again.
             multiTouchGestureRef.current = false;
-            // Not the tail of a pinch — a real new touch. Drop any pending glide
-            // handoff so it can't fire on this unrelated gesture.
-            pinchGlidePendingRef.current = null;
             const t = e.touches[0];
             lastTouchRef.current = { x: t.clientX, y: t.clientY };
             isMouseDown.current = true;
@@ -689,12 +667,31 @@ export const useCanvasTouch = ({
             // Clear velocity history so next pan starts fresh
             panVelocityHistoryRef.current = [];
 
-            // If there's still a touch remaining (2 fingers -> 1 finger), set up for single-finger pan.
+            // Launch the glide NOW, at the moment the pinch breaks — not on the
+            // last finger's lift. Two-finger lifts are almost always staggered
+            // (2→1→0), and on iOS WebKit the trailing finger travels far and
+            // fast on a violent flick, so any wait-for-final-lift handoff gate
+            // (time or distance) rejects exactly the flicks that most deserve a
+            // glide. Launching here is safe: stopPanMomentum no longer touches
+            // the zoom glide, so the trailing finger's touchend can't kill it,
+            // and any fresh touchstart still halts it via stopZoomMomentum.
+            // Returns false (no glide) for a held pinch (~zero velocity), when
+            // disabled in settings, or when anchors are missing.
+            // Pass the pinch's own zoom bounds so the coast stops exactly
+            // where a manual pinch would, not at the looser dynamic MIN_ZOOM.
+            const glideLaunched = startZoomMomentum?.(releaseZoomVel, releaseAnchorClient, releaseAnchorWorld, MIN_ZOOM, MAX_ZOOM) === true;
+
+            // If there's still a touch remaining (2 fingers -> 1 finger) and no
+            // glide launched, set up for single-finger pan (pinch-hold-then-pan).
             // Must mirror handleMouseDown's pan-state setup: without setIsPanning(true), the pan
             // branch in handleMouseMove (gated on `isPanning && !pinchRef.current.active`) never
             // enters, and the momentum-launch block in handleMouseUp (gated on `isPanning && panStart`)
             // is skipped entirely — so post-pinch flicks would accumulate velocity samples but never glide.
-            if (e.touches && e.touches.length === 1) {
+            // When a glide DID launch, deliberately skip pan setup: the leftover
+            // finger is the tail of the release and must not pan against the
+            // coasting zoom. (To pan afterwards, lift and touch again — which
+            // also stops the glide.)
+            if (e.touches && e.touches.length === 1 && !glideLaunched) {
                 const t = e.touches[0];
                 setPanStart({ x: t.clientX, y: t.clientY });
                 setIsPanning(true);
@@ -703,60 +700,20 @@ export const useCanvasTouch = ({
                 mouseMoved.current = false;
                 startedOnNode.current = false;
                 mouseDownPosition.current = { x: t.clientX, y: t.clientY };
-                // Stash the pinch's release velocity so the final finger's lift
-                // (or a genuine pan) can decide whether to glide the zoom.
-                if (releaseAnchorClient && releaseAnchorWorld) {
-                    pinchGlidePendingRef.current = {
-                        vel: releaseZoomVel,
-                        anchorClient: releaseAnchorClient,
-                        anchorWorld: releaseAnchorWorld,
-                        time: performance.now(),
-                        startX: t.clientX,
-                        startY: t.clientY,
-                    };
-                }
             } else {
-                // All fingers lifted - clear everything
+                // All fingers lifted, or glide in flight - clear pan state
                 setPanStart(null);
                 panSourceRef.current = null;
                 setIsPanning(false);
                 isMouseDown.current = false;
                 mouseMoved.current = false;
-                // Slight pinch glide: coast the zoom in the release direction,
-                // anchored to the last pinch midpoint. No-ops below its speed
-                // threshold, so a deliberate hold-then-lift doesn't drift.
-                // Pass the pinch's own zoom bounds so the coast stops exactly
-                // where a manual pinch would, not at the looser dynamic MIN_ZOOM.
-                startZoomMomentum?.(releaseZoomVel, releaseAnchorClient, releaseAnchorWorld, MIN_ZOOM, MAX_ZOOM);
+                if (e.touches && e.touches.length === 1) {
+                    // Keep tap math sane for the trailing finger's own touchend.
+                    const t = e.touches[0];
+                    mouseDownPosition.current = { x: t.clientX, y: t.clientY };
+                }
             }
             return;
-        }
-
-        // Staggered pinch-lift handoff: the pinch already ended on the first
-        // finger's lift (above), leaving a pending glide. If the last finger is
-        // now up and it lifted promptly without panning, this is the tail of the
-        // pinch — launch the zoom glide and swallow the event (no pan/tap).
-        if (pinchGlidePendingRef.current && (!e.touches || e.touches.length === 0)) {
-            const pending = pinchGlidePendingRef.current;
-            pinchGlidePendingRef.current = null;
-            const up = normalizeTouchEvent(e);
-            const moved = Math.hypot(up.clientX - pending.startX, up.clientY - pending.startY);
-            const elapsed = performance.now() - pending.time;
-            if (elapsed < PINCH_GLIDE_HANDOFF_MS && moved < PINCH_GLIDE_HANDOFF_MOVE) {
-                // Mirror the all-fingers-lifted pinch cleanup + click suppression.
-                if (ignoreCanvasClick) ignoreCanvasClick.current = true;
-                armGestureBlock?.();
-                scheduleGestureBlockClear?.();
-                setPanStart(null);
-                panSourceRef.current = null;
-                setIsPanning(false);
-                isMouseDown.current = false;
-                mouseMoved.current = false;
-                panVelocityHistoryRef.current = [];
-                startZoomMomentum?.(pending.vel, pending.anchorClient, pending.anchorWorld, MIN_ZOOM, MAX_ZOOM);
-                return;
-            }
-            // Otherwise the leftover finger became a real pan/tap — fall through.
         }
 
         const { clientX, clientY } = normalizeTouchEvent(e);

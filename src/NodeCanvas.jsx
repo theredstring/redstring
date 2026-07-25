@@ -7661,6 +7661,18 @@ function NodeCanvas() {
 
     const onGestureStart = (e) => {
       if (trackpadZoomEnabled) return; // allow browser zoom if explicitly enabled
+      // iOS WebKit (Safari AND Chrome) fires GestureEvents ALONGSIDE touch
+      // events for two-finger pinches. The touch path in useCanvasTouch owns
+      // finger pinches — including the release glide — and shares pinchRef
+      // with this handler. Letting this run on iOS stomps that state:
+      // gestureend fires when the first finger lifts and clears
+      // pinchRef.active BEFORE the touchend that computes release velocity,
+      // so the glide can never launch. This handler is for macOS Safari
+      // trackpad pinch only; on touch devices just block native page zoom.
+      if (isIOS || isTouchDeviceRef.current) {
+        try { e?.preventDefault?.(); } catch { }
+        return;
+      }
       if (!e || typeof e.scale !== 'number') return;
       try { e.preventDefault(); e.stopPropagation(); } catch { }
       const rect = container.getBoundingClientRect();
@@ -7680,6 +7692,11 @@ function NodeCanvas() {
     const onGestureChange = (e) => {
       if (abstractionCarouselVisibleRef.current) return; // pan/zoom locked while carousel is open
       if (trackpadZoomEnabled) return; // allow browser zoom if explicitly enabled
+      // Finger pinches are owned by the touch path — see onGestureStart.
+      if (isIOS || isTouchDeviceRef.current) {
+        try { e?.preventDefault?.(); } catch { }
+        return;
+      }
       if (!e || typeof e.scale !== 'number') return;
       // Skip gesture zoom during drag to prevent interference with drag zoom animation
       if (draggingNodeInfoRef.current || isAnimatingZoomRef.current) return;
@@ -7703,7 +7720,14 @@ function NodeCanvas() {
       setPanAndZoom(newPan, newZoom);
     };
 
-    const onGestureEnd = () => {
+    const onGestureEnd = (e) => {
+      // Finger pinches are owned by the touch path — see onGestureStart.
+      // Clearing pinchRef.active here on iOS races the touchend handler and
+      // permanently suppresses the pinch-release glide.
+      if (isIOS || isTouchDeviceRef.current) {
+        try { e?.preventDefault?.(); } catch { }
+        return;
+      }
       if (pinchRef.current.active) {
         pinchRef.current.active = false;
       }
