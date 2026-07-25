@@ -23,8 +23,14 @@ const NODE_DOUBLE_TAP_MS = 400;
 // pinch ends 2→1→0. If the leftover finger lifts within this window and hasn't
 // panned past this distance, treat it as the tail of the pinch and glide the
 // zoom rather than as a single-finger pan/tap.
-const PINCH_GLIDE_HANDOFF_MS = 200;
-const PINCH_GLIDE_HANDOFF_MOVE = 24;
+const PINCH_GLIDE_HANDOFF_MS = 250;
+const PINCH_GLIDE_HANDOFF_MOVE = 32;
+// Release-velocity sampling for the pinch glide (mirrors the pan glide's
+// window approach). Velocity is measured on the RAW finger-driven target zoom,
+// not the eased/applied zoom — the applied zoom lags the fingers and keeps
+// "moving" after they stop, which made the glide fire inconsistently.
+const PINCH_ZOOM_VELOCITY_WINDOW_MS = 100;  // how far back to sample for release velocity
+const PINCH_ZOOM_STATIONARY_GAP_MS = 80;    // last sample older than this at lift = fingers had stopped, no glide
 
 export const useCanvasTouch = ({
     containerRef,
@@ -356,7 +362,7 @@ export const useCanvasTouch = ({
                 centerWorld: { x: worldX, y: worldY },
                 lastCenterClient: { x: centerX, y: centerY },
                 lastDist: dist,
-                zoomVel: 0
+                zoomHist: []
             };
             pinchSmoothingRef.current.lastFrameTime = performance.now();
             armGestureBlock?.();
@@ -468,7 +474,7 @@ export const useCanvasTouch = ({
                         centerWorld: { x: worldX, y: worldY },
                         lastCenterClient: { x: centerX, y: centerY },
                         lastDist: dist,
-                        zoomVel: 0
+                        zoomHist: []
                     };
                     pinchSmoothingRef.current.lastFrameTime = performance.now();
                     armGestureBlock?.();
@@ -529,13 +535,15 @@ export const useCanvasTouch = ({
                     y: centerY - rect.top - (worldY - canvasSize.offsetY) * newZoom,
                 };
                 setPanAndZoom(newPan, newZoom);
-                // Track zoom velocity (log-space, per ms) for the release glide.
-                // EMA-smoothed so the launch velocity reflects the sustained pinch
-                // rate, not a single noisy final frame.
-                if (prevZoom > 0 && newZoom > 0) {
-                    const instRate = Math.log(newZoom / prevZoom) / dt;
-                    const prevVel = pinchRef.current.zoomVel || 0;
-                    pinchRef.current.zoomVel = prevVel * 0.6 + instRate * 0.4;
+                // Record the RAW finger-driven target zoom (log space) for the
+                // release glide. Sampling the raw target — not the eased newZoom —
+                // keeps the measured velocity true to actual finger motion.
+                {
+                    const hist = pinchRef.current.zoomHist || (pinchRef.current.zoomHist = []);
+                    hist.push({ t: now, lz: Math.log(targetZoom) });
+                    while (hist.length > 2 && now - hist[0].t > PINCH_ZOOM_VELOCITY_WINDOW_MS * 2) {
+                        hist.shift();
+                    }
                 }
                 pinchRef.current.lastDist = dist;
                 pinchRef.current.lastCenterClient = { x: centerX, y: centerY };
@@ -600,8 +608,33 @@ export const useCanvasTouch = ({
         // End pinch if active. When the last finger lifts we hand the residual
         // zoom velocity to a brief coast (see the all-fingers-lifted branch below).
         if (pinchRef.current.active) {
-            // Capture the release velocity + anchor before tearing down pinch state.
-            const releaseZoomVel = pinchRef.current.zoomVel || 0;
+            // Compute release velocity from the sampled raw-target-zoom history
+            // (same windowed approach as pan momentum): velocity over the last
+            // ~100ms of samples, zeroed if the fingers had already stopped
+            // zooming before the lift (stationary gap).
+            let releaseZoomVel = 0;
+            {
+                const hist = pinchRef.current.zoomHist || [];
+                const nowEnd = performance.now();
+                if (hist.length >= 2) {
+                    const last = hist[hist.length - 1];
+                    if (nowEnd - last.t <= PINCH_ZOOM_STATIONARY_GAP_MS) {
+                        // Walk back to the oldest sample inside the velocity window.
+                        let first = hist[0];
+                        for (let i = hist.length - 2; i >= 0; i--) {
+                            if (last.t - hist[i].t <= PINCH_ZOOM_VELOCITY_WINDOW_MS) {
+                                first = hist[i];
+                            } else {
+                                break;
+                            }
+                        }
+                        const span = last.t - first.t;
+                        if (span > 0) {
+                            releaseZoomVel = (last.lz - first.lz) / span;
+                        }
+                    }
+                }
+            }
             const releaseAnchorClient = pinchRef.current.lastCenterClient;
             const releaseAnchorWorld = pinchRef.current.centerWorld;
             pinchRef.current.active = false;

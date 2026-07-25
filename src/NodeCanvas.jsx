@@ -4391,6 +4391,12 @@ function NodeCanvas() {
   // { cx, cy, r, edgeId, nodeId }.
   const connectionOrbHitsRef = useRef([]);
 
+  // Timestamp of the last touch-driven orb toggle. React's touch listeners are
+  // passive, so we can't preventDefault the synthesized click that follows a tap —
+  // it would re-fire the orb's onClick (handleArrowClick) and undo the toggle. Any
+  // handleArrowClick within this window of a touch toggle is that echo and is ignored.
+  const orbToggleEchoRef = useRef(0);
+
   // Hit-test a client-space point against the visible connection orbs and, on a hit,
   // toggle that connection's arrow toward the orb's node (mirrors handleArrowClick).
   // Returns true if a toggle happened so the touch layer can swallow the gesture and
@@ -4415,6 +4421,7 @@ function NodeCanvas() {
       }
     }
     if (!best) return false;
+    orbToggleEchoRef.current = performance.now();
     storeActions.updateEdge(best.edgeId, (draft) => {
       if (!draft.directionality) draft.directionality = { arrowsToward: new Set() };
       if (!draft.directionality.arrowsToward) draft.directionality.arrowsToward = new Set();
@@ -6527,16 +6534,22 @@ function NodeCanvas() {
               input.onchange = (e) => {
                 const file = e.target.files?.[0];
                 cleanup();
-                if (!file) return;
+                if (!file) { alert('[pie] no file selected'); return; }
+                alert(`[pie] 1 file selected: ${file.name} | type="${file.type}" | ${Math.round(file.size / 1024)} KB`);
                 const reader = new FileReader();
+                reader.onerror = () => alert(`[pie] FileReader error: ${reader.error?.name} ${reader.error?.message}`);
                 reader.onload = (loadEvent) => {
                   const fullImageSrc = loadEvent.target?.result;
-                  if (typeof fullImageSrc !== 'string') return;
+                  if (typeof fullImageSrc !== 'string') { alert('[pie] reader result not a string'); return; }
+                  alert(`[pie] 2 file read ok, dataURL length=${fullImageSrc.length}, prefix=${fullImageSrc.slice(0, 30)}`);
                   const img = new Image();
+                  img.onerror = () => alert('[pie] 3 FAILED: browser could not decode this image (format unsupported? e.g. HEIC)');
                   img.onload = async () => {
+                    alert(`[pie] 3 decoded ok: ${img.naturalWidth}x${img.naturalHeight}`);
                     try {
                       const aspectRatio = (img.naturalHeight > 0 && img.naturalWidth > 0) ? (img.naturalHeight / img.naturalWidth) : 1;
                       const thumbSrc = await generateThumbnail(fullImageSrc, THUMBNAIL_MAX_DIMENSION);
+                      alert(`[pie] 4 thumbnail generated, length=${thumbSrc?.length}`);
                       storeActions.updateNodePrototype(prototypeId, draft => {
                         Object.assign(draft, { imageSrc: fullImageSrc, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
                         // User image replaces any auto-enriched Wikipedia thumbnail — clear
@@ -6545,8 +6558,9 @@ function NodeCanvas() {
                           draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
                         }
                       });
+                      alert('[pie] 5 SAVED to store — done');
                     } catch (error) {
-                      console.error('[PieMenu] Add Image failed:', error);
+                      alert(`[pie] 4 FAILED in thumbnail/save: ${error?.name} ${error?.message}`);
                     }
                   };
                   img.src = fullImageSrc;
@@ -13803,6 +13817,14 @@ function NodeCanvas() {
                                 const handleArrowClick = (nodeId, e) => {
                                   e.stopPropagation();
 
+                                  // Ignore the synthesized click that echoes a touch-driven orb
+                                  // toggle (which already fired on touchstart) — otherwise it
+                                  // double-toggles and cancels itself out.
+                                  if (performance.now() - orbToggleEchoRef.current < 700) {
+                                    orbToggleEchoRef.current = 0;
+                                    return;
+                                  }
+
                                   // Toggle the arrow state for the specific node
                                   storeActions.updateEdge(edge.id, (draft) => {
                                     // Ensure directionality object exists
@@ -15152,6 +15174,14 @@ function NodeCanvas() {
 
                                 const handleArrowClick = (nodeId, e) => {
                                   e.stopPropagation();
+
+                                  // Ignore the synthesized click that echoes a touch-driven orb
+                                  // toggle (which already fired on touchstart) — otherwise it
+                                  // double-toggles and cancels itself out.
+                                  if (performance.now() - orbToggleEchoRef.current < 700) {
+                                    orbToggleEchoRef.current = 0;
+                                    return;
+                                  }
 
                                   // Toggle the arrow state for the specific node
                                   storeActions.updateEdge(edge.id, (draft) => {

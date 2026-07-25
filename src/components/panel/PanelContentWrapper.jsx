@@ -230,18 +230,24 @@ const PanelContentWrapper = memo(({
     input.onchange = async (e) => {
       const file = e.target.files?.[0];
       cleanup();
-      if (!file) return;
+      if (!file) { alert('[img] no file selected'); return; }
+      alert(`[img] 1 file selected: ${file.name} | type="${file.type}" | ${Math.round(file.size / 1024)} KB`);
 
       const reader = new FileReader();
+      reader.onerror = (err) => alert(`[img] FileReader error: ${reader.error?.name} ${reader.error?.message}`);
       reader.onload = async (loadEvent) => {
         const fullImageSrc = loadEvent.target?.result;
-        if (typeof fullImageSrc !== 'string') return;
+        if (typeof fullImageSrc !== 'string') { alert('[img] reader result not a string'); return; }
+        alert(`[img] 2 file read ok, dataURL length=${fullImageSrc.length}, prefix=${fullImageSrc.slice(0, 30)}`);
 
         const img = new Image();
+        img.onerror = () => alert('[img] 3 FAILED: browser could not decode this image (format unsupported? e.g. HEIC)');
         img.onload = async () => {
+          alert(`[img] 3 decoded ok: ${img.naturalWidth}x${img.naturalHeight}`);
           try {
             const aspectRatio = (img.naturalHeight > 0 && img.naturalWidth > 0) ? (img.naturalHeight / img.naturalWidth) : 1;
             const thumbSrc = await generateThumbnail(fullImageSrc, THUMBNAIL_MAX_DIMENSION);
+            alert(`[img] 4 thumbnail generated, length=${thumbSrc?.length}`);
             const nodeDataToSave = {
               imageSrc: fullImageSrc,
               thumbnailSrc: thumbSrc,
@@ -256,8 +262,9 @@ const PanelContentWrapper = memo(({
                 draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
               }
             });
+            alert('[img] 5 SAVED to store — done');
           } catch (error) {
-            console.error("Image save failed:", error);
+            alert(`[img] 4 FAILED in thumbnail/save: ${error?.name} ${error?.message}`);
           }
         };
         img.src = fullImageSrc;
