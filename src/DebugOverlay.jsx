@@ -382,6 +382,10 @@ const CopyAllDiagnosticsButton = ({ data }) => {
       ['isGlobalDragging', saveCoordinator.isGlobalDragging],
       ['msSinceInteractionStart', saveCoordinator.msSinceInteractionStart],
       ['msSinceInteractionEnd', saveCoordinator.msSinceInteractionEnd],
+      ['loadInFlight', saveCoordinator.loadInFlight],
+      ...((saveCoordinator.loadGateHolders?.length)
+        ? [['loadGateHolders', saveCoordinator.loadGateHolders.join(', ')]]
+        : []),
       ['hasLoadedFromFile', saveCoordinator.hasLoadedFromFile],
       ['hasFileStorage', saveCoordinator.hasFileStorage],
       ['hasGitSyncEngine', saveCoordinator.hasGitSyncEngine],
@@ -520,6 +524,10 @@ const SyncDiagnostics = ({ data }) => {
           <SectionRow label="isGlobalDragging" value={saveCoordinator.isGlobalDragging} />
           <SectionRow label="ms since interactionStart" value={saveCoordinator.msSinceInteractionStart} />
           <SectionRow label="ms since interactionEnd" value={saveCoordinator.msSinceInteractionEnd} />
+          <SectionRow label="loadInFlight" value={saveCoordinator.loadInFlight} />
+          {saveCoordinator.loadGateHolders?.length > 0 && (
+            <SectionRow label="loadGateHolders" value={saveCoordinator.loadGateHolders.join(', ')} />
+          )}
           <SectionRow label="hasLoadedFromFile" value={saveCoordinator.hasLoadedFromFile} />
           <SectionRow label="hasFileStorage" value={saveCoordinator.hasFileStorage} />
           <SectionRow label="hasGitSyncEngine" value={saveCoordinator.hasGitSyncEngine} />

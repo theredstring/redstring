@@ -9,6 +9,8 @@
  * (mobile Safari, OOM, stall).
  *
  * Key invariants:
+ * - No write of any kind happens while a universe read is in flight
+ *   (`beginLoad`/`endLoad`, armed by `universeBackend.loadUniverseData`).
  * - Saves are blocked until a `type:'load'` change context fires (`hasLoadedFromFile`).
  * - Catastrophic shrinkage (>90% drop from baseline) is refused; use `forceSave` to override.
  * - All interaction gates (drag, pan, pinch) defer serialization until `signalInteractionEnd`.
@@ -20,6 +22,12 @@ import { generateStateHash as computeStateHash } from './saveHash.js';
 
 // SIMPLIFIED: No priorities - all changes batched together with a single debounce
 const DEBOUNCE_MS = 3000; // Wait 3000ms after last change before saving (merges node drop + view restore)
+
+// How often the load-gate watchdog re-checks a token that hasn't settled. It
+// is NOT a deadline on loading — a slow load releases normally via `finally`,
+// however long it takes. It only decides when to look at a possibly-hung token
+// and ask whether the universe has loaded by some other path.
+const LOAD_GATE_CHECK_MS = 120000;
 
 /**
  * Coordinates save operations for a Redstring universe.
@@ -96,6 +104,24 @@ class SaveCoordinator {
     // dual-write empty state to both local and Git.
     this.swapInProgress = false;
 
+    // Load gate. Refcount of universe loads currently in flight, armed by
+    // `universeBackend.loadUniverseData` for the whole read (network + parse +
+    // apply). While > 0 NOTHING is written — not autosave, not flush, not
+    // "Save Now".
+    //
+    // This is the one guard that is neither an inference nor device-local
+    // state. Every other protection asks "does the store LOOK unloaded?"
+    // (`hasLoadedFromFile`, `dataBaseline`, the engine's node-count floor) and
+    // every one of them can read clean on a mobile browser: the 5s
+    // LOAD_TIMEOUT_MS fast path flips `isUniverseLoading` to false while the
+    // Git fetch is still running (that release exists to free the UI spinner,
+    // not to declare the load done), and localStorage-backed floors are 0 or
+    // absent on a fresh/evicted device. Slow cellular Git fetches sit squarely
+    // in that window, which is why this only ever bit on mobile/tablet.
+    this.loadInFlight = 0;
+    this._loadGateTokens = new Map(); // token -> { label, startedAt, timer }
+    this._loadGateSeq = 0;
+
     // Slug of the universe whose baseline is currently loaded. Used to key
     // persisted guard state in localStorage so the shrinkage guard has a
     // meaningful floor immediately after a page refresh (before the load
@@ -166,7 +192,13 @@ class SaveCoordinator {
         };
       }
       if (parsed.lastSaveHash) this.lastSaveHash = parsed.lastSaveHash;
-      if (parsed.hasLoadedFromFile === true) this.hasLoadedFromFile = true;
+      // NOTE: `hasLoadedFromFile` is deliberately NOT restored. It means "this
+      // session has observed a load", which is not a durable fact — a previous
+      // session's success says nothing about whether THIS page load has read
+      // the file yet. Restoring it silently disarmed the empty-state guard in
+      // `onStateChange` for every returning device, which is exactly the
+      // window a slow mobile Git fetch lives in. `dataBaseline`/`lastSaveHash`
+      // are still restored: those only ratchet protection upward.
       this.activeUniverseSlugForGuard = slug;
       console.log('[SaveCoordinator] Restored persisted guard state for', slug, this.dataBaseline);
       return true;
@@ -217,6 +249,91 @@ class SaveCoordinator {
     if (this.nextStateToProcess || this.isDirty) {
       this.scheduleSave();
     }
+  }
+
+  /**
+   * Arms the load gate: no write of any kind may happen until the matching
+   * `endLoad` fires. Refcounted, because loads legitimately overlap (the boot
+   * race starts a second `loadUniverseData` when the first exceeds
+   * LOAD_TIMEOUT_MS, and both are still running).
+   *
+   * Callers MUST call `endLoad(token)` in a `finally` — that covers every
+   * normal outcome, success or failure, however slow. Each token also carries
+   * a watchdog for the one case a `finally` can't reach: a promise that never
+   * settles at all. See `_forceReleaseLoadGate` for what it is and is not
+   * allowed to do.
+   *
+   * @param {string} [label='load'] - Diagnostic label logged with the gate event.
+   * @returns {number} Token to pass back to `endLoad`.
+   */
+  beginLoad(label = 'load') {
+    const token = ++this._loadGateSeq;
+    const timer = setTimeout(() => this._forceReleaseLoadGate(token), LOAD_GATE_CHECK_MS);
+    this._loadGateTokens.set(token, { label, startedAt: Date.now(), timer });
+    this.loadInFlight = this._loadGateTokens.size;
+    console.log(`[SaveCoordinator] Load gate armed (${label}), in flight: ${this.loadInFlight}`);
+    return token;
+  }
+
+  /**
+   * Releases one hold on the load gate. When the last hold clears, any state
+   * that was queued while blocked is scheduled through the normal debounced
+   * path so the user's edits aren't stranded.
+   *
+   * @param {number} token - Token returned by `beginLoad`.
+   */
+  endLoad(token) {
+    const entry = this._loadGateTokens.get(token);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    this._loadGateTokens.delete(token);
+    this.loadInFlight = this._loadGateTokens.size;
+    console.log(`[SaveCoordinator] Load gate released (${entry.label}, ${Date.now() - entry.startedAt}ms), in flight: ${this.loadInFlight}`);
+    if (this.loadInFlight === 0 && (this.nextStateToProcess || this.isDirty)) {
+      this.scheduleSave();
+    }
+  }
+
+  /**
+   * Watchdog for a load token that never settled — a promise nobody resolves
+   * or rejects (dead socket). `endLoad` runs in a `finally`, so a load that
+   * merely takes a long time releases normally no matter how long it takes;
+   * only a genuine hang reaches this.
+   *
+   * It releases the token ONLY if the universe has actually loaded
+   * (`hasLoadedFromFile` — set by a `type:'load'` context and cleared on every
+   * universe switch by `cancelPendingSaves`). That is the whole rule:
+   *
+   *   - Loaded. The data is in the store. The one scenario this exists for is
+   *     the boot race: `loadUniverseData` runs twice when the first exceeds
+   *     LOAD_TIMEOUT_MS, the background one lands and applies, and the first
+   *     one hangs forever holding a token. The universe is open and working,
+   *     but a dead token would block saving for the rest of the session.
+   *     Release it.
+   *
+   *   - Not loaded. There is an existing universe we never read. The store
+   *     holds pre-load content, so there is nothing here worth writing and
+   *     everything to lose by writing it. The gate stays SHUT — indefinitely,
+   *     for as long as it takes. A clock does not get to decide that a
+   *     universe which never loaded is safe to overwrite. Re-arm and re-check,
+   *     so a load that lands late still cleans up its stuck sibling.
+   *
+   * @private
+   * @param {number} token - Token whose watchdog fired.
+   */
+  _forceReleaseLoadGate(token) {
+    const entry = this._loadGateTokens.get(token);
+    if (!entry) return;
+
+    if (!this.hasLoadedFromFile) {
+      console.warn(`[SaveCoordinator] Load gate watchdog: "${entry.label}" has not settled in ${Date.now() - entry.startedAt}ms and the universe never loaded — holding the gate shut. Saving stays disabled until the load lands or the page is reloaded.`);
+      this.notifyStatus('warning', 'Still waiting on this universe to load — saving is paused so it cannot overwrite unread data. Reload to retry.', { persistent: true });
+      entry.timer = setTimeout(() => this._forceReleaseLoadGate(token), LOAD_GATE_CHECK_MS);
+      return;
+    }
+
+    console.warn(`[SaveCoordinator] Load gate watchdog: "${entry.label}" never settled in ${Date.now() - entry.startedAt}ms, but the universe IS loaded (a sibling load applied it) — releasing the stuck token`);
+    this.endLoad(token);
   }
 
   // ─── STATUS NOTIFICATIONS ────────────────────────────────────────────────────
@@ -644,8 +761,23 @@ class SaveCoordinator {
         return;
       }
 
+      // A universe read is in flight. Queue the state, dispatch nothing. This
+      // is checked BEFORE the `isUniverseLoading` guard below because that flag
+      // is released early on purpose (LOAD_TIMEOUT_MS frees the UI spinner
+      // while the fetch continues) — the gate is what actually tracks the read.
+      if (this.loadInFlight > 0) {
+        this.nextStateToProcess = newState;
+        this.lastChangeContext = changeContext;
+        if (!this._loggedLoadGateBlock) {
+          console.warn(`[SaveCoordinator] Save deferred: ${this.loadInFlight} universe load(s) in flight. Changes are queued and will save once the load settles.`);
+          this._loggedLoadGateBlock = true;
+        }
+        return;
+      }
+      this._loggedLoadGateBlock = false;
+
       // Block saves while the universe is still loading, or if it failed to load
-      // (e.g. no permissions, Git auth failed). This prevents "Saving..." loops 
+      // (e.g. no permissions, Git auth failed). This prevents "Saving..." loops
       // and accidental overwrites of existing files with empty/unauthorized state.
       if (newState?.isUniverseLoading === true || !!newState?.universeLoadingError) {
         this.nextStateToProcess = newState;
@@ -850,6 +982,12 @@ class SaveCoordinator {
     // both local and Git mid-handoff.
     if (this.swapInProgress) {
       console.log('[SaveCoordinator] executeSave deferred: swap in progress');
+      return;
+    }
+    // Defense-in-depth: a save timer armed just before a load started must not
+    // fire into the load window. endLoad() reschedules whatever is queued.
+    if (this.loadInFlight > 0) {
+      console.log('[SaveCoordinator] executeSave deferred: universe load in flight');
       return;
     }
     if (this.isSaving) {
@@ -1160,6 +1298,14 @@ class SaveCoordinator {
   async flush(reason = 'flush', { terminal = false } = {}) {
     if (!this.isEnabled || this.swapInProgress) return false;
 
+    // Even a quit-flush must not write mid-load. The store still holds
+    // pre-load content; persisting it on tab-hide is how a backgrounded mobile
+    // browser overwrites the file it was in the middle of reading.
+    if (this.loadInFlight > 0) {
+      console.warn(`[SaveCoordinator] flush(${reason}) skipped: universe load in flight`);
+      return false;
+    }
+
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
     if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
 
@@ -1263,9 +1409,19 @@ class SaveCoordinator {
    * @returns {Promise<true>} Resolves `true` on success.
    * @throws {Error} If the coordinator is not initialized or the local save fails.
    */
-  async forceSave(state) {
+  async forceSave(state, { allowDuringLoad = false } = {}) {
     if (!this.isEnabled) {
       throw new Error('Save coordinator not initialized');
+    }
+
+    // "Save Now" pressed while the universe is still being read writes the
+    // PRE-load store over the file being read. Refuse and say why — the user
+    // can retry a second later. `allowDuringLoad` exists for conflict
+    // resolution, where writing a deliberately-chosen state is the point.
+    if (this.loadInFlight > 0 && !allowDuringLoad) {
+      const message = 'Still loading this universe — save skipped so it cannot overwrite what is being read. Try again in a moment.';
+      this.notifyStatus('warning', message);
+      throw new Error(message);
     }
 
     try {
@@ -1441,6 +1597,9 @@ class SaveCoordinator {
       lastSaveHashSet: this.lastSaveHash !== null,
       hasLastState: !!this.lastState,
       hasNextStateToProcess: !!this.nextStateToProcess,
+      // Load gate — the first thing to check when saves appear stuck
+      loadInFlight: this.loadInFlight,
+      loadGateHolders: Array.from(this._loadGateTokens.values()).map(e => `${e.label} (${now - e.startedAt}ms)`),
       // Worker
       hasSaveWorker: !!this.saveWorker,
       workerProcessing: this.workerProcessing,

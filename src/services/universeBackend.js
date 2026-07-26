@@ -7,7 +7,12 @@
  * The UI (UniverseManager.jsx) should ONLY display data and call these methods.
  */
 
-import { GitSyncEngine } from '../backend/sync/index.js';
+// `saveCoordinator` is imported statically (alongside GitSyncEngine, which
+// already pulls this module into the graph) specifically so the load gate can
+// be armed SYNCHRONOUSLY at the top of loadUniverseData. A dynamic import would
+// yield first, leaving a window where a store mutation could still schedule a
+// save against pre-load content.
+import { GitSyncEngine, saveCoordinator as loadGateCoordinator } from '../backend/sync/index.js';
 import { persistentAuth } from '../backend/auth/index.js';
 import { SemanticProviderFactory } from '../backend/git/index.js';
 import startupCoordinator from './startupCoordinator.js';
@@ -324,6 +329,11 @@ class UniverseBackend {
 
     // Background load tracking to prevent race conditions
     this.pendingBackgroundLoadId = null;
+
+    // Refcount of in-flight loadUniverseData reads. Refcounted, not boolean:
+    // the boot race deliberately runs two overlapping loads when the first
+    // exceeds LOAD_TIMEOUT_MS. See `_isLoadInFlight`.
+    this.loadsInFlight = 0;
 
     // Device configuration
     this.deviceConfig = null;
@@ -3010,6 +3020,14 @@ class UniverseBackend {
       umWarn(`[UniverseBackend] Save suppressed: universe load failed (${storeState.universeLoadingError})`);
       return { results: [], errors: ['Save suppressed: universe failed to load'] };
     }
+    // This path writes to local + Git directly, bypassing SaveCoordinator — so
+    // it has to consult the load gate itself. Without this a switch/periodic
+    // save landing mid-read persists the pre-load store over the file being
+    // read. Conflict resolution is exempt: writing a chosen state is the point.
+    if (this._isLoadInFlight() && !options.isConflictResolution) {
+      umWarn(`[UniverseBackend] Save suppressed: a universe load is still in flight for ${universe.slug}`);
+      return { results: [], errors: ['Save suppressed: universe load in flight'] };
+    }
 
     // Export data asynchronously to prevent UI blocking
     const redstringData = await new Promise((resolve) => {
@@ -3754,6 +3772,52 @@ class UniverseBackend {
    * Now with proactive conflict detection between slots
    */
   async loadUniverseData(universe, options = {}) {
+    // Arm the save gate for the ENTIRE read. Every guard that came before this
+    // was an inference about whether the store looked loaded — and on
+    // mobile/tablet with Git they all read "fine" during a slow fetch, because
+    // the 5s LOAD_TIMEOUT_MS fast path releases `isUniverseLoading` to free the
+    // UI spinner while the network read is still running. Gating here covers
+    // every caller (boot race, its background continuation, universe switch,
+    // reload) without each one having to remember.
+    this.loadsInFlight += 1;
+
+    let loadGateToken = null;
+    try {
+      loadGateToken = loadGateCoordinator?.beginLoad?.(`load:${universe?.slug || 'unknown'}`) ?? null;
+    } catch (gateError) {
+      umWarn('[UniverseBackend] Could not arm save gate for load (continuing):', gateError);
+    }
+
+    try {
+      return await this._loadUniverseDataInner(universe, options);
+    } finally {
+      this.loadsInFlight = Math.max(0, this.loadsInFlight - 1);
+      if (loadGateToken !== null) {
+        try { loadGateCoordinator.endLoad(loadGateToken); }
+        catch (e) { umWarn('[UniverseBackend] Failed to release save gate after load:', e); }
+      }
+    }
+  }
+
+  /**
+   * True while at least one `loadUniverseData` call is still reading. Used by
+   * the direct-write save paths, which never touch SaveCoordinator and so
+   * cannot rely on its load gate.
+   *
+   * @private
+   * @returns {boolean}
+   */
+  _isLoadInFlight() {
+    return this.loadsInFlight > 0;
+  }
+
+  /**
+   * Load implementation. Always call through `loadUniverseData`, which holds
+   * the SaveCoordinator load gate around this for the duration of the read.
+   *
+   * @private
+   */
+  async _loadUniverseDataInner(universe, options = {}) {
     const { sourceOfTruth } = universe;
     const {
       skipConflictDetection = false,
@@ -5434,6 +5498,11 @@ class UniverseBackend {
     // in the store — the on-disk content is unknown to us.
     if (storeState?.universeLoadingError) {
       throw new Error(`Refusing to save: this universe failed to load (${storeState.universeLoadingError}). Reload or reconnect to recover.`);
+    }
+    // A read is still in flight — the store holds pre-load content. Writing it
+    // now overwrites the file we're in the middle of reading.
+    if (this._isLoadInFlight() && !options.isConflictResolution) {
+      throw new Error('Refusing to save: this universe is still loading. Try again once the load finishes.');
     }
     // Don't persist temporary conflict-fallback state while the user is
     // still choosing which slot to keep.
