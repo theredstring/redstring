@@ -6,12 +6,47 @@
  */
 
 import { GROUP_LAYOUT_CONSTANTS } from './groupLayout.js';
+// Pattern layouts import estimateEdgeLabelWidth / forceDirectedLayout from
+// this module, so the two form an import cycle. It resolves safely because
+// every cross-module reference happens inside a function body, never at
+// module-evaluation time.
+import {
+  patternLayout,
+  treeLayout,
+  cycleLayout,
+  chainLayout,
+  starLayout,
+  layeredLayout
+} from './patternLayouts.js';
 
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+/** Algorithm names handled by the pattern-layout dispatcher in applyLayout. */
+const PATTERN_ALGORITHMS = new Set([
+  'pattern', 'auto', 'conditional',
+  'tree-tidy', 'taxonomy',
+  'cycle', 'circuit', 'ring',
+  'chain', 'path', 'sequence',
+  'star', 'hub',
+  'layered', 'dag', 'pipeline'
+]);
+
+/** positions Map (nodeId → {x, y}) → the update list the store expects. */
+function toUpdates(positions) {
+  const updates = [];
+  positions.forEach((pos, nodeId) => {
+    updates.push({
+      instanceId: nodeId,
+      x: Math.round(pos.x),
+      y: Math.round(pos.y)
+    });
+  });
+  return updates;
+}
 export const MAX_LAYOUT_SCALE_MULTIPLIER = 1.6;
 
 /**
@@ -3516,6 +3551,46 @@ export function circularLayout(nodes, edges, options = {}) {
 export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
   let positions;
 
+  // Pattern layouts are size- and label-aware and produce deterministic
+  // results, but they only apply to graphs with recognizable structure.
+  // 'pattern' detects per connected component and dispatches; the explicit
+  // names below force one shape onto the whole graph.
+  //
+  // Groups need the group-separation machinery in forceDirectedLayout /
+  // groupSeparatedLayout, which pattern layouts don't model — so a grouped
+  // graph always falls back to the force solver.
+  const hasGroups = (options.groups || []).length > 0;
+  if (!hasGroups) {
+    switch (algorithm) {
+      case 'pattern':
+      case 'auto':
+      case 'conditional':
+        return toUpdates(patternLayout(nodes, edges, options));
+      case 'tree':
+      case 'tree-tidy':
+      case 'taxonomy':
+      case 'hierarchical':
+        return toUpdates(treeLayout(nodes, edges, options));
+      case 'cycle':
+      case 'circuit':
+      case 'ring':
+        return toUpdates(cycleLayout(nodes, edges, options));
+      case 'chain':
+      case 'path':
+      case 'sequence':
+        return toUpdates(chainLayout(nodes, edges, options));
+      case 'star':
+      case 'hub':
+        return toUpdates(starLayout(nodes, edges, options));
+      case 'layered':
+      case 'dag':
+      case 'pipeline':
+        return toUpdates(layeredLayout(nodes, edges, options));
+      default:
+        break;
+    }
+  }
+
   switch (algorithm) {
     case 'euler':
     case 'region-first':
@@ -3531,6 +3606,8 @@ export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
       break;
     case 'hierarchical':
     case 'tree':
+      // Grouped graphs only — the ungrouped path is intercepted above and
+      // routed to the size- and label-aware tidy tree.
       positions = hierarchicalLayout(nodes, edges, options);
       break;
     case 'radial':
@@ -3545,21 +3622,13 @@ export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
       positions = circularLayout(nodes, edges, options);
       break;
     default:
-      console.warn(`Unknown layout algorithm: ${algorithm}, using force-directed`);
+      if (!PATTERN_ALGORITHMS.has(algorithm)) {
+        console.warn(`Unknown layout algorithm: ${algorithm}, using force-directed`);
+      }
       positions = forceDirectedLayout(nodes, edges, options);
   }
 
-  // Convert to update format
-  const updates = [];
-  positions.forEach((pos, nodeId) => {
-    updates.push({
-      instanceId: nodeId,
-      x: Math.round(pos.x),
-      y: Math.round(pos.y)
-    });
-  });
-
-  return updates;
+  return toUpdates(positions);
 }
 
 export default {
@@ -3571,6 +3640,12 @@ export default {
   gridLayout,
   circularLayout,
   applyLayout,
+  patternLayout,
+  treeLayout,
+  cycleLayout,
+  chainLayout,
+  starLayout,
+  layeredLayout,
   getClusterGeometries,
   computeConvexHull,
   FORCE_LAYOUT_DEFAULTS,

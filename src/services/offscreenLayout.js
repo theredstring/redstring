@@ -69,7 +69,12 @@ export function applyOffscreenLayout(graphId) {
     * (st.textSettings?.fontSize || 1)
     * (st.connectionLabelSize ?? 1.0);
 
-  let updates = applyLayout(layoutNodes, layoutEdges, 'force-directed', {
+  // Honor the user's chosen layout algorithm here too — otherwise definition
+  // graphs built offscreen (AI generation, auto-created definitions) would
+  // always come back force-directed regardless of the setting.
+  const algorithm = st.autoLayoutSettings?.groupLayoutAlgorithm || 'force-directed';
+
+  let updates = applyLayout(layoutNodes, layoutEdges, algorithm, {
     width: 2000,
     height: 2000,
     padding: 300,

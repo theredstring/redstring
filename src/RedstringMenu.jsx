@@ -966,7 +966,16 @@ const RedstringMenu = ({
                         </div>
 
                         <div style={{ padding: '0 12px 8px 12px' }}>
-                          <div style={{ fontSize: '11px', color: '#BDB6B5', opacity: 0.6, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Group Layout Algorithm</div>
+                          <div style={{ fontSize: '11px', color: '#BDB6B5', opacity: 0.6, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Layout Algorithm</div>
+                          <div
+                            className="submenu-item"
+                            onMouseEnter={handleRegularSubmenuItemHover}
+                            onClick={() => onSetGroupLayoutAlgorithm?.('pattern')}
+                            title="Detects each component's shape — tree, cycle, chain, star, pipeline — and lays it out predictably, reserving space for connection labels. Falls back to force for tangled graphs and for graphs with groups."
+                            style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'pattern' ? 1 : 0.8 }}
+                          >
+                            {groupLayoutAlgorithm === 'pattern' ? '✓ ' : ''}Pattern (Auto-Detect)
+                          </div>
                           <div
                             className="submenu-item"
                             onMouseEnter={handleRegularSubmenuItemHover}

@@ -300,9 +300,9 @@ class ToolValidator {
         },
         layout_algorithm: {
           type: 'string',
-          enum: ['force', 'force-directed', 'hierarchical', 'tree', 'radial', 'orbit', 'grid', 'circular', 'circle'],
+          enum: ['force', 'force-directed', 'pattern', 'hierarchical', 'tree', 'cycle', 'chain', 'star', 'layered', 'radial', 'orbit', 'grid', 'circular', 'circle'],
           default: 'force',
-          description: 'Layout algorithm to use for positioning nodes'
+          description: "Layout algorithm. 'pattern' detects each component's shape (tree/cycle/chain/star/DAG) and lays it out accordingly, falling back to force for tangled graphs; 'force' is the general solver."
         },
         layout_mode: {
           type: 'string',
@@ -404,9 +404,9 @@ class ToolValidator {
         },
         layout_algorithm: {
           type: 'string',
-          enum: ['force', 'force-directed', 'hierarchical', 'tree', 'radial', 'orbit', 'grid', 'circular', 'circle'],
+          enum: ['force', 'force-directed', 'pattern', 'hierarchical', 'tree', 'cycle', 'chain', 'star', 'layered', 'radial', 'orbit', 'grid', 'circular', 'circle'],
           default: 'force',
-          description: 'Layout algorithm for positioning'
+          description: "Layout algorithm. 'pattern' detects each component's shape (tree/cycle/chain/star/DAG) and lays it out accordingly, falling back to force for tangled graphs; 'force' is the general solver."
         },
         layout_mode: {
           type: 'string',
@@ -462,9 +462,9 @@ class ToolValidator {
         },
         layout_algorithm: {
           type: 'string',
-          enum: ['force', 'force-directed', 'hierarchical', 'tree', 'radial', 'orbit', 'grid', 'circular', 'circle'],
+          enum: ['force', 'force-directed', 'pattern', 'hierarchical', 'tree', 'cycle', 'chain', 'star', 'layered', 'radial', 'orbit', 'grid', 'circular', 'circle'],
           default: 'force',
-          description: 'Layout algorithm to use for positioning nodes'
+          description: "Layout algorithm. 'pattern' detects each component's shape (tree/cycle/chain/star/DAG) and lays it out accordingly, falling back to force for tangled graphs; 'force' is the general solver."
         }
       }
     });
