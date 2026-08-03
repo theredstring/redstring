@@ -32,6 +32,9 @@ const LAYOUT_TIME_BUDGET_MS = 2500;
 // worse than not running. Graphs big enough to hit the floor overrun the time
 // budget — reported via `overBudget` rather than silently absorbed.
 const MIN_LAYOUT_ITERATIONS = 80;
+// Node count below which auto-layout finishes too quickly for a progress
+// indicator to be anything but a flash, so it isn't shown at all.
+const LAYOUT_INDICATOR_MIN_NODES = 35;
 
 /**
  * Work units for one solver iteration — the two nested loops that dominate it.
@@ -654,12 +657,21 @@ export const useGraphLayout = ({
           }
         };
 
-        reportLayoutProgress({ progress: 0, nodeCount: nodes.length, estimatedMs: budget.estimatedMs });
+        // Small graphs solve in a frame or two, where an indicator is just a
+        // flash — so only graphs past LAYOUT_INDICATOR_MIN_NODES report at all.
+        // The clears below stay unconditional: they're cheap and they guarantee
+        // nothing can leave a stale indicator on screen.
+        const showIndicator = nodes.length > LAYOUT_INDICATOR_MIN_NODES;
+        const publishProgress = (progress) => {
+            if (showIndicator) {
+                reportLayoutProgress({ progress, nodeCount: nodes.length, estimatedMs: budget.estimatedMs });
+            }
+        };
+
+        publishProgress(0);
 
         runLayout(layoutNodes, layoutEdges, groupLayoutAlgorithm, layoutOptions, {
-            onProgress: (progress) => reportLayoutProgress({
-                progress, nodeCount: nodes.length, estimatedMs: budget.estimatedMs
-            }),
+            onProgress: publishProgress,
             onDone: onLayoutComplete,
             onError: (message) => {
                 console.error('[useGraphLayout] Layout worker failed:', message);
