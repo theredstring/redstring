@@ -22,13 +22,28 @@ import {
   PATTERN_LAYOUT_DEFAULTS as D
 } from '../patternLayouts.js';
 import { applyLayout, estimateEdgeLabelWidth } from '../graphLayoutService.js';
+import {
+  lombardiRefine,
+  lombardiResidual,
+  clearArcsOfNodes,
+  circularOrder,
+  isRegular
+} from '../lombardiLayout.js';
+import { buildSimpleGraph as simpleGraph } from '../topologyDetection.js';
+import { computeLombardiTangents, solveLombardiArc, arcPointAt } from '../../utils/canvas/edgeRouting.js';
+
+/** Top-left layout output → the node centres every Lombardi routine works in. */
+const centersOf = (positions, nodes) => new Map(nodes.map(n => {
+  const p = positions.get(n.id);
+  return [n.id, { x: p.x + n.width / 2, y: p.y + n.height / 2 }];
+}));
 
 const FONT = D.edgeLabelFontSize;
 
 const node = (id, width = 300, height = 100) => ({
   id, width, height, labelWidth: width, labelHeight: height, x: 0, y: 0
 });
-const edge = (sourceId, destinationId, name = '') => ({ sourceId, destinationId, name });
+const edge = (sourceId, destinationId, name = '') => ({ id: `${sourceId}-${destinationId}`, sourceId, destinationId, name });
 
 /** Center-to-center distance for a pair, from a top-left position map. */
 const distance = (positions, nodes, aId, bId) => {
@@ -681,30 +696,20 @@ describe('patternLayout under Lombardi routing', () => {
     return { nodes, edges };
   };
 
-  it('surrounds the root with its children instead of stacking them on one side', () => {
+  it('produces a drawing whose arcs can honour both endpoints', () => {
+    // THE headline property. Under straight routing, "how far does each arc miss
+    // the tangent its node assigned it" is a question nobody asks and nothing
+    // optimises, so a row-based layout scores badly on it by accident. The
+    // Lombardi pipeline optimises it directly.
     const { nodes, edges } = taxonomy();
     const rows = patternLayout(nodes, edges, { width: 2000, height: 1500 });
-    const rings = patternLayout(nodes, edges, { width: 2000, height: 1500, routingStyle: 'lombardi' });
+    const lombardi = patternLayout(nodes, edges, { width: 2000, height: 1500, routingStyle: 'lombardi' });
 
-    // This is the property that matters to the routing: a node whose neighbours
-    // sit all around it can hand each edge a tangent near its natural bearing,
-    // so the arcs stay gentle. A row layout puts every child on one side, which
-    // perfect angular resolution then has to fan out against the geometry.
-    const bearingSpan = (pos) => {
-      const centerOf = (id) => {
-        const p = pos.get(id);
-        const n = nodes.find(x => x.id === id);
-        return { x: p.x + n.width / 2, y: p.y + n.height / 2 };
-      };
-      const root = centerOf('root');
-      const bearings = ['a', 'b', 'c']
-        .map(id => Math.atan2(centerOf(id).y - root.y, centerOf(id).x - root.x))
-        .sort((x, y) => x - y);
-      return bearings[bearings.length - 1] - bearings[0];
-    };
+    const residualOf = (pos) => lombardiResidual(centersOf(pos, nodes), nodes, edges).mean;
 
-    expect(bearingSpan(rows)).toBeLessThan(Math.PI);
-    expect(bearingSpan(rings)).toBeGreaterThan(Math.PI);
+    expect(residualOf(lombardi)).toBeLessThan(residualOf(rows));
+    // Under 3 degrees is close enough that no arc visibly misses its slot.
+    expect(residualOf(lombardi)).toBeLessThan(3 * Math.PI / 180);
   });
 
   it('reserves more room per edge to account for the bow', () => {
@@ -746,5 +751,223 @@ describe('applyLayout exposes the Lombardi-native layouts by name', () => {
     const chain = ['n0', 'n1', 'n2', 'n3'].map(id => node(id));
     const links = [edge('n0', 'n1'), edge('n1', 'n2'), edge('n2', 'n3')];
     expect(applyLayout(chain, links, 'arc-chain', { width: 2000, height: 1500 })).toHaveLength(4);
+  });
+});
+
+
+// ===========================================================================
+// LOMBARDI'S OWN AUTO-LAYOUT (services/lombardiLayout.js)
+// ===========================================================================
+
+describe('lombardiResidual', () => {
+  const nodes = [node('p'), node('q')];
+  const edges = [edge('p', 'q')];
+
+  it('is zero when a single edge already runs along both tangents', () => {
+    // Degree 1 at each end, so each fan slot points straight at the other node
+    // and the arc is a straight line. Nothing to miss.
+    const centers = new Map([['p', { x: 0, y: 0 }], ['q', { x: 800, y: 0 }]]);
+    expect(lombardiResidual(centers, nodes, edges).mean).toBeCloseTo(0, 6);
+  });
+
+  it('reports per-edge as well as aggregate', () => {
+    const centers = new Map([['p', { x: 0, y: 0 }], ['q', { x: 800, y: 0 }]]);
+    const r = lombardiResidual(centers, nodes, edges);
+    expect(r.perEdge.get('p-q')).toBeDefined();
+    expect(r.max).toBeGreaterThanOrEqual(r.mean);
+  });
+
+  it('ignores self-loops, which are drawn by the self-loop path', () => {
+    const withLoop = [...edges, edge('p', 'p')];
+    const centers = new Map([['p', { x: 0, y: 0 }], ['q', { x: 800, y: 0 }]]);
+    expect(lombardiResidual(centers, nodes, withLoop).perEdge.has('p-p')).toBe(false);
+  });
+});
+
+describe('lombardiRefine', () => {
+  const taxonomy = () => {
+    const nodes = ['root', 'a', 'b', 'c', 'a1', 'a2'].map(id => node(id));
+    const edges = [
+      edge('root', 'a'), edge('root', 'b'), edge('root', 'c'),
+      edge('a', 'a1'), edge('a', 'a2'),
+    ];
+    return { nodes, edges };
+  };
+
+  it('reduces the residual', () => {
+    const { nodes, edges } = taxonomy();
+    const seed = centersOf(radialTreeLayout(nodes, edges, { topologyMeta: { rootId: 'root' } }), nodes);
+    const before = lombardiResidual(seed, nodes, edges).mean;
+    const after = lombardiResidual(lombardiRefine(seed, nodes, edges), nodes, edges).mean;
+    expect(after).toBeLessThan(before);
+  });
+
+  it('never lets an edge fall below the length the seed gave it', () => {
+    // The seed's length is what the label needs. The angular pass is allowed to
+    // stretch an edge but never to squeeze one, or labels stop fitting.
+    const { nodes, edges } = taxonomy();
+    const seed = centersOf(radialTreeLayout(nodes, edges, { topologyMeta: { rootId: 'root' } }), nodes);
+    const refined = lombardiRefine(seed, nodes, edges);
+    const lengthIn = (m, e) => {
+      const p = m.get(e.sourceId);
+      const q = m.get(e.destinationId);
+      return Math.hypot(q.x - p.x, q.y - p.y);
+    };
+    edges.forEach(e => {
+      expect(lengthIn(refined, e)).toBeGreaterThan(lengthIn(seed, e) * 0.97);
+    });
+  });
+
+  it('does not buy the improvement by making arcs curlier', () => {
+    // Rotating a chord changes the residual (α+β)/2 but leaves the curvature
+    // (α−β)/2 untouched — so the relaxation is free. This asserts the identity
+    // holds in practice, which is the reason this pass is safe to run at all.
+    const ids = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5'];
+    const nodes = ids.map(id => node(id));
+    const edges = ids.map((id, i) => edge(id, ids[(i + 1) % ids.length]));
+    const seed = centersOf(cycleLayout(nodes, edges, { topologyMeta: { ringIds: ids } }), nodes);
+    const refined = lombardiRefine(seed, nodes, edges);
+
+    const curvature = (centers) => {
+      const boxes = new Map(nodes.map(n => [n.id, { currentWidth: n.width, currentHeight: n.height }]));
+      const shifted = nodes.map(n => {
+        const c = centers.get(n.id);
+        return { id: n.id, x: c.x - n.width / 2, y: c.y - n.height / 2 };
+      });
+      const fan = computeLombardiTangents(shifted, edges, boxes);
+      return edges.reduce((sum, e) => {
+        const s = fan.get(e.id);
+        if (!s) return sum;
+        const arc = solveLombardiArc(centers.get(e.sourceId), centers.get(e.destinationId), s.sourceAngle, s.destAngle, 1);
+        return sum + Math.abs(arc?.delta ?? 0);
+      }, 0) / edges.length;
+    };
+
+    expect(curvature(refined)).toBeCloseTo(curvature(seed), 2);
+  });
+
+  it('leaves a graph that is already exact alone', () => {
+    const nodes = [node('p'), node('q')];
+    const edges = [edge('p', 'q')];
+    const seed = new Map([['p', { x: 0, y: 0 }], ['q', { x: 800, y: 0 }]]);
+    const refined = lombardiRefine(seed, nodes, edges);
+    expect(refined.get('q').x).toBeCloseTo(800, 0);
+    expect(refined.get('q').y).toBeCloseTo(0, 0);
+  });
+
+  it('is a no-op on graphs with nothing to relax', () => {
+    expect(lombardiRefine(new Map(), [], []).size).toBe(0);
+    const solo = new Map([['a', { x: 0, y: 0 }]]);
+    expect(lombardiRefine(solo, [node('a')], []).size).toBe(1);
+  });
+});
+
+describe('clearArcsOfNodes', () => {
+  // An UNCONNECTED intruder, so the arc under test is unaffected by its
+  // presence — the fan only counts nodes an edge actually touches.
+  const withIntruderAt = (x, y) => ({
+    nodes: [node('p'), node('q'), node('mid')],
+    edges: [edge('p', 'q')],
+    centers: new Map([
+      ['p', { x: -600, y: 0 }],
+      ['q', { x: 600, y: 0 }],
+      ['mid', { x, y }],
+    ]),
+  });
+
+  it('pushes a node out from under a straight (degenerate) arc', () => {
+    // Regression: clearance used to test only the arc's SAMPLES, and a
+    // degenerate arc has no samples between its endpoints — so an edge running
+    // straight through a node was never detected at all.
+    const { nodes, edges, centers } = withIntruderAt(0, 0);
+    const cleared = clearArcsOfNodes(centers, nodes, edges, { clearancePadding: 20 });
+    expect(Math.hypot(cleared.get('mid').y - 0, cleared.get('mid').x - 0)).toBeGreaterThan(0);
+  });
+
+  it('pushes a node out from under a bowed arc', () => {
+    // Place the intruder on the arc itself rather than on the chord, which is
+    // the case a chord-based clearance check cannot see.
+    const probe = withIntruderAt(1e6, 1e6); // far away, so the fan is clean
+    const boxes = new Map(probe.nodes.map(n => [n.id, { currentWidth: n.width, currentHeight: n.height }]));
+    const shifted = probe.nodes.map(n => {
+      const c = probe.centers.get(n.id);
+      return { id: n.id, x: c.x - n.width / 2, y: c.y - n.height / 2 };
+    });
+    const fan = computeLombardiTangents(shifted, probe.edges, boxes);
+    const slot = fan.get('p-q');
+    // Force a bow by demanding tangents the chord doesn't already satisfy.
+    const arc = solveLombardiArc(probe.centers.get('p'), probe.centers.get('q'),
+      slot.sourceAngle + 0.6, slot.destAngle + 0.6, 1);
+
+    // The arc apex, if the fan produced one; otherwise the straight case is
+    // already covered above.
+    if (!arc || arc.straight) return;
+    const apex = arcPointAt(arc, 0.5);
+    const { nodes, edges, centers } = withIntruderAt(apex.x, apex.y);
+    const cleared = clearArcsOfNodes(centers, nodes, edges, { clearancePadding: 20 });
+    expect(cleared.get('mid')).not.toEqual(centers.get('mid'));
+  });
+
+  it('never moves an arc\'s own endpoints', () => {
+    const { nodes, edges, centers } = withIntruderAt(0, 0);
+    const before = { p: { ...centers.get('p') }, q: { ...centers.get('q') } };
+    const cleared = clearArcsOfNodes(centers, nodes, edges, { clearancePadding: 20 });
+    expect(cleared.get('p')).toEqual(before.p);
+    expect(cleared.get('q')).toEqual(before.q);
+  });
+
+  it('leaves a already-clear drawing untouched', () => {
+    const nodes = [node('p'), node('q')];
+    const edges = [edge('p', 'q')];
+    const centers = new Map([['p', { x: 0, y: 0 }], ['q', { x: 900, y: 0 }]]);
+    const cleared = clearArcsOfNodes(centers, nodes, edges);
+    expect(cleared.get('p')).toEqual(centers.get('p'));
+    expect(cleared.get('q')).toEqual(centers.get('q'));
+  });
+});
+
+describe('circular Lombardi seeding (paper section 2)', () => {
+  const ring = (n) => {
+    const ids = Array.from({ length: n }, (_, i) => `n${i}`);
+    const nodes = ids.map(id => node(id));
+    const edges = ids.map((id, i) => edge(id, ids[(i + 1) % n]));
+    return { ids, nodes, edges };
+  };
+
+  it('recognises a regular graph', () => {
+    const { nodes, edges } = ring(6);
+    expect(isRegular(nodes, simpleGraph(nodes, edges).adjacency)).toBe(true);
+  });
+
+  it('does not call a hierarchy regular', () => {
+    const nodes = ['root', 'a', 'b', 'c'].map(id => node(id));
+    const edges = [edge('root', 'a'), edge('root', 'b'), edge('root', 'c')];
+    expect(isRegular(nodes, simpleGraph(nodes, edges).adjacency)).toBe(false);
+  });
+
+  it('orders the circle so adjacent vertices stay adjacent', () => {
+    const { ids, nodes, edges } = ring(6);
+    const order = circularOrder(nodes, simpleGraph(nodes, edges).adjacency);
+    expect(new Set(order).size).toBe(6);
+    // Following a ring's own adjacency reproduces the ring.
+    const adjacency = simpleGraph(nodes, edges).adjacency;
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(adjacency.get(order[i]).has(order[i + 1])).toBe(true);
+    }
+  });
+
+  it('places every vertex of a regular graph on one circle', () => {
+    const { ids, nodes, edges } = ring(6);
+    const pos = patternLayout(nodes, edges, { width: 2000, height: 1500, routingStyle: 'lombardi' });
+    const centers = centersOf(pos, nodes);
+    const pts = ids.map(id => centers.get(id));
+    const [a, b, c] = [pts[0], pts[2], pts[4]];
+    const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+    const cx = ((a.x ** 2 + a.y ** 2) * (b.y - c.y) + (b.x ** 2 + b.y ** 2) * (c.y - a.y)
+      + (c.x ** 2 + c.y ** 2) * (a.y - b.y)) / d;
+    const cy = ((a.x ** 2 + a.y ** 2) * (c.x - b.x) + (b.x ** 2 + b.y ** 2) * (a.x - c.x)
+      + (c.x ** 2 + c.y ** 2) * (b.x - a.x)) / d;
+    const radii = pts.map(p => Math.hypot(p.x - cx, p.y - cy));
+    radii.forEach(r => expect(r).toBeCloseTo(radii[0], 0));
   });
 });

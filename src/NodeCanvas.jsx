@@ -104,7 +104,7 @@ import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
@@ -14228,6 +14228,24 @@ function NodeCanvas() {
                                 // Adjust angle to keep text readable (never upside down)
                                 const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
 
+                                // Lombardi labels ride the arc itself rather than sitting on a
+                                // chord of it. Only when the bend is gentle enough to still read
+                                // as a line of text — labelArcPath returns null past that, and a
+                                // null falls through to the straight rotated label below, which
+                                // is the right answer for a tight curve anyway.
+                                //
+                                // Skipped mid-drag: the DOM-bypass updater rewrites the path each
+                                // frame (see useNodeDrag), but the <text> element's own transform
+                                // would fight it, so the drag path keeps the straight form.
+                                const labelArc = orthoRouting?.arc
+                                  ? labelArcPath(
+                                    orthoRouting.arc,
+                                    { x: labelRenderX, y: labelRenderY },
+                                    estimateTextWidth(connectionName, connectionFontSize)
+                                  )
+                                  : null;
+                                const labelArcId = `lombardi-label-below-${edge.id}`;
+
                                 // Generous hitbox around the label text so the name is as
                                 // clickable as the line itself (labels often sit off the line).
                                 const labelHitW = estimateTextWidth(connectionName, connectionFontSize) + connectionFontSize * 0.9;
@@ -14249,24 +14267,48 @@ function NodeCanvas() {
                                       {...getEdgeHitboxHandlers(edge.id)}
                                     />
                                     {/* Canvas-colored text creating a "hole" effect in the connection */}
-                                    <text
-                                      x={labelRenderX}
-                                      y={labelRenderY}
-                                      fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
-                                      fontSize={connectionFontSize}
-                                      fontWeight="bold"
-                                      textAnchor="middle"
-                                      dominantBaseline="middle"
-                                      transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
-                                      stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
-                                      strokeWidth={8 * (connectionFontSize / 54)}
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      paintOrder="stroke fill"
-                                      style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
-                                    >
-                                      {connectionName}
-                                    </text>
+                                    {labelArc ? (
+                                      <>
+                                        {/* data-label-arc keeps the drag updater from mistaking
+                                            this for the edge's own path — see useNodeDrag. */}
+                                        <path id={labelArcId} d={labelArc.d} fill="none" stroke="none" data-label-arc="1" />
+                                        <text
+                                          fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
+                                          fontSize={connectionFontSize}
+                                          fontWeight="bold"
+                                          dominantBaseline="middle"
+                                          stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
+                                          strokeWidth={8 * (connectionFontSize / 54)}
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          paintOrder="stroke fill"
+                                          style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+                                        >
+                                          <textPath href={`#${labelArcId}`} startOffset="50%" textAnchor="middle">
+                                            {connectionName}
+                                          </textPath>
+                                        </text>
+                                      </>
+                                    ) : (
+                                      <text
+                                        x={labelRenderX}
+                                        y={labelRenderY}
+                                        fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
+                                        fontSize={connectionFontSize}
+                                        fontWeight="bold"
+                                        textAnchor="middle"
+                                        dominantBaseline="middle"
+                                        transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
+                                        stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
+                                        strokeWidth={8 * (connectionFontSize / 54)}
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        paintOrder="stroke fill"
+                                        style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+                                      >
+                                        {connectionName}
+                                      </text>
+                                    )}
                                   </g>
                                 );
                               })()}
@@ -15534,6 +15576,24 @@ function NodeCanvas() {
                                 // Adjust angle to keep text readable (never upside down)
                                 const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
 
+                                // Lombardi labels ride the arc itself rather than sitting on a
+                                // chord of it. Only when the bend is gentle enough to still read
+                                // as a line of text — labelArcPath returns null past that, and a
+                                // null falls through to the straight rotated label below, which
+                                // is the right answer for a tight curve anyway.
+                                //
+                                // Skipped mid-drag: the DOM-bypass updater rewrites the path each
+                                // frame (see useNodeDrag), but the <text> element's own transform
+                                // would fight it, so the drag path keeps the straight form.
+                                const labelArc = orthoRouting?.arc
+                                  ? labelArcPath(
+                                    orthoRouting.arc,
+                                    { x: labelRenderX, y: labelRenderY },
+                                    estimateTextWidth(connectionName, connectionFontSize)
+                                  )
+                                  : null;
+                                const labelArcId = `lombardi-label-above-${edge.id}`;
+
                                 // Generous hitbox around the label text so the name is as
                                 // clickable as the line itself (labels often sit off the line).
                                 const labelHitW = estimateTextWidth(connectionName, connectionFontSize) + connectionFontSize * 0.9;
@@ -15555,24 +15615,48 @@ function NodeCanvas() {
                                       {...getEdgeHitboxHandlers(edge.id)}
                                     />
                                     {/* Canvas-colored text creating a "hole" effect in the connection */}
-                                    <text
-                                      x={labelRenderX}
-                                      y={labelRenderY}
-                                      fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
-                                      fontSize={connectionFontSize}
-                                      fontWeight="bold"
-                                      textAnchor="middle"
-                                      dominantBaseline="middle"
-                                      transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
-                                      stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
-                                      strokeWidth={8 * (connectionFontSize / 54)}
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      paintOrder="stroke fill"
-                                      style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
-                                    >
-                                      {connectionName}
-                                    </text>
+                                    {labelArc ? (
+                                      <>
+                                        {/* data-label-arc keeps the drag updater from mistaking
+                                            this for the edge's own path — see useNodeDrag. */}
+                                        <path id={labelArcId} d={labelArc.d} fill="none" stroke="none" data-label-arc="1" />
+                                        <text
+                                          fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
+                                          fontSize={connectionFontSize}
+                                          fontWeight="bold"
+                                          dominantBaseline="middle"
+                                          stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
+                                          strokeWidth={8 * (connectionFontSize / 54)}
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          paintOrder="stroke fill"
+                                          style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+                                        >
+                                          <textPath href={`#${labelArcId}`} startOffset="50%" textAnchor="middle">
+                                            {connectionName}
+                                          </textPath>
+                                        </text>
+                                      </>
+                                    ) : (
+                                      <text
+                                        x={labelRenderX}
+                                        y={labelRenderY}
+                                        fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
+                                        fontSize={connectionFontSize}
+                                        fontWeight="bold"
+                                        textAnchor="middle"
+                                        dominantBaseline="middle"
+                                        transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
+                                        stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
+                                        strokeWidth={8 * (connectionFontSize / 54)}
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        paintOrder="stroke fill"
+                                        style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+                                      >
+                                        {connectionName}
+                                      </text>
+                                    )}
                                   </g>
                                 );
                               })()}

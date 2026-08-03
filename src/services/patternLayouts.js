@@ -36,6 +36,13 @@ import {
   buildSimpleGraph,
   chooseTreeRoot
 } from './topologyDetection.js';
+import {
+  lombardiRefine,
+  clearArcsOfNodes,
+  lombardiResidual,
+  circularOrder,
+  isRegular
+} from './lombardiLayout.js';
 
 export const PATTERN_LAYOUT_DEFAULTS = {
   width: 2000,
@@ -50,10 +57,10 @@ export const PATTERN_LAYOUT_DEFAULTS = {
   // Must track NodeCanvas: 59.4 × textSettings.fontSize × connectionLabelSize.
   edgeLabelFontSize: 59.4,
 
-  // Tree/layered: a level gap of at least this fraction of the widest sibling
-  // fan at that level. Keeps parent→child edges steep enough that adjacent
-  // labels separate perpendicular to each other instead of running collinear.
-  steepnessFactor: 0.35,
+  // Ceiling on how much a level gap may grow to separate colliding sibling
+  // labels. A pathological fan (one parent, twenty verbosely-labelled
+  // children) would otherwise stretch the diagram without bound.
+  maxSiblingLabelGap: 1200,
 
   // 'auto' scores vertical vs horizontal and keeps whichever fits the canvas
   // aspect better. Long labels stretch the level axis, so this matters.
@@ -231,7 +238,7 @@ function centersToTopLeft(positions, nodeById) {
  * every edge crossing a level yields the tightest gap that still fits every
  * label at that depth.
  */
-function resolveLevelGaps(levelEdges, levelSpread, cfg, vertical) {
+function resolveLevelGaps(levelEdges, levelSiblings, cfg, vertical) {
   return levelEdges.map((edgesAtLevel, depth) => {
     let gap = cfg.minEdgeLength;
 
@@ -246,10 +253,113 @@ function resolveLevelGaps(levelEdges, levelSpread, cfg, vertical) {
       gap = Math.max(gap, mainComponent, floor);
     });
 
-    // Keep edges steep enough that adjacent sibling labels don't run collinear.
-    gap = Math.max(gap, (levelSpread[depth] || 0) * cfg.steepnessFactor);
-    return gap;
+    return Math.max(gap, solveSiblingLabelGap(levelSiblings?.[depth], cfg, gap));
   });
+}
+
+/**
+ * Centre-to-centre cross separation each adjacent sibling pair needs so their
+ * two labels don't overlap, given the level gaps already solved.
+ *
+ * Labels sit at edge midpoints and every edge in a fan leaves the same parent,
+ * so two adjacent labels are only half as far apart as their children are —
+ * hence the factor of 2 when converting the requirement back to child spacing.
+ *
+ * @returns {Map<string, number>} "childA|childB" → required separation
+ */
+function computeSiblingSeparations(levelSiblings, gaps, cfg) {
+  const required = new Map();
+  const lineHeight = cfg.edgeLabelFontSize * 1.2;
+
+  levelSiblings.forEach((groups, depth) => {
+    const gap = gaps[depth];
+    if (!gap) return;
+
+    groups.forEach(({ parentCross, kids }) => {
+      for (let i = 1; i < kids.length; i++) {
+        const a = kids[i - 1];
+        const b = kids[i];
+        const sweep = (kid) => {
+          const delta = kid.cross - parentCross;
+          const length = Math.hypot(delta, gap) || 1;
+          return (kid.labelWidth * Math.abs(delta) / length + lineHeight * gap / length) / 2;
+        };
+        // Midpoints are half as far apart as the children, so the children
+        // need twice the label clearance.
+        const need = 2 * (sweep(a) + sweep(b)) + cfg.nodeGap;
+        if (Math.abs(b.cross - a.cross) < need) {
+          required.set(`${a.id}|${b.id}`, need);
+        }
+      }
+    });
+  });
+
+  return required;
+}
+
+/**
+ * The gap needed to stop adjacent siblings' labels from colliding.
+ *
+ * Fitting a label ALONG its edge is not enough. The label is drawn as a
+ * rotated rectangle, so a tilted one sweeps across the cross axis far beyond
+ * its own line: a label 820 wide tilted 10° occupies
+ *
+ *     820·sin(10°) + lineHeight ≈ 212px
+ *
+ * of cross-axis space. Two siblings only 120px apart therefore overlap even
+ * though each edge is individually long enough for its own text.
+ *
+ * Widening the level gap fixes it, because it steepens the fan: as the gap
+ * grows, each edge tilts less relative to the level axis and its label's
+ * cross-axis sweep shrinks monotonically toward the bare line height. So we
+ * binary search for the smallest gap at which every adjacent pair clears.
+ *
+ * (This replaces a `steepnessFactor × levelSpread` fudge that measured the
+ * wrong quantity — on a horizontal tree levelSpread is node *heights*, so it
+ * never bound, and collision counts were identical from 0.0 to 0.5.)
+ */
+function solveSiblingLabelGap(groups, cfg, minGap) {
+  if (!groups || groups.length === 0) return 0;
+
+  const lineHeight = cfg.edgeLabelFontSize * 1.2;
+
+  // Cross-axis half-extent of a label on an edge that spans `delta` across and
+  // `gap` along the level axis.
+  const halfSweep = (labelWidth, delta, gap) => {
+    const length = Math.hypot(delta, gap) || 1;
+    return (labelWidth * Math.abs(delta) / length + lineHeight * gap / length) / 2;
+  };
+
+  const clears = (gap) => groups.every(({ parentCross, kids }) => {
+    for (let i = 1; i < kids.length; i++) {
+      const a = kids[i - 1];
+      const b = kids[i];
+      const need = halfSweep(a.labelWidth, a.cross - parentCross, gap)
+        + halfSweep(b.labelWidth, b.cross - parentCross, gap);
+      // Labels sit at edge MIDPOINTS, and every edge in a fan starts at the
+      // same parent — so two labels are only half as far apart as the two
+      // children they belong to.
+      const available = Math.abs(b.cross - a.cross) / 2;
+      if (available < need) return false;
+    }
+    return true;
+  });
+
+  if (clears(minGap)) return 0;
+
+  // Monotone in gap (labels tilt less as the fan steepens), so bisect. The
+  // ceiling stops a pathological fan from stretching the diagram without
+  // limit — past it, the remaining overlap is left to the renderer.
+  const ceiling = minGap + cfg.maxSiblingLabelGap;
+  if (!clears(ceiling)) return ceiling;
+
+  let lo = minGap;
+  let hi = ceiling;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (clears(mid)) hi = mid; else lo = mid;
+  }
+  return hi;
 }
 
 // ============================================================================
@@ -308,78 +418,163 @@ function treeLayoutCentered(nodes, edges, cfg, meta = {}) {
 
     const cross = new Map();
 
-    const descendantsOf = (id) => {
-      const list = [];
-      const stack = [...(children.get(id) || [])];
-      while (stack.length) {
-        const current = stack.pop();
-        list.push(current);
-        stack.push(...(children.get(current) || []));
-      }
-      return list;
-    };
+    // ── Contour-based subtree packing (Reingold–Tilford) ─────────────────
+    // Reserving each subtree's full bounding box is the obvious approach and
+    // it is badly wasteful on real trees: a deep narrow subtree beside a
+    // shallow wide one leaves a void the height of the deeper one. Instead
+    // each subtree carries its silhouette — the leftmost and rightmost edge
+    // at every depth below it — and adjacent siblings are slid together until
+    // they touch at their closest depth, not their widest.
+    //
+    // This is what makes a sentence-diagram-shaped tree (one flow, dozens of
+    // subtrees of wildly uneven depth) pack tightly instead of exploding.
+    const childOffset = new Map();  // id → cross offset from its parent
+    const contours = new Map();     // id → { L, R } silhouette, depth-relative
 
-    const place = (id, start) => {
+    // `pairGap` supplies an extra separation requirement for one specific
+    // adjacent-sibling pair, at their own row only (depth 0 of the merge).
+    // Pass 1 has none; pass 2 fills it in from measured label sweeps.
+    const buildContour = (id, pairGap) => {
       const kids = children.get(id) || [];
-      const self = crossExtent(id);
+      const half = crossExtent(id) / 2;
 
       if (kids.length === 0) {
-        cross.set(id, start + self / 2);
-        return self;
+        contours.set(id, { L: [-half], R: [half] });
+        return;
       }
 
-      let cursor = start;
-      let total = 0;
+      kids.forEach(kid => buildContour(kid, pairGap));
+
+      const offsets = [];
+      let accL = null;
+      let accR = null;
+
       kids.forEach((kid, index) => {
-        if (index > 0) { cursor += siblingGap; total += siblingGap; }
-        const span = place(kid, cursor);
-        cursor += span;
-        total += span;
+        const kc = contours.get(kid);
+        let offset = 0;
+
+        if (index > 0) {
+          // Slide this subtree right until it clears everything placed so far
+          // at EVERY depth they share — the binding depth is usually not the
+          // widest one. Only the siblings' own row (d = 0) carries the label
+          // requirement; deeper rows are handled at their own level.
+          const ownRowGap = Math.max(siblingGap, pairGap(kids[index - 1], kid));
+          const shared = Math.min(accR.length, kc.L.length);
+          for (let d = 0; d < shared; d++) {
+            const need = d === 0 ? ownRowGap : siblingGap;
+            offset = Math.max(offset, accR[d] + need - kc.L[d]);
+          }
+        }
+        offsets.push(offset);
+
+        // Merge this subtree's silhouette into the accumulated one.
+        if (index === 0) {
+          accL = kc.L.map(v => v + offset);
+          accR = kc.R.map(v => v + offset);
+        } else {
+          for (let d = 0; d < kc.L.length; d++) {
+            const l = kc.L[d] + offset;
+            const r = kc.R[d] + offset;
+            if (d < accL.length) {
+              accL[d] = Math.min(accL[d], l);
+              accR[d] = Math.max(accR[d], r);
+            } else {
+              accL[d] = l;
+              accR[d] = r;
+            }
+          }
+        }
       });
 
-      let center = (cross.get(kids[0]) + cross.get(kids[kids.length - 1])) / 2;
+      // Centre the parent over its outermost children, then rebase everything
+      // so this node sits at 0 in its own frame.
+      const centre = (offsets[0] + offsets[offsets.length - 1]) / 2;
+      kids.forEach((kid, index) => childOffset.set(kid, offsets[index] - centre));
 
-      // A node wider than everything below it widens its own subtree band.
-      if (self > total) {
-        const shift = (self - total) / 2;
-        descendantsOf(id).forEach(descId => {
-          cross.set(descId, cross.get(descId) + shift);
-        });
-        center += shift;
-        total = self;
-      }
-
-      cross.set(id, center);
-      return total;
+      // The node's own box joins the silhouette at depth 0; if it is wider
+      // than the children beneath it, that shows up here and pushes siblings
+      // away without any special case.
+      contours.set(id, {
+        L: [-half, ...accL.map(v => v - centre)],
+        R: [half, ...accR.map(v => v - centre)]
+      });
     };
 
-    place(rootId, 0);
+    const pack = (pairGap) => {
+      childOffset.clear();
+      contours.clear();
+      buildContour(rootId, pairGap);
 
-    // Collect the edges crossing each level, with their cross-axis offsets.
-    const levelEdges = Array.from({ length: maxDepth }, () => []);
-    const levelSpread = new Array(maxDepth).fill(0);
-    children.forEach((kids, parentId) => {
-      if (kids.length === 0) return;
-      const d = depth.get(parentId);
-      if (d >= maxDepth) return;
-      const parent = nodeById.get(parentId);
-      let minCross = Infinity;
-      let maxCross = -Infinity;
-      kids.forEach(kidId => {
-        const crossDelta = Math.abs(cross.get(kidId) - cross.get(parentId));
-        levelEdges[d].push({
-          a: parent,
-          b: nodeById.get(kidId),
-          edge: lookupEdge(edgeIndex, parentId, kidId),
-          crossDelta
+      // Walk down accumulating offsets into absolute cross positions.
+      cross.clear();
+      cross.set(rootId, 0);
+      const queue = [rootId];
+      for (let head = 0; head < queue.length; head++) {
+        const parentId = queue[head];
+        (children.get(parentId) || []).forEach(kidId => {
+          cross.set(kidId, cross.get(parentId) + (childOffset.get(kidId) || 0));
+          queue.push(kidId);
         });
-        minCross = Math.min(minCross, cross.get(kidId));
-        maxCross = Math.max(maxCross, cross.get(kidId));
-      });
-      levelSpread[d] = Math.max(levelSpread[d], maxCross - minCross);
-    });
+      }
+    };
 
-    const gaps = resolveLevelGaps(levelEdges, levelSpread, cfg, vertical);
+    const noPairGap = () => 0;
+    pack(noPairGap);
+
+    // Collect the edges crossing each level, plus each parent's fan of
+    // children (cross position + label width) so the gap solver can check
+    // adjacent siblings' labels for collision.
+    const collect = () => {
+      const levelEdges = Array.from({ length: maxDepth }, () => []);
+      const levelSiblings = Array.from({ length: maxDepth }, () => []);
+      children.forEach((kids, parentId) => {
+        if (kids.length === 0) return;
+        const d = depth.get(parentId);
+        if (d >= maxDepth) return;
+        const parent = nodeById.get(parentId);
+        const fan = [];
+        kids.forEach(kidId => {
+          const edge = lookupEdge(edgeIndex, parentId, kidId);
+          levelEdges[d].push({
+            a: parent,
+            b: nodeById.get(kidId),
+            edge,
+            crossDelta: Math.abs(cross.get(kidId) - cross.get(parentId))
+          });
+          fan.push({
+            id: kidId,
+            cross: cross.get(kidId),
+            labelWidth: labelSpanOf(edge, cfg.edgeLabelFontSize)
+          });
+        });
+        fan.sort((a, b) => a.cross - b.cross);
+        levelSiblings[d].push({ parentId, parentCross: cross.get(parentId), kids: fan });
+      });
+      return { levelEdges, levelSiblings };
+    };
+
+    let { levelEdges, levelSiblings } = collect();
+    let gaps = resolveLevelGaps(levelEdges, levelSiblings, cfg, vertical);
+
+    // ── Pass 2: buy label clearance on the cheap axis ────────────────────
+    // A fan whose labels collide can be fixed two ways: steepen the fan (widen
+    // the LEVEL gap) or spread the siblings (widen the CROSS gap). The level
+    // gap is shared by every node at that depth, so one bad fan pays across
+    // the whole diagram — on a sentence diagram that measured +65% width.
+    // Widening the siblings costs only that fan. So compute what separation
+    // each colliding pair actually needs, repack with it, and let the level
+    // solver mop up whatever remains.
+    const required = computeSiblingSeparations(levelSiblings, gaps, cfg);
+    if (required.size > 0) {
+      pack((aId, bId) => {
+        const need = required.get(`${aId}|${bId}`) || required.get(`${bId}|${aId}`);
+        if (!need) return 0;
+        // `need` is centre-to-centre; the packer wants box-edge separation.
+        return need - (crossExtent(aId) + crossExtent(bId)) / 2;
+      });
+      ({ levelEdges, levelSiblings } = collect());
+      gaps = resolveLevelGaps(levelEdges, levelSiblings, cfg, vertical);
+    }
 
     const mainAt = [0];
     for (let d = 0; d < maxDepth; d++) mainAt.push(mainAt[d] + gaps[d]);
@@ -972,26 +1167,41 @@ function layeredLayoutCentered(nodes, edges, cfg) {
     // Layer gaps: an edge spanning k layers divides its requirement across
     // them, so long-range dependencies don't blow the whole diagram apart.
     const levelEdges = Array.from({ length: Math.max(0, layerCount - 1) }, () => []);
-    const levelSpread = new Array(Math.max(0, layerCount - 1)).fill(0);
+    // Successors of one node in the next layer are siblings for the purposes
+    // of label collision, exactly as in a tree.
+    const fanOf = Array.from({ length: Math.max(0, layerCount - 1) }, () => new Map());
     arcs.forEach(arc => {
       const from = layer.get(arc.sourceId);
       const to = layer.get(arc.destinationId);
       if (from === undefined || to === undefined || to <= from) return;
       const span = to - from;
       const crossDelta = Math.abs((cross.get(arc.destinationId) ?? 0) - (cross.get(arc.sourceId) ?? 0)) / span;
+      const edge = lookupEdge(edgeIndex, arc.sourceId, arc.destinationId);
       for (let d = from; d < to; d++) {
         levelEdges[d].push({
           a: nodeById.get(arc.sourceId),
           b: nodeById.get(arc.destinationId),
-          edge: lookupEdge(edgeIndex, arc.sourceId, arc.destinationId),
+          edge,
           crossDelta,
           span
         });
-        levelSpread[d] = Math.max(levelSpread[d], crossDelta);
+      }
+      if (span === 1) {
+        if (!fanOf[from].has(arc.sourceId)) fanOf[from].set(arc.sourceId, []);
+        fanOf[from].get(arc.sourceId).push({
+          cross: cross.get(arc.destinationId) ?? 0,
+          labelWidth: labelSpanOf(edge, cfg.edgeLabelFontSize)
+        });
       }
     });
 
-    const gaps = resolveLevelGaps(levelEdges, levelSpread, cfg, vertical);
+    const levelSiblings = fanOf.map(byParent => Array.from(byParent.entries())
+      .map(([parentId, kids]) => ({
+        parentCross: cross.get(parentId) ?? 0,
+        kids: kids.sort((a, b) => a.cross - b.cross)
+      })));
+
+    const gaps = resolveLevelGaps(levelEdges, levelSiblings, cfg, vertical);
     const mainAt = [0];
     for (let d = 0; d < layerCount - 1; d++) mainAt.push(mainAt[d] + gaps[d]);
 
@@ -1133,23 +1343,176 @@ export const radialTreeLayout = asTopLeftLayout(radialLayoutCentered);
 export const arcChainLayout = asTopLeftLayout(arcChainLayoutCentered);
 
 /**
- * Which layout each topology gets, given how the edges will be DRAWN.
+ * Which layout a topology gets, given how its edges will be DRAWN.
  *
- * Under straight/orthogonal routing this is just TOPOLOGY_LAYOUT. Under
- * Lombardi the row-based layouts are swapped for radial ones — see the LOMBARDI
- * section above for why a fan of evenly spaced arcs is at war with a layout
- * that stacks a node's neighbours in one direction.
+ * Under straight and orthogonal routing this is just TOPOLOGY_LAYOUT — the
+ * shape of the graph is the only input.
+ *
+ * Under Lombardi it is not, and this is only the FIRST of three stages. See
+ * lombardiPatternLayout below and the header of services/lombardiLayout.js:
+ * Lombardi mode runs its own auto-layout end to end, and what this function
+ * returns is the seed that pipeline starts from, not the finished layout.
  */
 export function layoutPlanFor(kind, routingStyle) {
   if (routingStyle !== 'lombardi') return TOPOLOGY_LAYOUT[kind];
   switch (kind) {
+    // §5 of the paper — the Lombardi Spirograph draws hierarchies on concentric
+    // circles. Rows are the wrong seed: they cluster a node's neighbours in one
+    // direction, and perfect angular resolution then has to fan the edges out
+    // against the geometry rather than with it.
     case TOPOLOGY.TREE: return 'radial';
     case TOPOLOGY.DAG: return 'radial';
+    // §2 — a path drawn on one circle is a circular Lombardi drawing.
     case TOPOLOGY.CHAIN: return 'arc-chain';
-    // CYCLE and STAR are already the paper's circular drawings; MESH keeps the
-    // force solver, which has no directional bias to fight in the first place.
+    // CYCLE and STAR already ARE the paper's circular drawings. MESH keeps the
+    // force solver as its seed; the refinement stage is what makes it Lombardi.
     default: return TOPOLOGY_LAYOUT[kind];
   }
+}
+
+/**
+ * Seed a component onto ONE circle, in a given vertex order.
+ *
+ * This is the geometry of §2's circular Lombardi drawings. The radius is solved
+ * from the same label constraint every other layout here uses, so a long
+ * relation name opens the circle exactly enough to fit rather than forcing a
+ * uniformly huge one.
+ */
+function circleSeedCentered(nodes, edges, cfg, order) {
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const edgeIndex = buildEdgeIndex(edges, cfg.edgeLabelFontSize);
+  const ring = order.filter(id => nodeById.has(id));
+  if (ring.length === 0) return new Map();
+  if (ring.length === 1) return new Map([[ring[0], { x: 0, y: 0 }]]);
+
+  const chords = ring.map((id, i) => {
+    const nextId = ring[(i + 1) % ring.length];
+    const edge = lookupEdge(edgeIndex, id, nextId);
+    const label = labelSpanOf(edge, cfg.edgeLabelFontSize);
+    const gap = label > 0 ? cfg.labelPadding : cfg.nodeGap;
+    return Math.max(
+      cfg.minEdgeLength,
+      circumRadius(nodeById.get(id)) + circumRadius(nodeById.get(nextId)) + label + gap
+    );
+  });
+
+  const radius = solveRingRadius(chords);
+  const angles = ringAngles(chords, radius);
+  return new Map(ring.map((id, i) => [id, {
+    x: Math.cos(angles[i]) * radius,
+    y: Math.sin(angles[i]) * radius
+  }]));
+}
+
+/**
+ * LOMBARDI'S AUTO-LAYOUT. A separate pipeline, not a variant of patternLayout.
+ *
+ * Reached only when routingStyle === 'lombardi'. Three stages, in order, per
+ * connected component:
+ *
+ *   1. SEED — place the component using the construction the paper uses for its
+ *      shape (layoutPlanFor above). This stage solves DISTANCE: nodes far
+ *      enough apart that edges and their labels fit, with the extra allowance
+ *      arcAwareConfig adds for the bow.
+ *
+ *   2. REFINE — lombardiRefine. This stage solves ANGLE: it rotates each edge
+ *      toward the chord direction that lets a single arc honour BOTH endpoints'
+ *      assigned tangents at once. Rotation preserves edge length, so it cannot
+ *      undo stage 1. This is the stage that makes the layout Lombardi rather
+ *      than merely round.
+ *
+ *   3. CLEAR — clearArcsOfNodes. The paper requires that an arc touch no vertex
+ *      but its own endpoints. Only reachable here, because it is the first
+ *      point at which the actual arcs exist to be tested.
+ *
+ * Components are packed exactly as patternLayout packs them.
+ */
+export function lombardiPatternLayout(nodes, edges, cfg, options = {}) {
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const { components } = detectTopology(nodes, edges || [], options);
+  const runFallback = options.fallbackLayout || forceDirectedLayout;
+  const blocks = [];
+  const floaters = [];
+
+  components.forEach(component => {
+    const kind = component.topology.kind;
+    if (kind === TOPOLOGY.SINGLE) {
+      floaters.push(component.nodes[0]);
+      return;
+    }
+
+    const componentCfg = arcAwareConfig({
+      ...cfg,
+      width: Math.max(cfg.minEdgeLength * 4, cfg.width * Math.sqrt(component.nodes.length / nodes.length)),
+      height: Math.max(cfg.minEdgeLength * 4, cfg.height * Math.sqrt(component.nodes.length / nodes.length))
+    });
+
+    // ---- 1. SEED ----------------------------------------------------------
+    const { adjacency } = buildSimpleGraph(component.nodes, component.simpleEdges || component.edges);
+    let positions;
+
+    if (isRegular(component.nodes, adjacency)) {
+      // §2, Theorem 1: a regular graph is the case the paper can put on a
+      // single circle with perfect angular resolution outright. We take the
+      // geometry and skip the existence test — see circularOrder.
+      positions = circleSeedCentered(
+        component.nodes, component.edges, componentCfg,
+        circularOrder(component.nodes, adjacency)
+      );
+    } else {
+      switch (layoutPlanFor(kind, 'lombardi')) {
+        case 'radial':
+          positions = radialLayoutCentered(component.nodes, component.edges, componentCfg, component.topology.meta);
+          break;
+        case 'arc-chain':
+          positions = arcChainLayoutCentered(component.nodes, component.edges, componentCfg, component.topology.meta);
+          break;
+        case 'cycle':
+          positions = cycleLayoutCentered(component.nodes, component.edges, componentCfg, component.topology.meta);
+          break;
+        case 'star':
+          positions = starLayoutCentered(component.nodes, component.edges, componentCfg, component.topology.meta);
+          break;
+        default:
+          positions = runFallback(component.nodes, component.edges, {
+            ...componentCfg,
+            groups: [],
+            useExistingPositions: false
+          });
+      }
+    }
+
+    // ---- 2. REFINE (angle) ------------------------------------------------
+    positions = lombardiRefine(positions, component.nodes, component.edges, {
+      ...componentCfg,
+      ...(options.lombardiRefine || {})
+    });
+
+    // ---- 3. CLEAR (arcs vs nodes) -----------------------------------------
+    positions = clearArcsOfNodes(positions, component.nodes, component.edges, {
+      lombardiCurvature: componentCfg.lombardiCurvature,
+      clearancePadding: componentCfg.nodeGap / 4
+    });
+
+    blocks.push({
+      positions,
+      bbox: bboxOfCenters(positions, nodeById),
+      kind,
+      size: component.nodes.length
+    });
+  });
+
+  if (floaters.length > 0) {
+    const positions = gridBlockCentered(floaters, cfg);
+    blocks.push({
+      positions,
+      bbox: bboxOfCenters(positions, nodeById),
+      kind: TOPOLOGY.SINGLE,
+      size: floaters.length
+    });
+  }
+
+  return centersToTopLeft(packComponents(blocks, cfg), nodeById);
 }
 
 /**
@@ -1165,6 +1528,19 @@ export function layoutPlanFor(kind, routingStyle) {
 export function patternLayout(nodes, edges, options = {}) {
   if (!nodes || nodes.length === 0) return new Map();
   const cfg = resolveConfig(options);
+
+  // LOMBARDI MODE HAS ITS OWN AUTO-LAYOUT — it does not run the dispatch below.
+  //
+  // The dispatch below answers one question: "what shape is this, and which
+  // layout draws that shape well?" That is the whole job when edges are
+  // straight lines. It is not the whole job when they are circular arcs with
+  // perfect angular resolution, because that adds an ANGULAR constraint that no
+  // amount of picking-the-right-shape satisfies. See lombardiPatternLayout, and
+  // the header of services/lombardiLayout.js for the geometry.
+  if (cfg.routingStyle === 'lombardi') {
+    return lombardiPatternLayout(nodes, edges, cfg, options);
+  }
+
   const nodeById = new Map(nodes.map(n => [n.id, n]));
   const { components } = detectTopology(nodes, edges || [], options);
 
@@ -1179,22 +1555,16 @@ export function patternLayout(nodes, edges, options = {}) {
       return;
     }
 
-    const componentCfg = arcAwareConfig({
+    const componentCfg = {
       ...cfg,
       // Give each component room proportional to its size rather than the
       // whole canvas, so orientation choices and wrapping stay sensible.
       width: Math.max(cfg.minEdgeLength * 4, cfg.width * Math.sqrt(component.nodes.length / nodes.length)),
       height: Math.max(cfg.minEdgeLength * 4, cfg.height * Math.sqrt(component.nodes.length / nodes.length))
-    });
+    };
 
     let positions;
-    switch (layoutPlanFor(kind, cfg.routingStyle)) {
-      case 'radial':
-        positions = radialLayoutCentered(component.nodes, component.edges, componentCfg, component.topology.meta);
-        break;
-      case 'arc-chain':
-        positions = arcChainLayoutCentered(component.nodes, component.edges, componentCfg, component.topology.meta);
-        break;
+    switch (TOPOLOGY_LAYOUT[kind]) {
       case 'tree':
         positions = treeLayoutCentered(component.nodes, component.edges, componentCfg, component.topology.meta);
         break;
@@ -1261,6 +1631,7 @@ export function describeLayoutPlan(nodes, edges, options = {}) {
 
 export default {
   patternLayout,
+  lombardiPatternLayout,
   describeLayoutPlan,
   layoutPlanFor,
   radialTreeLayout,

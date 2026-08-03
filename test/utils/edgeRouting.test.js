@@ -11,6 +11,7 @@ import {
   sampleArc,
   arcPathBetween,
   rebuildRoutedPath,
+  labelArcPath,
   MAX_TANGENT_CHORD,
 } from '../../src/utils/canvas/edgeRouting.js';
 import {
@@ -526,5 +527,69 @@ describe('arc label placement', () => {
     expect([0, 90]).toContain(ortho.angle);
     const curved = chooseRoutedLabelPlacement({ arc, points: sampleArc(arc) }, 'Rel', [], new Set(), new Map(), new Map(), 24, 'e2', new Set());
     expect(Math.hypot(curved.x - arc.cx, curved.y - arc.cy)).toBeCloseTo(arc.radius, 6);
+  });
+});
+
+describe('labelArcPath (curved labels)', () => {
+  const arc = solveLombardiArc({ x: 0, y: 0 }, { x: 1200, y: 0 }, 0.5, Math.PI - 0.5, 1);
+  const apex = arcPointAt(arc, 0.5);
+
+  it('rides a circle concentric with the edge arc', () => {
+    const p = labelArcPath(arc, apex, 200);
+    const start = p.d.match(/^M (-?[\d.]+),(-?[\d.]+)/);
+    expect(Math.hypot(Number(start[1]) - arc.cx, Number(start[2]) - arc.cy)).toBeCloseTo(p.radius, 6);
+    // Same centre as the edge, so the label curves the way the line does.
+    expect(p.radius).toBeCloseTo(arc.radius, 6);
+  });
+
+  it('keeps a radially offset label on its own concentric circle', () => {
+    // A label nudged off the line to dodge something still curves — just at a
+    // slightly different radius.
+    const nudged = { x: apex.x, y: apex.y + 40 };
+    const p = labelArcPath(arc, nudged, 200);
+    expect(p.radius).not.toBeCloseTo(arc.radius, 1);
+    const start = p.d.match(/^M (-?[\d.]+),(-?[\d.]+)/);
+    expect(Math.hypot(Number(start[1]) - arc.cx, Number(start[2]) - arc.cy)).toBeCloseTo(p.radius, 6);
+  });
+
+  it('runs the text left-to-right so it never reads upside down', () => {
+    const p = labelArcPath(arc, apex, 200);
+    const m = p.d.match(/^M (-?[\d.]+),(-?[\d.]+) A [\d.]+,[\d.]+ 0 0 \d (-?[\d.]+),(-?[\d.]+)$/);
+    expect(Number(m[3])).toBeGreaterThan(Number(m[1]));
+  });
+
+  it('still reads left-to-right on an arc that runs the other way', () => {
+    const back = solveLombardiArc({ x: 1200, y: 0 }, { x: 0, y: 0 }, Math.PI - 0.5, 0.5, 1);
+    const p = labelArcPath(back, arcPointAt(back, 0.5), 200);
+    const m = p.d.match(/^M (-?[\d.]+),(-?[\d.]+) A [\d.]+,[\d.]+ 0 0 \d (-?[\d.]+),(-?[\d.]+)$/);
+    expect(Number(m[3])).toBeGreaterThan(Number(m[1]));
+  });
+
+  it('declines when the text would have to bend too far', () => {
+    // The gate the user asked for: curve it only when the curve is gentle.
+    // Same text, tight arc — the label has to bend past the threshold.
+    const tight = solveLombardiArc({ x: 0, y: 0 }, { x: 160, y: 0 }, 1.1, Math.PI - 1.1, 1);
+    expect(labelArcPath(tight, arcPointAt(tight, 0.5), 400)).toBeNull();
+    // ...and accepts the same text on a gentle one.
+    expect(labelArcPath(arc, apex, 400)).not.toBeNull();
+  });
+
+  it('declines for a straight edge, which has no arc to ride', () => {
+    expect(labelArcPath(null, apex, 200)).toBeNull();
+  });
+
+  it('declines for empty text', () => {
+    expect(labelArcPath(arc, apex, 0)).toBeNull();
+  });
+
+  it('accepts an explicit span, for callers that measured the rendered path', () => {
+    const estimated = labelArcPath(arc, apex, 200);
+    const measured = labelArcPath(arc, apex, 0, { span: 200 * 1.4 });
+    expect(measured.d).toBe(estimated.d);
+  });
+
+  it('makes the path longer than the text so nothing clips', () => {
+    const p = labelArcPath(arc, apex, 200);
+    expect(p.sweep * p.radius).toBeGreaterThan(200);
   });
 });

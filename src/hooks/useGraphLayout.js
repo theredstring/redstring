@@ -243,6 +243,9 @@ export const useGraphLayout = ({
         const layoutEdges = edges
             .filter(edge => edge && edge.sourceId && edge.destinationId)
             .map(edge => ({
+                // Keep the id: Lombardi's tangent fan is keyed by it, and
+                // parallel edges are exactly the case it has to tell apart.
+                id: edge.id,
                 sourceId: edge.sourceId,
                 destinationId: edge.destinationId,
                 name: resolveConnectionName(edge, nodePrototypesMap, edgePrototypesMap)

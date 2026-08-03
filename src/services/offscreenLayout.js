@@ -58,7 +58,8 @@ export function applyOffscreenLayout(graphId) {
         const proto = (st.edgePrototypes || new Map()).get(e.typeNodeId);
         if (proto?.name) connName = proto.name;
       }
-      return { sourceId: e.sourceId, destinationId: e.destinationId, name: connName };
+      // id retained for Lombardi's per-edge tangent fan (see lombardiEdgeKey).
+      return { id: e.id, sourceId: e.sourceId, destinationId: e.destinationId, name: connName };
     });
 
   const groups = Array.from(graph.groups?.values() || []);

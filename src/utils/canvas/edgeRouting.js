@@ -512,6 +512,19 @@ export const MAX_TANGENT_CHORD = 1.32;
 const LOMBARDI_ARROW_INSET = 12;
 
 /**
+ * Key an edge for the tangent map.
+ *
+ * Edges reaching the RENDERER always carry an id. Edges reaching the LAYOUT do
+ * not always — several call sites project them down to
+ * {sourceId, destinationId, name} on the way in. Without a fallback every such
+ * edge would key on `undefined`, collapse into one entry, and the whole fan
+ * would come out wrong in exactly the silent way that is hardest to notice.
+ */
+export function lombardiEdgeKey(edge) {
+  return edge?.id ?? `${edge?.sourceId}\u0000${edge?.destinationId}`;
+}
+
+/**
  * Assign every edge END a tangent direction, evenly spaced around its node.
  *
  * This is the "perfect angular resolution" half of a Lombardi drawing, and it
@@ -558,8 +571,9 @@ export function computeLombardiTangents(nodes, edges, dimsById) {
     const d = centers.get(edge.destinationId);
     if (!s || !d) continue;
     const bearing = Math.atan2(d.y - s.y, d.x - s.x);
-    addEnd(edge.sourceId, { edgeId: edge.id, role: 'source', bearing: wrapTau(bearing) });
-    addEnd(edge.destinationId, { edgeId: edge.id, role: 'dest', bearing: wrapTau(bearing + Math.PI) });
+    const key = lombardiEdgeKey(edge);
+    addEnd(edge.sourceId, { edgeId: key, role: 'source', bearing: wrapTau(bearing) });
+    addEnd(edge.destinationId, { edgeId: key, role: 'dest', bearing: wrapTau(bearing + Math.PI) });
   }
 
   ends.forEach((list) => {
@@ -706,6 +720,78 @@ export function arcPathBetween(arc, from, to) {
   return `M ${p0.x},${p0.y} A ${arc.radius},${arc.radius} 0 ${largeArc} ${sweepFlag} ${p1.x},${p1.y}`;
 }
 
+// Widest total angle a label may bend through before curving it stops helping.
+// ~50°: past that the baseline turns enough that the eye has to track a curve
+// rather than read a line, and descenders on the inside of the bend start to
+// crowd. Long text on a tight arc exceeds this quickly, which is exactly when a
+// straight label reads better anyway.
+export const MAX_LABEL_SWEEP = 0.9;
+
+// The path is made longer than the text so `startOffset="50%"` has room either
+// side; a path exactly as long as the estimate would clip if the estimate ran
+// a few percent short.
+const LABEL_PATH_SLACK = 1.4;
+
+/**
+ * A path for a label to ride along its own arc, or null if it shouldn't.
+ *
+ * The label follows a circle CONCENTRIC with the edge's arc, at whatever radius
+ * the placement chose — so a label nudged off the line to dodge something still
+ * curves the same way the line does, just at a slightly different radius.
+ *
+ * Returns null when the text would have to bend more than `maxSweep`. That's
+ * the caller's cue to fall back to a straight rotated label, which is both the
+ * old behaviour and the right answer for a tight curve.
+ *
+ * @param {object} arc - from solveLombardiArc
+ * @param {{x:number,y:number}} anchor - the chosen label position
+ * @param {number} textWidth - estimated rendered width
+ * @param {object} [options] - `span` supplies the path length directly, for
+ *   callers that already measured the rendered path (the drag updater does,
+ *   once, at drag start) and shouldn't re-estimate it every frame.
+ * @returns {{d: string, sweep: number, radius: number}|null}
+ */
+export function labelArcPath(arc, anchor, textWidth, options = {}) {
+  const span = options.span ?? (textWidth > 0 ? textWidth * (options.slack ?? LABEL_PATH_SLACK) : 0);
+  if (!arc || !(span > 0)) return null;
+  const maxSweep = options.maxSweep ?? MAX_LABEL_SWEEP;
+
+  const dx = anchor.x - arc.cx;
+  const dy = anchor.y - arc.cy;
+  const radius = Math.hypot(dx, dy);
+  if (!(radius > 1)) return null;
+
+  const sweep = span / radius;
+  if (!(sweep > 0) || sweep > maxSweep) return null;
+
+  const mid = Math.atan2(dy, dx);
+  const half = sweep / 2;
+  const at = (a) => ({ x: arc.cx + radius * Math.cos(a), y: arc.cy + radius * Math.sin(a) });
+
+  // Text runs from a0 to a1, so the direction of travel decides whether it reads
+  // upright or upside down. Pick the one heading rightward — and for a
+  // near-vertical label, downward — which is the same rule the straight labels
+  // use when they flip to stay readable.
+  const forward = { a0: mid - half, a1: mid + half };
+  const backward = { a0: mid + half, a1: mid - half };
+  const readsUpright = (o) => {
+    const p0 = at(o.a0);
+    const p1 = at(o.a1);
+    const runX = p1.x - p0.x;
+    return Math.abs(runX) > 1e-6 ? runX > 0 : p1.y - p0.y > 0;
+  };
+  const chosen = readsUpright(forward) ? forward : backward;
+
+  const p0 = at(chosen.a0);
+  const p1 = at(chosen.a1);
+  const sweepFlag = chosen.a1 > chosen.a0 ? 1 : 0;
+  return {
+    d: `M ${p0.x},${p0.y} A ${radius},${radius} 0 0 ${sweepFlag} ${p1.x},${p1.y}`,
+    sweep,
+    radius,
+  };
+}
+
 /**
  * Rebuild path data for a routing descriptor whose polyline has been trimmed
  * (the hover pull-back). Orthogonal routings re-emit a rounded polyline; a
@@ -735,7 +821,7 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
   const q = { x: destNode.x + dDims.currentWidth / 2, y: destNode.y + dDims.currentHeight / 2 };
 
   const chord = Math.atan2(q.y - p.y, q.x - p.x);
-  const assigned = tangents?.get?.(edge.id);
+  const assigned = tangents?.get?.(lombardiEdgeKey(edge));
   const thetaP = assigned?.sourceAngle ?? chord;
   const thetaQ = assigned?.destAngle ?? (chord + Math.PI);
 

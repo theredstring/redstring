@@ -6,7 +6,7 @@ import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
-import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents } from '../utils/canvas/edgeRouting.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcPath } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute } from '../utils/canvas/edgeLabelPlacement.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../services/groupLayout.js';
 import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
@@ -288,17 +288,31 @@ export const useNodeDrag = ({
     }
     dragEdgeDataRef.current = edgeDataIndex;
 
+    // Measuring the label path costs a layout flush, so it happens exactly once
+    // per edge here rather than per frame.
+    const labelArcOf = (el) => {
+      const labelArc = el.querySelector('[data-label-arc]');
+      if (!labelArc) return { labelArc: null, labelArcSpan: 0 };
+      let labelArcSpan = 0;
+      try { labelArcSpan = labelArc.getTotalLength(); } catch (_) { labelArcSpan = 0; }
+      return { labelArc, labelArcSpan };
+    };
+
     affectedEdgeIds.forEach(edgeId => {
       // querySelectorAll returns all matches (edge appears in below + above blocks)
       const els = container.querySelectorAll(`[data-edge-id="${edgeId}"]`);
       if (els.length > 0) {
         const cachedEls = Array.from(els).map(el => ({
           el,
-          paths: Array.from(el.querySelectorAll('path')),
+          // A Lombardi label rides its own <path>. Exclude it here or the loop
+          // below would stamp the EDGE's geometry onto it and the label would
+          // slide off along the connection.
+          paths: Array.from(el.querySelectorAll('path:not([data-label-arc])')),
           lines: Array.from(el.querySelectorAll('line')),
           arrows: Array.from(el.querySelectorAll('[data-arrow]')),
           selfArrow: el.querySelector('[data-arrow="self"]'),
           texts: Array.from(el.querySelectorAll('text')),
+          ...labelArcOf(el),
         }));
         dragEdgeElsRef.current.set(edgeId, cachedEls);
       }
@@ -658,7 +672,18 @@ export const useNodeDrag = ({
           : labelPos.angle;
         const dragConnWidth = useGraphStore.getState().textSettings?.connectionWidth ?? 1;
 
-        edgeEls.forEach(({ paths, lines, arrows: arrowGs, texts }) => {
+        // A curved Lombardi label is positioned entirely by its path, so the
+        // drag has to move the PATH, not the <text>. Recomputed from the same
+        // helper the settled render uses, so the label keeps following the arc
+        // for the whole drag instead of straightening the moment you grab a node.
+        // The span comes from the path the render already produced, measured
+        // once at drag start — exact, and it costs nothing per frame. Re-deriving
+        // it would mean re-estimating text width against the font settings from
+        // in here, for a number that cannot change during a drag.
+        edgeEls.forEach(({ paths, lines, arrows: arrowGs, texts, labelArc, labelArcSpan }) => {
+          const dragLabelArc = (routing.arc && labelArc && labelArcSpan > 0)
+            ? labelArcPath(routing.arc, labelPos, 0, { span: labelArcSpan })
+            : null;
           // Glow, visible stroke and click target all share the routed geometry.
           paths.forEach(p => p.setAttribute('d', routing.pathD));
 
@@ -678,11 +703,23 @@ export const useNodeDrag = ({
               `translate(${placement.x}, ${placement.y}) rotate(${placement.angle + 90}) scale(${dragConnWidth})`);
           });
 
-          texts.forEach(t => {
-            t.setAttribute('x', labelPos.x);
-            t.setAttribute('y', labelPos.y);
-            t.setAttribute('transform', `rotate(${labelAdj}, ${labelPos.x}, ${labelPos.y})`);
-          });
+          // The element was rendered either as a curved label (a <textPath> on
+          // labelArc) or a straight one (x/y/transform on the <text>). Those are
+          // mutually exclusive: setting a transform on a textPath-bearing <text>
+          // would rotate the already-correctly-placed curve.
+          if (labelArc) {
+            // If the arc got too tight for a curved label mid-drag, leave the
+            // path where it was rather than falling through: this <text> holds a
+            // <textPath>, so x/y are ignored and a transform would rotate an
+            // already-correctly-placed curve.
+            if (dragLabelArc) labelArc.setAttribute('d', dragLabelArc.d);
+          } else {
+            texts.forEach(t => {
+              t.setAttribute('x', labelPos.x);
+              t.setAttribute('y', labelPos.y);
+              t.setAttribute('transform', `rotate(${labelAdj}, ${labelPos.x}, ${labelPos.y})`);
+            });
+          }
         });
 
         // Keep the placement cache honest — the settled render re-solves from a
