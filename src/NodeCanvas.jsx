@@ -2865,14 +2865,18 @@ function NodeCanvas() {
 
   useEffect(() => { lombardiTangentsRef.current = lombardiTangents; }, [lombardiTangents]);
 
-  // Routing configuration changes invalidate every cached label placement.
+  // Reset the label caches when the routing configuration changes.
   //
-  // placedLabelsRef is keyed by edge id only, and the render prefers a cached
-  // placement whenever one exists. Without this, switching routing style (or
-  // bend style, or lane spacing) left every label frozen at the position it was
-  // given under the PREVIOUS routing — the connections re-routed underneath
-  // them and the labels simply didn't move. Same for the stabilization deadband,
-  // which would otherwise treat the legitimate jump to a new route as jitter.
+  // Correctness no longer depends on this: each cached placement now carries a
+  // signature of the geometry it was computed from, so a stale entry is
+  // detected at read time rather than needing to be cleared ahead of one. That
+  // matters because this effect runs AFTER the render it was meant to protect,
+  // and nothing necessarily re-renders afterwards — which is exactly how labels
+  // ended up frozen in a routing mode the user had already left.
+  //
+  // What's still worth doing here: dropping entries wholesale on a mode change
+  // (they can never match again) and resetting the stabilization deadband, so a
+  // legitimate jump to a new routing isn't mistaken for jitter.
   useEffect(() => {
     placedLabelsRef.current.clear();
     clearLabelStabilization();
@@ -14179,10 +14183,24 @@ function NodeCanvas() {
                                 // nowhere near the connection they name.
                                 if (orthoRouting) {
                                   // Prefer the cached placement to avoid re-solving (and visibly
-                                  // re-shuffling) every label on every render. The cache is cleared
-                                  // whenever routing config changes or a drag ends.
+                                  // re-shuffling) every label on every render.
+                                  //
+                                  // The cache MUST be keyed on the geometry it was computed from,
+                                  // not just the edge id. Keyed on the id alone it went stale on
+                                  // everything that moves a route without changing which edge it
+                                  // is: auto-layout, a node dragged elsewhere re-fanning this
+                                  // node's arcs, a change of routing style or curvature. The
+                                  // config-change effect that cleared it ran AFTER the render that
+                                  // needed clearing, and nothing re-rendered afterwards — so a
+                                  // label could sit at a position from a routing mode the user had
+                                  // already left.
+                                  //
+                                  // pathD is exactly the right signature: it is a complete,
+                                  // already-computed description of the drawn geometry. (It's the
+                                  // untrimmed route, so hovering doesn't churn the cache.)
+                                  const labelSignature = `${orthoRouting.pathD}|${connectionName}|${connectionFontSize}`;
                                   const cached = placedLabelsRef.current.get(edge.id);
-                                  if (cached && cached.position && !draggingNodeInfo) {
+                                  if (cached && cached.position && cached.signature === labelSignature && !draggingNodeInfo) {
                                     const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
                                     midX = stabilized.x;
                                     midY = stabilized.y;
@@ -14212,6 +14230,7 @@ function NodeCanvas() {
                                         minY: midY - (isVerticalLabel ? halfW : halfH),
                                         maxY: midY + (isVerticalLabel ? halfW : halfH),
                                       },
+                                      signature: labelSignature,
                                       position: { x: midX, y: midY, angle }
                                     });
                                   }
@@ -14229,10 +14248,10 @@ function NodeCanvas() {
                                 const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
 
                                 // Lombardi labels ride the arc itself rather than sitting on a
-                                // chord of it. Only when the bend is gentle enough to still read
-                                // as a line of text — labelArcPath returns null past that, and a
-                                // null falls through to the straight rotated label below, which
-                                // is the right answer for a tight curve anyway.
+                                // chord of it — always, at any bend a real connection produces.
+                                // labelArcPath returns null only in degenerate cases (no arc, no
+                                // text, or a label that would wrap the circle), and a null falls
+                                // through to the straight rotated label below.
                                 //
                                 // Skipped mid-drag: the DOM-bypass updater rewrites the path each
                                 // frame (see useNodeDrag), but the <text> element's own transform
@@ -15527,10 +15546,24 @@ function NodeCanvas() {
                                 // nowhere near the connection they name.
                                 if (orthoRouting) {
                                   // Prefer the cached placement to avoid re-solving (and visibly
-                                  // re-shuffling) every label on every render. The cache is cleared
-                                  // whenever routing config changes or a drag ends.
+                                  // re-shuffling) every label on every render.
+                                  //
+                                  // The cache MUST be keyed on the geometry it was computed from,
+                                  // not just the edge id. Keyed on the id alone it went stale on
+                                  // everything that moves a route without changing which edge it
+                                  // is: auto-layout, a node dragged elsewhere re-fanning this
+                                  // node's arcs, a change of routing style or curvature. The
+                                  // config-change effect that cleared it ran AFTER the render that
+                                  // needed clearing, and nothing re-rendered afterwards — so a
+                                  // label could sit at a position from a routing mode the user had
+                                  // already left.
+                                  //
+                                  // pathD is exactly the right signature: it is a complete,
+                                  // already-computed description of the drawn geometry. (It's the
+                                  // untrimmed route, so hovering doesn't churn the cache.)
+                                  const labelSignature = `${orthoRouting.pathD}|${connectionName}|${connectionFontSize}`;
                                   const cached = placedLabelsRef.current.get(edge.id);
-                                  if (cached && cached.position && !draggingNodeInfo) {
+                                  if (cached && cached.position && cached.signature === labelSignature && !draggingNodeInfo) {
                                     const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
                                     midX = stabilized.x;
                                     midY = stabilized.y;
@@ -15560,6 +15593,7 @@ function NodeCanvas() {
                                         minY: midY - (isVerticalLabel ? halfW : halfH),
                                         maxY: midY + (isVerticalLabel ? halfW : halfH),
                                       },
+                                      signature: labelSignature,
                                       position: { x: midX, y: midY, angle }
                                     });
                                   }
@@ -15577,10 +15611,10 @@ function NodeCanvas() {
                                 const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
 
                                 // Lombardi labels ride the arc itself rather than sitting on a
-                                // chord of it. Only when the bend is gentle enough to still read
-                                // as a line of text — labelArcPath returns null past that, and a
-                                // null falls through to the straight rotated label below, which
-                                // is the right answer for a tight curve anyway.
+                                // chord of it — always, at any bend a real connection produces.
+                                // labelArcPath returns null only in degenerate cases (no arc, no
+                                // text, or a label that would wrap the circle), and a null falls
+                                // through to the straight rotated label below.
                                 //
                                 // Skipped mid-drag: the DOM-bypass updater rewrites the path each
                                 // frame (see useNodeDrag), but the <text> element's own transform

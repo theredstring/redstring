@@ -720,12 +720,14 @@ export function arcPathBetween(arc, from, to) {
   return `M ${p0.x},${p0.y} A ${arc.radius},${arc.radius} 0 ${largeArc} ${sweepFlag} ${p1.x},${p1.y}`;
 }
 
-// Widest total angle a label may bend through before curving it stops helping.
-// ~50°: past that the baseline turns enough that the eye has to track a curve
-// rather than read a line, and descenders on the inside of the bend start to
-// crowd. Long text on a tight arc exceeds this quickly, which is exactly when a
-// straight label reads better anyway.
-export const MAX_LABEL_SWEEP = 0.9;
+// Widest total angle a label may bend through.
+//
+// This is a DEGENERACY guard, not a taste one. Curved labels read well at every
+// bend a real connection produces, so there's no aesthetic threshold to enforce
+// — but as the sweep approaches a full turn the path's two endpoints converge,
+// the arc becomes ambiguous, and the text starts overlapping its own tail. Just
+// under 2π is where that begins.
+export const MAX_LABEL_SWEEP = Math.PI * 1.8;
 
 // The path is made longer than the text so `startOffset="50%"` has room either
 // side; a path exactly as long as the estimate would clip if the estimate ran
@@ -739,9 +741,9 @@ const LABEL_PATH_SLACK = 1.4;
  * the placement chose — so a label nudged off the line to dodge something still
  * curves the same way the line does, just at a slightly different radius.
  *
- * Returns null when the text would have to bend more than `maxSweep`. That's
- * the caller's cue to fall back to a straight rotated label, which is both the
- * old behaviour and the right answer for a tight curve.
+ * Returns null only when there is no arc to ride, no text to place, or the
+ * label would have to wrap most of the way round the circle (see
+ * MAX_LABEL_SWEEP). The caller's fallback is a straight rotated label.
  *
  * @param {object} arc - from solveLombardiArc
  * @param {{x:number,y:number}} anchor - the chosen label position
@@ -785,8 +787,12 @@ export function labelArcPath(arc, anchor, textWidth, options = {}) {
   const p0 = at(chosen.a0);
   const p1 = at(chosen.a1);
   const sweepFlag = chosen.a1 > chosen.a0 ? 1 : 0;
+  // Past a half turn the two endpoints stop identifying the arc on their own and
+  // SVG needs telling which way round to go. Omitting this drew long labels
+  // backwards along the short side of the circle.
+  const largeArc = sweep > Math.PI ? 1 : 0;
   return {
-    d: `M ${p0.x},${p0.y} A ${radius},${radius} 0 0 ${sweepFlag} ${p1.x},${p1.y}`,
+    d: `M ${p0.x},${p0.y} A ${radius},${radius} 0 ${largeArc} ${sweepFlag} ${p1.x},${p1.y}`,
     sweep,
     radius,
   };

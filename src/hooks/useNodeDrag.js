@@ -200,6 +200,9 @@ export const useNodeDrag = ({
 
   // DOM-bypass drag state
   const dragPositionsRef = useRef(new Map());     // instanceId → {x, y} (latest computed)
+  // Edges that move during a Lombardi drag without touching a dragged node —
+  // the two-hop set. See where it's filled, at drag start.
+  const dragLombardiExtraEdgeIdsRef = useRef(new Set());
   // Tracks what's actually been written to the DOM, separate from
   // dragPositionsRef. The post-commit useLayoutEffect clears this whenever
   // React renders, because a static React commit overwrites the DOM with
@@ -233,6 +236,7 @@ export const useNodeDrag = ({
     dragNodeElsRef.current.clear();
     dragEdgeElsRef.current.clear();
     dragEdgeDataRef.current.clear();
+    dragLombardiExtraEdgeIdsRef.current.clear();
     dragGroupElsRef.current.clear();
 
     // Cache node <g> elements. Suppress the CSS transform transition inline
@@ -280,8 +284,31 @@ export const useNodeDrag = ({
       });
     }
 
-    const edgeDataIndex = new Map();
     const allEdges = edgesRef.current;
+
+    // LOMBARDI IS NOT LOCAL. Every other routing style recomputes an edge from
+    // its own two endpoints, so caching the dragged node's edges is enough.
+    // Lombardi's perfect-angular-resolution fan is a per-NODE solve over that
+    // node's bearings — so moving one node re-solves the fan at each of its
+    // NEIGHBOURS, which moves every edge those neighbours touch, two hops out.
+    // Without this the two-hop edges freeze mid-drag and snap on drop.
+    const lombardiExtraEdgeIds = new Set();
+    if (enableAutoRoutingRef.current && routingStyleRef.current === 'lombardi') {
+      const neighbors = new Set();
+      for (let i = 0; i < allEdges.length; i++) {
+        const e = allEdges[i];
+        if (nodeIdSet.has(e.sourceId)) neighbors.add(e.destinationId);
+        if (nodeIdSet.has(e.destinationId)) neighbors.add(e.sourceId);
+      }
+      neighbors.forEach(id => {
+        const es = edgesByNode.get(id);
+        if (es) es.forEach(eid => { if (!affectedEdgeIds.has(eid)) lombardiExtraEdgeIds.add(eid); });
+      });
+      lombardiExtraEdgeIds.forEach(eid => affectedEdgeIds.add(eid));
+    }
+    dragLombardiExtraEdgeIdsRef.current = lombardiExtraEdgeIds;
+
+    const edgeDataIndex = new Map();
     for (let i = 0; i < allEdges.length; i++) {
       const e = allEdges[i];
       if (affectedEdgeIds.has(e.id)) edgeDataIndex.set(e.id, e);
@@ -477,6 +504,9 @@ export const useNodeDrag = ({
       const edges = edgesByNode.get(nodeId);
       if (edges) edges.forEach(eid => affectedEdgeIds.add(eid));
     });
+    // Two-hop edges under Lombardi (see drag start). Their endpoints aren't
+    // moving, but their tangents are.
+    dragLombardiExtraEdgeIdsRef.current.forEach(eid => affectedEdgeIds.add(eid));
 
     const curNodeById = nodeByIdRef.current;
     const curBaseDims = baseDimsByIdRef.current;
@@ -1521,6 +1551,7 @@ export const useNodeDrag = ({
     dragNodeElsRef.current.clear();
     dragEdgeElsRef.current.clear();
     dragEdgeDataRef.current.clear();
+    dragLombardiExtraEdgeIdsRef.current.clear();
     dragGroupElsRef.current.clear();
     dragGroupMetaRef.current.clear();
     // The post-commit re-apply effect (useLayoutEffect near the top of this

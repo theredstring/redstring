@@ -971,3 +971,147 @@ describe('circular Lombardi seeding (paper section 2)', () => {
     radii.forEach(r => expect(r).toBeCloseTo(radii[0], 0));
   });
 });
+
+// ============================================================================
+
+describe('large irregular trees (sentence-diagram shape)', () => {
+  // One root, consistent head→dependent flow, many subtrees of wildly uneven
+  // depth, and long relation names on every edge. This is the shape that
+  // exposed both of the layout's original failure modes: bounding-box subtree
+  // packing (a deep subtree beside a shallow one left a void the height of the
+  // deeper one) and sibling labels colliding because a tilted label sweeps far
+  // more cross-axis space than the line it sits on.
+  const PARSE = [
+    ['announced', 'committee', 'nominal subject'],
+    ['announced', 'decision', 'direct object'],
+    ['announced', 'yesterday', 'temporal modifier'],
+    ['committee', 'the', 'determiner'],
+    ['committee', 'oversight', 'compound modifier'],
+    ['committee', 'congressional', 'adjectival modifier'],
+    ['decision', 'its', 'possessive'],
+    ['decision', 'final', 'adjectival modifier'],
+    ['decision', 'postpone', 'clausal complement'],
+    ['postpone', 'vote', 'direct object'],
+    ['vote', 'confirmation', 'compound modifier'],
+    ['vote', 'nominee', 'oblique object'],
+    ['nominee', 'whom', 'relative pronoun'],
+    ['nominee', 'opposed', 'relative clause'],
+    ['opposed', 'senators', 'nominal subject'],
+    ['opposed', 'vigorously', 'adverbial modifier'],
+    ['senators', 'several', 'determiner'],
+    ['senators', 'state', 'oblique object'],
+    ['state', 'same', 'adjectival modifier'],
+    ['yesterday', 'late', 'adverbial modifier']
+  ];
+
+  const build = () => {
+    const ids = [...new Set(PARSE.flatMap(([h, d]) => [h, d]))];
+    const nodes = ids.map(id => node(id, Math.max(180, 60 + id.length * 46), 100));
+    const edges = PARSE.map(([h, d, rel]) => edge(h, d, rel));
+    return { nodes, edges };
+  };
+
+  /** Where NodeCanvas actually draws a label: edge midpoint, rotated to the edge. */
+  const labelQuad = (positions, byId, e) => {
+    const c = (id) => {
+      const n = byId.get(id);
+      const p = positions.get(id);
+      return { x: p.x + n.width / 2, y: p.y + n.height / 2 };
+    };
+    const a = c(e.sourceId);
+    const b = c(e.destinationId);
+    const cx = (a.x + b.x) / 2;
+    const cy = (a.y + b.y) / 2;
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    const hw = estimateEdgeLabelWidth(e.name, FONT) / 2;
+    const hh = FONT * 1.2 / 2;
+    const ux = Math.cos(ang);
+    const uy = Math.sin(ang);
+    return [
+      [cx + ux * hw + uy * hh, cy + uy * hw - ux * hh],
+      [cx + ux * hw - uy * hh, cy + uy * hw + ux * hh],
+      [cx - ux * hw - uy * hh, cy - uy * hw + ux * hh],
+      [cx - ux * hw + uy * hh, cy - uy * hw - ux * hh]
+    ];
+  };
+
+  /** Separating-axis overlap test for two convex quads. */
+  const quadsOverlap = (P, Q) => {
+    for (const poly of [P, Q]) {
+      for (let i = 0; i < 4; i++) {
+        const [x1, y1] = poly[i];
+        const [x2, y2] = poly[(i + 1) % 4];
+        const ax = -(y2 - y1);
+        const ay = x2 - x1;
+        const project = (pts) => pts.reduce((acc, [x, y]) => {
+          const d = x * ax + y * ay;
+          return [Math.min(acc[0], d), Math.max(acc[1], d)];
+        }, [Infinity, -Infinity]);
+        const p = project(P);
+        const q = project(Q);
+        if (p[1] < q[0] || q[1] < p[0]) return false;
+      }
+    }
+    return true;
+  };
+
+  const countLabelCollisions = (positions, nodes, edges) => {
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    const quads = edges.filter(e => e.name).map(e => labelQuad(positions, byId, e));
+    let hits = 0;
+    for (let i = 0; i < quads.length; i++) {
+      for (let j = i + 1; j < quads.length; j++) {
+        if (quadsOverlap(quads[i], quads[j])) hits++;
+      }
+    }
+    return hits;
+  };
+
+  it('is recognized as a single tree', () => {
+    const { nodes, edges } = build();
+    const { topology } = detectTopology(nodes, edges).components[0];
+    expect(topology.kind).toBe(TOPOLOGY.TREE);
+    expect(topology.meta.rootId).toBe('announced');
+  });
+
+  ['vertical', 'horizontal'].forEach(treeDirection => {
+    it(`${treeDirection}: no node overlaps and no colliding labels`, () => {
+      const { nodes, edges } = build();
+      const positions = treeLayout(nodes, edges, { width: 2000, height: 1500, treeDirection });
+      expect(countOverlaps(positions, nodes)).toBe(0);
+      expectLabelsFit(positions, nodes, edges);
+      // Fitting each label along its own edge is NOT sufficient — a tilted
+      // label sweeps across neighbours. This is the check that catches it.
+      expect(countLabelCollisions(positions, nodes, edges)).toBe(0);
+    });
+  });
+
+  it('packs subtrees by contour, not by bounding box', () => {
+    // A deep-narrow subtree beside a shallow-wide one must interlock. Bounding
+    // box packing would reserve the full width of each at every depth.
+    const nodes = ['root', 'deep', 'wide', 'd1', 'd2', 'd3', 'w1', 'w2'].map(id => node(id, 300, 100));
+    const edges = [
+      edge('root', 'deep', 'to'), edge('root', 'wide', 'to'),
+      edge('deep', 'd1', 'to'), edge('d1', 'd2', 'to'), edge('d2', 'd3', 'to'),
+      edge('wide', 'w1', 'to'), edge('wide', 'w2', 'to')
+    ];
+    const positions = treeLayout(nodes, edges, { rootId: 'root', treeDirection: 'vertical' });
+    const xs = [...positions.values()].map(p => p.x);
+    const span = Math.max(...xs) - Math.min(...xs) + 300;
+    // The deep chain is one column wide; interlocked, the whole tree needs
+    // roughly the wide subtree's span plus that column — not both in full.
+    expect(span).toBeLessThan(300 * 5);
+    expect(countOverlaps(positions, nodes)).toBe(0);
+  });
+
+  it('stays fast on a 200-node tree', () => {
+    const nodes = Array.from({ length: 200 }, (_, i) => node(`n${i}`, 300, 100));
+    const edges = Array.from({ length: 199 }, (_, i) =>
+      edge(`n${Math.floor(i / 3)}`, `n${i + 1}`, 'is a component of'));
+    const started = Date.now();
+    const positions = treeLayout(nodes, edges, { width: 2000, height: 1500 });
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(positions.size).toBe(200);
+    expect(countOverlaps(positions, nodes)).toBe(0);
+  });
+});

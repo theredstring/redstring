@@ -565,13 +565,26 @@ describe('labelArcPath (curved labels)', () => {
     expect(Number(m[3])).toBeGreaterThan(Number(m[1]));
   });
 
-  it('declines when the text would have to bend too far', () => {
-    // The gate the user asked for: curve it only when the curve is gentle.
-    // Same text, tight arc — the label has to bend past the threshold.
+  it('curves even on a tight arc', () => {
+    // No aesthetic gate: a curved label reads fine at any bend a real
+    // connection produces, so the only thing that declines is degeneracy.
     const tight = solveLombardiArc({ x: 0, y: 0 }, { x: 160, y: 0 }, 1.1, Math.PI - 1.1, 1);
-    expect(labelArcPath(tight, arcPointAt(tight, 0.5), 400)).toBeNull();
-    // ...and accepts the same text on a gentle one.
+    expect(labelArcPath(tight, arcPointAt(tight, 0.5), 120)).not.toBeNull();
     expect(labelArcPath(arc, apex, 400)).not.toBeNull();
+  });
+
+  it('flags the large-arc case so long text does not run backwards', () => {
+    // Past a half turn the endpoints alone no longer identify the arc; without
+    // the flag SVG takes the short way round and the text reverses.
+    const tight = solveLombardiArc({ x: 0, y: 0 }, { x: 200, y: 0 }, 1.2, Math.PI - 1.2, 1);
+    const p = labelArcPath(tight, arcPointAt(tight, 0.5), 400);
+    expect(p.sweep).toBeGreaterThan(Math.PI);
+    expect(p.d).toMatch(/A [\d.]+,[\d.]+ 0 1 \d /);
+  });
+
+  it('declines only once the label would wrap the whole circle', () => {
+    const tight = solveLombardiArc({ x: 0, y: 0 }, { x: 200, y: 0 }, 1.3, Math.PI - 1.3, 1);
+    expect(labelArcPath(tight, arcPointAt(tight, 0.5), 5000)).toBeNull();
   });
 
   it('declines for a straight edge, which has no arc to ride', () => {
