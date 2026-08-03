@@ -106,11 +106,10 @@ import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
 import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
-import EdgeRenderer from './components/EdgeRenderer.jsx';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
-import { chooseOrthogonalLabelPlacement, estimateTextWidth } from './utils/canvas/edgeLabelPlacement.js';
+import { chooseOrthogonalLabelPlacement, placeLabelOnPath, estimateTextWidth } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -1281,32 +1280,9 @@ function NodeCanvas() {
   const [selectedInstanceIds, setSelectedInstanceIds] = useState(new Set());
 
   // Midpoint and angle of the selected edge in SVG canvas coordinates
-  const selectedEdgeMidpoint = useMemo(() => {
-    const edgeId = selectedEdgeId || (selectedEdgeIds.size === 1 ? [...selectedEdgeIds][0] : null);
-    if (!edgeId) return null;
-    const edge = edgesMap.get(edgeId);
-    if (!edge) return null;
-    const srcNode = nodeById.get(edge.sourceId);
-    const dstNode = nodeById.get(edge.destinationId || edge.targetId);
-    if (!srcNode || !dstNode) return null;
-    const sDims = baseDimsById.get(edge.sourceId) || { currentWidth: 120, currentHeight: 40 };
-    const dDims = baseDimsById.get(edge.destinationId || edge.targetId) || { currentWidth: 120, currentHeight: 40 };
-    const srcCX = srcNode.x + sDims.currentWidth / 2;
-    const srcCY = srcNode.y + sDims.currentHeight / 2;
-    const dstCX = dstNode.x + dDims.currentWidth / 2;
-    const dstCY = dstNode.y + dDims.currentHeight / 2;
-    // Normalize direction to always go left-to-right so button order is stable
-    let dx = dstCX - srcCX;
-    let dy = dstCY - srcCY;
-    if (dx < 0 || (dx === 0 && dy < 0)) { dx = -dx; dy = -dy; }
-    return {
-      x: (srcCX + dstCX) / 2,
-      y: (srcCY + dstCY) / 2,
-      angle: Math.atan2(dy, dx),
-      sourceId: edge.sourceId,
-      destinationId: edge.destinationId || edge.targetId,
-    };
-  }, [selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById]);
+  // NOTE: selectedEdgeMidpoint is defined further down, after edgeCurveInfo and
+  // cleanLaneOffsets — it anchors the edge pie menu to the connection's LABEL
+  // position, which needs both.
 
   // Refs for DOM-bypass drag (declared early so useNodeDrag can receive them)
   // Values sync'd via useEffect after the corresponding memos are computed
@@ -2805,18 +2781,27 @@ function NodeCanvas() {
           destSide = deltaX > 0 ? 'left' : 'right';
         }
 
-        // Calculate port positions on the non-rounded edge segments
-        const cornerRadius = (NODE_CORNER_RADIUS * (textSettings?.nodeScale ?? 1.0)) || 8;
-        const sourcePortPos = getPortPosition(s, sDims, sourceSide, cornerRadius);
-        const destPortPos = getPortPosition(d, dDims, destSide, cornerRadius);
+        // Calculate port positions on the non-rounded edge segments.
+        //
+        // Take the radius from each node's OWN dimensions. Recomputing it from
+        // the global slider (as this used to) was wrong twice over: it dropped
+        // the 1.4 geometry factor that getNodeDimensions applies, and it ignored
+        // per-instance sizeMul entirely — so an independently-resized node
+        // reported a 40px corner while actually drawing a ~112px one, and its
+        // ports landed inside the rounded corner where the connection visibly
+        // detaches from the node outline.
+        const sCornerRadius = sDims.scaledCornerRadius ?? (NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0)) ?? 8;
+        const dCornerRadius = dDims.scaledCornerRadius ?? (NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0)) ?? 8;
+        const sourcePortPos = getPortPosition(s, sDims, sourceSide, sCornerRadius);
+        const destPortPos = getPortPosition(d, dDims, destSide, dCornerRadius);
 
         // Distribute edges along the side to avoid clustering
         const sourceUsage = nodePortUsage.get(s.id)[sourceSide];
         const destUsage = nodePortUsage.get(d.id)[destSide];
 
         // Calculate staggered positions along the edge
-        const sourceStagger = calculateStaggeredPosition(sourcePortPos, sourceSide, sourceUsage.length, sDims, cornerRadius, cleanLaneSpacing);
-        const destStagger = calculateStaggeredPosition(destPortPos, destSide, destUsage.length, dDims, cornerRadius, cleanLaneSpacing);
+        const sourceStagger = calculateStaggeredPosition(sourcePortPos, sourceSide, sourceUsage.length, sDims, sCornerRadius, cleanLaneSpacing);
+        const destStagger = calculateStaggeredPosition(destPortPos, destSide, destUsage.length, dDims, dCornerRadius, cleanLaneSpacing);
 
         // Record port usage
         sourceUsage.push(edge.id);
@@ -2880,6 +2865,80 @@ function NodeCanvas() {
 
     return curveInfoMap;
   }, [edges]);
+
+  // Anchor point for the edge pie menu.
+  //
+  // This used to be the plain center-to-center chord midpoint with the chord's
+  // angle, so on any non-straight connection the menu opened somewhere the
+  // connection doesn't actually pass through — beside a Manhattan route, inside
+  // the bow of a curved one. Anchor it to the same place the connection's LABEL
+  // goes instead: that's already the "you are looking here" point on the edge,
+  // and it means the menu and the label agree by construction in every mode.
+  const selectedEdgeMidpoint = useMemo(() => {
+    const edgeId = selectedEdgeId || (selectedEdgeIds.size === 1 ? [...selectedEdgeIds][0] : null);
+    if (!edgeId) return null;
+    const edge = edgesMap.get(edgeId);
+    if (!edge) return null;
+    const destId = edge.destinationId || edge.targetId;
+    const srcNode = nodeById.get(edge.sourceId);
+    const dstNode = nodeById.get(destId);
+    if (!srcNode || !dstNode) return null;
+    const sDims = baseDimsById.get(edge.sourceId) || { currentWidth: 120, currentHeight: 40 };
+    const dDims = baseDimsById.get(destId) || { currentWidth: 120, currentHeight: 40 };
+
+    let x, y, angleDeg;
+
+    if (edge.sourceId === destId) {
+      // Self-loop: the chord midpoint is the node's own center, which would bury
+      // the menu under the node. Use the loop's apex, where its label sits.
+      const loop = calculateSelfLoopPath(
+        srcNode.x, srcNode.y, sDims.currentWidth, sDims.currentHeight, edgeCurveInfo.get(edgeId)
+      );
+      x = loop.loopCx + loop.radius * Math.cos(loop.outwardAngle);
+      y = loop.loopCy + loop.radius * Math.sin(loop.outwardAngle);
+      angleDeg = 0;
+    } else if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
+      const routing = routingStyle === 'manhattan'
+        ? computeManhattanRouting(srcNode, dstNode, sDims, dDims, manhattanBends)
+        : computeCleanRouting(edge, srcNode, dstNode, sDims, dDims, cleanLaneOffsets, cleanLaneSpacing);
+      const placement = placeLabelOnPath(routing.points);
+      x = placement.x;
+      y = placement.y;
+      angleDeg = placement.angle;
+    } else {
+      // Straight/curved: mirror the label render exactly — visible (border-clipped)
+      // segment through calculateParallelEdgePath, whose apex is the label point
+      // and bows with the curve on parallel edges.
+      const visible = getVisualConnectionEndpoints(
+        srcNode, dstNode, sDims, dDims,
+        selectedInstanceIds.has(edge.sourceId),
+        selectedInstanceIds.has(destId),
+        true, null, null
+      );
+      const path = calculateParallelEdgePath(
+        visible.x1, visible.y1, visible.x2, visible.y2,
+        edgeCurveInfo.get(edgeId), curveSpacing
+      );
+      x = path.apexX ?? (visible.x1 + visible.x2) / 2;
+      y = path.apexY ?? (visible.y1 + visible.y2) / 2;
+      angleDeg = path.labelAngle ?? 0;
+    }
+
+    // Normalize into (-90, 90] so the button row never flips end-for-end as the
+    // connection crosses vertical — button order has to stay stable.
+    let normalized = ((angleDeg % 180) + 180) % 180;
+    if (normalized > 90) normalized -= 180;
+
+    return {
+      x,
+      y,
+      angle: normalized * (Math.PI / 180), // PieMenu's anchorAngle is radians
+      sourceId: edge.sourceId,
+      destinationId: destId,
+    };
+  }, [selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById, selectedInstanceIds,
+    enableAutoRouting, routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing,
+    edgeCurveInfo, curveSpacing]);
 
   // Reverse-index: instanceId → Set<edgeId> for O(1) lookup of edges connected to a node.
   // NOTE: iterate ALL edges (not visibleEdges) so the index stays stable across culling

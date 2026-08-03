@@ -80,39 +80,39 @@ export function calculateStaggeredPosition(basePort, side, edgeUsageIndex, dims,
   const idealPortCount = Math.floor(usableLength / preferredSpacing) + 1;
   const actualPortCount = Math.max(1, idealPortCount);
 
-  // If we have multiple ports, distribute them evenly across available space
-  let position;
-  if (actualPortCount === 1) {
-    // Single port - use center
-    position = 0;
-  } else {
-    // Multiple ports - distribute evenly with slight variations to prevent perfect overlap
-    const evenSpacing = usableLength / (actualPortCount - 1);
-    const basePosition = (edgeUsageIndex % actualPortCount) * evenSpacing;
+  // Distribute OUTWARD FROM THE SIDE MIDPOINT, alternating sides:
+  // slot 0 → center, 1 → +1 lane, 2 → −1 lane, 3 → +2 lanes, ...
+  //
+  // This function previously measured every position from segmentStart, which
+  // put a lone port at the START of the usable band rather than its middle —
+  // the "single port - use center" comment described an intent the arithmetic
+  // never implemented. With two ports it was worse: evenSpacing spanned the
+  // full band, so index 0 and index 1 landed on the far LEFT and far RIGHT of
+  // the side with nothing in the middle. That is why connections attached to
+  // the top and bottom of a node straddled the center instead of meeting it.
+  const slot = ((edgeUsageIndex % actualPortCount) + actualPortCount) % actualPortCount;
+  const rank = Math.ceil(slot / 2) * (slot % 2 === 1 ? 1 : -1);
+  const laneSpacing = actualPortCount > 1 ? usableLength / (actualPortCount - 1) : 0;
 
-    // Add small deterministic variation based on port position to prevent perfect alignment
-    // Use port coordinates for stable hash regardless of edge order
-    const portHash = Math.abs((basePort.x * 23 + basePort.y * 19) % 7); // 0-6
-    const variation = (portHash - 3) * 2; // -6 to +6 pixel variation
+  // Clamp to the usable band so the outermost lanes can't escape into the
+  // rounded corners when the fan is wider than the straight edge.
+  const halfBand = usableLength / 2;
+  const offsetFromCenter = Math.max(-halfBand, Math.min(halfBand, rank * laneSpacing));
 
-    position = basePosition + variation;
-  }
-
-  // Convert relative position to absolute coordinates
-  const offsetFromStart = Math.max(0, Math.min(usableLength, position));
-
+  // basePort.x/y is the exact midpoint of this side, and the usable band is
+  // symmetric about it, so offsetting from the base port keeps slot 0 centered.
   switch (side) {
     case 'top':
     case 'bottom':
       return {
-        x: basePort.segmentStart + safeMargin + offsetFromStart,
+        x: basePort.x + offsetFromCenter,
         y: basePort.y
       };
     case 'left':
     case 'right':
       return {
         x: basePort.x,
-        y: basePort.segmentStart + safeMargin + offsetFromStart
+        y: basePort.y + offsetFromCenter
       };
     default:
       return basePort;
