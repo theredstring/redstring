@@ -4,6 +4,7 @@
 
 import { resolvePaletteColor } from '../../ai/palettes.js';
 import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
+import { nodeSizeMul } from './utils/nodeSize.js';
 
 /**
  * Create a node
@@ -14,7 +15,7 @@ import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
  * @returns {Promise<Object>} Node spec for UI application
  */
 export async function createNode(args, graphState, cid, ensureSchedulerStarted) {
-  const { name, color, description, targetGraphId, palette, typeNodeId, enrich, overwriteDescription } = args;
+  const { name, color, description, size, targetGraphId, palette, typeNodeId, enrich, overwriteDescription } = args;
   if (!name) {
     throw new Error('name is required');
   }
@@ -32,6 +33,8 @@ export async function createNode(args, graphState, cid, ensureSchedulerStarted) 
     name,
     color: resolvePaletteColor(palette, color),
     description: description || '',
+    // undefined at the default size, so the instance keeps its default sizeMul
+    sizeMul: nodeSizeMul(size),
     typeNodeId: typeNodeId || null,
     enrich: enrich !== false,
     overwriteDescription: overwriteDescription || false

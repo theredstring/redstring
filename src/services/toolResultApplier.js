@@ -322,6 +322,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         name: result.name,
         color: result.color || NODE_DEFAULT_COLOR,
         description: result.description || '',
+        sizeMul: result.sizeMul,
         x: Math.random() * 600 + 200,
         y: Math.random() * 500 + 200,
         // PROV stamp for wizard-authored nodes (P2.6); undefined for none
@@ -371,6 +372,50 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       if (result.updates.description !== undefined) prototype.description = result.updates.description;
     });
     console.log('[Wizard] Successfully updated node:', realProtoId);
+    return;
+  }
+
+  // Handle setNodeSize — per-instance visual size, the same discrete steps the
+  // pie menu's "Size" button cycles through. Writes instance.sizeMul (persistent,
+  // saved), never instance.scale (the transient drag-lift register).
+  if (result.action === 'setNodeSize') {
+    const graphId = result.graphId || store.activeGraphId;
+    const lookupName = (result.nodeName || '').toLowerCase().trim();
+    console.log('[Wizard] Applying setNodeSize to store:', lookupName, '→', result.size);
+    if (!graphId || !lookupName) {
+      console.error('[Wizard] setNodeSize: Missing graphId or nodeName');
+      return;
+    }
+    const sizeMul = typeof result.sizeMul === 'number' && result.sizeMul > 0 ? result.sizeMul : 1;
+    const graph = store.graphs.get(graphId);
+    if (!graph) {
+      console.error('[Wizard] setNodeSize: Graph not found:', graphId);
+      return;
+    }
+    // Resolve by name against the real store — predictive instance IDs never match.
+    let realInstanceId = result.instanceId && graph.instances?.has(result.instanceId)
+      ? result.instanceId
+      : null;
+
+    if (!realInstanceId) {
+      for (const [instId, inst] of (graph.instances || new Map())) {
+        const proto = store.nodePrototypes.get(inst.prototypeId);
+        if ((proto?.name || '').toLowerCase().trim() === lookupName) {
+          realInstanceId = instId;
+        }
+      }
+    }
+    if (!realInstanceId) {
+      console.error('[Wizard] setNodeSize: Could not find instance for name:', lookupName);
+      return;
+    }
+    store.updateNodeInstance(
+      graphId,
+      realInstanceId,
+      (inst) => { inst.sizeMul = sizeMul; },
+      { type: 'node_resize', finalize: true }
+    );
+    console.log('[Wizard] Successfully resized node:', lookupName, '→', result.size, `(${sizeMul}x)`);
     return;
   }
 
@@ -1228,6 +1273,9 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         color: n.color,
         description: n.description,
         typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
+        // Per-instance visual size; undefined for every node the tool left at
+        // the default, in which case applyBulkGraphUpdates omits the field.
+        sizeMul: n.sizeMul,
         prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         x: Math.random() * 600 + 200,
@@ -1388,6 +1436,9 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         color: n.color,
         description: n.description,
         typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
+        // Per-instance visual size; undefined for every node the tool left at
+        // the default, in which case applyBulkGraphUpdates omits the field.
+        sizeMul: n.sizeMul,
         prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         x: Math.random() * 600 + 200,
@@ -1519,6 +1570,9 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         color: n.color,
         description: n.description,
         typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
+        // Per-instance visual size; undefined for every node the tool left at
+        // the default, in which case applyBulkGraphUpdates omits the field.
+        sizeMul: n.sizeMul,
         prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         x: Math.random() * 600 + 200,
@@ -1622,6 +1676,9 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         color: n.color,
         description: n.description,
         typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
+        // Per-instance visual size; undefined for every node the tool left at
+        // the default, in which case applyBulkGraphUpdates omits the field.
+        sizeMul: n.sizeMul,
         prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         x: Math.random() * 600 + 200,

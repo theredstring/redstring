@@ -12,6 +12,7 @@ import { planUnfold } from './utils/unfoldController.js';
 import { orderLadder } from './utils/ladderChain.js';
 import { runStructureReview } from './utils/structureReview.js';
 import { conformNames } from './utils/conformNames.js';
+import { nodeSizeMul } from './utils/nodeSize.js';
 import { newBuildId } from '../../services/oneShot.js';
 
 /** Existing node names in a graph from the serialized graphState (for C7 style). */
@@ -88,6 +89,9 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     name: n.name,
     color: resolvePaletteColor(activePalette, n.color),
     description: n.description || '',
+    // undefined at the default size (or for an unrecognized word) — a size typo
+    // must never fail a whole build, it just leaves that node at medium.
+    sizeMul: nodeSizeMul(n.size),
     type: n.type || null,
     typeColor: resolvePaletteColor(activePalette, n.typeColor || '#A0A0A0'),
     typeDescription: n.typeDescription || ''

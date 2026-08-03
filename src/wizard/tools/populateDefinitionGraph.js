@@ -9,6 +9,7 @@
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 import { validateEdgesSmart } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
+import { nodeSizeMul } from './utils/nodeSize.js';
 
 /**
  * Convert string to Title Case
@@ -133,6 +134,8 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
         name: n.name,
         color: resolvePaletteColor(activePalette, n.color),
         description: n.description || '',
+        // undefined at the default size — see nodeSize.js
+        sizeMul: nodeSizeMul(n.size),
         type: n.type || null,
         typeColor: resolvePaletteColor(activePalette, n.typeColor || '#A0A0A0'),
         typeDescription: n.typeDescription || ''

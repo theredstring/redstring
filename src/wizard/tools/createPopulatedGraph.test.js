@@ -401,5 +401,33 @@ describe('createPopulatedGraph', () => {
     expect(result.edgeWarning).toBeNull();
     expect(result.edgeCount).toBe(1);
   });
+
+  it('carries per-node size into the spec, omitting it at the default', async () => {
+    const result = await createPopulatedGraph(
+      {
+        name: 'Cosmos',
+        description: 'Scale demo',
+        nodes: [
+          { name: 'Galaxy', description: 'Big', size: 'extra-large' },
+          { name: 'Planet', description: 'Normal' },
+          { name: 'Grain Of Sand', description: 'Tiny', size: 'extra-small' },
+          { name: 'Moon', description: 'Explicitly default', size: 'medium' },
+          { name: 'Comet', description: 'Typo size', size: 'ginormous' }
+        ],
+        edges: []
+      },
+      { graphs: [], nodePrototypes: [] },
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+
+    const byName = Object.fromEntries(result.spec.nodes.map(n => [n.name, n.sizeMul]));
+    expect(byName['Galaxy']).toBe(2.0);
+    expect(byName['Grain Of Sand']).toBe(0.5);
+    expect(byName['Planet']).toBeUndefined();
+    expect(byName['Moon']).toBeUndefined();
+    // A size typo leaves that node at the default rather than failing the build
+    expect(byName['Comet']).toBeUndefined();
+  });
 });
 

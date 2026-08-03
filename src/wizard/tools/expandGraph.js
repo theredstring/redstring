@@ -12,6 +12,7 @@ import { analyzeGraphQuality } from './graphQuality.js';
 import { resolveGraphId } from './resolveGraphId.js';
 import { runStructureReview } from './utils/structureReview.js';
 import { newBuildId } from '../../services/oneShot.js';
+import { nodeSizeMul } from './utils/nodeSize.js';
 
 /**
  * Convert string to Title Case
@@ -74,6 +75,8 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     name: n.name,
     color: resolvePaletteColor(activePalette, n.color),
     description: n.description || '',
+    // undefined at the default size — see nodeSize.js
+    sizeMul: nodeSizeMul(n.size),
     type: n.type || null,
     typeColor: resolvePaletteColor(activePalette, n.typeColor || '#A0A0A0'),
     typeDescription: n.typeDescription || ''

@@ -3211,6 +3211,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
                 existingProto.color = node.color;
               }
             }
+            // Size lives on the INSTANCE, not the prototype — apply it to the
+            // reused instance so "add these, make X large" still resizes an X
+            // that was already on the canvas.
+            if (typeof node.sizeMul === 'number' && node.sizeMul > 0) {
+              existingInst.sizeMul = node.sizeMul;
+            }
             console.warn(`[applyBulkGraphUpdates] DUPLICATE PREVENTED: Node "${node.name}" already exists in graph, reusing instance ${existingInstanceId}`);
             return; // skip — nodeIdMap already has the correct entry
           }
@@ -3245,7 +3251,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             prototypeId: protoId,
             x: node.x ?? (Math.random() * 500 + 100),
             y: node.y ?? (Math.random() * 400 + 100),
-            scale: 1
+            scale: 1,
+            // Per-instance visual size (XS…XL). Omitted at the default so the
+            // field only appears on nodes that were deliberately resized.
+            ...(typeof node.sizeMul === 'number' && node.sizeMul > 0 && node.sizeMul !== 1
+              ? { sizeMul: node.sizeMul }
+              : {})
           });
 
           nodeIdMap.set(node.name, instanceId);

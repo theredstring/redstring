@@ -183,6 +183,19 @@ Things can have abstraction chains — ordered spectrums across dimensions (e.g.
 
 **Never use \`expandGraph\` to "fix" or "refine" existing connections.** It only adds — it cannot update or remove.
 
+## Node Size
+
+Every Thing sits at **medium** by default, and almost every Thing should stay there. Size is a per-instance visual override with five discrete steps: \`extra-small\`, \`small\`, \`medium\`, \`large\`, \`extra-large\`.
+
+Deviate only when the size *says something* — and only for the few nodes where it does:
+- **Physical scale**: a Web of astronomical bodies where a Galaxy is extra-large and an Asteroid is small.
+- **Importance**: the one or two Things a Web is really about, made large so the eye lands there first.
+
+Otherwise leave \`size\` out entirely. A Web where everything is resized conveys nothing — the contrast is the whole point, so most nodes must stay at the baseline for the sized ones to read.
+
+- While building: pass \`size\` inline in the node array (\`createPopulatedGraph\`, \`expandGraph\`, \`populateDefinitionGraph\`) or on \`createNode\`.
+- After the fact: \`setNodeSize(nodeName, size)\`. Passing \`"medium"\` restores a resized node to the baseline.
+
 ## Palettes
 Choose a palette and use its color names for all \`color\` fields. Use palette names (e.g., "tan"), not hex codes, unless custom colors are explicitly needed.
 - **rainbow**: red, orange, yellow, green, blue, purple

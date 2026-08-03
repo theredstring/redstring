@@ -99,7 +99,8 @@ function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
     targetGraph.instances.push({
       id: instId,
       prototypeId: protoId,
-      name: n.name
+      name: n.name,
+      ...(typeof n.sizeMul === 'number' ? { sizeMul: n.sizeMul } : {})
     });
 
     graphState.nodePrototypes.push({
@@ -199,7 +200,8 @@ function updateGraphState(graphState, _toolName, _args, result) {
       targetGraph.instances.push({
         id: instId,
         prototypeId: protoId,
-        name: result.name
+        name: result.name,
+        ...(typeof result.sizeMul === 'number' ? { sizeMul: result.sizeMul } : {})
       });
       graphState.nodePrototypes = graphState.nodePrototypes || [];
       graphState.nodePrototypes.push({
@@ -231,6 +233,22 @@ function updateGraphState(graphState, _toolName, _args, result) {
       }
     }
     console.error('[updateGraphState] updateNode:', result.originalName, '→', result.updates.name || '(no name change)', '| proto found:', !!proto, '| graph:', targetGraphId);
+  } else if (result.action === 'setNodeSize') {
+    // Size is purely visual — nothing downstream resolves against it. Recorded on
+    // the predictive instance anyway so a follow-up readGraph in the same loop
+    // doesn't contradict the resize the agent just performed.
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    const nameLower = String(result.nodeName || '').toLowerCase().trim();
+    if (targetGraph) {
+      const inst = (targetGraph.instances || []).find(i => {
+        if (result.instanceId && i.id === result.instanceId) return true;
+        const proto = (graphState.nodePrototypes || []).find(p => p.id === i.prototypeId);
+        return String(i.name || proto?.name || '').toLowerCase().trim() === nameLower;
+      });
+      if (inst) inst.sizeMul = result.sizeMul;
+    }
+    console.error('[updateGraphState] setNodeSize:', result.nodeName, '→', result.size);
   } else if (result.action === 'deleteNode') {
     // Remove the node from graphState so it's no longer findable
     const targetGraphId = result.graphId || graphState.activeGraphId;

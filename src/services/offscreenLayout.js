@@ -24,7 +24,10 @@ export function applyOffscreenLayout(graphId) {
     const proto = st.nodePrototypes.get(inst.prototypeId);
     let labelWidth = nodeSpacing, labelHeight = nodeSpacing, imageHeight = 0;
     try {
-      const dims = getNodeDimensions({ name: proto?.name || '', thumbnailSrc: proto?.thumbnailSrc }, false, null);
+      // sizeMul must ride along: a resized instance occupies a different
+      // footprint, and omitting it here lays out an XL node as if it were
+      // medium, so its neighbors get packed underneath it.
+      const dims = getNodeDimensions({ name: proto?.name || '', thumbnailSrc: proto?.thumbnailSrc, sizeMul: inst.sizeMul }, false, null);
       if (dims) {
         labelWidth = dims.currentWidth ?? nodeSpacing;
         labelHeight = dims.currentHeight ?? nodeSpacing;

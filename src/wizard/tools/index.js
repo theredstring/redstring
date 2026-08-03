@@ -10,6 +10,7 @@
 
 import { createNode } from './createNode.js';
 import { updateNode } from './updateNode.js';
+import { setNodeSize } from './setNodeSize.js';
 import { deleteNode } from './deleteNode.js';
 import { createEdge } from './createEdge.js';
 import { deleteEdge } from './deleteEdge.js';
@@ -57,6 +58,7 @@ import { getToolDefinitions } from './schemas.js';
 const TOOLS = {
   createNode,
   updateNode,
+  setNodeSize,
   deleteNode,
   createEdge,
   updateEdge,

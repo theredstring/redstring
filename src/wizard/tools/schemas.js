@@ -1,9 +1,11 @@
 import { PALETTES } from '../../ai/palettes.js';
+import { NODE_SIZE_NAMES, NODE_SIZE_FIELD_DESC } from './utils/nodeSize.js';
 
 // Build a compact palette listing for tool descriptions
 const PALETTE_LIST = Object.entries(PALETTES).map(([key, p]) => `"${key}" (${Object.keys(p.colors).join(', ')})`).join('; ');
 const PALETTE_DESC = `Palette name. Available: ${PALETTE_LIST}. If omitted, a random palette is chosen.`;
 const COLOR_DESC = 'Color name from the chosen palette (e.g., "red", "tan", "navy-blue"). No hex codes.';
+const SIZE_SCHEMA = { type: 'string', enum: NODE_SIZE_NAMES, description: NODE_SIZE_FIELD_DESC };
 
 /**
  * Get tool definitions for LLM
@@ -24,6 +26,7 @@ export function getToolDefinitions(options = {}) {
                     },
                     color: { type: 'string', description: COLOR_DESC },
                     description: { type: 'string', description: 'What this node represents' },
+                    size: SIZE_SCHEMA,
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
                     typeNodeId: { type: 'string', description: 'Prototype ID of type node. Use setNodeType for name-based assignment.' },
                     enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
@@ -48,6 +51,23 @@ export function getToolDefinitions(options = {}) {
                     }
                 },
                 required: ['nodeName']
+            }
+        },
+        {
+            name: 'setNodeSize',
+            description: 'Change the visual size of one existing node on the canvas. Size is per-instance — the same Thing can be large in one Web and medium in another. Sizes are discrete: "extra-small", "small", "medium" (the default), "large", "extra-large". Only deviate from "medium" to convey real physical scale (a Galaxy vs. a Grain of Sand) or relative importance within the graph; a graph where everything is resized reads as noise. To size nodes as you create them, pass `size` inline in createNode / createPopulatedGraph / expandGraph / populateDefinitionGraph instead of calling this afterwards.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    nodeName: { type: 'string', description: 'Name of the node to resize' },
+                    size: {
+                        type: 'string',
+                        enum: NODE_SIZE_NAMES,
+                        description: 'Target size. "medium" is the default and restores a resized node to normal.'
+                    },
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
+                },
+                required: ['nodeName', 'size']
             }
         },
         {
@@ -182,6 +202,7 @@ export function getToolDefinitions(options = {}) {
                                 name: { type: 'string' },
                                 color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string' },
+                                size: SIZE_SCHEMA,
                                 type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
                                 typeDescription: { type: 'string', description: 'Optional: brief description of the type itself.' }
@@ -279,6 +300,7 @@ export function getToolDefinitions(options = {}) {
                                 name: { type: 'string', description: 'Node name - use Title Case (e.g., "Romeo Montague", not "romeo_montague")' },
                                 color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string', description: 'Very brief summary of what this node represents' },
+                                size: SIZE_SCHEMA,
                                 type: { type: 'string', description: 'Highly recommended: name of the category/type this node falls under (e.g., "Character" or "Location").' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors for types.' },
                                 typeDescription: { type: 'string', description: 'Optional: brief description of the type itself.' }
@@ -443,6 +465,7 @@ export function getToolDefinitions(options = {}) {
                                 name: { type: 'string' },
                                 color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string', description: 'Very brief summary of what this node represents' },
+                                size: SIZE_SCHEMA,
                                 type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
                                 typeDescription: { type: 'string', description: 'Optional: brief description of the type itself.' }
@@ -949,7 +972,13 @@ const TOOL_TIERS = {
     findDuplicates: 'has5PlusNodes', mergeNodes: 'has5PlusNodes',
     mergeGraphs: 'multipleGraphs',
 
-    // Tier 3: Keyword-triggered (semantic web, tabular data)
+    // Tier 3: Keyword-triggered (semantic web, tabular data, sizing)
+    // setNodeSize is deliberately NOT default: sizing is a deviation from the
+    // medium baseline, so it should surface when the user actually asks about
+    // size (or after listTools unlocks everything), not sit in every turn's
+    // tool list inviting the model to resize things nobody asked about.
+    setNodeSize: ['size', 'sized', 'resize', 'bigger', 'biggest', 'smaller', 'smallest', 'larger', 'largest', 'shrink', 'enlarge', 'scale'],
+
     discoverOrbit: ['semantic', 'wikidata', 'dbpedia', 'discover', 'orbit'],
     semanticSearch: ['semantic', 'wikidata', 'dbpedia', 'linked data'],
     materializeSemanticEntities: ['semantic', 'materialize', 'wikidata'],

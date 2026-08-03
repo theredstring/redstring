@@ -14,9 +14,12 @@ const TOOL_CATALOG = `# Full Tool Catalog
 
 After calling listTools, ALL tools below become available for the rest of this turn. Params marked with * are required; others are optional.
 
+Every node-creating tool also accepts an optional per-node \`size\` ("extra-small" | "small" | "medium" | "large" | "extra-large"). It defaults to "medium" — omit it unless a node's real physical scale or its importance in the Web justifies standing out.
+
 ## Things (Nodes)
-- **createNode**(name*, color, description, targetGraphId) — Create a single Thing
+- **createNode**(name*, color, description, size, targetGraphId) — Create a single Thing
 - **updateNode**(nodeName*, updates: {name, color, description, imageSrc}, targetGraphId) — Update a Thing
+- **setNodeSize**(nodeName*, size*, targetGraphId) — Resize one Thing on the canvas: "extra-small" | "small" | "medium" (default) | "large" | "extra-large"
 - **deleteNode**(nodeName*, targetGraphId) — Remove a Thing
 - **selectNode**(nodeName*) — Highlight a Thing for the user
 - **setNodeType**(nodeName*, typeName*, typeColor, typeDescription) — Assign a type/category
@@ -26,7 +29,7 @@ After calling listTools, ALL tools below become available for the rest of this t
 
 ## Webs (Graphs)
 - **createGraph**(name*, color, description) — Create an empty Web
-- **createPopulatedGraph**(name*, description*, nodes[{name,color,description,type}]*, edges[{source,target,definitionNode}]*, groups[{name,color,memberNames}], color, enrich, overwriteDescription) — Create a full Web with auto-layout
+- **createPopulatedGraph**(name*, description*, nodes[{name,color,description,type,size}]*, edges[{source,target,definitionNode}]*, groups[{name,color,memberNames}], color, enrich, overwriteDescription) — Create a full Web with auto-layout
 - **expandGraph**(nodes[], edges[], groups[], targetGraphId, enrich) — Add to an existing Web
 - **populateDefinitionGraph**(nodeName*, nodes*, edges*, groups, description, color, enrich) — Build a Thing's internal definition Web
 - **readGraph**(targetGraphId) — Read the active Web's state. Call with NO args for active graph
