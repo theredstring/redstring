@@ -155,6 +155,71 @@ function isDirectedAcyclic(nodeIds, edges) {
   return visited === nodeIds.length;
 }
 
+/**
+ * Find the rooted hierarchy in a component, if it has one.
+ *
+ * This is the single most important test in the file, because a hierarchy is
+ * what people actually build in Redstring, and it is NOT detectable from
+ * undirected shape: "Animal → Mammal, Animal → Bird" is undirected-identical
+ * to the path "Mammal — Animal — Bird", and a root with three children is
+ * undirected-identical to a star. Direction is what tells them apart.
+ *
+ * Two orientations count, because both authoring conventions are natural:
+ *   - outward (arborescence): "Animal contains Mammal" — general points at specific
+ *   - inward (anti-arborescence): "Dog is a kind of Mammal" — specific points at general
+ *
+ * The inward case must be drawn with the root at the BOTTOM, so the arrows
+ * still read upward toward the general term. That's what `inverted` means.
+ *
+ * @returns {{ rootId: string, inverted: boolean, children: Map }|null}
+ */
+export function findHierarchy(nodes, edges) {
+  const ids = nodes.map(n => n.id);
+  const idSet = new Set(ids);
+
+  // Dedupe ordered pairs; a↔b in both directions is a 2-cycle, not a hierarchy.
+  const arcs = [];
+  const seen = new Set();
+  (edges || []).forEach(edge => {
+    if (!edge || edge.sourceId === edge.destinationId) return;
+    if (!idSet.has(edge.sourceId) || !idSet.has(edge.destinationId)) return;
+    const key = `${edge.sourceId}>${edge.destinationId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    arcs.push([edge.sourceId, edge.destinationId]);
+  });
+
+  const test = (inverted) => {
+    const oriented = inverted ? arcs.map(([s, d]) => [d, s]) : arcs;
+    const inDegree = new Map(ids.map(id => [id, 0]));
+    const children = new Map(ids.map(id => [id, []]));
+
+    oriented.forEach(([from, to]) => {
+      inDegree.set(to, inDegree.get(to) + 1);
+      children.get(from).push(to);
+    });
+
+    // An arborescence: exactly one node nothing points at, every other node
+    // reached exactly once, and no cycles.
+    let rootId = null;
+    for (const id of ids) {
+      const degree = inDegree.get(id);
+      if (degree === 0) {
+        if (rootId !== null) return null; // two roots — not a hierarchy
+        rootId = id;
+      } else if (degree > 1) {
+        return null; // a merge point — that's a DAG, not a tree
+      }
+    }
+    if (rootId === null) return null; // every node has a parent ⟹ a cycle
+    if (!isDirectedAcyclic(ids, oriented.map(([s, d]) => ({ sourceId: s, destinationId: d })))) return null;
+
+    return { rootId, inverted, children };
+  };
+
+  return test(false) || test(true);
+}
+
 /** BFS returning { distances, farthestId } from a start node. */
 function bfsFrom(startId, adjacency) {
   const distances = new Map([[startId, 0]]);
@@ -189,6 +254,10 @@ export function chooseTreeRoot(nodes, edges, adjacency, preferredId = null) {
   const ids = nodes.map(n => n.id);
   if (preferredId && adjacency.has(preferredId)) return preferredId;
   if (ids.length === 0) return null;
+
+  // A consistent hierarchy names its own root, in either edge direction.
+  const hierarchy = findHierarchy(nodes, edges);
+  if (hierarchy) return hierarchy.rootId;
 
   const hasIncoming = new Set();
   edges.forEach(edge => {
@@ -269,6 +338,31 @@ export function classifyComponent(component, options = {}) {
   const acyclic = m === n - 1; // connected + |E| = |V|-1 ⟺ tree
 
   if (acyclic) {
+    // Direction first. A consistent hierarchy is a tree no matter what its
+    // undirected shape happens to look like — "root with three children" is
+    // undirected-identical to a star, and "root with two children" to a path,
+    // but both are hierarchies and both must be drawn as trees.
+    const hierarchy = findHierarchy(nodes, edges);
+    if (hierarchy) {
+      const branches = Array.from(hierarchy.children.values()).some(kids => kids.length >= 2);
+      if (branches) {
+        return {
+          kind: TOPOLOGY.TREE,
+          confidence: 1,
+          meta: { rootId: hierarchy.rootId, inverted: hierarchy.inverted, leafCount }
+        };
+      }
+      // A hierarchy that never branches is a sequence. Chain layout is the
+      // better rendering: it serpentines instead of running off the canvas.
+      return {
+        kind: TOPOLOGY.CHAIN,
+        confidence: 1,
+        meta: { startId: hierarchy.rootId, endpoints: [hierarchy.rootId] }
+      };
+    }
+
+    // No consistent direction — fall back to undirected shape.
+
     // A path: at most two endpoints, everything else strung between them.
     if (maxDegree <= 2) {
       const endpoints = nodes.filter(node => degrees.get(node.id) <= 1).map(node => node.id);
@@ -278,8 +372,10 @@ export function classifyComponent(component, options = {}) {
         meta: { startId: endpoints[0] ?? nodes[0].id, endpoints }
       };
     }
-    // A star: one hub touching everything, and n-1 leaves. Requires 4+ nodes —
-    // below that a "star" is just a short path and reads better as one.
+    // A star: one hub touching everything, and n-1 leaves. Only reachable when
+    // the edge directions are mixed — a hub whose edges all point the same way
+    // was already claimed as a hierarchy above. Mixed directions mean
+    // association rather than containment, which is what a ring depicts.
     if (n >= 4 && maxDegree === n - 1 && leafCount === n - 1) {
       return {
         kind: TOPOLOGY.STAR,
@@ -289,7 +385,7 @@ export function classifyComponent(component, options = {}) {
     }
     return {
       kind: TOPOLOGY.TREE,
-      confidence: 1,
+      confidence: 0.8,
       meta: { rootId: chooseTreeRoot(nodes, edges, adjacency, options.rootId), leafCount }
     };
   }

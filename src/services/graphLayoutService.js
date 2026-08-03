@@ -16,7 +16,9 @@ import {
   cycleLayout,
   chainLayout,
   starLayout,
-  layeredLayout
+  layeredLayout,
+  radialTreeLayout,
+  arcChainLayout
 } from './patternLayouts.js';
 
 // ============================================================================
@@ -32,7 +34,9 @@ const PATTERN_ALGORITHMS = new Set([
   'cycle', 'circuit', 'ring',
   'chain', 'path', 'sequence',
   'star', 'hub',
-  'layered', 'dag', 'pipeline'
+  'layered', 'dag', 'pipeline',
+  'radial-tree', 'concentric',
+  'arc-chain'
 ]);
 
 /** positions Map (nodeId → {x, y}) → the update list the store expects. */
@@ -3586,6 +3590,14 @@ export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
       case 'dag':
       case 'pipeline':
         return toUpdates(layeredLayout(nodes, edges, options));
+      // The Lombardi-native pair: concentric rings for hierarchies, an open
+      // circle for sequences. 'pattern' picks these automatically when the
+      // routing style is lombardi; these names force them.
+      case 'radial-tree':
+      case 'concentric':
+        return toUpdates(radialTreeLayout(nodes, edges, options));
+      case 'arc-chain':
+        return toUpdates(arcChainLayout(nodes, edges, options));
       default:
         break;
     }

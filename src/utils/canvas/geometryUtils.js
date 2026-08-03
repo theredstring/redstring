@@ -300,6 +300,38 @@ export function pointToRectDistance(x, y, rect) {
  * @param {Array} obstacles - Array of obstacle rectangles
  * @returns {boolean} True if intersection found
  */
+/**
+ * Shortest distance from a point to a polyline.
+ *
+ * Every routed style hit-tests against its own `points` array, so this is the
+ * one place segment distance is computed for them — Lombardi arcs included,
+ * since a densely sampled arc is just a polyline.
+ *
+ * @param {number} px
+ * @param {number} py
+ * @param {Array<{x:number,y:number}>} points
+ * @returns {number} Infinity when there is nothing to measure against
+ */
+export function distanceToPolyline(px, py, points) {
+  if (!points || points.length < 2) return Infinity;
+  let best = Infinity;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const cx = b.x - a.x;
+    const cy = b.y - a.y;
+    const lenSq = cx * cx + cy * cy;
+    if (lenSq <= 0) continue;
+    let t = ((px - a.x) * cx + (py - a.y) * cy) / lenSq;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    const dx = px - (a.x + t * cx);
+    const dy = py - (a.y + t * cy);
+    const d = Math.hypot(dx, dy);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 export function rectIntersectsAny(rect, obstacles) {
   return obstacles.some(obs => {
     return !(rect.x > obs.x + obs.width || rect.x + rect.width < obs.x ||

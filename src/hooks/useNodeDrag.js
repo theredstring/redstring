@@ -6,8 +6,8 @@ import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
-import { computeManhattanRouting, computeCleanRouting } from '../utils/canvas/edgeRouting.js';
-import { placeLabelOnPath } from '../utils/canvas/edgeLabelPlacement.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents } from '../utils/canvas/edgeRouting.js';
+import { placeLabelOnRoute } from '../utils/canvas/edgeLabelPlacement.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../services/groupLayout.js';
 import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
 import saveCoordinator from '../services/SaveCoordinator.js';
@@ -102,6 +102,8 @@ export const useNodeDrag = ({
   manhattanBendsRef,
   cleanLaneSpacingRef,
   cleanLaneOffsetsRef,
+  lombardiTangentsRef,
+  lombardiCurvatureRef,
   multiConnectionCurveRef,
   groupsByNodeIdRef,
   groupsByIdRef,
@@ -466,11 +468,31 @@ export const useNodeDrag = ({
     const curBaseDims = baseDimsByIdRef.current;
     const curCurveInfo = edgeCurveInfoRef.current;
     const curSelectedIds = selectedInstanceIdsRef.current;
-    const isManhattanOrClean = enableAutoRoutingRef.current &&
-      (routingStyleRef.current === 'manhattan' || routingStyleRef.current === 'clean');
+    const routingStyle = routingStyleRef.current;
+    const isRoutedStyle = enableAutoRoutingRef.current &&
+      (routingStyle === 'manhattan' || routingStyle === 'clean' || routingStyle === 'lombardi');
 
     // Edge data index was built once at drag start; reuse it.
     const edgeDataMap = dragEdgeDataRef.current;
+
+    // Lombardi's tangent fan is re-solved every frame, unlike clean routing's
+    // frozen lanes. It has to be: perfect angular resolution is defined by the
+    // CURRENT bearings between nodes, and dragging changes those continuously —
+    // a frozen fan would peel every incident arc off its node and, once the
+    // stale tangent disagreed enough with the new chord, curl the arc into a
+    // loop. Solved once here for the whole graph, not per edge.
+    let liveLombardiTangents = null;
+    if (routingStyle === 'lombardi') {
+      const livePositions = new Map(curNodeById);
+      dragPositionsRef.current.forEach((pos, id) => {
+        const stored = curNodeById.get(id);
+        if (stored) livePositions.set(id, { ...stored, x: pos.x, y: pos.y });
+      });
+      liveLombardiTangents = computeLombardiTangents(
+        Array.from(livePositions.values()), edgesRef?.current || [], curBaseDims
+      );
+      lombardiTangentsRef.current = liveLombardiTangents;
+    }
 
     affectedEdgeIds.forEach(edgeId => {
       const edgeEls = dragEdgeElsRef.current.get(edgeId);
@@ -544,7 +566,7 @@ export const useNodeDrag = ({
       const centerY2 = virtualDest.y + dDims.currentHeight / 2;
 
       // -----------------------------------------------------------------------
-      // Manhattan / Clean routing.
+      // Manhattan / Clean / Lombardi routing.
       //
       // These used to fall through to the straight-edge code below, which was
       // catastrophic for them: it fed center-to-center endpoints into the
@@ -558,10 +580,15 @@ export const useNodeDrag = ({
       //
       // Route properly instead, from the same helpers the settled render uses.
       // -----------------------------------------------------------------------
-      if (isManhattanOrClean) {
-        const style = routingStyleRef.current;
+      if (isRoutedStyle) {
+        const style = routingStyle;
         let routing;
-        if (style === 'manhattan') {
+        if (style === 'lombardi') {
+          routing = computeLombardiRouting(
+            edge, virtualSource, virtualDest, sDims, dDims, liveLombardiTangents,
+            { curvature: lombardiCurvatureRef?.current ?? 1, selectedInstanceIds: curSelectedIds }
+          );
+        } else if (style === 'manhattan') {
           routing = computeManhattanRouting(
             virtualSource, virtualDest, sDims, dDims, manhattanBendsRef?.current || 'auto'
           );
@@ -606,6 +633,9 @@ export const useNodeDrag = ({
 
         // Arrowheads sit a fixed offset outside the port, oriented by the side
         // they enter on — mirrors the settled render's per-side placement.
+        // Lombardi resolves its own arrowheads (there is no side to switch on —
+        // an arc can leave a node at any bearing), so prefer whatever the
+        // descriptor carries and only fall back to the per-side placement.
         const arrowOffset = style === 'manhattan' ? 12 : 6;
         const arrowFor = (side, px, py) => {
           switch (side) {
@@ -616,13 +646,13 @@ export const useNodeDrag = ({
             default: return null;
           }
         };
-        const sourceArrow = arrowFor(routing.sourceSide, routing.startX, routing.startY);
-        const destArrow = arrowFor(routing.destSide, routing.endX, routing.endY);
+        const sourceArrow = routing.sourceArrow ?? arrowFor(routing.sourceSide, routing.startX, routing.startY);
+        const destArrow = routing.destArrow ?? arrowFor(routing.destSide, routing.endX, routing.endY);
 
         // Cheap on-path label placement (no obstacle avoidance — that pass is far
         // too expensive per frame). Stays on the polyline and axis-aligned, so it
         // agrees closely with the settled placement computed on drop.
-        const labelPos = placeLabelOnPath(routing.points);
+        const labelPos = placeLabelOnRoute(routing);
         const labelAdj = (labelPos.angle > 90 || labelPos.angle < -90)
           ? labelPos.angle + 180
           : labelPos.angle;
@@ -829,7 +859,8 @@ export const useNodeDrag = ({
     });
   }, [nodeByIdRef, baseDimsByIdRef, edgeCurveInfoRef, edgesByNodeIdRef, edgesRef,
     selectedInstanceIdsRef, enableAutoRoutingRef, routingStyleRef, manhattanBendsRef,
-    cleanLaneSpacingRef, cleanLaneOffsetsRef, placedLabelsRef]);
+    cleanLaneSpacingRef, cleanLaneOffsetsRef, lombardiTangentsRef, lombardiCurvatureRef,
+    edgesRef, placedLabelsRef]);
 
   // ---------------------------------------------------------------------------
   // Update Group Bounds in DOM (recomputes bounding boxes for affected groups)

@@ -5,6 +5,7 @@
  */
 
 import { getNodeHitbox } from './nodeHitbox.js';
+import { arcPointAt } from './edgeRouting.js';
 
 // Inflate a rectangle by padding
 export const inflateRect = (rect, pad) => ({
@@ -513,6 +514,110 @@ export const chooseOrthogonalLabelPlacement = (
         rect: labelRectFor(fallback.x, fallback.y, textWidth, textHeight, fallback.angle),
     };
 };
+
+// ---------------------------------------------------------------------------
+// LOMBARDI (arc) LABEL PLACEMENT
+//
+// An arc sampled into a polyline is useless to describeSegments: every segment
+// is a short diagonal of near-identical length, so the "longest run" score is
+// noise and the orientation bonus is always zero. Arcs get their own placer,
+// which works in arc PARAMETER space instead — slide along the curve, and step
+// off it only radially.
+//
+// Unlike the orthogonal placer, the angle here follows the tangent rather than
+// snapping to an axis. On an arc that IS the readable choice: text set along
+// the curve is what makes a Lombardi drawing legible, and a horizontal label on
+// a steeply curving arc reads as belonging to nothing.
+// ---------------------------------------------------------------------------
+
+// Same ladder as the orthogonal placer: hug the middle of the run, then slide.
+const ARC_ALONG = [0.5, 0.44, 0.56, 0.36, 0.64, 0.28, 0.72];
+
+/** Point, tangent angle and outward radial normal at a parameter on the arc. */
+const arcAnchor = (arc, s) => {
+    const pt = arcPointAt(arc, s);
+    // Radial direction from the circle's centre — the only sensible "off the
+    // line" direction on an arc, and it keeps the offset perpendicular to the
+    // text baseline the way the orthogonal placer's perpendicular does.
+    const nx = (pt.x - arc.cx) / arc.radius;
+    const ny = (pt.y - arc.cy) / arc.radius;
+    return { ...pt, nx, ny };
+};
+
+export const placeLabelOnArc = (arc) => {
+    if (!arc) return { x: 0, y: 0, angle: 0 };
+    const mid = arcPointAt(arc, 0.5);
+    return { x: mid.x, y: mid.y, angle: mid.angle };
+};
+
+export const chooseArcLabelPlacement = (
+    arc, connectionName, nodes, visibleNodeIds, baseDimsById,
+    placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set()
+) => {
+    if (!arc) return { x: 0, y: 0, angle: 0 };
+
+    const textWidth = estimateTextWidth(connectionName, fontSize);
+    const textHeight = fontSize;
+
+    const obstacles = getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedNodeIds);
+    if (placedLabels && placedLabels.size > 0) {
+        placedLabels.forEach((labelData, id) => {
+            if (id !== edgeId && labelData?.rect) obstacles.push(labelData.rect);
+        });
+    }
+
+    const radialOffsets = [0, textHeight * 0.6, -textHeight * 0.6, textHeight, -textHeight];
+
+    let best = null;
+    for (const s of ARC_ALONG) {
+        const anchor = arcAnchor(arc, s);
+        for (const offset of radialOffsets) {
+            const x = anchor.x + anchor.nx * offset;
+            const y = anchor.y + anchor.ny * offset;
+            const rect = labelRectFor(x, y, textWidth, textHeight, anchor.angle);
+            if (rectIntersectsAny(rect, obstacles)) continue;
+
+            const score = -Math.abs(s - 0.5) * 300 - Math.abs(offset) * 6;
+            if (!best || score > best.score) {
+                best = { x, y, angle: anchor.angle, score, rect };
+            }
+        }
+    }
+
+    if (best) return best;
+
+    const fallback = placeLabelOnArc(arc);
+    return {
+        ...fallback,
+        score: 0,
+        rect: labelRectFor(fallback.x, fallback.y, textWidth, textHeight, fallback.angle),
+    };
+};
+
+// ---------------------------------------------------------------------------
+// ROUTING-AGNOSTIC ENTRY POINTS
+//
+// Callers hold a routing descriptor, not a shape. Dispatching here — rather than
+// at each of NodeCanvas's two duplicated edge blocks plus the drag updater —
+// is what keeps a new routing style from needing another branch in all three.
+// ---------------------------------------------------------------------------
+
+/** Cheap deterministic anchor. Used per-frame during drags and by the pie menu. */
+export const placeLabelOnRoute = (routing) => (
+    routing?.arc ? placeLabelOnArc(routing.arc) : placeLabelOnPath(routing?.points)
+);
+
+/** Full placement with obstacle avoidance. Used by the settled render. */
+export const chooseRoutedLabelPlacement = (
+    routing, connectionName, nodes, visibleNodeIds, baseDimsById,
+    placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set()
+) => (
+    routing?.arc
+        ? chooseArcLabelPlacement(routing.arc, connectionName, nodes, visibleNodeIds,
+            baseDimsById, placedLabels, fontSize, edgeId, selectedNodeIds)
+        : chooseOrthogonalLabelPlacement(routing?.points, connectionName, nodes, visibleNodeIds,
+            baseDimsById, placedLabels, fontSize, edgeId, selectedNodeIds)
+);
 
 // Main label placement orchestrator
 export const chooseLabelPlacement = (pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set()) => {

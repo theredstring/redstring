@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Bot, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Link as LinkIcon } from 'lucide-react';
+import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Bot, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, Link as LinkIcon } from 'lucide-react';
 import './RedstringMenu.css';
 import DebugOverlay from './DebugOverlay';
 import * as fileStorage from './store/fileStorage.js';
@@ -33,6 +33,9 @@ const RedstringMenu = ({
   // Optional: expose clean lane spacing adjuster
   onSetCleanLaneSpacing,
   cleanLaneSpacing,
+  // Lombardi arc curvature
+  onSetLombardiCurvature,
+  lombardiCurvature,
   // Group layout
   groupLayoutAlgorithm,
   onSetGroupLayoutAlgorithm,
@@ -886,6 +889,49 @@ const RedstringMenu = ({
                           <Spline size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Routing: Clean {routingStyle === 'clean' ? '✓' : ''}
                         </div>
+                        <div
+                          className="submenu-item"
+                          onClick={() => onSetRoutingStyle?.('lombardi')}
+                          style={{ opacity: routingStyle === 'lombardi' ? 1 : 0.8, cursor: 'pointer' }}
+                        >
+                          <Circle size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
+                          Routing: Lombardi {routingStyle === 'lombardi' ? '✓' : ''}
+                        </div>
+                        {routingStyle === 'lombardi' && (
+                          <div style={{ padding: '6px 6px 0 6px', width: '100%' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: '10px' }}>
+                              <div style={{ fontSize: '12px', color: '#BDB6B5', opacity: 0.9 }}>Arc curvature</div>
+                              <div style={{ fontSize: '12px', color: '#BDB6B5', opacity: 0.8 }}>{(lombardiCurvature ?? 1).toFixed(2)}×</div>
+                            </div>
+                            <div
+                              style={{ width: 'calc(100% - 16px)', margin: '6px 8px 0 8px' }}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onMouseUp={(e) => e.stopPropagation()}
+                              onClick={(e) => e.stopPropagation()}
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onPointerUp={(e) => e.stopPropagation()}
+                            >
+                              <input
+                                className="submenu-slider"
+                                type="range"
+                                min={0}
+                                max={2}
+                                step={0.05}
+                                value={lombardiCurvature ?? 1}
+                                onChange={(e) => onSetLombardiCurvature?.(Number(e.target.value))}
+                                onInput={(e) => onSetLombardiCurvature?.(Number(e.target.value))}
+                                draggable={false}
+                                onMouseDown={(e) => { setIsInteracting(true); e.stopPropagation(); }}
+                                onMouseUp={(e) => { setIsInteracting(false); e.stopPropagation(); }}
+                                onClick={(e) => e.stopPropagation()}
+                                onPointerDown={(e) => { setIsInteracting(true); e.stopPropagation(); }}
+                                onPointerUp={(e) => { setIsInteracting(false); e.stopPropagation(); }}
+                                onTouchStart={(e) => { setIsInteracting(true); e.stopPropagation(); }}
+                                onTouchEnd={(e) => { setIsInteracting(false); e.stopPropagation(); }}
+                              />
+                            </div>
+                          </div>
+                        )}
                         {routingStyle === 'clean' && (
                           <div style={{ padding: '6px 6px 0 6px', width: '100%' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: '10px' }}>

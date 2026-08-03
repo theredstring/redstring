@@ -1,13 +1,24 @@
 /**
- * Edge routing utilities for Manhattan and Clean routing styles
+ * Edge routing utilities for the Manhattan, Clean and Lombardi routing styles
  *
  * SINGLE SOURCE OF TRUTH. Both the settled React render (NodeCanvas) and the
  * DOM-bypass drag updater (useNodeDrag) build routed edges from the functions
  * here. Any geometry that only one of them knows how to compute shows up as an
  * edge that jumps, freezes, or straightens the moment a drag starts.
+ *
+ * Every compute* function returns the SAME descriptor shape so callers can stay
+ * routing-agnostic:
+ *
+ *   { points, pathD, startX, startY, endX, endY, sourceSide, destSide,
+ *     arc?, sourceArrow?, destArrow? }
+ *
+ * `points` is always a polyline — literally so for the orthogonal styles, a
+ * sampling of the curve for Lombardi. Hit-testing, hover trimming and label
+ * placement all run against it, which is why an arc costs them nothing new.
  */
 
 import { getPortPosition } from './portPositioning.js';
+import { getNodeHitbox } from './nodeHitbox.js';
 
 const DEFAULT_CORNER_RADIUS = 8;
 
@@ -452,6 +463,332 @@ export function generateManhattanRoutingPath(edge, sourceNode, destNode, sDims, 
   }
 
   return pathPoints;
+}
+
+// ===========================================================================
+// LOMBARDI ROUTING
+// ===========================================================================
+//
+// After Duncan, Eppstein, Goodrich, Kobourov & Nöllenburg, "Lombardi Drawings
+// of Graphs" (arXiv:1009.0579), itself after the artist Mark Lombardi. Two
+// rules define the style:
+//
+//   1. Every edge is a CIRCULAR ARC (or a straight line, the degenerate arc).
+//   2. Every vertex has PERFECT ANGULAR RESOLUTION — its incident edges leave
+//      evenly spaced around the full 2π, not snapped to four side ports.
+//
+// Rule 2 is the interesting one, and it is why this can't reuse the port
+// machinery: Manhattan and Clean pick one of four sides and stagger within it,
+// which is the exact opposite of spreading edges evenly around a circle.
+//
+// WHERE WE NECESSARILY DEPART FROM THE PAPER
+// The paper's algorithms get to CHOOSE vertex positions — that freedom is what
+// lets them satisfy both endpoints' tangents at once (their Property 2: the
+// locus of valid meeting points for a prescribed pair of tangents is itself a
+// circle). Redstring's positions belong to the user; we can't move a node to
+// make an arc work. And a circular arc through two fixed points has only one
+// degree of freedom left, so it CANNOT honour two independently chosen
+// tangents. See solveLombardiArc for how that conflict is settled.
+// ---------------------------------------------------------------------------
+
+const TAU = Math.PI * 2;
+
+/** Wrap to (-π, π]. */
+const wrapPi = (a) => {
+  const r = ((a + Math.PI) % TAU + TAU) % TAU - Math.PI;
+  return r === -Math.PI ? Math.PI : r;
+};
+
+/** Wrap to [0, 2π). */
+const wrapTau = (a) => ((a % TAU) + TAU) % TAU;
+
+// Cap on the tangent-chord angle (~75°, so an arc spans at most ~151°). Past
+// this an arc stops reading as a connection and starts reading as a lasso, and
+// it also keeps every arc inside SVG's small-arc case.
+export const MAX_TANGENT_CHORD = 1.32;
+
+// How far inside the node border an arrowhead's origin sits. Matches the
+// `offset` the straight-routing arrow placement uses.
+const LOMBARDI_ARROW_INSET = 12;
+
+/**
+ * Assign every edge END a tangent direction, evenly spaced around its node.
+ *
+ * This is the "perfect angular resolution" half of a Lombardi drawing, and it
+ * is a per-NODE solve: a node of degree k gets k slots at 2π/k spacing, and the
+ * only remaining freedom is how that whole fan is rotated.
+ *
+ * Choosing the rotation: sort the incident edges by the natural bearing to
+ * their neighbour, which fixes the cyclic order (and keeps the drawing free of
+ * self-inflicted crossings around the node). Then the best rotation is simply
+ * the circular mean of each edge's residual — its natural bearing minus its
+ * slot's nominal angle. There is nothing to enumerate: rotating the ASSIGNMENT
+ * by one slot shifts every residual by exactly -2π/k, which shifts the mean by
+ * -2π/k and reproduces the identical set of directions.
+ *
+ * @param {Array} nodes - hydrated node instances
+ * @param {Array} edges - ALL edges (not just visible ones — see caller)
+ * @param {Map} dimsById - instanceId → dimensions
+ * @returns {Map<string, {sourceAngle:number, destAngle:number}>}
+ */
+export function computeLombardiTangents(nodes, edges, dimsById) {
+  const assignments = new Map();
+  if (!nodes?.length || !edges?.length) return assignments;
+
+  const centers = new Map();
+  for (const node of nodes) {
+    const d = dimsById?.get?.(node.id);
+    centers.set(node.id, {
+      x: node.x + (d?.currentWidth ?? 0) / 2,
+      y: node.y + (d?.currentHeight ?? 0) / 2,
+    });
+  }
+
+  // Bucket every edge END by the node it attaches to. Self-loops are drawn by
+  // the dedicated self-loop path and never consume a slot.
+  const ends = new Map();
+  const addEnd = (nodeId, entry) => {
+    const list = ends.get(nodeId);
+    if (list) list.push(entry); else ends.set(nodeId, [entry]);
+  };
+
+  for (const edge of edges) {
+    if (!edge || edge.sourceId === edge.destinationId) continue;
+    const s = centers.get(edge.sourceId);
+    const d = centers.get(edge.destinationId);
+    if (!s || !d) continue;
+    const bearing = Math.atan2(d.y - s.y, d.x - s.x);
+    addEnd(edge.sourceId, { edgeId: edge.id, role: 'source', bearing: wrapTau(bearing) });
+    addEnd(edge.destinationId, { edgeId: edge.id, role: 'dest', bearing: wrapTau(bearing + Math.PI) });
+  }
+
+  ends.forEach((list) => {
+    // Ties (parallel edges — identical bearings) break by edge id so each one
+    // lands in a stable slot instead of swapping lanes between renders. This is
+    // also what fans a multi-connection apart, which is exactly what Lombardi's
+    // own drawings do with repeated relations.
+    list.sort((a, b) => (a.bearing - b.bearing) || (a.edgeId < b.edgeId ? -1 : 1));
+
+    const k = list.length;
+    const step = TAU / k;
+
+    let sx = 0;
+    let sy = 0;
+    for (let i = 0; i < k; i++) {
+      const residual = list[i].bearing - i * step;
+      sx += Math.cos(residual);
+      sy += Math.sin(residual);
+    }
+    // Degenerate: residuals that cancel exactly (two edges to the very same
+    // place, say) leave no rotation better than another. Anchor on the first
+    // edge's own bearing so the result is at least deterministic.
+    const phi = Math.hypot(sx, sy) < 1e-6 ? list[0].bearing : Math.atan2(sy, sx);
+
+    for (let i = 0; i < k; i++) {
+      const { edgeId, role } = list[i];
+      const angle = phi + i * step;
+      const slot = assignments.get(edgeId) || {};
+      if (role === 'source') slot.sourceAngle = angle;
+      else slot.destAngle = angle;
+      assignments.set(edgeId, slot);
+    }
+  });
+
+  return assignments;
+}
+
+/**
+ * The single circular arc from p to q that best honours a desired departure
+ * tangent at p and a desired arrival tangent at q.
+ *
+ * Property 1 of the paper: a circular arc makes the SAME angle with the chord
+ * at both of its endpoints. So the two demands are not independent — an arc
+ * that departs p at +δ from the chord necessarily arrives at q at -δ. With the
+ * node positions fixed there is no way to satisfy both unless they already
+ * agree, so we split the difference. Averaging the two demanded deviations
+ * minimises the worst-case angular error, and it is exact whenever the
+ * tangent assignment happens to be consistent (which it is for the whole class
+ * of graphs the paper's constructions target).
+ *
+ * @param {{x:number,y:number}} p
+ * @param {{x:number,y:number}} q
+ * @param {number} thetaP - direction the edge should leave p (radians)
+ * @param {number} thetaQ - direction the edge should leave q (radians)
+ * @param {number} curvature - user multiplier on the resulting bow
+ * @returns {{straight:boolean, cx?:number, cy?:number, radius?:number,
+ *            a0?:number, sweep?:number, delta:number} | null}
+ */
+export function solveLombardiArc(p, q, thetaP, thetaQ, curvature = 1) {
+  const dx = q.x - p.x;
+  const dy = q.y - p.y;
+  const chordLength = Math.hypot(dx, dy);
+  if (chordLength < 1e-6) return null;
+
+  const chord = Math.atan2(dy, dx);
+  // Departure deviation demanded at p, and arrival deviation demanded at q.
+  // The edge ARRIVES at q travelling in direction thetaQ + π (thetaQ points out
+  // of the node), and an arc's arrival deviation is the negation of its
+  // departure deviation — hence the minus.
+  const alpha = wrapPi(thetaP - chord);
+  const beta = wrapPi(thetaQ + Math.PI - chord);
+  let delta = ((alpha - beta) / 2) * curvature;
+  delta = Math.max(-MAX_TANGENT_CHORD, Math.min(MAX_TANGENT_CHORD, delta));
+
+  if (Math.abs(delta) < 1e-3) return { straight: true, delta: 0 };
+
+  // Signed radius: chord subtending 2δ. The centre lies one radius off the
+  // tangent at p, on the side the arc curves away from.
+  const signedR = chordLength / (2 * Math.sin(delta));
+  const tx = Math.cos(chord + delta);
+  const ty = Math.sin(chord + delta);
+  const cx = p.x + signedR * ty;
+  const cy = p.y - signedR * tx;
+
+  return {
+    straight: false,
+    cx,
+    cy,
+    radius: Math.abs(signedR),
+    a0: Math.atan2(p.y - cy, p.x - cx),
+    // Travelling p→q turns through -2δ (screen coords are y-down).
+    sweep: -2 * delta,
+    delta,
+  };
+}
+
+/**
+ * Point and tangent at parameter s ∈ [0,1] along an arc.
+ * @returns {{x:number, y:number, angle:number}} angle in DEGREES, in the p→q
+ *   direction of travel.
+ */
+export function arcPointAt(arc, s) {
+  const a = arc.a0 + arc.sweep * s;
+  const dir = arc.sweep >= 0 ? 1 : -1;
+  return {
+    x: arc.cx + arc.radius * Math.cos(a),
+    y: arc.cy + arc.radius * Math.sin(a),
+    angle: Math.atan2(dir * Math.cos(a), -dir * Math.sin(a)) * (180 / Math.PI),
+  };
+}
+
+/** Where a point falls along the arc, clamped into [0,1]. */
+export function arcParamOf(arc, pt) {
+  if (!arc || arc.sweep === 0) return 0;
+  const a = Math.atan2(pt.y - arc.cy, pt.x - arc.cx);
+  // MAX_TANGENT_CHORD keeps |sweep| under π, so the shortest signed delta is
+  // unambiguously the one inside the arc.
+  const s = wrapPi(a - arc.a0) / arc.sweep;
+  return Math.max(0, Math.min(1, s));
+}
+
+/** Sample an arc into a polyline at roughly 5° per step. */
+export function sampleArc(arc, steps = null) {
+  const n = steps ?? Math.max(8, Math.min(64, Math.ceil(Math.abs(arc.sweep) / (Math.PI / 36)) + 1));
+  const points = [];
+  for (let i = 0; i < n; i++) points.push(arcPointAt(arc, i / (n - 1)));
+  return points;
+}
+
+/**
+ * SVG path for the portion of an arc between two points. Both are snapped onto
+ * the circle first, so a `from`/`to` that came off the sampled polyline (and
+ * therefore sits a hair inside the true circle) still yields an exact arc.
+ */
+export function arcPathBetween(arc, from, to) {
+  if (!arc || arc.straight) return `M ${from.x},${from.y} L ${to.x},${to.y}`;
+  const s0 = arcParamOf(arc, from);
+  const s1 = arcParamOf(arc, to);
+  const p0 = arcPointAt(arc, s0);
+  const p1 = arcPointAt(arc, s1);
+  const sweep = arc.sweep * (s1 - s0);
+  const largeArc = Math.abs(sweep) > Math.PI ? 1 : 0;
+  const sweepFlag = sweep > 0 ? 1 : 0;
+  return `M ${p0.x},${p0.y} A ${arc.radius},${arc.radius} 0 ${largeArc} ${sweepFlag} ${p1.x},${p1.y}`;
+}
+
+/**
+ * Rebuild path data for a routing descriptor whose polyline has been trimmed
+ * (the hover pull-back). Orthogonal routings re-emit a rounded polyline; a
+ * Lombardi routing re-emits a shorter arc on the SAME circle rather than a
+ * chain of chords, so the curve keeps its exact curvature while retracting.
+ */
+export function rebuildRoutedPath(routing, points) {
+  if (!points || points.length < 2) return routing?.pathD || '';
+  if (routing?.arc) return arcPathBetween(routing.arc, points[0], points[points.length - 1]);
+  return buildRoundedOrthogonalPath(points);
+}
+
+/**
+ * Compute the full Lombardi routing descriptor for an edge.
+ *
+ * Endpoint convention matches the other routings: an arrow-bearing end
+ * terminates at the node border (so the arrowhead is visible), an arrow-less
+ * end stays at the node centre and is covered by the node body.
+ */
+export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims, tangents, options = {}) {
+  const curvature = options.curvature ?? 1;
+  const selected = options.selectedInstanceIds;
+  const sBox = options.sourceBounds || getNodeHitbox(sourceNode, sDims, !!selected?.has?.(sourceNode.id));
+  const dBox = options.destBounds || getNodeHitbox(destNode, dDims, !!selected?.has?.(destNode.id));
+
+  const p = { x: sourceNode.x + sDims.currentWidth / 2, y: sourceNode.y + sDims.currentHeight / 2 };
+  const q = { x: destNode.x + dDims.currentWidth / 2, y: destNode.y + dDims.currentHeight / 2 };
+
+  const chord = Math.atan2(q.y - p.y, q.x - p.x);
+  const assigned = tangents?.get?.(edge.id);
+  const thetaP = assigned?.sourceAngle ?? chord;
+  const thetaQ = assigned?.destAngle ?? (chord + Math.PI);
+
+  const solved = solveLombardiArc(p, q, thetaP, thetaQ, curvature);
+  const arc = solved && !solved.straight ? solved : null;
+  const fullPoints = arc ? sampleArc(arc) : [p, q];
+
+  const arrowsToward = edge?.directionality?.arrowsToward instanceof Set
+    ? edge.directionality.arrowsToward
+    : new Set(Array.isArray(edge?.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
+  const hasSourceArrow = arrowsToward.has(sourceNode.id);
+  const hasDestArrow = arrowsToward.has(destNode.id);
+
+  // Tangent-following arrowheads. The source arrow points back at the source,
+  // mirroring every other routing style.
+  const headingAt = (pt) => (arc ? arcPointAt(arc, arcParamOf(arc, pt)).angle : chord * (180 / Math.PI));
+  const arrowFor = (fromStart, box, reverse) => {
+    const { endpoint } = trimRouteEnd(fullPoints, box, fromStart, LOMBARDI_ARROW_INSET);
+    const angle = headingAt(endpoint);
+    return { x: endpoint.x, y: endpoint.y, angle: reverse ? angle + 180 : angle };
+  };
+
+  let points = fullPoints;
+  let startPt = p;
+  let endPt = q;
+  if (hasSourceArrow) {
+    const trimmed = trimRouteEnd(points, sBox, true, 0);
+    points = trimmed.points;
+    startPt = trimmed.endpoint;
+  }
+  if (hasDestArrow) {
+    const trimmed = trimRouteEnd(points, dBox, false, 0);
+    points = trimmed.points;
+    endPt = trimmed.endpoint;
+  }
+
+  return {
+    kind: 'lombardi',
+    arc,
+    points,
+    pathD: arc ? arcPathBetween(arc, points[0], points[points.length - 1])
+      : `M ${startPt.x},${startPt.y} L ${endPt.x},${endPt.y}`,
+    startX: startPt.x,
+    startY: startPt.y,
+    endX: endPt.x,
+    endY: endPt.y,
+    // Lombardi has no notion of a node side — direction is continuous. Callers
+    // that switch on a side must fall back to the explicit arrow descriptors.
+    sourceSide: null,
+    destSide: null,
+    sourceArrow: hasSourceArrow ? arrowFor(true, sBox, true) : null,
+    destArrow: hasDestArrow ? arrowFor(false, dBox, false) : null,
+  };
 }
 
 /**

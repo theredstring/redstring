@@ -164,6 +164,19 @@ const getDefaultAutoLayoutSettings = () => ({
   routingStyle: 'straight',
   manhattanBends: 'auto',
   cleanLaneSpacing: 200,
+  // Multiplier on the tangent-chord angle every Lombardi arc gets. 1.0 draws the
+  // arc the perfect-angular-resolution solve actually asks for; below that the
+  // arcs flatten toward straight lines, above that they bow harder than the
+  // tangents demand. Clamped in the setter; the routing clamps the resulting
+  // angle again so no multiplier can produce a lasso.
+  lombardiCurvature: (() => {
+    try {
+      const saved = localStorage.getItem('redstring_lombardi_curvature');
+      return saved === null ? 1.0 : parseFloat(saved);
+    } catch (_) {
+      return 1.0;
+    }
+  })(),
   // How much parallel (multi) connections bow out. Multiplier on the app-level
   // base curve spacing (200px — the old "2x" look baked in as the 1.0 baseline).
   // Default 1.0. localStorage key bumped to _v2 so stale values saved against the
@@ -4472,13 +4485,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     /**
      * Sets the edge routing style.
-     * @param {'straight'|'orthogonal'|string} style
+     * @param {'straight'|'manhattan'|'clean'|'lombardi'|string} style
      */
     setRoutingStyle: (style) => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
       }
-      if (style === 'straight' || style === 'manhattan' || style === 'clean') {
+      if (style === 'straight' || style === 'manhattan' || style === 'clean' || style === 'lombardi') {
         draft.autoLayoutSettings.routingStyle = style;
       } else {
         console.warn(`[setRoutingStyle] Invalid routing style: ${style}`);
@@ -4516,6 +4529,27 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // Clamp for sanity with new generous range
       const clamped = Math.max(100, Math.min(400, Math.round(v)));
       draft.autoLayoutSettings.cleanLaneSpacing = clamped;
+    })),
+
+    /**
+     * Sets how hard Lombardi arcs bow. Persists to localStorage.
+     * 1.0 = exactly the curvature perfect angular resolution asks for.
+     * @param {number} value
+     */
+    setLombardiCurvature: (value) => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      const v = Number(value);
+      if (!Number.isFinite(v)) {
+        console.warn(`[setLombardiCurvature] Invalid value: ${value}`);
+        return;
+      }
+      const clamped = Math.max(0, Math.min(2, v));
+      draft.autoLayoutSettings.lombardiCurvature = clamped;
+      try {
+        localStorage.setItem('redstring_lombardi_curvature', String(clamped));
+      } catch (_) { }
     })),
 
     /**

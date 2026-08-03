@@ -104,12 +104,13 @@ import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, buildRoundedOrthogonalPath, trimRouteEnd } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
+import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
-import { chooseOrthogonalLabelPlacement, placeLabelOnPath, estimateTextWidth } from './utils/canvas/edgeLabelPlacement.js';
+import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -723,6 +724,13 @@ function NodeCanvas() {
   const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
   const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
   const cleanLaneSpacing = useGraphStore(state => state.autoLayoutSettings?.cleanLaneSpacing || 24);
+  const lombardiCurvature = useGraphStore(state => state.autoLayoutSettings?.lombardiCurvature ?? 1.0);
+  // Styles that compute their own geometry instead of drawing a chord. Sites
+  // downstream of the per-edge routing block should test `orthoRouting` (which
+  // is non-null exactly when this is true and the edge isn't a self-loop);
+  // this exists for the handful that run before it.
+  const isRoutedStyle = enableAutoRouting
+    && (routingStyle === 'manhattan' || routingStyle === 'clean' || routingStyle === 'lombardi');
   const multiConnectionCurve = useGraphStore(state => state.autoLayoutSettings?.multiConnectionCurve ?? 1.0);
   // Effective px spacing between adjacent parallel-edge curves. Base 200 bakes the
   // old "2x" look in as the 1.0 baseline; multiplier is the user's slider value.
@@ -1315,11 +1323,16 @@ function NodeCanvas() {
   // below) so the drag updater can reach them — the memo itself deliberately
   // freezes during a drag, and re-deriving lanes per frame would be far too slow.
   const cleanLaneOffsetsRef = useRef(new Map());
+  // Same deal for Lombardi's per-node tangent fan: solving it is a whole-graph
+  // pass, so the memo freezes during a drag and the drag updater reads the ref.
+  const lombardiTangentsRef = useRef(new Map());
+  const lombardiCurvatureRef = useRef(lombardiCurvature);
   useEffect(() => { enableAutoRoutingRef.current = enableAutoRouting; }, [enableAutoRouting]);
   useEffect(() => { routingStyleRef.current = routingStyle; }, [routingStyle]);
   useEffect(() => { multiConnectionCurveRef.current = multiConnectionCurve; }, [multiConnectionCurve]);
   useEffect(() => { manhattanBendsRef.current = manhattanBends; }, [manhattanBends]);
   useEffect(() => { cleanLaneSpacingRef.current = cleanLaneSpacing; }, [cleanLaneSpacing]);
+  useEffect(() => { lombardiCurvatureRef.current = lombardiCurvature; }, [lombardiCurvature]);
 
   // Groups-by-node mapping for DOM-bypass group drag
   const groupsByNodeIdRef = useRef(new Map());
@@ -1924,6 +1937,8 @@ function NodeCanvas() {
     manhattanBendsRef,
     cleanLaneSpacingRef,
     cleanLaneOffsetsRef,
+    lombardiTangentsRef,
+    lombardiCurvatureRef,
     multiConnectionCurveRef,
     groupsByNodeIdRef,
     groupsByIdRef,
@@ -2249,6 +2264,8 @@ function NodeCanvas() {
     layoutScaleMultiplier,
     layoutIterationPreset,
     groupLayoutAlgorithm,
+    routingStyle,
+    lombardiCurvature,
     forceTunerSettings,
     connectionFontSize: 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize,
     setZoomLevel,
@@ -2826,6 +2843,28 @@ function NodeCanvas() {
   // Mirror the port assignments into a ref for the DOM-bypass drag updater.
   useEffect(() => { cleanLaneOffsetsRef.current = cleanLaneOffsets; }, [cleanLaneOffsets]);
 
+  // Lombardi's perfect-angular-resolution solve: every node's incident edges get
+  // evenly spaced tangent directions. Like clean routing's lanes this is a
+  // whole-graph pass over ALL edges (not visibleEdges) — a node's fan depends on
+  // its degree, so culling a neighbour out of view must not re-space the ones
+  // that remain, or the surviving arcs visibly swing as you pan.
+  //
+  // Unlike clean routing, the assignment is NOT frozen during a drag. The whole
+  // point of the style is that the fan stays even, and a dragged node's bearings
+  // change continuously; freezing it would leave the arcs anchored to directions
+  // the graph no longer has. The solve is O(E log E) with tiny constants, so it
+  // is affordable per drag frame from the ref below.
+  const prevLombardiTangentsRef = useRef(new Map());
+  const lombardiTangents = useMemo(() => {
+    if (!enableAutoRouting || routingStyle !== 'lombardi' || !edges?.length) return new Map();
+    if (draggingNodeInfo) return prevLombardiTangentsRef.current;
+    const solved = computeLombardiTangents(nodes, edges, baseDimsById);
+    prevLombardiTangentsRef.current = solved;
+    return solved;
+  }, [enableAutoRouting, routingStyle, nodes, edges, baseDimsById, draggingNodeInfo]);
+
+  useEffect(() => { lombardiTangentsRef.current = lombardiTangents; }, [lombardiTangents]);
+
   // Routing configuration changes invalidate every cached label placement.
   //
   // placedLabelsRef is keyed by edge id only, and the render prefers a cached
@@ -2837,7 +2876,7 @@ function NodeCanvas() {
   useEffect(() => {
     placedLabelsRef.current.clear();
     clearLabelStabilization();
-  }, [enableAutoRouting, routingStyle, manhattanBends, cleanLaneSpacing, showConnectionNames, connectionLabelSize, textSettings?.fontSize]);
+  }, [enableAutoRouting, routingStyle, manhattanBends, cleanLaneSpacing, lombardiCurvature, showConnectionNames, connectionLabelSize, textSettings?.fontSize]);
 
   // Memoize edgeCurveInfo for parallel edge detection (used by both rendering and hover detection).
   // NOTE: iterate ALL edges (not visibleEdges) so the pairIndex / totalInPair for
@@ -2897,11 +2936,15 @@ function NodeCanvas() {
       x = loop.loopCx + loop.radius * Math.cos(loop.outwardAngle);
       y = loop.loopCy + loop.radius * Math.sin(loop.outwardAngle);
       angleDeg = 0;
-    } else if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
+    } else if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean' || routingStyle === 'lombardi')) {
       const routing = routingStyle === 'manhattan'
         ? computeManhattanRouting(srcNode, dstNode, sDims, dDims, manhattanBends)
-        : computeCleanRouting(edge, srcNode, dstNode, sDims, dDims, cleanLaneOffsets, cleanLaneSpacing);
-      const placement = placeLabelOnPath(routing.points);
+        : routingStyle === 'clean'
+          ? computeCleanRouting(edge, srcNode, dstNode, sDims, dDims, cleanLaneOffsets, cleanLaneSpacing)
+          : computeLombardiRouting(edge, srcNode, dstNode, sDims, dDims, lombardiTangents, {
+            curvature: lombardiCurvature, selectedInstanceIds,
+          });
+      const placement = placeLabelOnRoute(routing);
       x = placement.x;
       y = placement.y;
       angleDeg = placement.angle;
@@ -2938,7 +2981,7 @@ function NodeCanvas() {
     };
   }, [selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById, selectedInstanceIds,
     enableAutoRouting, routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing,
-    edgeCurveInfo, curveSpacing]);
+    lombardiTangents, lombardiCurvature, edgeCurveInfo, curveSpacing]);
 
   // Reverse-index: instanceId → Set<edgeId> for O(1) lookup of edges connected to a node.
   // NOTE: iterate ALL edges (not visibleEdges) so the index stays stable across culling
@@ -8133,31 +8176,19 @@ function NodeCanvas() {
                   cleanLaneSpacing
                 );
 
-                let minSegmentDistance = Infinity;
-                for (let j = 0; j < pathPoints.length - 1; j++) {
-                  const segStart = pathPoints[j];
-                  const segEnd = pathPoints[j + 1];
+                distance = distanceToPolyline(currentX, currentY, pathPoints);
+              } else if (enableAutoRouting && routingStyle === 'lombardi') {
+                const pathPoints = computeLombardiRouting(
+                  edge,
+                  sourceInstance,
+                  targetInstance,
+                  sourceDims,
+                  targetDims,
+                  lombardiTangents,
+                  { curvature: lombardiCurvature, selectedInstanceIds }
+                ).points;
 
-                  const A = currentX - segStart.x;
-                  const B = currentY - segStart.y;
-                  const C = segEnd.x - segStart.x;
-                  const D = segEnd.y - segStart.y;
-                  const dot = A * C + B * D;
-                  const lenSq = C * C + D * D;
-
-                  if (lenSq > 0) {
-                    let param = dot / lenSq;
-                    if (param < 0) param = 0;
-                    else if (param > 1) param = 1;
-                    const xx = segStart.x + param * C;
-                    const yy = segStart.y + param * D;
-                    const dx = currentX - xx;
-                    const dy = currentY - yy;
-                    const segDistance = Math.sqrt(dx * dx + dy * dy);
-                    minSegmentDistance = Math.min(minSegmentDistance, segDistance);
-                  }
-                }
-                distance = minSegmentDistance;
+                distance = distanceToPolyline(currentX, currentY, pathPoints);
               } else if (enableAutoRouting && routingStyle === 'manhattan') {
                 const pathPoints = generateManhattanRoutingPath(
                   edge,
@@ -8168,31 +8199,7 @@ function NodeCanvas() {
                   manhattanBends
                 );
 
-                let minSegmentDistance = Infinity;
-                for (let j = 0; j < pathPoints.length - 1; j++) {
-                  const segStart = pathPoints[j];
-                  const segEnd = pathPoints[j + 1];
-
-                  const A = currentX - segStart.x;
-                  const B = currentY - segStart.y;
-                  const C = segEnd.x - segStart.x;
-                  const D = segEnd.y - segStart.y;
-                  const dot = A * C + B * D;
-                  const lenSq = C * C + D * D;
-
-                  if (lenSq > 0) {
-                    let param = dot / lenSq;
-                    if (param < 0) param = 0;
-                    else if (param > 1) param = 1;
-                    const xx = segStart.x + param * C;
-                    const yy = segStart.y + param * D;
-                    const dx = currentX - xx;
-                    const dy = currentY - yy;
-                    const segDistance = Math.sqrt(dx * dx + dy * dy);
-                    minSegmentDistance = Math.min(minSegmentDistance, segDistance);
-                  }
-                }
-                distance = minSegmentDistance;
+                distance = distanceToPolyline(currentX, currentY, pathPoints);
               } else {
                 // Check if this edge is curved (parallel edge)
                 const curveInfo = edgeCurveInfo.get(edge.id);
@@ -8233,8 +8240,10 @@ function NodeCanvas() {
                 }
               }
 
-              const hoverThreshold =
-                enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean') ? 50 : 40;
+              // Routed styles get a wider grab radius: their geometry doesn't run
+              // where a naive chord would, so the pointer is often further from the
+              // line than the user's aim suggests.
+              const hoverThreshold = isRoutedStyle ? 50 : 40;
 
               if (distance <= hoverThreshold && distance < closestDistance) {
                 closestDistance = distance;
@@ -11524,6 +11533,8 @@ function NodeCanvas() {
         onSetRoutingStyle={storeActions.setRoutingStyle}
         onSetManhattanBends={storeActions.setManhattanBends}
         onSetCleanLaneSpacing={(v) => useGraphStore.getState().setCleanLaneSpacing(v)}
+        onSetLombardiCurvature={(v) => useGraphStore.getState().setLombardiCurvature(v)}
+        lombardiCurvature={lombardiCurvature}
         cleanLaneSpacing={cleanLaneSpacing}
         groupLayoutAlgorithm={groupLayoutAlgorithm}
         onSetGroupLayoutAlgorithm={storeActions.setGroupLayoutAlgorithm}
@@ -12793,7 +12804,7 @@ function NodeCanvas() {
                     });
                     const multiEdgePairs = Array.from(edgePairGroupsDebug.entries()).filter(([k, v]) => v.length > 1);
                     if (multiEdgePairs.length > 0) {
-                      debugLogSync('NodeCanvas.jsx:edgeRender', 'Edge rendering info', { totalEdges: visibleEdges.length, multiEdgePairs: multiEdgePairs.map(([k, v]) => ({ pair: k, edgeCount: v.length, edgeIds: v })), enableAutoRouting, routingStyle, willUseCurves: !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) }, 'debug-session', 'D-E');
+                      debugLogSync('NodeCanvas.jsx:edgeRender', 'Edge rendering info', { totalEdges: visibleEdges.length, multiEdgePairs: multiEdgePairs.map(([k, v]) => ({ pair: k, edgeCount: v.length, edgeIds: v })), enableAutoRouting, routingStyle, willUseCurves: !isRoutedStyle }, 'debug-session', 'D-E');
                     }
                     // #endregion
 
@@ -12915,8 +12926,8 @@ function NodeCanvas() {
 
                           // Connection endpoint calculation
                           let x1, y1, x2, y2;
-                          if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
-                            // Port-based routing - use centers as base (ports will override later)
+                          if (isRoutedStyle) {
+                            // Routed styles - use centers as base (ports/arcs override later)
                             x1 = sourceNode.x + sNodeDims.currentWidth / 2;
                             y1 = sourceNode.y + sNodeDims.currentHeight / 2;
                             x2 = destNode.x + eNodeDims.currentWidth / 2;
@@ -13161,7 +13172,7 @@ function NodeCanvas() {
                           // an arrowhead's length so the hover dot sits ahead of it at the border,
                           // exactly where a real arrowhead would land. Curved edges do this via the
                           // trimT trim below; Manhattan/Clean keep their own geometry.
-                          const isStraightRouting = !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean'));
+                          const isStraightRouting = !isRoutedStyle;
                           let lineStartX = startX, lineStartY = startY, lineEndX = endX, lineEndY = endY;
                           let straightDotSource = null, straightDotDest = null;
                           if (isActive && isStraightRouting && !isCurvedEdge && length > 0) {
@@ -13204,6 +13215,23 @@ function NodeCanvas() {
                             // startX/startY/endX/endY were already resolved from the port
                             // assignment above and agree with this polyline's endpoints.
                             orthoRouting = computeCleanRouting(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
+                          } else if (enableAutoRouting && routingStyle === 'lombardi') {
+                            orthoRouting = computeLombardiRouting(
+                              edge, sourceNode, destNode, sNodeDims, eNodeDims, lombardiTangents,
+                              { curvature: lombardiCurvature, selectedInstanceIds,
+                                sourceBounds: sAnchorInfo?.outerBounds ? {
+                                  minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
+                                  maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
+                                  maxY: sAnchorInfo.outerBounds.y + sAnchorInfo.outerBounds.height } : null,
+                                destBounds: eAnchorInfo?.outerBounds ? {
+                                  minX: eAnchorInfo.outerBounds.x, minY: eAnchorInfo.outerBounds.y,
+                                  maxX: eAnchorInfo.outerBounds.x + eAnchorInfo.outerBounds.width,
+                                  maxY: eAnchorInfo.outerBounds.y + eAnchorInfo.outerBounds.height } : null }
+                            );
+                            startX = orthoRouting.startX;
+                            startY = orthoRouting.startY;
+                            endX = orthoRouting.endX;
+                            endY = orthoRouting.endY;
                           }
 
                           // Orthogonal hover preview — the counterpart of the straight-edge
@@ -13241,7 +13269,9 @@ function NodeCanvas() {
                               previewPts = t.points;
                               straightDotDest = t.endpoint;
                             }
-                            orthoPathD = buildRoundedOrthogonalPath(previewPts);
+                            // Arc routings re-emit a shorter arc on the SAME circle here, so a
+                            // hovered Lombardi edge retracts without losing its curvature.
+                            orthoPathD = rebuildRoutedPath(orthoRouting, previewPts);
                           }
 
                           // Calculate parallel edge path using centralized utility
@@ -13266,7 +13296,14 @@ function NodeCanvas() {
                             if (!hasDestArrow) { curveEndX = hoverBorder.x2; curveEndY = hoverBorder.y2; }
                           }
                           const parallelPath = calculateParallelEdgePath(curveStartX, curveStartY, curveEndX, curveEndY, curveInfo, curveSpacing);
-                          const useCurve = parallelPath.type === 'curve';
+                          // A routed style OWNS the geometry, so the parallel-edge bezier is
+                          // not what gets drawn — and everything downstream that keys off
+                          // useCurve (arrowhead placement, hover-dot border crossings, the
+                          // trimmed path) would otherwise measure against a curve nobody can
+                          // see. Parallel routed edges are already separated by the routing
+                          // itself: clean staggers their ports, Lombardi fans them into
+                          // distinct tangent slots.
+                          const useCurve = parallelPath.type === 'curve' && !orthoRouting;
 
                           // Curved arrow placement (tips a fixed px from each endpoint, tangent angle).
                           // Shared source of truth for both the arrowheads and the curve trim below.
@@ -13357,7 +13394,7 @@ function NodeCanvas() {
                               {/* Main edge line - always same thickness */}
                               {/* Glow effect for selected or hovered edge */}
                               {(isSelected || isHovered) && (
-                                (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                                orthoRouting ? (
                                   <path
                                     d={orthoPathD}
                                     fill="none"
@@ -13397,7 +13434,7 @@ function NodeCanvas() {
                                 )
                               )}
 
-                              {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                              {orthoRouting ? (
                                 <>
                                   {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
                                     <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={27 * connectionWidth} strokeLinecap="round" />
@@ -13436,7 +13473,7 @@ function NodeCanvas() {
                               )}
 
                               {/* Invisible click area for edge selection - matches hover detection */}
-                              {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                              {orthoRouting ? (
                                 <path
                                   d={orthoHitPathD}
                                   fill="none"
@@ -13645,6 +13682,19 @@ function NodeCanvas() {
                                   destArrowX = curvedArrowPlacement.dest.x;
                                   destArrowY = curvedArrowPlacement.dest.y;
                                   destArrowAngle = curvedArrowPlacement.dest.angle; // Points toward dest
+                                } else if (orthoRouting?.kind === 'lombardi') {
+                                  // Lombardi has no node sides — an arc can leave at any bearing.
+                                  // The routing already resolved each arrowhead's origin and its
+                                  // tangent angle, so take them rather than re-deriving a direction
+                                  // from the chord (which on a bowed arc points somewhere else).
+                                  const srcA = orthoRouting.sourceArrow;
+                                  const dstA = orthoRouting.destArrow;
+                                  sourceArrowX = srcA ? srcA.x : startX;
+                                  sourceArrowY = srcA ? srcA.y : startY;
+                                  sourceArrowAngle = srcA ? srcA.angle : 0;
+                                  destArrowX = dstA ? dstA.x : endX;
+                                  destArrowY = dstA ? dstA.y : endY;
+                                  destArrowAngle = dstA ? dstA.angle : 0;
                                 } else if (enableAutoRouting && routingStyle === 'clean') {
                                   // Clean mode: use actual port assignments for proper arrow positioning
                                   const offset = 6;
@@ -14138,8 +14188,8 @@ function NodeCanvas() {
                                     midY = stabilized.y;
                                     angle = stabilized.angle || 0;
                                   } else {
-                                    const placement = chooseOrthogonalLabelPlacement(
-                                      orthoRouting.points, connectionName, nodes, visibleNodeIds,
+                                    const placement = chooseRoutedLabelPlacement(
+                                      orthoRouting, connectionName, nodes, visibleNodeIds,
                                       baseDimsById, placedLabelsRef.current, connectionFontSize,
                                       edge.id, selectedInstanceIds
                                     );
@@ -14305,8 +14355,8 @@ function NodeCanvas() {
 
                           // Connection endpoint calculation
                           let x1, y1, x2, y2;
-                          if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
-                            // Port-based routing - use centers as base (ports will override later)
+                          if (isRoutedStyle) {
+                            // Routed styles - use centers as base (ports/arcs override later)
                             x1 = sourceNode.x + sNodeDims.currentWidth / 2;
                             y1 = sourceNode.y + sNodeDims.currentHeight / 2;
                             x2 = destNode.x + eNodeDims.currentWidth / 2;
@@ -14551,7 +14601,7 @@ function NodeCanvas() {
                           // an arrowhead's length so the hover dot sits ahead of it at the border,
                           // exactly where a real arrowhead would land. Curved edges do this via the
                           // trimT trim below; Manhattan/Clean keep their own geometry.
-                          const isStraightRouting = !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean'));
+                          const isStraightRouting = !isRoutedStyle;
                           let lineStartX = startX, lineStartY = startY, lineEndX = endX, lineEndY = endY;
                           let straightDotSource = null, straightDotDest = null;
                           if (isActive && isStraightRouting && !isCurvedEdge && length > 0) {
@@ -14594,6 +14644,23 @@ function NodeCanvas() {
                             // startX/startY/endX/endY were already resolved from the port
                             // assignment above and agree with this polyline's endpoints.
                             orthoRouting = computeCleanRouting(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
+                          } else if (enableAutoRouting && routingStyle === 'lombardi') {
+                            orthoRouting = computeLombardiRouting(
+                              edge, sourceNode, destNode, sNodeDims, eNodeDims, lombardiTangents,
+                              { curvature: lombardiCurvature, selectedInstanceIds,
+                                sourceBounds: sAnchorInfo?.outerBounds ? {
+                                  minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
+                                  maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
+                                  maxY: sAnchorInfo.outerBounds.y + sAnchorInfo.outerBounds.height } : null,
+                                destBounds: eAnchorInfo?.outerBounds ? {
+                                  minX: eAnchorInfo.outerBounds.x, minY: eAnchorInfo.outerBounds.y,
+                                  maxX: eAnchorInfo.outerBounds.x + eAnchorInfo.outerBounds.width,
+                                  maxY: eAnchorInfo.outerBounds.y + eAnchorInfo.outerBounds.height } : null }
+                            );
+                            startX = orthoRouting.startX;
+                            startY = orthoRouting.startY;
+                            endX = orthoRouting.endX;
+                            endY = orthoRouting.endY;
                           }
 
                           // Orthogonal hover preview — the counterpart of the straight-edge
@@ -14631,7 +14698,9 @@ function NodeCanvas() {
                               previewPts = t.points;
                               straightDotDest = t.endpoint;
                             }
-                            orthoPathD = buildRoundedOrthogonalPath(previewPts);
+                            // Arc routings re-emit a shorter arc on the SAME circle here, so a
+                            // hovered Lombardi edge retracts without losing its curvature.
+                            orthoPathD = rebuildRoutedPath(orthoRouting, previewPts);
                           }
 
                           // Calculate parallel edge path using centralized utility
@@ -14656,7 +14725,14 @@ function NodeCanvas() {
                             if (!hasDestArrow) { curveEndX = hoverBorder.x2; curveEndY = hoverBorder.y2; }
                           }
                           const parallelPath = calculateParallelEdgePath(curveStartX, curveStartY, curveEndX, curveEndY, curveInfo, curveSpacing);
-                          const useCurve = parallelPath.type === 'curve';
+                          // A routed style OWNS the geometry, so the parallel-edge bezier is
+                          // not what gets drawn — and everything downstream that keys off
+                          // useCurve (arrowhead placement, hover-dot border crossings, the
+                          // trimmed path) would otherwise measure against a curve nobody can
+                          // see. Parallel routed edges are already separated by the routing
+                          // itself: clean staggers their ports, Lombardi fans them into
+                          // distinct tangent slots.
+                          const useCurve = parallelPath.type === 'curve' && !orthoRouting;
 
                           // Curved arrow placement (tips a fixed px from each endpoint, tangent angle).
                           // Shared source of truth for both the arrowheads and the curve trim below.
@@ -14747,7 +14823,7 @@ function NodeCanvas() {
                               {/* Main edge line - always same thickness */}
                               {/* Glow effect for selected or hovered edge */}
                               {(isSelected || isHovered) && (
-                                (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                                orthoRouting ? (
                                   <path
                                     d={orthoPathD}
                                     fill="none"
@@ -14787,7 +14863,7 @@ function NodeCanvas() {
                                 )
                               )}
 
-                              {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                              {orthoRouting ? (
                                 <>
                                   {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
                                     <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={27 * connectionWidth} strokeLinecap="round" />
@@ -14826,7 +14902,7 @@ function NodeCanvas() {
                               )}
 
                               {/* Invisible click area for edge selection - matches hover detection */}
-                              {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                              {orthoRouting ? (
                                 <path
                                   d={orthoHitPathD}
                                   fill="none"
@@ -14912,6 +14988,19 @@ function NodeCanvas() {
                                   destArrowX = curvedArrowPlacement.dest.x;
                                   destArrowY = curvedArrowPlacement.dest.y;
                                   destArrowAngle = curvedArrowPlacement.dest.angle; // Points toward dest
+                                } else if (orthoRouting?.kind === 'lombardi') {
+                                  // Lombardi has no node sides — an arc can leave at any bearing.
+                                  // The routing already resolved each arrowhead's origin and its
+                                  // tangent angle, so take them rather than re-deriving a direction
+                                  // from the chord (which on a bowed arc points somewhere else).
+                                  const srcA = orthoRouting.sourceArrow;
+                                  const dstA = orthoRouting.destArrow;
+                                  sourceArrowX = srcA ? srcA.x : startX;
+                                  sourceArrowY = srcA ? srcA.y : startY;
+                                  sourceArrowAngle = srcA ? srcA.angle : 0;
+                                  destArrowX = dstA ? dstA.x : endX;
+                                  destArrowY = dstA ? dstA.y : endY;
+                                  destArrowAngle = dstA ? dstA.angle : 0;
                                 } else if (enableAutoRouting && routingStyle === 'clean') {
                                   // Clean mode: use actual port assignments for proper arrow positioning
                                   const offset = 6;
@@ -15405,8 +15494,8 @@ function NodeCanvas() {
                                     midY = stabilized.y;
                                     angle = stabilized.angle || 0;
                                   } else {
-                                    const placement = chooseOrthogonalLabelPlacement(
-                                      orthoRouting.points, connectionName, nodes, visibleNodeIds,
+                                    const placement = chooseRoutedLabelPlacement(
+                                      orthoRouting, connectionName, nodes, visibleNodeIds,
                                       baseDimsById, placedLabelsRef.current, connectionFontSize,
                                       edge.id, selectedInstanceIds
                                     );

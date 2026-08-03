@@ -67,6 +67,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const touchPinchGlideStrength = useGraphStore(s => s.touchSettings?.pinchGlideStrength ?? 0.5);
   const routingStyle = useGraphStore(s => s.routingStyle);
   const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
+  const lombardiCurvature = useGraphStore(s => s.autoLayoutSettings?.lombardiCurvature ?? 1.0);
   const multiConnectionCurve = useGraphStore(s => s.autoLayoutSettings?.multiConnectionCurve ?? 1.0);
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
   const connectionLabelSize = useGraphStore(s => s.connectionLabelSize ?? 1.0);
@@ -447,12 +448,26 @@ const SettingsModal = ({ isVisible, onClose }) => {
               options={[
                 { label: 'Straight', value: 'straight' },
                 { label: 'Manhattan', value: 'manhattan' },
-                { label: 'Clean', value: 'clean' }
+                { label: 'Clean', value: 'clean' },
+                { label: 'Lombardi', value: 'lombardi' }
               ]}
               value={routingStyle || 'straight'}
               onChange={(v) => useGraphStore.getState().setRoutingStyle?.(v)}
             />
           </div>
+          {routingStyle === 'lombardi' && (
+            <div className="settings-slider-row">
+              <MaroonSlider
+                label="Arc Curvature"
+                value={lombardiCurvature}
+                min={0}
+                max={2}
+                step={0.05}
+                suffix="x"
+                onChange={(v) => useGraphStore.getState().setLombardiCurvature?.(v)}
+              />
+            </div>
+          )}
           {routingStyle === 'clean' && (
             <div className="settings-slider-row">
               <MaroonSlider

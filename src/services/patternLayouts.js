@@ -59,11 +59,21 @@ export const PATTERN_LAYOUT_DEFAULTS = {
   // aspect better. Long labels stretch the level axis, so this matters.
   treeDirection: 'auto',
 
+  // 'top' | 'flow' — where the root of an inward-pointing hierarchy goes.
+  // See the note in treeLayoutCentered; 'top' keeps the general term above.
+  rootPlacement: 'top',
+
   // Gap between independently laid-out connected components.
   componentGap: 460,
 
   // Fallback for components with no clean structure.
-  fallbackAlgorithm: 'force'
+  fallbackAlgorithm: 'force',
+
+  // Which edge routing the result will be drawn with. Only 'lombardi' changes
+  // anything — see the LOMBARDI section below for why arcs need a different
+  // shape of layout AND more room than chords.
+  routingStyle: 'straight',
+  lombardiCurvature: 1.0
 };
 
 const MIN_BOX = 60;
@@ -374,10 +384,22 @@ function treeLayoutCentered(nodes, edges, cfg, meta = {}) {
     const mainAt = [0];
     for (let d = 0; d < maxDepth; d++) mainAt.push(mainAt[d] + gaps[d]);
 
+    // Where the root goes when the hierarchy points inward — "Dog is a kind of
+    // Mammal", arrows running from specific to general. Structure alone can't
+    // settle this, because the same shape means opposite things:
+    //
+    //   'top'  — the root is always at depth 0, whichever way arrows point.
+    //            Matches the Tree of Porphyry, UML inheritance and cladograms:
+    //            the general term sits above, arrows read upward toward it.
+    //   'flow' — arrows always run down the page, so an inward hierarchy puts
+    //            its root at the bottom. Matches the layered DAG layout and
+    //            suits convergence ("five causes → one effect").
+    const sign = (cfg.rootPlacement === 'flow' && meta.inverted) ? -1 : 1;
+
     const positions = new Map();
     nodes.forEach(node => {
       const d = depth.get(node.id);
-      const main = mainAt[d];
+      const main = mainAt[d] * sign;
       const c = cross.get(node.id) ?? 0;
       positions.set(node.id, vertical ? { x: c, y: main } : { x: main, y: c });
     });
@@ -599,6 +621,226 @@ function starLayoutCentered(nodes, edges, cfg, meta = {}) {
     });
   });
   return positions;
+}
+
+// ============================================================================
+// LOMBARDI
+// ============================================================================
+//
+// Lombardi routing draws every edge as a circular arc and gives every node
+// PERFECT ANGULAR RESOLUTION — its incident edges leave evenly spaced around
+// the full 2π. That changes what a good layout is, in two ways:
+//
+// 1. RADIAL BEATS ROWS. In a row-based layout (tree levels, layered DAG
+//    ranks) a node's neighbours are all clustered in roughly one direction.
+//    Perfect angular resolution then has to fan those edges out across
+//    directions the geometry doesn't support, and the arcs bow hard to
+//    compensate — the drawing curdles. Radial layouts put a node's neighbours
+//    genuinely around it, so the even fan is close to the natural bearings and
+//    the arcs stay gentle. This is why the paper's own constructions are
+//    circular and k-circular; the Spirograph in §5 is exactly concentric rings.
+//
+// 2. ARCS NEED MORE ROOM THAN CHORDS. Every spacing constraint in this file is
+//    measured along the straight line between two nodes. An arc is longer than
+//    that chord (the label rides the arc) and bulges sideways off it (the bow
+//    needs clearance). See arcAwareConfig.
+//
+// Only the layouts that were row-based get replaced. CYCLE and STAR are
+// already radial — they are the paper's circular drawing and its degree-1 case
+// — and MESH still belongs to the force solver.
+// ---------------------------------------------------------------------------
+
+// Representative tangent-chord angle, used only to size the spacing allowance.
+// Perfect angular resolution puts adjacent edges 2π/k apart at a degree-k node,
+// so a typical edge gets pulled off its chord by something on that order; 30°
+// is the figure for the mid-degree nodes that dominate a real graph and errs
+// generously for the sparse ones. It is NOT the angle any particular arc gets —
+// that comes out of the per-node solve at render time.
+const REPRESENTATIVE_DELTA = Math.PI / 6;
+
+// Mirror of MAX_TANGENT_CHORD in utils/canvas/edgeRouting.js. Duplicated rather
+// than imported to keep this layout service free of canvas-render imports; it
+// only bounds a spacing allowance, so drift here costs padding, not geometry.
+const MAX_LAYOUT_DELTA = 1.32;
+
+/**
+ * Inflate the spacing constraints to account for arcs rather than chords.
+ *
+ * An arc subtending 2δ is δ/sin δ times as long as its chord, and bulges
+ * (L/2)·tan(δ/2) away from it. The first matters because labels are laid along
+ * the edge, so the edge has to be longer to fit the same text; the second
+ * because the bow can swing into a neighbour that a straight line would clear.
+ */
+function arcAwareConfig(cfg) {
+  if (cfg.routingStyle !== 'lombardi') return cfg;
+  const delta = Math.min(MAX_LAYOUT_DELTA, REPRESENTATIVE_DELTA * (cfg.lombardiCurvature ?? 1));
+  if (delta < 1e-3) return cfg;
+  const alongFactor = delta / Math.sin(delta);
+  const bowFactor = 1 + Math.tan(delta / 2);
+  return {
+    ...cfg,
+    minEdgeLength: cfg.minEdgeLength * alongFactor,
+    labelPadding: cfg.labelPadding * alongFactor,
+    nodeGap: cfg.nodeGap * bowFactor
+  };
+}
+
+/**
+ * Concentric-ring layout for hierarchies — the Euclidean form of the paper's
+ * k-circular drawing, and what its Halin-graph construction (Theorem 3) reduces
+ * to once you drop the hyperbolic model.
+ *
+ * The root sits at the centre and each BFS level occupies a ring. A node's
+ * children get a WEDGE of its parent's wedge, sized by how many leaves the
+ * subtree carries, so a bushy branch takes the room it needs and a thin one
+ * doesn't hoard any. Ring radii are solved from the same label constraint the
+ * row-based tree uses, plus a circumference check so a wide ring doesn't
+ * self-collide.
+ *
+ * Works for DAGs too — the BFS tree of a DAG is a perfectly good skeleton, and
+ * the extra (non-tree) edges just become additional arcs between rings.
+ */
+function radialLayoutCentered(nodes, edges, cfg, meta = {}) {
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const { adjacency } = buildSimpleGraph(nodes, edges);
+  const edgeIndex = buildEdgeIndex(edges, cfg.edgeLabelFontSize);
+
+  if (nodes.length === 0) return new Map();
+  if (nodes.length === 1) return new Map([[nodes[0].id, { x: 0, y: 0 }]]);
+
+  const rootId = chooseTreeRoot(nodes, edges, adjacency, meta.rootId);
+  if (!rootId) return new Map();
+
+  // BFS skeleton.
+  const parent = new Map([[rootId, null]]);
+  const children = new Map(nodes.map(n => [n.id, []]));
+  const depth = new Map([[rootId, 0]]);
+  const order = [rootId];
+  for (let head = 0; head < order.length; head++) {
+    const id = order[head];
+    (adjacency.get(id) || new Set()).forEach(neighborId => {
+      if (parent.has(neighborId)) return;
+      parent.set(neighborId, id);
+      depth.set(neighborId, depth.get(id) + 1);
+      children.get(id).push(neighborId);
+      order.push(neighborId);
+    });
+  }
+  // Unreachable strays (shouldn't happen inside one component) hang off the root
+  // rather than landing on top of it at the origin.
+  nodes.forEach(node => {
+    if (parent.has(node.id)) return;
+    parent.set(node.id, rootId);
+    depth.set(node.id, 1);
+    children.get(rootId).push(node.id);
+    order.push(node.id);
+  });
+
+  // Leaf weight per subtree, bottom-up (order is BFS, so reverse it).
+  const weight = new Map();
+  for (let i = order.length - 1; i >= 0; i--) {
+    const id = order[i];
+    const kids = children.get(id);
+    weight.set(id, kids.length === 0 ? 1 : kids.reduce((sum, k) => sum + weight.get(k), 0));
+  }
+
+  const byDepth = [];
+  order.forEach(id => {
+    const d = depth.get(id);
+    if (!byDepth[d]) byDepth[d] = [];
+    byDepth[d].push(id);
+  });
+
+  // Ring radii: each ring clears both the parent→child label constraint (radial)
+  // and the room every node on it needs side by side (circumferential).
+  const radii = [0];
+  for (let d = 1; d < byDepth.length; d++) {
+    let step = cfg.minEdgeLength;
+    byDepth[d].forEach(id => {
+      const parentNode = nodeById.get(parent.get(id));
+      const node = nodeById.get(id);
+      const edge = lookupEdge(edgeIndex, parent.get(id), id);
+      const label = labelSpanOf(edge, cfg.edgeLabelFontSize);
+      const gap = label > 0 ? cfg.labelPadding : cfg.nodeGap;
+      step = Math.max(step, circumRadius(parentNode) + circumRadius(node) + label + gap);
+    });
+    const chords = byDepth[d].map(id => 2 * circumRadius(nodeById.get(id)) + cfg.nodeGap);
+    radii[d] = Math.max(radii[d - 1] + step, solveRingRadius(chords));
+  }
+
+  // Wedge subdivision, top-down.
+  const positions = new Map([[rootId, { x: 0, y: 0 }]]);
+  const wedges = new Map([[rootId, { start: -Math.PI / 2, span: 2 * Math.PI }]]);
+  order.forEach(id => {
+    const kids = children.get(id);
+    if (kids.length === 0) return;
+    const wedge = wedges.get(id);
+    const total = kids.reduce((sum, k) => sum + weight.get(k), 0) || kids.length;
+    let cursor = wedge.start;
+    kids.forEach(kidId => {
+      const span = wedge.span * (weight.get(kidId) / total);
+      wedges.set(kidId, { start: cursor, span });
+      const angle = cursor + span / 2;
+      const radius = radii[depth.get(kidId)];
+      positions.set(kidId, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
+      cursor += span;
+    });
+  });
+
+  return positions;
+}
+
+/**
+ * A path laid around a circle instead of serpentined across the canvas — the
+ * paper's *circular Lombardi drawing* of a chain, with all vertices on one
+ * circle and every edge an arc meeting it at a constant angle.
+ *
+ * One gap is left open so the sequence reads as a sequence and not a loop, and
+ * so the first and last node don't end up as neighbours.
+ */
+function arcChainLayoutCentered(nodes, edges, cfg, meta = {}) {
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const { adjacency } = buildSimpleGraph(nodes, edges);
+  const edgeIndex = buildEdgeIndex(edges, cfg.edgeLabelFontSize);
+
+  if (nodes.length <= 2) return chainLayoutCentered(nodes, edges, cfg, meta);
+
+  // Same walk chainLayoutCentered does — start from an endpoint and follow.
+  let startId = meta.startId && nodeById.has(meta.startId) ? meta.startId : null;
+  if (!startId) {
+    startId = nodes.find(n => (adjacency.get(n.id) || new Set()).size <= 1)?.id || nodes[0].id;
+  }
+  const order = [startId];
+  const seen = new Set([startId]);
+  let current = startId;
+  for (;;) {
+    const next = Array.from(adjacency.get(current) || []).find(id => !seen.has(id));
+    if (!next) break;
+    order.push(next);
+    seen.add(next);
+    current = next;
+  }
+  nodes.forEach(node => { if (!seen.has(node.id)) order.push(node.id); });
+
+  // Chords for the real edges, then one deliberately wide chord to hold the
+  // circle open between the last node and the first.
+  const chords = [];
+  for (let i = 0; i < order.length - 1; i++) {
+    const a = nodeById.get(order[i]);
+    const b = nodeById.get(order[i + 1]);
+    const edge = lookupEdge(edgeIndex, order[i], order[i + 1]);
+    const label = labelSpanOf(edge, cfg.edgeLabelFontSize);
+    const gap = label > 0 ? cfg.labelPadding : cfg.nodeGap;
+    chords.push(Math.max(cfg.minEdgeLength, circumRadius(a) + circumRadius(b) + label + gap));
+  }
+  chords.push(Math.max(...chords) * 1.5);
+
+  const radius = solveRingRadius(chords);
+  const angles = ringAngles(chords, radius);
+  return new Map(order.map((id, i) => [id, {
+    x: Math.cos(angles[i]) * radius,
+    y: Math.sin(angles[i]) * radius
+  }]));
 }
 
 // ============================================================================
@@ -887,6 +1129,28 @@ export const cycleLayout = asTopLeftLayout(cycleLayoutCentered);
 export const chainLayout = asTopLeftLayout(chainLayoutCentered);
 export const starLayout = asTopLeftLayout(starLayoutCentered);
 export const layeredLayout = asTopLeftLayout(layeredLayoutCentered);
+export const radialTreeLayout = asTopLeftLayout(radialLayoutCentered);
+export const arcChainLayout = asTopLeftLayout(arcChainLayoutCentered);
+
+/**
+ * Which layout each topology gets, given how the edges will be DRAWN.
+ *
+ * Under straight/orthogonal routing this is just TOPOLOGY_LAYOUT. Under
+ * Lombardi the row-based layouts are swapped for radial ones — see the LOMBARDI
+ * section above for why a fan of evenly spaced arcs is at war with a layout
+ * that stacks a node's neighbours in one direction.
+ */
+export function layoutPlanFor(kind, routingStyle) {
+  if (routingStyle !== 'lombardi') return TOPOLOGY_LAYOUT[kind];
+  switch (kind) {
+    case TOPOLOGY.TREE: return 'radial';
+    case TOPOLOGY.DAG: return 'radial';
+    case TOPOLOGY.CHAIN: return 'arc-chain';
+    // CYCLE and STAR are already the paper's circular drawings; MESH keeps the
+    // force solver, which has no directional bias to fight in the first place.
+    default: return TOPOLOGY_LAYOUT[kind];
+  }
+}
 
 /**
  * Conditional auto-layout: detect each connected component's shape, lay it out
@@ -915,16 +1179,22 @@ export function patternLayout(nodes, edges, options = {}) {
       return;
     }
 
-    const componentCfg = {
+    const componentCfg = arcAwareConfig({
       ...cfg,
       // Give each component room proportional to its size rather than the
       // whole canvas, so orientation choices and wrapping stay sensible.
       width: Math.max(cfg.minEdgeLength * 4, cfg.width * Math.sqrt(component.nodes.length / nodes.length)),
       height: Math.max(cfg.minEdgeLength * 4, cfg.height * Math.sqrt(component.nodes.length / nodes.length))
-    };
+    });
 
     let positions;
-    switch (TOPOLOGY_LAYOUT[kind]) {
+    switch (layoutPlanFor(kind, cfg.routingStyle)) {
+      case 'radial':
+        positions = radialLayoutCentered(component.nodes, component.edges, componentCfg, component.topology.meta);
+        break;
+      case 'arc-chain':
+        positions = arcChainLayoutCentered(component.nodes, component.edges, componentCfg, component.topology.meta);
+        break;
       case 'tree':
         positions = treeLayoutCentered(component.nodes, component.edges, componentCfg, component.topology.meta);
         break;
@@ -975,12 +1245,14 @@ export function patternLayout(nodes, edges, options = {}) {
  */
 export function describeLayoutPlan(nodes, edges, options = {}) {
   const { components, summary } = detectTopology(nodes || [], edges || [], options);
+  const routingStyle = options.routingStyle ?? PATTERN_LAYOUT_DEFAULTS.routingStyle;
   return {
     summary,
+    routingStyle,
     components: components.map(component => ({
       kind: component.topology.kind,
       confidence: component.topology.confidence,
-      layout: TOPOLOGY_LAYOUT[component.topology.kind],
+      layout: layoutPlanFor(component.topology.kind, routingStyle),
       nodeCount: component.nodes.length,
       edgeCount: component.edges.length
     }))
@@ -990,6 +1262,9 @@ export function describeLayoutPlan(nodes, edges, options = {}) {
 export default {
   patternLayout,
   describeLayoutPlan,
+  layoutPlanFor,
+  radialTreeLayout,
+  arcChainLayout,
   treeLayout,
   cycleLayout,
   chainLayout,

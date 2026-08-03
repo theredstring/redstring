@@ -57,6 +57,9 @@ const Header = ({
   // Clean routing controls
   onSetCleanLaneSpacing,
   cleanLaneSpacing,
+  // Lombardi routing controls
+  onSetLombardiCurvature,
+  lombardiCurvature,
   // Group layout
   groupLayoutAlgorithm,
   onSetGroupLayoutAlgorithm,
@@ -604,6 +607,8 @@ const Header = ({
           onSetRoutingStyle={onSetRoutingStyle}
           onSetManhattanBends={onSetManhattanBends}
           onSetCleanLaneSpacing={onSetCleanLaneSpacing}
+          onSetLombardiCurvature={onSetLombardiCurvature}
+          lombardiCurvature={lombardiCurvature}
           cleanLaneSpacing={cleanLaneSpacing}
           groupLayoutAlgorithm={groupLayoutAlgorithm}
           onSetGroupLayoutAlgorithm={onSetGroupLayoutAlgorithm}
@@ -704,6 +709,8 @@ const Header = ({
           onSetRoutingStyle={onSetRoutingStyle}
           onSetManhattanBends={onSetManhattanBends}
           onSetCleanLaneSpacing={onSetCleanLaneSpacing}
+          onSetLombardiCurvature={onSetLombardiCurvature}
+          lombardiCurvature={lombardiCurvature}
           cleanLaneSpacing={cleanLaneSpacing}
           groupLayoutAlgorithm={groupLayoutAlgorithm}
           onSetGroupLayoutAlgorithm={onSetGroupLayoutAlgorithm}

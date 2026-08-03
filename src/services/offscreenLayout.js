@@ -81,6 +81,10 @@ export function applyOffscreenLayout(graphId) {
     useExistingPositions: false,
     groups,
     edgeLabelFontSize,
+    // Lombardi draws arcs, which changes both which layout fits a shape and how
+    // much room each edge needs. The conditional dispatcher reads these.
+    routingStyle: st.autoLayoutSettings?.routingStyle || 'straight',
+    lombardiCurvature: st.autoLayoutSettings?.lombardiCurvature ?? 1.0,
   });
 
   if (!updates || updates.length === 0) return;

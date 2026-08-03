@@ -38,6 +38,11 @@ export const useGraphLayout = ({
     layoutScaleMultiplier = 1.0,
     layoutIterationPreset = 100,
     groupLayoutAlgorithm = 'force-directed',
+    // How the edges will be DRAWN. Lombardi routes every edge as an arc, which
+    // changes both which layout suits a given shape and how much room each edge
+    // needs — the conditional dispatcher in patternLayouts reads both of these.
+    routingStyle = 'straight',
+    lombardiCurvature = 1.0,
     // Force tuner settings — individual force params for consistency with AI and interactive sim
     forceTunerSettings = null,
     // Resolved connection label font (59.4 × textSettings.fontSize ×
@@ -261,6 +266,8 @@ export const useGraphLayout = ({
             useExistingPositions: groups.length === 0,
             groups,
             edgeLabelFontSize: connectionFontSize,
+            routingStyle,
+            lombardiCurvature,
             // Pass full force tuner parameters so auto-layout uses
             // the same configuration as the interactive simulation and AI.
             ...(forceTunerSettings ? {
@@ -546,6 +553,8 @@ export const useGraphLayout = ({
         layoutIterationPreset,
         canvasSize,
         groupLayoutAlgorithm,
+        routingStyle,
+        lombardiCurvature,
         graphsMap,
         forceTunerSettings,
         connectionFontSize,
