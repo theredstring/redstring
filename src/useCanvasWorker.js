@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { calculateZoom as calculateZoomMath } from './utils/canvas/zoomMath.js';
 
 export const useCanvasWorker = () => {
   const [workerReady, setWorkerReady] = useState(false);
@@ -34,6 +35,38 @@ export const useCanvasWorker = () => {
     }
   }, []);
 
+  // Correlated request/response.
+  //
+  // These calls are made from input handlers, so several of the same type are
+  // routinely in flight at once — a trackpad emits wheel events faster than a
+  // worker round-trip completes. Matching a response to its request by `type`
+  // alone is not enough: every pending caller of that type sees every response,
+  // so they all resolve off whichever one lands first and the later responses
+  // are dropped. For zoom that silently pairs one request's input with another
+  // request's output, which inverts the zoom direction whenever the two were
+  // computed from different base zooms.
+  //
+  // So tag each request with an id and resolve only on the matching response.
+  const requestIdRef = useRef(0);
+  const request = (type, resultType, data) => new Promise((resolve, reject) => {
+    const worker = workerRef.current;
+    const id = ++requestIdRef.current;
+
+    const handler = (e) => {
+      if (e.data.id !== id) return;
+      if (e.data.type === resultType) {
+        worker.removeEventListener('message', handler);
+        resolve(e.data.data);
+      } else if (e.data.type === 'ERROR') {
+        worker.removeEventListener('message', handler);
+        reject(new Error(e.data.error));
+      }
+    };
+
+    worker.addEventListener('message', handler);
+    worker.postMessage({ type, id, data });
+  });
+
   const calculatePan = async (data) => {
     if (!workerReady || !workerRef.current) {
       // Fallback calculation for pan
@@ -65,16 +98,7 @@ export const useCanvasWorker = () => {
       return { x: newPanOffsetX, y: newPanOffsetY };
     }
 
-    return new Promise((resolve) => {
-      const handler = (e) => {
-        if (e.data.type === 'PAN_RESULT') {
-          workerRef.current.removeEventListener('message', handler);
-          resolve(e.data.data);
-        }
-      };
-      workerRef.current.addEventListener('message', handler);
-      workerRef.current.postMessage({ type: 'CALCULATE_PAN', data });
-    });
+    return request('CALCULATE_PAN', 'PAN_RESULT', data);
   };
 
   const calculateNodePositions = async (data) => {
@@ -106,16 +130,7 @@ export const useCanvasWorker = () => {
       });
     }
 
-    return new Promise((resolve) => {
-      const handler = (e) => {
-        if (e.data.type === 'NODE_POSITIONS_RESULT') {
-          workerRef.current.removeEventListener('message', handler);
-          resolve(e.data.data);
-        }
-      };
-      workerRef.current.addEventListener('message', handler);
-      workerRef.current.postMessage({ type: 'CALCULATE_NODE_POSITIONS', data });
-    });
+    return request('CALCULATE_NODE_POSITIONS', 'NODE_POSITIONS_RESULT', data);
   };
 
   const calculateSelection = async (data) => {
@@ -131,70 +146,13 @@ export const useCanvasWorker = () => {
       };
     }
 
-    return new Promise((resolve) => {
-      const handler = (e) => {
-        if (e.data.type === 'SELECTION_RESULT') {
-          workerRef.current.removeEventListener('message', handler);
-          resolve(e.data.data);
-        }
-      };
-      workerRef.current.addEventListener('message', handler);
-      workerRef.current.postMessage({ type: 'CALCULATE_SELECTION', data });
-    });
+    return request('CALCULATE_SELECTION', 'SELECTION_RESULT', data);
   };
 
-  const calculateZoom = async (data) => {
-    if (!workerReady || !workerRef.current) {
-      // Fallback calculation for zoom
-      const {
-        deltaY,
-        currentZoom,
-        mousePos,
-        panOffset,
-        viewportSize,
-        canvasSize,
-        MIN_ZOOM,
-        MAX_ZOOM
-      } = data;
-
-      let zoomFactor = deltaY < 0 ? 1.1 : deltaY > 0 ? 1 / 1.1 : 1;
-      
-      let newZoomLevel = currentZoom * zoomFactor;
-      newZoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoomLevel));
-      
-      zoomFactor = newZoomLevel / currentZoom;
-
-      const panOffsetDeltaX = (mousePos.x - panOffset.x) * (1 - zoomFactor);
-      const panOffsetDeltaY = (mousePos.y - panOffset.y) * (1 - zoomFactor);
-
-      let newPanOffsetX = panOffset.x + panOffsetDeltaX;
-      let newPanOffsetY = panOffset.y + panOffsetDeltaY;
-
-      const maxPanOffsetX = 0;
-      const maxPanOffsetY = 0;
-      const minPanOffsetX = viewportSize.width - canvasSize.width * newZoomLevel;
-      const minPanOffsetY = viewportSize.height - canvasSize.height * newZoomLevel;
-
-      newPanOffsetX = Math.min(Math.max(newPanOffsetX, minPanOffsetX), maxPanOffsetX);
-      newPanOffsetY = Math.min(Math.max(newPanOffsetY, minPanOffsetY), maxPanOffsetY);
-
-      return {
-        zoomLevel: newZoomLevel,
-        panOffset: { x: newPanOffsetX, y: newPanOffsetY }
-      };
-    }
-
-    return new Promise((resolve) => {
-      const handler = (e) => {
-        if (e.data.type === 'ZOOM_RESULT') {
-          workerRef.current.removeEventListener('message', handler);
-          resolve(e.data.data);
-        }
-      };
-      workerRef.current.addEventListener('message', handler);
-      workerRef.current.postMessage({ type: 'CALCULATE_ZOOM', data });
-    });
-  };
+  // Zoom is pure arithmetic (see utils/canvas/zoomMath.js) — running it through
+  // the worker only bought a frame of latency, so it is computed inline. Kept
+  // async so existing `await` call sites keep working.
+  const calculateZoom = async (data) => calculateZoomMath(data);
 
   return {
     calculatePan,

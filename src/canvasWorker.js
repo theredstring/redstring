@@ -1,3 +1,4 @@
+import { calculateZoom } from './utils/canvas/zoomMath.js';
 import {
   SCROLL_SENSITIVITY
 } from './constants';
@@ -7,9 +8,6 @@ console.log('Worker initialized');
 
 // Send ready message to main thread
 self.postMessage({ type: 'READY' });
-
-// Define a scaling factor for zoom sensitivity within the worker
-const ZOOM_SENSITIVITY_SCALE = 0.005;
 
 // Calculation functions
 const calculatePanOffset = (data) => {
@@ -97,72 +95,27 @@ const calculateSelectionRect = (data) => {
   }
 };
 
-const calculateZoom = (data) => {
-  try {
-    const {
-      deltaY,
-      currentZoom,
-      mousePos,
-      panOffset,
-      viewportSize,
-      canvasSize,
-      MIN_ZOOM,
-      MAX_ZOOM
-    } = data;
 
-    // Calculate zoomFactor based on deltaY magnitude and sensitivity scale
-    // Avoid zoomFactor of exactly 1 if deltaY is 0 to prevent unnecessary calculations
-    const zoomFactor = deltaY !== 0 ? Math.pow(2, -deltaY * ZOOM_SENSITIVITY_SCALE) : 1;
-
-    if (zoomFactor === 1) {
-        // If zoomFactor is 1 (e.g., deltaY was 0), no change needed
-      return { zoomLevel: currentZoom, panOffset };
-    }
-
-    let newZoomLevel = currentZoom * zoomFactor;
-    newZoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoomLevel));
-    
-    // Calculate the actual zoom factor applied after clamping
-    const actualZoomFactor = newZoomLevel / currentZoom;
-
-    // Pan offset calculation to zoom towards the mouse pointer
-    const panOffsetDeltaX = (mousePos.x - panOffset.x) * (1 - actualZoomFactor);
-    const panOffsetDeltaY = (mousePos.y - panOffset.y) * (1 - actualZoomFactor);
-
-    let newPanOffsetX = panOffset.x + panOffsetDeltaX;
-    let newPanOffsetY = panOffset.y + panOffsetDeltaY;
-
-    const maxPanOffsetX = 0;
-    const maxPanOffsetY = 0;
-    const minPanOffsetX = viewportSize.width - canvasSize.width * newZoomLevel;
-    const minPanOffsetY = viewportSize.height - canvasSize.height * newZoomLevel;
-
-    newPanOffsetX = Math.min(Math.max(newPanOffsetX, minPanOffsetX), maxPanOffsetX);
-    newPanOffsetY = Math.min(Math.max(newPanOffsetY, minPanOffsetY), maxPanOffsetY);
-
-    return {
-      zoomLevel: newZoomLevel,
-      panOffset: { x: newPanOffsetX, y: newPanOffsetY }
-    };
-  } catch (error) {
-    console.error('Zoom calculation error:', error);
-    throw error;
-  }
-};
-
-// Message handler with error handling
+// Message handler with error handling.
+//
+// Every response echoes the request's `id`. Callers can have several requests
+// of the same type in flight at once (a trackpad emits wheel events faster than
+// this round-trip completes), and without an id there is nothing to match a
+// response to its request — a caller would resolve on whichever response of the
+// right type arrived first, which is not necessarily its own.
 self.onmessage = (e) => {
-  try {
-    const { type, data } = e.data;
+  const { type, data, id } = e.data;
 
+  try {
     switch (type) {
       case 'TEST':
-        self.postMessage({ type: 'READY' });
+        self.postMessage({ type: 'READY', id });
         break;
 
       case 'CALCULATE_PAN':
         self.postMessage({
           type: 'PAN_RESULT',
+          id,
           data: calculatePanOffset(data)
         });
         break;
@@ -170,6 +123,7 @@ self.onmessage = (e) => {
       case 'CALCULATE_NODE_POSITIONS':
         self.postMessage({
           type: 'NODE_POSITIONS_RESULT',
+          id,
           data: calculateNodePositions(data)
         });
         break;
@@ -177,6 +131,7 @@ self.onmessage = (e) => {
       case 'CALCULATE_SELECTION':
         self.postMessage({
           type: 'SELECTION_RESULT',
+          id,
           data: calculateSelectionRect(data)
         });
         break;
@@ -184,6 +139,7 @@ self.onmessage = (e) => {
       case 'CALCULATE_ZOOM':
         self.postMessage({
           type: 'ZOOM_RESULT',
+          id,
           data: calculateZoom(data)
         });
         break;
@@ -192,6 +148,7 @@ self.onmessage = (e) => {
         console.warn('Unknown message type:', type);
         self.postMessage({
           type: 'ERROR',
+          id,
           error: `Unknown message type: ${type}`
         });
     }
@@ -199,6 +156,7 @@ self.onmessage = (e) => {
     console.error('Worker message handling error:', error);
     self.postMessage({
       type: 'ERROR',
+      id,
       error: error.message
     });
   }
