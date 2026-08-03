@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { applyLayout, FORCE_LAYOUT_DEFAULTS, deriveGroupVisualBounds } from '../services/graphLayoutService.js';
+import { applyLayout, FORCE_LAYOUT_DEFAULTS, LAYOUT_ITERATION_PRESETS, deriveGroupVisualBounds } from '../services/graphLayoutService.js';
 import { getNodeDimensions } from '../utils'; // Assumed utility
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 import { HEADER_HEIGHT } from '../constants';
+
+// Node count at which the layout solver's per-iteration cost starts to
+// dominate wall time. Up to here the full preset iteration count runs; past
+// it, iterations scale down as (threshold / n)² so total work stays flat.
+const LAYOUT_WORK_THRESHOLD = 150;
+// Below this the simulation hasn't untangled anything, so it's not worth
+// running at all — the floor is what keeps very large graphs still useful.
+const MIN_LAYOUT_ITERATIONS = 80;
 
 /**
  * Resolve the displayed connection name for an edge.
@@ -202,12 +210,6 @@ export const useGraphLayout = ({
             return;
         }
 
-        // Skip auto-layout for very large graphs to prevent UI freeze
-        if (nodes.length > 200) {
-            console.log(`[useGraphLayout] Skipping auto-layout: graph too large (${nodes.length} nodes, threshold is 200)`);
-            return;
-        }
-
         // Show loading indicator for large graphs
         if (nodes.length > 20) {
             console.log(`[useGraphLayout] Applying auto-layout to ${nodes.length} nodes...`);
@@ -256,6 +258,27 @@ export const useGraphLayout = ({
         const layoutPadding = Math.max(300, Math.min(layoutWidth, layoutHeight) * 0.08);
 
         const groups = Array.from(graphData?.groups?.values() || []);
+
+        // Adaptive iteration budget. The solver is brute-force: each iteration
+        // costs O(n²) node-node repulsion plus O(n·e) node-edge repulsion, and
+        // it runs synchronously on the main thread — so a fixed iteration count
+        // means wall time grows quadratically with graph size. Instead, hold
+        // total work roughly constant above LAYOUT_WORK_THRESHOLD by trading
+        // iterations for size. Below the threshold nothing changes; above it,
+        // large graphs converge less finely rather than freezing the UI.
+        const iterPreset = LAYOUT_ITERATION_PRESETS[layoutIterationPreset]
+            || LAYOUT_ITERATION_PRESETS.balanced;
+        const presetIterations = iterPreset.iterations;
+        const adaptiveIterations = nodes.length <= LAYOUT_WORK_THRESHOLD
+            ? presetIterations
+            : Math.max(
+                MIN_LAYOUT_ITERATIONS,
+                Math.round(presetIterations * (LAYOUT_WORK_THRESHOLD / nodes.length) ** 2)
+            );
+        if (adaptiveIterations < presetIterations) {
+            console.log(`[useGraphLayout] Large graph (${nodes.length} nodes): reducing layout iterations ${presetIterations} → ${adaptiveIterations}`);
+        }
+
         const layoutOptions = {
             width: layoutWidth,
             height: layoutHeight,
@@ -263,6 +286,8 @@ export const useGraphLayout = ({
             layoutScale: layoutScalePreset,
             layoutScaleMultiplier,
             iterationPreset: layoutIterationPreset,
+            // Overrides the preset's iteration count (config spreads options last).
+            iterations: adaptiveIterations,
             // When groups exist, let groupSeparatedLayout handle the two-phase approach
             // (layout each group independently → position groups in space).
             // Without groups, preserve existing positions for incremental refinement.

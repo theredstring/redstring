@@ -684,3 +684,38 @@ describe('lazy sampling', () => {
     expect(r.points).toBe(r.points);
   });
 });
+
+describe('near-straight arcs (the textPath performance trap)', () => {
+  it('emits a line rather than a circle of runaway radius', () => {
+    // A quarter-degree bow on a 600px edge wants a radius in the hundreds of
+    // thousands. It is pixel-identical to a line, and enormously more expensive
+    // to lay text along.
+    const arc = solveLombardiArc({ x: 0, y: 0 }, { x: 600, y: 0 }, 0.0008, Math.PI - 0.0008, 1);
+    expect(arc.straight).toBe(true);
+  });
+
+  it('still curves once the bow is actually visible', () => {
+    const arc = solveLombardiArc({ x: 0, y: 0 }, { x: 600, y: 0 }, 0.05, Math.PI - 0.05, 1);
+    expect(arc.straight).toBe(false);
+  });
+
+  it('bounds the radius of whatever it does emit', () => {
+    // Sweep the whole range of demands and check nothing escapes with a radius
+    // whose bow is invisible.
+    for (let d = 0.0001; d < 1.3; d *= 1.3) {
+      const arc = solveLombardiArc({ x: 0, y: 0 }, { x: 800, y: 0 }, d, Math.PI - d, 1);
+      if (!arc || arc.straight) continue;
+      const bow = 800 * 800 / (8 * arc.radius);
+      expect(bow).toBeGreaterThan(0.3);
+    }
+  });
+
+  it('declines a curved label whose baseline is straight to the eye', () => {
+    // Long edge, real but tiny bow: the connection curves, the label doesn't
+    // need to, and a textPath on that radius is the expensive case.
+    const arc = solveLombardiArc({ x: 0, y: 0 }, { x: 4000, y: 0 }, 0.004, Math.PI - 0.004, 1);
+    expect(arc.straight).toBe(false);
+    expect(arc.radius).toBeGreaterThan(100000);
+    expect(labelArcPath(arc, arcPointAt(arc, 0.5), 400)).toBeNull();
+  });
+});

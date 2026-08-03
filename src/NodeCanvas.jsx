@@ -133,6 +133,10 @@ const SPAWNABLE_NODE = 'spawnable_node';
 // `curveLabels` below for why.
 const CURVED_LABEL_BUDGET = 200;
 
+// On-screen font size, in CSS pixels, below which a connection label is not
+// readable and is skipped entirely. See `labelsLegible` below.
+const MIN_LEGIBLE_LABEL_PX = 8;
+
 // EXCLUSIVE_PANEL_MODE_THRESHOLD is imported from ./constants (shared with Panel.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
 const PANEL_OVERLAY_MIN_WIDTH = 150;
@@ -2885,6 +2889,23 @@ function NodeCanvas() {
   // So curve them right up to the point where they stop being readable, then
   // stop. Set this to 0 to confirm textPath is what's costing you.
   const curveLabels = visibleEdges.length <= CURVED_LABEL_BUDGET;
+
+  // Don't draw a label nobody can read.
+  //
+  // Connection labels are the most expensive thing on this canvas, and not by a
+  // little: they are STROKED text (paintOrder="stroke fill", ~9px outline) drawn
+  // at an ARBITRARY rotation. Both of those defeat the browser's glyph cache, so
+  // every one is rasterised from outlines on every paint. That is the whole
+  // reason Manhattan feels faster than straight even though it does strictly
+  // more routing work — its labels land on exact 0°/90° runs, which the
+  // compositor can draw from cached glyphs, while a straight edge's label sits
+  // at the chord angle and a Lombardi one at the arc tangent.
+  //
+  // At the zoom where a 250-node graph fits on screen, every one of those labels
+  // is a few pixels tall and completely illegible. Skipping them costs nothing
+  // and is the single biggest win available in every routing mode.
+  const baseConnectionFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
+  const labelsLegible = baseConnectionFontSize * zoomLevel >= MIN_LEGIBLE_LABEL_PX;
 
   // Reset the label caches when the routing configuration changes.
   //
@@ -14155,7 +14176,7 @@ function NodeCanvas() {
                               })()}
 
                               {/* Connection name text — rendered after arrows so labels appear on top */}
-                              {showConnectionNames && (() => {
+                              {showConnectionNames && labelsLegible && (() => {
                                 const connectionFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
                                 let midX;
                                 let midY;
@@ -15518,7 +15539,7 @@ function NodeCanvas() {
                               })()}
 
                               {/* Connection name text — rendered after arrows so labels appear on top */}
-                              {showConnectionNames && (() => {
+                              {showConnectionNames && labelsLegible && (() => {
                                 const connectionFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
                                 let midX;
                                 let midY;

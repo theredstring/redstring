@@ -507,6 +507,21 @@ const wrapTau = (a) => ((a % TAU) + TAU) % TAU;
 // it also keeps every arc inside SVG's small-arc case.
 export const MAX_TANGENT_CHORD = 1.32;
 
+// Smallest bow, in canvas pixels, worth drawing as an arc rather than a line.
+//
+// This is a PERFORMANCE floor as much as a visual one. An arc's radius is
+// L / (2 sin δ), so as δ approaches zero the radius runs away — a 600px edge
+// with a quarter-degree bow wants a radius in the millions. That arc is
+// pixel-identical to a straight line, but it is not free: SVG arc rendering
+// derives the circle centre from the endpoints and the radius, which is
+// numerically ill-conditioned when the radius dwarfs the chord, and anything
+// that has to arc-length parameterise the path (a <textPath> label, most
+// of all) pays dearly for it.
+//
+// Below this, emit a line. Whatever survives has a bow you can actually see,
+// and a radius bounded by roughly L²/(8·MIN_VISIBLE_BOW).
+export const MIN_VISIBLE_BOW = 0.4;
+
 // How far inside the node border an arrowhead's origin sits. Matches the
 // `offset` the straight-routing arrow placement uses.
 const LOMBARDI_ARROW_INSET = 12;
@@ -648,7 +663,10 @@ export function solveLombardiArc(p, q, thetaP, thetaQ, curvature = 1) {
   let delta = ((alpha - beta) / 2) * curvature;
   delta = Math.max(-MAX_TANGENT_CHORD, Math.min(MAX_TANGENT_CHORD, delta));
 
-  if (Math.abs(delta) < 1e-3) return { straight: true, delta: 0 };
+  // Sagitta of a chord L subtending 2δ. See MIN_VISIBLE_BOW for why an
+  // invisibly-shallow arc must become an actual line rather than a huge circle.
+  const bow = (chordLength / 2) * Math.abs(Math.tan(delta / 2));
+  if (bow < MIN_VISIBLE_BOW) return { straight: true, delta: 0 };
 
   // Signed radius: chord subtending 2δ. The centre lies one radius off the
   // tangent at p, on the side the arc curves away from.
@@ -826,6 +844,11 @@ export function labelArcPath(arc, anchor, textWidth, options = {}) {
 
   const sweep = span / radius;
   if (!(sweep > 0) || sweep > maxSweep) return null;
+  // How far the text's baseline actually departs from a straight one over its
+  // own length. Below a pixel the two are the same picture — and this is the
+  // case where the radius is enormous, which is precisely when <textPath> is
+  // most expensive. Straight label, identical result, a fraction of the cost.
+  if ((span * sweep) / 8 < MIN_VISIBLE_BOW) return null;
 
   const mid = Math.atan2(dy, dx);
   const half = sweep / 2;
