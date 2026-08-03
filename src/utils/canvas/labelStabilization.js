@@ -12,7 +12,6 @@ const stabilizationCache = new Map();
 
 // Stabilization parameters
 const POSITION_THRESHOLD = 5; // px - don't update if moved less than this
-const SMOOTHING_FACTOR = 0.3; // Exponential smoothing (0 = no smooth, 1 = instant)
 const ANGLE_SNAP_THRESHOLD = 5; // degrees - snap if within this range
 const ANGLE_SNAP_INCREMENT = 15; // degrees - snap to multiples of this
 
@@ -54,10 +53,17 @@ export const stabilizeLabelPosition = (edgeId, x, y, angle) => {
     };
   }
 
-  // Apply exponential smoothing for larger movements
-  // This creates smooth transitions rather than instant jumps
-  const smoothX = cached.lastX + (x - cached.lastX) * SMOOTHING_FACTOR;
-  const smoothY = cached.lastY + (y - cached.lastY) * SMOOTHING_FACTOR;
+  // Past the deadband, adopt the requested position outright.
+  //
+  // This used to lerp 30% of the way toward the target and write the lerped
+  // value back to the cache. That only converges if something re-invokes it every
+  // frame — nothing does. It is called once per React render, so a label whose
+  // placement changed (routing style switched, node moved, text changed) settled
+  // permanently 70% short of where it belonged, hovering off its own connection.
+  // The 5px deadband above is the actual anti-jitter mechanism; the lerp was
+  // never anything but lag.
+  const smoothX = x;
+  const smoothY = y;
 
   // Snap angle to nearest increment if close
   // This prevents labels from wiggling at near-horizontal/vertical angles

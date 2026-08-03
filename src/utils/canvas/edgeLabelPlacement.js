@@ -354,6 +354,166 @@ const getFallbackPlacement = (pathPoints, textWidth, textHeight, obstacles) => {
     return { x, y, angle: 0, score: 0 };
 };
 
+// ---------------------------------------------------------------------------
+// Orthogonal (Manhattan / Clean) label placement
+//
+// The generic strategy stack below was written for straight center-to-center
+// edges and is actively wrong for routed polylines: its on-path strategy
+// requires a segment longer than the whole label, so at real connection font
+// sizes (~59px → ~330px of text) almost every orthogonal segment is rejected
+// and placement falls through to the *chord*-based strategies. Those measure
+// direction from endpoint to endpoint — a diagonal — and shove the label 40-80px
+// off to the side. That is why labels in these modes end up tilted and floating
+// away from the line they belong to.
+//
+// The functions here instead keep the label ON the polyline, always axis-aligned
+// with the segment it sits on, and only ever nudge it by a fraction of a line
+// height when it has to dodge something.
+// ---------------------------------------------------------------------------
+
+const MIN_ANCHOR_SEGMENT = 24; // px — shorter than this reads as a stub, not a run
+
+// Break a polyline into scored, orientation-tagged segments (longest first).
+const describeSegments = (pathPoints) => {
+    const segments = [];
+    if (!pathPoints || pathPoints.length < 2) return segments;
+
+    for (let i = 0; i < pathPoints.length - 1; i++) {
+        const a = pathPoints[i];
+        const b = pathPoints[i + 1];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const length = Math.hypot(dx, dy);
+        if (length < 1) continue;
+
+        const isHorizontal = Math.abs(dy) < 0.5;
+        const isVertical = Math.abs(dx) < 0.5;
+        // Axis-aligned segments get an exact axis angle — never the measured
+        // atan2, which can carry a fraction of a degree of float noise and make
+        // an otherwise level label look subtly crooked.
+        const angle = isHorizontal ? 0
+            : isVertical ? 90
+                : Math.atan2(dy, dx) * (180 / Math.PI);
+
+        segments.push({
+            a, b, length, angle,
+            // Horizontal runs read best, then vertical; diagonals are a last resort.
+            orientationBonus: isHorizontal ? 400 : isVertical ? 200 : 0,
+        });
+    }
+    return segments.sort((p, q) => q.length - p.length);
+};
+
+// Label bounding box in canvas space. A vertical label occupies the transpose of
+// a horizontal one — the old code always reserved a horizontal box, which both
+// over-claimed space sideways and under-claimed it vertically.
+const labelRectFor = (x, y, textWidth, textHeight, angle) => {
+    const vertical = Math.abs(((angle % 180) + 180) % 180 - 90) < 45;
+    const halfW = (vertical ? textHeight : textWidth) / 2;
+    const halfH = (vertical ? textWidth : textHeight) / 2;
+    return { minX: x - halfW, maxX: x + halfW, minY: y - halfH, maxY: y + halfH };
+};
+
+/**
+ * Cheap deterministic on-path placement: midpoint of the best segment, no
+ * obstacle avoidance. Used per-frame during drags, where running the full
+ * avoidance pass for every edge would blow the frame budget — and where the
+ * result must still agree with the settled render closely enough that dropping
+ * the node doesn't visibly teleport the label.
+ */
+export const placeLabelOnPath = (pathPoints) => {
+    const segments = describeSegments(pathPoints);
+    if (segments.length === 0) {
+        const p = pathPoints?.[0] || { x: 0, y: 0 };
+        return { x: p.x, y: p.y, angle: 0 };
+    }
+    // Prefer the longest usable run, breaking ties toward better orientation.
+    const usable = segments.filter(s => s.length >= MIN_ANCHOR_SEGMENT);
+    const pool = usable.length > 0 ? usable : segments;
+    let best = pool[0];
+    let bestScore = -Infinity;
+    for (const seg of pool) {
+        const score = seg.length + seg.orientationBonus;
+        if (score > bestScore) { bestScore = score; best = seg; }
+    }
+    return {
+        x: (best.a.x + best.b.x) / 2,
+        y: (best.a.y + best.b.y) / 2,
+        angle: best.angle,
+    };
+};
+
+/**
+ * Full orthogonal placement: stays on the routed polyline, axis-aligned, and
+ * slides ALONG the line before it will step off it. Guaranteed to return a
+ * placement (falls back to the plain on-path midpoint).
+ */
+export const chooseOrthogonalLabelPlacement = (
+    pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById,
+    placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set()
+) => {
+    const segments = describeSegments(pathPoints);
+    if (segments.length === 0) return placeLabelOnPath(pathPoints);
+
+    const textWidth = estimateTextWidth(connectionName, fontSize);
+    const textHeight = fontSize;
+
+    const obstacles = getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedNodeIds);
+    if (placedLabels && placedLabels.size > 0) {
+        placedLabels.forEach((labelData, id) => {
+            if (id !== edgeId && labelData?.rect) obstacles.push(labelData.rect);
+        });
+    }
+
+    // Slide along the segment first; only then step off it, and never by more
+    // than a line height — the label has to stay visually attached to its line.
+    const alongFractions = [0.5, 0.42, 0.58, 0.34, 0.66, 0.25, 0.75];
+    const perpOffsets = [0, textHeight * 0.6, -textHeight * 0.6, textHeight, -textHeight];
+
+    const usable = segments.filter(s => s.length >= MIN_ANCHOR_SEGMENT);
+    const pool = usable.length > 0 ? usable : segments;
+
+    let best = null;
+    for (const seg of pool) {
+        const dx = seg.b.x - seg.a.x;
+        const dy = seg.b.y - seg.a.y;
+        const perpX = -dy / seg.length;
+        const perpY = dx / seg.length;
+
+        for (const t of alongFractions) {
+            const baseX = seg.a.x + dx * t;
+            const baseY = seg.a.y + dy * t;
+
+            for (const offset of perpOffsets) {
+                const x = baseX + perpX * offset;
+                const y = baseY + perpY * offset;
+                const rect = labelRectFor(x, y, textWidth, textHeight, seg.angle);
+                if (rectIntersectsAny(rect, obstacles)) continue;
+
+                const score = seg.length
+                    + seg.orientationBonus
+                    - Math.abs(t - 0.5) * 300   // hug the middle of the run
+                    - Math.abs(offset) * 6;      // and hug the line itself
+                if (!best || score > best.score) {
+                    best = { x, y, angle: seg.angle, score, rect };
+                }
+            }
+        }
+    }
+
+    if (best) return best;
+
+    // Everything collided — staying on the line beats drifting into open space,
+    // because a label nobody can trace back to its connection is worse than one
+    // that overlaps a node.
+    const fallback = placeLabelOnPath(pathPoints);
+    return {
+        ...fallback,
+        score: 0,
+        rect: labelRectFor(fallback.x, fallback.y, textWidth, textHeight, fallback.angle),
+    };
+};
+
 // Main label placement orchestrator
 export const chooseLabelPlacement = (pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set()) => {
     const obstacles = getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedNodeIds);

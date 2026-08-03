@@ -1,8 +1,83 @@
 /**
  * Edge routing utilities for Manhattan and Clean routing styles
+ *
+ * SINGLE SOURCE OF TRUTH. Both the settled React render (NodeCanvas) and the
+ * DOM-bypass drag updater (useNodeDrag) build routed edges from the functions
+ * here. Any geometry that only one of them knows how to compute shows up as an
+ * edge that jumps, freezes, or straightens the moment a drag starts.
  */
 
 import { getPortPosition } from './portPositioning.js';
+
+const DEFAULT_CORNER_RADIUS = 8;
+
+/**
+ * Build a rounded SVG path from an ordered orthogonal polyline.
+ *
+ * Unlike the generic builder in edgeLabelPlacement.js, the corner radius is
+ * clamped to half of the shortest adjacent segment so tight bends can't
+ * overshoot into a visible kink.
+ *
+ * @param {Array<{x:number,y:number}>} pts
+ * @param {number} radius
+ * @returns {string} SVG path data
+ */
+export function buildRoundedOrthogonalPath(pts, radius = DEFAULT_CORNER_RADIUS) {
+  const points = dedupePoints(pts);
+  if (points.length === 0) return '';
+  if (points.length === 1) return `M ${points[0].x},${points[0].y}`;
+
+  let d = `M ${points[0].x},${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    if (i === points.length - 1) {
+      d += ` L ${curr.x},${curr.y}`;
+      continue;
+    }
+    const next = points[i + 1];
+    const dx1 = curr.x - prev.x;
+    const dy1 = curr.y - prev.y;
+    const dx2 = next.x - curr.x;
+    const dy2 = next.y - curr.y;
+    const inLen = Math.hypot(dx1, dy1);
+    const outLen = Math.hypot(dx2, dy2);
+    // Clamp so neither the incoming nor outgoing segment is over-consumed.
+    const r = Math.max(0, Math.min(radius, inLen / 2, outLen / 2));
+    if (r === 0) {
+      d += ` L ${curr.x},${curr.y}`;
+      continue;
+    }
+    const backX = curr.x - (dx1 / inLen) * r;
+    const backY = curr.y - (dy1 / inLen) * r;
+    const fwdX = curr.x + (dx2 / outLen) * r;
+    const fwdY = curr.y + (dy2 / outLen) * r;
+    d += ` L ${backX},${backY} Q ${curr.x},${curr.y} ${fwdX},${fwdY}`;
+  }
+  return d;
+}
+
+// Drop consecutive duplicate points and collinear midpoints — they produce
+// degenerate zero-length corners that render as dots under a round linecap.
+function dedupePoints(pts) {
+  if (!pts || pts.length === 0) return [];
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const prev = out[out.length - 1];
+    const curr = pts[i];
+    if (Math.abs(curr.x - prev.x) < 0.01 && Math.abs(curr.y - prev.y) < 0.01) continue;
+    out.push(curr);
+  }
+  // Remove collinear interior points
+  for (let i = out.length - 2; i >= 1; i--) {
+    const a = out[i - 1];
+    const b = out[i];
+    const c = out[i + 1];
+    const cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    if (Math.abs(cross) < 0.01) out.splice(i, 1);
+  }
+  return out;
+}
 
 /**
  * Compute clean polyline routing from start to end ports with orthogonal stems
@@ -137,8 +212,64 @@ export function computeCleanPolylineFromPorts(start, end, obstacleRects, laneSpa
 }
 
 /**
+ * Compute the full Manhattan routing descriptor for an edge.
+ *
+ * Returns everything both render paths need — the polyline (for label
+ * placement), the rounded path data (for the <path> elements), the chosen
+ * ports (for the center→port stubs) and the sides (for arrowhead orientation).
+ *
+ * @returns {{points: Array, pathD: string, startX: number, startY: number,
+ *            endX: number, endY: number, sourceSide: string, destSide: string}}
+ */
+export function computeManhattanRouting(sourceNode, destNode, sDims, dDims, manhattanBends = 'auto') {
+  const points = generateManhattanRoutingPath(null, sourceNode, destNode, sDims, dDims, manhattanBends);
+  const start = points[0];
+  const end = points[points.length - 1];
+
+  const sourceSide = (Math.abs(start.y - sourceNode.y) < 0.5) ? 'top'
+    : (Math.abs(start.y - (sourceNode.y + sDims.currentHeight)) < 0.5) ? 'bottom'
+      : (Math.abs(start.x - sourceNode.x) < 0.5) ? 'left' : 'right';
+  const destSide = (Math.abs(end.y - destNode.y) < 0.5) ? 'top'
+    : (Math.abs(end.y - (destNode.y + dDims.currentHeight)) < 0.5) ? 'bottom'
+      : (Math.abs(end.x - destNode.x) < 0.5) ? 'left' : 'right';
+
+  return {
+    points,
+    pathD: buildRoundedOrthogonalPath(points),
+    startX: start.x,
+    startY: start.y,
+    endX: end.x,
+    endY: end.y,
+    sourceSide,
+    destSide,
+  };
+}
+
+/**
+ * Compute the full clean routing descriptor for an edge. Mirrors
+ * computeManhattanRouting so callers can treat both styles uniformly.
+ */
+export function computeCleanRouting(edge, sourceNode, destNode, sDims, dDims, cleanLaneOffsets, cleanLaneSpacing = 24) {
+  const points = generateCleanRoutingPath(edge, sourceNode, destNode, sDims, dDims, cleanLaneOffsets, cleanLaneSpacing);
+  const start = points[0];
+  const end = points[points.length - 1];
+  const assignment = cleanLaneOffsets?.get?.(edge.id) || null;
+
+  return {
+    points,
+    pathD: buildRoundedOrthogonalPath(points),
+    startX: start.x,
+    startY: start.y,
+    endX: end.x,
+    endY: end.y,
+    sourceSide: assignment?.sourceSide ?? null,
+    destSide: assignment?.destSide ?? null,
+  };
+}
+
+/**
  * Generate consistent Manhattan routing path for an edge
- * @param {Object} edge - Edge object
+ * @param {Object} edge - Edge object (unused; kept for call-site symmetry)
  * @param {Object} sourceNode - Source node with x, y coordinates
  * @param {Object} destNode - Destination node with x, y coordinates
  * @param {Object} sDims - Source node dimensions
