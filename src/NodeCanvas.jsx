@@ -104,7 +104,7 @@ import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, buildRoundedOrthogonalPath, trimRouteEnd } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
@@ -13205,7 +13205,40 @@ function NodeCanvas() {
                             // assignment above and agree with this polyline's endpoints.
                             orthoRouting = computeCleanRouting(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
                           }
-                          const orthoPathD = orthoRouting?.pathD || null;
+
+                          // Orthogonal hover preview — the counterpart of the straight-edge
+                          // pull-back above, which Manhattan/Clean never had. Retract each
+                          // arrow-less end out of its node and a further arrowhead-length, and
+                          // drop the hover dot on the new endpoint. Without this these modes
+                          // had neither the shortening nor the dots, so a hovered connection
+                          // gave no affordance for adding an arrow.
+                          let orthoPathD = orthoRouting?.pathD || null;
+                          if (orthoRouting && isActive) {
+                            const previewBack = POLY_TIP * connectionWidth + 8;
+                            const sBox = sAnchorInfo?.outerBounds
+                              ? { minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
+                                  maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
+                                  maxY: sAnchorInfo.outerBounds.y + sAnchorInfo.outerBounds.height }
+                              : getNodeHitbox(sourceNode, sNodeDims, selectedInstanceIds.has(sourceNode.id));
+                            const eBox = eAnchorInfo?.outerBounds
+                              ? { minX: eAnchorInfo.outerBounds.x, minY: eAnchorInfo.outerBounds.y,
+                                  maxX: eAnchorInfo.outerBounds.x + eAnchorInfo.outerBounds.width,
+                                  maxY: eAnchorInfo.outerBounds.y + eAnchorInfo.outerBounds.height }
+                              : getNodeHitbox(destNode, eNodeDims, selectedInstanceIds.has(destNode.id));
+
+                            let previewPts = orthoRouting.points;
+                            if (!arrowsToward.has(sourceNode.id)) {
+                              const t = trimRouteEnd(previewPts, sBox, true, previewBack);
+                              previewPts = t.points;
+                              straightDotSource = t.endpoint;
+                            }
+                            if (!arrowsToward.has(destNode.id)) {
+                              const t = trimRouteEnd(previewPts, eBox, false, previewBack);
+                              previewPts = t.points;
+                              straightDotDest = t.endpoint;
+                            }
+                            orthoPathD = buildRoundedOrthogonalPath(previewPts);
+                          }
 
                           // Calculate parallel edge path using centralized utility
                           // Note: curveInfo was already retrieved earlier for shouldShorten logic
@@ -13868,7 +13901,10 @@ function NodeCanvas() {
                                 //     isn't gated on the orb routing condition.
                                 if (isHovered || isSelected) {
                                   const orbR = Math.round(36 * connectionWidth);
-                                  const showDots = !enableAutoRouting || routingStyle === 'straight' || useCurve;
+                                  // Every routing now computes an endpoint dot position: straight and
+                                  // orthogonal via their hover pull-back, curved via the trimmed
+                                  // curve end. Nothing left to exclude.
+                                  const showDots = true;
                                   if (arrowsToward.has(sourceNode.id)) {
                                     connectionOrbHitsRef.current.push({ cx: sourceArrowX, cy: sourceArrowY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
                                   } else if (showDots) {
@@ -13987,7 +14023,7 @@ function NodeCanvas() {
                                     )}
 
                                     {/* Endpoint Dots - visible when hovering OR when the connection is selected (straight edges or curved parallel edges) */}
-                                    {(isHovered || isSelected) && (!enableAutoRouting || routingStyle === 'straight' || useCurve) && (
+                                    {(isHovered || isSelected) && (
                                       <>
                                         {/* Source Dot - only show if arrow not pointing toward source */}
                                         {!arrowsToward.has(sourceNode.id) && (
@@ -14555,7 +14591,40 @@ function NodeCanvas() {
                             // assignment above and agree with this polyline's endpoints.
                             orthoRouting = computeCleanRouting(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
                           }
-                          const orthoPathD = orthoRouting?.pathD || null;
+
+                          // Orthogonal hover preview — the counterpart of the straight-edge
+                          // pull-back above, which Manhattan/Clean never had. Retract each
+                          // arrow-less end out of its node and a further arrowhead-length, and
+                          // drop the hover dot on the new endpoint. Without this these modes
+                          // had neither the shortening nor the dots, so a hovered connection
+                          // gave no affordance for adding an arrow.
+                          let orthoPathD = orthoRouting?.pathD || null;
+                          if (orthoRouting && isActive) {
+                            const previewBack = POLY_TIP * connectionWidth + 8;
+                            const sBox = sAnchorInfo?.outerBounds
+                              ? { minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
+                                  maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
+                                  maxY: sAnchorInfo.outerBounds.y + sAnchorInfo.outerBounds.height }
+                              : getNodeHitbox(sourceNode, sNodeDims, selectedInstanceIds.has(sourceNode.id));
+                            const eBox = eAnchorInfo?.outerBounds
+                              ? { minX: eAnchorInfo.outerBounds.x, minY: eAnchorInfo.outerBounds.y,
+                                  maxX: eAnchorInfo.outerBounds.x + eAnchorInfo.outerBounds.width,
+                                  maxY: eAnchorInfo.outerBounds.y + eAnchorInfo.outerBounds.height }
+                              : getNodeHitbox(destNode, eNodeDims, selectedInstanceIds.has(destNode.id));
+
+                            let previewPts = orthoRouting.points;
+                            if (!arrowsToward.has(sourceNode.id)) {
+                              const t = trimRouteEnd(previewPts, sBox, true, previewBack);
+                              previewPts = t.points;
+                              straightDotSource = t.endpoint;
+                            }
+                            if (!arrowsToward.has(destNode.id)) {
+                              const t = trimRouteEnd(previewPts, eBox, false, previewBack);
+                              previewPts = t.points;
+                              straightDotDest = t.endpoint;
+                            }
+                            orthoPathD = buildRoundedOrthogonalPath(previewPts);
+                          }
 
                           // Calculate parallel edge path using centralized utility
                           // Note: curveInfo was already retrieved earlier for shouldShorten logic
@@ -15095,7 +15164,10 @@ function NodeCanvas() {
                                 //     isn't gated on the orb routing condition.
                                 if (isHovered || isSelected) {
                                   const orbR = Math.round(36 * connectionWidth);
-                                  const showDots = !enableAutoRouting || routingStyle === 'straight' || useCurve;
+                                  // Every routing now computes an endpoint dot position: straight and
+                                  // orthogonal via their hover pull-back, curved via the trimmed
+                                  // curve end. Nothing left to exclude.
+                                  const showDots = true;
                                   if (arrowsToward.has(sourceNode.id)) {
                                     connectionOrbHitsRef.current.push({ cx: sourceArrowX, cy: sourceArrowY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
                                   } else if (showDots) {
@@ -15214,7 +15286,7 @@ function NodeCanvas() {
                                     )}
 
                                     {/* Endpoint Dots - visible when hovering OR when the connection is selected (straight edges or curved parallel edges) */}
-                                    {(isHovered || isSelected) && (!enableAutoRouting || routingStyle === 'straight' || useCurve) && (
+                                    {(isHovered || isSelected) && (
                                       <>
                                         {/* Source Dot - only show if arrow not pointing toward source */}
                                         {!arrowsToward.has(sourceNode.id) && (

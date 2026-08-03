@@ -212,6 +212,91 @@ export function computeCleanPolylineFromPorts(start, end, obstacleRects, laneSpa
 }
 
 /**
+ * Pull one end of a routed polyline back out of a node and a bit further.
+ *
+ * This is the orthogonal equivalent of the straight-edge hover preview: the
+ * visible line retracts to just past the node border, leaving the gap where an
+ * arrowhead would sit, and the caller drops the hover dot on the new endpoint.
+ * Works for any polyline, so it covers Manhattan (whose ports already sit on the
+ * border) and Clean (whose arrow-less ends start at the node center) alike.
+ *
+ * @param {Array<{x:number,y:number}>} points - routed polyline
+ * @param {{minX:number,minY:number,maxX:number,maxY:number}|null} box - node hitbox to clear
+ * @param {boolean} fromStart - trim the start (true) or the end (false)
+ * @param {number} extra - additional distance past the border
+ * @returns {{points: Array, endpoint: {x:number,y:number}}}
+ */
+export function trimRouteEnd(points, box, fromStart, extra = 0) {
+  if (!points || points.length < 2) {
+    return { points: points || [], endpoint: points?.[0] || { x: 0, y: 0 } };
+  }
+
+  // Work start-first, then flip back at the end.
+  const pts = fromStart ? points.slice() : points.slice().reverse();
+
+  const inBox = (p) => box
+    && p.x >= box.minX && p.x <= box.maxX
+    && p.y >= box.minY && p.y <= box.maxY;
+
+  // 1. Walk to where the polyline leaves the node box.
+  let idx = 0;
+  let cursor = pts[0];
+  if (inBox(pts[0])) {
+    let exited = false;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      // Standard slab exit: smallest positive t at which the segment leaves.
+      let t = Infinity;
+      if (dx > 0) t = Math.min(t, (box.maxX - a.x) / dx);
+      else if (dx < 0) t = Math.min(t, (box.minX - a.x) / dx);
+      if (dy > 0) t = Math.min(t, (box.maxY - a.y) / dy);
+      else if (dy < 0) t = Math.min(t, (box.minY - a.y) / dy);
+
+      if (t >= 0 && t <= 1) {
+        idx = i;
+        cursor = { x: a.x + dx * t, y: a.y + dy * t };
+        exited = true;
+        break;
+      }
+    }
+    // Fully enclosed (nodes overlapping, say) — nothing sensible to trim.
+    if (!exited) return { points, endpoint: pts[0] };
+  }
+
+  // 2. Advance `extra` further along the remaining polyline.
+  let remaining = extra;
+  while (remaining > 0 && idx < pts.length - 1) {
+    const next = pts[idx + 1];
+    const segLen = Math.hypot(next.x - cursor.x, next.y - cursor.y);
+    if (segLen >= remaining) {
+      if (segLen > 0) {
+        cursor = {
+          x: cursor.x + ((next.x - cursor.x) / segLen) * remaining,
+          y: cursor.y + ((next.y - cursor.y) / segLen) * remaining,
+        };
+      }
+      remaining = 0;
+    } else {
+      remaining -= segLen;
+      idx += 1;
+      cursor = next;
+    }
+  }
+
+  // 3. Rebuild from the new endpoint. Guard against consuming the whole route.
+  const tail = pts.slice(idx + 1);
+  const trimmed = tail.length > 0 ? [cursor, ...tail] : [cursor, pts[pts.length - 1]];
+
+  return {
+    points: fromStart ? trimmed : trimmed.slice().reverse(),
+    endpoint: cursor,
+  };
+}
+
+/**
  * Compute the full Manhattan routing descriptor for an edge.
  *
  * Returns everything both render paths need — the polyline (for label
