@@ -3,6 +3,7 @@ import {
   computeManhattanRouting,
   computeCleanRouting,
   buildRoundedOrthogonalPath,
+  trimRouteEnd,
 } from '../../src/utils/canvas/edgeRouting.js';
 import {
   placeLabelOnPath,
@@ -145,6 +146,70 @@ describe('orthogonal label placement', () => {
     );
     expect(Number.isFinite(placement.x)).toBe(true);
     expect(Number.isFinite(placement.y)).toBe(true);
+  });
+});
+
+describe('trimRouteEnd (orthogonal hover preview)', () => {
+  const box = { minX: 0, minY: -50, maxX: 100, maxY: 50 };
+
+  it('retracts a start that begins inside the node to just past the border', () => {
+    // Starts at the node center, runs right and out of the box.
+    const pts = [{ x: 50, y: 0 }, { x: 400, y: 0 }];
+    const r = trimRouteEnd(pts, box, true, 20);
+    expect(r.endpoint.x).toBe(120); // border at 100, plus 20
+    expect(r.endpoint.y).toBe(0);
+    expect(r.points[0]).toEqual(r.endpoint);
+    expect(r.points[r.points.length - 1]).toEqual({ x: 400, y: 0 });
+  });
+
+  it('retracts a start already on the border by exactly the extra distance', () => {
+    // Manhattan case: the port already sits on the node edge.
+    const pts = [{ x: 100, y: 0 }, { x: 400, y: 0 }];
+    const r = trimRouteEnd(pts, box, true, 20);
+    expect(r.endpoint.x).toBe(120);
+  });
+
+  it('trims the far end when fromStart is false, leaving the start untouched', () => {
+    const endBox = { minX: 300, minY: -50, maxX: 400, maxY: 50 };
+    const pts = [{ x: -200, y: 0 }, { x: 350, y: 0 }];
+    const r = trimRouteEnd(pts, endBox, false, 20);
+    expect(r.endpoint.x).toBe(280); // border at 300, minus 20
+    expect(r.points[0]).toEqual({ x: -200, y: 0 });
+    expect(r.points[r.points.length - 1]).toEqual(r.endpoint);
+  });
+
+  it('carries the pull-back around a corner onto the next segment', () => {
+    // Exits the box travelling right after only 10px, so a 40px pull-back has to
+    // continue past the bend and down the vertical leg.
+    const pts = [{ x: 50, y: 0 }, { x: 110, y: 0 }, { x: 110, y: 500 }];
+    const r = trimRouteEnd(pts, box, true, 40);
+    expect(r.endpoint.x).toBe(110);
+    expect(r.endpoint.y).toBeCloseTo(30, 6); // 10px right to the bend, 30px down
+  });
+
+  it('leaves the route alone when both endpoints are enclosed', () => {
+    const huge = { minX: -1000, minY: -1000, maxX: 1000, maxY: 1000 };
+    const pts = [{ x: 0, y: 0 }, { x: 10, y: 0 }];
+    const r = trimRouteEnd(pts, huge, true, 20);
+    expect(r.points).toEqual(pts);
+  });
+
+  it('never returns a degenerate single-point route', () => {
+    const pts = [{ x: 50, y: 0 }, { x: 130, y: 0 }];
+    const r = trimRouteEnd(pts, box, true, 10000);
+    expect(r.points.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('produces a shorter path than the untrimmed route', () => {
+    const routing = computeManhattanRouting(
+      node('a', 0, 0), node('b', 600, 40), dims(200, 80), dims(200, 80), 'auto'
+    );
+    const hitbox = { minX: 0, minY: 0, maxX: 200, maxY: 80 };
+    const trimmed = trimRouteEnd(routing.points, hitbox, true, 30);
+    const full = buildRoundedOrthogonalPath(routing.points);
+    const short = buildRoundedOrthogonalPath(trimmed.points);
+    expect(short).not.toBe(full);
+    expect(trimmed.endpoint.x).toBeGreaterThan(routing.startX);
   });
 });
 

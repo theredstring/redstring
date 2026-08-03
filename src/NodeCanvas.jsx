@@ -13213,6 +13213,10 @@ function NodeCanvas() {
                           // had neither the shortening nor the dots, so a hovered connection
                           // gave no affordance for adding an arrow.
                           let orthoPathD = orthoRouting?.pathD || null;
+                          // Hit target always uses the FULL route: pointer-move hover detection
+                          // measures against the untrimmed polyline, so shrinking the click path
+                          // on hover would desync the two (and make the retracted ends dead).
+                          const orthoHitPathD = orthoPathD;
                           if (orthoRouting && isActive) {
                             const previewBack = POLY_TIP * connectionWidth + 8;
                             const sBox = sAnchorInfo?.outerBounds
@@ -13434,7 +13438,7 @@ function NodeCanvas() {
                               {/* Invisible click area for edge selection - matches hover detection */}
                               {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
                                 <path
-                                  d={orthoPathD}
+                                  d={orthoHitPathD}
                                   fill="none"
                                   stroke="transparent"
                                   strokeWidth={Math.max(50, 44 * connectionWidth)}
@@ -14599,6 +14603,10 @@ function NodeCanvas() {
                           // had neither the shortening nor the dots, so a hovered connection
                           // gave no affordance for adding an arrow.
                           let orthoPathD = orthoRouting?.pathD || null;
+                          // Hit target always uses the FULL route: pointer-move hover detection
+                          // measures against the untrimmed polyline, so shrinking the click path
+                          // on hover would desync the two (and make the retracted ends dead).
+                          const orthoHitPathD = orthoPathD;
                           if (orthoRouting && isActive) {
                             const previewBack = POLY_TIP * connectionWidth + 8;
                             const sBox = sAnchorInfo?.outerBounds
@@ -14820,7 +14828,7 @@ function NodeCanvas() {
                               {/* Invisible click area for edge selection - matches hover detection */}
                               {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
                                 <path
-                                  d={orthoPathD}
+                                  d={orthoHitPathD}
                                   fill="none"
                                   stroke="transparent"
                                   strokeWidth={Math.max(50, 44 * connectionWidth)}
