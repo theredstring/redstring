@@ -65,8 +65,12 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
   const touchPinchGlideEnabled = useGraphStore(s => s.touchSettings?.pinchGlideEnabled ?? true);
   const touchPinchGlideStrength = useGraphStore(s => s.touchSettings?.pinchGlideStrength ?? 0.5);
-  const routingStyle = useGraphStore(s => s.routingStyle);
-  const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
+  // These live under autoLayoutSettings, like lombardiCurvature below. Reading
+  // them off the store root returned undefined every time, so the Routing Style
+  // control always rendered its 'straight' fallback no matter what was set.
+  const routingStyle = useGraphStore(s => s.autoLayoutSettings?.routingStyle ?? 'straight');
+  const cleanLaneSpacing = useGraphStore(s => s.autoLayoutSettings?.cleanLaneSpacing ?? 200);
+  const manhattanBends = useGraphStore(s => s.autoLayoutSettings?.manhattanBends ?? 'auto');
   const lombardiCurvature = useGraphStore(s => s.autoLayoutSettings?.lombardiCurvature ?? 1.0);
   const multiConnectionCurve = useGraphStore(s => s.autoLayoutSettings?.multiConnectionCurve ?? 1.0);
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
@@ -465,6 +469,23 @@ const SettingsModal = ({ isVisible, onClose }) => {
                 step={0.05}
                 suffix="x"
                 onChange={(v) => useGraphStore.getState().setLombardiCurvature?.(v)}
+              />
+            </div>
+          )}
+          {routingStyle === 'manhattan' && (
+            <div className="settings-row">
+              <div className="settings-row-label">
+                Bends
+                <div className="settings-row-description">How many corners a routed connection may turn</div>
+              </div>
+              <OptionGroup
+                options={[
+                  { label: 'Auto', value: 'auto' },
+                  { label: 'One', value: 'one' },
+                  { label: 'Two', value: 'two' }
+                ]}
+                value={manhattanBends}
+                onChange={(v) => useGraphStore.getState().setManhattanBends?.(v)}
               />
             </div>
           )}

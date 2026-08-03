@@ -30,12 +30,6 @@ const RedstringMenu = ({
   onToggleEnableAutoRouting,
   onSetRoutingStyle,
   onSetManhattanBends,
-  // Optional: expose clean lane spacing adjuster
-  onSetCleanLaneSpacing,
-  cleanLaneSpacing,
-  // Lombardi arc curvature
-  onSetLombardiCurvature,
-  lombardiCurvature,
   // Group layout
   groupLayoutAlgorithm,
   onSetGroupLayoutAlgorithm,
@@ -897,76 +891,6 @@ const RedstringMenu = ({
                           <Circle size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Routing: Lombardi {routingStyle === 'lombardi' ? '✓' : ''}
                         </div>
-                        {routingStyle === 'lombardi' && (
-                          <div style={{ padding: '6px 6px 0 6px', width: '100%' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: '10px' }}>
-                              <div style={{ fontSize: '12px', color: '#BDB6B5', opacity: 0.9 }}>Arc curvature</div>
-                              <div style={{ fontSize: '12px', color: '#BDB6B5', opacity: 0.8 }}>{(lombardiCurvature ?? 1).toFixed(2)}×</div>
-                            </div>
-                            <div
-                              style={{ width: 'calc(100% - 16px)', margin: '6px 8px 0 8px' }}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onMouseUp={(e) => e.stopPropagation()}
-                              onClick={(e) => e.stopPropagation()}
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onPointerUp={(e) => e.stopPropagation()}
-                            >
-                              <input
-                                className="submenu-slider"
-                                type="range"
-                                min={0}
-                                max={2}
-                                step={0.05}
-                                value={lombardiCurvature ?? 1}
-                                onChange={(e) => onSetLombardiCurvature?.(Number(e.target.value))}
-                                onInput={(e) => onSetLombardiCurvature?.(Number(e.target.value))}
-                                draggable={false}
-                                onMouseDown={(e) => { setIsInteracting(true); e.stopPropagation(); }}
-                                onMouseUp={(e) => { setIsInteracting(false); e.stopPropagation(); }}
-                                onClick={(e) => e.stopPropagation()}
-                                onPointerDown={(e) => { setIsInteracting(true); e.stopPropagation(); }}
-                                onPointerUp={(e) => { setIsInteracting(false); e.stopPropagation(); }}
-                                onTouchStart={(e) => { setIsInteracting(true); e.stopPropagation(); }}
-                                onTouchEnd={(e) => { setIsInteracting(false); e.stopPropagation(); }}
-                              />
-                            </div>
-                          </div>
-                        )}
-                        {routingStyle === 'clean' && (
-                          <div style={{ padding: '6px 6px 0 6px', width: '100%' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: '10px' }}>
-                              <div style={{ fontSize: '12px', color: '#BDB6B5', opacity: 0.9 }}>Connection spacing</div>
-                              <div style={{ fontSize: '12px', color: '#BDB6B5', opacity: 0.8 }}>{cleanLaneSpacing || 200}px</div>
-                            </div>
-                            <div
-                              style={{ width: 'calc(100% - 16px)', margin: '6px 8px 0 8px' }}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onMouseUp={(e) => e.stopPropagation()}
-                              onClick={(e) => e.stopPropagation()}
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onPointerUp={(e) => e.stopPropagation()}
-                            >
-                              <input
-                                className="submenu-slider"
-                                type="range"
-                                min={100}
-                                max={400}
-                                step={10}
-                                value={cleanLaneSpacing || 200}
-                                onChange={(e) => onSetCleanLaneSpacing?.(Number(e.target.value))}
-                                onInput={(e) => onSetCleanLaneSpacing?.(Number(e.target.value))}
-                                draggable={false}
-                                onMouseDown={(e) => { setIsInteracting(true); e.stopPropagation(); }}
-                                onMouseUp={(e) => { setIsInteracting(false); e.stopPropagation(); }}
-                                onClick={(e) => e.stopPropagation()}
-                                onPointerDown={(e) => { setIsInteracting(true); e.stopPropagation(); }}
-                                onPointerUp={(e) => { setIsInteracting(false); e.stopPropagation(); }}
-                                onTouchStart={(e) => { setIsInteracting(true); e.stopPropagation(); }}
-                                onTouchEnd={(e) => { setIsInteracting(false); e.stopPropagation(); }}
-                              />
-                            </div>
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>

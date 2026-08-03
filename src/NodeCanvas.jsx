@@ -1819,11 +1819,18 @@ function NodeCanvas() {
   const [selectionRect, setSelectionRect] = useState(null);
   const [selectionStart, setSelectionStart] = useState(null);
 
-  const labelCacheResetRef = useRef(null);
+  // Drop every cached connection-label placement and the jitter deadband.
+  //
+  // Callers are the operations that move nodes WITHOUT going through a drag:
+  // auto-layout, snap-to-grid, condense, bring-into-bounds. Dragging clears
+  // the cache itself (useNodeDrag), which is why moving a node by hand always
+  // looked right while those operations left labels behind.
+  //
+  // This used to indirect through a `labelCacheResetRef` that nothing ever
+  // assigned, so every one of those callers was a silent no-op.
   const resetConnectionLabelCache = useCallback(() => {
-    if (typeof labelCacheResetRef.current === 'function') {
-      labelCacheResetRef.current();
-    }
+    placedLabelsRef.current.clear();
+    clearLabelStabilization();
   }, []);
 
   // Panel expansion states - must be defined before viewport bounds hook
@@ -3009,6 +3016,35 @@ function NodeCanvas() {
     placedLabelsRef.current.clear();
     clearLabelStabilization();
   }, [enableAutoRouting, routingStyle, manhattanBends, cleanLaneSpacing, lombardiCurvature, showConnectionNames, connectionLabelSize, textSettings?.fontSize]);
+
+  // Every label's position depends on where the OTHER labels landed —
+  // chooseRoutedLabelPlacement dodges the rects already in placedLabelsRef. So
+  // renaming one connection (or retyping it, which renames it) invalidates the
+  // placement of every label near it, while only that one edge's own cache
+  // signature changes. The rest keep dodging a rect that no longer exists at
+  // that size, and stay wrong until something else clears the cache — which is
+  // why nudging a node "fixed" it.
+  //
+  // Signature over the displayed names, so a prototype rename counts too: it
+  // changes no edge record at all, only what those edges render as.
+  const connectionNameSignature = useMemo(() => {
+    let signature = '';
+    for (const edge of edges) {
+      let name = '';
+      if (edge.definitionNodeIds?.length > 0) {
+        name = nodePrototypesMap.get(edge.definitionNodeIds[0])?.name || '';
+      } else if (edge.typeNodeId) {
+        name = edgePrototypesMap.get(edge.typeNodeId)?.name || '';
+      }
+      signature += `${edge.id}:${name || edge.connectionName || ''}|`;
+    }
+    return signature;
+  }, [edges, nodePrototypesMap, edgePrototypesMap]);
+
+  useEffect(() => {
+    placedLabelsRef.current.clear();
+    clearLabelStabilization();
+  }, [connectionNameSignature]);
 
   // Memoize edgeCurveInfo for parallel edge detection (used by both rendering and hover detection).
   // NOTE: iterate ALL edges (not visibleEdges) so the pairIndex / totalInPair for
@@ -11654,10 +11690,6 @@ function NodeCanvas() {
         onToggleEnableAutoRouting={storeActions.toggleEnableAutoRouting}
         onSetRoutingStyle={storeActions.setRoutingStyle}
         onSetManhattanBends={storeActions.setManhattanBends}
-        onSetCleanLaneSpacing={(v) => useGraphStore.getState().setCleanLaneSpacing(v)}
-        onSetLombardiCurvature={(v) => useGraphStore.getState().setLombardiCurvature(v)}
-        lombardiCurvature={lombardiCurvature}
-        cleanLaneSpacing={cleanLaneSpacing}
         groupLayoutAlgorithm={groupLayoutAlgorithm}
         onSetGroupLayoutAlgorithm={storeActions.setGroupLayoutAlgorithm}
         showClusterHulls={showClusterHulls}

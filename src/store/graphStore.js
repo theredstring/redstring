@@ -156,14 +156,55 @@ import { generateDescription } from '../utils/actionDescriptions.js';
 enableMapSet();
 enablePatches();
 
+// Small helpers so every connection-view preference is restored the same way.
+// These run once at module init, before any component mounts, so the canvas
+// draws in the saved routing on the very first frame rather than flashing
+// 'straight' and correcting.
+const readStoredString = (key, allowed, fallback) => {
+  try {
+    const saved = localStorage.getItem(key);
+    return allowed.includes(saved) ? saved : fallback;
+  } catch (_) {
+    return fallback;
+  }
+};
+
+const readStoredNumber = (key, min, max, fallback) => {
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved === null) return fallback;
+    const value = parseFloat(saved);
+    return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
+  } catch (_) {
+    return fallback;
+  }
+};
+
+const readStoredBool = (key, fallback) => {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved === null ? fallback : saved === 'true';
+  } catch (_) {
+    return fallback;
+  }
+};
+
 const getDefaultAutoLayoutSettings = () => ({
   defaultSpacing: 15,
   nodeClearance: 20,
-  enableAutoRouting: true,
+  // Connection-view preferences. These are user choices about how the canvas
+  // looks, so they outlive the session — previously only lombardiCurvature and
+  // multiConnectionCurve were restored, and everything else reset to its
+  // default on every reload.
+  enableAutoRouting: readStoredBool('redstring_enable_auto_routing', true),
   showConnectionLabels: true,
-  routingStyle: 'straight',
-  manhattanBends: 'auto',
-  cleanLaneSpacing: 200,
+  routingStyle: readStoredString(
+    'redstring_routing_style',
+    ['straight', 'manhattan', 'clean', 'lombardi'],
+    'straight'
+  ),
+  manhattanBends: readStoredString('redstring_manhattan_bends', ['auto', 'one', 'two'], 'auto'),
+  cleanLaneSpacing: readStoredNumber('redstring_clean_lane_spacing', 100, 400, 200),
   // Multiplier on the tangent-chord angle every Lombardi arc gets. 1.0 draws the
   // arc the perfect-angular-resolution solve actually asks for; below that the
   // arcs flatten toward straight lines, above that they bow harder than the
@@ -670,15 +711,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     activeDefinitionNodeId: null, // This now refers to a prototypeId
     selectedEdgeId: null, // Currently selected edge for editing
     selectedEdgeIds: new Set(), // Multiple selected edges
-    typeListMode: (() => {
-      // Load saved state from localStorage, with 'connection' as default
-      const savedMode = localStorage.getItem('redstring_typelist_mode');
-      if (savedMode && ['closed', 'node', 'connection', 'component'].includes(savedMode)) {
-        return savedMode;
-      } else {
-        return 'connection'; // Default order: connections -> nodes -> closed
-      }
-    })(),
+    // Default order: connections -> nodes -> closed. Unguarded before — a
+    // throwing localStorage (private mode, blocked storage) took the whole
+    // store construction down with it, not just this one preference.
+    typeListMode: readStoredString(
+      'redstring_typelist_mode',
+      ['closed', 'node', 'connection', 'component'],
+      'connection'
+    ),
     rightPanelTabs: [{ type: 'home', isActive: true }],
     expandedGraphIds: new Set(),
     savedNodeIds: new Set(), // This now refers to prototype IDs
@@ -4460,6 +4500,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
       }
       draft.autoLayoutSettings.enableAutoRouting = !draft.autoLayoutSettings.enableAutoRouting;
+      try {
+        localStorage.setItem('redstring_enable_auto_routing', String(draft.autoLayoutSettings.enableAutoRouting));
+      } catch (_) { }
     })),
 
     /**
@@ -4493,6 +4536,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
       if (style === 'straight' || style === 'manhattan' || style === 'clean' || style === 'lombardi') {
         draft.autoLayoutSettings.routingStyle = style;
+        try { localStorage.setItem('redstring_routing_style', style); } catch (_) { }
       } else {
         console.warn(`[setRoutingStyle] Invalid routing style: ${style}`);
       }
@@ -4508,6 +4552,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
       if (mode === 'auto' || mode === 'one' || mode === 'two') {
         draft.autoLayoutSettings.manhattanBends = mode;
+        try { localStorage.setItem('redstring_manhattan_bends', mode); } catch (_) { }
       } else {
         console.warn(`[setManhattanBends] Invalid bends mode: ${mode}`);
       }
@@ -4529,6 +4574,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // Clamp for sanity with new generous range
       const clamped = Math.max(100, Math.min(400, Math.round(v)));
       draft.autoLayoutSettings.cleanLaneSpacing = clamped;
+      try { localStorage.setItem('redstring_clean_lane_spacing', String(clamped)); } catch (_) { }
     })),
 
     /**
