@@ -6,6 +6,8 @@ import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
+import { computeManhattanRouting, computeCleanRouting } from '../utils/canvas/edgeRouting.js';
+import { placeLabelOnPath } from '../utils/canvas/edgeLabelPlacement.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../services/groupLayout.js';
 import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
 import saveCoordinator from '../services/SaveCoordinator.js';
@@ -97,6 +99,9 @@ export const useNodeDrag = ({
   selectedInstanceIdsRef,
   enableAutoRoutingRef,
   routingStyleRef,
+  manhattanBendsRef,
+  cleanLaneSpacingRef,
+  cleanLaneOffsetsRef,
   multiConnectionCurveRef,
   groupsByNodeIdRef,
   groupsByIdRef,
@@ -538,10 +543,127 @@ export const useNodeDrag = ({
       const centerX2 = virtualDest.x + dDims.currentWidth / 2;
       const centerY2 = virtualDest.y + dDims.currentHeight / 2;
 
-      let endpoints;
+      // -----------------------------------------------------------------------
+      // Manhattan / Clean routing.
+      //
+      // These used to fall through to the straight-edge code below, which was
+      // catastrophic for them: it fed center-to-center endpoints into the
+      // straight-line branch, stretched the center→port stubs into full-length
+      // chords, and rewrote path `d` only when the existing `d` "looked like a
+      // simple line" — so a rounded route (which contains Q commands) was left
+      // frozen at its pre-drag geometry while its nodes moved out from under it,
+      // and a degenerate route was actively flattened into a diagonal. Labels got
+      // the chord midpoint, so they behaved as if routing were straight. Arrows
+      // were skipped entirely.
+      //
+      // Route properly instead, from the same helpers the settled render uses.
+      // -----------------------------------------------------------------------
       if (isManhattanOrClean) {
-        endpoints = { x1: centerX1, y1: centerY1, x2: centerX2, y2: centerY2 };
-      } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
+        const style = routingStyleRef.current;
+        let routing;
+        if (style === 'manhattan') {
+          routing = computeManhattanRouting(
+            virtualSource, virtualDest, sDims, dDims, manhattanBendsRef?.current || 'auto'
+          );
+        } else {
+          // Clean routing's lane assignment is frozen for the duration of the
+          // drag (re-deriving stagger for the whole graph every frame is not
+          // viable, and it would make edges swap lanes under the cursor), so
+          // translate the frozen ports by each endpoint's drag delta.
+          const frozen = cleanLaneOffsetsRef?.current?.get?.(edgeId);
+          let laneOffsets = cleanLaneOffsetsRef?.current || new Map();
+          if (frozen) {
+            laneOffsets = new Map([[edgeId, {
+              ...frozen,
+              sourcePort: {
+                x: frozen.sourcePort.x + (virtualSource.x - sStored.x),
+                y: frozen.sourcePort.y + (virtualSource.y - sStored.y),
+              },
+              destPort: {
+                x: frozen.destPort.x + (virtualDest.x - dStored.x),
+                y: frozen.destPort.y + (virtualDest.y - dStored.y),
+              },
+            }]]);
+          }
+          routing = computeCleanRouting(
+            edge, virtualSource, virtualDest, sDims, dDims,
+            laneOffsets, cleanLaneSpacingRef?.current ?? 24
+          );
+        }
+
+        // Manhattan draws a short center→port stub on each arrow-less end. Build
+        // them in the same conditional order the render emits <line> elements so
+        // index-matching lines up.
+        const stubs = [];
+        if (style === 'manhattan') {
+          if (!hasSourceArrow) {
+            stubs.push({ x1: centerX1, y1: centerY1, x2: routing.startX, y2: routing.startY });
+          }
+          if (!hasDestArrow) {
+            stubs.push({ x1: routing.endX, y1: routing.endY, x2: centerX2, y2: centerY2 });
+          }
+        }
+
+        // Arrowheads sit a fixed offset outside the port, oriented by the side
+        // they enter on — mirrors the settled render's per-side placement.
+        const arrowOffset = style === 'manhattan' ? 12 : 6;
+        const arrowFor = (side, px, py) => {
+          switch (side) {
+            case 'left': return { x: px - arrowOffset, y: py, angle: 0 };
+            case 'right': return { x: px + arrowOffset, y: py, angle: 180 };
+            case 'top': return { x: px, y: py - arrowOffset, angle: 90 };
+            case 'bottom': return { x: px, y: py + arrowOffset, angle: -90 };
+            default: return null;
+          }
+        };
+        const sourceArrow = arrowFor(routing.sourceSide, routing.startX, routing.startY);
+        const destArrow = arrowFor(routing.destSide, routing.endX, routing.endY);
+
+        // Cheap on-path label placement (no obstacle avoidance — that pass is far
+        // too expensive per frame). Stays on the polyline and axis-aligned, so it
+        // agrees closely with the settled placement computed on drop.
+        const labelPos = placeLabelOnPath(routing.points);
+        const labelAdj = (labelPos.angle > 90 || labelPos.angle < -90)
+          ? labelPos.angle + 180
+          : labelPos.angle;
+        const dragConnWidth = useGraphStore.getState().textSettings?.connectionWidth ?? 1;
+
+        edgeEls.forEach(({ paths, lines, arrows: arrowGs, texts }) => {
+          // Glow, visible stroke and click target all share the routed geometry.
+          paths.forEach(p => p.setAttribute('d', routing.pathD));
+
+          lines.forEach((line, i) => {
+            const stub = stubs[i];
+            if (!stub) return;
+            line.setAttribute('x1', stub.x1);
+            line.setAttribute('y1', stub.y1);
+            line.setAttribute('x2', stub.x2);
+            line.setAttribute('y2', stub.y2);
+          });
+
+          arrowGs.forEach(arrowG => {
+            const placement = arrowG.getAttribute('data-arrow') === 'source' ? sourceArrow : destArrow;
+            if (!placement) return;
+            arrowG.setAttribute('transform',
+              `translate(${placement.x}, ${placement.y}) rotate(${placement.angle + 90}) scale(${dragConnWidth})`);
+          });
+
+          texts.forEach(t => {
+            t.setAttribute('x', labelPos.x);
+            t.setAttribute('y', labelPos.y);
+            t.setAttribute('transform', `rotate(${labelAdj}, ${labelPos.x}, ${labelPos.y})`);
+          });
+        });
+
+        // Keep the placement cache honest — the settled render re-solves from a
+        // cleared cache when the drag ends, but a stale entry read mid-drag would
+        // otherwise describe the pre-drag position.
+        placedLabelsRef?.current?.delete(edgeId);
+        return;
+      }
+
+      let endpoints;
+      if (isDirected && (hasSourceArrow || hasDestArrow)) {
         // Clip arrow-side endpoints against a thing-group's full outer box (not the
         // anchor tab) so the drag-time line + arrow terminate just outside the box,
         // matching the settled render and keeping the arrowhead visible.
@@ -625,7 +747,8 @@ export const useNodeDrag = ({
         }
 
         // --- Update arrow positions ---
-        if (!isManhattanOrClean) {
+        // (Manhattan/Clean returned above with their own port-based placement.)
+        {
           if (arrowGs.length > 0) {
             if (useCurve && parallelPath.ctrlX != null && curvedArrowPlacement) {
               // Curved: shared placement puts the arrow tip a fixed px from the endpoint
@@ -657,7 +780,6 @@ export const useNodeDrag = ({
             }
           }
         }
-        // Manhattan/clean arrows: stay at pre-drag positions (port logic is too complex to replicate)
 
         // --- Update edge labels ---
         // Centering must match the React render path exactly: place the label
@@ -706,7 +828,8 @@ export const useNodeDrag = ({
       });
     });
   }, [nodeByIdRef, baseDimsByIdRef, edgeCurveInfoRef, edgesByNodeIdRef, edgesRef,
-    selectedInstanceIdsRef, enableAutoRoutingRef, routingStyleRef]);
+    selectedInstanceIdsRef, enableAutoRoutingRef, routingStyleRef, manhattanBendsRef,
+    cleanLaneSpacingRef, cleanLaneOffsetsRef, placedLabelsRef]);
 
   // ---------------------------------------------------------------------------
   // Update Group Bounds in DOM (recomputes bounding boxes for affected groups)

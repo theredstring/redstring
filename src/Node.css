@@ -56,26 +56,29 @@
   /* Remove transition - handled inline */
 }
 
-/* Style for the inline editing input */
+/* Inline canvas title editor.
+   Typography (font-size, line-height, color, wrap width) is set inline from
+   labelTypography in Node.jsx so it stays identical to the static .node-name-text
+   under node scaling / per-instance sizing / the text sliders. Do NOT reintroduce
+   font-size or color here — a fixed value silently desyncs the editor from node
+   rendering, which is exactly how this got stuck at 20px and canvas-dark. */
 .node-name-input {
-  font-size: 20px;
-  font-weight: bold;
-  color: var(--canvas-text);
   background-color: transparent;
   border: none;
   border-radius: 0;
-  padding: 0;
-  text-align: center;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-  outline: none;
-  font-family: 'EmOne', sans-serif;
+  box-shadow: none;
+  /* .node and .node * suppress selection and touch gestures for dragging; the
+     editor needs both back or the caret can't be placed by tap/click. */
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: auto;
+  -webkit-touch-callout: default;
 }
 
 .node-name-input:focus {
   border: none;
   box-shadow: none;
+  outline: none;
 }
 
 /* Touch-optimized styles for mobile devices */

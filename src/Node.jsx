@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef, memo } from 'react';
+import React, { useMemo, useState, useEffect, useLayoutEffect, useRef, memo } from 'react';
 // Import base constants used
 import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_PADDING, NODE_DEFAULT_COLOR } from './constants';
 import './Node.css';
@@ -110,6 +110,10 @@ const Node = ({
   // --- Inline Editing State ---
   const [tempName, setTempName] = useState(nodeName);
   const inputRef = useRef(null);
+  // The name as it was when this edit session began. Typing live-commits to the
+  // prototype (so the box resizes as you type), which means `nodeName` is no longer
+  // a usable "revert to" value — Escape needs this snapshot instead.
+  const originalNameRef = useRef(nodeName);
 
   // Update tempName when node name changes (from panel or other sources)
   useEffect(() => {
@@ -119,6 +123,9 @@ const Node = ({
   // Focus input when editing starts
   useEffect(() => {
     if (isEditingOnCanvas && inputRef.current) {
+      // Snapshot the pre-edit name. Deliberately NOT keyed on nodeName — the live
+      // commits below change it mid-session and would clobber the snapshot.
+      originalNameRef.current = nodeName;
       inputRef.current.focus();
       inputRef.current.select();
     }
@@ -127,16 +134,17 @@ const Node = ({
   // Handle editing commit
   const handleCommitEdit = () => {
     const newName = tempName.trim();
-    if (newName && newName !== nodeName) {
-      onCommitCanvasEdit?.(instanceId, newName);
-    } else {
-      onCancelCanvasEdit?.();
-    }
+    // A blank title would collapse the node to nothing — restore the pre-edit name.
+    onCommitCanvasEdit?.(instanceId, newName || originalNameRef.current);
   };
 
   // Handle editing cancel
   const handleCancelEdit = () => {
-    setTempName(nodeName); // Reset to original name
+    const original = originalNameRef.current;
+    setTempName(original);
+    // Undo the live-committed keystrokes (real-time so the editor stays open long
+    // enough for the store write to land before the field unmounts).
+    if (original !== nodeName) onCommitCanvasEdit?.(instanceId, original, true);
     onCancelCanvasEdit?.();
   };
 
@@ -144,6 +152,7 @@ const Node = ({
   const handleKeyDown = (e) => {
     e.stopPropagation(); // Prevent canvas keyboard shortcuts
     if (e.key === 'Enter') {
+      e.preventDefault(); // It's a <textarea> for wrapping only — Enter commits, never newlines
       handleCommitEdit();
     } else if (e.key === 'Escape') {
       handleCancelEdit();
@@ -152,8 +161,12 @@ const Node = ({
 
   // Handle real-time input changes for dynamic resizing
   const handleInputChange = (e) => {
-    const newValue = e.target.value;
+    const newValue = e.target.value.replace(/[\r\n]+/g, ' ');
     setTempName(newValue);
+    // Live-commit so the node's dynamic sizing (getNodeDimensions measures the
+    // committed name) grows/shrinks the box while you type, instead of snapping
+    // to the new width only on blur.
+    if (newValue.trim()) onCommitCanvasEdit?.(instanceId, newValue, true);
   };
 
   const hasThumbnail = Boolean(nodeThumbnailSrc);
@@ -238,6 +251,35 @@ const Node = ({
   const previewTextMaxWidth = unexpandedDims
     ? unexpandedDims.currentWidth - 2 * (unexpandedDims.scaledPadding ?? effPadding)
     : undefined;
+
+  // Label typography — the single source of truth for BOTH the static <span> and the
+  // inline canvas editor. Keeping them on one object is what stops the title from
+  // visibly changing size/color/wrapping the moment you enter edit mode; anything
+  // hard-coded in Node.css for the editor would silently desync from node sizing.
+  const labelFontSize = 45 * textSettings.fontSize * effNodeScale;
+  const labelLineHeight = 39 * textSettings.fontSize * textSettings.lineSpacing * effNodeScale;
+  const labelTypography = {
+    fontFamily: "'EmOne', sans-serif",
+    fontSize: `${labelFontSize}px`,
+    fontWeight: 'bold',
+    color: nodeTextColor,
+    lineHeight: `${labelLineHeight}px`,
+    textAlign: 'center',
+    width: '100%',
+    minWidth: 0,
+    maxWidth: previewTextMaxWidth ? `${previewTextMaxWidth}px` : '100%',
+    overflowWrap: 'break-word',
+    wordBreak: 'break-word',
+  };
+
+  // Auto-grow the editing field to its wrapped content height. A fixed-height
+  // textarea would clip or scroll a two-line title that the static label shows in full.
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el || !isEditingOnCanvas) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [isEditingOnCanvas, tempName, labelFontSize, labelLineHeight, previewTextMaxWidth]);
 
   // Determine if text will be multiline for conditional padding
 
@@ -464,37 +506,58 @@ const Node = ({
             })(),
             boxSizing: 'border-box',
             pointerEvents: isEditingOnCanvas ? 'auto' : 'none',
-            userSelect: 'none',
+            // Nodes suppress selection everywhere (see .node in Node.css) — but the
+            // inline editor needs real text selection, so lift it while editing.
+            userSelect: isEditingOnCanvas ? 'text' : 'none',
             minWidth: 0,
             transition: `padding ${SIZE_TRANSITION}`,
           }}
         >
           {isEditingOnCanvas ? (
-            <input
+            // <textarea>, not <input>: the static label wraps to multiple lines, so a
+            // single-line input would look nothing like what it replaces. Enter is
+            // intercepted in handleKeyDown, so it never actually takes a newline.
+            <textarea
               ref={inputRef}
-              type="text"
+              rows={1}
+              lang="en"
               className="node-name-input"
               value={tempName}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               onBlur={handleCommitEdit}
+              // Keep caret placement / text selection from being read as a node grab.
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              style={{
+                ...labelTypography,
+                display: 'block',
+                whiteSpace: 'pre-wrap',
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                padding: 0,
+                margin: 0,
+                resize: 'none',
+                overflow: 'hidden',
+                boxSizing: 'border-box',
+                // Caret must track the node's contrast color, not the canvas text
+                // color — it's invisible on dark node fills otherwise.
+                caretColor: nodeTextColor,
+                hyphens: 'auto', // Parity with the static label's wrapping
+                // Match the label's size-coupled transitions so entering edit mode
+                // mid-resize doesn't desync from the box.
+                transition: `color 0.3s ease, font-size ${SIZE_TRANSITION}, line-height ${SIZE_TRANSITION}, max-width ${SIZE_TRANSITION}`,
+              }}
             />
           ) : (
             <span
               className="node-name-text"
               style={{
-                fontSize: `${45 * textSettings.fontSize * effNodeScale}px`,
-                fontWeight: 'bold',
-                color: nodeTextColor,
-                lineHeight: `${39 * textSettings.fontSize * textSettings.lineSpacing * effNodeScale}px`,
+                ...labelTypography,
                 whiteSpace: 'normal',
-                overflowWrap: 'break-word',
-                wordBreak: 'break-word',
-                textAlign: 'center',
-                minWidth: 0,
                 display: 'inline-block',
-                width: '100%',
-                maxWidth: previewTextMaxWidth ? `${previewTextMaxWidth}px` : '100%',
                 // Grow/shrink the font AND the wrap clamp (max-width) in lock-step with
                 // the box (foreignObject width/height + container padding all transition
                 // 0.3s ease). Without the font transition, a growing node's text jumps to

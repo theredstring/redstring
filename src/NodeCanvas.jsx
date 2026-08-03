@@ -110,7 +110,7 @@ import EdgeRenderer from './components/EdgeRenderer.jsx';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
-import { chooseLabelPlacement, chooseOrthogonalLabelPlacement, buildRoundedPathFromPoints, estimateTextWidth } from './utils/canvas/edgeLabelPlacement.js';
+import { chooseOrthogonalLabelPlacement, estimateTextWidth } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -1335,7 +1335,6 @@ function NodeCanvas() {
   // drag updater can only ever redraw straight edges (see useNodeDrag).
   const manhattanBendsRef = useRef(manhattanBends);
   const cleanLaneSpacingRef = useRef(cleanLaneSpacing);
-  const connectionFontSizeRef = useRef(0);
   // Port assignments for 'clean' routing. Kept in a ref (synced from the memo
   // below) so the drag updater can reach them — the memo itself deliberately
   // freezes during a drag, and re-deriving lanes per frame would be far too slow.
@@ -1949,7 +1948,6 @@ function NodeCanvas() {
     manhattanBendsRef,
     cleanLaneSpacingRef,
     cleanLaneOffsetsRef,
-    connectionFontSizeRef,
     multiConnectionCurveRef,
     groupsByNodeIdRef,
     groupsByIdRef,
@@ -2841,7 +2839,7 @@ function NodeCanvas() {
   }, [enableAutoRouting, routingStyle, edges, nodeById, baseDimsById, nodes, draggingNodeInfo]);
 
   // Mirror the port assignments into a ref for the DOM-bypass drag updater.
-  cleanLaneOffsetsRef.current = cleanLaneOffsets;
+  useEffect(() => { cleanLaneOffsetsRef.current = cleanLaneOffsets; }, [cleanLaneOffsets]);
 
   // Routing configuration changes invalidate every cached label placement.
   //
@@ -14021,9 +14019,19 @@ function NodeCanvas() {
                                   }
                                 }
 
-                                // Smart label placement based on routing style
-                                if (enableAutoRouting && routingStyle === 'manhattan') {
-                                  // Always try cached placement first to prevent flicker (except during dragging)
+                                // Routed styles place the label ON the polyline.
+                                //
+                                // These branches used to call chooseLabelPlacement, whose on-path
+                                // strategy demands a segment longer than the entire label — at
+                                // connection font sizes almost nothing qualifies, so it fell
+                                // through to chord-based strategies that measure direction
+                                // endpoint-to-endpoint (a diagonal) and shove the label 40-80px
+                                // off to the side. Hence labels that sat tilted, detached, and
+                                // nowhere near the connection they name.
+                                if (orthoRouting) {
+                                  // Prefer the cached placement to avoid re-solving (and visibly
+                                  // re-shuffling) every label on every render. The cache is cleared
+                                  // whenever routing config changes or a drag ends.
                                   const cached = placedLabelsRef.current.get(edge.id);
                                   if (cached && cached.position && !draggingNodeInfo) {
                                     const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
@@ -14031,74 +14039,32 @@ function NodeCanvas() {
                                     midY = stabilized.y;
                                     angle = stabilized.angle || 0;
                                   } else {
-                                    const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
-                                    const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
-                                    if (placement) {
-                                      midX = placement.x;
-                                      midY = placement.y;
-                                      angle = placement.angle || 0;
-
-                                      // Register this label placement
-                                      const labelRect = {
-                                        minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                        maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                        minY: midY - connectionFontSize * 1.1 / 2,
-                                        maxY: midY + connectionFontSize * 1.1 / 2,
-                                      };
-                                      const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                      placedLabelsRef.current.set(edge.id, {
-                                        rect: labelRect,
-                                        position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                      });
-                                    } else {
-                                      // Fallback to simple Manhattan logic
-                                      const horizontalLen = Math.abs(endX - startX);
-                                      const verticalLen = Math.abs(endY - startY);
-                                      if (horizontalLen >= verticalLen) {
-                                        midX = (startX + endX) / 2;
-                                        midY = startY;
-                                        angle = 0;
-                                      } else {
-                                        midX = endX;
-                                        midY = (startY + endY) / 2;
-                                        angle = 90;
-                                      }
-                                    }
-                                  }
-                                } else if (enableAutoRouting && routingStyle === 'clean') {
-                                  // Always try cached placement first to prevent flicker (except during dragging)
-                                  const cached = placedLabelsRef.current.get(edge.id);
-                                  if (cached && cached.position && !draggingNodeInfo) {
-                                    const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
+                                    const placement = chooseOrthogonalLabelPlacement(
+                                      orthoRouting.points, connectionName, nodes, visibleNodeIds,
+                                      baseDimsById, placedLabelsRef.current, connectionFontSize,
+                                      edge.id, selectedInstanceIds
+                                    );
+                                    const stabilized = stabilizeLabelPosition(edge.id, placement.x, placement.y, placement.angle || 0);
                                     midX = stabilized.x;
                                     midY = stabilized.y;
                                     angle = stabilized.angle || 0;
-                                  } else {
-                                    const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                    const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
-                                    if (placement) {
-                                      midX = placement.x;
-                                      midY = placement.y;
-                                      angle = placement.angle || 0;
 
-                                      // Register this label placement
-                                      const labelRect = {
-                                        minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                        maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                        minY: midY - connectionFontSize * 1.1 / 2,
-                                        maxY: midY + connectionFontSize * 1.1 / 2,
-                                      };
-                                      const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                      placedLabelsRef.current.set(edge.id, {
-                                        rect: labelRect,
-                                        position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                      });
-                                    } else {
-                                      // Fallback to midpoint
-                                      midX = (x1 + x2) / 2;
-                                      midY = (y1 + y2) / 2;
-                                      angle = 0;
-                                    }
+                                    // Register the rect the label ACTUALLY occupies. The old code
+                                    // stored a pre-stabilization, always-horizontal box, so later
+                                    // labels dodged a phantom: wrong position for stabilized labels,
+                                    // and wrong axis entirely for vertical ones.
+                                    const halfW = estimateTextWidth(connectionName, connectionFontSize) / 2;
+                                    const halfH = connectionFontSize * 1.1 / 2;
+                                    const isVerticalLabel = Math.abs(((angle % 180) + 180) % 180 - 90) < 45;
+                                    placedLabelsRef.current.set(edge.id, {
+                                      rect: {
+                                        minX: midX - (isVerticalLabel ? halfH : halfW),
+                                        maxX: midX + (isVerticalLabel ? halfH : halfW),
+                                        minY: midY - (isVerticalLabel ? halfW : halfH),
+                                        maxY: midY + (isVerticalLabel ? halfW : halfH),
+                                      },
+                                      position: { x: midX, y: midY, angle }
+                                    });
                                   }
                                 }
                                 // For straight/curved routing, midX/midY/angle are already set from parallelPath above
@@ -15280,9 +15246,19 @@ function NodeCanvas() {
                                   }
                                 }
 
-                                // Smart label placement based on routing style
-                                if (enableAutoRouting && routingStyle === 'manhattan') {
-                                  // Always try cached placement first to prevent flicker (except during dragging)
+                                // Routed styles place the label ON the polyline.
+                                //
+                                // These branches used to call chooseLabelPlacement, whose on-path
+                                // strategy demands a segment longer than the entire label — at
+                                // connection font sizes almost nothing qualifies, so it fell
+                                // through to chord-based strategies that measure direction
+                                // endpoint-to-endpoint (a diagonal) and shove the label 40-80px
+                                // off to the side. Hence labels that sat tilted, detached, and
+                                // nowhere near the connection they name.
+                                if (orthoRouting) {
+                                  // Prefer the cached placement to avoid re-solving (and visibly
+                                  // re-shuffling) every label on every render. The cache is cleared
+                                  // whenever routing config changes or a drag ends.
                                   const cached = placedLabelsRef.current.get(edge.id);
                                   if (cached && cached.position && !draggingNodeInfo) {
                                     const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
@@ -15290,74 +15266,32 @@ function NodeCanvas() {
                                     midY = stabilized.y;
                                     angle = stabilized.angle || 0;
                                   } else {
-                                    const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
-                                    const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
-                                    if (placement) {
-                                      midX = placement.x;
-                                      midY = placement.y;
-                                      angle = placement.angle || 0;
-
-                                      // Register this label placement
-                                      const labelRect = {
-                                        minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                        maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                        minY: midY - connectionFontSize * 1.1 / 2,
-                                        maxY: midY + connectionFontSize * 1.1 / 2,
-                                      };
-                                      const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                      placedLabelsRef.current.set(edge.id, {
-                                        rect: labelRect,
-                                        position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                      });
-                                    } else {
-                                      // Fallback to simple Manhattan logic
-                                      const horizontalLen = Math.abs(endX - startX);
-                                      const verticalLen = Math.abs(endY - startY);
-                                      if (horizontalLen >= verticalLen) {
-                                        midX = (startX + endX) / 2;
-                                        midY = startY;
-                                        angle = 0;
-                                      } else {
-                                        midX = endX;
-                                        midY = (startY + endY) / 2;
-                                        angle = 90;
-                                      }
-                                    }
-                                  }
-                                } else if (enableAutoRouting && routingStyle === 'clean') {
-                                  // Always try cached placement first to prevent flicker (except during dragging)
-                                  const cached = placedLabelsRef.current.get(edge.id);
-                                  if (cached && cached.position && !draggingNodeInfo) {
-                                    const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
+                                    const placement = chooseOrthogonalLabelPlacement(
+                                      orthoRouting.points, connectionName, nodes, visibleNodeIds,
+                                      baseDimsById, placedLabelsRef.current, connectionFontSize,
+                                      edge.id, selectedInstanceIds
+                                    );
+                                    const stabilized = stabilizeLabelPosition(edge.id, placement.x, placement.y, placement.angle || 0);
                                     midX = stabilized.x;
                                     midY = stabilized.y;
                                     angle = stabilized.angle || 0;
-                                  } else {
-                                    const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                    const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
-                                    if (placement) {
-                                      midX = placement.x;
-                                      midY = placement.y;
-                                      angle = placement.angle || 0;
 
-                                      // Register this label placement
-                                      const labelRect = {
-                                        minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                        maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                        minY: midY - connectionFontSize * 1.1 / 2,
-                                        maxY: midY + connectionFontSize * 1.1 / 2,
-                                      };
-                                      const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                      placedLabelsRef.current.set(edge.id, {
-                                        rect: labelRect,
-                                        position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                      });
-                                    } else {
-                                      // Fallback to midpoint
-                                      midX = (x1 + x2) / 2;
-                                      midY = (y1 + y2) / 2;
-                                      angle = 0;
-                                    }
+                                    // Register the rect the label ACTUALLY occupies. The old code
+                                    // stored a pre-stabilization, always-horizontal box, so later
+                                    // labels dodged a phantom: wrong position for stabilized labels,
+                                    // and wrong axis entirely for vertical ones.
+                                    const halfW = estimateTextWidth(connectionName, connectionFontSize) / 2;
+                                    const halfH = connectionFontSize * 1.1 / 2;
+                                    const isVerticalLabel = Math.abs(((angle % 180) + 180) % 180 - 90) < 45;
+                                    placedLabelsRef.current.set(edge.id, {
+                                      rect: {
+                                        minX: midX - (isVerticalLabel ? halfH : halfW),
+                                        maxX: midX + (isVerticalLabel ? halfH : halfW),
+                                        minY: midY - (isVerticalLabel ? halfW : halfH),
+                                        maxY: midY + (isVerticalLabel ? halfW : halfH),
+                                      },
+                                      position: { x: midX, y: midY, angle }
+                                    });
                                   }
                                 }
                                 // For straight/curved routing, midX/midY/angle are already set from parallelPath above
