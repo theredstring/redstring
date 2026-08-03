@@ -1,16 +1,71 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { applyLayout, FORCE_LAYOUT_DEFAULTS, LAYOUT_ITERATION_PRESETS, deriveGroupVisualBounds } from '../services/graphLayoutService.js';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { FORCE_LAYOUT_DEFAULTS, LAYOUT_ITERATION_PRESETS, deriveGroupVisualBounds } from '../services/graphLayoutService.js';
+import { runLayout, cancelLayout } from '../services/layoutRunner.js';
 import { getNodeDimensions } from '../utils'; // Assumed utility
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 import { HEADER_HEIGHT } from '../constants';
 
-// Node count at which the layout solver's per-iteration cost starts to
-// dominate wall time. Up to here the full preset iteration count runs; past
-// it, iterations scale down as (threshold / n)² so total work stays flat.
-const LAYOUT_WORK_THRESHOLD = 150;
-// Below this the simulation hasn't untangled anything, so it's not worth
-// running at all — the floor is what keeps very large graphs still useful.
+// ── Layout time budget ──────────────────────────────────────────────────────
+// The force solver runs synchronously on the main thread, and each iteration
+// costs O(n²) node-node repulsion plus O(n·e) node-edge repulsion. So the
+// preset iteration counts (300 / 600 / 1200) blow up quickly with graph size:
+// measured, 100 nodes at 600 iterations already blocks for ~760ms, and 253
+// nodes for ~3.8s. Rather than gate on node count, cap the *work*.
+//
+// Throughput is NOT constant in that work term. Measured on this solver it runs
+// ~12k work units/ms on small graphs but falls to ~2.7k by 800 nodes — the
+// per-iteration Map and edge-segment reallocation makes large graphs pay a GC
+// and cache penalty the raw loop count doesn't capture. Assuming a flat rate
+// under-predicts an 800-node layout by ~5x, so the rate is degraded by node
+// count; the divisor below is fitted to measurements at n = 100/253/400/800.
+const LAYOUT_UNITS_PER_MS_BASE = 12000;
+const LAYOUT_THROUGHPUT_KNEE = 400;
+const layoutUnitsPerMs = (nodeCount) =>
+    LAYOUT_UNITS_PER_MS_BASE / (1 + (nodeCount / LAYOUT_THROUGHPUT_KNEE) ** 2);
+
+// How long a layout pass may take. Since the solver runs in a worker this is
+// wait-with-a-progress-bar time, not frozen-UI time, so it can be far more
+// generous than a main-thread budget could — the cap exists to stop quality
+// gains that cost seconds, not to protect the frame rate.
+const LAYOUT_TIME_BUDGET_MS = 2500;
+// Floor: below this the simulation hasn't settled anything and the result is
+// worse than not running. Graphs big enough to hit the floor overrun the time
+// budget — reported via `overBudget` rather than silently absorbed.
 const MIN_LAYOUT_ITERATIONS = 80;
+
+/**
+ * Work units for one solver iteration — the two nested loops that dominate it.
+ */
+const iterationWorkUnits = (nodeCount, edgeCount) =>
+    (nodeCount * nodeCount) / 2 + nodeCount * edgeCount;
+
+/**
+ * Cap iterations so a layout pass fits inside LAYOUT_TIME_BUDGET_MS.
+ *
+ * Cutting iterations alone would be a bug: every force in the solver is scaled
+ * by `alpha`, which cools by `alpha *= (1 - alphaDecay)` each iteration. Ending
+ * a run early leaves alpha high, so the sim stops while still hot and the final
+ * positions are unsettled. So the cooling schedule is re-derived to reach the
+ * same final alpha the preset would have reached, just over fewer steps.
+ */
+function computeIterationBudget(nodeCount, edgeCount, presetIterations, presetAlphaDecay) {
+    const perIteration = iterationWorkUnits(nodeCount, edgeCount);
+    const unitsPerMs = layoutUnitsPerMs(nodeCount);
+    const affordable = perIteration > 0
+        ? Math.floor((LAYOUT_TIME_BUDGET_MS * unitsPerMs) / perIteration)
+        : presetIterations;
+
+    const iterations = Math.max(MIN_LAYOUT_ITERATIONS, Math.min(presetIterations, affordable));
+    const estimatedMs = Math.round((perIteration * iterations) / unitsPerMs);
+
+    // Match the preset's end-of-run alpha over the shortened schedule.
+    const targetFinalAlpha = (1 - presetAlphaDecay) ** presetIterations;
+    const alphaDecay = iterations === presetIterations
+        ? presetAlphaDecay
+        : 1 - targetFinalAlpha ** (1 / iterations);
+
+    return { iterations, alphaDecay, estimatedMs, overBudget: estimatedMs > LAYOUT_TIME_BUDGET_MS };
+}
 
 /**
  * Resolve the displayed connection name for an edge.
@@ -174,6 +229,23 @@ export const useGraphLayout = ({
     // ---------------------------------------------------------------------------
     // 2. Auto Layout
     // ---------------------------------------------------------------------------
+    // Solver progress, or null when nothing is running. Drives the layout
+    // indicator; because the solve happens in a worker, these updates actually
+    // render while it runs.
+    // { progress: 0..1, nodeCount, estimatedMs }
+    const [layoutProgress, setLayoutProgress] = useState(null);
+    const reportLayoutProgress = useCallback((state) => setLayoutProgress(state), []);
+
+    // Abandon an in-flight solve. Nodes keep their current positions — nothing
+    // has been written to the store yet at this point.
+    const cancelAutoLayout = useCallback(() => {
+        cancelLayout();
+        setLayoutProgress(null);
+    }, []);
+
+    // Never leave a worker solving for an unmounted canvas.
+    useEffect(() => () => cancelLayout(), []);
+
     // In-flight layout animation frame (cancelled if a new layout starts)
     const layoutAnimRef = useRef(null);
     useEffect(() => () => {
@@ -259,24 +331,16 @@ export const useGraphLayout = ({
 
         const groups = Array.from(graphData?.groups?.values() || []);
 
-        // Adaptive iteration budget. The solver is brute-force: each iteration
-        // costs O(n²) node-node repulsion plus O(n·e) node-edge repulsion, and
-        // it runs synchronously on the main thread — so a fixed iteration count
-        // means wall time grows quadratically with graph size. Instead, hold
-        // total work roughly constant above LAYOUT_WORK_THRESHOLD by trading
-        // iterations for size. Below the threshold nothing changes; above it,
-        // large graphs converge less finely rather than freezing the UI.
         const iterPreset = LAYOUT_ITERATION_PRESETS[layoutIterationPreset]
             || LAYOUT_ITERATION_PRESETS.balanced;
-        const presetIterations = iterPreset.iterations;
-        const adaptiveIterations = nodes.length <= LAYOUT_WORK_THRESHOLD
-            ? presetIterations
-            : Math.max(
-                MIN_LAYOUT_ITERATIONS,
-                Math.round(presetIterations * (LAYOUT_WORK_THRESHOLD / nodes.length) ** 2)
-            );
-        if (adaptiveIterations < presetIterations) {
-            console.log(`[useGraphLayout] Large graph (${nodes.length} nodes): reducing layout iterations ${presetIterations} → ${adaptiveIterations}`);
+        const { iterations: presetIterations, alphaDecay: presetAlphaDecay } = iterPreset;
+        const budget = computeIterationBudget(nodes.length, layoutEdges.length, presetIterations, presetAlphaDecay);
+
+        if (budget.iterations < presetIterations) {
+            console.log(`[useGraphLayout] ${nodes.length} nodes / ${layoutEdges.length} edges: capping iterations ${presetIterations} → ${budget.iterations} (~${budget.estimatedMs}ms)`);
+        }
+        if (budget.overBudget) {
+            console.warn(`[useGraphLayout] Over time budget even at the ${MIN_LAYOUT_ITERATIONS}-iteration floor — this run should take ~${(budget.estimatedMs / 1000).toFixed(1)}s.`);
         }
 
         const layoutOptions = {
@@ -286,8 +350,10 @@ export const useGraphLayout = ({
             layoutScale: layoutScalePreset,
             layoutScaleMultiplier,
             iterationPreset: layoutIterationPreset,
-            // Overrides the preset's iteration count (config spreads options last).
-            iterations: adaptiveIterations,
+            // Override the preset's schedule (config spreads options last). Both
+            // values must move together — see computeIterationBudget.
+            iterations: budget.iterations,
+            alphaDecay: budget.alphaDecay,
             // When groups exist, let groupSeparatedLayout handle the two-phase approach
             // (layout each group independently → position groups in space).
             // Without groups, preserve existing positions for incremental refinement.
@@ -318,9 +384,26 @@ export const useGraphLayout = ({
             } : {})
         };
 
-        try {
-            // Assuming applyLayout is available/imported
-            let updates = applyLayout(layoutNodes, layoutEdges, groupLayoutAlgorithm, layoutOptions);
+        // The solver runs in a worker (see layoutRunner.js), so everything from
+        // here on is the completion path — it lands one or more frames later,
+        // with the canvas fully interactive in between.
+        const onLayoutComplete = (rawUpdates) => {
+          // Solving is done — the tween that follows is its own feedback, so the
+          // progress indicator retires here rather than lingering through it.
+          reportLayoutProgress(null);
+
+          // The entry guard only covers a drag already in progress when layout
+          // starts. Now that solving is asynchronous the user can also grab a
+          // node *during* it, so re-check on arrival: the tween's own guard
+          // handles the animated path, but animate:false would otherwise write
+          // positions straight over the drag.
+          if (draggingNodeInfoRef?.current) {
+              console.log('[useGraphLayout] Discarding layout result — a node grab started mid-solve.');
+              return;
+          }
+
+          try {
+            let updates = rawUpdates;
 
             if (!updates || updates.length === 0) {
                 console.warn('[useGraphLayout] Layout produced no updates.');
@@ -564,10 +647,26 @@ export const useGraphLayout = ({
                 }
             };
             layoutAnimRef.current = requestAnimationFrame(tick);
-        } catch (error) {
+          } catch (error) {
             console.error('[useGraphLayout] Failed to apply layout:', error);
+            reportLayoutProgress(null);
             alert(`Auto-layout failed: ${error.message}`);
-        }
+          }
+        };
+
+        reportLayoutProgress({ progress: 0, nodeCount: nodes.length, estimatedMs: budget.estimatedMs });
+
+        runLayout(layoutNodes, layoutEdges, groupLayoutAlgorithm, layoutOptions, {
+            onProgress: (progress) => reportLayoutProgress({
+                progress, nodeCount: nodes.length, estimatedMs: budget.estimatedMs
+            }),
+            onDone: onLayoutComplete,
+            onError: (message) => {
+                console.error('[useGraphLayout] Layout worker failed:', message);
+                reportLayoutProgress(null);
+                alert(`Auto-layout failed: ${message}`);
+            }
+        });
     }, [
         activeGraphId,
         baseDimsById,
@@ -594,7 +693,8 @@ export const useGraphLayout = ({
         containerRef,
         maxZoom,
         shouldSnapAutoLayout,
-        gridSize
+        gridSize,
+        reportLayoutProgress
     ]);
 
     // ---------------------------------------------------------------------------
@@ -713,6 +813,10 @@ export const useGraphLayout = ({
         applyAutoLayoutToActiveGraph,
         condenseGraphNodes,
         snapActiveGraphToGrid,
-        cancelAutoLayoutAnimation
+        cancelAutoLayoutAnimation,
+        // Solver state for the layout indicator: null when idle, otherwise
+        // { progress, nodeCount, estimatedMs }
+        layoutProgress,
+        cancelAutoLayout
     };
 };

@@ -13,6 +13,7 @@ import {
   rebuildRoutedPath,
   labelArcPath,
   distanceToArc,
+  MIN_VISIBLE_BOW,
   lombardiArcFor,
   MAX_TANGENT_CHORD,
 } from '../../src/utils/canvas/edgeRouting.js';
@@ -717,5 +718,50 @@ describe('near-straight arcs (the textPath performance trap)', () => {
     expect(arc.straight).toBe(false);
     expect(arc.radius).toBeGreaterThan(100000);
     expect(labelArcPath(arc, arcPointAt(arc, 0.5), 400)).toBeNull();
+  });
+});
+
+describe('labelArcPath minBow (screen-space curve budget)', () => {
+  // A <textPath> costs ~0.14ms per label per frame. The renderer converts a
+  // screen-pixel threshold back into canvas units and passes it here, so a bend
+  // that is sub-pixel to the viewer never buys one.
+  const arcWithBow = () =>
+    solveLombardiArc({ x: 0, y: 0 }, { x: 900, y: 0 }, 0.05, Math.PI - 0.05, 1);
+
+  it('curves the label when the bow clears the caller floor', () => {
+    const arc = arcWithBow();
+    expect(labelArcPath(arc, arcPointAt(arc, 0.5), 300, { minBow: 0.5 })).not.toBeNull();
+  });
+
+  it('declines the same label once the floor is raised past its bow', () => {
+    const arc = arcWithBow();
+    const path = labelArcPath(arc, arcPointAt(arc, 0.5), 300, { minBow: 0.5 });
+    // Recover the bow the helper measured, then demand more than it.
+    const anchor = arcPointAt(arc, 0.5);
+    const radius = Math.hypot(anchor.x - arc.cx, anchor.y - arc.cy);
+    const span = 300 * 1.4;
+    const bow = (span * (span / radius)) / 8;
+    expect(path).not.toBeNull();
+    expect(labelArcPath(arc, anchor, 300, { minBow: bow * 1.5 })).toBeNull();
+  });
+
+  it('falls back to the module default when no floor is given', () => {
+    const arc = arcWithBow();
+    const anchor = arcPointAt(arc, 0.5);
+    expect(labelArcPath(arc, anchor, 300)).toEqual(
+      labelArcPath(arc, anchor, 300, { minBow: MIN_VISIBLE_BOW })
+    );
+  });
+
+  it('is monotone: raising the floor never turns a decline back into a curve', () => {
+    const arc = arcWithBow();
+    const anchor = arcPointAt(arc, 0.5);
+    let declined = false;
+    for (let floor = 0.1; floor < 200; floor *= 1.4) {
+      const path = labelArcPath(arc, anchor, 300, { minBow: floor });
+      if (path === null) declined = true;
+      else expect(declined).toBe(false);
+    }
+    expect(declined).toBe(true);
   });
 });

@@ -1454,12 +1454,19 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   // Simulation loop
   let alpha = 1.0;
 
+  // Optional progress reporting. Only meaningful off the main thread (see
+  // layout.worker.js) — called synchronously, so it must stay cheap. Reported
+  // ~50 times per run regardless of iteration count.
+  const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+  const progressInterval = Math.max(1, Math.floor(config.iterations / 50));
+
   for (let iter = 0; iter < config.iterations; iter++) {
     const forces = new Map();
     nodes.forEach(node => forces.set(node.id, { fx: 0, fy: 0 }));
 
     // Phase control - stronger repulsion early, stronger spring/center late
     const progress = iter / config.iterations;
+    if (onProgress && iter % progressInterval === 0) onProgress(progress);
     const repulsionMult = progress < 0.3 ? 1.4 : (progress < 0.7 ? 1.0 : 0.8);
     const springMult = progress < 0.3 ? 0.7 : (progress < 0.7 ? 1.0 : 1.2);
     // Cross-group springs don't get late-stage boost to prevent boundary violations

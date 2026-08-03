@@ -7,7 +7,7 @@ import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcPath } from '../utils/canvas/edgeRouting.js';
-import { placeLabelOnRoute } from '../utils/canvas/edgeLabelPlacement.js';
+import { placeLabelOnRoute, quantizeAngle } from '../utils/canvas/edgeLabelPlacement.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../services/groupLayout.js';
 import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
 import saveCoordinator from '../services/SaveCoordinator.js';
@@ -104,6 +104,7 @@ export const useNodeDrag = ({
   cleanLaneOffsetsRef,
   lombardiTangentsRef,
   lombardiCurvatureRef,
+  labelAngleQuantumRef,
   multiConnectionCurveRef,
   groupsByNodeIdRef,
   groupsByIdRef,
@@ -697,9 +698,10 @@ export const useNodeDrag = ({
         // too expensive per frame). Stays on the polyline and axis-aligned, so it
         // agrees closely with the settled placement computed on drop.
         const labelPos = placeLabelOnRoute(routing);
-        const labelAdj = (labelPos.angle > 90 || labelPos.angle < -90)
-          ? labelPos.angle + 180
-          : labelPos.angle;
+        const labelAdj = quantizeAngle(
+          (labelPos.angle > 90 || labelPos.angle < -90) ? labelPos.angle + 180 : labelPos.angle,
+          labelAngleQuantumRef?.current ?? 0
+        );
         const dragConnWidth = useGraphStore.getState().textSettings?.connectionWidth ?? 1;
 
         // A curved Lombardi label is positioned entirely by its path, so the
@@ -915,7 +917,10 @@ export const useNodeDrag = ({
               visibleEndpoints.x2 - visibleEndpoints.x1
             ) * (180 / Math.PI);
           }
-          const adj = (labelAngle > 90 || labelAngle < -90) ? labelAngle + 180 : labelAngle;
+          const adj = quantizeAngle(
+            (labelAngle > 90 || labelAngle < -90) ? labelAngle + 180 : labelAngle,
+            labelAngleQuantumRef?.current ?? 0
+          );
           texts.forEach(t => {
             t.setAttribute('x', midX);
             t.setAttribute('y', midY);
@@ -927,6 +932,7 @@ export const useNodeDrag = ({
   }, [nodeByIdRef, baseDimsByIdRef, edgeCurveInfoRef, edgesByNodeIdRef, edgesRef,
     selectedInstanceIdsRef, enableAutoRoutingRef, routingStyleRef, manhattanBendsRef,
     cleanLaneSpacingRef, cleanLaneOffsetsRef, lombardiTangentsRef, lombardiCurvatureRef,
+    labelAngleQuantumRef,
     edgesRef, placedLabelsRef]);
 
   // ---------------------------------------------------------------------------

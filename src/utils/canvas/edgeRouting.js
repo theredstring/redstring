@@ -848,7 +848,13 @@ export function labelArcPath(arc, anchor, textWidth, options = {}) {
   // own length. Below a pixel the two are the same picture — and this is the
   // case where the radius is enormous, which is precisely when <textPath> is
   // most expensive. Straight label, identical result, a fraction of the cost.
-  if ((span * sweep) / 8 < MIN_VISIBLE_BOW) return null;
+  //
+  // `options.minBow` lets the caller raise this floor. The renderer sets it from
+  // the zoom level, so the test becomes "is this bend visible ON SCREEN" rather
+  // than "is it visible in canvas coordinates" — at low zoom a 3px canvas bow is
+  // sub-pixel to the viewer, and <textPath> is far too expensive to spend on a
+  // curve nobody can see. See CONNECTION LABEL RENDERING BUDGETS in NodeCanvas.
+  if ((span * sweep) / 8 < (options.minBow ?? MIN_VISIBLE_BOW)) return null;
 
   const mid = Math.atan2(dy, dx);
   const half = sweep / 2;

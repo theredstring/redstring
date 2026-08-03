@@ -72,6 +72,27 @@ export const buildRoundedPathFromPoints = (pts, r = 8) => {
 };
 
 // Estimate text width heuristically for label fit checks
+/**
+ * Snap a label's rotation into a bucket.
+ *
+ * Purely a rendering-cost measure, and a large one: the browser keys its glyph
+ * atlas on the rotation matrix, so N labels at N distinct angles means N cache
+ * misses on every paint, while N labels sharing a handful of angles is nearly
+ * free. Collapsing the angles is what makes a few hundred labels affordable.
+ * See CONNECTION LABEL RENDERING BUDGETS in NodeCanvas.jsx for the numbers.
+ *
+ * A quantum of 0 (or anything non-positive) means "leave the angle alone",
+ * which is what the caller should pass when there are too few labels on screen
+ * to trouble the atlas.
+ *
+ * @param {number} degrees
+ * @param {number} quantum bucket size in degrees
+ * @returns {number}
+ */
+export const quantizeAngle = (degrees, quantum) => (
+  quantum > 0 ? Math.round(degrees / quantum) * quantum : degrees
+);
+
 export const estimateTextWidth = (text, fontSize = 24) => {
     // Rough average width per character ~0.55 * fontSize for typical sans fonts
     const avgCharWidth = fontSize * 0.55;

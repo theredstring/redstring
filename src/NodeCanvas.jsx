@@ -37,6 +37,7 @@ import workspaceService from './services/WorkspaceService.js';
 import universeManagerService from './services/universeManagerService.js';
 import { pickFolder, getFileInFolder, listFilesInFolder, readFile, writeFile } from './utils/fileAccessAdapter.js';
 import AutoGraphModal from './components/AutoGraphModal';
+import LayoutProgressIndicator from './components/LayoutProgressIndicator.jsx';
 import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
@@ -104,13 +105,13 @@ import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath, MIN_VISIBLE_BOW } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
-import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects } from './utils/canvas/edgeLabelPlacement.js';
+import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -129,13 +130,57 @@ import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
-// Above this many visible connections, Lombardi labels stop curving. See
-// `curveLabels` below for why.
-const CURVED_LABEL_BUDGET = 200;
+// ---------------------------------------------------------------------------
+// CONNECTION LABEL RENDERING BUDGETS
+//
+// Connection labels dominate canvas paint cost, and the reason is narrower than
+// it looks. Measured in Chromium on 500 labels at zoom 0.15, animating a pan so
+// every frame genuinely repaints (median frame time):
+//
+//     500 labels, every one rotated to the SAME angle ......    0.9 ms
+//     500 labels, angles snapped to 8° buckets ............     1.6 ms
+//     500 labels, angles snapped to 3° buckets ............     4.7 ms
+//     500 labels, angles snapped to 1° buckets ............    18.6 ms
+//     500 labels, each at its own exact angle .............    50.0 ms
+//     500 labels drawn on <textPath> ......................  1145.1 ms
+//
+// Rotation is free. DISTINCT rotations are not. Each distinct rotation matrix
+// is its own glyph-atlas key, so a few hundred labels at a few hundred angles
+// blow the atlas and every glyph is re-rasterised from its outline on every
+// single paint. (The stroked halo roughly doubles the per-glyph cost, but it is
+// not the mechanism.) This is also the whole reason manhattan routing felt
+// instant next to straight despite doing more routing work: manhattan labels
+// only ever sit at 0° or 90° — two buckets, permanently cached.
+//
+// Two fixes follow, and both apply to every routing style:
+//   1. Snap label angles into buckets (see `labelAngleQuantum`).
+//   2. Only spend a <textPath> on a curve the viewer can actually see
+//      (see `labelArcMinBow`), with a hard count budget behind it.
+// ---------------------------------------------------------------------------
 
-// On-screen font size, in CSS pixels, below which a connection label is not
-// readable and is skipped entirely. See `labelsLegible` below.
-const MIN_LEGIBLE_LABEL_PX = 8;
+// On-screen displacement, in CSS pixels, we're willing to accept at the far end
+// of a label from snapping its angle. Snapping by a quantum q tilts a label by
+// at most q/2, which moves the end of a label of half-width w by w·sin(q/2).
+const LABEL_ANGLE_ERROR_PX = 2;
+
+// Typical connection-label half-width in canvas px, for the estimate above.
+const LABEL_HALF_WIDTH_CANVAS = 150;
+
+// Never snap coarser than this, however far out the viewer is zoomed.
+const MAX_LABEL_ANGLE_QUANTUM = 4;
+
+// Below this many labels there aren't enough distinct angles to trouble the
+// atlas, so don't snap at all — exact angles, zero visual change.
+const LABEL_ANGLE_QUANTUM_MIN_COUNT = 48;
+
+// <textPath> costs ~0.14ms per label per frame and scales linearly, so this is
+// a hard ceiling on how much of a frame curved labels may spend. It is a
+// backstop: `labelArcMinBow` normally sheds them long before this bites.
+const CURVED_LABEL_BUDGET = 40;
+
+// A Lombardi label only earns a <textPath> if its baseline visibly bends on
+// screen. Below this the curved and straight versions are the same picture.
+const LABEL_CURVE_MIN_SCREEN_PX = 1.2;
 
 // EXCLUSIVE_PANEL_MODE_THRESHOLD is imported from ./constants (shared with Panel.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
@@ -1335,6 +1380,12 @@ function NodeCanvas() {
   // pass, so the memo freezes during a drag and the drag updater reads the ref.
   const lombardiTangentsRef = useRef(new Map());
   const lombardiCurvatureRef = useRef(lombardiCurvature);
+  // Label-angle bucket size for the DOM-bypass drag updater. Seeded to 0
+  // ("don't snap") rather than the live value, because the memo that computes
+  // it needs visibleEdges and zoomLevel and so can't run this early; the effect
+  // beside that memo syncs it from the first commit onward. A first render at 0
+  // matches what low label counts do anyway, so nothing visibly changes.
+  const labelAngleQuantumRef = useRef(0);
   useEffect(() => { enableAutoRoutingRef.current = enableAutoRouting; }, [enableAutoRouting]);
   useEffect(() => { routingStyleRef.current = routingStyle; }, [routingStyle]);
   useEffect(() => { multiConnectionCurveRef.current = multiConnectionCurve; }, [multiConnectionCurve]);
@@ -1947,6 +1998,7 @@ function NodeCanvas() {
     cleanLaneOffsetsRef,
     lombardiTangentsRef,
     lombardiCurvatureRef,
+    labelAngleQuantumRef,
     multiConnectionCurveRef,
     groupsByNodeIdRef,
     groupsByIdRef,
@@ -2256,7 +2308,9 @@ function NodeCanvas() {
     applyAutoLayoutToActiveGraph,
     condenseGraphNodes,
     snapActiveGraphToGrid,
-    cancelAutoLayoutAnimation
+    cancelAutoLayoutAnimation,
+    layoutProgress,
+    cancelAutoLayout
   } = useGraphLayout({
     activeGraphId,
     storeActions,
@@ -2880,32 +2934,63 @@ function NodeCanvas() {
     obstacles: getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedInstanceIds),
   }), [nodes, visibleNodeIds, baseDimsById, selectedInstanceIds]);
 
-  // Curved Lombardi labels are drawn with SVG <textPath>, which is far more
-  // expensive than a rotated <text>: the browser has to arc-length parameterise
-  // the path and place every glyph individually, and it can't reuse a cached
-  // glyph run. One label is free; several hundred is the single most expensive
-  // thing on the canvas — and at that density no label is legible anyway.
+  // How coarsely to snap connection-label rotations. See CONNECTION LABEL
+  // RENDERING BUDGETS above: the cost is the number of DISTINCT angles on
+  // screen, not the angles themselves, so collapsing them into buckets is the
+  // whole fix. Zero means "don't snap".
   //
-  // So curve them right up to the point where they stop being readable, then
-  // stop. Set this to 0 to confirm textPath is what's costing you.
-  const curveLabels = visibleEdges.length <= CURVED_LABEL_BUDGET;
+  // The bucket size is chosen from the zoom, not picked by feel: snapping by a
+  // quantum q tilts a label by at most q/2, which displaces the end of a label
+  // of half-width w by w·sin(q/2) — so invert that for the largest q whose
+  // worst-case error stays inside LABEL_ANGLE_ERROR_PX on screen. Zoomed out,
+  // where the labels are small and numerous, that permits a coarse bucket;
+  // zoomed in, where a tilt would show, it tightens automatically.
+  const labelAngleQuantum = useMemo(() => {
+    if (visibleEdges.length <= LABEL_ANGLE_QUANTUM_MIN_COUNT) return 0;
+    const halfWidthOnScreen = LABEL_HALF_WIDTH_CANVAS * zoomLevel;
+    const wanted = halfWidthOnScreen > LABEL_ANGLE_ERROR_PX
+      ? Math.min(
+        MAX_LABEL_ANGLE_QUANTUM,
+        2 * Math.asin(LABEL_ANGLE_ERROR_PX / halfWidthOnScreen) * (180 / Math.PI)
+      )
+      : MAX_LABEL_ANGLE_QUANTUM;
 
-  // Don't draw a label nobody can read.
+    // Round the quantum itself down onto an exact divisor of 90 so that 0° and
+    // 90° survive the snap untouched. Manhattan labels sit precisely on those
+    // two angles; a raw 4° bucket would round 90° to 92°, visibly tilting every
+    // vertical label and spending extra atlas slots in the one mode that was
+    // already fast. Ceil on the division keeps the result at or under `wanted`,
+    // so the error budget above still holds.
+    return 90 / Math.max(1, Math.ceil(90 / wanted));
+  }, [visibleEdges.length, zoomLevel]);
+
+  const quantizeLabelAngle = useCallback(
+    (degrees) => quantizeAngle(degrees, labelAngleQuantum),
+    [labelAngleQuantum]
+  );
+
+  // Ref declared with the other drag refs above — useNodeDrag is called long
+  // before this point and takes it as an argument, so declaring it here would
+  // be a temporal dead zone. Only the sync lives here, next to the memo.
+  useEffect(() => { labelAngleQuantumRef.current = labelAngleQuantum; }, [labelAngleQuantum]);
+
+  // Curved Lombardi labels are drawn with SVG <textPath>, which is in a
+  // different cost class from a rotated <text> — the browser arc-length
+  // parameterises the path and places every glyph individually, and none of it
+  // is cached across paints. Measured at ~0.14ms per label per frame, linear in
+  // count: forty of them is a budget, five hundred is 1.1 seconds.
   //
-  // Connection labels are the most expensive thing on this canvas, and not by a
-  // little: they are STROKED text (paintOrder="stroke fill", ~9px outline) drawn
-  // at an ARBITRARY rotation. Both of those defeat the browser's glyph cache, so
-  // every one is rasterised from outlines on every paint. That is the whole
-  // reason Manhattan feels faster than straight even though it does strictly
-  // more routing work — its labels land on exact 0°/90° runs, which the
-  // compositor can draw from cached glyphs, while a straight edge's label sits
-  // at the chord angle and a Lombardi one at the arc tangent.
-  //
-  // At the zoom where a 250-node graph fits on screen, every one of those labels
-  // is a few pixels tall and completely illegible. Skipping them costs nothing
-  // and is the single biggest win available in every routing mode.
-  const baseConnectionFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
-  const labelsLegible = baseConnectionFontSize * zoomLevel >= MIN_LEGIBLE_LABEL_PX;
+  // So spend them only where the curve is actually visible. A bend of a few
+  // canvas pixels is sub-pixel on screen once you're zoomed out, and there the
+  // curved and straight labels are literally the same picture — so require the
+  // bow to clear LABEL_CURVE_MIN_SCREEN_PX *on screen*, which converts back to a
+  // canvas-space floor by dividing out the zoom. The count budget is a backstop
+  // for the dense-and-zoomed-in case this doesn't catch.
+  const curveLabels = visibleEdges.length <= CURVED_LABEL_BUDGET;
+  const labelArcMinBow = Math.max(
+    MIN_VISIBLE_BOW,
+    LABEL_CURVE_MIN_SCREEN_PX / Math.max(zoomLevel, 0.01)
+  );
 
   // Reset the label caches when the routing configuration changes.
   //
@@ -14176,7 +14261,7 @@ function NodeCanvas() {
                               })()}
 
                               {/* Connection name text — rendered after arrows so labels appear on top */}
-                              {showConnectionNames && labelsLegible && (() => {
+                              {showConnectionNames && (() => {
                                 const connectionFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
                                 let midX;
                                 let midY;
@@ -14287,14 +14372,21 @@ function NodeCanvas() {
                                 const labelRenderX = midX;
                                 const labelRenderY = midY;
 
-                                // Adjust angle to keep text readable (never upside down)
-                                const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
+                                // Adjust angle to keep text readable (never upside down),
+                                // then snap it into a bucket. The snap is what keeps a few hundred
+                                // labels affordable — see CONNECTION LABEL RENDERING BUDGETS. At
+                                // low label counts quantizeLabelAngle is the identity.
+                                const adjustedAngle = quantizeLabelAngle(
+                                  (angle > 90 || angle < -90) ? angle + 180 : angle
+                                );
 
                                 // Lombardi labels ride the arc itself rather than sitting on a
-                                // chord of it — always, at any bend a real connection produces.
-                                // labelArcPath returns null only in degenerate cases (no arc, no
-                                // text, or a label that would wrap the circle), and a null falls
-                                // through to the straight rotated label below.
+                                // chord of it — whenever the bend is visible on screen and the
+                                // curved-label budget allows. labelArcPath returns null otherwise
+                                // (degenerate arc, no text, a label that would wrap the circle, or
+                                // a bow under labelArcMinBow), and a null falls through to the
+                                // straight rotated label below, which at that point is the same
+                                // picture for a fraction of the cost.
                                 //
                                 // Skipped mid-drag: the DOM-bypass updater rewrites the path each
                                 // frame (see useNodeDrag), but the <text> element's own transform
@@ -14303,7 +14395,8 @@ function NodeCanvas() {
                                   ? labelArcPath(
                                     orthoRouting.arc,
                                     { x: labelRenderX, y: labelRenderY },
-                                    estimateTextWidth(connectionName, connectionFontSize)
+                                    estimateTextWidth(connectionName, connectionFontSize),
+                                    { minBow: labelArcMinBow }
                                   )
                                   : null;
                                 const labelArcId = `lombardi-label-below-${edge.id}`;
@@ -15539,7 +15632,7 @@ function NodeCanvas() {
                               })()}
 
                               {/* Connection name text — rendered after arrows so labels appear on top */}
-                              {showConnectionNames && labelsLegible && (() => {
+                              {showConnectionNames && (() => {
                                 const connectionFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
                                 let midX;
                                 let midY;
@@ -15650,14 +15743,21 @@ function NodeCanvas() {
                                 const labelRenderX = midX;
                                 const labelRenderY = midY;
 
-                                // Adjust angle to keep text readable (never upside down)
-                                const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
+                                // Adjust angle to keep text readable (never upside down),
+                                // then snap it into a bucket. The snap is what keeps a few hundred
+                                // labels affordable — see CONNECTION LABEL RENDERING BUDGETS. At
+                                // low label counts quantizeLabelAngle is the identity.
+                                const adjustedAngle = quantizeLabelAngle(
+                                  (angle > 90 || angle < -90) ? angle + 180 : angle
+                                );
 
                                 // Lombardi labels ride the arc itself rather than sitting on a
-                                // chord of it — always, at any bend a real connection produces.
-                                // labelArcPath returns null only in degenerate cases (no arc, no
-                                // text, or a label that would wrap the circle), and a null falls
-                                // through to the straight rotated label below.
+                                // chord of it — whenever the bend is visible on screen and the
+                                // curved-label budget allows. labelArcPath returns null otherwise
+                                // (degenerate arc, no text, a label that would wrap the circle, or
+                                // a bow under labelArcMinBow), and a null falls through to the
+                                // straight rotated label below, which at that point is the same
+                                // picture for a fraction of the cost.
                                 //
                                 // Skipped mid-drag: the DOM-bypass updater rewrites the path each
                                 // frame (see useNodeDrag), but the <text> element's own transform
@@ -15666,7 +15766,8 @@ function NodeCanvas() {
                                   ? labelArcPath(
                                     orthoRouting.arc,
                                     { x: labelRenderX, y: labelRenderY },
-                                    estimateTextWidth(connectionName, connectionFontSize)
+                                    estimateTextWidth(connectionName, connectionFontSize),
+                                    { minBow: labelArcMinBow }
                                   )
                                   : null;
                                 const labelArcId = `lombardi-label-above-${edge.id}`;
@@ -17530,6 +17631,10 @@ function NodeCanvas() {
           }}
         />
       )}
+
+      {/* Auto-layout progress. Non-modal — the solve runs in a worker, so the
+          canvas stays interactive while this counts up. */}
+      <LayoutProgressIndicator state={layoutProgress} onCancel={cancelAutoLayout} />
 
       {/* <div>NodeCanvas Simplified - Testing Loop</div> */}
     </div >
