@@ -104,13 +104,13 @@ import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
-import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth } from './utils/canvas/edgeLabelPlacement.js';
+import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -128,6 +128,10 @@ import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 
 
 const SPAWNABLE_NODE = 'spawnable_node';
+
+// Above this many visible connections, Lombardi labels stop curving. See
+// `curveLabels` below for why.
+const CURVED_LABEL_BUDGET = 200;
 
 // EXCLUSIVE_PANEL_MODE_THRESHOLD is imported from ./constants (shared with Panel.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
@@ -2864,6 +2868,23 @@ function NodeCanvas() {
   }, [enableAutoRouting, routingStyle, nodes, edges, baseDimsById, draggingNodeInfo]);
 
   useEffect(() => { lombardiTangentsRef.current = lombardiTangents; }, [lombardiTangents]);
+
+  // The obstacle set every label dodges. Identical for every edge, so build it
+  // once — each placement call used to rebuild it from all visible nodes, which
+  // was roughly half the cost of re-solving a large graph's labels.
+  const labelObstacleOptions = useMemo(() => ({
+    obstacles: getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedInstanceIds),
+  }), [nodes, visibleNodeIds, baseDimsById, selectedInstanceIds]);
+
+  // Curved Lombardi labels are drawn with SVG <textPath>, which is far more
+  // expensive than a rotated <text>: the browser has to arc-length parameterise
+  // the path and place every glyph individually, and it can't reuse a cached
+  // glyph run. One label is free; several hundred is the single most expensive
+  // thing on the canvas — and at that density no label is legible anyway.
+  //
+  // So curve them right up to the point where they stop being readable, then
+  // stop. Set this to 0 to confirm textPath is what's costing you.
+  const curveLabels = visibleEdges.length <= CURVED_LABEL_BUDGET;
 
   // Reset the label caches when the routing configuration changes.
   //
@@ -8182,17 +8203,18 @@ function NodeCanvas() {
 
                 distance = distanceToPolyline(currentX, currentY, pathPoints);
               } else if (enableAutoRouting && routingStyle === 'lombardi') {
-                const pathPoints = computeLombardiRouting(
-                  edge,
-                  sourceInstance,
-                  targetInstance,
-                  sourceDims,
-                  targetDims,
-                  lombardiTangents,
-                  { curvature: lombardiCurvature, selectedInstanceIds }
-                ).points;
-
-                distance = distanceToPolyline(currentX, currentY, pathPoints);
+                // Closed form, not sampling. This runs for every visible edge on
+                // every pointer move; building the full routing descriptor here
+                // (sampled polyline, path string, arrowhead trims) and then
+                // walking the polyline made hover cost ~2x what the orthogonal
+                // styles cost, on top of the garbage it generated.
+                const { p, q, arc } = lombardiArcFor(
+                  edge, sourceInstance, targetInstance, sourceDims, targetDims,
+                  lombardiTangents, lombardiCurvature
+                );
+                distance = arc
+                  ? distanceToArc(currentX, currentY, arc)
+                  : distanceToPolyline(currentX, currentY, [p, q]);
               } else if (enableAutoRouting && routingStyle === 'manhattan') {
                 const pathPoints = generateManhattanRoutingPath(
                   edge,
@@ -14209,7 +14231,7 @@ function NodeCanvas() {
                                     const placement = chooseRoutedLabelPlacement(
                                       orthoRouting, connectionName, nodes, visibleNodeIds,
                                       baseDimsById, placedLabelsRef.current, connectionFontSize,
-                                      edge.id, selectedInstanceIds
+                                      edge.id, selectedInstanceIds, labelObstacleOptions
                                     );
                                     const stabilized = stabilizeLabelPosition(edge.id, placement.x, placement.y, placement.angle || 0);
                                     midX = stabilized.x;
@@ -14256,7 +14278,7 @@ function NodeCanvas() {
                                 // Skipped mid-drag: the DOM-bypass updater rewrites the path each
                                 // frame (see useNodeDrag), but the <text> element's own transform
                                 // would fight it, so the drag path keeps the straight form.
-                                const labelArc = orthoRouting?.arc
+                                const labelArc = (orthoRouting?.arc && curveLabels)
                                   ? labelArcPath(
                                     orthoRouting.arc,
                                     { x: labelRenderX, y: labelRenderY },
@@ -15572,7 +15594,7 @@ function NodeCanvas() {
                                     const placement = chooseRoutedLabelPlacement(
                                       orthoRouting, connectionName, nodes, visibleNodeIds,
                                       baseDimsById, placedLabelsRef.current, connectionFontSize,
-                                      edge.id, selectedInstanceIds
+                                      edge.id, selectedInstanceIds, labelObstacleOptions
                                     );
                                     const stabilized = stabilizeLabelPosition(edge.id, placement.x, placement.y, placement.angle || 0);
                                     midX = stabilized.x;
@@ -15619,7 +15641,7 @@ function NodeCanvas() {
                                 // Skipped mid-drag: the DOM-bypass updater rewrites the path each
                                 // frame (see useNodeDrag), but the <text> element's own transform
                                 // would fight it, so the drag path keeps the straight form.
-                                const labelArc = orthoRouting?.arc
+                                const labelArc = (orthoRouting?.arc && curveLabels)
                                   ? labelArcPath(
                                     orthoRouting.arc,
                                     { x: labelRenderX, y: labelRenderY },

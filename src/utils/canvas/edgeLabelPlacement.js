@@ -451,7 +451,7 @@ export const placeLabelOnPath = (pathPoints) => {
  */
 export const chooseOrthogonalLabelPlacement = (
     pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById,
-    placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set()
+    placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set(), options = {}
 ) => {
     const segments = describeSegments(pathPoints);
     if (segments.length === 0) return placeLabelOnPath(pathPoints);
@@ -459,7 +459,10 @@ export const chooseOrthogonalLabelPlacement = (
     const textWidth = estimateTextWidth(connectionName, fontSize);
     const textHeight = fontSize;
 
-    const obstacles = getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedNodeIds);
+    // The node obstacle set is identical for every edge in a pass, so a caller
+    // placing many labels should build it once and hand it in — rebuilding it
+    // per edge was about half the cost of a full label re-solve.
+    const obstacles = (options.obstacles || getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedNodeIds)).slice();
     if (placedLabels && placedLabels.size > 0) {
         placedLabels.forEach((labelData, id) => {
             if (id !== edgeId && labelData?.rect) obstacles.push(labelData.rect);
@@ -552,14 +555,16 @@ export const placeLabelOnArc = (arc) => {
 
 export const chooseArcLabelPlacement = (
     arc, connectionName, nodes, visibleNodeIds, baseDimsById,
-    placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set()
+    placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set(), options = {}
 ) => {
     if (!arc) return { x: 0, y: 0, angle: 0 };
 
     const textWidth = estimateTextWidth(connectionName, fontSize);
     const textHeight = fontSize;
 
-    const obstacles = getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedNodeIds);
+    // See chooseOrthogonalLabelPlacement — prebuilt obstacles when the caller
+    // is placing a whole graph's worth of labels.
+    const obstacles = (options.obstacles || getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedNodeIds)).slice();
     if (placedLabels && placedLabels.size > 0) {
         placedLabels.forEach((labelData, id) => {
             if (id !== edgeId && labelData?.rect) obstacles.push(labelData.rect);
@@ -610,13 +615,13 @@ export const placeLabelOnRoute = (routing) => (
 /** Full placement with obstacle avoidance. Used by the settled render. */
 export const chooseRoutedLabelPlacement = (
     routing, connectionName, nodes, visibleNodeIds, baseDimsById,
-    placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set()
+    placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set(), options = {}
 ) => (
     routing?.arc
         ? chooseArcLabelPlacement(routing.arc, connectionName, nodes, visibleNodeIds,
-            baseDimsById, placedLabels, fontSize, edgeId, selectedNodeIds)
+            baseDimsById, placedLabels, fontSize, edgeId, selectedNodeIds, options)
         : chooseOrthogonalLabelPlacement(routing?.points, connectionName, nodes, visibleNodeIds,
-            baseDimsById, placedLabels, fontSize, edgeId, selectedNodeIds)
+            baseDimsById, placedLabels, fontSize, edgeId, selectedNodeIds, options)
 );
 
 // Main label placement orchestrator

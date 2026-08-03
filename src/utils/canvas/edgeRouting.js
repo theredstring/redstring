@@ -695,12 +695,73 @@ export function arcParamOf(arc, pt) {
   return Math.max(0, Math.min(1, s));
 }
 
-/** Sample an arc into a polyline at roughly 5° per step. */
+/**
+ * Sample an arc into a polyline, ~8° per step.
+ *
+ * Deliberately does NOT go through arcPointAt: that computes a tangent angle
+ * with an atan2 per point, and no consumer of a sampled polyline reads it.
+ * Trimming, clearance and hit-testing all want x/y only, and at 500 edges the
+ * wasted trig and the wider objects were both showing up.
+ */
 export function sampleArc(arc, steps = null) {
-  const n = steps ?? Math.max(8, Math.min(64, Math.ceil(Math.abs(arc.sweep) / (Math.PI / 36)) + 1));
-  const points = [];
-  for (let i = 0; i < n; i++) points.push(arcPointAt(arc, i / (n - 1)));
+  const n = steps ?? Math.max(8, Math.min(32, Math.ceil(Math.abs(arc.sweep) / (Math.PI / 22)) + 1));
+  const points = new Array(n);
+  const step = arc.sweep / (n - 1);
+  for (let i = 0; i < n; i++) {
+    const a = arc.a0 + step * i;
+    points[i] = { x: arc.cx + arc.radius * Math.cos(a), y: arc.cy + arc.radius * Math.sin(a) };
+  }
   return points;
+}
+
+/**
+ * Exact distance from a point to an arc — no sampling.
+ *
+ * Hit-testing used to build the whole routing descriptor per edge per pointer
+ * move and then walk its sampled polyline. For a circle there is a closed form:
+ * if the point's bearing from the centre falls inside the arc's angular span,
+ * the distance is just |r − radius|; otherwise it's the nearer endpoint. O(1)
+ * instead of O(samples), and more accurate than the polyline it replaced.
+ */
+export function distanceToArc(px, py, arc) {
+  const dx = px - arc.cx;
+  const dy = py - arc.cy;
+  const r = Math.hypot(dx, dy);
+  if (r < 1e-9) return arc.radius;
+
+  // MAX_TANGENT_CHORD keeps |sweep| under π, so the shortest signed delta
+  // unambiguously identifies whether the bearing lies within the span.
+  const s = wrapPi(Math.atan2(dy, dx) - arc.a0) / arc.sweep;
+  if (s >= 0 && s <= 1) return Math.abs(r - arc.radius);
+
+  const a0 = arc.a0;
+  const a1 = arc.a0 + arc.sweep;
+  const d0 = Math.hypot(px - (arc.cx + arc.radius * Math.cos(a0)), py - (arc.cy + arc.radius * Math.sin(a0)));
+  const d1 = Math.hypot(px - (arc.cx + arc.radius * Math.cos(a1)), py - (arc.cy + arc.radius * Math.sin(a1)));
+  return Math.min(d0, d1);
+}
+
+/**
+ * Just the geometry, none of the render trimmings.
+ *
+ * Hit-testing needs the circle and the two centres; it does not need a sampled
+ * polyline, a path string, or arrowhead placements. computeLombardiRouting
+ * builds on this rather than duplicating it.
+ *
+ * @returns {{p:{x,y}, q:{x,y}, arc:object|null, chord:number}}
+ */
+export function lombardiArcFor(edge, sourceNode, destNode, sDims, dDims, tangents, curvature = 1) {
+  const p = { x: sourceNode.x + sDims.currentWidth / 2, y: sourceNode.y + sDims.currentHeight / 2 };
+  const q = { x: destNode.x + dDims.currentWidth / 2, y: destNode.y + dDims.currentHeight / 2 };
+  const chord = Math.atan2(q.y - p.y, q.x - p.x);
+  const assigned = tangents?.get?.(lombardiEdgeKey(edge));
+  const solved = solveLombardiArc(
+    p, q,
+    assigned?.sourceAngle ?? chord,
+    assigned?.destAngle ?? (chord + Math.PI),
+    curvature
+  );
+  return { p, q, chord, arc: solved && !solved.straight ? solved : null };
 }
 
 /**
@@ -820,20 +881,7 @@ export function rebuildRoutedPath(routing, points) {
 export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims, tangents, options = {}) {
   const curvature = options.curvature ?? 1;
   const selected = options.selectedInstanceIds;
-  const sBox = options.sourceBounds || getNodeHitbox(sourceNode, sDims, !!selected?.has?.(sourceNode.id));
-  const dBox = options.destBounds || getNodeHitbox(destNode, dDims, !!selected?.has?.(destNode.id));
-
-  const p = { x: sourceNode.x + sDims.currentWidth / 2, y: sourceNode.y + sDims.currentHeight / 2 };
-  const q = { x: destNode.x + dDims.currentWidth / 2, y: destNode.y + dDims.currentHeight / 2 };
-
-  const chord = Math.atan2(q.y - p.y, q.x - p.x);
-  const assigned = tangents?.get?.(lombardiEdgeKey(edge));
-  const thetaP = assigned?.sourceAngle ?? chord;
-  const thetaQ = assigned?.destAngle ?? (chord + Math.PI);
-
-  const solved = solveLombardiArc(p, q, thetaP, thetaQ, curvature);
-  const arc = solved && !solved.straight ? solved : null;
-  const fullPoints = arc ? sampleArc(arc) : [p, q];
+  const { p, q, chord, arc } = lombardiArcFor(edge, sourceNode, destNode, sDims, dDims, tangents, curvature);
 
   const arrowsToward = edge?.directionality?.arrowsToward instanceof Set
     ? edge.directionality.arrowsToward
@@ -841,34 +889,59 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
   const hasSourceArrow = arrowsToward.has(sourceNode.id);
   const hasDestArrow = arrowsToward.has(destNode.id);
 
-  // Tangent-following arrowheads. The source arrow points back at the source,
-  // mirroring every other routing style.
-  const headingAt = (pt) => (arc ? arcPointAt(arc, arcParamOf(arc, pt)).angle : chord * (180 / Math.PI));
-  const arrowFor = (fromStart, box, reverse) => {
-    const { endpoint } = trimRouteEnd(fullPoints, box, fromStart, LOMBARDI_ARROW_INSET);
-    const angle = headingAt(endpoint);
-    return { x: endpoint.x, y: endpoint.y, angle: reverse ? angle + 180 : angle };
-  };
-
-  let points = fullPoints;
+  let points = null;
   let startPt = p;
   let endPt = q;
-  if (hasSourceArrow) {
-    const trimmed = trimRouteEnd(points, sBox, true, 0);
-    points = trimmed.points;
-    startPt = trimmed.endpoint;
+  let sourceArrow = null;
+  let destArrow = null;
+
+  // Sampling is only needed to find where the arc crosses a node's box, which
+  // in turn is only needed for an END THAT HAS AN ARROW. An arrow-less edge —
+  // the common case — never pays for it, and neither does anything that only
+  // wants the circle (label placement, hit-testing, the pie-menu anchor).
+  if (hasSourceArrow || hasDestArrow) {
+    const sBox = options.sourceBounds || getNodeHitbox(sourceNode, sDims, !!selected?.has?.(sourceNode.id));
+    const dBox = options.destBounds || getNodeHitbox(destNode, dDims, !!selected?.has?.(destNode.id));
+    const fullPoints = arc ? sampleArc(arc) : [p, q];
+
+    // Tangent-following arrowheads. The source arrow points back at the source,
+    // mirroring every other routing style.
+    const headingAt = (pt) => (arc ? arcPointAt(arc, arcParamOf(arc, pt)).angle : chord * (180 / Math.PI));
+    const arrowFor = (fromStart, box, reverse) => {
+      const { endpoint } = trimRouteEnd(fullPoints, box, fromStart, LOMBARDI_ARROW_INSET);
+      const angle = headingAt(endpoint);
+      return { x: endpoint.x, y: endpoint.y, angle: reverse ? angle + 180 : angle };
+    };
+
+    points = fullPoints;
+    if (hasSourceArrow) {
+      const trimmed = trimRouteEnd(points, sBox, true, 0);
+      points = trimmed.points;
+      startPt = trimmed.endpoint;
+      sourceArrow = arrowFor(true, sBox, true);
+    }
+    if (hasDestArrow) {
+      const trimmed = trimRouteEnd(points, dBox, false, 0);
+      points = trimmed.points;
+      endPt = trimmed.endpoint;
+      destArrow = arrowFor(false, dBox, false);
+    }
   }
-  if (hasDestArrow) {
-    const trimmed = trimRouteEnd(points, dBox, false, 0);
-    points = trimmed.points;
-    endPt = trimmed.endpoint;
-  }
+
+  const from = startPt;
+  const to = endPt;
 
   return {
     kind: 'lombardi',
     arc,
-    points,
-    pathD: arc ? arcPathBetween(arc, points[0], points[points.length - 1])
+    // Lazy: only the hover preview reads this, and only for the one edge under
+    // the cursor. Materialising it for all 500 edges of a large graph, every
+    // render, was pure waste.
+    get points() {
+      if (points === null) points = arc ? sampleArc(arc) : [from, to];
+      return points;
+    },
+    pathD: arc ? arcPathBetween(arc, startPt, endPt)
       : `M ${startPt.x},${startPt.y} L ${endPt.x},${endPt.y}`,
     startX: startPt.x,
     startY: startPt.y,
@@ -878,8 +951,8 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
     // that switch on a side must fall back to the explicit arrow descriptors.
     sourceSide: null,
     destSide: null,
-    sourceArrow: hasSourceArrow ? arrowFor(true, sBox, true) : null,
-    destArrow: hasDestArrow ? arrowFor(false, dBox, false) : null,
+    sourceArrow,
+    destArrow,
   };
 }
 

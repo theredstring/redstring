@@ -12,6 +12,8 @@ import {
   arcPathBetween,
   rebuildRoutedPath,
   labelArcPath,
+  distanceToArc,
+  lombardiArcFor,
   MAX_TANGENT_CHORD,
 } from '../../src/utils/canvas/edgeRouting.js';
 import {
@@ -604,5 +606,81 @@ describe('labelArcPath (curved labels)', () => {
   it('makes the path longer than the text so nothing clips', () => {
     const p = labelArcPath(arc, apex, 200);
     expect(p.sweep * p.radius).toBeGreaterThan(200);
+  });
+});
+
+describe('distanceToArc (hit-testing)', () => {
+  // Symmetric arc from (0,0) to (600,0) bowing downward.
+  const arc = solveLombardiArc({ x: 0, y: 0 }, { x: 600, y: 0 }, 0.6, Math.PI - 0.6, 1);
+
+  it('is zero on the arc', () => {
+    [0, 0.25, 0.5, 0.75, 1].forEach(t => {
+      const pt = arcPointAt(arc, t);
+      expect(distanceToArc(pt.x, pt.y, arc)).toBeCloseTo(0, 6);
+    });
+  });
+
+  it('measures radially for a point beside the arc', () => {
+    const apex = arcPointAt(arc, 0.5);
+    // Straight out from the centre through the apex, 40px further.
+    const ux = (apex.x - arc.cx) / arc.radius;
+    const uy = (apex.y - arc.cy) / arc.radius;
+    expect(distanceToArc(apex.x + ux * 40, apex.y + uy * 40, arc)).toBeCloseTo(40, 6);
+    expect(distanceToArc(apex.x - ux * 40, apex.y - uy * 40, arc)).toBeCloseTo(40, 6);
+  });
+
+  it('falls back to the nearer endpoint past the end of the arc', () => {
+    // Well beyond the destination end, so the radial distance is meaningless.
+    const end = arcPointAt(arc, 1);
+    expect(distanceToArc(end.x + 100, end.y, arc)).toBeCloseTo(100, 6);
+  });
+
+  it('does not report a point on the far side of the circle as close', () => {
+    // Same radius, opposite bearing — radially it is exactly ON the circle, but
+    // it is nowhere near the ARC. This is the case a naive |r − radius| gets
+    // wrong and the angular-span test exists to catch.
+    const opposite = {
+      x: arc.cx - (arcPointAt(arc, 0.5).x - arc.cx),
+      y: arc.cy - (arcPointAt(arc, 0.5).y - arc.cy),
+    };
+    expect(distanceToArc(opposite.x, opposite.y, arc)).toBeGreaterThan(arc.radius);
+  });
+
+  it('agrees with sampling the polyline, which is what it replaced', () => {
+    const pts = sampleArc(arc, 400);
+    const nearest = (px, py) => pts.reduce((m, p) => Math.min(m, Math.hypot(px - p.x, py - p.y)), Infinity);
+    [[300, 200], [-50, -50], [700, 40], [300, -400], [0, 300]].forEach(([px, py]) => {
+      expect(distanceToArc(px, py, arc)).toBeCloseTo(nearest(px, py), 0);
+    });
+  });
+});
+
+describe('lazy sampling', () => {
+  const n = (id, x, y) => ({ id, x, y });
+  const d = dims(120, 100);
+  const tangents = new Map([['e1', { sourceAngle: 0.5, destAngle: Math.PI - 0.5 }]]);
+  const mk = (arrows) => computeLombardiRouting(
+    { id: 'e1', sourceId: 'a', destinationId: 'b', directionality: { arrowsToward: new Set(arrows) } },
+    n('a', 0, 0), n('b', 900, 0), d, d, tangents
+  );
+
+  it('still yields a usable polyline when asked', () => {
+    const r = mk([]);
+    expect(r.points.length).toBeGreaterThan(2);
+    r.points.forEach(p => {
+      expect(Math.hypot(p.x - r.arc.cx, p.y - r.arc.cy)).toBeCloseTo(r.arc.radius, 6);
+    });
+  });
+
+  it('returns the trimmed polyline when the edge has arrows', () => {
+    const r = mk(['b']);
+    const last = r.points[r.points.length - 1];
+    expect(last.x).toBeCloseTo(r.endX, 6);
+    expect(last.y).toBeCloseTo(r.endY, 6);
+  });
+
+  it('is stable across repeated reads', () => {
+    const r = mk([]);
+    expect(r.points).toBe(r.points);
   });
 });
