@@ -2,6 +2,12 @@
  * Port positioning utilities for edge routing
  */
 
+/** Smallest gap between two ports on the same side before they read as one. */
+const MIN_LANE_SPACING = 6;
+
+/** How close to a node's corner a spilled port is still allowed to sit. */
+const MIN_CORNER_CLEARANCE = 6;
+
 /**
  * Get base port position on a node side (respecting rounded corners)
  * @param {Object} node - Node with x, y coordinates
@@ -60,28 +66,26 @@ export function getPortPosition(node, dims, side, cornerRadius) {
  * @param {Object} dims - Dimensions object
  * @param {number} cornerRadius - Corner radius
  * @param {number} cleanLaneSpacing - Preferred spacing between connections
+ * @param {number} [sideCount] - How many edges share this side in total. Needed
+ *   to size the fan; without it the spacing cannot be compressed to fit and
+ *   ports have to be folded back on top of each other instead. Defaults to just
+ *   enough to contain the given index.
  * @returns {Object} Staggered port position with x, y
  */
-export function calculateStaggeredPosition(basePort, side, edgeUsageIndex, dims, cornerRadius, cleanLaneSpacing = 24) {
+export function calculateStaggeredPosition(basePort, side, edgeUsageIndex, dims, cornerRadius, cleanLaneSpacing = 24, sideCount = edgeUsageIndex + 1) {
   // Calculate available straight-edge space (avoiding rounded corners)
   const segmentLength = basePort.segmentEnd - basePort.segmentStart;
   const safeMargin = 12; // Additional margin from corners for visual clarity
   const usableLength = segmentLength - (safeMargin * 2);
 
-  if (usableLength <= 0) {
-    // Not enough space for distribution, use center
-    return basePort;
-  }
+  // A lone connection belongs on the middle of its side, whatever the geometry.
+  if (sideCount <= 1) return basePort;
 
   // Use user spacing preference but adapt to available space
   const preferredSpacing = Math.max(100, cleanLaneSpacing);
 
-  // Calculate how many ports can fit with preferred spacing
-  const idealPortCount = Math.floor(usableLength / preferredSpacing) + 1;
-  const actualPortCount = Math.max(1, idealPortCount);
-
   // Distribute OUTWARD FROM THE SIDE MIDPOINT, alternating sides:
-  // slot 0 → center, 1 → +1 lane, 2 → −1 lane, 3 → +2 lanes, ...
+  // index 0 → center, 1 → +1 lane, 2 → −1 lane, 3 → +2 lanes, ...
   //
   // This function previously measured every position from segmentStart, which
   // put a lone port at the START of the usable band rather than its middle —
@@ -90,14 +94,36 @@ export function calculateStaggeredPosition(basePort, side, edgeUsageIndex, dims,
   // full band, so index 0 and index 1 landed on the far LEFT and far RIGHT of
   // the side with nothing in the middle. That is why connections attached to
   // the top and bottom of a node straddled the center instead of meeting it.
-  const slot = ((edgeUsageIndex % actualPortCount) + actualPortCount) % actualPortCount;
-  const rank = Math.ceil(slot / 2) * (slot % 2 === 1 ? 1 : -1);
-  const laneSpacing = actualPortCount > 1 ? usableLength / (actualPortCount - 1) : 0;
+  const rank = Math.ceil(edgeUsageIndex / 2) * (edgeUsageIndex % 2 === 1 ? 1 : -1);
 
-  // Clamp to the usable band so the outermost lanes can't escape into the
-  // rounded corners when the fan is wider than the straight edge.
-  const halfBand = usableLength / 2;
-  const offsetFromCenter = Math.max(-halfBand, Math.min(halfBand, rank * laneSpacing));
+  // The lane count used to come from how many ports fit at the preferred
+  // spacing, and the index was taken MODULO it — so a side carrying more edges
+  // than that wrapped, and edge 0 and edge N landed on the exact same port.
+  // Between one pair of nodes that is the whole bug: several connections, one
+  // visible line. Size the fan from the edges actually present instead and
+  // compress the spacing until they fit, so distinct edges keep distinct ports
+  // however many of them there are.
+  const maxRank = Math.ceil((sideCount - 1) / 2);
+
+  // Two bands, and the fan prefers the first:
+  //
+  //   - the corner-avoiding one this function has always used, which keeps
+  //     ports on the straight part of the side where a connection meets the
+  //     outline cleanly;
+  //   - the node's actual half-side, which a port may spill toward when the
+  //     first is too small to hold the fan. Short sides on a node with a large
+  //     corner radius leave a usable band of zero, and there the preferred band
+  //     alone would stack every port at the exact midpoint — the collapse this
+  //     whole change exists to prevent.
+  //
+  // Overflowing toward the corner is a small cosmetic cost. Two connections
+  // drawn as one line is not cosmetic.
+  const sideLength = (side === 'left' || side === 'right') ? dims.currentHeight : dims.currentWidth;
+  const hardHalf = Math.max(0, sideLength / 2 - MIN_CORNER_CLEARANCE);
+  const preferredHalf = Math.max(0, usableLength / 2);
+  const half = Math.max(preferredHalf, Math.min(hardHalf, maxRank * MIN_LANE_SPACING));
+  const laneSpacing = maxRank > 0 ? Math.min(preferredSpacing, half / maxRank) : 0;
+  const offsetFromCenter = rank * laneSpacing;
 
   // basePort.x/y is the exact midpoint of this side, and the usable band is
   // symmetric about it, so offsetting from the base port keeps slot 0 centered.

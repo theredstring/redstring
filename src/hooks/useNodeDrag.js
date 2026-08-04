@@ -6,7 +6,7 @@ import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
-import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcPath, straightLabelPath } from '../utils/canvas/edgeRouting.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcPath, straightLabelPath, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle } from '../utils/canvas/edgeLabelPlacement.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../services/groupLayout.js';
 import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
@@ -631,11 +631,23 @@ export const useNodeDrag = ({
         if (style === 'lombardi') {
           routing = computeLombardiRouting(
             edge, virtualSource, virtualDest, sDims, dDims, liveLombardiTangents,
-            { curvature: lombardiCurvatureRef?.current ?? 1, selectedInstanceIds: curSelectedIds }
+            {
+              curvature: lombardiCurvatureRef?.current ?? 1,
+              selectedInstanceIds: curSelectedIds,
+              curveInfo: curCurveInfo.get(edgeId),
+              laneSpacing: 200 * (multiConnectionCurveRef?.current ?? 1) * LOMBARDI_LANE_FRACTION,
+            }
           );
         } else if (style === 'manhattan') {
           routing = computeManhattanRouting(
-            virtualSource, virtualDest, sDims, dDims, manhattanBendsRef?.current || 'auto'
+            virtualSource, virtualDest, sDims, dDims, manhattanBendsRef?.current || 'auto',
+            // Parallel connections fan into lanes; without the same curveInfo the
+            // renderer used, a bundle would collapse onto one path for the drag
+            // and spring back apart on drop.
+            {
+              curveInfo: curCurveInfo.get(edgeId),
+              laneSpacing: 200 * (multiConnectionCurveRef?.current ?? 1) * ORTHOGONAL_LANE_FRACTION,
+            }
           );
         } else {
           // Clean routing's lane assignment is frozen for the duration of the
@@ -938,7 +950,7 @@ export const useNodeDrag = ({
   }, [nodeByIdRef, baseDimsByIdRef, edgeCurveInfoRef, edgesByNodeIdRef, edgesRef,
     selectedInstanceIdsRef, enableAutoRoutingRef, routingStyleRef, manhattanBendsRef,
     cleanLaneSpacingRef, cleanLaneOffsetsRef, lombardiTangentsRef, lombardiCurvatureRef,
-    labelAngleQuantumRef,
+    labelAngleQuantumRef, multiConnectionCurveRef,
     edgesRef, placedLabelsRef]);
 
   // ---------------------------------------------------------------------------

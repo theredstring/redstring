@@ -22,6 +22,101 @@ import { getNodeHitbox } from './nodeHitbox.js';
 
 const DEFAULT_CORNER_RADIUS = 8;
 
+// ===========================================================================
+// PARALLEL CONNECTIONS
+// ===========================================================================
+//
+// Two nodes can be joined by any number of connections, and they are DIFFERENT
+// connections — each has its own type, name, direction and label. A router that
+// derives its geometry purely from the two endpoints hands every one of them
+// the identical path, so the bundle draws as a single line with N labels
+// stacked on it and nothing to click apart.
+//
+// The straight styles already solve this: calculateParallelEdgePath bows each
+// one by a different amount using {pairIndex, totalInPair}. The helpers below
+// give the routed styles the same input, expressed as a signed rank so the fan
+// straddles the route a lone connection would have taken instead of drifting
+// off to one side of it.
+// ---------------------------------------------------------------------------
+
+/** Extra clearance past the rounded corner before a port may sit on a side. */
+const PORT_CORNER_BUFFER = 8;
+
+/**
+ * What fraction of the straight styles' curve spacing an orthogonal lane gets.
+ *
+ * The straight styles spend their spacing on a bow that is free to swing wide
+ * of both nodes, so the number is large (200px at the slider's default). An
+ * orthogonal lane has to fit ON a node's side, and at that magnitude every
+ * bundle would clamp to the port band and collapse back into one lane on all
+ * but the largest nodes. A quarter of it separates the lanes clearly while
+ * still tracking the Multi Connection Curve slider, so one control governs how
+ * far apart multiple connections spread in every routing style.
+ */
+export const ORTHOGONAL_LANE_FRACTION = 0.25;
+
+/**
+ * The same, for a Lombardi bundle's arcs.
+ *
+ * Here the fan is free of the node outline, so the number can be generous — and
+ * a half matches the straight styles exactly: their spacing is a Bézier control
+ * offset, and a quadratic Bézier's apex lands at half of it. Parallel
+ * connections therefore sit the same distance apart whichever of the two styles
+ * you are looking at.
+ */
+export const LOMBARDI_LANE_FRACTION = 0.5;
+
+/**
+ * Signed position of an edge within its parallel bundle: 0 when it is alone,
+ * otherwise centred — ±0.5 for a pair, {-1, 0, +1} for a triple, and so on.
+ *
+ * @param {{pairIndex:number,totalInPair:number}|null|undefined} curveInfo
+ */
+export function parallelLaneRank(curveInfo) {
+  const total = curveInfo?.totalInPair ?? 1;
+  if (!(total > 1)) return 0;
+  return (curveInfo.pairIndex ?? 0) - (total - 1) / 2;
+}
+
+/**
+ * Half the straight-line distance a port may travel along `side` before it
+ * runs into the node's rounded corner.
+ */
+function portBandHalfWidth(dims, side) {
+  const along = (side === 'left' || side === 'right') ? dims.currentHeight : dims.currentWidth;
+  const radius = Math.min(
+    dims.scaledCornerRadius ?? DEFAULT_CORNER_RADIUS,
+    Math.min(dims.currentWidth, dims.currentHeight) / 2
+  );
+  return Math.max(0, along / 2 - radius - PORT_CORNER_BUFFER);
+}
+
+/**
+ * Lane offset, in canvas pixels, for one edge of a parallel bundle routed
+ * orthogonally between two given sides.
+ *
+ * The requested spacing is compressed until the whole bundle fits inside BOTH
+ * nodes' port bands — a wide fan on a narrow node would otherwise push its
+ * outer lanes into the rounded corners, where the connection visibly detaches
+ * from the node outline. Both ends share one offset so the lanes stay parallel
+ * rather than splaying.
+ */
+function orthogonalLaneOffset(curveInfo, spacing, sDims, dDims, sSide, dSide) {
+  const rank = parallelLaneRank(curveInfo);
+  if (rank === 0 || !(spacing > 0)) return 0;
+  const maxRank = ((curveInfo.totalInPair ?? 1) - 1) / 2;
+  const band = Math.min(portBandHalfWidth(sDims, sSide), portBandHalfWidth(dDims, dSide));
+  const fitted = maxRank > 0 ? Math.min(spacing, band / maxRank) : spacing;
+  return rank * fitted;
+}
+
+/** Slide a port along the side it sits on, leaving it on that side. */
+function offsetPortAlongSide(port, side, offset) {
+  return (side === 'left' || side === 'right')
+    ? { ...port, y: port.y + offset }
+    : { ...port, x: port.x + offset };
+}
+
 /**
  * Build a rounded SVG path from an ordered orthogonal polyline.
  *
@@ -317,8 +412,8 @@ export function trimRouteEnd(points, box, fromStart, extra = 0) {
  * @returns {{points: Array, pathD: string, startX: number, startY: number,
  *            endX: number, endY: number, sourceSide: string, destSide: string}}
  */
-export function computeManhattanRouting(sourceNode, destNode, sDims, dDims, manhattanBends = 'auto') {
-  const points = generateManhattanRoutingPath(null, sourceNode, destNode, sDims, dDims, manhattanBends);
+export function computeManhattanRouting(sourceNode, destNode, sDims, dDims, manhattanBends = 'auto', options = {}) {
+  const points = generateManhattanRoutingPath(null, sourceNode, destNode, sDims, dDims, manhattanBends, options);
   const start = points[0];
   const end = points[points.length - 1];
 
@@ -371,9 +466,13 @@ export function computeCleanRouting(edge, sourceNode, destNode, sDims, dDims, cl
  * @param {Object} sDims - Source node dimensions
  * @param {Object} dDims - Destination node dimensions
  * @param {string} manhattanBends - Bend style ('one', 'two', or 'auto')
+ * @param {Object} [options] - `curveInfo` ({pairIndex, totalInPair}) and
+ *   `laneSpacing` fan a bundle of parallel connections into separate lanes.
+ *   See PARALLEL CONNECTIONS above; omit them and a bundle collapses onto one
+ *   path, which is what this router used to do unconditionally.
  * @returns {Array} Array of {x, y} points forming the Manhattan path
  */
-export function generateManhattanRoutingPath(edge, sourceNode, destNode, sDims, dDims, manhattanBends = 'auto') {
+export function generateManhattanRoutingPath(edge, sourceNode, destNode, sDims, dDims, manhattanBends = 'auto', options = {}) {
   const sCenterX = sourceNode.x + sDims.currentWidth / 2;
   const sCenterY = sourceNode.y + sDims.currentHeight / 2;
   const dCenterX = destNode.x + dDims.currentWidth / 2;
@@ -403,32 +502,69 @@ export function generateManhattanRoutingPath(edge, sourceNode, destNode, sDims, 
     dPort = relDy >= 0 ? dPorts.top : dPorts.bottom;
   }
 
-  const startX = sPort.x;
-  const startY = sPort.y;
-  const endX = dPort.x;
-  const endY = dPort.y;
+  // Sides are read off the UNOFFSET ports, before the parallel fan slides them
+  // along: the fan moves a port within its side, never onto another one, and
+  // deriving the side from a slid port would be a coordinate comparison the
+  // offset could tip over.
+  const sSide = (Math.abs(sPort.y - sourceNode.y) < 0.5) ? 'top'
+                  : (Math.abs(sPort.y - (sourceNode.y + sDims.currentHeight)) < 0.5) ? 'bottom'
+                  : (Math.abs(sPort.x - sourceNode.x) < 0.5) ? 'left' : 'right';
+  const dSide = (Math.abs(dPort.y - destNode.y) < 0.5) ? 'top'
+                  : (Math.abs(dPort.y - (destNode.y + dDims.currentHeight)) < 0.5) ? 'bottom'
+                  : (Math.abs(dPort.x - destNode.x) < 0.5) ? 'left' : 'right';
 
-  // Determine sides for perpendicular entry/exit (same logic as rendering)
-  const sSide = (Math.abs(startY - sourceNode.y) < 0.5) ? 'top'
-                  : (Math.abs(startY - (sourceNode.y + sDims.currentHeight)) < 0.5) ? 'bottom'
-                  : (Math.abs(startX - sourceNode.x) < 0.5) ? 'left' : 'right';
-  const dSide = (Math.abs(endY - destNode.y) < 0.5) ? 'top'
-                  : (Math.abs(endY - (destNode.y + dDims.currentHeight)) < 0.5) ? 'bottom'
-                  : (Math.abs(endX - destNode.x) < 0.5) ? 'left' : 'right';
   const initOrient = (sSide === 'left' || sSide === 'right') ? 'H' : 'V';
   const finalOrient = (dSide === 'left' || dSide === 'right') ? 'H' : 'V';
 
+  // Spread parallel connections into their own lanes.
+  //
+  // An orthogonal route has exactly two coordinates free to move: where the
+  // ports sit along their sides, and where the run BETWEEN them sits. Offsetting
+  // only the ports leaves every lane sharing that middle run, which is most of
+  // the line — so both have to move.
+  //
+  // They must move in opposite senses whenever the route doubles back, or the
+  // lanes cross instead of nesting. Two same-shaped routes offset identically at
+  // both ends intersect exactly once; inverting the middle run's offset by
+  // sign(Δx)·sign(Δy) is what unpicks that. Zero deltas can't produce a crossing
+  // either way, so they take +1 rather than collapsing the offset to nothing.
+  const laneOffset = orthogonalLaneOffset(
+    options.curveInfo, options.laneSpacing ?? 0, sDims, dDims, sSide, dSide
+  );
+  const trunkOffset = -laneOffset * (Math.sign(relDx) || 1) * (Math.sign(relDy) || 1);
+
+  // Which offset the DESTINATION port takes depends on what the middle run is.
+  // Between two same-orientation sides the run is a separate trunk and the dest
+  // port is a lane end like the source's; between perpendicular sides there is
+  // no trunk — the route's single corner IS the middle run, and the dest port
+  // is the coordinate that positions it.
+  const parallelSides = initOrient === finalOrient;
+  const sLanePort = offsetPortAlongSide(sPort, sSide, laneOffset);
+  const dLanePort = offsetPortAlongSide(dPort, dSide, parallelSides ? laneOffset : trunkOffset);
+
+  const startX = sLanePort.x;
+  const startY = sLanePort.y;
+  const endX = dLanePort.x;
+  const endY = dLanePort.y;
+
   // Use the same bend logic as rendering
-  const effectiveBends = (manhattanBends === 'auto')
-    ? (initOrient === finalOrient ? 'two' : 'one')
+  let effectiveBends = (manhattanBends === 'auto')
+    ? (parallelSides ? 'two' : 'one')
     : manhattanBends;
+
+  // A one-bend route between two same-orientation sides turns at a coordinate
+  // taken straight from the destination port's own side, which every lane in a
+  // bundle shares — the ports separate but the long run between them doesn't.
+  // Only the two-bend form has a trunk that can carry the offset, so a bundle
+  // gets it even when the user asked for one bend.
+  if (laneOffset !== 0 && parallelSides) effectiveBends = 'two';
 
   // Generate path points based on bend type
   let pathPoints;
-  if (effectiveBends === 'two' && initOrient === finalOrient) {
+  if (effectiveBends === 'two' && parallelSides) {
     if (initOrient === 'H') {
       // HVH pattern
-      const midX = (startX + endX) / 2;
+      const midX = (startX + endX) / 2 + trunkOffset;
       pathPoints = [
         { x: startX, y: startY },
         { x: midX, y: startY },
@@ -437,7 +573,7 @@ export function generateManhattanRoutingPath(edge, sourceNode, destNode, sDims, 
       ];
     } else {
       // VHV pattern
-      const midY = (startY + endY) / 2;
+      const midY = (startY + endY) / 2 + trunkOffset;
       pathPoints = [
         { x: startX, y: startY },
         { x: startX, y: midY },
@@ -506,6 +642,32 @@ const wrapTau = (a) => ((a % TAU) + TAU) % TAU;
 // this an arc stops reading as a connection and starts reading as a lasso, and
 // it also keeps every arc inside SVG's small-arc case.
 export const MAX_TANGENT_CHORD = 1.32;
+
+// Below this the cap doesn't apply at all — the tangents get exactly the arc
+// they asked for. ~57°, which covers all but the most extreme demands.
+const LINEAR_TANGENT_CHORD = 1.0;
+
+/**
+ * Apply the tangent-chord cap WITHOUT saturating.
+ *
+ * A hard clamp is not usable here, because it is not injective: two arcs whose
+ * tangents demand different extreme bows both land on exactly MAX_TANGENT_CHORD
+ * and come out as the same circle. For a bundle of connections between one pair
+ * of nodes that is fatal — the whole point of the fan is that its members
+ * demand different bows, and at high vertex degree several of those demands are
+ * extreme. They would clamp together and draw as a single line.
+ *
+ * So keep the cap exact below the knee and compress everything above it into
+ * the sliver that remains, asymptotically rather than abruptly. Strictly
+ * increasing over the whole range, so distinct demands stay distinct arcs.
+ */
+function capTangentChord(delta) {
+  const magnitude = Math.abs(delta);
+  if (magnitude <= LINEAR_TANGENT_CHORD) return delta;
+  const over = magnitude - LINEAR_TANGENT_CHORD;
+  const room = MAX_TANGENT_CHORD - LINEAR_TANGENT_CHORD;
+  return Math.sign(delta) * (LINEAR_TANGENT_CHORD + room * (over / (over + room)));
+}
 
 // Smallest bow, in canvas pixels, worth drawing as an arc rather than a line.
 //
@@ -592,10 +754,13 @@ export function computeLombardiTangents(nodes, edges, dimsById) {
   }
 
   ends.forEach((list) => {
-    // Ties (parallel edges — identical bearings) break by edge id so each one
-    // lands in a stable slot instead of swapping lanes between renders. This is
-    // also what fans a multi-connection apart, which is exactly what Lombardi's
-    // own drawings do with repeated relations.
+    // Bearings tie only for edges running to the SAME neighbour — a bundle of
+    // parallel connections. Their slots are consumed (a bundle of three still
+    // takes three of this node's k directions, so the rest of the fan spaces
+    // itself correctly around them) but not used: lombardiArcFor fans a bundle
+    // explicitly, because no tie-break here can guarantee its members separate.
+    // See BUNDLE_LANE_FRACTION. The tie still breaks by edge id so slots stay
+    // put across renders.
     list.sort((a, b) => (a.bearing - b.bearing) || (a.edgeId < b.edgeId ? -1 : 1));
 
     const k = list.length;
@@ -660,8 +825,7 @@ export function solveLombardiArc(p, q, thetaP, thetaQ, curvature = 1) {
   // departure deviation — hence the minus.
   const alpha = wrapPi(thetaP - chord);
   const beta = wrapPi(thetaQ + Math.PI - chord);
-  let delta = ((alpha - beta) / 2) * curvature;
-  delta = Math.max(-MAX_TANGENT_CHORD, Math.min(MAX_TANGENT_CHORD, delta));
+  const delta = capTangentChord(((alpha - beta) / 2) * curvature);
 
   // Sagitta of a chord L subtending 2δ. See MIN_VISIBLE_BOW for why an
   // invisibly-shallow arc must become an actual line rather than a huge circle.
@@ -768,17 +932,46 @@ export function distanceToArc(px, py, arc) {
  *
  * @returns {{p:{x,y}, q:{x,y}, arc:object|null, chord:number}}
  */
-export function lombardiArcFor(edge, sourceNode, destNode, sDims, dDims, tangents, curvature = 1) {
+export function lombardiArcFor(edge, sourceNode, destNode, sDims, dDims, tangents, curvature = 1, options = {}) {
   const p = { x: sourceNode.x + sDims.currentWidth / 2, y: sourceNode.y + sDims.currentHeight / 2 };
   const q = { x: destNode.x + dDims.currentWidth / 2, y: destNode.y + dDims.currentHeight / 2 };
   const chord = Math.atan2(q.y - p.y, q.x - p.x);
-  const assigned = tangents?.get?.(lombardiEdgeKey(edge));
-  const solved = solveLombardiArc(
-    p, q,
-    assigned?.sourceAngle ?? chord,
-    assigned?.destAngle ?? (chord + Math.PI),
-    curvature
-  );
+
+  const bundled = (options.curveInfo?.totalInPair ?? 1) > 1;
+  let thetaP;
+  let thetaQ;
+
+  if (bundled) {
+    // A BUNDLE IS FANNED EXPLICITLY, NOT BY ITS TANGENT SLOTS.
+    //
+    // Perfect angular resolution has nothing to say about parallel connections:
+    // they all run to the same neighbour on the same bearing, so which of the
+    // node's k directions each one gets is arbitrary — and the arithmetic makes
+    // it worse than arbitrary. An arc's deviation from the chord is
+    // δ = (α − β)/2 with α and β independently wrapped into (−π, π], so
+    // consecutive members' deviations repeat with period 2π/(stepA + stepB):
+    // equal-degree endpoints put every member on the SAME circle, and a node of
+    // degree four or more repeats every other member. Both draw the bundle as
+    // one line.
+    //
+    // So bow each member by a set amount instead, symmetrically about the chord
+    // — the lens that both the straight styles and Lombardi's own drawings use
+    // for a repeated relation. Solving δ from a target sagitta rather than
+    // fixing the angle keeps the fan the same WIDTH on a short connection as on
+    // a long one, which is what makes the members separately readable and
+    // separately clickable at any distance.
+    const chordLength = Math.hypot(q.x - p.x, q.y - p.y);
+    const bow = parallelLaneRank(options.curveInfo) * (options.laneSpacing ?? 0);
+    const half = chordLength > 1e-6 ? 2 * Math.atan((2 * bow) / chordLength) : 0;
+    thetaP = chord + half;
+    thetaQ = chord - half + Math.PI;
+  } else {
+    const assigned = tangents?.get?.(lombardiEdgeKey(edge));
+    thetaP = assigned?.sourceAngle ?? chord;
+    thetaQ = assigned?.destAngle ?? (chord + Math.PI);
+  }
+
+  const solved = solveLombardiArc(p, q, thetaP, thetaQ, curvature);
   return { p, q, chord, arc: solved && !solved.straight ? solved : null };
 }
 
@@ -934,7 +1127,10 @@ export function rebuildRoutedPath(routing, points) {
 export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims, tangents, options = {}) {
   const curvature = options.curvature ?? 1;
   const selected = options.selectedInstanceIds;
-  const { p, q, chord, arc } = lombardiArcFor(edge, sourceNode, destNode, sDims, dDims, tangents, curvature);
+  const { p, q, chord, arc } = lombardiArcFor(
+    edge, sourceNode, destNode, sDims, dDims, tangents, curvature,
+    { curveInfo: options.curveInfo, laneSpacing: options.laneSpacing }
+  );
 
   const arrowsToward = edge?.directionality?.arrowsToward instanceof Set
     ? edge.directionality.arrowsToward

@@ -105,7 +105,7 @@ import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath, MIN_VISIBLE_BOW } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath, MIN_VISIBLE_BOW, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
 import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
@@ -789,6 +789,10 @@ function NodeCanvas() {
   // Effective px spacing between adjacent parallel-edge curves. Base 200 bakes the
   // old "2x" look in as the 1.0 baseline; multiplier is the user's slider value.
   const curveSpacing = 200 * multiConnectionCurve;
+  // Same slider, scaled for lanes that have to land on a node's side rather
+  // than bow away from it. See ORTHOGONAL_LANE_FRACTION.
+  const orthogonalLaneSpacing = curveSpacing * ORTHOGONAL_LANE_FRACTION;
+  const lombardiLaneSpacing = curveSpacing * LOMBARDI_LANE_FRACTION;
   const textSettings = useGraphStore(state => state.textSettings);
   const connectionWidth = textSettings?.connectionWidth ?? 1.0;
   const connectionLabelSize = useGraphStore(state => state.connectionLabelSize ?? 1.0);
@@ -2839,7 +2843,16 @@ function NodeCanvas() {
         nodePortUsage.set(node.id, { top: [], bottom: [], left: [], right: [] });
       }
 
-      // Step 2: Assign ports for each edge based on direction and avoid clustering
+      // Step 2: Pick a side for each edge end, and only then stagger along it.
+      //
+      // Two passes, not one. Fitting a fan onto a side needs to know how many
+      // edges will end up on it, and that isn't known until every edge has
+      // chosen its sides — a single pass can only see the edges before it. The
+      // old one-pass version handled the overflow by wrapping the port index
+      // modulo the lane count, which is exactly how several connections between
+      // the same pair of nodes ended up sharing one port and drawing as one
+      // line.
+      const sideChoices = [];
       for (const edge of edges) {
         const s = nodeById.get(edge.sourceId);
         const d = nodeById.get(edge.destinationId);
@@ -2885,26 +2898,37 @@ function NodeCanvas() {
         // detaches from the node outline.
         const sCornerRadius = sDims.scaledCornerRadius ?? (NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0)) ?? 8;
         const dCornerRadius = dDims.scaledCornerRadius ?? (NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0)) ?? 8;
-        const sourcePortPos = getPortPosition(s, sDims, sourceSide, sCornerRadius);
-        const destPortPos = getPortPosition(d, dDims, destSide, dCornerRadius);
 
-        // Distribute edges along the side to avoid clustering
+        // Claim a slot on each side; the fan gets sized in pass two.
         const sourceUsage = nodePortUsage.get(s.id)[sourceSide];
         const destUsage = nodePortUsage.get(d.id)[destSide];
-
-        // Calculate staggered positions along the edge
-        const sourceStagger = calculateStaggeredPosition(sourcePortPos, sourceSide, sourceUsage.length, sDims, sCornerRadius, cleanLaneSpacing);
-        const destStagger = calculateStaggeredPosition(destPortPos, destSide, destUsage.length, dDims, dCornerRadius, cleanLaneSpacing);
-
-        // Record port usage
+        const sourceIndex = sourceUsage.length;
+        const destIndex = destUsage.length;
         sourceUsage.push(edge.id);
         destUsage.push(edge.id);
 
-        portAssignments.set(edge.id, {
-          sourcePort: sourceStagger,
-          destPort: destStagger,
-          sourceSide,
-          destSide
+        sideChoices.push({
+          edgeId: edge.id, s, d, sDims, dDims, sCornerRadius, dCornerRadius,
+          sourceSide, destSide, sourceIndex, destIndex, sourceUsage, destUsage,
+        });
+      }
+
+      // Pass two: stagger, now that every side knows its full occupancy.
+      for (const c of sideChoices) {
+        const sourcePortPos = getPortPosition(c.s, c.sDims, c.sourceSide, c.sCornerRadius);
+        const destPortPos = getPortPosition(c.d, c.dDims, c.destSide, c.dCornerRadius);
+
+        portAssignments.set(c.edgeId, {
+          sourcePort: calculateStaggeredPosition(
+            sourcePortPos, c.sourceSide, c.sourceIndex, c.sDims, c.sCornerRadius,
+            cleanLaneSpacing, c.sourceUsage.length
+          ),
+          destPort: calculateStaggeredPosition(
+            destPortPos, c.destSide, c.destIndex, c.dDims, c.dCornerRadius,
+            cleanLaneSpacing, c.destUsage.length
+          ),
+          sourceSide: c.sourceSide,
+          destSide: c.destSide,
         });
       }
 
@@ -3112,11 +3136,14 @@ function NodeCanvas() {
       angleDeg = 0;
     } else if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean' || routingStyle === 'lombardi')) {
       const routing = routingStyle === 'manhattan'
-        ? computeManhattanRouting(srcNode, dstNode, sDims, dDims, manhattanBends)
+        ? computeManhattanRouting(srcNode, dstNode, sDims, dDims, manhattanBends, {
+          curveInfo: edgeCurveInfo.get(edgeId), laneSpacing: orthogonalLaneSpacing,
+        })
         : routingStyle === 'clean'
           ? computeCleanRouting(edge, srcNode, dstNode, sDims, dDims, cleanLaneOffsets, cleanLaneSpacing)
           : computeLombardiRouting(edge, srcNode, dstNode, sDims, dDims, lombardiTangents, {
             curvature: lombardiCurvature, selectedInstanceIds,
+            curveInfo: edgeCurveInfo.get(edgeId), laneSpacing: lombardiLaneSpacing,
           });
       const placement = placeLabelOnRoute(routing);
       x = placement.x;
@@ -3155,7 +3182,7 @@ function NodeCanvas() {
     };
   }, [selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById, selectedInstanceIds,
     enableAutoRouting, routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing,
-    lombardiTangents, lombardiCurvature, edgeCurveInfo, curveSpacing]);
+    lombardiTangents, lombardiCurvature, edgeCurveInfo, curveSpacing, orthogonalLaneSpacing, lombardiLaneSpacing]);
 
   // Reverse-index: instanceId → Set<edgeId> for O(1) lookup of edges connected to a node.
   // NOTE: iterate ALL edges (not visibleEdges) so the index stays stable across culling
@@ -8348,7 +8375,10 @@ function NodeCanvas() {
                 // styles cost, on top of the garbage it generated.
                 const { p, q, arc } = lombardiArcFor(
                   edge, sourceInstance, targetInstance, sourceDims, targetDims,
-                  lombardiTangents, lombardiCurvature
+                  lombardiTangents, lombardiCurvature,
+                  // Same fan the renderer drew, so hover picks the member of a
+                  // bundle actually under the pointer.
+                  { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing }
                 );
                 distance = arc
                   ? distanceToArc(currentX, currentY, arc)
@@ -8360,7 +8390,11 @@ function NodeCanvas() {
                   targetInstance,
                   sourceDims,
                   targetDims,
-                  manhattanBends
+                  manhattanBends,
+                  // Same lane the renderer drew, or hover picks the wrong member
+                  // of a bundle — every one of them would hit-test against the
+                  // un-fanned centre route.
+                  { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing }
                 );
 
                 distance = distanceToPolyline(currentX, currentY, pathPoints);
@@ -13363,7 +13397,9 @@ function NodeCanvas() {
                           let manhattanDestSide = null;
 
                           if (enableAutoRouting && routingStyle === 'manhattan') {
-                            orthoRouting = computeManhattanRouting(sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
+                            orthoRouting = computeManhattanRouting(sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends, {
+                              curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing,
+                            });
                             startX = orthoRouting.startX;
                             startY = orthoRouting.startY;
                             endX = orthoRouting.endX;
@@ -13379,6 +13415,7 @@ function NodeCanvas() {
                             orthoRouting = computeLombardiRouting(
                               edge, sourceNode, destNode, sNodeDims, eNodeDims, lombardiTangents,
                               { curvature: lombardiCurvature, selectedInstanceIds,
+                                curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing,
                                 sourceBounds: sAnchorInfo?.outerBounds ? {
                                   minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
                                   maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
@@ -14857,7 +14894,9 @@ function NodeCanvas() {
                           let manhattanDestSide = null;
 
                           if (enableAutoRouting && routingStyle === 'manhattan') {
-                            orthoRouting = computeManhattanRouting(sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
+                            orthoRouting = computeManhattanRouting(sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends, {
+                              curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing,
+                            });
                             startX = orthoRouting.startX;
                             startY = orthoRouting.startY;
                             endX = orthoRouting.endX;
@@ -14873,6 +14912,7 @@ function NodeCanvas() {
                             orthoRouting = computeLombardiRouting(
                               edge, sourceNode, destNode, sNodeDims, eNodeDims, lombardiTangents,
                               { curvature: lombardiCurvature, selectedInstanceIds,
+                                curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing,
                                 sourceBounds: sAnchorInfo?.outerBounds ? {
                                   minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
                                   maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,

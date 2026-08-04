@@ -62,13 +62,29 @@ describe('calculateStaggeredPosition centering', () => {
     }
   });
 
-  it('falls back to the centered base port when the side has no straight run', () => {
+  it('centers a lone port when the side has no straight run', () => {
     // Text-only node: 140px tall against a 56px corner radius leaves no usable
     // left/right band at all, so the midpoint is the only sane attachment point.
     const base = getPortPosition(node, TEXT_NODE, 'left', TEXT_CORNER);
-    const p = calculateStaggeredPosition(base, 'left', 3, TEXT_NODE, TEXT_CORNER, 24);
+    const p = calculateStaggeredPosition(base, 'left', 0, TEXT_NODE, TEXT_CORNER, 24, 1);
     expect(p.x).toBe(node.x);
     expect(p.y).toBe(node.y + TEXT_NODE.currentHeight / 2);
+  });
+
+  it('still separates several ports when the side has no straight run', () => {
+    // This case USED to collapse every port onto the midpoint, which is how
+    // several connections between one pair of nodes ended up drawn as a single
+    // line. With no band to work in, spilling a few pixels toward the rounded
+    // corner is the lesser evil — the ports must stay distinct.
+    const base = getPortPosition(node, TEXT_NODE, 'left', TEXT_CORNER);
+    const ys = [0, 1, 2, 3].map(i =>
+      calculateStaggeredPosition(base, 'left', i, TEXT_NODE, TEXT_CORNER, 24, 4).y
+    );
+    expect(new Set(ys).size).toBe(4);
+    for (const y of ys) {
+      expect(y).toBeGreaterThan(node.y);
+      expect(y).toBeLessThan(node.y + TEXT_NODE.currentHeight);
+    }
   });
 
   it('is deterministic for a given index', () => {
