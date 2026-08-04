@@ -889,6 +889,30 @@ export function labelArcPath(arc, anchor, textWidth, options = {}) {
 }
 
 /**
+ * The straight counterpart of {@link labelArcPath}: a segment of `span` length
+ * centred on `anchor` and tilted to `angleDeg`. A <textPath> riding this reads
+ * exactly like a rotated <text>.
+ *
+ * That equivalence is what makes it useful mid-drag. An element React rendered
+ * as a CURVED label cannot be repositioned the straight way — its <text> holds
+ * a <textPath>, so x/y and transform are both ignored — and labelArcPath
+ * returns null the moment the arc flattens past MIN_VISIBLE_BOW, which is
+ * exactly what a Lombardi drag does every time the tangent fan re-solves and
+ * swings an arc through straight on its way to the other side. With nothing to
+ * fall back on the label froze where it was while its connection moved out from
+ * under it, and only caught up on drop when React re-rendered it as straight.
+ *
+ * @returns {{d: string}|null}
+ */
+export function straightLabelPath(anchor, angleDeg, span) {
+  if (!anchor || !(span > 0)) return null;
+  const rad = (angleDeg * Math.PI) / 180;
+  const hx = (Math.cos(rad) * span) / 2;
+  const hy = (Math.sin(rad) * span) / 2;
+  return { d: `M ${anchor.x - hx},${anchor.y - hy} L ${anchor.x + hx},${anchor.y + hy}` };
+}
+
+/**
  * Rebuild path data for a routing descriptor whose polyline has been trimmed
  * (the hover pull-back). Orthogonal routings re-emit a rounded polyline; a
  * Lombardi routing re-emits a shorter arc on the SAME circle rather than a

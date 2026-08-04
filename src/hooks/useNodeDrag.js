@@ -6,7 +6,7 @@ import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
-import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcPath } from '../utils/canvas/edgeRouting.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcPath, straightLabelPath } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle } from '../utils/canvas/edgeLabelPlacement.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../services/groupLayout.js';
 import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
@@ -740,11 +740,17 @@ export const useNodeDrag = ({
           // mutually exclusive: setting a transform on a textPath-bearing <text>
           // would rotate the already-correctly-placed curve.
           if (labelArc) {
-            // If the arc got too tight for a curved label mid-drag, leave the
-            // path where it was rather than falling through: this <text> holds a
-            // <textPath>, so x/y are ignored and a transform would rotate an
-            // already-correctly-placed curve.
-            if (dragLabelArc) labelArc.setAttribute('d', dragLabelArc.d);
+            // This <text> holds a <textPath>, so x/y are ignored and a transform
+            // would rotate an already-correctly-placed curve — the label can only
+            // be moved by moving its path. labelArcPath declines whenever the arc
+            // is too tight or too flat to be worth curving, which a Lombardi drag
+            // hits constantly (the tangent fan re-solves each frame and swings
+            // arcs through straight), so fall back to a straight baseline through
+            // the same anchor. Leaving the old `d` in place is what stranded the
+            // label behind its connection until the drag ended.
+            const d = dragLabelArc?.d
+              ?? straightLabelPath(labelPos, labelAdj, labelArcSpan)?.d;
+            if (d) labelArc.setAttribute('d', d);
           } else {
             texts.forEach(t => {
               t.setAttribute('x', labelPos.x);

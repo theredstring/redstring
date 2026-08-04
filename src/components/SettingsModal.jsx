@@ -451,9 +451,9 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <OptionGroup
               options={[
                 { label: 'Straight', value: 'straight' },
+                { label: 'Lombardi', value: 'lombardi' },
                 { label: 'Manhattan', value: 'manhattan' },
-                { label: 'Clean', value: 'clean' },
-                { label: 'Lombardi', value: 'lombardi' }
+                { label: 'Clean', value: 'clean' }
               ]}
               value={routingStyle || 'straight'}
               onChange={(v) => useGraphStore.getState().setRoutingStyle?.(v)}
