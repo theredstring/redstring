@@ -12,6 +12,7 @@ import {
   buildEdgeSegmentIndex,
   countCrossingEdges,
   chooseRoutedLabelPlacement,
+  placeLabelOnRoute,
   estimateTextWidth,
 } from '../edgeLabelPlacement.js';
 
@@ -147,5 +148,100 @@ describe('label placement avoiding other connections', () => {
     );
     expect(dodged.crossings).toBe(0);
     expect(Math.hypot(dodged.x - clear.x, dodged.y - clear.y)).toBeGreaterThan(1);
+  });
+});
+
+describe('anchors: a drag keeps the placement the full solve chose', () => {
+  const FONT = 40;
+  const NAME = 'depends on';
+
+  // The cheap placer is all a drag can afford per frame. Without the anchor it
+  // returns the midpoint of the line, which is exactly the position the full
+  // solve had moved away from — so the label snapped back on mouse-down and
+  // forward again on mouse-up.
+  it('polyline: the drag placer reproduces the solved spot', () => {
+    const routing = { points: line([0, 0], [1200, 0]) };
+    const blocker = buildEdgeSegmentIndex(new Map([['other', line([600, -400], [600, 400])]]));
+    const solved = chooseRoutedLabelPlacement(
+      routing, NAME, [], new Set(), new Map(), new Map(), FONT, 'self', new Set(),
+      { obstacles: [], segmentIndex: blocker }
+    );
+
+    expect(placeLabelOnRoute(routing).x).toBeCloseTo(600, 6);      // what it used to do
+    const carried = placeLabelOnRoute(routing, solved.anchor);
+    expect(carried.x).toBeCloseTo(solved.x, 6);
+    expect(carried.y).toBeCloseTo(solved.y, 6);
+  });
+
+  it('polyline: the spot travels with the line', () => {
+    // The whole point: the connection moves under the label every frame of a
+    // drag, and the label has to move with it rather than snap to its middle.
+    const before = { points: line([0, 0], [1200, 0]) };
+    const blocker = buildEdgeSegmentIndex(new Map([['other', line([600, -400], [600, 400])]]));
+    const solved = chooseRoutedLabelPlacement(
+      before, NAME, [], new Set(), new Map(), new Map(), FONT, 'self', new Set(),
+      { obstacles: [], segmentIndex: blocker }
+    );
+    const after = { points: line([0, 300], [1200, 300]) };   // dragged 300px down
+    const carried = placeLabelOnRoute(after, solved.anchor);
+    expect(carried.x).toBeCloseTo(solved.x, 6);
+    expect(carried.y).toBeCloseTo(solved.y + 300, 6);
+  });
+
+  it('polyline: survives the route changing shape', () => {
+    // A Manhattan route flips between an L and a two-bend as nodes move. The
+    // anchor is a fraction of the WHOLE route, not an index into its segments,
+    // so it stays on the line instead of landing on a segment that is gone.
+    const solved = chooseRoutedLabelPlacement(
+      { points: line([0, 0], [600, 0], [600, 400]) },
+      NAME, [], new Set(), new Map(), new Map(), FONT, 'self', new Set(), { obstacles: [] }
+    );
+    const reshaped = { points: line([0, 0], [300, 0], [300, 400], [900, 400]) };
+    const carried = placeLabelOnRoute(reshaped, solved.anchor);
+    const onRoute = reshaped.points.some((p, i) => {
+      const q = reshaped.points[i + 1];
+      if (!q) return false;
+      const t = Math.abs(q.x - p.x) > Math.abs(q.y - p.y)
+        ? (carried.x - p.x) / (q.x - p.x) : (carried.y - p.y) / (q.y - p.y);
+      return t >= -0.01 && t <= 1.01;
+    });
+    expect(onRoute).toBe(true);
+  });
+
+  it('arc: the drag placer reproduces the solved spot', () => {
+    const arc = { cx: 600, cy: 900, radius: 1000, a0: -2.0, sweep: 0.8, delta: 0.4, straight: false };
+    const clear = chooseRoutedLabelPlacement(
+      { arc }, NAME, [], new Set(), new Map(), new Map(), FONT, 'self', new Set(), { obstacles: [] }
+    );
+    const blocker = buildEdgeSegmentIndex(new Map([
+      ['other', line([clear.x, clear.y - 400], [clear.x, clear.y + 400])],
+    ]));
+    const solved = chooseRoutedLabelPlacement(
+      { arc }, NAME, [], new Set(), new Map(), new Map(), FONT, 'self', new Set(),
+      { obstacles: [], segmentIndex: blocker }
+    );
+    const carried = placeLabelOnRoute({ arc }, solved.anchor);
+    expect(carried.x).toBeCloseTo(solved.x, 6);
+    expect(carried.y).toBeCloseTo(solved.y, 6);
+  });
+
+  it('an arc flattening to a line mid-drag keeps its place', () => {
+    // Lombardi arcs straighten and re-bow continuously while dragging. The
+    // parameter means the same thing on both shapes, so it carries across.
+    const arc = { cx: 600, cy: 900, radius: 1000, a0: -2.0, sweep: 0.8, delta: 0.4, straight: false };
+    const solved = chooseRoutedLabelPlacement(
+      { arc }, NAME, [], new Set(), new Map(), new Map(), FONT, 'self', new Set(), { obstacles: [] }
+    );
+    const flattened = { points: line([100, 100], [1100, 300]) };
+    const carried = placeLabelOnRoute(flattened, solved.anchor);
+    expect(Number.isFinite(carried.x)).toBe(true);
+    expect(Number.isFinite(carried.y)).toBe(true);
+  });
+
+  it('falls back to the midpoint when there is no anchor to carry', () => {
+    const routing = { points: line([0, 0], [1200, 0]) };
+    for (const missing of [null, undefined, {}, { t: NaN, offset: 0 }]) {
+      expect(placeLabelOnRoute(routing, missing).x).toBeCloseTo(600, 6);
+    }
   });
 });

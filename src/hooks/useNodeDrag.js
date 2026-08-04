@@ -218,6 +218,13 @@ export const useNodeDrag = ({
   const dragEdgeElsRef = useRef(new Map());       // edgeId → [{el, paths, lines, arrows, selfArrow, texts}, ...]
   const dragEdgeDataRef = useRef(new Map());      // edgeId → edge record (frozen at drag start)
   const dragGroupElsRef = useRef(new Map());      // groupId → DOM <g> element(s)
+  // The placement each affected edge's label had SOLVED when the drag began.
+  // Re-solving per frame is out of the question, and without this the cheap
+  // per-frame placer reverts every label to the midpoint of its line — so a
+  // label that had been moved aside to clear a node, another label or a
+  // crossing connection snapped back the instant a node was picked up, and
+  // snapped forward again on release. See ANCHORS in edgeLabelPlacement.js.
+  const dragLabelAnchorsRef = useRef(new Map());  // edgeId → {t, offset}
   const dragGroupMetaRef = useRef(new Map());     // groupId → { memberIds, elements[] }
 
   // ---------------------------------------------------------------------------
@@ -239,6 +246,7 @@ export const useNodeDrag = ({
     dragEdgeDataRef.current.clear();
     dragLombardiExtraEdgeIdsRef.current.clear();
     dragGroupElsRef.current.clear();
+    dragLabelAnchorsRef.current.clear();
 
     // Cache node <g> elements. Suppress the CSS transform transition inline
     // so DOM-bypass position writes apply instantly. Only the primary dragged
@@ -344,6 +352,10 @@ export const useNodeDrag = ({
         }));
         dragEdgeElsRef.current.set(edgeId, cachedEls);
       }
+      // Grab the solved placement before the per-frame updater invalidates the
+      // cache entry it lives on.
+      const anchor = placedLabelsRef?.current?.get(edgeId)?.anchor;
+      if (anchor) dragLabelAnchorsRef.current.set(edgeId, anchor);
     });
 
     // Cache group <g> elements and sub-element metadata for all groups containing dragged nodes
@@ -400,7 +412,7 @@ export const useNodeDrag = ({
         });
       }
     });
-  }, [containerRef, edgesByNodeIdRef, groupsByNodeIdRef, groupsByIdRef]);
+  }, [containerRef, edgesByNodeIdRef, groupsByNodeIdRef, groupsByIdRef, placedLabelsRef]);
 
   // Re-cache DOM elements after React re-renders for drag start.
   // The primary node moves to a separate JSX block (isDragging=true) on re-render,
@@ -709,7 +721,7 @@ export const useNodeDrag = ({
         // Cheap on-path label placement (no obstacle avoidance — that pass is far
         // too expensive per frame). Stays on the polyline and axis-aligned, so it
         // agrees closely with the settled placement computed on drop.
-        const labelPos = placeLabelOnRoute(routing);
+        const labelPos = placeLabelOnRoute(routing, dragLabelAnchorsRef.current.get(edgeId));
         const labelAdj = quantizeAngle(
           (labelPos.angle > 90 || labelPos.angle < -90) ? labelPos.angle + 180 : labelPos.angle,
           labelAngleQuantumRef?.current ?? 0

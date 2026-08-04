@@ -3014,8 +3014,9 @@ function NodeCanvas() {
   //
   // NOTE: iterate ALL edges, not visibleEdges — same reason as edgeCurveInfo and
   // the clean lane assignment. Keyed on the visible set this would rebuild on
-  // every pan, and since a changed index re-solves every label (see the effect
-  // below), labels would visibly reshuffle for the whole of a pan.
+  // every pan, and since a changed index re-solves every label, labels would
+  // visibly reshuffle for the whole of a pan.
+  const labelCrossingGenerationRef = useRef(0);
   const labelCrossingIndex = useMemo(() => {
     if (!showConnectionNames || !isRoutedStyle) return null;
     if (edges.length < 2 || edges.length > LABEL_CROSSING_BUDGET) return null;
@@ -3049,7 +3050,14 @@ function NodeCanvas() {
         polylines.set(edge.id, arc ? sampleArc(arc, 24) : [p, q]);
       }
     }
-    return buildEdgeSegmentIndex(polylines);
+    const index = buildEdgeSegmentIndex(polylines);
+    // Stamped so a cached placement can name the crossing landscape it was
+    // solved against — see where labelSignature is built. Bumping a ref from a
+    // memo body is a side effect in render, which is tolerable only because the
+    // value is write-only and monotonic: nothing reads it to decide what to
+    // render, and a double invocation just skips a number.
+    if (index) index.generation = ++labelCrossingGenerationRef.current;
+    return index;
   }, [showConnectionNames, isRoutedStyle, edges, nodeById, baseDimsById,
     routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing,
     lombardiTangents, lombardiCurvature, edgeCurveInfo,
@@ -3166,20 +3174,6 @@ function NodeCanvas() {
     placedLabelsRef.current.clear();
     clearLabelStabilization();
   }, [connectionNameSignature]);
-
-  // Same problem, one step removed: a cached placement is keyed on the geometry
-  // of its OWN connection, so when a different connection moves onto a label the
-  // signature it is checked against hasn't changed and the stale, now-covered
-  // position survives. The whole point of the crossing pass is to react to other
-  // connections, so it has to invalidate on them too.
-  //
-  // Cheap in practice because the index is built from all edges rather than the
-  // visible ones: it changes when the drawing changes, not when the viewport
-  // does, so this doesn't fire on pan or zoom.
-  useEffect(() => {
-    placedLabelsRef.current.clear();
-    clearLabelStabilization();
-  }, [labelCrossingIndex]);
 
   // Anchor point for the edge pie menu.
   //
@@ -14469,7 +14463,16 @@ function NodeCanvas() {
                                   // pathD is exactly the right signature: it is a complete,
                                   // already-computed description of the drawn geometry. (It's the
                                   // untrimmed route, so hovering doesn't churn the cache.)
-                                  const labelSignature = `${orthoRouting.pathD}|${connectionName}|${connectionFontSize}`;
+                                  // The crossing generation belongs in here for the same reason
+                                  // pathD does. A placement depends on where the OTHER connections
+                                  // run, so when one of them moves onto this label nothing about
+                                  // this edge changes and the stale, now-covered position would
+                                  // survive. Invalidating via the signature rather than by clearing
+                                  // the cache in an effect matters twice over: the effect would run
+                                  // after the render it was meant to protect (with nothing
+                                  // necessarily re-rendering afterwards), and it would throw away
+                                  // the anchors a drag needs to hold its placement.
+                                  const labelSignature = `${orthoRouting.pathD}|${connectionName}|${connectionFontSize}|${labelCrossingIndex?.generation ?? 0}`;
                                   const cached = placedLabelsRef.current.get(edge.id);
                                   if (cached && cached.position && cached.signature === labelSignature && !draggingNodeInfo) {
                                     const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
@@ -14502,7 +14505,11 @@ function NodeCanvas() {
                                         maxY: midY + (isVerticalLabel ? halfW : halfH),
                                       },
                                       signature: labelSignature,
-                                      position: { x: midX, y: midY, angle }
+                                      position: { x: midX, y: midY, angle },
+                                      // How far along the route this solve landed, so a drag can
+                                      // carry it instead of resetting to the midpoint. See ANCHORS
+                                      // in edgeLabelPlacement.js.
+                                      anchor: placement.anchor,
                                     });
                                   }
                                 }
@@ -15843,7 +15850,16 @@ function NodeCanvas() {
                                   // pathD is exactly the right signature: it is a complete,
                                   // already-computed description of the drawn geometry. (It's the
                                   // untrimmed route, so hovering doesn't churn the cache.)
-                                  const labelSignature = `${orthoRouting.pathD}|${connectionName}|${connectionFontSize}`;
+                                  // The crossing generation belongs in here for the same reason
+                                  // pathD does. A placement depends on where the OTHER connections
+                                  // run, so when one of them moves onto this label nothing about
+                                  // this edge changes and the stale, now-covered position would
+                                  // survive. Invalidating via the signature rather than by clearing
+                                  // the cache in an effect matters twice over: the effect would run
+                                  // after the render it was meant to protect (with nothing
+                                  // necessarily re-rendering afterwards), and it would throw away
+                                  // the anchors a drag needs to hold its placement.
+                                  const labelSignature = `${orthoRouting.pathD}|${connectionName}|${connectionFontSize}|${labelCrossingIndex?.generation ?? 0}`;
                                   const cached = placedLabelsRef.current.get(edge.id);
                                   if (cached && cached.position && cached.signature === labelSignature && !draggingNodeInfo) {
                                     const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
@@ -15876,7 +15892,11 @@ function NodeCanvas() {
                                         maxY: midY + (isVerticalLabel ? halfW : halfH),
                                       },
                                       signature: labelSignature,
-                                      position: { x: midX, y: midY, angle }
+                                      position: { x: midX, y: midY, angle },
+                                      // How far along the route this solve landed, so a drag can
+                                      // carry it instead of resetting to the midpoint. See ANCHORS
+                                      // in edgeLabelPlacement.js.
+                                      anchor: placement.anchor,
                                     });
                                   }
                                 }

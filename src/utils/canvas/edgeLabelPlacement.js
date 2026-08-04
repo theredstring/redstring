@@ -415,6 +415,13 @@ const describeSegments = (pathPoints) => {
     const segments = [];
     if (!pathPoints || pathPoints.length < 2) return segments;
 
+    // Distance from the start of the whole polyline, so a chosen spot can be
+    // expressed as one fraction of the whole route rather than as an index into
+    // this list — the list is about to be sorted by length, and the route it
+    // came from can change shape (an L becomes a two-bend, a segment collapses)
+    // while the label is expected to stay put. See ANCHORS below.
+    let walked = 0;
+
     for (let i = 0; i < pathPoints.length - 1; i++) {
         const a = pathPoints[i];
         const b = pathPoints[i + 1];
@@ -433,12 +440,60 @@ const describeSegments = (pathPoints) => {
                 : Math.atan2(dy, dx) * (180 / Math.PI);
 
         segments.push({
-            a, b, length, angle,
+            a, b, length, angle, startLength: walked,
             // Horizontal runs read best, then vertical; diagonals are a last resort.
             orientationBonus: isHorizontal ? 400 : isVertical ? 200 : 0,
         });
+        walked += length;
     }
+    const totalLength = walked;
+    segments.forEach(s => { s.totalLength = totalLength; });
     return segments.sort((p, q) => q.length - p.length);
+};
+
+// ---------------------------------------------------------------------------
+// ANCHORS
+//
+// Solving a label's position is far too expensive to redo per frame, so a drag
+// uses the cheap placer instead — which knows nothing about what the expensive
+// one decided and puts the label back on the midpoint of its line. A label that
+// had been moved aside to clear a node, another label or a connection therefore
+// snapped back to the covered spot the instant you picked a node up, and
+// snapped forward again when you let go.
+//
+// An anchor is the ANSWER to that solve, in coordinates that survive the line
+// moving: how far along the route, and how far off it. Re-evaluating one is a
+// couple of multiplications, so the drag can carry the chosen placement for the
+// whole gesture at no meaningful cost, and nothing jumps at either end.
+// ---------------------------------------------------------------------------
+
+/** Evaluate a `{t, offset}` anchor against a polyline. */
+export const anchorOnPolyline = (pathPoints, t, offset) => {
+    const segments = describeSegments(pathPoints);
+    if (segments.length === 0) {
+        const p = pathPoints?.[0] || { x: 0, y: 0 };
+        return { x: p.x, y: p.y, angle: 0 };
+    }
+    // describeSegments sorts by length; walk in route order instead.
+    const inOrder = segments.slice().sort((p, q) => p.startLength - q.startLength);
+    const total = inOrder[inOrder.length - 1].startLength + inOrder[inOrder.length - 1].length;
+    const target = Math.max(0, Math.min(1, t)) * total;
+
+    let seg = inOrder[inOrder.length - 1];
+    for (const candidate of inOrder) {
+        if (target <= candidate.startLength + candidate.length) { seg = candidate; break; }
+    }
+
+    const local = seg.length > 0
+        ? Math.max(0, Math.min(1, (target - seg.startLength) / seg.length))
+        : 0;
+    const dx = seg.b.x - seg.a.x;
+    const dy = seg.b.y - seg.a.y;
+    return {
+        x: seg.a.x + dx * local + (-dy / seg.length) * offset,
+        y: seg.a.y + dy * local + (dx / seg.length) * offset,
+        angle: seg.angle,
+    };
 };
 
 // Label bounding box in canvas space. A vertical label occupies the transpose of
@@ -634,6 +689,12 @@ export const placeLabelOnPath = (pathPoints) => {
         x: (best.a.x + best.b.x) / 2,
         y: (best.a.y + best.b.y) / 2,
         angle: best.angle,
+        anchor: {
+            t: best.totalLength > 0
+                ? (best.startLength + best.length / 2) / best.totalLength
+                : 0.5,
+            offset: 0,
+        },
     };
 };
 
@@ -693,7 +754,15 @@ export const chooseOrthogonalLabelPlacement = (
                     - Math.abs(t - 0.5) * 300   // hug the middle of the run
                     - Math.abs(offset) * 6;      // and hug the line itself
                 if (!best || betterPlacement(crossings, score, best)) {
-                    best = { x, y, angle: seg.angle, score, crossings, rect };
+                    best = {
+                        x, y, angle: seg.angle, score, crossings, rect,
+                        anchor: {
+                            t: seg.totalLength > 0
+                                ? (seg.startLength + seg.length * t) / seg.totalLength
+                                : 0.5,
+                            offset,
+                        },
+                    };
                 }
             }
         }
@@ -711,6 +780,7 @@ export const chooseOrthogonalLabelPlacement = (
         score: 0,
         crossings: countCrossingEdges(fallbackRect, options.segmentIndex, edgeId),
         rect: fallbackRect,
+        anchor: fallback.anchor,
     };
 };
 
@@ -744,9 +814,9 @@ const arcAnchor = (arc, s) => {
 };
 
 export const placeLabelOnArc = (arc) => {
-    if (!arc) return { x: 0, y: 0, angle: 0 };
+    if (!arc) return { x: 0, y: 0, angle: 0, anchor: { t: 0.5, offset: 0 } };
     const mid = arcPointAt(arc, 0.5);
-    return { x: mid.x, y: mid.y, angle: mid.angle };
+    return { x: mid.x, y: mid.y, angle: mid.angle, anchor: { t: 0.5, offset: 0 } };
 };
 
 export const chooseArcLabelPlacement = (
@@ -781,7 +851,10 @@ export const chooseArcLabelPlacement = (
             const crossings = countCrossingEdges(rect, options.segmentIndex, edgeId);
             const score = -Math.abs(s - 0.5) * 300 - Math.abs(offset) * 6;
             if (!best || betterPlacement(crossings, score, best)) {
-                best = { x, y, angle: anchor.angle, score, crossings, rect };
+                best = {
+                    x, y, angle: anchor.angle, score, crossings, rect,
+                    anchor: { t: s, offset },
+                };
             }
         }
     }
@@ -795,6 +868,7 @@ export const chooseArcLabelPlacement = (
         score: 0,
         crossings: countCrossingEdges(fallbackRect, options.segmentIndex, edgeId),
         rect: fallbackRect,
+        anchor: { t: 0.5, offset: 0 },
     };
 };
 
@@ -806,10 +880,39 @@ export const chooseArcLabelPlacement = (
 // is what keeps a new routing style from needing another branch in all three.
 // ---------------------------------------------------------------------------
 
-/** Cheap deterministic anchor. Used per-frame during drags and by the pie menu. */
-export const placeLabelOnRoute = (routing) => (
-    routing?.arc ? placeLabelOnArc(routing.arc) : placeLabelOnPath(routing?.points)
-);
+/**
+ * Cheap deterministic placement. Used per-frame during drags and by the pie menu.
+ *
+ * Pass the `anchor` from a previous full solve to KEEP that solve's answer as
+ * the geometry moves — see ANCHORS above. Without one this falls back to the
+ * midpoint of the best run, which is the right default for something that has
+ * never been solved but wrong for anything that has: it discards every dodge
+ * the expensive placer made.
+ */
+export const placeLabelOnRoute = (routing, anchor = null) => {
+    if (anchor && Number.isFinite(anchor.t)) {
+        // Deliberately tolerant about which shape the routing is now. An arc can
+        // flatten to a line mid-drag (and a line can bow into an arc), and in
+        // both directions the parameter means the same thing — a fraction of the
+        // way along — so the anchor survives the transition instead of the label
+        // snapping back to the middle at the moment of the change.
+        if (routing?.arc) {
+            const at = arcPointAt(routing.arc, Math.max(0, Math.min(1, anchor.t)));
+            const nx = (at.x - routing.arc.cx) / routing.arc.radius;
+            const ny = (at.y - routing.arc.cy) / routing.arc.radius;
+            return {
+                x: at.x + nx * anchor.offset,
+                y: at.y + ny * anchor.offset,
+                angle: at.angle,
+                anchor,
+            };
+        }
+        if (routing?.points?.length >= 2) {
+            return { ...anchorOnPolyline(routing.points, anchor.t, anchor.offset), anchor };
+        }
+    }
+    return routing?.arc ? placeLabelOnArc(routing.arc) : placeLabelOnPath(routing?.points);
+};
 
 /** Full placement with obstacle avoidance. Used by the settled render. */
 export const chooseRoutedLabelPlacement = (
