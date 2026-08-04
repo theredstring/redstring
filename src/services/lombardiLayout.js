@@ -63,6 +63,7 @@ import {
   sampleArc,
   lombardiEdgeKey,
 } from '../utils/canvas/edgeRouting.js';
+import { clearPathsOfNodes, lombardiPaths } from './pathClearance.js';
 
 const TAU = Math.PI * 2;
 
@@ -344,91 +345,22 @@ function restoreLengths(centers, edges, targetLength, passes = 2, maxStretch = 1
  * Only the intruding node moves. Moving an endpoint would change the very arc
  * being cleared, and the two would chase each other.
  */
-/** Resample a polyline so no two consecutive points are further than `step` apart. */
-function densify(points, step = 30) {
-  if (!points || points.length < 2) return points || [];
-  const out = [points[0]];
-  for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1];
-    const b = points[i];
-    const span = Math.hypot(b.x - a.x, b.y - a.y);
-    const cuts = Math.ceil(span / step);
-    for (let k = 1; k <= cuts; k++) {
-      const t = k / cuts;
-      out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
-    }
-  }
-  return out;
-}
-
 export function clearArcsOfNodes(centers, nodes, edges, options = {}) {
   const cfg = { ...LOMBARDI_REFINE_DEFAULTS, ...options };
-  const curvature = options.lombardiCurvature ?? 1;
-  const half = new Map(nodes.map(n => [n.id, {
-    w: Math.max(n.width || 0, n.labelWidth || 0, 60) / 2 + cfg.clearancePadding,
-    h: Math.max(n.height || 0, 60) / 2 + cfg.clearancePadding,
-  }]));
-
-  let out = new Map(centers);
-  const real = (edges || []).filter(e => e
-    && e.sourceId !== e.destinationId
-    && out.has(e.sourceId)
-    && out.has(e.destinationId));
-
-  for (let pass = 0; pass < cfg.clearancePasses; pass++) {
-    const tangents = fanFor(out, nodes, edges);
-    let moved = false;
-
-    real.forEach(edge => {
-      const p = out.get(edge.sourceId);
-      const q = out.get(edge.destinationId);
-      const slot = tangents.get(lombardiEdgeKey(edge));
-      if (!slot) return;
-
-      const solved = solveLombardiArc(p, q, slot.sourceAngle, slot.destAngle, curvature);
-      // Densify before testing. sampleArc spaces its points by ANGLE (5° a
-      // step), so on a long, gently curved edge consecutive samples can be
-      // hundreds of pixels apart and a node can sit squarely between two of
-      // them. A degenerate (straight) arc is worse still — it has no samples at
-      // all between its two endpoints.
-      const points = densify(
-        (solved && !solved.straight) ? sampleArc(solved) : [p, q],
-        cfg.clearanceStep
-      );
-
-      nodes.forEach(node => {
-        if (node.id === edge.sourceId || node.id === edge.destinationId) return;
-        const at = out.get(node.id);
-        const box = half.get(node.id);
-        if (!at || !box) return;
-
-        // Deepest penetration of the arc into this node's box.
-        let worst = null;
-        let worstDepth = 0;
-        points.forEach(pt => {
-          const dx = pt.x - at.x;
-          const dy = pt.y - at.y;
-          const overX = box.w - Math.abs(dx);
-          const overY = box.h - Math.abs(dy);
-          if (overX <= 0 || overY <= 0) return;
-          const depth = Math.min(overX, overY);
-          if (depth > worstDepth) { worstDepth = depth; worst = { dx, dy, overX, overY }; }
-        });
-        if (!worst) return;
-
-        // Shortest way out of the box.
-        if (worst.overX < worst.overY) {
-          out.set(node.id, { x: at.x + Math.sign(worst.dx || 1) * -worst.overX, y: at.y });
-        } else {
-          out.set(node.id, { x: at.x, y: at.y + Math.sign(worst.dy || 1) * -worst.overY });
-        }
-        moved = true;
-      });
-    });
-
-    if (!moved) break;
-  }
-
+  // The mechanism is now shared — see services/pathClearance.js. What stays
+  // Lombardi-specific is only WHICH geometry gets cleared: the arcs, solved
+  // exactly as the renderer solves them.
+  const { centers: out } = clearPathsOfNodes(
+    centers,
+    nodes,
+    (edges || []).filter(e => e && e.sourceId !== e.destinationId),
+    lombardiPaths(options.lombardiCurvature ?? 1),
+    {
+      passes: cfg.clearancePasses,
+      padding: cfg.clearancePadding,
+      maxShiftPerPass: Infinity
+    }
+  );
   return out;
 }
 

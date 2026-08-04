@@ -28,7 +28,16 @@
  * wide nodes stop overlapping.)
  */
 
-import { estimateEdgeLabelWidth, forceDirectedLayout } from './graphLayoutService.js';
+import { forceDirectedLayout } from './graphLayoutService.js';
+import {
+  MIN_BOX,
+  boxOf,
+  halfExtentTowards,
+  circumRadius,
+  estimateEdgeLabelWidth,
+  labelSpanOf,
+  requiredEdgeLength
+} from './layoutGeometry.js';
 import {
   TOPOLOGY,
   TOPOLOGY_LAYOUT,
@@ -83,53 +92,8 @@ export const PATTERN_LAYOUT_DEFAULTS = {
   lombardiCurvature: 1.0
 };
 
-const MIN_BOX = 60;
-
-// ============================================================================
-// GEOMETRY HELPERS
-// ============================================================================
-
-const boxOf = (node) => ({
-  w: Math.max(node?.width || 0, node?.labelWidth || 0, MIN_BOX),
-  h: Math.max(node?.height || 0, MIN_BOX)
-});
-
-/**
- * Half-extent of a node's box measured along direction (dx, dy) — i.e. how far
- * the node's edge-attachment point sits from its center for an edge leaving in
- * that direction. This is what makes spacing tight for edges leaving a wide
- * node vertically and generous for edges leaving it horizontally.
- */
-function halfExtentTowards(node, dx, dy) {
-  const { w, h } = boxOf(node);
-  const halfW = w / 2;
-  const halfH = h / 2;
-  const ax = Math.abs(dx);
-  const ay = Math.abs(dy);
-  if (ax < 1e-6) return halfH;
-  if (ay < 1e-6) return halfW;
-  const len = Math.hypot(dx, dy);
-  return Math.min(halfW / (ax / len), halfH / (ay / len));
-}
-
-/** Worst-case radius — the circumscribed circle. Used before directions exist. */
-const circumRadius = (node) => {
-  const { w, h } = boxOf(node);
-  return Math.hypot(w, h) / 2;
-};
-
-const labelSpanOf = (edge, fontSize) => estimateEdgeLabelWidth(edge?.name || '', fontSize);
-
-/**
- * The core constraint: minimum center-to-center distance for this edge.
- * `dx, dy` is the direction the edge will run; pass (1,0)/(0,1) when the axis
- * is known, or the actual delta during a refinement pass.
- */
-function requiredEdgeLength(a, b, edge, cfg, dx = 1, dy = 0) {
-  const label = labelSpanOf(edge, cfg.edgeLabelFontSize);
-  const clearance = halfExtentTowards(a, dx, dy) + halfExtentTowards(b, dx, dy);
-  return Math.max(cfg.minEdgeLength, clearance + label + (label > 0 ? cfg.labelPadding : cfg.nodeGap));
-}
+// The box geometry that used to live here now lives in layoutGeometry.js, so
+// the force solver can be held to the same model. Imported above.
 
 /**
  * Smallest radius R at which a ring of nodes can be spaced so that every

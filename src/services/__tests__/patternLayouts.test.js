@@ -32,57 +32,20 @@ import {
 import { buildSimpleGraph as simpleGraph } from '../topologyDetection.js';
 import { computeLombardiTangents, solveLombardiArc, arcPointAt } from '../../utils/canvas/edgeRouting.js';
 
-/** Top-left layout output → the node centres every Lombardi routine works in. */
-const centersOf = (positions, nodes) => new Map(nodes.map(n => {
-  const p = positions.get(n.id);
-  return [n.id, { x: p.x + n.width / 2, y: p.y + n.height / 2 }];
-}));
-
-const FONT = D.edgeLabelFontSize;
-
-const node = (id, width = 300, height = 100) => ({
-  id, width, height, labelWidth: width, labelHeight: height, x: 0, y: 0
-});
-const edge = (sourceId, destinationId, name = '') => ({ id: `${sourceId}-${destinationId}`, sourceId, destinationId, name });
-
-/** Center-to-center distance for a pair, from a top-left position map. */
-const distance = (positions, nodes, aId, bId) => {
-  const byId = new Map(nodes.map(n => [n.id, n]));
-  const a = positions.get(aId);
-  const b = positions.get(bId);
-  const na = byId.get(aId);
-  const nb = byId.get(bId);
-  return Math.hypot(
-    (b.x + nb.width / 2) - (a.x + na.width / 2),
-    (b.y + nb.height / 2) - (a.y + na.height / 2)
-  );
-};
-
-const countOverlaps = (positions, nodes) => {
-  let overlaps = 0;
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      const a = positions.get(nodes[i].id);
-      const b = positions.get(nodes[j].id);
-      if (!a || !b) continue;
-      if (a.x < b.x + nodes[j].width && a.x + nodes[i].width > b.x &&
-          a.y < b.y + nodes[j].height && a.y + nodes[i].height > b.y) overlaps++;
-    }
-  }
-  return overlaps;
-};
-
-/**
- * The invariant the whole module exists to guarantee: an edge is at least as
- * long as the label drawn along it.
- */
-const expectLabelsFit = (positions, nodes, edges) => {
-  edges.forEach(e => {
-    const needed = estimateEdgeLabelWidth(e.name, FONT);
-    if (needed === 0) return;
-    expect(distance(positions, nodes, e.sourceId, e.destinationId)).toBeGreaterThanOrEqual(needed);
-  });
-};
+import {
+  FONT,
+  node,
+  edge,
+  centersOf,
+  distance,
+  countOverlaps,
+  expectLabelsFit,
+  labelQuad,
+  quadsOverlap,
+  countLabelCollisions,
+  PARSE,
+  buildParseGraph
+} from './layoutHelpers.js';
 
 // ============================================================================
 
@@ -981,91 +944,9 @@ describe('large irregular trees (sentence-diagram shape)', () => {
   // packing (a deep subtree beside a shallow one left a void the height of the
   // deeper one) and sibling labels colliding because a tilted label sweeps far
   // more cross-axis space than the line it sits on.
-  const PARSE = [
-    ['announced', 'committee', 'nominal subject'],
-    ['announced', 'decision', 'direct object'],
-    ['announced', 'yesterday', 'temporal modifier'],
-    ['committee', 'the', 'determiner'],
-    ['committee', 'oversight', 'compound modifier'],
-    ['committee', 'congressional', 'adjectival modifier'],
-    ['decision', 'its', 'possessive'],
-    ['decision', 'final', 'adjectival modifier'],
-    ['decision', 'postpone', 'clausal complement'],
-    ['postpone', 'vote', 'direct object'],
-    ['vote', 'confirmation', 'compound modifier'],
-    ['vote', 'nominee', 'oblique object'],
-    ['nominee', 'whom', 'relative pronoun'],
-    ['nominee', 'opposed', 'relative clause'],
-    ['opposed', 'senators', 'nominal subject'],
-    ['opposed', 'vigorously', 'adverbial modifier'],
-    ['senators', 'several', 'determiner'],
-    ['senators', 'state', 'oblique object'],
-    ['state', 'same', 'adjectival modifier'],
-    ['yesterday', 'late', 'adverbial modifier']
-  ];
-
-  const build = () => {
-    const ids = [...new Set(PARSE.flatMap(([h, d]) => [h, d]))];
-    const nodes = ids.map(id => node(id, Math.max(180, 60 + id.length * 46), 100));
-    const edges = PARSE.map(([h, d, rel]) => edge(h, d, rel));
-    return { nodes, edges };
-  };
-
-  /** Where NodeCanvas actually draws a label: edge midpoint, rotated to the edge. */
-  const labelQuad = (positions, byId, e) => {
-    const c = (id) => {
-      const n = byId.get(id);
-      const p = positions.get(id);
-      return { x: p.x + n.width / 2, y: p.y + n.height / 2 };
-    };
-    const a = c(e.sourceId);
-    const b = c(e.destinationId);
-    const cx = (a.x + b.x) / 2;
-    const cy = (a.y + b.y) / 2;
-    const ang = Math.atan2(b.y - a.y, b.x - a.x);
-    const hw = estimateEdgeLabelWidth(e.name, FONT) / 2;
-    const hh = FONT * 1.2 / 2;
-    const ux = Math.cos(ang);
-    const uy = Math.sin(ang);
-    return [
-      [cx + ux * hw + uy * hh, cy + uy * hw - ux * hh],
-      [cx + ux * hw - uy * hh, cy + uy * hw + ux * hh],
-      [cx - ux * hw - uy * hh, cy - uy * hw + ux * hh],
-      [cx - ux * hw + uy * hh, cy - uy * hw - ux * hh]
-    ];
-  };
-
-  /** Separating-axis overlap test for two convex quads. */
-  const quadsOverlap = (P, Q) => {
-    for (const poly of [P, Q]) {
-      for (let i = 0; i < 4; i++) {
-        const [x1, y1] = poly[i];
-        const [x2, y2] = poly[(i + 1) % 4];
-        const ax = -(y2 - y1);
-        const ay = x2 - x1;
-        const project = (pts) => pts.reduce((acc, [x, y]) => {
-          const d = x * ax + y * ay;
-          return [Math.min(acc[0], d), Math.max(acc[1], d)];
-        }, [Infinity, -Infinity]);
-        const p = project(P);
-        const q = project(Q);
-        if (p[1] < q[0] || q[1] < p[0]) return false;
-      }
-    }
-    return true;
-  };
-
-  const countLabelCollisions = (positions, nodes, edges) => {
-    const byId = new Map(nodes.map(n => [n.id, n]));
-    const quads = edges.filter(e => e.name).map(e => labelQuad(positions, byId, e));
-    let hits = 0;
-    for (let i = 0; i < quads.length; i++) {
-      for (let j = i + 1; j < quads.length; j++) {
-        if (quadsOverlap(quads[i], quads[j])) hits++;
-      }
-    }
-    return hits;
-  };
+  // PARSE, build, labelQuad, quadsOverlap and countLabelCollisions now live in
+  // ./layoutHelpers.js so the force solver is measured by the same rulers.
+  const build = buildParseGraph;
 
   it('is recognized as a single tree', () => {
     const { nodes, edges } = build();

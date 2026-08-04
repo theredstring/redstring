@@ -6,6 +6,26 @@
  */
 
 import { GROUP_LAYOUT_CONSTANTS } from './groupLayout.js';
+// Shared box/segment geometry. This module imports nothing from services/, so
+// it is safe to pull in ahead of the patternLayouts cycle below.
+import {
+  boxOf,
+  nodeBox,
+  halfExtentTowards,
+  circumRadius,
+  estimateEdgeLabelWidth,
+  requiredEdgeLength,
+  getPointSegmentDistSq,
+  densify,
+  boxMTV,
+  polylineBoxMTV
+} from './layoutGeometry.js';
+import {
+  clearPathsOfNodes,
+  straightPaths,
+  orthogonalPaths,
+  lombardiPaths
+} from './pathClearance.js';
 // Pattern layouts import estimateEdgeLabelWidth / forceDirectedLayout from
 // this module, so the two form an import cycle. It resolves safely because
 // every cross-module reference happens inside a function body, never at
@@ -38,6 +58,22 @@ const PATTERN_ALGORITHMS = new Set([
   'radial-tree', 'concentric',
   'arc-chain'
 ]);
+
+/**
+ * Which drawn geometry the terminal clearance pass must keep clear.
+ *
+ * `routingStyle` already reaches here in `options` (useGraphLayout passes it);
+ * nothing read it before. Clearing the chord when the renderer draws an arc or
+ * an L is clearing a path that isn't on screen.
+ */
+function pathProviderFor(config) {
+  switch (config.routingStyle) {
+    case 'lombardi': return lombardiPaths(config.lombardiCurvature ?? 1);
+    case 'manhattan': return orthogonalPaths('manhattan', { manhattanBends: config.manhattanBends });
+    case 'clean': return orthogonalPaths('clean', { cleanLaneSpacing: config.cleanLaneSpacing });
+    default: return straightPaths();
+  }
+}
 
 /** positions Map (nodeId → {x, y}) → the update list the store expects. */
 function toUpdates(positions) {
@@ -487,14 +523,7 @@ function calculateSpring(pos1, pos2, targetDist, strength) {
  * should pass the resolved size (59.4 × textSettings.fontSize ×
  * connectionLabelSize) so layout reserves the space labels actually occupy.
  */
-export function estimateEdgeLabelWidth(text, fontSize = 59.4) {
-  if (!text) return 0;
-  // 0.7 accounts for fontWeight="bold" on edge labels
-  const avgCharWidth = fontSize * 0.7;
-  // stroke outline (strokeWidth = max(2, fontSize*0.25)) adds visual width
-  const strokeBuffer = Math.max(2, fontSize * 0.25) * 2;
-  return text.length * avgCharWidth + strokeBuffer;
-}
+export { estimateEdgeLabelWidth };
 
 /**
  * Calculate centering force toward canvas center
@@ -506,35 +535,7 @@ function calculateCentering(pos, centerX, centerY, strength) {
   };
 }
 
-/**
- * Calculate distance from point P to line segment AB.
- * Returns { distSq, closestX, closestY, t }
- * t is the projection factor (0 to 1).
- */
-function getPointSegmentDistSq(px, py, ax, ay, bx, by) {
-  const dx = bx - ax;
-  const dy = by - ay;
-  if (dx === 0 && dy === 0) {
-    // Segment is a point
-    const diffX = px - ax;
-    const diffY = py - ay;
-    return { distSq: diffX * diffX + diffY * diffY, closestX: ax, closestY: ay, t: 0 };
-  }
-
-  const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
-  const clampedT = Math.max(0, Math.min(1, t));
-  const closestX = ax + clampedT * dx;
-  const closestY = ay + clampedT * dy;
-  const diffX = px - closestX;
-  const diffY = py - closestY;
-
-  return {
-    distSq: diffX * diffX + diffY * diffY,
-    closestX,
-    closestY,
-    t: clampedT
-  };
-}
+// getPointSegmentDistSq now lives in layoutGeometry.js — imported at the top.
 
 // ============================================================================
 // CONSTANTS & PRESETS
@@ -589,6 +590,14 @@ export const FORCE_LAYOUT_DEFAULTS = {
   // renderer (NodeCanvas draws labels at 59.4 × textSettings.fontSize ×
   // connectionLabelSize); callers pass the resolved size via options.
   edgeLabelFontSize: 59.4,
+
+  // ── Terminal edge clearance ─────────────────────────────────────────────
+  // How many (clear → resolve overlaps) rounds run after everything else.
+  // 0 disables the projection entirely and restores the old behaviour, where
+  // node-vs-edge separation was only ever a fading force.
+  clearanceRounds: 3,
+  // Clear space demanded between a node's box and any edge passing it.
+  clearancePadding: 24,
 
   // Advanced forces
   enableEdgeRepulsion: true, // Triplet repulsion
@@ -1364,14 +1373,35 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     return widthSum * 0.4 + padding;
   };
 
-  // Initialize positions
+  // ── COORDINATE FRAME ────────────────────────────────────────────────────
+  // `positions` holds node CENTRES for the whole of this function, and is
+  // converted back to top-left immediately before the return.
+  //
+  // It used to hold top-left values while most of the maths treated them as
+  // centres. The visible consequence was that `edgeSegments` (the node↔edge
+  // repulsion below) built top-left→top-left lines while every renderer draws
+  // centre→centre — so for a 600px-wide node the solver was pushing nodes away
+  // from a line ~300px from the one on screen. Nodes therefore settled *onto*
+  // the edges they were supposed to clear. The header of patternLayouts.js has
+  // called this out for a while: "The force solver conflates the two; these
+  // layouts don't, which is why wide nodes stop overlapping."
+  //
+  // Anything reading `positions` inside this function reads centres. Anything
+  // crossing the function boundary — node.x/node.y in, toUpdates out — is
+  // top-left.
+  const halfOf = (node) => {
+    const { w, h } = boxOf(node);
+    return { hw: w / 2, hh: h / 2 };
+  };
+
   const positions = new Map();
   const velocities = new Map();
 
   if (options.useExistingPositions) {
     nodes.forEach(node => {
+      const { hw, hh } = halfOf(node);
       if (Number.isFinite(node.x) && Number.isFinite(node.y)) {
-        positions.set(node.id, { x: node.x, y: node.y });
+        positions.set(node.id, { x: node.x + hw, y: node.y + hh });
       } else {
         positions.set(node.id, { x: config.width / 2, y: config.height / 2 });
       }
@@ -1832,12 +1862,13 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
           const pos = positions.get(nodeId);
           const node = nodeById.get(nodeId);
           if (pos && node) {
-            const w = node.width || 100;
-            const h = node.height || 60;
-            minX = Math.min(minX, pos.x);
-            minY = Math.min(minY, pos.y);
-            maxX = Math.max(maxX, pos.x + w);
-            maxY = Math.max(maxY, pos.y + h);
+            // pos is a CENTRE — see the COORDINATE FRAME note above.
+            const hw = (node.width || 100) / 2;
+            const hh = (node.height || 60) / 2;
+            minX = Math.min(minX, pos.x - hw);
+            minY = Math.min(minY, pos.y - hh);
+            maxX = Math.max(maxX, pos.x + hw);
+            maxY = Math.max(maxY, pos.y + hh);
           }
         });
         if (minX !== Infinity) {
@@ -2186,7 +2217,59 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       getNodeRadius, finalMinNodeDistance, config, groupBoxes);
   }
 
-  return positions;
+  // ── TERMINAL EDGE CLEARANCE ─────────────────────────────────────────────
+  // Nothing may move a node after this block.
+  //
+  // Every stage above — condenseClusters, reduceEdgeCrossings, the group box
+  // passes, placeIsolatedNodes — moves nodes with no knowledge of where edges
+  // are drawn, and they run after the in-loop edge repulsion has decayed to
+  // nothing. So the pipeline's last act used to be re-creating exactly the
+  // overlaps the simulation spent 600 iterations avoiding.
+  //
+  // clearPathsOfNodes and resolveOverlaps can disagree: pushing a node off an
+  // edge can shove it into a neighbour, and separating that pair can put it
+  // back on the edge. They converge in practice because they move along
+  // different axes, but where they don't, CLEARANCE WINS — an edge through a
+  // node reads as broken, while two nodes slightly closer than ideal just
+  // reads as tight. That preference is encoded by making the final call
+  // clearance, after the last resolveOverlaps.
+  if (config.clearanceRounds > 0) {
+    const clearNodes = [...nodes, ...isolatedNodes];
+    const pathsFor = pathProviderFor(config);
+    const clearOpts = { padding: config.clearancePadding, passes: 3 };
+
+    for (let round = 0; round < config.clearanceRounds; round++) {
+      const result = clearPathsOfNodes(positions, clearNodes, uniqueEdges, pathsFor, clearOpts);
+      result.centers.forEach((p, id) => positions.set(id, p));
+      if (!result.moved) break;
+      resolveOverlaps(positions, clearNodes, getNodeRadius, config.padding,
+        config.width, config.height, 2);
+    }
+    // Final, unconditional — this is the state the layout ships in, so it gets
+    // a bigger pass budget and an uncapped shift. The cap exists to stop
+    // ping-pong while resolveOverlaps is still interleaved; nothing runs after
+    // this, so there is nothing left to ping-pong against.
+    const final = clearPathsOfNodes(positions, clearNodes, uniqueEdges, pathsFor, {
+      ...clearOpts,
+      passes: 8,
+      maxShiftPerPass: Infinity
+    });
+    final.centers.forEach((p, id) => positions.set(id, p));
+  }
+
+  // Back to the store's frame. See the COORDINATE FRAME note at the top of the
+  // function: centres inside, top-left across the boundary.
+  // nodeById covers only simulated nodes; isolated ones were stripped out
+  // before the loop and re-placed above.
+  const allById = new Map(nodeById);
+  isolatedNodes.forEach(n => allById.set(n.id, n));
+
+  const topLeft = new Map();
+  positions.forEach((pos, id) => {
+    const { hw, hh } = halfOf(allById.get(id));
+    topLeft.set(id, { x: pos.x - hw, y: pos.y - hh });
+  });
+  return topLeft;
 }
 
 /**
@@ -2432,10 +2515,11 @@ function computeGroupWorldBoxes(groups, positions, nodeById, pad) {
       const pos = positions.get(id);
       const node = nodeById.get(id);
       if (!pos || !node) return;
-      const w = node.width || 100;
-      const h = node.height || 60;
-      if (pos.x < minX) minX = pos.x;
-      if (pos.y < minY) minY = pos.y;
+      // `positions` holds CENTRES (forceDirectedLayout's frame).
+      const w = (node.width || 100) / 2;
+      const h = (node.height || 60) / 2;
+      if (pos.x - w < minX) minX = pos.x - w;
+      if (pos.y - h < minY) minY = pos.y - h;
       if (pos.x + w > maxX) maxX = pos.x + w;
       if (pos.y + h > maxY) maxY = pos.y + h;
     });
@@ -2528,10 +2612,11 @@ function separateGroupBoxes(positions, groups, nodeGroupsMap, nodeById, nestedGr
         const pos = positions.get(id);
         const node = nodeById.get(id);
         if (!pos || !node) return;
-        const w = node.width || 100;
-        const h = node.height || 60;
-        if (pos.x < minX) minX = pos.x;
-        if (pos.y < minY) minY = pos.y;
+        // `positions` holds CENTRES (forceDirectedLayout's frame).
+        const w = (node.width || 100) / 2;
+        const h = (node.height || 60) / 2;
+        if (pos.x - w < minX) minX = pos.x - w;
+        if (pos.y - h < minY) minY = pos.y - h;
         if (pos.x + w > maxX) maxX = pos.x + w;
         if (pos.y + h > maxY) maxY = pos.y + h;
       });
@@ -2604,10 +2689,11 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
         const pos = positions.get(id);
         const node = nodeById.get(id);
         if (!pos || !node) return;
-        const w = node.width || 100;
-        const h = node.height || 60;
-        if (pos.x < minX) minX = pos.x;
-        if (pos.y < minY) minY = pos.y;
+        // `positions` holds CENTRES (forceDirectedLayout's frame).
+        const w = (node.width || 100) / 2;
+        const h = (node.height || 60) / 2;
+        if (pos.x - w < minX) minX = pos.x - w;
+        if (pos.y - h < minY) minY = pos.y - h;
         if (pos.x + w > maxX) maxX = pos.x + w;
         if (pos.y + h > maxY) maxY = pos.y + h;
       });
@@ -2627,8 +2713,9 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
     const h = node.height || 60;
     const hw = w / 2 + clearance;
     const hh = h / 2 + clearance;
-    const cx = pos.x + w / 2;
-    const cy = pos.y + h / 2;
+    // `pos` IS the centre — forceDirectedLayout's frame.
+    const cx = pos.x;
+    const cy = pos.y;
     if (cx + hw <= box.minX || cx - hw >= box.maxX ||
         cy + hh <= box.minY || cy - hh >= box.maxY) return false;
     if (bias) {
@@ -2636,9 +2723,9 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
       const dx = bias.x - box.centerX;
       const dy = bias.y - box.centerY;
       if (Math.abs(dx) > Math.abs(dy)) {
-        pos.x = (dx > 0 ? box.maxX + hw : box.minX - hw) - w / 2;
+        pos.x = dx > 0 ? box.maxX + hw : box.minX - hw;
       } else {
-        pos.y = (dy > 0 ? box.maxY + hh : box.minY - hh) - h / 2;
+        pos.y = dy > 0 ? box.maxY + hh : box.minY - hh;
       }
     } else {
       const exitLeft = (cx + hw) - box.minX;
@@ -2695,8 +2782,9 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
       // eject from their UNION — per-box ejection just ping-pongs between
       // the overlapping boxes.
       for (let round = 0; round < 4; round++) {
-        const cx = pos.x + w / 2;
-        const cy = pos.y + h / 2;
+        // `pos` IS the centre — forceDirectedLayout's frame.
+        const cx = pos.x;
+        const cy = pos.y;
         const hits = [];
         fullBoxes.forEach(box => {
           if (cx + hw > box.minX && cx - hw < box.maxX &&

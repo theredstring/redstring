@@ -1,0 +1,291 @@
+/**
+ * Shared geometry for every layout in this codebase.
+ *
+ * WHY THIS FILE EXISTS
+ * ────────────────────
+ * These primitives were previously module-private in three different files:
+ * the box helpers in patternLayouts.js, `densify` in lombardiLayout.js, and the
+ * point-segment solve in graphLayoutService.js. The pattern layouts' versions
+ * are the ones under test — they are what produces `countOverlaps === 0` on a
+ * 200-node graph — so they are the ones that were kept. Nothing here is new
+ * except `boxMTV` and `polylineBoxMTV` at the bottom.
+ *
+ * It imports nothing from services/, so it adds no import cycle and it partly
+ * unwinds the existing graphLayoutService ↔ patternLayouts one: both of those
+ * now get their geometry from here rather than from each other.
+ *
+ * THE NODE MODEL
+ * ──────────────
+ * A Redstring node is a BOX, and often a very anisotropic one — a node named
+ * "congressional" is ~660×100. Any model that collapses that to a single
+ * radius is wrong in both directions at once: it reserves ~7x too much space
+ * vertically, and (when the radius is used as a clearance floor rather than a
+ * true extent) too little horizontally. Every function here takes half-extents
+ * `{ hw, hh }` and only collapses to a scalar where a direction genuinely isn't
+ * available yet — see `circumRadius`.
+ *
+ * ALL POSITIONS HERE ARE CENTRES. Callers working in the store's top-left
+ * convention must convert at the boundary.
+ */
+
+// Smallest box any node is treated as occupying, regardless of its own dims.
+export const MIN_BOX = 60;
+
+// Sub-pixel penetrations count as clear. Applying an exact minimum-translation
+// vector in floating point lands a hair short of the boundary, and without this
+// an iterating caller would treat that residue as a live violation forever.
+export const SEPARATION_EPSILON = 1e-6;
+
+// ============================================================================
+// BOX BASICS
+// ============================================================================
+
+/** Full width/height of a node's box, floored at MIN_BOX. */
+export const boxOf = (node) => ({
+  w: Math.max(node?.width || 0, node?.labelWidth || 0, MIN_BOX),
+  h: Math.max(node?.height || 0, MIN_BOX)
+});
+
+/**
+ * Half-extents, optionally inflated by padding and an image allowance.
+ *
+ * This is the replacement for graphLayoutService's `getNodeRadius`, which
+ * folded width, height and label width through a single `Math.max`. Here they
+ * stay separate.
+ */
+export function nodeBox(node, cfg = {}) {
+  const { w, h } = boxOf(node);
+  const pad = cfg.boxPadding ?? 0;
+  const imageBonus = Math.max(node?.imageHeight || 0, 0) * (cfg.imageRadiusMultiplier ?? 0.5);
+  return { hw: w / 2 + pad, hh: h / 2 + pad + imageBonus };
+}
+
+/**
+ * Half-extent of a node's box measured along direction (dx, dy) — i.e. how far
+ * the node's edge-attachment point sits from its center for an edge leaving in
+ * that direction. This is what makes spacing tight for edges leaving a wide
+ * node vertically and generous for edges leaving it horizontally.
+ */
+export function halfExtentTowards(node, dx, dy) {
+  const { w, h } = boxOf(node);
+  const halfW = w / 2;
+  const halfH = h / 2;
+  const ax = Math.abs(dx);
+  const ay = Math.abs(dy);
+  if (ax < 1e-6) return halfH;
+  if (ay < 1e-6) return halfW;
+  const len = Math.hypot(dx, dy);
+  return Math.min(halfW / (ax / len), halfH / (ay / len));
+}
+
+/** Worst-case radius — the circumscribed circle. Used before directions exist. */
+export const circumRadius = (node) => {
+  const { w, h } = boxOf(node);
+  return Math.hypot(w, h) / 2;
+};
+
+// ============================================================================
+// EDGE LABELS
+// ============================================================================
+
+/**
+ * Width of an edge label at a given font size. MUST track how NodeCanvas draws
+ * them — bold weight and a stroke outline both add visual width.
+ */
+export function estimateEdgeLabelWidth(text, fontSize = 59.4) {
+  if (!text) return 0;
+  // 0.7 accounts for fontWeight="bold" on edge labels
+  const avgCharWidth = fontSize * 0.7;
+  // stroke outline (strokeWidth = max(2, fontSize*0.25)) adds visual width
+  const strokeBuffer = Math.max(2, fontSize * 0.25) * 2;
+  return text.length * avgCharWidth + strokeBuffer;
+}
+
+export const labelSpanOf = (edge, fontSize) => estimateEdgeLabelWidth(edge?.name || '', fontSize);
+
+/**
+ * The core constraint: minimum center-to-center distance for this edge.
+ * `dx, dy` is the direction the edge will run; pass (1,0)/(0,1) when the axis
+ * is known, or the actual delta during a refinement pass.
+ */
+export function requiredEdgeLength(a, b, edge, cfg, dx = 1, dy = 0) {
+  const label = labelSpanOf(edge, cfg.edgeLabelFontSize);
+  const clearance = halfExtentTowards(a, dx, dy) + halfExtentTowards(b, dx, dy);
+  return Math.max(cfg.minEdgeLength, clearance + label + (label > 0 ? cfg.labelPadding : cfg.nodeGap));
+}
+
+// ============================================================================
+// SEGMENTS AND POLYLINES
+// ============================================================================
+
+/**
+ * Distance from point P to segment AB.
+ * @returns {{distSq: number, closestX: number, closestY: number, t: number}}
+ *          `t` is the projection factor, clamped to [0, 1].
+ */
+export function getPointSegmentDistSq(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  if (dx === 0 && dy === 0) {
+    const diffX = px - ax;
+    const diffY = py - ay;
+    return { distSq: diffX * diffX + diffY * diffY, closestX: ax, closestY: ay, t: 0 };
+  }
+
+  const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+  const clampedT = Math.max(0, Math.min(1, t));
+  const closestX = ax + clampedT * dx;
+  const closestY = ay + clampedT * dy;
+  const diffX = px - closestX;
+  const diffY = py - closestY;
+
+  return { distSq: diffX * diffX + diffY * diffY, closestX, closestY, t: clampedT };
+}
+
+/** Resample a polyline so no two consecutive points are further than `step` apart. */
+export function densify(points, step = 30) {
+  if (!points || points.length < 2) return points || [];
+  const out = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    const span = Math.hypot(b.x - a.x, b.y - a.y);
+    const cuts = Math.ceil(span / step);
+    for (let k = 1; k <= cuts; k++) {
+      const t = k / cuts;
+      out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    }
+  }
+  return out;
+}
+
+// ============================================================================
+// SEPARATION — the two functions this file was created for
+// ============================================================================
+
+/**
+ * Minimum translation vector separating two boxes, or null if already clear.
+ *
+ * The vector moves box B away from box A along whichever axis needs the LEAST
+ * movement. That matters: resolving along the centre-to-centre direction
+ * instead (which is what a circle model forces) pushes two wide, vertically
+ * adjacent nodes sideways when nudging one of them down would have cost a
+ * fraction as much.
+ *
+ * @param {{x:number,y:number}} pA centre of A
+ * @param {{hw:number,hh:number}} boxA
+ * @param {{x:number,y:number}} pB centre of B
+ * @param {{hw:number,hh:number}} boxB
+ * @param {number} gap required clear space between the two boxes
+ * @returns {{dx:number, dy:number, depth:number}|null} applied to B
+ */
+export function boxMTV(pA, boxA, pB, boxB, gap = 0) {
+  const dx = pB.x - pA.x;
+  const dy = pB.y - pA.y;
+  const overlapX = (boxA.hw + boxB.hw + gap) - Math.abs(dx);
+  const overlapY = (boxA.hh + boxB.hh + gap) - Math.abs(dy);
+  if (overlapX <= 0 || overlapY <= 0) return null;
+
+  // Coincident centres have no meaningful axis; the caller decides.
+  if (overlapX < overlapY) {
+    const sign = dx === 0 ? 1 : Math.sign(dx);
+    return { dx: sign * overlapX, dy: 0, depth: overlapX };
+  }
+  const sign = dy === 0 ? 1 : Math.sign(dy);
+  return { dx: 0, dy: sign * overlapY, depth: overlapY };
+}
+
+/**
+ * Minimum translation separating a BOX from one line SEGMENT, or null if clear.
+ *
+ * Uses the box's support function along the segment normal, which is what makes
+ * this exact for a rectangle rather than a circle: a box's reach perpendicular
+ * to a line is `hw·|n.x| + hh·|n.y|`, so a wide flat node blocks a horizontal
+ * line by 50px and a vertical one by 300px, and the same formula gives both.
+ *
+ * The push is along the NORMAL, deliberately not along an axis. Axis-aligned
+ * pushes look cheaper — you pick whichever of overX/overY is smaller — but for
+ * a steep edge the cheap axis is nearly parallel to the line, so the node slides
+ * along the edge instead of off it and the iteration never converges. Pushing
+ * along the normal is both the true minimum translation and the only direction
+ * guaranteed to make progress.
+ *
+ * @returns {{dx:number, dy:number, depth:number}|null} applied to the box
+ */
+export function segmentBoxMTV(ax, ay, bx, by, center, box, pad = 0) {
+  const hw = box.hw + pad;
+  const hh = box.hh + pad;
+
+  let ux = bx - ax;
+  let uy = by - ay;
+  const len = Math.hypot(ux, uy);
+  if (len < 1e-9) {
+    // Degenerate segment — fall back to point-vs-box.
+    const dx = ax - center.x;
+    const dy = ay - center.y;
+    const overX = hw - Math.abs(dx);
+    const overY = hh - Math.abs(dy);
+    if (overX <= 0 || overY <= 0) return null;
+    if (overX < overY) return { dx: -Math.sign(dx || 1) * overX, dy: 0, depth: overX };
+    return { dx: 0, dy: -Math.sign(dy || 1) * overY, depth: overY };
+  }
+  ux /= len;
+  uy /= len;
+  const nx = -uy;
+  const ny = ux;
+
+  const cx = center.x - ax;
+  const cy = center.y - ay;
+
+  // Perpendicular clearance. The epsilon matters: without it, applying the
+  // returned vector leaves a residue of ~1e-13 that still reads as a
+  // penetration, so an iterating caller never sees "clear" and burns every
+  // pass it has on nothing.
+  const s = nx * cx + ny * cy;
+  const supportN = hw * Math.abs(nx) + hh * Math.abs(ny);
+  const depth = supportN - Math.abs(s);
+  if (depth <= SEPARATION_EPSILON) return null;
+
+  // The segment is finite: the box must also overlap its extent along u.
+  const t = ux * cx + uy * cy;
+  const supportU = hw * Math.abs(ux) + hh * Math.abs(uy);
+  if (t + supportU <= 0 || t - supportU >= len) return null;
+
+  const sign = s === 0 ? 1 : Math.sign(s);
+  return { dx: sign * nx * depth, dy: sign * ny * depth, depth };
+}
+
+/**
+ * Deepest penetration of a polyline into a box, and the way out.
+ *
+ * This is the mechanism `clearArcsOfNodes` uses to keep Lombardi arcs off
+ * nodes, lifted out so every routing style can use it. The returned vector
+ * moves the NODE, not the path — moving a path's endpoint would change the
+ * path being cleared and the two would chase each other.
+ *
+ * Tests whole SEGMENTS, not sampled points. Point sampling has to densify to
+ * avoid a node slipping between two consecutive samples; segment testing is
+ * exact and needs no densification.
+ *
+ * @param {Array<{x:number,y:number}>} points polyline vertices
+ * @param {{x:number,y:number}} center node centre
+ * @param {{hw:number,hh:number}} box node half-extents
+ * @param {number} pad extra clearance required around the box
+ * @returns {{dx:number, dy:number, depth:number}|null} applied to the node
+ */
+export function polylineBoxMTV(points, center, box, pad = 0) {
+  if (!points || points.length === 0) return null;
+  if (points.length === 1) {
+    return segmentBoxMTV(points[0].x, points[0].y, points[0].x, points[0].y, center, box, pad);
+  }
+
+  let best = null;
+  for (let i = 0; i < points.length - 1; i++) {
+    const mtv = segmentBoxMTV(
+      points[i].x, points[i].y, points[i + 1].x, points[i + 1].y,
+      center, box, pad
+    );
+    if (mtv && (!best || mtv.depth > best.depth)) best = mtv;
+  }
+  return best;
+}
