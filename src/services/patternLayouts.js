@@ -52,6 +52,15 @@ import {
   circularOrder,
   isRegular
 } from './lombardiLayout.js';
+import {
+  serpentineCentered,
+  rectRingCentered,
+  compassCentered,
+  alignToLattice,
+  axisRestrictionFor,
+  separateBoxes
+} from './orthogonalLayout.js';
+import { clearPathsOfNodes, orthogonalPaths } from './pathClearance.js';
 
 export const PATTERN_LAYOUT_DEFAULTS = {
   width: 2000,
@@ -1318,6 +1327,30 @@ export const arcChainLayout = asTopLeftLayout(arcChainLayoutCentered);
  * returns is the seed that pipeline starts from, not the finished layout.
  */
 export function layoutPlanFor(kind, routingStyle) {
+  if (routingStyle === 'manhattan' || routingStyle === 'clean') {
+    // The mirror image of the Lombardi branch below. Orthogonal routing is paid
+    // in BENDS, and a bend is what you get whenever two nodes fail to share a
+    // coordinate — so every choice here is made to produce shared rows and
+    // columns. See the header of services/orthogonalLayout.js.
+    switch (kind) {
+      // Ranks give every parent/child pair a shared axis for free. This is why
+      // Sugiyama-style layered drawing and orthogonal routing have always gone
+      // together.
+      case TOPOLOGY.TREE: return 'tree';
+      case TOPOLOGY.DAG: return 'layered';
+      // One long line is zero-bend but unreadable past a dozen nodes; rows keep
+      // the zero bends and cost one per wrap.
+      case TOPOLOGY.CHAIN: return 'ortho-serpentine';
+      // A circle is Lombardi's best seed and orthogonal's worst — no two
+      // vertices on it share anything. A rectangle makes all but four of the
+      // ring's edges straight.
+      case TOPOLOGY.CYCLE: return 'ortho-ring';
+      // Neighbours on four axis-aligned rays: every spoke zero-bend.
+      case TOPOLOGY.STAR: return 'ortho-compass';
+      // No usable structure — the force solver seeds it and ALIGN does the work.
+      default: return TOPOLOGY_LAYOUT[kind];
+    }
+  }
   if (routingStyle !== 'lombardi') return TOPOLOGY_LAYOUT[kind];
   switch (kind) {
     // §5 of the paper — the Lombardi Spirograph draws hierarchies on concentric
@@ -1398,6 +1431,15 @@ export function lombardiPatternLayout(nodes, edges, cfg, options = {}) {
   const blocks = [];
   const floaters = [];
 
+  // One tick per finished component. The nested solver's own ramp is silenced
+  // (see the runFallback calls below), so this is the only progress the pattern
+  // path emits — monotonic, and actually proportional to work done.
+  let componentsDone = 0;
+  const reportComponent = () => {
+    componentsDone += 1;
+    cfg.onProgress?.(Math.min(1, componentsDone / Math.max(1, components.length)));
+  };
+
   components.forEach(component => {
     const kind = component.topology.kind;
     if (kind === TOPOLOGY.SINGLE) {
@@ -1440,6 +1482,7 @@ export function lombardiPatternLayout(nodes, edges, cfg, options = {}) {
         default:
           positions = runFallback(component.nodes, component.edges, {
             ...componentCfg,
+            onProgress: null, // see the note on the other runFallback call
             groups: [],
             useExistingPositions: false
           });
@@ -1458,6 +1501,8 @@ export function lombardiPatternLayout(nodes, edges, cfg, options = {}) {
       clearancePadding: componentCfg.nodeGap / 4
     });
 
+    reportComponent();
+
     blocks.push({
       positions,
       bbox: bboxOfCenters(positions, nodeById),
@@ -1468,6 +1513,150 @@ export function lombardiPatternLayout(nodes, edges, cfg, options = {}) {
 
   if (floaters.length > 0) {
     const positions = gridBlockCentered(floaters, cfg);
+    reportComponent();
+
+    blocks.push({
+      positions,
+      bbox: bboxOfCenters(positions, nodeById),
+      kind: TOPOLOGY.SINGLE,
+      size: floaters.length
+    });
+  }
+
+  return centersToTopLeft(packComponents(blocks, cfg), nodeById);
+}
+
+/**
+ * ORTHOGONAL AUTO-LAYOUT. The mirror of lombardiPatternLayout above.
+ *
+ * Reached only when routingStyle is 'manhattan' or 'clean'. Three stages, in
+ * order, per connected component:
+ *
+ *   1. SEED — the construction whose COORDINATES the routing can exploit
+ *      (layoutPlanFor above). Two nodes sharing an x or a y route with zero
+ *      bends; two in general position never do.
+ *
+ *   2. ALIGN — snap near-shared coordinates to exactly-shared ones, under
+ *      ordering constraints so nothing overtakes anything else. This is what
+ *      turns "roughly a row" into "a row", and it is the only stage that helps
+ *      a MESH component, whose force-solver seed is in general position by
+ *      construction.
+ *
+ *   3. CLEAR — against the ROUTED POLYLINE, not the chord. A Manhattan route
+ *      turns a corner somewhere the chord never went, so clearing the chord
+ *      says nothing about the drawing. Aligned nodes are restricted to their
+ *      free axis so this cannot undo stage 2.
+ */
+export function orthogonalPatternLayout(nodes, edges, cfg, options = {}) {
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const { components } = detectTopology(nodes, edges || [], options);
+  const runFallback = options.fallbackLayout || forceDirectedLayout;
+  const style = cfg.routingStyle === 'clean' ? 'clean' : 'manhattan';
+  const blocks = [];
+  const floaters = [];
+
+  let componentsDone = 0;
+  const reportComponent = () => {
+    componentsDone += 1;
+    cfg.onProgress?.(Math.min(1, componentsDone / Math.max(1, components.length)));
+  };
+
+  components.forEach(component => {
+    const kind = component.topology.kind;
+    if (kind === TOPOLOGY.SINGLE) {
+      floaters.push(component.nodes[0]);
+      return;
+    }
+
+    const componentCfg = {
+      ...cfg,
+      width: Math.max(cfg.minEdgeLength * 4, cfg.width * Math.sqrt(component.nodes.length / nodes.length)),
+      height: Math.max(cfg.minEdgeLength * 4, cfg.height * Math.sqrt(component.nodes.length / nodes.length))
+    };
+    const meta = component.topology.meta || {};
+
+    // ---- 1. SEED ----------------------------------------------------------
+    let positions;
+    switch (layoutPlanFor(kind, style)) {
+      case 'ortho-serpentine':
+        positions = serpentineCentered(component.nodes, component.edges, componentCfg, meta);
+        break;
+      case 'ortho-ring':
+        positions = rectRingCentered(component.nodes, component.edges, componentCfg, meta);
+        break;
+      case 'ortho-compass':
+        positions = compassCentered(component.nodes, component.edges, componentCfg, meta);
+        break;
+      case 'tree':
+        positions = treeLayoutCentered(component.nodes, component.edges, componentCfg, meta);
+        break;
+      case 'layered':
+        positions = layeredLayoutCentered(component.nodes, component.edges, componentCfg, meta);
+        break;
+      default:
+        positions = runFallback(component.nodes, component.edges, {
+          ...componentCfg,
+          onProgress: null,
+          groups: [],
+          useExistingPositions: false,
+          // The solver's own terminal clearance would fight the ALIGN stage
+          // below; clearance happens once, at the end, against the real routes.
+          clearanceRounds: 0
+        });
+    }
+
+    // ---- 2. ALIGN ---------------------------------------------------------
+    const aligned = alignToLattice(positions, component.nodes, component.edges, componentCfg);
+    positions = aligned.centers;
+
+    // ---- 3. CLEAR (routed polylines vs nodes) -----------------------------
+    // Alternating, and clearance last. Sliding a node out of one edge's lane
+    // can put it inside a neighbour; separating that pair can put it back in
+    // the lane. Nothing after the final clearance call may move a node.
+    const pathsFor = orthogonalPaths(style, { cleanLaneSpacing: componentCfg.cleanLaneSpacing });
+    const clearOpts = {
+      padding: componentCfg.nodeGap / 4,
+      axisFor: axisRestrictionFor(aligned.alignedX, aligned.alignedY)
+    };
+    for (let round = 0; round < 3; round++) {
+      const step = clearPathsOfNodes(positions, component.nodes, component.edges, pathsFor, clearOpts);
+      positions = step.centers;
+      if (!step.moved) break;
+      positions = separateBoxes(positions, component.nodes, componentCfg, 2);
+    }
+    positions = clearPathsOfNodes(positions, component.nodes, component.edges, pathsFor, {
+      ...clearOpts,
+      passes: 8
+    }).centers;
+
+    // ---- 4. RE-ALIGN (light) ----------------------------------------------
+    // CLEAR and separateBoxes both move nodes by arbitrary amounts, which
+    // destroys the EXACT coordinate equality stage 2 established — and exact is
+    // the whole point, since a route is only zero-bend when two coordinates
+    // match precisely. So tighten once more, with a tolerance small enough
+    // (a quarter of the clearance padding's own scale) that the correction
+    // cannot push anything back onto an edge.
+    const tightened = alignToLattice(positions, component.nodes, component.edges, {
+      ...componentCfg,
+      snapTolerance: componentCfg.nodeGap / 8,
+      edgeSnapTolerance: componentCfg.nodeGap / 8
+    });
+    positions = tightened.centers;
+
+    reportComponent();
+
+    blocks.push({
+      positions,
+      bbox: bboxOfCenters(positions, nodeById),
+      kind,
+      size: component.nodes.length
+    });
+  });
+
+  if (floaters.length > 0) {
+    const positions = gridBlockCentered(floaters, cfg);
+    reportComponent();
+
     blocks.push({
       positions,
       bbox: bboxOfCenters(positions, nodeById),
@@ -1504,6 +1693,9 @@ export function patternLayout(nodes, edges, options = {}) {
   if (cfg.routingStyle === 'lombardi') {
     return lombardiPatternLayout(nodes, edges, cfg, options);
   }
+  if (cfg.routingStyle === 'manhattan' || cfg.routingStyle === 'clean') {
+    return orthogonalPatternLayout(nodes, edges, cfg, options);
+  }
 
   const nodeById = new Map(nodes.map(n => [n.id, n]));
   const { components } = detectTopology(nodes, edges || [], options);
@@ -1511,6 +1703,15 @@ export function patternLayout(nodes, edges, options = {}) {
   const runFallback = options.fallbackLayout || forceDirectedLayout;
   const blocks = [];
   const floaters = [];
+
+  // One tick per finished component. The nested solver's own ramp is silenced
+  // (see the runFallback calls below), so this is the only progress the pattern
+  // path emits — monotonic, and actually proportional to work done.
+  let componentsDone = 0;
+  const reportComponent = () => {
+    componentsDone += 1;
+    cfg.onProgress?.(Math.min(1, componentsDone / Math.max(1, components.length)));
+  };
 
   components.forEach(component => {
     const kind = component.topology.kind;
@@ -1547,10 +1748,16 @@ export function patternLayout(nodes, edges, options = {}) {
       default:
         positions = runFallback(component.nodes, component.edges, {
           ...componentCfg,
+          // The fallback solver reports its own 0 → 1 ramp. Left inherited,
+          // every MESH component would drive the bar from 0 to full and back.
+          // Components report as a whole, below.
+          onProgress: null,
           groups: [],
           useExistingPositions: false
         });
     }
+
+    reportComponent();
 
     blocks.push({
       positions,
@@ -1562,6 +1769,8 @@ export function patternLayout(nodes, edges, options = {}) {
 
   if (floaters.length > 0) {
     const positions = gridBlockCentered(floaters, cfg);
+    reportComponent();
+
     blocks.push({
       positions,
       bbox: bboxOfCenters(positions, nodeById),
@@ -1595,6 +1804,7 @@ export function describeLayoutPlan(nodes, edges, options = {}) {
 
 export default {
   patternLayout,
+  orthogonalPatternLayout,
   lombardiPatternLayout,
   describeLayoutPlan,
   layoutPlanFor,

@@ -45,8 +45,22 @@ import {
   lombardiEdgeKey
 } from '../utils/canvas/edgeRouting.js';
 
+// Resultant pushes below this are treated as settled — two near-opposite
+// violations can cancel to a sub-pixel residue that would otherwise keep the
+// loop reporting movement forever.
+const SETTLED = 0.01;
+
+// Passes a node may keep violating before the offending edge's endpoints are
+// nudged too. Low enough to rescue a wedged node quickly, high enough that
+// ordinary violations resolve by moving only the intruder.
+const STALL_PASSES = 2;
+
+// Fraction of the intruder's displacement applied (in reverse) to each endpoint
+// of the offending edge. Small, so the path stays near where the solver put it.
+const RELIEF_SHARE = 0.35;
+
 export const CLEARANCE_DEFAULTS = {
-  // Gauss-Seidel passes. Each one only touches actual violations, so this
+  // Relaxation passes. Each one only touches actual violations, so this
   // converges fast; 6 matches what the Lombardi version has always used.
   passes: 6,
   // Clear space demanded between a node's box and any edge passing it.
@@ -132,8 +146,10 @@ export const lombardiPaths = (curvature = 1) => (centers, nodes, edges) => {
 /**
  * Push nodes out from under any drawn edge they don't belong to.
  *
- * Only the intruding node moves. Moving an endpoint would change the very path
- * being cleared, and the two would chase each other.
+ * Normally only the intruding node moves: displacing an endpoint changes the
+ * very path being cleared, and the two chase each other. The exception is a
+ * node that stays in violation for STALL_PASSES — see the wedge case below,
+ * where the gap is narrower than the node and moving it alone cannot succeed.
  *
  * @param {Map<string,{x:number,y:number}>} centers node CENTRES; not mutated
  * @param {Array} nodes
@@ -159,20 +175,27 @@ export function clearPathsOfNodes(centers, nodes, edges, pathsFor, options = {})
   const edgeById = new Map((edges || []).map(e => [e.id, e]));
 
   let out = new Map(centers);
+  const stalled = new Map();
   let movedEver = false;
   let usedPasses = 0;
 
   for (let pass = 0; pass < cfg.passes; pass++) {
     usedPasses = pass + 1;
     const paths = pathsFor(out, nodes, edges);
-    let movedThisPass = false;
 
-    paths.forEach((rawPoints, edgeId) => {
+    // Jacobi, not Gauss-Seidel: collect every violation against a node first,
+    // then move it once along the RESULTANT.
+    //
+    // Applying each edge's push the moment it is found looks equivalent and
+    // isn't. A node wedged between two edges gets shoved off the first and
+    // straight onto the second, then back — it oscillates and the pass budget
+    // runs out with the node still on an edge. Summing first sends it out
+    // along the one direction that relieves both.
+    const push = new Map();
+
+    paths.forEach((points, edgeId) => {
       const edge = edgeById.get(edgeId);
-      if (!edge) return;
-      // No densification: polylineBoxMTV tests whole segments, so a node can't
-      // slip between two samples the way it could with point sampling.
-      const points = rawPoints;
+      if (!edge || !points || points.length < 2) return;
 
       nodes.forEach(node => {
         if (node.id === edge.sourceId || node.id === edge.destinationId) return;
@@ -181,26 +204,86 @@ export function clearPathsOfNodes(centers, nodes, edges, pathsFor, options = {})
         const box = boxes.get(node.id);
         if (!at || !box) return;
 
+        // No densification: polylineBoxMTV tests whole segments, so a node
+        // can't slip between two samples the way it could with point sampling.
         const mtv = polylineBoxMTV(points, at, box, cfg.padding);
         if (!mtv) return;
 
-        let { dx, dy } = mtv;
-        const axis = axisFor(node.id);
-        if (axis === 'x') dy = 0;
-        else if (axis === 'y') dx = 0;
-        if (dx === 0 && dy === 0) return;
-
-        const shift = Math.hypot(dx, dy);
-        if (shift > cfg.maxShiftPerPass) {
-          const k = cfg.maxShiftPerPass / shift;
-          dx *= k;
-          dy *= k;
+        const acc = push.get(node.id) || { dx: 0, dy: 0, deepest: null, edge: null };
+        acc.dx += mtv.dx;
+        acc.dy += mtv.dy;
+        if (!acc.deepest || mtv.depth > acc.deepest.depth) {
+          acc.deepest = mtv;
+          acc.edge = edge;
         }
-
-        out.set(node.id, { x: at.x + dx, y: at.y + dy });
-        movedThisPass = true;
-        movedEver = true;
+        push.set(node.id, acc);
       });
+    });
+
+    if (push.size === 0) break;
+
+    let movedThisPass = false;
+    push.forEach((acc, nodeId) => {
+      let { dx, dy } = acc;
+
+      // WEDGE ESCAPE. A node sitting in the notch between two edges that meet
+      // at a shared endpoint gets near-opposite pushes, and the resultant
+      // cancels to nothing — so summing alone leaves it pinned there forever,
+      // which is exactly what happens to a leaf node caught under a fan of
+      // edges converging on its neighbour.
+      //
+      // When the resultant is much smaller than the deepest single violation,
+      // stop averaging and commit to that one, overshooting past the apex so
+      // the next pass starts outside the notch instead of back inside it.
+      const deepest = acc.deepest;
+      if (deepest && Math.hypot(dx, dy) < deepest.depth * 0.5) {
+        dx = deepest.dx * 1.5;
+        dy = deepest.dy * 1.5;
+      }
+
+      // WIDEN THE WEDGE. If a node has been violating for several passes it is
+      // not merely misplaced — the gap it sits in is narrower than the node is,
+      // so no amount of moving that ONE node can satisfy both sides. It just
+      // ping-pongs between them.
+      //
+      // The way out is to stop treating edge endpoints as immovable and give
+      // the deepest offending edge a reciprocal nudge, exactly as the force
+      // simulation's node↔edge repulsion does. Endpoints move a fraction of
+      // what the intruder does, so the path stays close to where the solver
+      // put it while the corridor opens enough to admit the node.
+      stalled.set(nodeId, (stalled.get(nodeId) || 0) + 1);
+      if (stalled.get(nodeId) >= STALL_PASSES && acc.edge) {
+        const relief = RELIEF_SHARE;
+        [acc.edge.sourceId, acc.edge.destinationId].forEach(endId => {
+          if (pinned.has(endId)) return;
+          const ep = out.get(endId);
+          if (!ep) return;
+          out.set(endId, { x: ep.x - dx * relief, y: ep.y - dy * relief });
+        });
+      }
+
+      // Axis restriction is a PREFERENCE, clearance is the GUARANTEE. An
+      // aligned node is asked to stay in its row or column, but if the axis it
+      // is allowed to move along cannot relieve the violation — a whole row of
+      // leaves with an edge running horizontally through it, where sliding
+      // sideways never helps — the restriction is dropped for that node. A
+      // broken alignment is a smaller defect than an edge drawn through a node.
+      const axis = axisFor(nodeId);
+      if (axis === 'x' && Math.abs(dx) > SETTLED) dy = 0;
+      else if (axis === 'y' && Math.abs(dy) > SETTLED) dx = 0;
+
+      const shift = Math.hypot(dx, dy);
+      if (shift < SETTLED) return;
+      if (shift > cfg.maxShiftPerPass) {
+        const k = cfg.maxShiftPerPass / shift;
+        dx *= k;
+        dy *= k;
+      }
+
+      const at = out.get(nodeId);
+      out.set(nodeId, { x: at.x + dx, y: at.y + dy });
+      movedThisPass = true;
+      movedEver = true;
     });
 
     if (!movedThisPass) break;

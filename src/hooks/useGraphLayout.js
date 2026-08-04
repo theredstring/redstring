@@ -35,6 +35,9 @@ const MIN_LAYOUT_ITERATIONS = 80;
 // Node count below which auto-layout finishes too quickly for a progress
 // indicator to be anything but a flash, so it isn't shown at all.
 const LAYOUT_INDICATOR_MIN_NODES = 35;
+// Must track FORCE_LAYOUT_DEFAULTS.alphaMin — the cooling schedule below is
+// derived so the run actually reaches it.
+const LAYOUT_ALPHA_MIN = 0.001;
 
 /**
  * Work units for one solver iteration — the two nested loops that dominate it.
@@ -48,8 +51,13 @@ const iterationWorkUnits = (nodeCount, edgeCount) =>
  * Cutting iterations alone would be a bug: every force in the solver is scaled
  * by `alpha`, which cools by `alpha *= (1 - alphaDecay)` each iteration. Ending
  * a run early leaves alpha high, so the sim stops while still hot and the final
- * positions are unsettled. So the cooling schedule is re-derived to reach the
- * same final alpha the preset would have reached, just over fewer steps.
+ * positions are unsettled. So the cooling schedule is re-derived to land on
+ * alphaMin over however many steps the budget allows — a short run and a long
+ * run then anneal through the same schedule at different resolutions, which is
+ * what an annealing schedule is supposed to do.
+ *
+ * `presetAlphaDecay` is accepted but no longer used; the preset's decay is now
+ * fully determined by its iteration count.
  */
 function computeIterationBudget(nodeCount, edgeCount, presetIterations, presetAlphaDecay) {
     const perIteration = iterationWorkUnits(nodeCount, edgeCount);
@@ -61,11 +69,19 @@ function computeIterationBudget(nodeCount, edgeCount, presetIterations, presetAl
     const iterations = Math.max(MIN_LAYOUT_ITERATIONS, Math.min(presetIterations, affordable));
     const estimatedMs = Math.round((perIteration * iterations) / unitsPerMs);
 
-    // Match the preset's end-of-run alpha over the shortened schedule.
-    const targetFinalAlpha = (1 - presetAlphaDecay) ** presetIterations;
-    const alphaDecay = iterations === presetIterations
-        ? presetAlphaDecay
-        : 1 - targetFinalAlpha ** (1 / iterations);
+    // Cool all the way to the floor, over whatever iteration count we can
+    // afford. This used to target the PRESET's end-of-run alpha instead:
+    //
+    //     const targetFinalAlpha = (1 - presetAlphaDecay) ** presetIterations;
+    //
+    // which for all three presets is ~0.008-0.011 against an alphaMin of 0.001.
+    // Every preset therefore stopped 8-11x above the floor, still visibly
+    // moving — `deep` didn't settle harder than `fast`, it took four times as
+    // long to reach the same unfinished state. That is why one press of
+    // auto-layout looked unfinished regardless of the chosen preset, and why
+    // pressing it a second time (which reheats to alpha 1.0 from the current
+    // positions) kept improving the result.
+    const alphaDecay = 1 - LAYOUT_ALPHA_MIN ** (1 / iterations);
 
     return { iterations, alphaDecay, estimatedMs, overBudget: estimatedMs > LAYOUT_TIME_BUDGET_MS };
 }
@@ -109,6 +125,12 @@ export const useGraphLayout = ({
     // needs — the conditional dispatcher in patternLayouts reads both of these.
     routingStyle = 'straight',
     lombardiCurvature = 1.0,
+    // Whether a non-straight routing style may override the layout algorithm.
+    // Escape hatch: set false to keep the chosen algorithm no matter what the
+    // edges are drawn with.
+    routingDrivesAlgorithm = true,
+    // Which solver runs the placement. See FORCE_LAYOUT_DEFAULTS.solver.
+    layoutSolver = 'force',
     // Force tuner settings — individual force params for consistency with AI and interactive sim
     forceTunerSettings = null,
     // Resolved connection label font (59.4 × textSettings.fontSize ×
@@ -365,6 +387,7 @@ export const useGraphLayout = ({
             edgeLabelFontSize: connectionFontSize,
             routingStyle,
             lombardiCurvature,
+            solver: layoutSolver,
             // Pass full force tuner parameters so auto-layout uses
             // the same configuration as the interactive simulation and AI.
             ...(forceTunerSettings ? {
@@ -662,15 +685,39 @@ export const useGraphLayout = ({
         // The clears below stay unconditional: they're cheap and they guarantee
         // nothing can leave a stale indicator on screen.
         const showIndicator = nodes.length > LAYOUT_INDICATOR_MIN_NODES;
+
+        // Ratchet. The solver's progress is scoped per nested run now, but the
+        // bar animates its width over 120ms, so any value that did go backwards
+        // would be visible as a rewind. Clamping to the maximum seen makes that
+        // cosmetically impossible regardless of what the solver reports.
+        let highWaterMark = 0;
         const publishProgress = (progress) => {
-            if (showIndicator) {
-                reportLayoutProgress({ progress, nodeCount: nodes.length, estimatedMs: budget.estimatedMs });
-            }
+            if (!showIndicator) return;
+            highWaterMark = Math.max(highWaterMark, progress || 0);
+            reportLayoutProgress({
+                progress: highWaterMark,
+                nodeCount: nodes.length,
+                estimatedMs: budget.estimatedMs
+            });
         };
 
         publishProgress(0);
 
-        runLayout(layoutNodes, layoutEdges, groupLayoutAlgorithm, layoutOptions, {
+        // ── Routing style steers algorithm selection ────────────────────────
+        // `routingStyle` reaches the solver in options, but applyLayout
+        // dispatches on the ALGORITHM, and the store's default is
+        // 'node-driven' → forceDirectedLayout. So the shape-aware pipelines —
+        // Lombardi's, and now the orthogonal one — were only reachable if the
+        // user had gone and picked "Pattern (Auto-Detect)" by hand. A curved or
+        // orthogonal routing style is a request for a layout that suits it, so
+        // unless an algorithm was explicitly chosen, route through 'pattern'
+        // and let it dispatch per component.
+        const wantsShapeAwareLayout = routingStyle !== 'straight'
+            && routingDrivesAlgorithm
+            && (groupLayoutAlgorithm === 'node-driven' || groupLayoutAlgorithm === 'force-directed');
+        const algorithm = wantsShapeAwareLayout ? 'pattern' : groupLayoutAlgorithm;
+
+        runLayout(layoutNodes, layoutEdges, algorithm, layoutOptions, {
             onProgress: publishProgress,
             onDone: onLayoutComplete,
             onError: (message) => {
@@ -694,6 +741,8 @@ export const useGraphLayout = ({
         groupLayoutAlgorithm,
         routingStyle,
         lombardiCurvature,
+        routingDrivesAlgorithm,
+        layoutSolver,
         graphsMap,
         forceTunerSettings,
         connectionFontSize,

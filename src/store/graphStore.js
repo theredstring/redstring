@@ -234,6 +234,15 @@ const getDefaultAutoLayoutSettings = () => ({
   layoutScaleMultiplier: 1.0,
   layoutIterations: 'balanced',
   groupLayoutAlgorithm: 'node-driven',
+  // When the routing style is manhattan / clean / lombardi, run the shape-aware
+  // pattern dispatcher instead of the plain force solver — those styles want
+  // layouts built for them (see orthogonalLayout.js and lombardiLayout.js).
+  routingDrivesAlgorithm: true,
+  // 'force'  — annealing spring embedder (default; the only path supporting
+  //            groups, incremental refinement and the force tuner)
+  // 'stress' — multilevel coarsening + stress majorization: a descent method
+  //            with a real convergence test, and measurably faster
+  solver: 'force',
   showClusterHulls: false // Debug visualization for connectivity clusters
 });
 

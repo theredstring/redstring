@@ -26,6 +26,7 @@ import {
   orthogonalPaths,
   lombardiPaths
 } from './pathClearance.js';
+import { multilevelStressLayout } from './multilevelLayout.js';
 // Pattern layouts import estimateEdgeLabelWidth / forceDirectedLayout from
 // this module, so the two form an import cycle. It resolves safely because
 // every cross-module reference happens inside a function body, never at
@@ -46,6 +47,50 @@ import {
 // ============================================================================
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+// Consecutive still iterations required before declaring convergence. One quiet
+// iteration is noise — a sim can momentarily balance and then keep moving.
+const CONVERGENCE_STABLE_ITERS = 5;
+
+/**
+ * Rescale a caller's progress callback into a sub-range.
+ *
+ * `onProgress` rides inside `options`, and several layouts refine their result
+ * by re-entering forceDirectedLayout with `{ ...options, ... }`. That spread
+ * carried the callback along, so a single run emitted several independent
+ * 0 → 1 ramps and the progress bar sawtoothed — a grouped graph sat at 0% for
+ * its two expensive phases and then snapped to ~95% during a 20-iteration
+ * polish. Scoping makes each nested run report into the slice of the whole it
+ * actually represents.
+ *
+ * Pass `null` explicitly on any spread that should report nothing, so a leak
+ * has to be opted into rather than inherited.
+ */
+function progressScope(options, base, span) {
+  const fn = typeof options?.onProgress === 'function' ? options.onProgress : null;
+  if (!fn) return null;
+  return (p) => fn(base + clamp(p, 0, 1) * span);
+}
+
+/**
+ * A stable pseudo-random angle for a pair of node ids.
+ *
+ * Used where two nodes land exactly on top of each other and have to be kicked
+ * apart in *some* direction. This was `Math.random()`, which meant an otherwise
+ * deterministic layout could not be reproduced — and made "did my change do
+ * that, or was it the dice?" unanswerable.
+ */
+function coincidentAngle(idA, idB) {
+  const mix = (str) => {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  };
+  return ((mix(idA) ^ mix(idB)) % 62832) / 10000;
+}
 
 /** Algorithm names handled by the pattern-layout dispatcher in applyLayout. */
 const PATTERN_ALGORITHMS = new Set([
@@ -564,7 +609,9 @@ export const FORCE_LAYOUT_DEFAULTS = {
   // Simulation control
   damping: 0.85,
   velocityDecay: 0.85,  // Alias for damping
-  alphaDecay: 0.008,
+  // Derived from `iterations` below — see alphaDecayFor. A hand-picked value
+  // here is how the presets drifted into never reaching alphaMin.
+  alphaDecay: 1 - 0.001 ** (1 / 600),
   alphaMin: 0.001,
 
   // Node sizing
@@ -590,6 +637,35 @@ export const FORCE_LAYOUT_DEFAULTS = {
   // renderer (NodeCanvas draws labels at 59.4 × textSettings.fontSize ×
   // connectionLabelSize); callers pass the resolved size via options.
   edgeLabelFontSize: 59.4,
+
+  // ── Solver ──────────────────────────────────────────────────────────────
+  // 'force'  → the annealing spring embedder (default; the only path that
+  //            supports groups, incremental refinement and the force tuner)
+  // 'stress' → multilevel coarsening + stress majorization, which has a real
+  //            objective and therefore a real convergence test
+  solver: 'force',
+
+  // ── Convergence ─────────────────────────────────────────────────────────
+  // Max per-node displacement below which an iteration counts as still. Scaled
+  // off nodeGap rather than an absolute pixel count, so it means the same thing
+  // at every layoutScale. 0 disables early exit and restores fixed-length runs.
+  convergenceEpsilon: 140 / 40, // ≈3.5px
+
+  // ── Node collision model ────────────────────────────────────────────────
+  // true  → nodes collide as BOXES (their real, anisotropic extents)
+  // false → the legacy single-radius circle, which for a 600x100 node reserves
+  //         a radius of ~340 and so over-reserves ~7x vertically.
+  // Kept as a switch for one release so the two can be compared live.
+  aabbCollision: true,
+  // Minimum clear space between two node boxes that aren't connected. Adopted
+  // from PATTERN_LAYOUT_DEFAULTS, where it already means exactly this and is
+  // covered by the zero-overlap tests on a 200-node graph.
+  nodeGap: 140,
+  // Along-the-edge clearance around a label. Also the pattern value; the old
+  // force-side `labelPadding: 40` conflated this with a radius fudge factor.
+  edgeLabelGap: 90,
+  // No edge is ever shorter than this, even between two tiny unlabeled nodes.
+  minEdgeLength: 260,
 
   // ── Terminal edge clearance ─────────────────────────────────────────────
   // How many (clear → resolve overlaps) rounds run after everything else.
@@ -643,18 +719,32 @@ export const LAYOUT_SCALE_PRESETS = {
   }
 };
 
+/**
+ * Cooling rate that lands exactly on `alphaMin` after `iterations` steps.
+ *
+ * DERIVED, never stored. The presets used to carry a hand-picked decay next to
+ * their iteration count, and the two had drifted apart: 300/0.015, 600/0.008
+ * and 1200/0.004 all finish at alpha ≈ 0.008-0.011, against an alphaMin of
+ * 0.001. Every preset stopped 8-11x above the floor — so `deep` never settled
+ * any harder than `fast`, it just took four times as long to reach the same
+ * unfinished state, and one press of auto-layout looked unfinished on all of
+ * them. Deriving the decay makes that class of drift impossible.
+ */
+export const alphaDecayFor = (iterations, alphaMin = 0.001) =>
+  1 - alphaMin ** (1 / Math.max(1, iterations));
+
 export const LAYOUT_ITERATION_PRESETS = {
   fast: {
     iterations: 300,
-    alphaDecay: 0.015
+    alphaDecay: alphaDecayFor(300)     // ≈0.0228 (was 0.015)
   },
   balanced: {
     iterations: 600,
-    alphaDecay: 0.008
+    alphaDecay: alphaDecayFor(600)     // ≈0.0114 (was 0.008)
   },
   deep: {
     iterations: 1200,
-    alphaDecay: 0.004
+    alphaDecay: alphaDecayFor(1200)    // ≈0.0057 (was 0.004)
   }
 };
 
@@ -1145,6 +1235,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   // Fewer iterations + stronger group forces + weaker cross-group springs
   return forceDirectedLayout(nodesWithPositions, edges, {
     ...options,
+    onProgress: progressScope(options, 0.85, 0.15),
     useExistingPositions: true,  // Prevents re-entering groupSeparatedLayout
     iterations: 20,  // Reduced from 40 — minimal time for springs to undo separation
     groups: groups,
@@ -1347,17 +1438,52 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   // ── Fix 4: Label-aware node radius for collision ─────────────────────
   // Incorporate actual label width so wider labels produce larger collision
   // radii, preventing edges from overlapping adjacent labels.
-  const getNodeRadius = (node) => {
-    if (!node) return config.minNodeRadius;
+  /**
+   * The node's size, in both models at once.
+   *
+   * `hw`/`hh` are the TRUE half-extents — width and height stay independent,
+   * which is the whole point. `r` is the legacy circle, kept bit-identical so
+   * `aabbCollision: false` reproduces the old layouts exactly.
+   *
+   * Note what is NOT in the box: padding. The old radius baked `labelPadding`
+   * into the node's own size, which made "how big is this node" and "how much
+   * room does it want" the same number. In the box model the first is the box
+   * and the second is `nodeGap`, applied by whoever is separating things.
+   */
+  const getNodeSize = (node) => {
+    if (!node) {
+      const r = config.minNodeRadius;
+      return { hw: r, hh: r, r };
+    }
     const w = Math.max(node.width || config.nodeSpacing, config.nodeSpacing);
     const h = Math.max(node.height || config.nodeSpacing, config.nodeSpacing);
     const labelW = node.labelWidth || node.width || config.nodeSpacing;
-    // Use the largest of body width, body height, and label span
-    const effectiveSpan = Math.max(w, h, labelW + config.labelPadding * 2);
-    const baseRadius = effectiveSpan / 2 + config.labelPadding;
     const imageBonus = Math.max(node.imageHeight || 0, 0) * 0.5;
-    return Math.max(baseRadius + imageBonus, config.minNodeRadius);
+
+    // Legacy circle — unchanged formula.
+    const effectiveSpan = Math.max(w, h, labelW + config.labelPadding * 2);
+    const r = Math.max(effectiveSpan / 2 + config.labelPadding + imageBonus, config.minNodeRadius);
+
+    const box = nodeBox(node, { imageRadiusMultiplier: 0.5 });
+    return { hw: box.hw, hh: box.hh, r };
   };
+
+  /** Legacy scalar accessor for the consumers still on the circle model. */
+  const getNodeRadius = (node) => getNodeSize(node).r;
+
+  // Collision settings threaded to every separation consumer, so the box model
+  // is either on everywhere or off everywhere. A half-migrated state is worse
+  // than either end: box-based overlap removal and circle-based edge
+  // constraints demand different separations for the same pair, and the layout
+  // oscillates between them.
+  const collisionCfg = {
+    aabb: config.aabbCollision !== false,
+    nodeGap: config.nodeGap,
+    labelPadding: config.edgeLabelGap,
+    minEdgeLength: config.minEdgeLength,
+    edgeLabelFontSize: config.edgeLabelFontSize
+  };
+  const overlapOpts = { aabb: collisionCfg.aabb, gap: config.nodeGap };
 
   const getLabelWidth = (node) => {
     if (!node) return config.nodeSpacing;
@@ -1483,6 +1609,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
 
   // Simulation loop
   let alpha = 1.0;
+  let stableIters = 0;
+  let convergedAt = null;
 
   // Optional progress reporting. Only meaningful off the main thread (see
   // layout.worker.js) — called synchronously, so it must stay cheap. Reported
@@ -1490,18 +1618,71 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
   const progressInterval = Math.max(1, Math.floor(config.iterations / 50));
 
-  for (let iter = 0; iter < config.iterations; iter++) {
+  // ── SOLVER SELECTION ─────────────────────────────────────────────────────
+  // Stress majorization replaces the annealing loop entirely when selected, but
+  // shares every post-loop stage below — including the terminal edge clearance.
+  // That sharing is the reason Stage 1b came first: clearance is a
+  // solver-independent guarantee, so a new solver inherits it for free.
+  //
+  // The force solver is NOT retired. It stays the path for:
+  //   • grouped graphs — the group forces above have no SMACOF analogue, and
+  //     porting them is a separate piece of work;
+  //   • incremental refinement (useExistingPositions), where majorizing from
+  //     the user's own arrangement fights their manual placement far harder
+  //     than a reheated spring sim does;
+  //   • the Force Simulation tuner, which is direct manipulation of force
+  //     parameters that simply do not exist in a stress model.
+  // Note what is NOT in this condition: useExistingPositions. That flag is true
+  // for every ungrouped run (useGraphLayout sets it from `groups.length === 0`),
+  // so requiring it to be false would have made this setting unreachable from
+  // the UI entirely.
+  //
+  // The deliberate consequence: choosing 'stress' means each press recomputes
+  // from scratch and lands in the same place, rather than reheating from the
+  // current positions. That is not a contradiction of the reheat behaviour —
+  // reheating is annealing-with-restarts, and stress majorization has no
+  // temperature to restart. It descends to a minimum and reports that it got
+  // there, which is what selecting it asks for.
+  const useStressSolver = config.solver === 'stress'
+    && groups.length === 0
+    && nodes.length > 2;
+
+  if (useStressSolver) {
+    const stressResult = multilevelStressLayout(nodes, edges, collisionCfg, {
+      ...(options.stress || {}),
+      nodeGap: config.nodeGap,
+      onProgress
+    });
+    stressResult.centers.forEach((p, id) => positions.set(id, p));
+    if (onProgress) onProgress(0.9);
+  }
+
+
+  for (let iter = 0; useStressSolver ? false : iter < config.iterations; iter++) {
     const forces = new Map();
     nodes.forEach(node => forces.set(node.id, { fx: 0, fy: 0 }));
 
-    // Phase control - stronger repulsion early, stronger spring/center late
+    // Phase control — stronger repulsion early, stronger spring/center late.
+    //
+    // PHASE COMES FROM TEMPERATURE, NOT FROM THE CLOCK. It used to be
+    // `iter / config.iterations`, which had two problems. First, an early exit
+    // on convergence would skip the settle phase entirely, since a run that
+    // stops at iteration 300 of 600 never reaches progress >= 0.7. Second — and
+    // this was true before any convergence work — every preset ended at
+    // alpha ≈ 0.008-0.011 against an alphaMin of 0.001, so on the alpha scale
+    // the sim was still hot when the clock said it was done.
+    //
+    // Driving phase off alpha ties "how settled is this?" to the thing that
+    // actually measures it. An early exit happens at low alpha by definition,
+    // so it lands INSIDE the settle phase instead of skipping it.
+    const phase = clamp(Math.log(alpha) / Math.log(config.alphaMin), 0, 1);
     const progress = iter / config.iterations;
     if (onProgress && iter % progressInterval === 0) onProgress(progress);
-    const repulsionMult = progress < 0.3 ? 1.4 : (progress < 0.7 ? 1.0 : 0.8);
-    const springMult = progress < 0.3 ? 0.7 : (progress < 0.7 ? 1.0 : 1.2);
+    const repulsionMult = phase < 0.3 ? 1.4 : (phase < 0.7 ? 1.0 : 0.8);
+    const springMult = phase < 0.3 ? 0.7 : (phase < 0.7 ? 1.0 : 1.2);
     // Cross-group springs don't get late-stage boost to prevent boundary violations
-    const crossGroupSpringMult = progress < 0.3 ? 0.7 : 1.0;
-    const centerMult = progress < 0.5 ? 0.5 : 1.0;
+    const crossGroupSpringMult = phase < 0.3 ? 0.7 : 1.0;
+    const centerMult = phase < 0.5 ? 0.5 : 1.0;
 
     // Repulsion forces (n-body)
     for (let i = 0; i < nodes.length; i++) {
@@ -1532,12 +1713,16 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
           : 0;
         const crossClusterMultiplier = baseCrossClusterMultiplier + proximityBoost;
 
-        const r1 = getNodeRadius(n1);
-        const r2 = getNodeRadius(n2);
         const effectiveMinNodeDistance = crossCluster
           ? finalMinNodeDistance * (isTwoClusterScenario ? 0.55 : 0.75)
           : finalMinNodeDistance;
-        const minDist = Math.max((r1 + r2) * 1.2, effectiveMinNodeDistance);
+        // Direction-aware: two wide nodes stacked vertically only need to clear
+        // each other's HEIGHT, so they no longer push apart as if both were
+        // circles the width of the wider one.
+        const pairFloor = collisionCfg.aabb
+          ? halfExtentTowards(n1, dx, dy) + halfExtentTowards(n2, dx, dy) + config.nodeGap
+          : (getNodeRadius(n1) + getNodeRadius(n2)) * 1.2;
+        const minDist = Math.max(pairFloor, effectiveMinNodeDistance);
 
         const repulsion = calculateRepulsion(p1, p2,
           repulsionStrength * repulsionMult * crossClusterMultiplier * alpha, minDist);
@@ -1696,9 +1881,9 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
 
       const n1 = nodeById.get(edge.sourceId);
       const n2 = nodeById.get(edge.destinationId);
-      const r1 = getNodeRadius(n1);
-      const r2 = getNodeRadius(n2);
-      const minDist = (r1 + r2) * 1.2;
+      const minDist = collisionCfg.aabb
+        ? requiredEdgeLength(n1, n2, edge, collisionCfg, p2.x - p1.x, p2.y - p1.y)
+        : (getNodeRadius(n1) + getNodeRadius(n2)) * 1.2;
       const labelAwareTarget = getLabelAwareTarget(n1, n2);
       const baseTarget = finalTargetLinkDistance;
       const preferredTarget = Math.max(labelAwareTarget, minDist);
@@ -1713,12 +1898,18 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       effectiveTarget = Math.max(effectiveTarget, finalMinNodeDistance);
 
       // ── Edge label minimum: ensure edges are long enough for their label text ──
-      // effectiveTarget is center-to-center; visible gap = effectiveTarget - r1 - r2
-      // so we need: edgeLabelWidth + padding + r1 + r2
+      // effectiveTarget is centre-to-centre, so the node extents along the edge
+      // have to be added to the label's own width. Under the box model `minDist`
+      // (requiredEdgeLength) already includes both; the circle path still needs
+      // the explicit sum.
       let edgeLabelMinDistance = 0;
       if (edge.name) {
         const edgeLabelWidth = estimateEdgeLabelWidth(edge.name, config.edgeLabelFontSize);
-        edgeLabelMinDistance = edgeLabelWidth + (config.edgeLabelPadding || 60) + r1 + r2;
+        const extents = collisionCfg.aabb
+          ? halfExtentTowards(n1, p2.x - p1.x, p2.y - p1.y)
+            + halfExtentTowards(n2, p2.x - p1.x, p2.y - p1.y)
+          : getNodeRadius(n1) + getNodeRadius(n2);
+        edgeLabelMinDistance = edgeLabelWidth + (config.edgeLabelPadding || 60) + extents;
         effectiveTarget = Math.max(effectiveTarget, edgeLabelMinDistance);
       }
 
@@ -2067,6 +2258,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     });
 
     // Apply forces
+    let maxDisp = 0;
+    let sumDisp = 0;
     nodes.forEach(node => {
       const pos = positions.get(node.id);
       const vel = velocities.get(node.id);
@@ -2085,6 +2278,9 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
         vel.y = (vel.y / speed) * maxSpeed;
       }
 
+      const beforeX = pos.x;
+      const beforeY = pos.y;
+
       // Update position
       pos.x += vel.x;
       pos.y += vel.y;
@@ -2092,10 +2288,38 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       // Keep within bounds
       pos.x = clamp(pos.x, config.padding, config.width - config.padding);
       pos.y = clamp(pos.y, config.padding, config.height - config.padding);
+
+      // Measured AFTER clamping, so a node pinned against the wall reads as
+      // still rather than as permanently moving.
+      const moved = Math.hypot(pos.x - beforeX, pos.y - beforeY);
+      if (moved > maxDisp) maxDisp = moved;
+      sumDisp += moved;
     });
 
     // Cool down
     alpha = Math.max(config.alphaMin, alpha * (1 - config.alphaDecay));
+
+    // ── CONVERGENCE ─────────────────────────────────────────────────────────
+    // Stop when the layout has actually stopped moving, rather than when the
+    // iteration counter runs out. Without this the solver always burns its
+    // whole budget: `deep` didn't converge harder than `fast`, it just took 4x
+    // as long to reach the same unfinished state.
+    //
+    // Requiring alpha to have reached its floor FIRST is what preserves
+    // reheat-on-repress. A fresh press starts at alpha 1.0 and cannot satisfy
+    // this until it has cooled, so pressing again still does real annealing
+    // work — it just stops once there is nothing left to do.
+    if (config.convergenceEpsilon > 0) {
+      const settled = alpha <= config.alphaMin * 2
+        && maxDisp < config.convergenceEpsilon
+        && (sumDisp / Math.max(1, nodes.length)) < config.convergenceEpsilon / 4;
+      stableIters = settled ? stableIters + 1 : 0;
+      if (stableIters >= CONVERGENCE_STABLE_ITERS) {
+        convergedAt = iter + 1;
+        if (onProgress) onProgress(1);
+        break;
+      }
+    }
 
     // ------------------------------------------------------------------------
     // In-Loop Constraint Enforcement (Stiffness)
@@ -2106,17 +2330,17 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     if (config.stiffness > 0) {
       // 1. Rigid Edge Constraints (Springs are not enough for stiffness)
       enforceEdgeConstraints(
-        positions, uniqueEdges, nodeById, getNodeRadius,
+        positions, uniqueEdges, nodeById, getNodeSize,
         finalTargetLinkDistance, 1, config.stiffness * alpha,
-        null, 0, config.edgeLabelFontSize
+        null, 0, config.edgeLabelFontSize, collisionCfg
       );
 
       // 2. Collision Resolution (Prevent overlaps actively)
       // We run this less frequently to save perf, or every frame for high quality
       if (iter % 2 === 0) {
         resolveOverlaps(
-          positions, nodes, getNodeRadius, config.padding,
-          config.width, config.height, 1
+          positions, nodes, getNodeSize, config.padding,
+          config.width, config.height, 1, overlapOpts
         );
       }
     }
@@ -2125,22 +2349,22 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   // Multi-stage constraint enforcement for rigidity (Final Polish)
   // Stage 1: Enforce edge constraints (connected nodes stay at target distance)
   // Pass group info so cross-group edges use weaker correction
-  enforceEdgeConstraints(positions, uniqueEdges, nodeById, getNodeRadius,
+  enforceEdgeConstraints(positions, uniqueEdges, nodeById, getNodeSize,
     finalTargetLinkDistance, 5, 0.8, nodeGroupsMap, config.minGroupDistance || 800,
-    config.edgeLabelFontSize);
+    config.edgeLabelFontSize, collisionCfg);
 
   // Stage 2: Resolve all overlaps
-  resolveOverlaps(positions, nodes, getNodeRadius, config.padding,
-    config.width, config.height, 10);
+  resolveOverlaps(positions, nodes, getNodeSize, config.padding,
+    config.width, config.height, 10, overlapOpts);
 
   // Stage 3: Re-enforce edge constraints (maintain connectivity after overlap resolution)
-  enforceEdgeConstraints(positions, uniqueEdges, nodeById, getNodeRadius,
+  enforceEdgeConstraints(positions, uniqueEdges, nodeById, getNodeSize,
     finalTargetLinkDistance, 3, 0.8, nodeGroupsMap, config.minGroupDistance || 800,
-    config.edgeLabelFontSize);
+    config.edgeLabelFontSize, collisionCfg);
 
   // Stage 4: Final gentle overlap check
-  resolveOverlaps(positions, nodes, getNodeRadius, config.padding,
-    config.width, config.height, 3);
+  resolveOverlaps(positions, nodes, getNodeSize, config.padding,
+    config.width, config.height, 3, overlapOpts);
 
   // Stage 5: Enforce cross-group minimum separation (hard constraint)
   if (groups.length > 0) {
@@ -2155,32 +2379,25 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   reduceEdgeCrossings(positions, edges, nodes, nodeById, 5);
 
   // ── Final label-aware edge correction ──────────────────────────────
-  // Hard clamp: ensure condensation + crossing reduction didn't compress
-  // labeled edges below their label width
-  uniqueEdges.forEach(edge => {
-    if (!edge.name) return;
-    const p1 = positions.get(edge.sourceId);
-    const p2 = positions.get(edge.destinationId);
-    if (!p1 || !p2) return;
-    const n1 = nodeById.get(edge.sourceId);
-    const n2 = nodeById.get(edge.destinationId);
-    const r1 = getNodeRadius(n1);
-    const r2 = getNodeRadius(n2);
-    const labelWidth = estimateEdgeLabelWidth(edge.name, config.edgeLabelFontSize);
-    const labelMin = labelWidth + 60 + r1 + r2;
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < labelMin && dist > 0.1) {
-      const correction = (labelMin - dist) * 0.5;
-      const ux = dx / dist;
-      const uy = dy / dist;
-      p1.x -= ux * correction;
-      p1.y -= uy * correction;
-      p2.x += ux * correction;
-      p2.y += uy * correction;
-    }
-  });
+  // Re-run the edge constraint after condensation and crossing reduction, both
+  // of which move nodes and can compress a labelled edge below its label width.
+  //
+  // This replaces a hand-rolled clamp that duplicated the label maths with its
+  // own `labelWidth + 60 + r1 + r2` formula. That copy was circle-based and
+  // direction-blind, so it disagreed with enforceEdgeConstraints about how long
+  // the same edge had to be — and being the later of the two, it won.
+  //
+  // ALTERNATING, not one shot. Lengthening an edge pushes its endpoints into
+  // their neighbours; separating those neighbours compresses other edges. The
+  // two constraints have to be relaxed against each other to land somewhere
+  // that satisfies both, which is the same reason stages 1-4 above alternate.
+  for (let polish = 0; polish < 2; polish++) {
+    enforceEdgeConstraints(positions, uniqueEdges, nodeById, getNodeSize,
+      finalTargetLinkDistance, 2, 0.8, nodeGroupsMap, config.minGroupDistance || 800,
+      config.edgeLabelFontSize, collisionCfg);
+    resolveOverlaps(positions, nodes, getNodeSize, config.padding,
+      config.width, config.height, 2, overlapOpts);
+  }
 
   // Enforce clearance between label midpoints of different labeled edges
   enforceEdgeLabelClearance(positions, uniqueEdges, nodeById, getNodeRadius, config);
@@ -2201,7 +2418,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     separateGroupBoxes(positions, groups, nodeGroupsMap, nodeById,
       nestedGroupPairs, config);
     enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap,
-      nodeById, getNodeRadius, config, nestedGroupPairs);
+      nodeById, getNodeSize, config, nestedGroupPairs);
   }
 
   // ── Isolated-node scatter ───────────────────────────────────────────────
@@ -2242,8 +2459,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       const result = clearPathsOfNodes(positions, clearNodes, uniqueEdges, pathsFor, clearOpts);
       result.centers.forEach((p, id) => positions.set(id, p));
       if (!result.moved) break;
-      resolveOverlaps(positions, clearNodes, getNodeRadius, config.padding,
-        config.width, config.height, 2);
+      resolveOverlaps(positions, clearNodes, getNodeSize, config.padding,
+        config.width, config.height, 2, overlapOpts);
     }
     // Final, unconditional — this is the state the layout ships in, so it gets
     // a bigger pass budget and an uncapped shift. The cap exists to stop
@@ -2256,6 +2473,11 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     });
     final.centers.forEach((p, id) => positions.set(id, p));
   }
+
+  // The bar used to freeze at 0.98: the loop's last emission is
+  // (iterations - progressInterval) / iterations, and the ~90 lines of
+  // post-processing after it reported nothing at all.
+  if (onProgress) onProgress(1);
 
   // Back to the store's frame. See the COORDINATE FRAME note at the top of the
   // function: centres inside, top-left across the boundary.
@@ -2433,7 +2655,7 @@ function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius
  * When nodeGroupsMap is provided, cross-group edges use weaker correction
  * and a larger minimum target to prevent undoing group separation.
  */
-function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDistance, passes, stiffness = 0.5, nodeGroupsMap = null, minGroupDistance = 0, edgeLabelFontSize = 59.4) {
+function enforceEdgeConstraints(positions, edges, nodeById, getSize, targetDistance, passes, stiffness = 0.5, nodeGroupsMap = null, minGroupDistance = 0, edgeLabelFontSize = 59.4, cfg = {}) {
   for (let pass = 0; pass < passes; pass++) {
     edges.forEach(edge => {
       const p1 = positions.get(edge.sourceId);
@@ -2448,8 +2670,8 @@ function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDis
 
       const n1 = nodeById.get(edge.sourceId);
       const n2 = nodeById.get(edge.destinationId);
-      const r1 = getRadius(n1);
-      const r2 = getRadius(n2);
+      const s1 = getSize(n1);
+      const s2 = getSize(n2);
 
       // Detect cross-group edges
       let isCrossGroup = false;
@@ -2462,16 +2684,23 @@ function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDis
       }
 
       // Dynamic Target Calculation
-      // We want nodes to sit at 'targetDistance' generally, 
-      // but MUST NOT overlap (radius + radius).
-      const minSeparation = (r1 + r2) * 1.1; // 10% gap
-      let effectiveTarget = Math.max(targetDistance, minSeparation);
-
-      // Respect edge label minimum — don't shrink edges below their label width
-      if (edge.name) {
-        const labelWidth = estimateEdgeLabelWidth(edge.name, edgeLabelFontSize);
-        const labelMin = labelWidth + 60 + r1 + r2;
-        effectiveTarget = Math.max(effectiveTarget, labelMin);
+      let effectiveTarget;
+      if (cfg.aabb) {
+        // One constraint replaces three. requiredEdgeLength already folds in
+        // the label span AND is direction-aware, so an edge leaving a wide node
+        // sideways gets the room it needs while one leaving vertically doesn't
+        // pay for width it isn't using.
+        effectiveTarget = Math.max(
+          targetDistance,
+          requiredEdgeLength(n1, n2, edge, cfg, dx, dy)
+        );
+      } else {
+        const minSeparation = (s1.r + s2.r) * 1.1; // 10% gap
+        effectiveTarget = Math.max(targetDistance, minSeparation);
+        if (edge.name) {
+          const labelWidth = estimateEdgeLabelWidth(edge.name, edgeLabelFontSize);
+          effectiveTarget = Math.max(effectiveTarget, labelWidth + 60 + s1.r + s2.r);
+        }
       }
 
       // Cross-group edges: larger target + weaker correction
@@ -2661,7 +2890,7 @@ function separateGroupBoxes(positions, groups, nodeGroupsMap, nodeById, nestedGr
   }
 }
 
-function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, nodeById, getRadius, config, nestedGroupPairs = new Set(), passes = 3) {
+function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, nodeById, getSize, config, nestedGroupPairs = new Set(), passes = 3) {
   if (!groups || groups.length === 0) return;
   const pad = config.groupBoundaryPadding || 100;
   const clearance = 30;
@@ -2806,7 +3035,8 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
 
   for (let pass = 0; pass < passes; pass++) {
     if (!ejectPass()) return;
-    resolveOverlaps(positions, nodes, getRadius, config.padding, config.width, config.height, 2);
+    resolveOverlaps(positions, nodes, getSize, config.padding, config.width, config.height, 2,
+      { aabb: config.aabbCollision !== false, gap: config.nodeGap });
   }
   ejectPass();
 }
@@ -2864,7 +3094,10 @@ function enforceGroupSeparation(positions, nodes, nodeGroupsMap, getRadius, minG
 /**
  * Resolve any remaining overlaps after main simulation
  */
-function resolveOverlaps(positions, nodes, getRadius, padding, width, height, passes) {
+function resolveOverlaps(positions, nodes, getSize, padding, width, height, passes, opts = {}) {
+  const aabb = opts.aabb === true;
+  const gap = opts.gap ?? 0;
+
   for (let pass = 0; pass < passes; pass++) {
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
@@ -2879,8 +3112,9 @@ function resolveOverlaps(positions, nodes, getRadius, padding, width, height, pa
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist < 0.1) {
-          // Nodes are stacked - separate them
-          const angle = Math.random() * 2 * Math.PI;
+          // Coincident. Deterministic direction from the ids: Math.random() here
+          // made an otherwise deterministic layout irreproducible.
+          const angle = coincidentAngle(n1.id, n2.id);
           p1.x -= Math.cos(angle) * 5;
           p1.y -= Math.sin(angle) * 5;
           p2.x += Math.cos(angle) * 5;
@@ -2888,9 +3122,30 @@ function resolveOverlaps(positions, nodes, getRadius, padding, width, height, pa
           continue;
         }
 
-        const r1 = getRadius(n1);
-        const r2 = getRadius(n2);
-        const minDist = (r1 + r2) * 1.4; // Increased from 1.3 for more breathing room
+        const s1 = getSize(n1);
+        const s2 = getSize(n2);
+
+        if (aabb) {
+          // Separate along the minimum-translation axis. Resolving along the
+          // centre-to-centre direction (what a circle model forces) shoves two
+          // wide, vertically-adjacent nodes sideways when nudging one of them
+          // down would have cost a fraction as much.
+          const mtv = boxMTV(p1, s1, p2, s2, gap);
+          if (mtv) {
+            const half = 0.55; // slight overshoot, as the circle path also does
+            p1.x -= mtv.dx * half;
+            p1.y -= mtv.dy * half;
+            p2.x += mtv.dx * half;
+            p2.y += mtv.dy * half;
+            p1.x = clamp(p1.x, padding, width - padding);
+            p1.y = clamp(p1.y, padding, height - padding);
+            p2.x = clamp(p2.x, padding, width - padding);
+            p2.y = clamp(p2.y, padding, height - padding);
+          }
+          continue;
+        }
+
+        const minDist = (s1.r + s2.r) * 1.4; // Increased from 1.3 for more breathing room
 
         if (dist < minDist) {
           // More aggressive separation - use full overlap + 10% extra
@@ -3501,6 +3756,7 @@ export function eulerLayout(nodes, edges, options = {}) {
   // 4. Run a short force simulation to refine node positions while keeping them in their zones
   return forceDirectedLayout(nodes, edges, {
     ...options,
+    onProgress: progressScope(options, 0.3, 0.7),
     useExistingPositions: true,
     iterations: 50, // Fewer iterations for refinement
     groupAttractionStrength: 0.3, // Stronger group pull
@@ -3517,6 +3773,7 @@ export function hybridLayout(nodes, edges, options = {}) {
   // First pass: Euler-style placement to get initial positions
   const initialPositions = eulerLayout(nodes, edges, {
     ...options,
+    onProgress: null, // too short to be worth reporting
     iterations: 20 // Very quick pass
   });
 
@@ -3528,6 +3785,7 @@ export function hybridLayout(nodes, edges, options = {}) {
 
   return forceDirectedLayout(nodesWithPos, edges, {
     ...options,
+    onProgress: progressScope(options, 0.2, 0.8),
     useExistingPositions: true,
     groupAttractionStrength: 0.15,
     groupRepulsionStrength: 0.6,

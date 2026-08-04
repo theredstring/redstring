@@ -794,6 +794,10 @@ function NodeCanvas() {
   const connectionLabelSize = useGraphStore(state => state.connectionLabelSize ?? 1.0);
   const groupLayoutAlgorithm = useGraphStore(state => state.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven');
   const showClusterHulls = useGraphStore(state => state.autoLayoutSettings?.showClusterHulls || false);
+  // Lets a curved/orthogonal routing style select the shape-aware layout that
+  // suits it. Off keeps whatever algorithm is chosen regardless of routing.
+  const routingDrivesAlgorithm = useGraphStore(state => state.autoLayoutSettings?.routingDrivesAlgorithm !== false);
+  const layoutSolver = useGraphStore(state => state.autoLayoutSettings?.solver || 'force');
   const layoutScalePreset = useGraphStore(state => state.autoLayoutSettings?.layoutScale || 'balanced');
   const layoutScaleMultiplier = useGraphStore(state => state.autoLayoutSettings?.layoutScaleMultiplier ?? 1);
   const layoutIterationPreset = useGraphStore(state => state.autoLayoutSettings?.layoutIterations || 'balanced');
@@ -2336,6 +2340,8 @@ function NodeCanvas() {
     groupLayoutAlgorithm,
     routingStyle,
     lombardiCurvature,
+    routingDrivesAlgorithm,
+    layoutSolver,
     forceTunerSettings,
     connectionFontSize: 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize,
     setZoomLevel,
