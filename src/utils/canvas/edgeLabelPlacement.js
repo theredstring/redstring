@@ -395,6 +395,21 @@ const getFallbackPlacement = (pathPoints, textWidth, textHeight, obstacles) => {
 
 const MIN_ANCHOR_SEGMENT = 24; // px — shorter than this reads as a stub, not a run
 
+/**
+ * Rank one candidate placement against the best so far.
+ *
+ * Crossings come FIRST, and not as a weighted term in the score. The score
+ * mixes quantities with no common unit — a segment's length in pixels, a flat
+ * bonus for being horizontal, a penalty for drifting off centre — so any weight
+ * chosen for "a connection runs through this label" would be arbitrary at one
+ * graph scale and wrong at another. Ordering on the count instead says the only
+ * thing that is actually true at every scale: a spot nothing runs through beats
+ * a spot something does, and everything else is a tiebreak.
+ */
+const betterPlacement = (crossings, score, best) => (
+    crossings !== best.crossings ? crossings < best.crossings : score > best.score
+);
+
 // Break a polyline into scored, orientation-tagged segments (longest first).
 const describeSegments = (pathPoints) => {
     const segments = [];
@@ -434,6 +449,163 @@ const labelRectFor = (x, y, textWidth, textHeight, angle) => {
     const halfW = (vertical ? textHeight : textWidth) / 2;
     const halfH = (vertical ? textWidth : textHeight) / 2;
     return { minX: x - halfW, maxX: x + halfW, minY: y - halfH, maxY: y + halfH };
+};
+
+// ---------------------------------------------------------------------------
+// CONNECTIONS AS OBSTACLES
+//
+// A label sitting under another connection's line is the one collision the
+// placer could not see. Nodes and other labels are rectangles and were already
+// dodged; a connection is a polyline, and nothing tested against it — so a label
+// could be struck through by a line belonging to a different relation entirely,
+// and the only cue that anything was wrong was that it had become unreadable.
+//
+// The placer already knows how to move — it walks a ladder of positions along
+// its own line. All it was missing was a reason to reject the one it was
+// landing on. That is what this section supplies.
+//
+// COST. Every candidate position must be tested against every OTHER connection
+// on screen, and the ladder is ~35 candidates per label. Done naively that is
+// O(E²) per pass with a large constant, which at a few hundred connections is
+// well past the frame budget. So segments go into a uniform grid once per pass
+// and each candidate only ever looks at the cells its own box covers, which
+// makes the test proportional to what is genuinely nearby.
+// ---------------------------------------------------------------------------
+
+/**
+ * Grid cell size, in canvas pixels.
+ *
+ * Sized against a label, not a connection: cells much smaller than a label mean
+ * every query touches many of them, and cells much larger mean every query
+ * pulls in segments nowhere near it. A connection label is a couple of hundred
+ * pixels wide at the default font, so this lands a typical query on a 2×2 or
+ * 3×2 block.
+ */
+const SEGMENT_CELL_SIZE = 220;
+
+const cellKey = (cx, cy) => `${cx},${cy}`;
+
+/**
+ * Index a graph's drawn connections for label-crossing queries.
+ *
+ * @param {Map<string, Array<{x:number,y:number}>>} polylinesByEdgeId - the
+ *   geometry actually drawn, per edge. For arcs, pass a sampling.
+ * @returns {{cells: Map, cellSize: number}|null} null when there is nothing to
+ *   index, which callers treat as "skip the crossing test entirely".
+ */
+export const buildEdgeSegmentIndex = (polylinesByEdgeId, cellSize = SEGMENT_CELL_SIZE) => {
+    if (!polylinesByEdgeId || polylinesByEdgeId.size === 0) return null;
+    const cells = new Map();
+
+    const add = (cx, cy, segment) => {
+        const key = cellKey(cx, cy);
+        const bucket = cells.get(key);
+        if (bucket) bucket.push(segment); else cells.set(key, [segment]);
+    };
+
+    polylinesByEdgeId.forEach((points, edgeId) => {
+        if (!points || points.length < 2) return;
+        for (let i = 0; i < points.length - 1; i++) {
+            const a = points[i];
+            const b = points[i + 1];
+            const segment = { edgeId, ax: a.x, ay: a.y, bx: b.x, by: b.y };
+
+            // Walk only the cells the segment actually passes through. Using the
+            // segment's bounding box instead would be far simpler and quite
+            // wrong for the long diagonals Lombardi produces: a corner-to-corner
+            // line would claim every cell in the rectangle it spans, and each of
+            // those cells would then hand the segment back to queries it comes
+            // nowhere near.
+            let cx = Math.floor(a.x / cellSize);
+            let cy = Math.floor(a.y / cellSize);
+            const lastCx = Math.floor(b.x / cellSize);
+            const lastCy = Math.floor(b.y / cellSize);
+            add(cx, cy, segment);
+            if (cx === lastCx && cy === lastCy) continue;
+
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const stepX = Math.sign(dx);
+            const stepY = Math.sign(dy);
+            // Parametric distance to the next cell boundary on each axis, and
+            // how much of the parameter one whole cell costs. Standard grid
+            // traversal: advance whichever boundary comes first.
+            let tMaxX = dx === 0 ? Infinity
+                : ((cx + (stepX > 0 ? 1 : 0)) * cellSize - a.x) / dx;
+            let tMaxY = dy === 0 ? Infinity
+                : ((cy + (stepY > 0 ? 1 : 0)) * cellSize - a.y) / dy;
+            const tDeltaX = dx === 0 ? Infinity : Math.abs(cellSize / dx);
+            const tDeltaY = dy === 0 ? Infinity : Math.abs(cellSize / dy);
+
+            // Bounded by the cells the segment spans; the guard is only there so
+            // a NaN coordinate can't spin forever.
+            let guard = 4096;
+            while ((cx !== lastCx || cy !== lastCy) && guard-- > 0) {
+                if (tMaxX < tMaxY) { cx += stepX; tMaxX += tDeltaX; }
+                else { cy += stepY; tMaxY += tDeltaY; }
+                add(cx, cy, segment);
+            }
+        }
+    });
+
+    return cells.size > 0 ? { cells, cellSize } : null;
+};
+
+/** Does a segment touch an axis-aligned box? Liang-Barsky slab clipping. */
+const segmentHitsRect = (segment, rect) => {
+    let t0 = 0;
+    let t1 = 1;
+    const dx = segment.bx - segment.ax;
+    const dy = segment.by - segment.ay;
+
+    const clip = (p, q) => {
+        if (p === 0) return q >= 0;          // parallel to this slab
+        const r = q / p;
+        if (p < 0) {
+            if (r > t1) return false;
+            if (r > t0) t0 = r;
+        } else {
+            if (r < t0) return false;
+            if (r < t1) t1 = r;
+        }
+        return true;
+    };
+
+    return clip(-dx, segment.ax - rect.minX)
+        && clip(dx, rect.maxX - segment.ax)
+        && clip(-dy, segment.ay - rect.minY)
+        && clip(dy, rect.maxY - segment.ay);
+};
+
+/**
+ * How many DISTINCT other connections would strike through a label placed here.
+ *
+ * A count rather than a boolean because the placer often has no clean spot at
+ * all, and one connection across a label is meaningfully better than three.
+ */
+export const countCrossingEdges = (rect, index, excludeEdgeId) => {
+    if (!index) return 0;
+    const { cells, cellSize } = index;
+    const minCx = Math.floor(rect.minX / cellSize);
+    const maxCx = Math.floor(rect.maxX / cellSize);
+    const minCy = Math.floor(rect.minY / cellSize);
+    const maxCy = Math.floor(rect.maxY / cellSize);
+
+    const crossing = new Set();
+    for (let cx = minCx; cx <= maxCx; cx++) {
+        for (let cy = minCy; cy <= maxCy; cy++) {
+            const bucket = cells.get(cellKey(cx, cy));
+            if (!bucket) continue;
+            for (let i = 0; i < bucket.length; i++) {
+                const segment = bucket[i];
+                // A label lies on its OWN connection by design.
+                if (segment.edgeId === excludeEdgeId) continue;
+                if (crossing.has(segment.edgeId)) continue;
+                if (segmentHitsRect(segment, rect)) crossing.add(segment.edgeId);
+            }
+        }
+    }
+    return crossing.size;
 };
 
 /**
@@ -515,12 +687,13 @@ export const chooseOrthogonalLabelPlacement = (
                 const rect = labelRectFor(x, y, textWidth, textHeight, seg.angle);
                 if (rectIntersectsAny(rect, obstacles)) continue;
 
+                const crossings = countCrossingEdges(rect, options.segmentIndex, edgeId);
                 const score = seg.length
                     + seg.orientationBonus
                     - Math.abs(t - 0.5) * 300   // hug the middle of the run
                     - Math.abs(offset) * 6;      // and hug the line itself
-                if (!best || score > best.score) {
-                    best = { x, y, angle: seg.angle, score, rect };
+                if (!best || betterPlacement(crossings, score, best)) {
+                    best = { x, y, angle: seg.angle, score, crossings, rect };
                 }
             }
         }
@@ -532,10 +705,12 @@ export const chooseOrthogonalLabelPlacement = (
     // because a label nobody can trace back to its connection is worse than one
     // that overlaps a node.
     const fallback = placeLabelOnPath(pathPoints);
+    const fallbackRect = labelRectFor(fallback.x, fallback.y, textWidth, textHeight, fallback.angle);
     return {
         ...fallback,
         score: 0,
-        rect: labelRectFor(fallback.x, fallback.y, textWidth, textHeight, fallback.angle),
+        crossings: countCrossingEdges(fallbackRect, options.segmentIndex, edgeId),
+        rect: fallbackRect,
     };
 };
 
@@ -603,9 +778,10 @@ export const chooseArcLabelPlacement = (
             const rect = labelRectFor(x, y, textWidth, textHeight, anchor.angle);
             if (rectIntersectsAny(rect, obstacles)) continue;
 
+            const crossings = countCrossingEdges(rect, options.segmentIndex, edgeId);
             const score = -Math.abs(s - 0.5) * 300 - Math.abs(offset) * 6;
-            if (!best || score > best.score) {
-                best = { x, y, angle: anchor.angle, score, rect };
+            if (!best || betterPlacement(crossings, score, best)) {
+                best = { x, y, angle: anchor.angle, score, crossings, rect };
             }
         }
     }
@@ -613,10 +789,12 @@ export const chooseArcLabelPlacement = (
     if (best) return best;
 
     const fallback = placeLabelOnArc(arc);
+    const fallbackRect = labelRectFor(fallback.x, fallback.y, textWidth, textHeight, fallback.angle);
     return {
         ...fallback,
         score: 0,
-        rect: labelRectFor(fallback.x, fallback.y, textWidth, textHeight, fallback.angle),
+        crossings: countCrossingEdges(fallbackRect, options.segmentIndex, edgeId),
+        rect: fallbackRect,
     };
 };
 

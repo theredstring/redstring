@@ -105,14 +105,14 @@ import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath, MIN_VISIBLE_BOW, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath, MIN_VISIBLE_BOW, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
 import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
-import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle } from './utils/canvas/edgeLabelPlacement.js';
+import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -182,6 +182,12 @@ const CURVED_LABEL_BUDGET = 40;
 // A Lombardi label only earns a <textPath> if its baseline visibly bends on
 // screen. Below this the curved and straight versions are the same picture.
 const LABEL_CURVE_MIN_SCREEN_PX = 1.2;
+
+// Above this many visible connections, labels stop trying to dodge the ones
+// they land under. The dodge needs every connection's routed geometry plus a
+// spatial index over it, and at this density there is no uncrossed spot left to
+// move to — so it would be paid for in full and return nothing.
+const LABEL_CROSSING_BUDGET = 220;
 
 // EXCLUSIVE_PANEL_MODE_THRESHOLD is imported from ./constants (shared with Panel.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
@@ -2965,12 +2971,97 @@ function NodeCanvas() {
 
   useEffect(() => { lombardiTangentsRef.current = lombardiTangents; }, [lombardiTangents]);
 
+  // Memoize edgeCurveInfo for parallel edge detection (used by both rendering and hover detection).
+  // NOTE: iterate ALL edges (not visibleEdges) so the pairIndex / totalInPair for
+  // any given edge stays stable as neighboring edges pop in/out of visibility
+  // during pan/zoom. Otherwise, parallel edges visibly jump lanes when a sibling
+  // culls out = flicker.
+  const edgeCurveInfo = useMemo(() => {
+    const edgePairGroups = new Map();
+    const curveInfoMap = new Map();
+
+    edges.forEach(edge => {
+      const key = [edge.sourceId, edge.destinationId].sort().join('-');
+      if (!edgePairGroups.has(key)) {
+        edgePairGroups.set(key, []);
+      }
+      edgePairGroups.get(key).push(edge.id);
+    });
+
+    edgePairGroups.forEach((edgeIds) => {
+      const total = edgeIds.length;
+      edgeIds.forEach((edgeId, idx) => {
+        curveInfoMap.set(edgeId, { pairIndex: idx, totalInPair: total });
+      });
+    });
+
+    return curveInfoMap;
+  }, [edges]);
+
+  // The geometry every OTHER connection is drawn with, so a label can be moved
+  // off a line that would strike through it. See CONNECTIONS AS OBSTACLES in
+  // edgeLabelPlacement.js for why this is worth an extra pass over the edges.
+  //
+  // It has to be the routed geometry, not the centre-to-centre chord: on every
+  // style here the drawn line is nowhere near that chord, so testing against
+  // one would reject the good positions and accept the covered ones. That means
+  // re-deriving each route once outside the render — the same solve the render
+  // does per edge, and cheap next to the label pass it feeds.
+  //
+  // Skipped above LABEL_CROSSING_BUDGET. Past a certain density a label is
+  // crossed by something wherever it goes, so the pass stops buying anything
+  // while still costing an index build plus ~35 queries per label.
+  //
+  // NOTE: iterate ALL edges, not visibleEdges — same reason as edgeCurveInfo and
+  // the clean lane assignment. Keyed on the visible set this would rebuild on
+  // every pan, and since a changed index re-solves every label (see the effect
+  // below), labels would visibly reshuffle for the whole of a pan.
+  const labelCrossingIndex = useMemo(() => {
+    if (!showConnectionNames || !isRoutedStyle) return null;
+    if (edges.length < 2 || edges.length > LABEL_CROSSING_BUDGET) return null;
+
+    const polylines = new Map();
+    for (const edge of edges) {
+      const destId = edge.destinationId || edge.targetId;
+      // Self-loops hug their own node, where a label has nowhere better to go.
+      if (!destId || edge.sourceId === destId) continue;
+      const srcNode = nodeById.get(edge.sourceId);
+      const dstNode = nodeById.get(destId);
+      if (!srcNode || !dstNode) continue;
+      const sDims = baseDimsById.get(edge.sourceId);
+      const dDims = baseDimsById.get(destId);
+      if (!sDims || !dDims) continue;
+
+      if (routingStyle === 'manhattan') {
+        polylines.set(edge.id, computeManhattanRouting(
+          srcNode, dstNode, sDims, dDims, manhattanBends,
+          { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing }
+        ).points);
+      } else if (routingStyle === 'clean') {
+        polylines.set(edge.id, computeCleanRouting(
+          edge, srcNode, dstNode, sDims, dDims, cleanLaneOffsets, cleanLaneSpacing
+        ).points);
+      } else {
+        const { p, q, arc } = lombardiArcFor(
+          edge, srcNode, dstNode, sDims, dDims, lombardiTangents, lombardiCurvature,
+          { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing }
+        );
+        polylines.set(edge.id, arc ? sampleArc(arc, 24) : [p, q]);
+      }
+    }
+    return buildEdgeSegmentIndex(polylines);
+  }, [showConnectionNames, isRoutedStyle, edges, nodeById, baseDimsById,
+    routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing,
+    lombardiTangents, lombardiCurvature, edgeCurveInfo,
+    orthogonalLaneSpacing, lombardiLaneSpacing]);
+
   // The obstacle set every label dodges. Identical for every edge, so build it
   // once — each placement call used to rebuild it from all visible nodes, which
   // was roughly half the cost of re-solving a large graph's labels.
   const labelObstacleOptions = useMemo(() => ({
     obstacles: getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedInstanceIds),
-  }), [nodes, visibleNodeIds, baseDimsById, selectedInstanceIds]);
+    segmentIndex: labelCrossingIndex,
+  }), [nodes, visibleNodeIds, baseDimsById, selectedInstanceIds, labelCrossingIndex]);
 
   // How coarsely to snap connection-label rotations. See CONNECTION LABEL
   // RENDERING BUDGETS above: the cost is the number of DISTINCT angles on
@@ -3076,32 +3167,19 @@ function NodeCanvas() {
     clearLabelStabilization();
   }, [connectionNameSignature]);
 
-  // Memoize edgeCurveInfo for parallel edge detection (used by both rendering and hover detection).
-  // NOTE: iterate ALL edges (not visibleEdges) so the pairIndex / totalInPair for
-  // any given edge stays stable as neighboring edges pop in/out of visibility
-  // during pan/zoom. Otherwise, parallel edges visibly jump lanes when a sibling
-  // culls out = flicker.
-  const edgeCurveInfo = useMemo(() => {
-    const edgePairGroups = new Map();
-    const curveInfoMap = new Map();
-
-    edges.forEach(edge => {
-      const key = [edge.sourceId, edge.destinationId].sort().join('-');
-      if (!edgePairGroups.has(key)) {
-        edgePairGroups.set(key, []);
-      }
-      edgePairGroups.get(key).push(edge.id);
-    });
-
-    edgePairGroups.forEach((edgeIds) => {
-      const total = edgeIds.length;
-      edgeIds.forEach((edgeId, idx) => {
-        curveInfoMap.set(edgeId, { pairIndex: idx, totalInPair: total });
-      });
-    });
-
-    return curveInfoMap;
-  }, [edges]);
+  // Same problem, one step removed: a cached placement is keyed on the geometry
+  // of its OWN connection, so when a different connection moves onto a label the
+  // signature it is checked against hasn't changed and the stale, now-covered
+  // position survives. The whole point of the crossing pass is to react to other
+  // connections, so it has to invalidate on them too.
+  //
+  // Cheap in practice because the index is built from all edges rather than the
+  // visible ones: it changes when the drawing changes, not when the viewport
+  // does, so this doesn't fire on pan or zoom.
+  useEffect(() => {
+    placedLabelsRef.current.clear();
+    clearLabelStabilization();
+  }, [labelCrossingIndex]);
 
   // Anchor point for the edge pie menu.
   //
