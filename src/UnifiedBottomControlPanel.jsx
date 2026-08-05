@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { Trash2, Plus, ArrowUpFromDot, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles, NotebookText } from 'lucide-react';
+import { Trash2, Plus, ArrowUpFromDot, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles, NotebookText, UploadCloud, RefreshCw } from 'lucide-react';
 import UniversalNodeRenderer from './UniversalNodeRenderer';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
@@ -126,6 +126,8 @@ const UnifiedBottomControlPanel = ({
   onDiveIntoDefinition, // Navigate into the node-group's linked definition graph
   onOpenNodePrototypeInPanel, // Open the linked node prototype in right panel
   onCombineNodeGroup, // Replace group instances with the node-group prototype instance
+  onUpdateDefinitionFromGroup, // Push the group's current contents into its definition graph, overwriting it
+  onRefreshGroupFromDefinition, // Replace the group's contents with fresh copies from its definition graph
 
   // Decompose mode props (mirrors the decomposition pie-menu state)
   onCompose, // Close the decomposition preview (compose back to a normal node)
@@ -981,6 +983,24 @@ const UnifiedBottomControlPanel = ({
                   onMouseLeave={clearActionHover}
                 >
                   <Combine size={iconSize} />
+                </div>
+                <div
+                  className="piemenu-button"
+                  onClick={onUpdateDefinitionFromGroup}
+                  title="Update Definition"
+                  onMouseEnter={() => triggerActionHover('control-update-definition', 'Update Definition')}
+                  onMouseLeave={clearActionHover}
+                >
+                  <UploadCloud size={iconSize} />
+                </div>
+                <div
+                  className="piemenu-button"
+                  onClick={onRefreshGroupFromDefinition}
+                  title="Refresh From Definition"
+                  onMouseEnter={() => triggerActionHover('control-refresh-definition', 'Refresh From Definition')}
+                  onMouseLeave={clearActionHover}
+                >
+                  <RefreshCw size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"

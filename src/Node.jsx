@@ -5,6 +5,7 @@ import './Node.css';
 import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Used for hover preview
 import InnerNetwork from './InnerNetwork.jsx'; // Pure SVG — used for the main inner network preview (avoids foreignObject iOS issues)
 import { getNodeDimensions } from './utils.js'; // Import needed for node dims
+import { buildNodeFontString, wrapTextToLines, measureTextWidth } from './services/textMeasurement.js';
 import { getTextColor } from './utils/colorUtils.js';
 import { isValidColor } from './ai/palettes.js';
 import { ChevronLeft, ChevronRight, Trash2, Expand, ArrowUpFromDot, PackageOpen } from 'lucide-react'; // Import navigation icons, trash, expand, and package-open
@@ -13,6 +14,7 @@ import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./sto
 import { useTheme } from './hooks/useTheme.js';
 
 const PREVIEW_SCALE_FACTOR = 0.3; // How much to shrink the network layout
+const DESCRIPTION_MAX_LINES = 3; // Matches utils.js's cap on descriptionAreaHeight
 
 // Accept dimensions and other props
 // Expect plain node data object
@@ -318,12 +320,30 @@ const Node = ({
       .filter(edge => edge !== undefined);
   }, [isPreviewing, currentGraphId, graphsMap, edgesMap]);
 
-  // Get the current definition graph's description
+  // Get the current definition graph's description, truncated (by character count, on the
+  // last visible line) to fit the fixed-height description area. CSS line-clamp doesn't
+  // reliably render its ellipsis inside an SVG foreignObject, so line-fit + a manual "..."
+  // is computed here instead, using the same wrapping engine utils.js used to size the box.
   const currentGraphDescription = useMemo(() => {
     if (!isPreviewing || !currentGraphId) return 'No description.';
     const graphData = graphsMap.get(currentGraphId);
-    return graphData?.description || 'No description.';
-  }, [isPreviewing, currentGraphId, graphsMap]);
+    const description = graphData?.description || 'No description.';
+    if (description === 'No description.' || !innerNetworkWidth) return description;
+
+    const augTs = { ...textSettings, fontSize: textSettings.fontSize * effNodeScale };
+    const fontString = buildNodeFontString(augTs);
+    const lines = wrapTextToLines(description, innerNetworkWidth, fontString);
+    if (lines.length <= DESCRIPTION_MAX_LINES) return description;
+
+    // Shave characters off the last visible line until "<line>..." fits the width too.
+    let lastLine = lines[DESCRIPTION_MAX_LINES - 1].trimEnd();
+    while (lastLine.length > 0 && measureTextWidth(`${lastLine}...`, fontString) > innerNetworkWidth) {
+      lastLine = lastLine.slice(0, -1).trimEnd();
+    }
+    const visibleLines = lines.slice(0, DESCRIPTION_MAX_LINES - 1);
+    visibleLines.push(`${lastLine}...`);
+    return visibleLines.join(' ');
+  }, [isPreviewing, currentGraphId, graphsMap, innerNetworkWidth, textSettings, effNodeScale]);
 
   // Use the passed descriptionAreaHeight which is now calculated dynamically in utils.js
   const actualDescriptionHeight = descriptionAreaHeight;
@@ -758,11 +778,7 @@ const Node = ({
               textAlign: 'center',
               wordWrap: 'break-word',
               overflowWrap: 'break-word',
-              display: '-webkit-box',
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
+              overflow: 'hidden'
             }}
           >
             {currentGraphDescription}

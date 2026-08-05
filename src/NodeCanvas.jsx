@@ -6537,6 +6537,24 @@ function NodeCanvas() {
                 return;
               }
 
+              // The carousel's scroll position is a raw numeric "level" (e.g. +2),
+              // not a reference to a specific node. Once the deleted node's chain
+              // index is spliced out, every node past it re-indexes to a new level,
+              // so leaving the scroll position where it was either strands it on
+              // empty space (deleting the outermost item) or snaps it onto a
+              // different node that slid into that level (deleting from the middle
+              // of either the specific or generic side). Resolve the next focus
+              // target by prototypeId (a neighbor in the chain) before removing,
+              // then request focus by id the same way adding a layer does — that
+              // lookup is robust to the re-indexing since it doesn't depend on the
+              // stale level number.
+              const chainOwnerProto = useGraphStore.getState().nodePrototypes.get(carouselNode.prototypeId);
+              const chain = chainOwnerProto?.abstractionChains?.[currentAbstractionDimension] || [];
+              const removedIndex = chain.indexOf(selectedNode.prototypeId);
+              const nextFocusPrototypeId = removedIndex !== -1
+                ? (chain[removedIndex + 1] || chain[removedIndex - 1] || carouselNode.prototypeId)
+                : carouselNode.prototypeId;
+
               // Remove the node from the abstraction chain
               storeActions.removeFromAbstractionChain(
                 carouselNode.prototypeId,     // the node whose chain we're modifying
@@ -6544,7 +6562,8 @@ function NodeCanvas() {
                 selectedNode.prototypeId      // the node to remove
               );
 
-
+              // Move carousel focus onto the neighbor that took its place.
+              setCarouselFocusPrototypeRequest(nextFocusPrototypeId);
 
               // Don't close the pie menu after deletion - stay in the carousel to see the updated chain
               // setSelectedNodeIdForPieMenu(null);
@@ -10975,6 +10994,32 @@ function NodeCanvas() {
       setSelectedInstanceIds(new Set([newInstanceId]));
     }
   }, [activeGraphId, selectedGroup, storeActions, setSelectedInstanceIds, setGroupControlPanelVisible, setSelectedGroup]);
+
+  // Push the node-group's current contents into its linked definition graph, overwriting it.
+  const handleNodeGroupUpdateDefinition = useCallback(() => {
+    if (!activeGraphId || !selectedGroup?.id) return;
+    if (typeof storeActions.updateDefinitionFromNodeGroup !== 'function') {
+      console.warn('updateDefinitionFromNodeGroup action is unavailable on storeActions');
+      return;
+    }
+    storeActions.updateDefinitionFromNodeGroup(activeGraphId, selectedGroup.id);
+  }, [activeGraphId, selectedGroup, storeActions]);
+
+  // Refresh the node-group from its linked definition graph, discarding the group's current members.
+  const handleNodeGroupRefreshFromDefinition = useCallback(() => {
+    if (!activeGraphId || !selectedGroup?.id) return;
+    if (typeof storeActions.refreshNodeGroupFromDefinition !== 'function') {
+      console.warn('refreshNodeGroupFromDefinition action is unavailable on storeActions');
+      return;
+    }
+    storeActions.refreshNodeGroupFromDefinition(activeGraphId, selectedGroup.id);
+
+    const gs = useGraphStore.getState();
+    const refreshedGroup = gs.graphs?.get(activeGraphId)?.groups?.get(selectedGroup.id);
+    if (refreshedGroup) {
+      setSelectedGroup(refreshedGroup);
+    }
+  }, [activeGraphId, selectedGroup, storeActions, setSelectedGroup]);
 
   // Trigger auto-layout: batch engine computes the final positions, then
   // nodes tween directly to their targets (edges/labels follow the nodes).
@@ -17164,6 +17209,8 @@ function NodeCanvas() {
             onDiveIntoDefinition={handleNodeGroupDiveIntoDefinition}
             onOpenNodePrototypeInPanel={handleNodeGroupOpenInPanel}
             onCombineNodeGroup={handleNodeGroupCombine}
+            onUpdateDefinitionFromGroup={handleNodeGroupUpdateDefinition}
+            onRefreshGroupFromDefinition={handleNodeGroupRefreshFromDefinition}
             onActionHoverChange={handlePieMenuHoverChange}
             onDismiss={() => setSelectedGroup(null)}
           />

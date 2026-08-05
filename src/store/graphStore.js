@@ -358,6 +358,91 @@ const normalizeEdgeDirectionality = (directionality) => {
   return { arrowsToward: new Set() };
 };
 
+/**
+ * Copies a set of instances (and any edges fully internal to that set) from one graph
+ * into another, generating fresh instance/edge IDs and offsetting positions. Shared by
+ * the node-group ⇄ definition-graph sync actions (`updateDefinitionFromNodeGroup`,
+ * `refreshNodeGroupFromDefinition`) so both directions remap edges identically.
+ *
+ * Edges with only one endpoint in `sourceInstanceIds` (i.e. connecting to something
+ * outside the copied set) cannot be represented in the target graph and are dropped;
+ * `droppedCrossEdgeCount` reports how many so callers can warn the user.
+ *
+ * @param {Object} draft - Immer draft (for reading/writing draft.edges).
+ * @param {Object} params
+ * @param {Object} params.sourceGraph - Graph to copy from.
+ * @param {Iterable<string>} [params.sourceInstanceIds] - Instance IDs to copy (defaults to all of sourceGraph.instances).
+ * @param {Object} params.targetGraph - Graph to copy into (must have `instances` Map and `edgeIds` array).
+ * @param {number} [params.offsetX=0] - X offset applied to copied instance positions.
+ * @param {number} [params.offsetY=0] - Y offset applied to copied instance positions.
+ * @returns {{ instanceIdMap: Map<string,string>, newInstanceIds: string[], droppedCrossEdgeCount: number }}
+ */
+const copySubgraphInto = (draft, { sourceGraph, sourceInstanceIds, targetGraph, offsetX = 0, offsetY = 0 }) => {
+  const instanceIdMap = new Map();
+  const newInstanceIds = [];
+  const idsToCopy = sourceInstanceIds ? Array.from(sourceInstanceIds) : Array.from(sourceGraph.instances.keys());
+
+  for (const srcId of idsToCopy) {
+    const srcInst = sourceGraph.instances.get(srcId);
+    if (!srcInst) continue;
+    const newId = uuidv4();
+    instanceIdMap.set(srcId, newId);
+    newInstanceIds.push(newId);
+    targetGraph.instances.set(newId, {
+      id: newId,
+      prototypeId: srcInst.prototypeId,
+      x: (srcInst.x ?? 0) + offsetX,
+      y: (srcInst.y ?? 0) + offsetY,
+      scale: srcInst.scale ?? 1
+    });
+  }
+
+  if (!targetGraph.edgeIds) targetGraph.edgeIds = [];
+  let droppedCrossEdgeCount = 0;
+
+  for (const edgeId of (sourceGraph.edgeIds || [])) {
+    const edge = draft.edges.get(edgeId);
+    if (!edge) continue;
+
+    const newSourceId = instanceIdMap.get(edge.sourceId);
+    const newDestId = instanceIdMap.get(edge.destinationId);
+    if (!newSourceId || !newDestId) {
+      if (instanceIdMap.has(edge.sourceId) || instanceIdMap.has(edge.destinationId)) {
+        droppedCrossEdgeCount++;
+      }
+      continue;
+    }
+
+    const newEdgeId = uuidv4();
+    const normalized = normalizeEdgeDirectionality(edge.directionality);
+    const newArrowsToward = new Set(normalized.arrowsToward || []);
+    if (newArrowsToward.has(edge.sourceId)) {
+      newArrowsToward.delete(edge.sourceId);
+      newArrowsToward.add(newSourceId);
+    }
+    if (newArrowsToward.has(edge.destinationId)) {
+      newArrowsToward.delete(edge.destinationId);
+      newArrowsToward.add(newDestId);
+    }
+
+    const newEdgeData = {
+      ...edge,
+      id: newEdgeId,
+      sourceId: newSourceId,
+      destinationId: newDestId,
+      directionality: { ...normalized, arrowsToward: newArrowsToward }
+    };
+    if (Array.isArray(edge.definitionNodeIds)) {
+      newEdgeData.definitionNodeIds = [...edge.definitionNodeIds];
+    }
+
+    draft.edges.set(newEdgeId, newEdgeData);
+    targetGraph.edgeIds.push(newEdgeId);
+  }
+
+  return { instanceIdMap, newInstanceIds, droppedCrossEdgeCount };
+};
+
 // Middleware to integrate with SaveCoordinator
 const saveCoordinatorMiddleware = (config) => {
   let saveCoordinator = null;
@@ -1815,6 +1900,261 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         console.log(`[decomposeNodeToGroup] Decomposed "${prototype.name}" → thing-group ${groupId} with ${memberInstanceIds.length} members, anchor=${originalInstanceId}`);
       }));
       return createdGroupId;
+    },
+
+    /**
+     * Pushes a node-group's current contents into its linked definition graph, overwriting
+     * whatever was there before. The inverse of `refreshNodeGroupFromDefinition`.
+     *
+     * Use when the group has been edited in place (nodes added/removed/rewired) and those
+     * edits should become the node's definition. Members that connect to something outside
+     * the group (cross-edges) can't be represented inside the definition graph and are
+     * dropped — the returned `droppedCrossEdgeCount` reports how many.
+     *
+     * @param {string} graphId - Graph containing the node-group.
+     * @param {string} groupId - Node-group whose contents should overwrite its definition.
+     * @param {Object} [contextOptions] - Save context flags.
+     * @returns {{ defGraphId: string, memberCount: number, droppedCrossEdgeCount: number }|null}
+     */
+    updateDefinitionFromNodeGroup: (graphId, groupId, contextOptions = {}) => {
+      api.setChangeContext({ type: 'group_update_definition', target: 'group', ...contextOptions });
+      let result = null;
+      set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph?.groups) {
+          console.warn(`[updateDefinitionFromNodeGroup] Graph ${graphId} not found or has no groups.`);
+          return;
+        }
+
+        const group = graph.groups.get(groupId);
+        if (!group?.linkedNodePrototypeId) {
+          console.warn(`[updateDefinitionFromNodeGroup] Group ${groupId} not found or is not a node-group.`);
+          return;
+        }
+
+        const prototype = draft.nodePrototypes.get(group.linkedNodePrototypeId);
+        if (!prototype) {
+          console.warn(`[updateDefinitionFromNodeGroup] Prototype ${group.linkedNodePrototypeId} not found.`);
+          return;
+        }
+
+        if (!Array.isArray(prototype.definitionGraphIds)) {
+          prototype.definitionGraphIds = [];
+        }
+        const definitionIndex = group.linkedDefinitionIndex ?? 0;
+
+        let defGraphId = prototype.definitionGraphIds[definitionIndex];
+        if (!defGraphId) {
+          // Defensive fallback — node-groups are normally created with a definition graph
+          // already in place (see convertGroupToNodeGroup / decomposeNodeToGroup).
+          defGraphId = uuidv4();
+          const newGraphData = {
+            id: defGraphId,
+            name: prototype.name || 'New Thing',
+            description: '',
+            picture: null,
+            color: prototype.color || NODE_DEFAULT_COLOR,
+            directed: true,
+            instances: new Map(),
+            groups: new Map(),
+            edgeIds: [],
+            definingNodeIds: [group.linkedNodePrototypeId],
+          };
+          draft.graphs.set(defGraphId, newGraphData);
+          prototype.definitionGraphIds[definitionIndex] = defGraphId;
+        }
+
+        if (defGraphId === graphId) {
+          console.warn(`[updateDefinitionFromNodeGroup] Definition graph is the same as the source graph — aborting to avoid self-reference.`);
+          return;
+        }
+
+        const defGraph = draft.graphs.get(defGraphId);
+        if (!defGraph) {
+          console.warn(`[updateDefinitionFromNodeGroup] Definition graph ${defGraphId} not found.`);
+          return;
+        }
+
+        const memberIds = Array.from(new Set(group.memberInstanceIds || []));
+        const memberInstances = memberIds
+          .map(id => graph.instances?.get(id))
+          .filter(Boolean);
+
+        // Anchor the copied content near the definition graph's own origin rather than
+        // wherever the group happens to sit on the parent canvas.
+        let offsetX = 0, offsetY = 0;
+        if (memberInstances.length > 0) {
+          const minX = Math.min(...memberInstances.map(i => i.x ?? 0));
+          const minY = Math.min(...memberInstances.map(i => i.y ?? 0));
+          offsetX = -minX;
+          offsetY = -minY;
+        }
+
+        // Replace the definition graph's contents wholesale.
+        for (const edgeId of (defGraph.edgeIds || [])) {
+          draft.edges.delete(edgeId);
+        }
+        defGraph.instances = new Map();
+        defGraph.edgeIds = [];
+        defGraph.groups = new Map();
+
+        const { newInstanceIds, droppedCrossEdgeCount } = copySubgraphInto(draft, {
+          sourceGraph: graph,
+          sourceInstanceIds: memberIds,
+          targetGraph: defGraph,
+          offsetX,
+          offsetY
+        });
+
+        if (droppedCrossEdgeCount > 0) {
+          console.warn(`[updateDefinitionFromNodeGroup] Dropped ${droppedCrossEdgeCount} edge(s) connecting the group to nodes outside it — definitions can't reference the outside graph.`);
+        }
+
+        result = { defGraphId, memberCount: newInstanceIds.length, droppedCrossEdgeCount };
+        console.log(`[updateDefinitionFromNodeGroup] Pushed ${newInstanceIds.length} member(s) from group ${groupId} into definition graph ${defGraphId}.`);
+      }));
+      return result;
+    },
+
+    /**
+     * Refreshes a node-group's contents from its linked definition graph, discarding the
+     * group's current members and replacing them with fresh copies of whatever the
+     * definition graph currently contains. The inverse of `updateDefinitionFromNodeGroup`.
+     *
+     * Use when the definition graph was edited elsewhere and the group (an in-place
+     * expansion of it) has drifted out of sync. Any edges from the group's old members to
+     * nodes outside the group are deleted — there's no way to know which fresh member
+     * should inherit them.
+     *
+     * @param {string} graphId - Graph containing the node-group.
+     * @param {string} groupId - Node-group to refresh.
+     * @param {Object} [contextOptions] - Save context flags.
+     * @returns {{ memberCount: number, droppedCrossEdgeCount: number }|null}
+     */
+    refreshNodeGroupFromDefinition: (graphId, groupId, contextOptions = {}) => {
+      api.setChangeContext({ type: 'group_refresh_from_definition', target: 'group', ...contextOptions });
+      let result = null;
+      set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph?.groups) {
+          console.warn(`[refreshNodeGroupFromDefinition] Graph ${graphId} not found or has no groups.`);
+          return;
+        }
+
+        const group = graph.groups.get(groupId);
+        if (!group?.linkedNodePrototypeId) {
+          console.warn(`[refreshNodeGroupFromDefinition] Group ${groupId} not found or is not a node-group.`);
+          return;
+        }
+
+        const prototype = draft.nodePrototypes.get(group.linkedNodePrototypeId);
+        if (!prototype) {
+          console.warn(`[refreshNodeGroupFromDefinition] Prototype ${group.linkedNodePrototypeId} not found.`);
+          return;
+        }
+
+        const definitionGraphIds = Array.isArray(prototype.definitionGraphIds) ? prototype.definitionGraphIds : [];
+        const definitionIndex = group.linkedDefinitionIndex ?? 0;
+        const defGraphId = definitionGraphIds[definitionIndex];
+        if (!defGraphId) {
+          console.warn(`[refreshNodeGroupFromDefinition] Prototype ${group.linkedNodePrototypeId} has no definition graph at index ${definitionIndex}.`);
+          return;
+        }
+        if (defGraphId === graphId) {
+          console.warn(`[refreshNodeGroupFromDefinition] Definition graph is the same as the target graph — aborting to avoid self-reference.`);
+          return;
+        }
+        const defGraph = draft.graphs.get(defGraphId);
+        if (!defGraph) {
+          console.warn(`[refreshNodeGroupFromDefinition] Definition graph ${defGraphId} not found.`);
+          return;
+        }
+
+        const oldMemberIds = Array.from(new Set(group.memberInstanceIds || []));
+        const oldMemberIdSet = new Set(oldMemberIds);
+        const oldMemberInstances = oldMemberIds
+          .map(id => graph.instances?.get(id))
+          .filter(Boolean);
+
+        // Anchor stays put; fall back to the old members' centroid if it's somehow missing.
+        const anchorInstance = group.anchorInstanceId ? graph.instances?.get(group.anchorInstanceId) : null;
+        let anchorX, anchorY;
+        if (anchorInstance) {
+          anchorX = anchorInstance.x ?? 0;
+          anchorY = anchorInstance.y ?? 0;
+        } else if (oldMemberInstances.length > 0) {
+          const totals = oldMemberInstances.reduce((acc, inst) => {
+            acc.x += inst.x ?? 0;
+            acc.y += inst.y ?? 0;
+            return acc;
+          }, { x: 0, y: 0 });
+          anchorX = totals.x / oldMemberInstances.length;
+          anchorY = totals.y / oldMemberInstances.length;
+        } else {
+          anchorX = 0;
+          anchorY = 0;
+        }
+
+        let offsetX = 0, offsetY = 0;
+        if (defGraph.instances && defGraph.instances.size > 0) {
+          const defInsts = Array.from(defGraph.instances.values());
+          const minX = Math.min(...defInsts.map(i => i.x ?? 0));
+          const minY = Math.min(...defInsts.map(i => i.y ?? 0));
+          offsetX = anchorX - minX;
+          offsetY = anchorY - minY;
+        }
+
+        // Drop any edges touching the old members — internal ones no longer have valid
+        // endpoints once the members are gone, and cross-edges have no principled owner
+        // among the fresh replacements.
+        let droppedCrossEdgeCount = 0;
+        const edgesToRemove = [];
+        draft.edges.forEach((edge, edgeId) => {
+          const sourceInGroup = oldMemberIdSet.has(edge.sourceId);
+          const destInGroup = oldMemberIdSet.has(edge.destinationId);
+          if (!sourceInGroup && !destInGroup) return;
+          if (sourceInGroup !== destInGroup) droppedCrossEdgeCount++;
+          edgesToRemove.push(edgeId);
+        });
+        edgesToRemove.forEach(edgeId => {
+          draft.edges.delete(edgeId);
+          if (graph.edgeIds) {
+            const index = graph.edgeIds.indexOf(edgeId);
+            if (index > -1) graph.edgeIds.splice(index, 1);
+          }
+        });
+
+        oldMemberIds.forEach(memberId => {
+          if (graph.instances?.has(memberId)) graph.instances.delete(memberId);
+        });
+
+        const { newInstanceIds } = copySubgraphInto(draft, {
+          sourceGraph: defGraph,
+          targetGraph: graph,
+          offsetX,
+          offsetY
+        });
+
+        group.memberInstanceIds = newInstanceIds;
+        if (!group.semanticMetadata) {
+          group.semanticMetadata = { type: 'Group', relationships: [], createdAt: new Date().toISOString() };
+        }
+        group.semanticMetadata.relationships = newInstanceIds.map(memberId => ({
+          predicate: 'memberOf',
+          subject: memberId,
+          object: groupId,
+          source: 'redstring-grouping'
+        }));
+        group.semanticMetadata.lastModified = new Date().toISOString();
+
+        if (droppedCrossEdgeCount > 0) {
+          console.warn(`[refreshNodeGroupFromDefinition] Dropped ${droppedCrossEdgeCount} edge(s) that connected the old group members to nodes outside the group.`);
+        }
+
+        result = { memberCount: newInstanceIds.length, droppedCrossEdgeCount };
+        console.log(`[refreshNodeGroupFromDefinition] Refreshed group ${groupId} with ${newInstanceIds.length} member(s) from definition graph ${defGraphId}.`);
+      }));
+      return result;
     },
 
     // ─── NODE PROTOTYPE MANAGEMENT ───────────────────────────────────────────────
