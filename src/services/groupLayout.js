@@ -201,24 +201,27 @@ function computeGroupLayoutInner(group, context) {
     if (memberBottom > maxY) maxY = memberBottom;
   }
 
-  if (!isFinite(minX) && group.linkedNodePrototypeId && group.anchorInstanceId) {
-    // Empty node-group placeholder (no members yet): hold open a box the size of the
-    // anchor node, positioned at a FROZEN origin rather than the anchor's live x/y.
-    // The anchor's live position gets synced to match this layout's computed
-    // title-tab spot (see the "flush anchor position" effect in NodeCanvas.jsx) — if
-    // this math read that live position back, the two would feed each other and the
-    // box would grow without bound every render. `emptyPlaceholderOrigin` is set once
-    // at group creation and only updated when the group itself is dragged
-    // (updateMultipleNodeInstancePositions), which breaks that loop. Once a real
-    // member is added this whole branch stops applying — the member loop above takes
-    // over and behaves exactly as it always has.
-    const origin = group.emptyPlaceholderOrigin || nodesById.get(group.anchorInstanceId);
+  if (!isFinite(minX) && group.linkedNodePrototypeId) {
+    // Empty node-group placeholder (no members yet): hold open a box the size of a
+    // default node. Deliberately keyed off a synthetic `__placeholder__<groupId>` id
+    // rather than the anchor's own position/dims — the anchor's position is a
+    // *different* thing (it gets synced to sit at this layout's own computed
+    // title-tab spot, for edge-routing, exactly like a populated group's anchor
+    // does), and reading it back in here would make the box's output feed its own
+    // input. `nodesById.get(placeholderId)` resolves during an active drag of this
+    // placeholder (see NodeCanvas.jsx's group-drag-start handlers); otherwise it
+    // falls back to the frozen `group.emptyPlaceholderOrigin`, persisted by
+    // updateMultipleNodeInstancePositions when the placeholder is dragged. Once a
+    // real member is added this whole branch stops applying — the member loop
+    // above takes over and behaves exactly as it always has.
+    const placeholderId = `__placeholder__${group.id}`;
+    const origin = nodesById.get(placeholderId) || group.emptyPlaceholderOrigin;
     if (origin) {
-      const anchorDims = dimsById.get(group.anchorInstanceId) || FALLBACK_DIMS;
+      const dims = dimsById.get(placeholderId) || dimsById.get(group.anchorInstanceId) || FALLBACK_DIMS;
       minX = origin.x;
       minY = origin.y;
-      maxX = origin.x + anchorDims.currentWidth;
-      maxY = origin.y + anchorDims.currentHeight;
+      maxX = origin.x + dims.currentWidth;
+      maxY = origin.y + dims.currentHeight;
     }
   }
 

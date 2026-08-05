@@ -1427,6 +1427,17 @@ function NodeCanvas() {
           if (!map.has(instId)) map.set(instId, []);
           map.get(instId).push({ groupId, memberInstanceIds: group.memberInstanceIds });
         });
+        // Empty node-groups (the held-open placeholder — see
+        // decomposeEmptyNodeToGroup) have no members to index by, but they're
+        // still draggable via their anchor. Without this, dragging one never
+        // matches the DOM-bypass group-drag cache/update path (both keyed off
+        // this map), so the box only jumps to its final spot on drop instead
+        // of tracking the drag live.
+        if (group.memberInstanceIds.length === 0 && group.linkedNodePrototypeId && group.anchorInstanceId) {
+          const anchorId = group.anchorInstanceId;
+          if (!map.has(anchorId)) map.set(anchorId, []);
+          map.get(anchorId).push({ groupId, memberInstanceIds: group.memberInstanceIds });
+        }
       });
     }
     groupsByNodeIdRef.current = map;
@@ -12784,6 +12795,17 @@ function NodeCanvas() {
                                   offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
                                 }
                               }
+                              // Empty node-group placeholder: track its own independent position
+                              // (never the anchor's) so it drags live using the exact same
+                              // offset-preserving math as a real member — see groupLayout.js for
+                              // why deriving it from the anchor's position doesn't work.
+                              if (isNodeGroup && !(group.memberInstanceIds?.length > 0) && group.emptyPlaceholderOrigin) {
+                                offsets.push({
+                                  id: `__placeholder__${group.id}`,
+                                  dx: mouseCanvasX - group.emptyPlaceholderOrigin.x,
+                                  dy: mouseCanvasY - group.emptyPlaceholderOrigin.y
+                                });
+                              }
                               nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
                             }, nodeLiftDelay);
                           }}
@@ -12903,6 +12925,17 @@ function NodeCanvas() {
                                 if (anchorNode) {
                                   offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
                                 }
+                              }
+                              // Empty node-group placeholder: track its own independent position
+                              // (never the anchor's) so it drags live using the exact same
+                              // offset-preserving math as a real member — see groupLayout.js for
+                              // why deriving it from the anchor's position doesn't work.
+                              if (isNodeGroup && !(group.memberInstanceIds?.length > 0) && group.emptyPlaceholderOrigin) {
+                                offsets.push({
+                                  id: `__placeholder__${group.id}`,
+                                  dx: mouseCanvasX - group.emptyPlaceholderOrigin.x,
+                                  dy: mouseCanvasY - group.emptyPlaceholderOrigin.y
+                                });
                               }
                               nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
                               if (typeof navigator !== 'undefined' && navigator.vibrate) {

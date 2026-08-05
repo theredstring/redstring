@@ -3197,6 +3197,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!graph || !graph.instances) return;
 
         updates.forEach(({ instanceId, x, y }) => {
+          // Empty node-group placeholders are tracked via a synthetic
+          // `__placeholder__<groupId>` id (see NodeCanvas.jsx's group-drag-start
+          // handlers) that has no backing instance — the block below persists it
+          // into the group instead.
           const instance = graph.instances.get(instanceId);
           if (instance) {
             instance.x = x;
@@ -3204,15 +3208,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           }
         });
 
-        // Keep an empty node-group's held-open placeholder anchored to its instance
-        // when the whole group is intentionally dragged (see emptyPlaceholderOrigin
-        // in decomposeEmptyNodeToGroup for why this can't just track the anchor live).
+        // Persist an empty node-group's held-open placeholder position after it's
+        // intentionally dragged. Deliberately independent of the anchor's own
+        // position — see emptyPlaceholderOrigin in decomposeEmptyNodeToGroup for why.
         const groupId = contextOptions.groupId;
         const group = groupId ? graph.groups?.get(groupId) : null;
-        if (group?.linkedNodePrototypeId && group.anchorInstanceId && !(group.memberInstanceIds?.length > 0)) {
-          const anchorUpdate = updates.find(u => u.instanceId === group.anchorInstanceId);
-          if (anchorUpdate) {
-            group.emptyPlaceholderOrigin = { x: anchorUpdate.x, y: anchorUpdate.y };
+        if (group?.linkedNodePrototypeId && !(group.memberInstanceIds?.length > 0)) {
+          const placeholderUpdate = updates.find(u => u.instanceId === `__placeholder__${groupId}`);
+          if (placeholderUpdate) {
+            group.emptyPlaceholderOrigin = { x: placeholderUpdate.x, y: placeholderUpdate.y };
           }
         }
       }));
