@@ -1055,12 +1055,18 @@ const AbstractionCarousel = ({
   useEffect(() => {
     if (!isVisible || !focusPrototypeRequest || !abstractionChainWithDims.length) return;
     const item = abstractionChainWithDims.find(n => n.prototypeId === focusPrototypeRequest);
-    if (item) {
-      dispatchPhysics({ type: 'JUMP_TO_LEVEL', payload: item.level });
-      if (!animationFrameRef.current) {
-        lastFrameTimeRef.current = performance.now();
-        animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
-      }
+    if (!item) {
+      // Not in the chain yet on this pass (e.g. the store update that adds it
+      // hasn't landed in this memo yet). Leave the request in place instead of
+      // clearing it — this effect re-runs on the next abstractionChainWithDims
+      // update and will pick it up then. Clearing unconditionally here was
+      // dropping the request permanently on whichever render lost the race.
+      return;
+    }
+    dispatchPhysics({ type: 'JUMP_TO_LEVEL', payload: item.level });
+    if (!animationFrameRef.current) {
+      lastFrameTimeRef.current = performance.now();
+      animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
     }
     onFocusPrototypeHandled && onFocusPrototypeHandled();
   }, [focusPrototypeRequest, isVisible, abstractionChainWithDims]);

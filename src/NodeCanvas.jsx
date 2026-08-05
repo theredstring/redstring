@@ -12693,8 +12693,16 @@ function NodeCanvas() {
                               setTempGroupName(group.name || 'Group');
                             } else {
                               setSelectedGroup(group);
+                              // Clear node/edge selection so the Node/Connection Control Panel
+                              // effects don't see stale selections and stomp selectedGroup back
+                              // to null in the same effect flush (was causing the group panel to
+                              // "double open" and need two clicks to dismiss).
+                              setSelectedInstanceIds(new Set());
+                              storeActions.setSelectedEdgeId(null);
+                              storeActions.clearSelectedEdgeIds();
                               setGroupControlPanelShouldShow(true);
                               setNodeControlPanelShouldShow(false);
+                              setNodeControlPanelVisible(false);
                               setAbstractionControlPanelVisible(false);
                               setAbstractionControlPanelShouldShow(false);
                               setConnectionControlPanelVisible(false);
