@@ -1603,7 +1603,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           })
           .filter(Boolean);
 
-        // Determine placement for the combined node (use average position of members)
+        // If the group has an anchor instance, reuse it as the surviving node
+        const anchorId = group.anchorInstanceId;
+        const anchorInstance = anchorId ? graph.instances?.get(anchorId) : null;
+        let survivingInstanceId;
+
+        // Determine placement for the combined node (use average position of members).
+        // `group.position` is never set anywhere in this codebase — it was a
+        // placeholder fallback for "no members AND no anchor" that's effectively
+        // unreachable (a node-group always has an anchor). Prefer the anchor's own
+        // current position for that case: with no members there's nothing to
+        // center on, so the correct move is to leave the resulting node exactly
+        // where the (now-collapsing) group visually was, not snap it to the graph origin.
         let position = { x: 0, y: 0 };
         if (memberInstances.length > 0) {
           const totals = memberInstances.reduce((acc, { instance }) => {
@@ -1615,17 +1626,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             x: totals.x / memberInstances.length,
             y: totals.y / memberInstances.length
           };
+        } else if (anchorInstance) {
+          position = { x: anchorInstance.x, y: anchorInstance.y };
         } else {
           position = {
             x: group.position?.x ?? 0,
             y: group.position?.y ?? 0
           };
         }
-
-        // If the group has an anchor instance, reuse it as the surviving node
-        const anchorId = group.anchorInstanceId;
-        const anchorInstance = anchorId ? graph.instances?.get(anchorId) : null;
-        let survivingInstanceId;
 
         if (anchorInstance) {
           // Reuse anchor: clear anchor flags, reposition to centroid
@@ -1728,10 +1736,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} graphId - Graph containing the instance to decompose.
      * @param {string} prototypeId - Prototype whose definition graph provides the expansion content.
      * @param {number} [definitionIndex=0] - Which definition graph to expand (0 = first).
+     * @param {string|null} [instanceId=null] - The specific instance that was decomposed. Falls
+     *   back to the first matching instance in the graph if omitted (legacy callers).
      * @param {Object} [contextOptions] - Save context flags.
      * @returns {string|null} The new group ID, or null if decomposition failed.
      */
-    decomposeNodeToGroup: (graphId, prototypeId, definitionIndex = 0, contextOptions = {}) => {
+    decomposeNodeToGroup: (graphId, prototypeId, definitionIndex = 0, instanceId = null, contextOptions = {}) => {
       api.setChangeContext({ type: 'group_decompose', target: 'group', ...contextOptions });
       let createdGroupId = null;
       set(produce((draft) => {
@@ -1764,12 +1774,30 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           return;
         }
 
-        // Find the instance of this prototype in the target graph
-        let originalInstanceId = null;
-        for (const [instId, inst] of graph.instances.entries()) {
-          if (inst.prototypeId === prototypeId) {
-            originalInstanceId = instId;
-            break;
+        // If this prototype/definition is already decomposed into a group in this graph,
+        // reuse it instead of minting a duplicate on top of it (can happen when decompose
+        // fires again — e.g. from a second instance of the same prototype).
+        if (graph.groups) {
+          for (const existingGroup of graph.groups.values()) {
+            if (existingGroup.linkedNodePrototypeId === prototypeId && existingGroup.linkedDefinitionIndex === definitionIndex) {
+              createdGroupId = existingGroup.id;
+              console.warn(`[decomposeNodeToGroup] Group ${existingGroup.id} already exists for this prototype/definition — reusing instead of duplicating.`);
+              return;
+            }
+          }
+        }
+
+        // Find the instance of this prototype in the target graph — prefer the specific
+        // instance the caller decomposed; fall back to a first-match scan for legacy callers.
+        let originalInstanceId = (instanceId && graph.instances.has(instanceId) && graph.instances.get(instanceId).prototypeId === prototypeId)
+          ? instanceId
+          : null;
+        if (!originalInstanceId) {
+          for (const [instId, inst] of graph.instances.entries()) {
+            if (inst.prototypeId === prototypeId) {
+              originalInstanceId = instId;
+              break;
+            }
           }
         }
         if (!originalInstanceId) {
@@ -1914,10 +1942,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} graphId - Graph containing the instance to decompose.
      * @param {string} prototypeId - Prototype to open an empty node-group for.
      * @param {number} [definitionIndex=0] - Definition slot to reuse (if already empty) or create.
+     * @param {string|null} [instanceId=null] - The specific instance that was decomposed. Falls
+     *   back to the first matching instance in the graph if omitted (legacy callers).
      * @param {Object} [contextOptions] - Save context flags.
      * @returns {string|null} The new group ID, or null if it couldn't be created.
      */
-    decomposeEmptyNodeToGroup: (graphId, prototypeId, definitionIndex = 0, contextOptions = {}) => {
+    decomposeEmptyNodeToGroup: (graphId, prototypeId, definitionIndex = 0, instanceId = null, contextOptions = {}) => {
       api.setChangeContext({ type: 'group_decompose_empty', target: 'group', ...contextOptions });
       let createdGroupId = null;
       set(produce((draft) => {
@@ -1933,11 +1963,30 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           return;
         }
 
-        let originalInstanceId = null;
-        for (const [instId, inst] of graph.instances.entries()) {
-          if (inst.prototypeId === prototypeId) {
-            originalInstanceId = instId;
-            break;
+        // If this prototype/definition is already decomposed into a group in this graph,
+        // reuse it instead of minting a duplicate on top of it (can happen when decompose
+        // fires again — e.g. from a second instance of the same prototype).
+        if (graph.groups) {
+          for (const existingGroup of graph.groups.values()) {
+            if (existingGroup.linkedNodePrototypeId === prototypeId && existingGroup.linkedDefinitionIndex === definitionIndex) {
+              createdGroupId = existingGroup.id;
+              console.warn(`[decomposeEmptyNodeToGroup] Group ${existingGroup.id} already exists for this prototype/definition — reusing instead of duplicating.`);
+              return;
+            }
+          }
+        }
+
+        // Find the instance of this prototype in the target graph — prefer the specific
+        // instance the caller decomposed; fall back to a first-match scan for legacy callers.
+        let originalInstanceId = (instanceId && graph.instances.has(instanceId) && graph.instances.get(instanceId).prototypeId === prototypeId)
+          ? instanceId
+          : null;
+        if (!originalInstanceId) {
+          for (const [instId, inst] of graph.instances.entries()) {
+            if (inst.prototypeId === prototypeId) {
+              originalInstanceId = instId;
+              break;
+            }
           }
         }
         if (!originalInstanceId) {

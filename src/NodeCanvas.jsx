@@ -105,7 +105,7 @@ import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath, MIN_VISIBLE_BOW, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath, MIN_VISIBLE_BOW, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, LOMBARDI_ARROW_INSET, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
 import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
@@ -6879,7 +6879,7 @@ function NodeCanvas() {
             icon: PackageOpen,
             position: 'top', topIndex: 1, topCount: 3,
             action: () => {
-              const createdGroupId = storeActions.decomposeEmptyNodeToGroup(activeGraphId, decompPrototypeId, decompIndex);
+              const createdGroupId = storeActions.decomposeEmptyNodeToGroup(activeGraphId, decompPrototypeId, decompIndex, previewingNodeId);
               if (!createdGroupId) return;
               setPreviewingNodeId(null);
               setIsTransitioningPieMenu(false);
@@ -6951,8 +6951,8 @@ function NodeCanvas() {
             const currentDefGraph = decompCurrentGraphId ? decompState.graphs.get(decompCurrentGraphId) : null;
             const isCurrentDefEmpty = !currentDefGraph || !currentDefGraph.instances || currentDefGraph.instances.size === 0;
             const createdGroupId = isCurrentDefEmpty
-              ? storeActions.decomposeEmptyNodeToGroup(activeGraphId, decompPrototypeId, decompIndex)
-              : storeActions.decomposeNodeToGroup(activeGraphId, decompPrototypeId, decompIndex);
+              ? storeActions.decomposeEmptyNodeToGroup(activeGraphId, decompPrototypeId, decompIndex, previewingNodeId)
+              : storeActions.decomposeNodeToGroup(activeGraphId, decompPrototypeId, decompIndex, previewingNodeId);
             if (!createdGroupId) return;
             setPreviewingNodeId(null);
             setIsTransitioningPieMenu(false);
@@ -13654,7 +13654,12 @@ function NodeCanvas() {
                           // on hover would desync the two (and make the retracted ends dead).
                           const orthoHitPathD = orthoPathD;
                           if (orthoRouting && isActive) {
-                            const previewBack = POLY_TIP * connectionWidth + 8;
+                            // Lombardi's arrow-bearing ends already retreat by LOMBARDI_ARROW_INSET
+                            // (see computeLombardiRouting); match that here so a hovered dot sits
+                            // as far back as an arrow would, instead of drifting closer to the node.
+                            const previewBack = orthoRouting.kind === 'lombardi'
+                              ? LOMBARDI_ARROW_INSET + 8
+                              : POLY_TIP * connectionWidth + 8;
                             const sBox = sAnchorInfo?.outerBounds
                               ? { minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
                                   maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
@@ -15164,7 +15169,12 @@ function NodeCanvas() {
                           // on hover would desync the two (and make the retracted ends dead).
                           const orthoHitPathD = orthoPathD;
                           if (orthoRouting && isActive) {
-                            const previewBack = POLY_TIP * connectionWidth + 8;
+                            // Lombardi's arrow-bearing ends already retreat by LOMBARDI_ARROW_INSET
+                            // (see computeLombardiRouting); match that here so a hovered dot sits
+                            // as far back as an arrow would, instead of drifting closer to the node.
+                            const previewBack = orthoRouting.kind === 'lombardi'
+                              ? LOMBARDI_ARROW_INSET + 8
+                              : POLY_TIP * connectionWidth + 8;
                             const sBox = sAnchorInfo?.outerBounds
                               ? { minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
                                   maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
@@ -17260,8 +17270,8 @@ function NodeCanvas() {
               const currentDefGraph = currentGraphId ? graphsMap.get(currentGraphId) : null;
               const isCurrentDefEmpty = !currentDefGraph || !currentDefGraph.instances || currentDefGraph.instances.size === 0;
               const createdGroupId = isCurrentDefEmpty
-                ? storeActions.decomposeEmptyNodeToGroup(activeGraphId, prototypeId, index)
-                : storeActions.decomposeNodeToGroup(activeGraphId, prototypeId, index);
+                ? storeActions.decomposeEmptyNodeToGroup(activeGraphId, prototypeId, index, instanceId)
+                : storeActions.decomposeNodeToGroup(activeGraphId, prototypeId, index, instanceId);
               if (!createdGroupId) return;
               setPreviewingNodeId(null);
               const gs = useGraphStore.getState();

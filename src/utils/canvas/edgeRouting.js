@@ -684,9 +684,12 @@ function capTangentChord(delta) {
 // and a radius bounded by roughly L²/(8·MIN_VISIBLE_BOW).
 export const MIN_VISIBLE_BOW = 0.4;
 
-// How far inside the node border an arrowhead's origin sits. Matches the
-// `offset` the straight-routing arrow placement uses.
-const LOMBARDI_ARROW_INSET = 12;
+// How far past the node border an arrowhead's origin sits, and (since the
+// line trims back by this same amount) how far the visible curve retreats
+// from the border too. The arrowhead polygon's tip reaches POLY_TIP (34, see
+// parallelEdgeUtils.js) back from its origin toward the node at connection
+// width 1 — this inset has to clear that or the tip pokes into the node.
+export const LOMBARDI_ARROW_INSET = 44;
 
 /**
  * Key an edge for the tangent map.
@@ -1162,15 +1165,21 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
       return { x: endpoint.x, y: endpoint.y, angle: reverse ? angle + 180 : angle };
     };
 
+    // The line trims back by the SAME inset as the arrowhead anchor, so the
+    // visible curve ends under the arrowhead's body (its widest point) rather
+    // than at the bare node border. The arrowhead tapers to a point, and
+    // stopping the line at the border — where the taper is much narrower
+    // than the line's own stroke — let the stroke's round cap poke out past
+    // the triangle's sides.
     points = fullPoints;
     if (hasSourceArrow) {
-      const trimmed = trimRouteEnd(points, sBox, true, 0);
+      const trimmed = trimRouteEnd(points, sBox, true, LOMBARDI_ARROW_INSET);
       points = trimmed.points;
       startPt = trimmed.endpoint;
       sourceArrow = arrowFor(true, sBox, true);
     }
     if (hasDestArrow) {
-      const trimmed = trimRouteEnd(points, dBox, false, 0);
+      const trimmed = trimRouteEnd(points, dBox, false, LOMBARDI_ARROW_INSET);
       points = trimmed.points;
       endPt = trimmed.endpoint;
       destArrow = arrowFor(false, dBox, false);

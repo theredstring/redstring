@@ -280,6 +280,11 @@ export const useNodeDrag = ({
     // re-clip against the new box on drop, lagging the live resize.
     const groupsByNodeForCache = groupsByNodeIdRef.current;
     const groupsByIdForCache = groupsByIdRef?.current;
+    // Anchors whose effective position moves this drag (fed into the Lombardi
+    // two-hop pass below as if they were dragged nodes too) — an anchor's
+    // neighbours re-fan from its box moving exactly like they would from the
+    // anchor itself being dragged.
+    const movedAnchorIds = new Set();
     if (groupsByIdForCache) {
       nodeIdSet.forEach(nodeId => {
         const groups = groupsByNodeForCache.get(nodeId);
@@ -287,6 +292,7 @@ export const useNodeDrag = ({
         groups.forEach(({ groupId }) => {
           const anchorId = groupsByIdForCache.get(groupId)?.anchorInstanceId;
           if (!anchorId || nodeIdSet.has(anchorId)) return;
+          movedAnchorIds.add(anchorId);
           const anchorEdges = edgesByNode.get(anchorId);
           if (anchorEdges) anchorEdges.forEach(eid => affectedEdgeIds.add(eid));
         });
@@ -300,14 +306,19 @@ export const useNodeDrag = ({
     // Lombardi's perfect-angular-resolution fan is a per-NODE solve over that
     // node's bearings — so moving one node re-solves the fan at each of its
     // NEIGHBOURS, which moves every edge those neighbours touch, two hops out.
-    // Without this the two-hop edges freeze mid-drag and snap on drop.
+    // Without this the two-hop edges freeze mid-drag and snap on drop. A moved
+    // group anchor counts as a moved node here too (see movedAnchorIds above) —
+    // otherwise a connection landing on the anchor could shift without the
+    // NEXT connection out reacting, exactly the two-hop gap this set exists to
+    // close, just one indirection removed.
     const lombardiExtraEdgeIds = new Set();
     if (enableAutoRoutingRef.current && routingStyleRef.current === 'lombardi') {
+      const movedIds = movedAnchorIds.size > 0 ? new Set([...nodeIdSet, ...movedAnchorIds]) : nodeIdSet;
       const neighbors = new Set();
       for (let i = 0; i < allEdges.length; i++) {
         const e = allEdges[i];
-        if (nodeIdSet.has(e.sourceId)) neighbors.add(e.destinationId);
-        if (nodeIdSet.has(e.destinationId)) neighbors.add(e.sourceId);
+        if (movedIds.has(e.sourceId)) neighbors.add(e.destinationId);
+        if (movedIds.has(e.destinationId)) neighbors.add(e.sourceId);
       }
       neighbors.forEach(id => {
         const es = edgesByNode.get(id);
@@ -545,8 +556,24 @@ export const useNodeDrag = ({
         const stored = curNodeById.get(id);
         if (stored) livePositions.set(id, { ...stored, x: pos.x, y: pos.y });
       });
+      // A dragged group member moves its anchor's title box, not the anchor's
+      // stored instance position (see the sAnchor/eAnchor overrides below) —
+      // mirror that live box here too, or the tangent solve places the
+      // anchor's neighbours (and everything the two-hop pass reaches past
+      // them) against where the anchor was before the drag started.
+      let tangentDims = curBaseDims;
+      const anchorUpdates = anchorPositionUpdatesRef?.current;
+      if (anchorUpdates && anchorUpdates.size > 0) {
+        tangentDims = new Map(curBaseDims);
+        anchorUpdates.forEach((info, anchorId) => {
+          const stored = curNodeById.get(anchorId);
+          if (!stored) return;
+          livePositions.set(anchorId, { ...stored, x: info.x, y: info.y });
+          tangentDims.set(anchorId, { currentWidth: info.width, currentHeight: info.height });
+        });
+      }
       liveLombardiTangents = computeLombardiTangents(
-        Array.from(livePositions.values()), edgesRef?.current || [], curBaseDims
+        Array.from(livePositions.values()), edgesRef?.current || [], tangentDims
       );
       lombardiTangentsRef.current = liveLombardiTangents;
     }

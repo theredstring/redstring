@@ -734,6 +734,7 @@ const AbstractionCarousel = ({
     if (Math.abs(currentState.velocity) > MIN_VELOCITY || currentState.isSnapping) {
       animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
     } else {
+      console.log('🔴CD loop-stop', { realPosition: currentState.realPosition, targetPosition: currentState.targetPosition, velocity: currentState.velocity, isSnapping: currentState.isSnapping });
       animationFrameRef.current = null;
     }
   }, [isVisible, abstractionChainWithDims, onScaleChange, onFocusedNodeDimensions, physicsMinLevel, physicsMaxLevel]);
@@ -745,6 +746,7 @@ const AbstractionCarousel = ({
 
   // Start physics loop when component becomes visible
   useEffect(() => {
+    console.log('🔴CD isVisible-effect', { isVisible, hadFrame: !!animationFrameRef.current });
     if (isVisible && !animationFrameRef.current) {
       // Reset all state when carousel opens
       dispatchPhysics({ type: 'RESET' });
@@ -1078,6 +1080,7 @@ const AbstractionCarousel = ({
       // dropping the request permanently on whichever render lost the race.
       return;
     }
+    console.log('🔴CD jump-dispatch', { focusPrototypeRequest, level: item.level, hadFrame: !!animationFrameRef.current });
     dispatchPhysics({ type: 'JUMP_TO_LEVEL', payload: item.level });
     if (!animationFrameRef.current) {
       lastFrameTimeRef.current = performance.now();
