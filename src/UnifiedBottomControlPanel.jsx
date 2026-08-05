@@ -845,6 +845,15 @@ const UnifiedBottomControlPanel = ({
                   </div>
                   <div
                     className="piemenu-button"
+                    onClick={onDecompose}
+                    title="Decompose"
+                    onMouseEnter={() => triggerActionHover('control-decomp-further', 'Decompose')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <PackageOpen size={iconSize} />
+                  </div>
+                  <div
+                    className="piemenu-button"
                     onClick={onCompose}
                     title="Compose"
                     onMouseEnter={() => triggerActionHover('control-decomp-compose', 'Compose')}

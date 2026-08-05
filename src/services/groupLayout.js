@@ -201,6 +201,27 @@ function computeGroupLayoutInner(group, context) {
     if (memberBottom > maxY) maxY = memberBottom;
   }
 
+  if (!isFinite(minX) && group.linkedNodePrototypeId && group.anchorInstanceId) {
+    // Empty node-group placeholder (no members yet): hold open a box the size of the
+    // anchor node, positioned at a FROZEN origin rather than the anchor's live x/y.
+    // The anchor's live position gets synced to match this layout's computed
+    // title-tab spot (see the "flush anchor position" effect in NodeCanvas.jsx) — if
+    // this math read that live position back, the two would feed each other and the
+    // box would grow without bound every render. `emptyPlaceholderOrigin` is set once
+    // at group creation and only updated when the group itself is dragged
+    // (updateMultipleNodeInstancePositions), which breaks that loop. Once a real
+    // member is added this whole branch stops applying — the member loop above takes
+    // over and behaves exactly as it always has.
+    const origin = group.emptyPlaceholderOrigin || nodesById.get(group.anchorInstanceId);
+    if (origin) {
+      const anchorDims = dimsById.get(group.anchorInstanceId) || FALLBACK_DIMS;
+      minX = origin.x;
+      minY = origin.y;
+      maxX = origin.x + anchorDims.currentWidth;
+      maxY = origin.y + anchorDims.currentHeight;
+    }
+  }
+
   if (!isFinite(minX)) {
     return { ok: false, reason: 'no-resolvable-members', droppedOrphanIds };
   }

@@ -1903,6 +1903,113 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     },
 
     /**
+     * Opens an empty node-group for a prototype that has no definition graph yet, or whose
+     * definition graph at `definitionIndex` is empty. Unlike `decomposeNodeToGroup`, there's
+     * nothing to copy — this creates (and links, if missing) an empty definition graph and
+     * opens a zero-member group anchored at the existing instance. The canvas rendering and
+     * drag-drop hit-testing hold that anchor's footprint open as a placeholder so the group
+     * can be built out by dragging nodes into it; once it has real members it behaves exactly
+     * like any other node-group.
+     *
+     * @param {string} graphId - Graph containing the instance to decompose.
+     * @param {string} prototypeId - Prototype to open an empty node-group for.
+     * @param {number} [definitionIndex=0] - Definition slot to reuse (if already empty) or create.
+     * @param {Object} [contextOptions] - Save context flags.
+     * @returns {string|null} The new group ID, or null if it couldn't be created.
+     */
+    decomposeEmptyNodeToGroup: (graphId, prototypeId, definitionIndex = 0, contextOptions = {}) => {
+      api.setChangeContext({ type: 'group_decompose_empty', target: 'group', ...contextOptions });
+      let createdGroupId = null;
+      set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph) {
+          console.warn(`[decomposeEmptyNodeToGroup] Graph ${graphId} not found.`);
+          return;
+        }
+
+        const prototype = draft.nodePrototypes.get(prototypeId);
+        if (!prototype) {
+          console.warn(`[decomposeEmptyNodeToGroup] Prototype ${prototypeId} not found.`);
+          return;
+        }
+
+        let originalInstanceId = null;
+        for (const [instId, inst] of graph.instances.entries()) {
+          if (inst.prototypeId === prototypeId) {
+            originalInstanceId = instId;
+            break;
+          }
+        }
+        if (!originalInstanceId) {
+          console.warn(`[decomposeEmptyNodeToGroup] No instance of prototype ${prototypeId} found in graph ${graphId}.`);
+          return;
+        }
+
+        if (!Array.isArray(prototype.definitionGraphIds)) {
+          prototype.definitionGraphIds = [];
+        }
+
+        let defGraphId = prototype.definitionGraphIds[definitionIndex];
+        if (!defGraphId) {
+          defGraphId = uuidv4();
+          draft.graphs.set(defGraphId, {
+            id: defGraphId,
+            name: prototype.name || 'New Thing',
+            description: '',
+            picture: null,
+            color: prototype.color || NODE_DEFAULT_COLOR,
+            directed: true,
+            instances: new Map(),
+            groups: new Map(),
+            edgeIds: [],
+            definingNodeIds: [prototypeId],
+          });
+          prototype.definitionGraphIds[definitionIndex] = defGraphId;
+        } else {
+          const defGraph = draft.graphs.get(defGraphId);
+          if (defGraph?.instances?.size > 0) {
+            console.warn(`[decomposeEmptyNodeToGroup] Definition graph ${defGraphId} already has content — use decomposeNodeToGroup instead.`);
+            return;
+          }
+        }
+
+        const groupId = uuidv4();
+        const originalInstance = graph.instances.get(originalInstanceId);
+        originalInstance.isGroupAnchor = true;
+        originalInstance.anchorForGroupId = groupId;
+
+        if (!graph.groups) graph.groups = new Map();
+        graph.groups.set(groupId, {
+          id: groupId,
+          name: prototype.name || 'Untitled',
+          color: prototype.color || '#8B0000',
+          memberInstanceIds: [],
+          linkedNodePrototypeId: prototypeId,
+          linkedDefinitionIndex: definitionIndex,
+          hasCustomLayout: false,
+          anchorInstanceId: originalInstanceId,
+          // Frozen placeholder position for computeGroupLayout's zero-member fallback
+          // (see groupLayout.js). Must NOT be re-derived from the anchor's live x/y each
+          // render — the layout also writes the anchor's position to match the computed
+          // title-tab spot, and if the layout math read that live position back, the two
+          // would feed each other and the box would run away every frame. Kept in sync
+          // only when the group itself is intentionally dragged (updateMultipleNodeInstancePositions).
+          emptyPlaceholderOrigin: { x: originalInstance.x, y: originalInstance.y },
+          semanticMetadata: {
+            type: 'Group',
+            relationships: [],
+            createdAt: new Date().toISOString(),
+            lastModified: new Date().toISOString()
+          }
+        });
+
+        createdGroupId = groupId;
+        console.log(`[decomposeEmptyNodeToGroup] Opened empty node-group ${groupId} for "${prototype.name}", definition graph ${defGraphId}.`);
+      }));
+      return createdGroupId;
+    },
+
+    /**
      * Pushes a node-group's current contents into its linked definition graph, overwriting
      * whatever was there before. The inverse of `refreshNodeGroupFromDefinition`.
      *
@@ -3096,6 +3203,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             instance.y = y;
           }
         });
+
+        // Keep an empty node-group's held-open placeholder anchored to its instance
+        // when the whole group is intentionally dragged (see emptyPlaceholderOrigin
+        // in decomposeEmptyNodeToGroup for why this can't just track the anchor live).
+        const groupId = contextOptions.groupId;
+        const group = groupId ? graph.groups?.get(groupId) : null;
+        if (group?.linkedNodePrototypeId && group.anchorInstanceId && !(group.memberInstanceIds?.length > 0)) {
+          const anchorUpdate = updates.find(u => u.instanceId === group.anchorInstanceId);
+          if (anchorUpdate) {
+            group.emptyPlaceholderOrigin = { x: anchorUpdate.x, y: anchorUpdate.y };
+          }
+        }
       }));
     },
 

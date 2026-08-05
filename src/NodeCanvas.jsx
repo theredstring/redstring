@@ -6850,18 +6850,40 @@ function NodeCanvas() {
         }
       };
 
-      // Empty state (node has no definitions yet): only offer "+" to create the first
-      // definition, with Compose pinned top-right.
+      // Empty state (node has no definitions yet): offer "+" to create the first
+      // definition, plus Decompose (opens an empty node-group anchored here — creating
+      // the definition graph too, if needed), with Compose pinned top-right.
       if (decompDefIds.length === 0) {
         return [
           {
             id: 'decomp-add',
             label: 'Add Definition',
             icon: Plus,
-            position: 'top', topIndex: 0, topCount: 2,
+            position: 'top', topIndex: 0, topCount: 3,
             action: () => storeActions.createAndAssignGraphDefinitionWithoutActivation(decompPrototypeId)
           },
-          { ...compose, position: 'top', topIndex: 1, topCount: 2 }
+          {
+            id: 'decomp-further-empty',
+            label: 'Decompose',
+            icon: PackageOpen,
+            position: 'top', topIndex: 1, topCount: 3,
+            action: () => {
+              const createdGroupId = storeActions.decomposeEmptyNodeToGroup(activeGraphId, decompPrototypeId, decompIndex);
+              if (!createdGroupId) return;
+              setPreviewingNodeId(null);
+              setIsTransitioningPieMenu(false);
+              const gs = useGraphStore.getState();
+              const newGroup = gs.graphs?.get(activeGraphId)?.groups?.get(createdGroupId);
+              if (newGroup) {
+                setSelectedGroup(newGroup);
+                setSelectedInstanceIds(new Set());
+                setGroupControlPanelShouldShow(true);
+                setNodeControlPanelShouldShow(false);
+                setNodeControlPanelVisible(false);
+              }
+            }
+          },
+          { ...compose, position: 'top', topIndex: 2, topCount: 3 }
         ];
       }
 
@@ -6912,7 +6934,14 @@ function NodeCanvas() {
             // Use the dedicated store action (copies the definition's instances + edges and
             // reuses the original node as the group anchor). The older handleNodeConvertToNodeGroup
             // path reimplemented this manually and left the group empty.
-            const createdGroupId = storeActions.decomposeNodeToGroup(activeGraphId, decompPrototypeId, decompIndex);
+            // If the definition being previewed has no content yet (e.g. freshly added via
+            // "Add Definition"), decomposeNodeToGroup has nothing to copy and aborts — open an
+            // empty, buildable node-group instead.
+            const currentDefGraph = decompCurrentGraphId ? decompState.graphs.get(decompCurrentGraphId) : null;
+            const isCurrentDefEmpty = !currentDefGraph || !currentDefGraph.instances || currentDefGraph.instances.size === 0;
+            const createdGroupId = isCurrentDefEmpty
+              ? storeActions.decomposeEmptyNodeToGroup(activeGraphId, decompPrototypeId, decompIndex)
+              : storeActions.decomposeNodeToGroup(activeGraphId, decompPrototypeId, decompIndex);
             if (!createdGroupId) return;
             setPreviewingNodeId(null);
             setIsTransitioningPieMenu(false);
@@ -9056,19 +9085,35 @@ function NodeCanvas() {
                 if (group.memberInstanceIds.includes(primaryNodeId)) continue;
 
                 const members = nodes.filter(n => group.memberInstanceIds.includes(n.id));
-                if (!members.length) continue;
-
-                const memberDims = members.map(n => getNodeDimensions(n, false, null));
-                const xs = members.map((n) => n.x);
-                const ys = members.map((n) => n.y);
-                const rights = members.map((n, idx) => n.x + memberDims[idx].currentWidth);
-                const bottoms = members.map((n, idx) => n.y + memberDims[idx].currentHeight);
-
                 const margin = Math.max(24, Math.round(gridSize * 0.2));
-                const groupMinX = Math.min(...xs) - margin;
-                const groupMinY = Math.min(...ys) - margin;
-                const groupMaxX = Math.max(...rights) + margin;
-                const groupMaxY = Math.max(...bottoms) + margin;
+
+                let groupMinX, groupMinY, groupMaxX, groupMaxY;
+                if (members.length) {
+                  const memberDims = members.map(n => getNodeDimensions(n, false, null));
+                  const xs = members.map((n) => n.x);
+                  const ys = members.map((n) => n.y);
+                  const rights = members.map((n, idx) => n.x + memberDims[idx].currentWidth);
+                  const bottoms = members.map((n, idx) => n.y + memberDims[idx].currentHeight);
+                  groupMinX = Math.min(...xs) - margin;
+                  groupMinY = Math.min(...ys) - margin;
+                  groupMaxX = Math.max(...rights) + margin;
+                  groupMaxY = Math.max(...bottoms) + margin;
+                } else if (group.linkedNodePrototypeId && group.anchorInstanceId) {
+                  // Empty node-group placeholder: hold open a drop target at the
+                  // group's frozen placeholder origin — the same position the box
+                  // actually renders at (see groupLayout.js) — not the anchor's live
+                  // x/y, which tracks the rendered title-tab spot instead.
+                  const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
+                  const origin = group.emptyPlaceholderOrigin || anchorNode;
+                  if (!origin || !anchorNode) continue;
+                  const anchorDims = getNodeDimensions(anchorNode, false, null);
+                  groupMinX = origin.x - margin;
+                  groupMinY = origin.y - margin;
+                  groupMaxX = origin.x + anchorDims.currentWidth + margin;
+                  groupMaxY = origin.y + anchorDims.currentHeight + margin;
+                } else {
+                  continue;
+                }
 
                 if (primaryCenterX >= groupMinX && primaryCenterX <= groupMaxX &&
                   primaryCenterY >= groupMinY && primaryCenterY <= groupMaxY) {
@@ -9561,7 +9606,6 @@ function NodeCanvas() {
       // Move the carousel focus to the layer we just added so the user sees it,
       // then drop straight back to stage 1 (the main Swap/Add/Delete/Expand menu)
       // — like the plus button cycles you in and right back out after each add.
-      console.log('[Abstraction Submit] Requesting carousel focus on new node:', newNodeId);
       setCarouselFocusPrototypeRequest(newNodeId);
       setCarouselPieMenuStage(1);
       setIsCarouselStageTransition(false);
@@ -12591,7 +12635,11 @@ function NodeCanvas() {
                     groups.forEach(group => {
                       const memberIdSet = new Set(group.memberInstanceIds);
                       const members = hydratedNodes.filter(n => memberIdSet.has(n.id));
-                      if (!members.length) return;
+                      // Empty node-groups (no members yet) still render as a held-open
+                      // placeholder anchored at their own instance — computeGroupLayout
+                      // synthesizes a box for that case. Plain (non-prototype) groups have
+                      // no anchor to fall back to, so they still skip when empty.
+                      if (!members.length && !group.linkedNodePrototypeId) return;
 
                       // When this group's name is being edited, measure against the in-flight
                       // text so the label rect tracks keystrokes — pass an override-named
@@ -17175,8 +17223,12 @@ function NodeCanvas() {
               : handleNodePanelUp}
             onOpenInPanel={handleNodePanelOpenInPanel}
             onDecompose={decomposePanelInfo ? () => {
-              const { instanceId, prototypeId, index } = decomposePanelInfo;
-              const createdGroupId = storeActions.decomposeNodeToGroup(activeGraphId, prototypeId, index);
+              const { instanceId, prototypeId, index, currentGraphId } = decomposePanelInfo;
+              const currentDefGraph = currentGraphId ? graphsMap.get(currentGraphId) : null;
+              const isCurrentDefEmpty = !currentDefGraph || !currentDefGraph.instances || currentDefGraph.instances.size === 0;
+              const createdGroupId = isCurrentDefEmpty
+                ? storeActions.decomposeEmptyNodeToGroup(activeGraphId, prototypeId, index)
+                : storeActions.decomposeNodeToGroup(activeGraphId, prototypeId, index);
               if (!createdGroupId) return;
               setPreviewingNodeId(null);
               const gs = useGraphStore.getState();
@@ -17306,12 +17358,12 @@ function NodeCanvas() {
             onReplaceNode={onCarouselReplaceNode}
             onScaleChange={setCarouselFocusedNodeScale}
             onFocusedNodeDimensions={setCarouselFocusedNodeDimensions}
-            onFocusedNodeChange={(node) => { console.log('[NodeCanvas] carouselFocusedNode ->', node?.prototypeId, node?.name); setCarouselFocusedNode(node); }}
+            onFocusedNodeChange={setCarouselFocusedNode}
             onExitAnimationComplete={onCarouselExitAnimationComplete}
             relativeMoveRequest={carouselRelativeMoveRequest}
             onRelativeMoveHandled={() => setCarouselRelativeMoveRequest(null)}
             focusPrototypeRequest={carouselFocusPrototypeRequest}
-            onFocusPrototypeHandled={() => { console.log('[NodeCanvas] onFocusPrototypeHandled clearing request:', carouselFocusPrototypeRequest); setCarouselFocusPrototypeRequest(null); }}
+            onFocusPrototypeHandled={() => setCarouselFocusPrototypeRequest(null)}
             onOpenNodeInPanel={(item) => {
               const prototypeId = item?.prototypeId || item?.id;
               if (prototypeId && typeof storeActions.openRightPanelNodeTab === 'function') {

@@ -11,6 +11,9 @@ import { saveCoordinator } from './services/SaveCoordinator.js';
 import { DARK_THEME, LIGHT_THEME } from './utils/themeColors.js';
 import './App.css';
 
+// TEMP: manual test hook for empty node-group placeholder feature — remove before commit.
+if (typeof window !== 'undefined') window.useGraphStore = useGraphStore;
+
 function App() {
   const darkMode = useGraphStore(s => s.darkMode);
 

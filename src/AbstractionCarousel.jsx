@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useReducer } from 'react';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR, NODE_PADDING } from './constants';
 import { getNodeDimensions } from './utils';
@@ -434,10 +434,24 @@ const AbstractionCarousel = ({
   const lastFrameTimeRef = useRef(0);
   const physicsStateRef = useRef(physicsState);
   const updatePhysicsRef = useRef(null);
-  const lastReportedFocusRef = useRef(null);
 
-  // Update physics state ref whenever state changes
-  useEffect(() => {
+  // Update physics state ref whenever state changes.
+  //
+  // This must be a layout effect, not a passive one. updatePhysics (the rAF
+  // loop body) dispatches UPDATE_PHYSICS, then synchronously reads
+  // physicsStateRef.current to decide whether to schedule the next frame
+  // (`velocity > MIN_VELOCITY || isSnapping`). A passive useEffect flushes
+  // asynchronously after paint, with no guaranteed ordering against the next
+  // requestAnimationFrame callback — under a heavy commit (e.g. the render
+  // cascade from creating a brand-new node + chain entry, which fans out to
+  // many subscribed components) the next rAF can fire before the passive
+  // effect updates the ref. updatePhysics then reads the *previous* tick's
+  // state (isSnapping still false, from before a JUMP_TO_LEVEL request), thinks
+  // the animation is idle, and stops scheduling — freezing the snap partway
+  // instead of completing it. useLayoutEffect runs synchronously right after
+  // the commit, before the browser paints and therefore before any
+  // subsequent rAF callback, so the ref is always current when read.
+  useLayoutEffect(() => {
     physicsStateRef.current = physicsState;
   }, [physicsState]);
 
@@ -711,19 +725,7 @@ const AbstractionCarousel = ({
       const roundedLevel = Math.round(position);
       const focusedNode = abstractionChainWithDims.find(item => item.level === roundedLevel);
       if (focusedNode) {
-        if (lastReportedFocusRef.current !== focusedNode.prototypeId) {
-          console.log('[AbstractionCarousel] onFocusedNodeChange:', {
-            prototypeId: focusedNode.prototypeId,
-            name: focusedNode.name,
-            level: focusedNode.level,
-            roundedLevel,
-            rawPosition: position
-          });
-          lastReportedFocusRef.current = focusedNode.prototypeId;
-        }
         onFocusedNodeChange(focusedNode);
-      } else {
-        console.log('[AbstractionCarousel] onFocusedNodeChange: no item at roundedLevel', { roundedLevel, rawPosition: position });
       }
     }
 
@@ -1068,17 +1070,6 @@ const AbstractionCarousel = ({
   useEffect(() => {
     if (!isVisible || !focusPrototypeRequest || !abstractionChainWithDims.length) return;
     const item = abstractionChainWithDims.find(n => n.prototypeId === focusPrototypeRequest);
-    console.log('[AbstractionCarousel] focusPrototypeRequest effect:', {
-      focusPrototypeRequest,
-      found: !!item,
-      itemLevel: item?.level,
-      currentRealPosition: physicsStateRef.current.realPosition,
-      currentTargetPosition: physicsStateRef.current.targetPosition,
-      isSnapping: physicsStateRef.current.isSnapping,
-      physicsMinLevel,
-      physicsMaxLevel,
-      chainLevels: abstractionChainWithDims.map(n => ({ id: n.prototypeId, level: n.level }))
-    });
     if (!item) {
       // Not in the chain yet on this pass (e.g. the store update that adds it
       // hasn't landed in this memo yet). Leave the request in place instead of
