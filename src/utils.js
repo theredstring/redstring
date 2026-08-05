@@ -16,7 +16,7 @@ let fontLoadListenerAdded = false;
 const PREVIEW_NODE_WIDTH = 600; // Wider for preview
 const PREVIEW_NODE_MIN_HEIGHT = 600; // Making it a square
 const PREVIEW_TEXT_AREA_HEIGHT = 100; // Fixed height for name in preview
-const DESCRIPTION_LINE_HEIGHT = 24; // Height per line for description text
+const DESCRIPTION_LINE_HEIGHT = 33; // Height per line for description text — matches Node.jsx's rendered CSS line-height factor (33 * fontSize * lineSpacing * nodeScale)
 const DESCRIPTION_MAX_LINES = 3; // Maximum lines to show
 const DESCRIPTION_PADDING = 8; // Padding around description text
 
@@ -168,11 +168,17 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
 
     // Calculate description area height dynamically based on actual content
     if (descriptionContent && descriptionContent.trim() && descriptionContent !== 'No description.') {
-      // Measure actual text to determine how many lines we need
-      const actualHeight = measureTextBlockHeight(descriptionContent, innerNetworkWidth, augTs, DESCRIPTION_LINE_HEIGHT * augTs.fontSize);
+      // Measure actual text to determine how many lines we need. measureTextBlockHeight
+      // multiplies the passed lineHeightBase by augTs.lineSpacing internally, so pass the
+      // per-line px (pre-lineSpacing) here and apply the same multiply to maxAllowedHeight
+      // below — both must use the exact per-line height Node.jsx's CSS actually renders
+      // (33 * fontSize * lineSpacing * nodeScale), or the box comes out shorter than the
+      // real 3 lines of text and clips the last line (and any truncation ellipsis) off.
+      const descriptionLineHeightPx = DESCRIPTION_LINE_HEIGHT * augTs.fontSize;
+      const actualHeight = measureTextBlockHeight(descriptionContent, innerNetworkWidth, augTs, descriptionLineHeightPx);
 
       // Cap at maximum 3 lines but use actual height if smaller (fontSize-scaled to match render)
-      const maxAllowedHeight = DESCRIPTION_MAX_LINES * DESCRIPTION_LINE_HEIGHT * augTs.fontSize;
+      const maxAllowedHeight = DESCRIPTION_MAX_LINES * descriptionLineHeightPx * augTs.lineSpacing;
       const contentHeight = Math.min(actualHeight, maxAllowedHeight);
       descriptionAreaHeight = contentHeight + 16 * nodeScale; // Padding (12px top + 4px bottom, matches Node.jsx)
     } else {

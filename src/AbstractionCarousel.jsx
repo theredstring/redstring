@@ -434,6 +434,7 @@ const AbstractionCarousel = ({
   const lastFrameTimeRef = useRef(0);
   const physicsStateRef = useRef(physicsState);
   const updatePhysicsRef = useRef(null);
+  const lastReportedFocusRef = useRef(null);
 
   // Update physics state ref whenever state changes
   useEffect(() => {
@@ -710,7 +711,19 @@ const AbstractionCarousel = ({
       const roundedLevel = Math.round(position);
       const focusedNode = abstractionChainWithDims.find(item => item.level === roundedLevel);
       if (focusedNode) {
+        if (lastReportedFocusRef.current !== focusedNode.prototypeId) {
+          console.log('[AbstractionCarousel] onFocusedNodeChange:', {
+            prototypeId: focusedNode.prototypeId,
+            name: focusedNode.name,
+            level: focusedNode.level,
+            roundedLevel,
+            rawPosition: position
+          });
+          lastReportedFocusRef.current = focusedNode.prototypeId;
+        }
         onFocusedNodeChange(focusedNode);
+      } else {
+        console.log('[AbstractionCarousel] onFocusedNodeChange: no item at roundedLevel', { roundedLevel, rawPosition: position });
       }
     }
 
@@ -1055,6 +1068,17 @@ const AbstractionCarousel = ({
   useEffect(() => {
     if (!isVisible || !focusPrototypeRequest || !abstractionChainWithDims.length) return;
     const item = abstractionChainWithDims.find(n => n.prototypeId === focusPrototypeRequest);
+    console.log('[AbstractionCarousel] focusPrototypeRequest effect:', {
+      focusPrototypeRequest,
+      found: !!item,
+      itemLevel: item?.level,
+      currentRealPosition: physicsStateRef.current.realPosition,
+      currentTargetPosition: physicsStateRef.current.targetPosition,
+      isSnapping: physicsStateRef.current.isSnapping,
+      physicsMinLevel,
+      physicsMaxLevel,
+      chainLevels: abstractionChainWithDims.map(n => ({ id: n.prototypeId, level: n.level }))
+    });
     if (!item) {
       // Not in the chain yet on this pass (e.g. the store update that adds it
       // hasn't landed in this memo yet). Leave the request in place instead of

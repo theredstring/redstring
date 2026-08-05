@@ -9561,6 +9561,7 @@ function NodeCanvas() {
       // Move the carousel focus to the layer we just added so the user sees it,
       // then drop straight back to stage 1 (the main Swap/Add/Delete/Expand menu)
       // — like the plus button cycles you in and right back out after each add.
+      console.log('[Abstraction Submit] Requesting carousel focus on new node:', newNodeId);
       setCarouselFocusPrototypeRequest(newNodeId);
       setCarouselPieMenuStage(1);
       setIsCarouselStageTransition(false);
@@ -12895,8 +12896,12 @@ function NodeCanvas() {
                               // Single tap → select (mirrors the mouse onClick path).
                               lastGroupTapRef.current = { id: group.id, time: now };
                               setSelectedGroup(group);
+                              setSelectedInstanceIds(new Set());
+                              storeActions.setSelectedEdgeId(null);
+                              storeActions.clearSelectedEdgeIds();
                               setGroupControlPanelShouldShow(true);
                               setNodeControlPanelShouldShow(false);
+                              setNodeControlPanelVisible(false);
                               setAbstractionControlPanelVisible(false);
                               setAbstractionControlPanelShouldShow(false);
                               setConnectionControlPanelVisible(false);
@@ -17301,12 +17306,12 @@ function NodeCanvas() {
             onReplaceNode={onCarouselReplaceNode}
             onScaleChange={setCarouselFocusedNodeScale}
             onFocusedNodeDimensions={setCarouselFocusedNodeDimensions}
-            onFocusedNodeChange={setCarouselFocusedNode}
+            onFocusedNodeChange={(node) => { console.log('[NodeCanvas] carouselFocusedNode ->', node?.prototypeId, node?.name); setCarouselFocusedNode(node); }}
             onExitAnimationComplete={onCarouselExitAnimationComplete}
             relativeMoveRequest={carouselRelativeMoveRequest}
             onRelativeMoveHandled={() => setCarouselRelativeMoveRequest(null)}
             focusPrototypeRequest={carouselFocusPrototypeRequest}
-            onFocusPrototypeHandled={() => setCarouselFocusPrototypeRequest(null)}
+            onFocusPrototypeHandled={() => { console.log('[NodeCanvas] onFocusPrototypeHandled clearing request:', carouselFocusPrototypeRequest); setCarouselFocusPrototypeRequest(null); }}
             onOpenNodeInPanel={(item) => {
               const prototypeId = item?.prototypeId || item?.id;
               if (prototypeId && typeof storeActions.openRightPanelNodeTab === 'function') {
