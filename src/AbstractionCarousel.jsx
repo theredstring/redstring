@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useReducer } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer } from 'react';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR, NODE_PADDING } from './constants';
 import { getNodeDimensions } from './utils';
@@ -435,25 +435,32 @@ const AbstractionCarousel = ({
   const physicsStateRef = useRef(physicsState);
   const updatePhysicsRef = useRef(null);
 
-  // Update physics state ref whenever state changes.
+  // Every physics action must go through here, never useReducer's dispatch
+  // directly. updatePhysics (the rAF loop body) dispatches an action, then
+  // synchronously reads physicsStateRef.current to decide whether to keep
+  // scheduling frames (`velocity > MIN_VELOCITY || isSnapping`). But a
+  // dispatched reducer action only updates React's state — and therefore
+  // physicsStateRef.current, previously synced from it via an effect — once
+  // React actually re-renders and commits. That doesn't happen synchronously:
+  // it's scheduled work. requestAnimationFrame(updatePhysicsRef.current),
+  // called right after the dispatch to keep the loop going, can fire before
+  // React gets around to that render — no commit has happened yet, so no
+  // effect (passive OR layout) has run either. The next updatePhysics tick
+  // then reads the *previous* action's state, sees isSnapping/velocity as if
+  // the dispatch never happened, and stops the loop — freezing the animation
+  // wherever it happened to be. Confirmed by instrumenting the loop: a
+  // JUMP_TO_LEVEL dispatch immediately followed by a loop-stop read showing
+  // targetPosition still at the pre-jump value.
   //
-  // This must be a layout effect, not a passive one. updatePhysics (the rAF
-  // loop body) dispatches UPDATE_PHYSICS, then synchronously reads
-  // physicsStateRef.current to decide whether to schedule the next frame
-  // (`velocity > MIN_VELOCITY || isSnapping`). A passive useEffect flushes
-  // asynchronously after paint, with no guaranteed ordering against the next
-  // requestAnimationFrame callback — under a heavy commit (e.g. the render
-  // cascade from creating a brand-new node + chain entry, which fans out to
-  // many subscribed components) the next rAF can fire before the passive
-  // effect updates the ref. updatePhysics then reads the *previous* tick's
-  // state (isSnapping still false, from before a JUMP_TO_LEVEL request), thinks
-  // the animation is idle, and stops scheduling — freezing the snap partway
-  // instead of completing it. useLayoutEffect runs synchronously right after
-  // the commit, before the browser paints and therefore before any
-  // subsequent rAF callback, so the ref is always current when read.
-  useLayoutEffect(() => {
-    physicsStateRef.current = physicsState;
-  }, [physicsState]);
+  // Fix: compute the reducer transition ourselves, synchronously, into the
+  // ref at the moment of dispatch — not "eventually, once React re-renders."
+  // dispatchPhysics is kept alongside purely so React still re-renders (for
+  // the actual visuals); physicsStateRef is the authoritative, always-current
+  // source of truth for the loop's own control-flow decisions.
+  const runPhysicsAction = useCallback((action) => {
+    physicsStateRef.current = physicsReducer(physicsStateRef.current, action);
+    dispatchPhysics(action);
+  }, []);
 
   // Handle animation state transitions
   useEffect(() => {
@@ -668,7 +675,7 @@ const AbstractionCarousel = ({
     const frameMultiplier = deltaTimeSeconds * 60;
 
     // Update physics using reducer
-    dispatchPhysics({
+    runPhysicsAction({
       type: 'UPDATE_PHYSICS',
       payload: {
         frameMultiplier,
@@ -737,7 +744,7 @@ const AbstractionCarousel = ({
       console.log('🔴CD loop-stop', { realPosition: currentState.realPosition, targetPosition: currentState.targetPosition, velocity: currentState.velocity, isSnapping: currentState.isSnapping });
       animationFrameRef.current = null;
     }
-  }, [isVisible, abstractionChainWithDims, onScaleChange, onFocusedNodeDimensions, physicsMinLevel, physicsMaxLevel]);
+  }, [isVisible, abstractionChainWithDims, onScaleChange, onFocusedNodeDimensions, physicsMinLevel, physicsMaxLevel, runPhysicsAction]);
 
   // Update updatePhysics ref
   useEffect(() => {
@@ -749,14 +756,14 @@ const AbstractionCarousel = ({
     console.log('🔴CD isVisible-effect', { isVisible, hadFrame: !!animationFrameRef.current });
     if (isVisible && !animationFrameRef.current) {
       // Reset all state when carousel opens
-      dispatchPhysics({ type: 'RESET' });
+      runPhysicsAction({ type: 'RESET' });
       lastFrameTimeRef.current = performance.now();
       animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
     } else if (!isVisible && animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
       // Reset all state when closing
-      dispatchPhysics({ type: 'RESET' });
+      runPhysicsAction({ type: 'RESET' });
     }
 
     return () => {
@@ -775,7 +782,7 @@ const AbstractionCarousel = ({
     if (!isVisible) return;
 
     // Mark that user has started scrolling
-    dispatchPhysics({ type: 'SET_USER_SCROLLED', payload: true });
+    runPhysicsAction({ type: 'SET_USER_SCROLLED', payload: true });
     // Dismiss hints on first scroll with fade-out
     if (!hintsDismissed) {
       setHintsDismissed(true);
@@ -783,7 +790,7 @@ const AbstractionCarousel = ({
     }
 
     // Allow new input to interrupt snapping
-    dispatchPhysics({ type: 'INTERRUPT_SNAPPING' });
+    runPhysicsAction({ type: 'INTERRUPT_SNAPPING' });
 
     // Get current state for adaptive sensitivity calculation
     const currentState = physicsStateRef.current;
@@ -829,7 +836,7 @@ const AbstractionCarousel = ({
     const clampedVelocity = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, newVelocity));
 
     // Update velocity and add to history
-    dispatchPhysics({ type: 'SET_VELOCITY_WITH_HISTORY', payload: { velocity: clampedVelocity, deltaY } });
+    runPhysicsAction({ type: 'SET_VELOCITY_WITH_HISTORY', payload: { velocity: clampedVelocity, deltaY } });
 
     // Always start physics loop on wheel input
     if (!animationFrameRef.current) {
@@ -870,8 +877,8 @@ const AbstractionCarousel = ({
     }
     const touch = e.touches[0];
     // Stop physics so the drag starts from rest
-    dispatchPhysics({ type: 'SET_VELOCITY', payload: 0 });
-    dispatchPhysics({ type: 'INTERRUPT_SNAPPING' });
+    runPhysicsAction({ type: 'SET_VELOCITY', payload: 0 });
+    runPhysicsAction({ type: 'INTERRUPT_SNAPPING' });
     touchStateRef.current = {
       identifier: touch.identifier,
       startY: touch.clientY,
@@ -906,7 +913,7 @@ const AbstractionCarousel = ({
       const totalDistance = Math.abs(currentY - ts.startY);
       if (totalDistance <= TOUCH_DRAG_THRESHOLD) return; // still might be a tap
       ts.isDragging = true;
-      dispatchPhysics({ type: 'SET_USER_SCROLLED', payload: true });
+      runPhysicsAction({ type: 'SET_USER_SCROLLED', payload: true });
       if (!hintsDismissed) {
         setHintsDismissed(true);
         setHintOpacity(0);
@@ -923,7 +930,7 @@ const AbstractionCarousel = ({
     const safePixels = Math.max(Math.abs(pixelsPerLevel), 1) * Math.sign(pixelsPerLevel || 1);
     const levelDelta = -deltaY / safePixels;
 
-    dispatchPhysics({
+    runPhysicsAction({
       type: 'MOVE_BY',
       payload: { delta: levelDelta, minLevel: physicsMinLevel, maxLevel: physicsMaxLevel }
     });
@@ -970,7 +977,7 @@ const AbstractionCarousel = ({
     const sinceLast = performance.now() - ts.lastTime;
     const usableVelocity = sinceLast < 80 ? releaseVelocity : 0;
     const clamped = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, usableVelocity));
-    dispatchPhysics({
+    runPhysicsAction({
       type: 'SET_VELOCITY_WITH_HISTORY',
       payload: { velocity: clamped, deltaY: 0 }
     });
@@ -1019,7 +1026,7 @@ const AbstractionCarousel = ({
     }
 
     // Jump to clicked level and set it as target
-    dispatchPhysics({ type: 'JUMP_TO_LEVEL', payload: item.level });
+    runPhysicsAction({ type: 'JUMP_TO_LEVEL', payload: item.level });
 
     // Start physics loop for smooth animation to target
     if (!animationFrameRef.current) {
@@ -1056,7 +1063,7 @@ const AbstractionCarousel = ({
       target = Math.min(max, rounded + 1);
     }
     if (target !== rounded) {
-      dispatchPhysics({ type: 'JUMP_TO_LEVEL', payload: target });
+      runPhysicsAction({ type: 'JUMP_TO_LEVEL', payload: target });
       if (!animationFrameRef.current) {
         lastFrameTimeRef.current = performance.now();
         animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
@@ -1081,7 +1088,7 @@ const AbstractionCarousel = ({
       return;
     }
     console.log('🔴CD jump-dispatch', { focusPrototypeRequest, level: item.level, hadFrame: !!animationFrameRef.current });
-    dispatchPhysics({ type: 'JUMP_TO_LEVEL', payload: item.level });
+    runPhysicsAction({ type: 'JUMP_TO_LEVEL', payload: item.level });
     if (!animationFrameRef.current) {
       lastFrameTimeRef.current = performance.now();
       animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
