@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { Trash2, Plus, ArrowUpFromDot, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles, NotebookText, UploadCloud, RefreshCw } from 'lucide-react';
+import { Trash2, Plus, ArrowUpFromDot, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles, NotebookText, Save, RefreshCw } from 'lucide-react';
 import UniversalNodeRenderer from './UniversalNodeRenderer';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
@@ -991,7 +991,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-update-definition', 'Update Definition')}
                   onMouseLeave={clearActionHover}
                 >
-                  <UploadCloud size={iconSize} />
+                  <Save size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
