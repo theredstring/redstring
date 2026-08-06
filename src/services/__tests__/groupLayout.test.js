@@ -115,6 +115,32 @@ describe('computeGroupLayout', () => {
     expect(outerOverhangAboveRect).toBe(labelHeight + C.titleToCanvasGap + C.titleTopMargin);
   });
 
+  it('nested node-group shell keeps margin clearance on all four edges of the parent (no coincident rims)', () => {
+    const ctx = buildContext();
+    addNode(ctx, 'a', 0, 0);
+    addNode(ctx, 'b', 300, 0);
+    addNode(ctx, 'c', 600, 200);
+
+    const inner = { id: 'inner', name: 'Inner', memberInstanceIds: ['a', 'b'], linkedNodePrototypeId: 'p1' };
+    const outer = { id: 'outer', name: 'Outer', memberInstanceIds: ['a', 'b', 'c'], linkedNodePrototypeId: 'p2' };
+    addGroup(ctx, inner);
+    addGroup(ctx, outer);
+
+    const innerLayout = computeGroupLayout(inner, ctx);
+    const outerLayout = computeGroupLayout(outer, ctx);
+    const iv = innerLayout.visualBounds;
+
+    // Before the four-edge fold, outer.rect.x === inner.rect.x (both minX - margin
+    // from the same shared member 'a') — rims exactly coincided. Now the outer
+    // shell must clear the inner shell by the full margin on left and bottom,
+    // and at least contain it on the right (where member 'c' extends further).
+    expect(outerLayout.rect.x).toBeLessThanOrEqual(iv.x - margin);
+    expect(outerLayout.rect.y + outerLayout.rect.h).toBeGreaterThanOrEqual(iv.y + iv.h + margin);
+    expect(outerLayout.rect.x + outerLayout.rect.w).toBeGreaterThanOrEqual(iv.x + iv.w);
+    // Top keeps the pre-existing overhang fold (visualBounds.y === nodeGroupRect.y).
+    expect(outerLayout.bbox.minY).toBe(innerLayout.nodeGroupRect.y);
+  });
+
   it('peer node-groups (equal member sets) do NOT fold each other — neither is a strict subset', () => {
     const ctx = buildContext();
     addNode(ctx, 'a', 0, 0);

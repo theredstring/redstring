@@ -215,6 +215,9 @@ function computeGroupLayoutInner(group, context) {
     const memberBottom = memberY + dims.currentHeight;
 
     let contributingY = memberY;
+    let contributingX = memberX;
+    let contributingRight = memberRight;
+    let contributingBottom = memberBottom;
     if (childGroupIds.size > 0) {
       const containingEntries = groupsByMemberId.get(memberId);
       if (containingEntries) {
@@ -225,23 +228,37 @@ function computeGroupLayoutInner(group, context) {
           if (!otherGroup) continue;
           const nested = computeGroupLayout(otherGroup, context);
           if (nested && nested.ok) {
-            if (nested.nodeGroupRect.y < contributingY) {
+            // Fold the nested group's FULL shell (colored band + title tab)
+            // into this bbox, not just its member nodes. The child's rect
+            // extends the same margin beyond the shared members as ours
+            // would, so treating members as the extent makes both shells
+            // land on coincident left/right/bottom edges — overlapping with
+            // zero clearance. Folding visualBounds instead means our margin
+            // applies around the child's shell, keeping memberPadding of
+            // daylight between the rims on every side.
+            const vb = nested.visualBounds;
+            if (vb) {
+              if (vb.x < contributingX) contributingX = vb.x;
+              if (vb.y < contributingY) contributingY = vb.y;
+              if (vb.x + vb.w > contributingRight) contributingRight = vb.x + vb.w;
+              if (vb.y + vb.h > contributingBottom) contributingBottom = vb.y + vb.h;
+            } else if (nested.nodeGroupRect.y < contributingY) {
               contributingY = nested.nodeGroupRect.y;
             }
             nestedContributors.push({
               memberId,
               nestedGroupId: otherGroupId,
-              contributedMinY: nested.nodeGroupRect.y,
+              contributedMinY: vb ? vb.y : nested.nodeGroupRect.y,
             });
           }
         }
       }
     }
 
-    if (memberX < minX) minX = memberX;
+    if (contributingX < minX) minX = contributingX;
     if (contributingY < minY) minY = contributingY;
-    if (memberRight > maxX) maxX = memberRight;
-    if (memberBottom > maxY) maxY = memberBottom;
+    if (contributingRight > maxX) maxX = contributingRight;
+    if (contributingBottom > maxY) maxY = contributingBottom;
   }
 
   if (!isFinite(minX) && group.linkedNodePrototypeId) {
