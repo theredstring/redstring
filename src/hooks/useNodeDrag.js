@@ -13,6 +13,7 @@ import {
   GROUP_LAYOUT_CONSTANTS,
   groupIdFromPlaceholderId,
   buildParentGroupIdsIndex,
+  buildShellCutoutPath,
   collectAffectedGroupIds as collectAffectedGroupIdsPure,
 } from '../services/groupLayout.js';
 import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
@@ -414,10 +415,13 @@ export const useNodeDrag = ({
       if (els.length > 0) {
         const cachedEls = Array.from(els).map(el => ({
           el,
-          // A Lombardi label rides its own <path>. Exclude it here or the loop
-          // below would stamp the EDGE's geometry onto it and the label would
-          // slide off along the connection.
-          paths: Array.from(el.querySelectorAll('path:not([data-label-arc])')),
+          // A Lombardi label rides its own <path>, and the shell-cutout clip is a
+          // <path> too. Exclude both here or the loop below would stamp the EDGE's
+          // geometry onto them — the label would slide off along the connection,
+          // and the clip region would collapse to the shape of the line itself,
+          // erasing the connection entirely.
+          paths: Array.from(el.querySelectorAll('path:not([data-label-arc]):not([data-shell-clip])')),
+          shellClip: el.querySelector('path[data-shell-clip]'),
           lines: Array.from(el.querySelectorAll('line')),
           arrows: Array.from(el.querySelectorAll('[data-arrow]')),
           selfArrow: el.querySelector('[data-arrow="self"]'),
@@ -690,6 +694,27 @@ export const useNodeDrag = ({
       if (eAnchor) {
         dDims = { currentWidth: eAnchor.width, currentHeight: eAnchor.height };
         if (!dragPos.has(edge.destinationId)) dPos = { x: eAnchor.x, y: eAnchor.y };
+      }
+
+      // Keep the shell-cutout clip (see buildShellCutoutPath) tracking the group
+      // boxes as they resize under the drag. Without this the connection keeps
+      // being cut against wherever the shell WAS, which reads as the line
+      // spontaneously severing itself mid-gesture.
+      if (sAnchor?.shellRect || eAnchor?.shellRect) {
+        const arrowsSet = edge.directionality?.arrowsToward instanceof Set
+          ? edge.directionality.arrowsToward
+          : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
+        const shells = [];
+        if (sAnchor?.shellRect && !arrowsSet.has(edge.sourceId)) shells.push(sAnchor.shellRect);
+        if (eAnchor?.shellRect && !arrowsSet.has(edge.destinationId)) shells.push(eAnchor.shellRect);
+        if (shells.length > 0) {
+          const cs = canvasSizeRef.current;
+          const d = buildShellCutoutPath(
+            { x: cs.offsetX, y: cs.offsetY, w: cs.width, h: cs.height },
+            shells
+          );
+          edgeEls.forEach(({ shellClip }) => { if (shellClip && d) shellClip.setAttribute('d', d); });
+        }
       }
 
       // Self-loop: recompute arc from the moving node's current drag position.
@@ -1070,7 +1095,7 @@ export const useNodeDrag = ({
     selectedInstanceIdsRef, enableAutoRoutingRef, routingStyleRef, manhattanBendsRef,
     cleanLaneSpacingRef, cleanLaneOffsetsRef, lombardiTangentsRef, lombardiCurvatureRef,
     labelAngleQuantumRef, multiConnectionCurveRef,
-    edgesRef, placedLabelsRef]);
+    edgesRef, placedLabelsRef, canvasSizeRef, anchorPositionUpdatesRef]);
 
   // ---------------------------------------------------------------------------
   // Update Group Bounds in DOM (recomputes bounding boxes for affected groups)
@@ -1151,6 +1176,8 @@ export const useNodeDrag = ({
           width: groupLabelWidth, height: groupLabelHeight,
           groupId,
           outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null,
+          // The shell as drawn — the shell-cutout clip on connections reads this.
+          shellRect: { x: rectX, y: nodeGroupRect.y, w: rectW, h: nodeGroupRect.h, r: C.nodeGroupCornerRadius },
         });
         affectedAnchorIds.add(group.anchorInstanceId);
       }

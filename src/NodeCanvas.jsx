@@ -51,6 +51,7 @@ import {
   computeGroupDepths,
   buildEdgeZSlotIndex,
   edgeZSlotFor,
+  buildShellCutoutPath,
   placeholderIdForGroup,
 } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
@@ -12806,7 +12807,11 @@ function NodeCanvas() {
                           x: labelX, y: labelY,
                           width: labelWidth, height: labelHeight,
                           groupId: group.id,
-                          outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null
+                          outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null,
+                          // The shell exactly as drawn (rounded rect, not the AABB above), so a
+                          // connection clipped against it is cut along the same curve the rim
+                          // paints. See buildShellCutoutPath.
+                          shellRect: { x: rectX, y: nodeGroupRectY, w: rectW, h: nodeGroupRectH, r: GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius },
                         });
                       }
 
@@ -13207,23 +13212,29 @@ function NodeCanvas() {
                       );
 
                       if (isNodeGroup) {
-                        // Thing-group backgrounds → Phase 2, bucketed by nesting depth so the
-                        // edge layer can slip each depth's anchor edges in underneath.
+                        const innerCanvasRect = {
+                          x: rectX + GROUP_SPACING.innerCanvasBorder,
+                          y: innerCanvasY,
+                          w: rectW - (GROUP_SPACING.innerCanvasBorder * 2),
+                          h: (rectY + rectH) - innerCanvasY - GROUP_SPACING.innerCanvasBorder,
+                          r: GROUP_LAYOUT_CONSTANTS.innerCanvasCornerRadius,
+                        };
+                        // The whole shell — band and interior together — sits at this group's
+                        // nesting depth in the z-interleave, so it occludes exactly the
+                        // connections that don't have an endpoint inside it. See edgeZSlotFor.
                         pushBackgroundAtDepth(groupDepth,
                           <g key={`bg-${group.id}`} className="node-group-bg" data-group-id={group.id} style={groupStyle}>
                             {/* Colored band is purely decorative — pointer-events:none lets
-                                anchor edges (rendered in the layer BELOW this bg) stay clickable
-                                where they route through the rim. Selection of the node group
-                                happens via the title label; deselection happens via the inner
-                                canvas-bg rect below. */}
+                                connections routing under it stay clickable. Selection happens
+                                via the title label; deselection via the inner canvas-bg rect. */}
                             <rect x={rectX} y={nodeGroupRectY} width={rectW} height={nodeGroupRectH}
                               rx={nodeGroupCornerR} ry={nodeGroupCornerR} fill={nodeGroupColor} stroke="none"
                               pointerEvents="none" />
                             <rect
-                              x={rectX + GROUP_SPACING.innerCanvasBorder} y={innerCanvasY}
-                              width={rectW - (GROUP_SPACING.innerCanvasBorder * 2)}
-                              height={(rectY + rectH) - innerCanvasY - GROUP_SPACING.innerCanvasBorder}
-                              rx={12} ry={12} fill={theme.canvas.bg} stroke="none"
+                              x={innerCanvasRect.x} y={innerCanvasRect.y}
+                              width={innerCanvasRect.w}
+                              height={innerCanvasRect.h}
+                              rx={innerCanvasRect.r} ry={innerCanvasRect.r} fill={theme.canvas.bg} stroke="none"
                               style={{ cursor: 'default', pointerEvents: 'auto' }}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -13468,42 +13479,28 @@ function NodeCanvas() {
                             x2 = destNode.x + eNodeDims.currentWidth / 2;
                             y2 = destNode.y + eNodeDims.currentHeight / 2;
                           } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
-                            // Directed connections: calculate each endpoint based on whether it has an arrow
-                            // Sides with arrows draw to edge, sides without arrows draw to center
-                            const centerX1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                            const centerY1 = sourceNode.y + sNodeDims.currentHeight / 2;
-                            const centerX2 = destNode.x + eNodeDims.currentWidth / 2;
-                            const centerY2 = destNode.y + eNodeDims.currentHeight / 2;
+                            // Directed connections: sides with arrows draw to the border, sides
+                            // without draw to the center — the stub from center to border is
+                            // occluded, by the node itself or (for an anchor) by the group shell
+                            // plus the shell-cutout clip below.
+                            // Use edge-based calculation, then selectively apply results.
+                            // For thing-group endpoints, clip against the group's full outer box
+                            // so the arrow-side line terminates just outside the box (the anchor
+                            // tab sits inside it and the box paints on top, hiding a tab-edge end).
+                            const endpoints = getVisualConnectionEndpoints(
+                              sourceNode, destNode,
+                              sNodeDims, eNodeDims,
+                              selectedInstanceIds.has(sourceNode.id),
+                              selectedInstanceIds.has(destNode.id),
+                              true,
+                              sAnchorInfo?.outerBounds || null,
+                              eAnchorInfo?.outerBounds || null
+                            );
 
-                            if (hasSourceArrow || hasDestArrow) {
-                              // Use edge-based calculation, then selectively apply results.
-                              // For thing-group endpoints, clip against the group's full outer box
-                              // so the arrow-side line terminates just outside the box (the anchor
-                              // tab sits inside it and the box paints on top, hiding a tab-edge end).
-                              const endpoints = getVisualConnectionEndpoints(
-                                sourceNode, destNode,
-                                sNodeDims, eNodeDims,
-                                selectedInstanceIds.has(sourceNode.id),
-                                selectedInstanceIds.has(destNode.id),
-                                true,
-                                sAnchorInfo?.outerBounds || null,
-                                eAnchorInfo?.outerBounds || null
-                              );
-
-                              // Source: use edge if has arrow, otherwise center
-                              x1 = hasSourceArrow ? endpoints.x1 : centerX1;
-                              y1 = hasSourceArrow ? endpoints.y1 : centerY1;
-
-                              // Dest: use edge if has arrow, otherwise center
-                              x2 = hasDestArrow ? endpoints.x2 : centerX2;
-                              y2 = hasDestArrow ? endpoints.y2 : centerY2;
-                            } else {
-                              // Fallback to centers (shouldn't reach here due to outer if condition)
-                              x1 = centerX1;
-                              y1 = centerY1;
-                              x2 = centerX2;
-                              y2 = centerY2;
-                            }
+                            x1 = hasSourceArrow ? endpoints.x1 : sourceNode.x + sNodeDims.currentWidth / 2;
+                            y1 = hasSourceArrow ? endpoints.y1 : sourceNode.y + sNodeDims.currentHeight / 2;
+                            x2 = hasDestArrow ? endpoints.x2 : destNode.x + eNodeDims.currentWidth / 2;
+                            y2 = hasDestArrow ? endpoints.y2 : destNode.y + eNodeDims.currentHeight / 2;
                           } else {
                             // Non-directed connections: use centers for traditional appearance
                             x1 = sourceNode.x + sNodeDims.currentWidth / 2;
@@ -13932,8 +13929,40 @@ function NodeCanvas() {
                             );
                           }
 
+                          // Shell-cutout clip. An arrow-less end that lands on a node-group
+                          // anchor is drawn to the title-pill center, inside the group's box,
+                          // and relies on the shell to hide the stub — which the shell only
+                          // does when it paints above this connection. When the other end is
+                          // deeper in the nesting, it doesn't. Cutting the group's box out of
+                          // the connection reproduces that occlusion at any paint order, and
+                          // unlike simply ending the line at the boundary it cuts ALONG the
+                          // boundary, so there's no leftover cap nub at the rim.
+                          //
+                          // Only arrow-less anchor ends need it: an arrow end already
+                          // terminates on the border with its head outside the box, and
+                          // clipping there would slice the arrowhead.
+                          const clippedShells = [];
+                          if (sAnchorInfo?.shellRect && !hasSourceArrow) clippedShells.push(sAnchorInfo.shellRect);
+                          if (eAnchorInfo?.shellRect && !hasDestArrow) clippedShells.push(eAnchorInfo.shellRect);
+                          const shellClipId = clippedShells.length > 0 ? `edge-shell-clip-${edge.id}` : null;
+
                           return (
                             <g key={`edge-${edge.id}`} data-edge-id={edge.id}>
+                              {shellClipId && (
+                                <defs>
+                                  <clipPath id={shellClipId} clipPathUnits="userSpaceOnUse">
+                                    <path
+                                      data-shell-clip
+                                      d={buildShellCutoutPath(
+                                        { x: canvasSize.offsetX, y: canvasSize.offsetY, w: canvasSize.width, h: canvasSize.height },
+                                        clippedShells
+                                      )}
+                                      clipRule="evenodd"
+                                    />
+                                  </clipPath>
+                                </defs>
+                              )}
+                              <g clipPath={shellClipId ? `url(#${shellClipId})` : undefined}>
                               {/* Main edge line - always same thickness */}
                               {/* Glow effect for selected or hovered edge */}
                               {(isSelected || isHovered) && (
@@ -14206,6 +14235,11 @@ function NodeCanvas() {
                                   }}
                                 />
                               )}
+
+                              </g>{/* end shell-cutout clip: line geometry only. Arrowheads,
+                                  hover dots and the label stay outside it — an arrow end is
+                                  never clipped anyway, and clipping the affordances would make
+                                  them unclickable where they sit near a group's rim. */}
 
                               {/* Smart directional arrows with clickable toggle */}
                               {(() => {
@@ -14901,8 +14935,9 @@ function NodeCanvas() {
                               edge blocks below push their endpoint orbs into it. */}
                           {void (connectionOrbHitsRef.current = [])}
                           {/* Connections and node-group shells interleaved by z-slot: each
-                              slot's connections, then the shells that are allowed to cover
-                              them (Groups Phase 2). See slotForEdge above. */}
+                              slot's connections, then the shells allowed to cover them
+                              (Groups Phase 2). A shell occludes a connection unless that
+                              connection has an endpoint inside it. See edgeZSlotFor. */}
                           {edgeZSlotOrder.map(slot => (
                             <React.Fragment key={`edge-z-slot-${slot}`}>
                               {(edgesBySlot.get(slot) || []).map(renderConnectionEdge)}

@@ -21,6 +21,8 @@ export const GROUP_LAYOUT_CONSTANTS = Object.freeze({
   titleBottomMargin: 24,
   cornerRadius: 12,
   nodeGroupCornerRadius: 24,
+  // Corner radius of a node-group's interior (the canvas-bg inset).
+  innerCanvasCornerRadius: 12,
   strokeWidth: 2,
   fontSize: 36,
 });
@@ -43,6 +45,52 @@ export const groupIdFromPlaceholderId = (id) =>
   (typeof id === 'string' && id.startsWith(PLACEHOLDER_ID_PREFIX))
     ? id.slice(PLACEHOLDER_ID_PREFIX.length)
     : null;
+
+const roundedRectSubpath = (x, y, w, h, r) => {
+  if (!(w > 0) || !(h > 0)) return '';
+  const rr = Math.max(0, Math.min(r || 0, Math.min(w, h) / 2));
+  if (rr === 0) return `M ${x} ${y} H ${x + w} V ${y + h} H ${x} Z`;
+  return `M ${x + rr} ${y}`
+    + ` H ${x + w - rr}`
+    + ` A ${rr} ${rr} 0 0 1 ${x + w} ${y + rr}`
+    + ` V ${y + h - rr}`
+    + ` A ${rr} ${rr} 0 0 1 ${x + w - rr} ${y + h}`
+    + ` H ${x + rr}`
+    + ` A ${rr} ${rr} 0 0 1 ${x} ${y + h - rr}`
+    + ` V ${y + rr}`
+    + ` A ${rr} ${rr} 0 0 1 ${x + rr} ${y} Z`;
+};
+
+/**
+ * The `d` for a clip region covering `region` with each shell in `shells`
+ * punched out. Render with `clipRule="evenodd"`.
+ *
+ * Why a clip and not just a shorter line: a connection to a node-group's title
+ * is drawn to the anchor's CENTER — which is the title-pill center, deep inside
+ * the group's box — and the stub is meant to be hidden by the shell, exactly
+ * like a plain node hides the stub between its center and its border. That works
+ * as long as the shell paints over the connection. It doesn't when the
+ * connection's other end is deeper in the nesting and therefore paints above the
+ * shell (see edgeZSlotFor).
+ *
+ * Ending the line at the box boundary instead is NOT equivalent: the stroke's
+ * cap is perpendicular to the line, while the boundary it meets is not, so an
+ * angled connection leaves a rounded nub and a sliver of background at the rim.
+ * Occlusion cuts along the boundary. This clip reproduces that cut exactly,
+ * independent of paint order.
+ *
+ * @param {{x: number, y: number, w: number, h: number}} region - covers everything drawable
+ * @param {Array<{x: number, y: number, w: number, h: number, r?: number}>} shells
+ * @returns {string}
+ */
+export function buildShellCutoutPath(region, shells) {
+  const outer = roundedRectSubpath(region.x, region.y, region.w, region.h, 0);
+  if (!outer) return '';
+  const holes = (shells || [])
+    .map(s => (s ? roundedRectSubpath(s.x, s.y, s.w, s.h, s.r) : ''))
+    .filter(Boolean);
+  return holes.length ? `${outer} ${holes.join(' ')}` : outer;
+}
 
 const memberBoundaryPaddingFor = (gridSize) =>
   Math.max(24, Math.round((gridSize ?? 0) * 0.2));

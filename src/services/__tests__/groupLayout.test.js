@@ -7,6 +7,7 @@ import {
   collectAffectedGroupIds,
   buildEdgeZSlotIndex,
   edgeZSlotFor,
+  buildShellCutoutPath,
   placeholderIdForGroup,
   groupIdFromPlaceholderId,
   GROUP_LAYOUT_CONSTANTS as C,
@@ -520,5 +521,34 @@ describe('connection z-slots', () => {
     const slots = buildEdgeZSlotIndex(ctx.groupsById, new Map([['plain', 0]]));
     expect(slots.size).toBe(0);
     expect(edgeZSlotFor({ sourceId: 'x', destinationId: 'y' }, slots, 1)).toBe(0);
+  });
+});
+
+describe('buildShellCutoutPath', () => {
+  const region = { x: -1000, y: -1000, w: 5000, h: 5000 };
+  const shell = { x: 0, y: 0, w: 400, h: 300, r: 24 };
+
+  it('emits the region plus one subpath per shell to punch out', () => {
+    const d = buildShellCutoutPath(region, [shell]);
+    expect(d.match(/M /g)).toHaveLength(2);
+    // The region is a plain rect; the shell keeps its rounded corners so the cut
+    // follows the same curve the rim paints.
+    expect(d).toContain('M -1000 -1000');
+    expect(d).toContain('A 24 24');
+  });
+
+  it('cuts several shells at once (both ends land on a group title)', () => {
+    const d = buildShellCutoutPath(region, [shell, { ...shell, x: 900 }]);
+    expect(d.match(/M /g)).toHaveLength(3);
+  });
+
+  it('yields the bare region when there is nothing to cut', () => {
+    expect(buildShellCutoutPath(region, []).match(/M /g)).toHaveLength(1);
+    expect(buildShellCutoutPath(region, [null, { x: 0, y: 0, w: 0, h: 10, r: 4 }]).match(/M /g)).toHaveLength(1);
+  });
+
+  it('returns nothing for a degenerate region rather than an empty clip', () => {
+    // An empty clip would hide the connection entirely; callers skip applying it.
+    expect(buildShellCutoutPath({ ...region, w: 0 }, [shell])).toBe('');
   });
 });
