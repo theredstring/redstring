@@ -426,6 +426,10 @@ function NodeCanvas() {
   // connections aren't buried under its parent's opaque band.
   const nodeGroupBackgroundsByDepthRef = useRef(new Map()); // depth → JSX[]
   const nodeGroupTitlesRef = useRef([]);
+  // Plain groups nested inside a node-group (depth > 0), bucketed the same way.
+  // Top-level plain groups stay in the flat bottom layer; these can't, because
+  // an opaque shell is painted between that layer and the viewer.
+  const nestedRegularGroupsByDepthRef = useRef(new Map()); // depth → JSX[]
   const thingGroupMemberIdsRef = useRef(new Set());
   const anchorInstanceIdsRef = useRef(new Set());
 
@@ -9190,10 +9194,20 @@ function NodeCanvas() {
               const primaryCenterX = posX + primaryDims.currentWidth / 2;
               const primaryCenterY = posY + primaryDims.currentHeight / 2;
 
+              // Innermost hit wins. Insertion order says nothing about nesting, so
+              // score by containment depth — otherwise dropping onto a plain group
+              // that sits inside a node-group lands in whichever of the two happens
+              // to come later in the Map, usually the outer one.
+              const dropDepths = groupStructure.groupDepths;
               let targetGroup = null;
-              for (let i = groups.length - 1; i >= 0; i--) {
+              let targetDepth = -1;
+              for (let i = 0; i < groups.length; i++) {
                 const group = groups[i];
                 if (group.memberInstanceIds.includes(primaryNodeId)) continue;
+                const depth = dropDepths.get(group.id) ?? 0;
+                // `>=` so a later sibling at the same depth still wins, preserving
+                // the previous reverse-insertion tie-break.
+                if (depth < targetDepth) continue;
 
                 const members = nodes.filter(n => group.memberInstanceIds.includes(n.id));
                 const margin = Math.max(24, Math.round(gridSize * 0.2));
@@ -9229,7 +9243,7 @@ function NodeCanvas() {
                 if (primaryCenterX >= groupMinX && primaryCenterX <= groupMaxX &&
                   primaryCenterY >= groupMinY && primaryCenterY <= groupMaxY) {
                   targetGroup = group;
-                  break;
+                  targetDepth = depth;
                 }
               }
 
@@ -12708,17 +12722,24 @@ function NodeCanvas() {
                     const ngTitles = [];
                     const tgMemberIds = new Set();
                     const anchorIds = new Set();
-                    const pushBackgroundAtDepth = (depth, element) => {
-                      let bucket = ngBackgroundsByDepth.get(depth);
-                      if (!bucket) { bucket = []; ngBackgroundsByDepth.set(depth, bucket); }
+                    const pushAtDepth = (map, depth, element) => {
+                      let bucket = map.get(depth);
+                      if (!bucket) { bucket = []; map.set(depth, bucket); }
                       bucket.push(element);
                     };
+                    const pushBackgroundAtDepth = (depth, element) => pushAtDepth(ngBackgroundsByDepth, depth, element);
+                    // Nested plain groups (depth > 0). They live inside an opaque
+                    // node-group shell, so emitting them with the depth-0 ones at the
+                    // bottom of the stack would bury them. Bucketed by depth and
+                    // interleaved with the shells instead — see Phase 2.
+                    const nestedRegularByDepth = new Map();
 
                     if (!groups.length) {
                       nodeGroupBackgroundsByDepthRef.current = ngBackgroundsByDepth;
                       nodeGroupTitlesRef.current = ngTitles;
                       thingGroupMemberIdsRef.current = tgMemberIds;
                       anchorInstanceIdsRef.current = anchorIds;
+                      nestedRegularGroupsByDepthRef.current = nestedRegularByDepth;
                       return null;
                     }
 
@@ -13298,8 +13319,12 @@ function NodeCanvas() {
                           </g>
                         );
                       } else {
-                        // Regular groups: outline + title together at the bottom z-level
-                        regularGroupElements.push(
+                        // Regular group: dashed outline + title, emitted together.
+                        // Where depends on nesting — a top-level one goes to the
+                        // bottom of the stack (under everything, as always), while a
+                        // nested one has to clear the shell of the node-group it sits
+                        // in or it renders behind opaque paint and vanishes.
+                        const regularElement = (
                           <g key={group.id} className="group" data-group-id={group.id} style={groupStyle}>
                             <rect x={rectX} y={rectY} width={rectW} height={rectH}
                               rx={nodeGroupCornerR} ry={nodeGroupCornerR}
@@ -13308,6 +13333,11 @@ function NodeCanvas() {
                             {titleLabel}
                           </g>
                         );
+                        if (groupDepth > 0) {
+                          pushAtDepth(nestedRegularByDepth, groupDepth, regularElement);
+                        } else {
+                          regularGroupElements.push(regularElement);
+                        }
                       }
                     });
 
@@ -13315,6 +13345,7 @@ function NodeCanvas() {
                     nodeGroupTitlesRef.current = ngTitles;
                     thingGroupMemberIdsRef.current = tgMemberIds;
                     anchorInstanceIdsRef.current = anchorIds;
+                    nestedRegularGroupsByDepthRef.current = nestedRegularByDepth;
 
                     return regularGroupElements.length > 0 ? (
                       <g className="regular-groups-layer">{regularGroupElements}</g>
@@ -13354,6 +13385,7 @@ function NodeCanvas() {
                     // wired to a node inside a sibling node-group.
                     const edgeZSlots = groupStructure.edgeZSlots;
                     const nodeGroupShellsByDepth = nodeGroupBackgroundsByDepthRef.current;
+                    const nestedRegularGroupsByDepth = nestedRegularGroupsByDepthRef.current;
                     const shellDepths = Array.from(nodeGroupShellsByDepth.keys());
                     const topEdgeSlot = (shellDepths.length ? Math.max(...shellDepths) : 0) + 1;
                     const edgesBySlot = new Map();
@@ -13363,10 +13395,16 @@ function NodeCanvas() {
                       if (!bucket) { bucket = []; edgesBySlot.set(slot, bucket); }
                       bucket.push(edge);
                     });
-                    // Ascending: each slot's edges emit, then the shells at that depth cover
-                    // whatever still belongs underneath them.
+                    // Ascending, three emissions per slot: nested plain-group outlines,
+                    // then that slot's edges, then the shells at that depth.
+                    //
+                    // A plain group at depth D is contained by node-groups of depth
+                    // <= D-1, whose shells have already emitted, so it clears them.
+                    // It goes BEFORE the edges rather than after so connections keep
+                    // painting over the dashed outline, exactly as they do for a
+                    // top-level plain group down in the bottom layer.
                     const edgeZSlotOrder = Array.from(
-                      new Set([...edgesBySlot.keys(), ...shellDepths])
+                      new Set([...edgesBySlot.keys(), ...shellDepths, ...nestedRegularGroupsByDepth.keys()])
                     ).sort((a, b) => a - b);
 
                     // edgeCurveInfo is computed via useMemo and available in scope
@@ -14848,6 +14886,33 @@ function NodeCanvas() {
                                       // in edgeLabelPlacement.js.
                                       anchor: placement.anchor,
                                     });
+
+                                    // Diagnostic for label placement. Set
+                                    // window.__labelDebug = true (or to a substring of the
+                                    // connection name) in the console and nudge the graph.
+                                    // Reports which of the placer's inputs actually applied,
+                                    // so a label sitting in the wrong place can be traced to
+                                    // the input that put it there instead of guessed at.
+                                    const dbg = typeof window !== 'undefined' && window.__labelDebug;
+                                    if (dbg && (dbg === true || String(connectionName).includes(dbg))) {
+                                      console.log('[label]', connectionName, edge.id, {
+                                        hasArc: !!orthoRouting.arc,
+                                        visibleRange: orthoRouting.visibleRange,
+                                        chosenAnchor: placement.anchor,
+                                        crossings: placement.crossings,
+                                        placed: { x: Math.round(placement.x), y: Math.round(placement.y) },
+                                        afterStabilize: { x: Math.round(midX), y: Math.round(midY) },
+                                        lineStart: { x: Math.round(orthoRouting.startX), y: Math.round(orthoRouting.startY) },
+                                        lineEnd: { x: Math.round(orthoRouting.endX), y: Math.round(orthoRouting.endY) },
+                                        sourceIsGroupAnchor: !!sourceNode.isGroupAnchor,
+                                        destIsGroupAnchor: !!destNode.isGroupAnchor,
+                                        sourceOuterBounds: sAnchorInfo?.outerBounds || null,
+                                        destOuterBounds: eAnchorInfo?.outerBounds || null,
+                                        sourceShellRect: sAnchorInfo?.shellRect || null,
+                                        destShellRect: eAnchorInfo?.shellRect || null,
+                                        bundle: edgeCurveInfo.get(edge.id) || null,
+                                      });
+                                    }
                                   }
                                 }
                                 // For straight/curved routing, midX/midY/angle are already set from parallelPath above
@@ -14963,12 +15028,15 @@ function NodeCanvas() {
                           {/* Rebuild the visible-orb hit list fresh each render before the
                               edge blocks below push their endpoint orbs into it. */}
                           {void (connectionOrbHitsRef.current = [])}
-                          {/* Connections and node-group shells interleaved by z-slot: each
-                              slot's connections, then the shells allowed to cover them
-                              (Groups Phase 2). A shell occludes a connection unless that
-                              connection has an endpoint inside it. See edgeZSlotFor. */}
+                          {/* Connections, nested plain-group outlines and node-group shells
+                              interleaved by z-slot (Groups Phase 2): at each depth, the plain
+                              groups that live at that depth, then that slot's connections,
+                              then the shells allowed to cover them. A shell occludes a
+                              connection unless that connection has an endpoint inside it.
+                              See edgeZSlotFor. */}
                           {edgeZSlotOrder.map(slot => (
                             <React.Fragment key={`edge-z-slot-${slot}`}>
+                              {nestedRegularGroupsByDepth.get(slot)}
                               {(edgesBySlot.get(slot) || []).map(renderConnectionEdge)}
                               {nodeGroupShellsByDepth.get(slot)}
                             </React.Fragment>
@@ -16437,17 +16505,13 @@ function NodeCanvas() {
             onConfirm={() => {
               // Add all dragged nodes to the group
               if (activeGraphId && addToGroupDialog.groupId && addToGroupDialog.nodeIds) {
-                storeActions.updateGroup(
+                // Not a plain updateGroup: dropping into a nested group has to add
+                // the node to its containing groups as well, or the group falls out
+                // of the containment hierarchy. See addInstancesToGroup.
+                storeActions.addInstancesToGroup(
                   activeGraphId,
                   addToGroupDialog.groupId,
-                  (draft) => {
-                    // Add each node to the group if not already a member
-                    addToGroupDialog.nodeIds.forEach(nodeId => {
-                      if (!draft.memberInstanceIds.includes(nodeId)) {
-                        draft.memberInstanceIds.push(nodeId);
-                      }
-                    });
-                  }
+                  addToGroupDialog.nodeIds
                 );
                 console.log(`Added ${addToGroupDialog.nodeIds.length} node(s) to ${addToGroupDialog.isNodeGroup ? 'Thing' : 'group'} "${addToGroupDialog.groupName}"`);
               }

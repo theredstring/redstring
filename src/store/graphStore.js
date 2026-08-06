@@ -473,6 +473,127 @@ const copySubgraphInto = (draft, { sourceGraph, sourceInstanceIds, targetGraph, 
   return { instanceIdMap, newInstanceIds, droppedCrossEdgeCount };
 };
 
+/**
+ * Copies a source graph's groups into a target graph alongside a just-copied instance
+ * set, remapping every instance reference through `instanceIdMap`.
+ *
+ * Copying instances alone flattens nesting: a node-group living inside a definition
+ * graph arrives as a loose anchor node sitting next to its own members, with the group
+ * container — and with it the shell, the z-ordering and the group drag behavior —
+ * silently dropped. Run this after `copySubgraphInto` to keep the interior structure.
+ *
+ * Only groups whose entire footprint made the trip are copied. A group with a member
+ * (or an anchor) that wasn't copied has no faithful representation in the target graph,
+ * so it is skipped and its anchor lands as an ordinary node.
+ *
+ * @param {Object} draft - Immer draft (unused today; kept for symmetry with copySubgraphInto).
+ * @param {Object} params
+ * @param {Object} params.sourceGraph - Graph whose `groups` are read.
+ * @param {Object} params.targetGraph - Graph to copy into.
+ * @param {Map<string,string>} params.instanceIdMap - sourceInstanceId → newInstanceId, from `copySubgraphInto`.
+ * @param {number} [params.offsetX=0] - Same offset that was applied to the copied instances.
+ * @param {number} [params.offsetY=0] - Same offset that was applied to the copied instances.
+ * @param {Set<string>|Array<string>} [params.excludeGroupIds] - Group IDs never to copy.
+ * @returns {{ groupIdMap: Map<string,string>, newGroupIds: string[] }}
+ */
+const copyGroupsInto = (draft, { sourceGraph, targetGraph, instanceIdMap, offsetX = 0, offsetY = 0, excludeGroupIds }) => {
+  const groupIdMap = new Map();
+  const newGroupIds = [];
+  if (!sourceGraph?.groups || sourceGraph.groups.size === 0) return { groupIdMap, newGroupIds };
+
+  const excluded = excludeGroupIds instanceof Set ? excludeGroupIds : new Set(excludeGroupIds || []);
+
+  for (const [srcGroupId, srcGroup] of sourceGraph.groups.entries()) {
+    if (excluded.has(srcGroupId)) continue;
+
+    const srcMemberIds = Array.isArray(srcGroup.memberInstanceIds) ? srcGroup.memberInstanceIds : [];
+    // Partially-copied groups are skipped: membership is what defines nesting
+    // (strict subset), so a group missing members would claim a containment
+    // relationship that isn't true of the copied content.
+    if (srcMemberIds.some(id => !instanceIdMap.has(id))) continue;
+
+    // The anchor is what a node-group renders as, and the only spatial tie an
+    // empty one has. No anchor on the other side means nothing to copy onto.
+    const newAnchorId = srcGroup.anchorInstanceId ? instanceIdMap.get(srcGroup.anchorInstanceId) : null;
+    if (srcGroup.anchorInstanceId && !newAnchorId) continue;
+    if (srcMemberIds.length === 0 && !newAnchorId) continue;
+
+    const newGroupId = uuidv4();
+    const newMemberIds = srcMemberIds.map(id => instanceIdMap.get(id));
+
+    // copySubgraphInto rebuilds instances field-by-field, so the copy of an anchor
+    // arrives as a plain node — re-flag it or it renders as a duplicate of the
+    // thing whose interior is already spread out around it.
+    if (newAnchorId) {
+      const anchorInstance = targetGraph.instances?.get(newAnchorId);
+      if (anchorInstance) {
+        anchorInstance.isGroupAnchor = true;
+        anchorInstance.anchorForGroupId = newGroupId;
+      }
+    }
+
+    const timestamp = new Date().toISOString();
+    const newGroup = {
+      id: newGroupId,
+      name: srcGroup.name,
+      description: srcGroup.description || '',
+      color: srcGroup.color,
+      memberInstanceIds: newMemberIds,
+      linkedNodePrototypeId: srcGroup.linkedNodePrototypeId,
+      linkedDefinitionIndex: srcGroup.linkedDefinitionIndex,
+      // Layout is positional, and the copy lands at a different offset in a
+      // different graph — let it re-derive rather than inherit a stale box.
+      hasCustomLayout: false,
+      anchorInstanceId: newAnchorId || undefined,
+      semanticMetadata: {
+        type: 'Group',
+        relationships: newMemberIds.map(memberId => ({
+          predicate: 'memberOf',
+          subject: memberId,
+          object: newGroupId,
+          source: 'redstring-grouping'
+        })),
+        createdAt: timestamp,
+        lastModified: timestamp
+      }
+    };
+
+    if (srcGroup.emptyPlaceholderOrigin) {
+      newGroup.emptyPlaceholderOrigin = {
+        x: (srcGroup.emptyPlaceholderOrigin.x ?? 0) + offsetX,
+        y: (srcGroup.emptyPlaceholderOrigin.y ?? 0) + offsetY
+      };
+    }
+
+    if (!targetGraph.groups) targetGraph.groups = new Map();
+    targetGraph.groups.set(newGroupId, newGroup);
+    groupIdMap.set(srcGroupId, newGroupId);
+    newGroupIds.push(newGroupId);
+  }
+
+  return { groupIdMap, newGroupIds };
+};
+
+/**
+ * True when every instance a group hangs on lives in `instanceIdSet` — i.e. the group
+ * is nested inside whatever that set represents, rather than merely overlapping it.
+ *
+ * Used when a set of instances is about to disappear (combine, refresh-from-definition):
+ * a nested group has nothing left to hold and must go with them, whereas a *containing*
+ * group survives and only needs its membership list patched.
+ *
+ * @param {Object} group
+ * @param {Set<string>} instanceIdSet
+ * @returns {boolean}
+ */
+const isGroupContainedInInstances = (group, instanceIdSet) => {
+  if (!group) return false;
+  // Anchor first: an empty node-group placeholder has no members to test with.
+  if (group.anchorInstanceId && instanceIdSet.has(group.anchorInstanceId)) return true;
+  const memberIds = Array.isArray(group.memberInstanceIds) ? group.memberInstanceIds : [];
+  return memberIds.length > 0 && memberIds.every(id => instanceIdSet.has(id));
+};
+
 // Middleware to integrate with SaveCoordinator
 const saveCoordinatorMiddleware = (config) => {
   let saveCoordinator = null;
@@ -1285,6 +1406,81 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     },
 
     /**
+     * Adds instances to a group, propagating the addition to every group that
+     * currently contains it.
+     *
+     * Containment between groups is implicit: group B is nested in group A iff
+     * B's members are a strict subset of A's (see computeChildGroupIdsForGroup in
+     * groupLayout.js). Adding a member to B alone therefore breaks the subset and
+     * silently un-nests it — it loses its depth, and a plain group that loses its
+     * depth drops back to the flat bottom layer where the containing node-group's
+     * opaque shell hides it. Propagating upward keeps the relation intact, and it
+     * matches what the drop actually meant: a node placed inside a group that sits
+     * inside a Thing is inside that Thing too.
+     *
+     * Same invariant the nested-decompose pass in decomposeNodeToGroup maintains.
+     *
+     * @param {string} graphId - ID of the graph containing the group.
+     * @param {string} groupId - ID of the group to add to.
+     * @param {string[]} instanceIds - Instance IDs to add.
+     * @param {Object} [contextOptions] - Save context flags.
+     */
+    addInstancesToGroup: (graphId, groupId, instanceIds, contextOptions = {}) => {
+      api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
+      return set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph?.groups) return;
+        const group = graph.groups.get(groupId);
+        if (!group || !Array.isArray(instanceIds) || instanceIds.length === 0) return;
+
+        const stamp = new Date().toISOString();
+        const syncMetadata = (g) => {
+          if (!g.semanticMetadata) {
+            g.semanticMetadata = { type: 'Group', relationships: [], createdAt: stamp, lastModified: stamp };
+          }
+          g.semanticMetadata.relationships = g.memberInstanceIds.map(memberId => ({
+            predicate: 'memberOf',
+            subject: memberId,
+            object: g.id,
+            source: 'redstring-grouping'
+          }));
+          g.semanticMetadata.lastModified = stamp;
+        };
+        const addTo = (g) => {
+          const existing = new Set(g.memberInstanceIds);
+          let changed = false;
+          for (const id of instanceIds) {
+            if (existing.has(id)) continue;
+            g.memberInstanceIds.push(id);
+            existing.add(id);
+            changed = true;
+          }
+          if (changed) syncMetadata(g);
+        };
+
+        // Ancestors are resolved against the PRE-ADD member sets — the strict-subset
+        // test requires the container to be strictly larger, which stops holding the
+        // moment the target group has grown.
+        const targetMembers = new Set(group.memberInstanceIds);
+        const ancestors = [];
+        if (targetMembers.size > 0) {
+          graph.groups.forEach((other) => {
+            if (other.id === groupId || !Array.isArray(other.memberInstanceIds)) return;
+            if (other.memberInstanceIds.length <= targetMembers.size) return;
+            const otherMembers = new Set(other.memberInstanceIds);
+            for (const memberId of targetMembers) {
+              if (!otherMembers.has(memberId)) return;
+            }
+            ancestors.push(other);
+          });
+        }
+
+        addTo(group);
+        ancestors.forEach(addTo);
+      }));
+    },
+
+    /**
      * Removes a group from a graph, restoring all member instances to ungrouped state.
      *
      * Clears `isGroupAnchor` and `anchorForGroupId` flags from the anchor instance.
@@ -1812,12 +2008,24 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         // Remove the group container itself
         graph.groups.delete(groupId);
 
-        // Nested combine: the deleted member ids may still be listed in OUTER
-        // groups' membership (nesting is strict-subset membership). Strip them
-        // and substitute the surviving instance, or the combined node falls out
-        // of every group that contained the dissolved one.
+        // Nested combine, two directions:
+        //
+        // INNER — groups that lived entirely inside this one folded up with it. Every
+        // instance they hang on has just been deleted, so substituting the survivor
+        // would leave a phantom group wrapped around the very node that replaced it.
+        // Drop them; the definition graph still holds that structure, and expanding
+        // this node again rebuilds it.
+        //
+        // OUTER — groups that contained this one survive, but still list the deleted
+        // member ids. Strip those and substitute the surviving instance, or the
+        // combined node falls out of every group that contained the dissolved one.
+        const dissolvedGroupIds = [];
         graph.groups.forEach((otherGroup) => {
           if (!Array.isArray(otherGroup.memberInstanceIds)) return;
+          if (isGroupContainedInInstances(otherGroup, memberIdSet)) {
+            dissolvedGroupIds.push(otherGroup.id);
+            return;
+          }
           const before = otherGroup.memberInstanceIds.length;
           otherGroup.memberInstanceIds = otherGroup.memberInstanceIds.filter(id => !memberIdSet.has(id));
           if (otherGroup.memberInstanceIds.length < before &&
@@ -1825,6 +2033,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             otherGroup.memberInstanceIds.push(survivingInstanceId);
           }
         });
+        dissolvedGroupIds.forEach(dissolvedId => graph.groups.delete(dissolvedId));
       }));
 
       return createdInstanceId;
@@ -1924,75 +2133,30 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           offsetY = origAnchorY - minY;
         }
 
-        // Copy definition graph instances into the active graph as new member instances
-        const instanceIdMap = new Map(); // defInstId -> newInstId
-        const memberInstanceIds = [];
-        let sumX = 0, sumY = 0, memberCount = 0;
-
-        if (defGraph.instances) {
-          for (const [defInstId, defInst] of Array.from(defGraph.instances.entries())) {
-            const newInstId = uuidv4();
-            instanceIdMap.set(defInstId, newInstId);
-            memberInstanceIds.push(newInstId);
-            const mx = (defInst.x ?? 0) + offsetX;
-            const my = (defInst.y ?? 0) + offsetY;
-            graph.instances.set(newInstId, {
-              id: newInstId,
-              prototypeId: defInst.prototypeId,
-              x: mx,
-              y: my,
-              scale: defInst.scale ?? 1
-            });
-            sumX += mx;
-            sumY += my;
-            memberCount++;
-          }
-        }
+        // Copy definition graph instances (and the edges between them) into the
+        // active graph as new member instances.
+        const { instanceIdMap, newInstanceIds: memberInstanceIds } = copySubgraphInto(draft, {
+          sourceGraph: defGraph,
+          targetGraph: graph,
+          offsetX,
+          offsetY
+        });
 
         if (memberInstanceIds.length === 0) {
           console.warn(`[decomposeNodeToGroup] Definition graph ${defGraphId} is empty. Aborting decompose.`);
           return;
         }
 
-        // Copy edges between definition members into the active graph
-        if (defGraph.edgeIds) {
-          for (const edgeId of defGraph.edgeIds) {
-            const edge = draft.edges.get(edgeId);
-            if (!edge) continue;
-
-            const newSourceId = instanceIdMap.get(edge.sourceId);
-            const newDestId = instanceIdMap.get(edge.destinationId);
-            if (newSourceId && newDestId) {
-              const newEdgeId = uuidv4();
-              const normalized = normalizeEdgeDirectionality(edge.directionality);
-              const newArrowsToward = new Set(normalized.arrowsToward || []);
-
-              if (newArrowsToward.has(edge.sourceId)) {
-                newArrowsToward.delete(edge.sourceId);
-                newArrowsToward.add(newSourceId);
-              }
-              if (newArrowsToward.has(edge.destinationId)) {
-                newArrowsToward.delete(edge.destinationId);
-                newArrowsToward.add(newDestId);
-              }
-
-              const newEdgeData = {
-                ...edge,
-                id: newEdgeId,
-                sourceId: newSourceId,
-                destinationId: newDestId,
-                directionality: { ...normalized, arrowsToward: newArrowsToward }
-              };
-              if (Array.isArray(edge.definitionNodeIds)) {
-                newEdgeData.definitionNodeIds = [...edge.definitionNodeIds];
-              }
-
-              draft.edges.set(newEdgeId, newEdgeData);
-              if (!graph.edgeIds) graph.edgeIds = [];
-              graph.edgeIds.push(newEdgeId);
-            }
-          }
-        }
+        // Carry the definition's own groups across. A definition graph that itself
+        // contains a decomposed node-group has to arrive as a nested node-group, not
+        // as that Thing's shell node dumped in beside its own parts.
+        const { newGroupIds: nestedGroupIds } = copyGroupsInto(draft, {
+          sourceGraph: defGraph,
+          targetGraph: graph,
+          instanceIdMap,
+          offsetX,
+          offsetY
+        });
 
         // Mark the original instance as the group anchor (do NOT delete it)
         const groupId = uuidv4();
@@ -2044,7 +2208,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         });
 
         createdGroupId = groupId;
-        console.log(`[decomposeNodeToGroup] Decomposed "${prototype.name}" → thing-group ${groupId} with ${memberInstanceIds.length} members, anchor=${originalInstanceId}`);
+        const nestedNote = nestedGroupIds.length > 0 ? `, ${nestedGroupIds.length} nested group(s)` : '';
+        console.log(`[decomposeNodeToGroup] Decomposed "${prototype.name}" → thing-group ${groupId} with ${memberInstanceIds.length} members${nestedNote}, anchor=${originalInstanceId}`);
       }));
       return createdGroupId;
     },
@@ -2273,12 +2438,25 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         defGraph.edgeIds = [];
         defGraph.groups = new Map();
 
-        const { newInstanceIds, droppedCrossEdgeCount } = copySubgraphInto(draft, {
+        const { instanceIdMap, newInstanceIds, droppedCrossEdgeCount } = copySubgraphInto(draft, {
           sourceGraph: graph,
           sourceInstanceIds: memberIds,
           targetGraph: defGraph,
           offsetX,
           offsetY
+        });
+
+        // Groups nested inside this one are part of what the group means — push them
+        // into the definition too, or expanding it later flattens them back into
+        // loose nodes. The group being pushed is excluded: it *is* the definition,
+        // it can't also be a group inside it.
+        copyGroupsInto(draft, {
+          sourceGraph: graph,
+          targetGraph: defGraph,
+          instanceIdMap,
+          offsetX,
+          offsetY,
+          excludeGroupIds: [groupId]
         });
 
         if (droppedCrossEdgeCount > 0) {
@@ -2403,9 +2581,27 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           if (graph.instances?.has(memberId)) graph.instances.delete(memberId);
         });
 
-        const { newInstanceIds } = copySubgraphInto(draft, {
+        // Groups nested inside this one were built from the members that just went
+        // away — they'd be left pointing at deleted instances (and, for a node-group,
+        // at a deleted anchor). The definition supplies their replacements below.
+        const staleNestedGroupIds = [];
+        graph.groups.forEach((otherGroup) => {
+          if (otherGroup.id === groupId) return;
+          if (isGroupContainedInInstances(otherGroup, oldMemberIdSet)) staleNestedGroupIds.push(otherGroup.id);
+        });
+        staleNestedGroupIds.forEach(staleId => graph.groups.delete(staleId));
+
+        const { instanceIdMap, newInstanceIds } = copySubgraphInto(draft, {
           sourceGraph: defGraph,
           targetGraph: graph,
+          offsetX,
+          offsetY
+        });
+
+        copyGroupsInto(draft, {
+          sourceGraph: defGraph,
+          targetGraph: graph,
+          instanceIdMap,
           offsetX,
           offsetY
         });

@@ -95,6 +95,13 @@ export function buildShellCutoutPath(region, shells) {
 const memberBoundaryPaddingFor = (gridSize) =>
   Math.max(24, Math.round((gridSize ?? 0) * 0.2));
 
+/**
+ * Children are found by strict member-subset, for BOTH kinds of group. A plain
+ * group nested inside a node-group must register here or it gets depth 0 and
+ * paints in the flat bottom layer — underneath the opaque shell that contains
+ * it, i.e. invisible. Being a child also folds its dashed rect and floating
+ * title pill into the parent's bbox so the parent's rim clears them.
+ */
 function computeChildGroupIdsForGroup(group, groupsById, groupsByMemberId) {
   const memberIds = Array.isArray(group.memberInstanceIds) ? group.memberInstanceIds : [];
   if (memberIds.length === 0) return EMPTY_SET;
@@ -108,7 +115,7 @@ function computeChildGroupIdsForGroup(group, groupsById, groupsByMemberId) {
       if (!otherGroupId || otherGroupId === group.id) continue;
       if (childGroupIds.has(otherGroupId)) continue;
       const otherGroup = groupsById.get(otherGroupId);
-      if (!otherGroup || !otherGroup.linkedNodePrototypeId) continue;
+      if (!otherGroup) continue;
       const otherMembers = Array.isArray(otherGroup.memberInstanceIds) ? otherGroup.memberInstanceIds : [];
       if (otherMembers.length === 0 || otherMembers.length >= memberIds.length) continue;
       let isStrictSubset = true;
@@ -269,8 +276,12 @@ export function computeGroupDepths(groupsById, groupsByMemberId, childGroupIdsBy
  *   • A MEMBER node is drawn above every shell, so connections to it sit one
  *     level above its deepest containing node-group.
  *
- * Only node-groups are considered: plain thing-groups render as a dashed outline
- * at the bottom of the stack and occlude nothing.
+ * Only node-groups are considered. A plain group paints at its nesting depth too
+ * (so a nested one clears the shell around it), but it is an unfilled dashed
+ * outline and occludes nothing, so it never needs to push connections up a slot.
+ * Its members are necessarily also members of every node-group containing it —
+ * that's what the strict-subset containment test means — so they already get the
+ * right slot from those node-groups.
  *
  * @param {Map<string, object>} groupsById
  * @param {Map<string, number>} groupDepthsByGroupId - from computeGroupDepths

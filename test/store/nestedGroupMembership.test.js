@@ -132,3 +132,191 @@ describe('nested group membership sync (decompose/combine)', () => {
     }
   });
 });
+
+// A definition graph can itself contain a decomposed node-group. Copying only its
+// instances flattens that: the inner Thing's anchor arrives as an ordinary node
+// sitting beside its own parts, with the group container dropped — so the nesting
+// (shell, z-order, group drag) never exists in the expansion, even though the
+// definition graph still shows it.
+describe('nested node-groups inside definition graphs', () => {
+  const st = () => useGraphStore.getState();
+
+  const resetStore = () => {
+    useGraphStore.setState({
+      graphs: new Map(),
+      nodePrototypes: new Map(),
+      edges: new Map(),
+      openGraphIds: [],
+      activeGraphId: null,
+      activeDefinitionNodeId: null,
+      rightPanelTabs: [{ type: 'home', isActive: true }],
+      expandedGraphIds: new Set(),
+      savedNodeIds: new Set(),
+      savedGraphIds: new Set(),
+      isUniverseLoaded: true,
+      isUniverseLoading: false,
+      universeLoadingError: null,
+      hasUniverseFile: true,
+    }, false, 'test_reset');
+  };
+
+  const addProto = (id, name, definitionGraphIds = []) => {
+    st().addNodePrototype({
+      id, name, description: '', color: '#111111',
+      typeNodeId: null, definitionGraphIds
+    });
+  };
+
+  const getGraph = (graphId) => st().graphs.get(graphId);
+  const getGroup = (graphId, groupId) => getGraph(graphId).groups.get(groupId);
+  const groupsOf = (graphId) => Array.from(getGraph(graphId).groups.values());
+
+  /**
+   * Builds "Top", whose definition graph contains a *decomposed* "Sub" node-group
+   * plus one loose sibling node. Returns the ids needed to expand Top elsewhere.
+   */
+  const buildTopWithNestedDefinition = () => {
+    // Sub's own definition: two parts.
+    addProto('p-part-a', 'Part A');
+    addProto('p-part-b', 'Part B');
+    st().createNewGraph({ name: 'Sub Def', typeNodeId: null, color: '#333' });
+    const subDefId = st().activeGraphId;
+    st().addNodeInstance(subDefId, 'p-part-a', { x: 0, y: 0 }, 'subdef-a');
+    st().addNodeInstance(subDefId, 'p-part-b', { x: 100, y: 0 }, 'subdef-b');
+    addProto('p-sub', 'Sub', [subDefId]);
+
+    // Top's definition: a Sub instance (decomposed in place) and a sibling.
+    addProto('p-sibling', 'Sibling');
+    st().createNewGraph({ name: 'Top Def', typeNodeId: null, color: '#333' });
+    const topDefId = st().activeGraphId;
+    st().addNodeInstance(topDefId, 'p-sub', { x: 0, y: 0 }, 'topdef-sub');
+    st().addNodeInstance(topDefId, 'p-sibling', { x: 400, y: 0 }, 'topdef-sibling');
+    const defInnerGroupId = st().decomposeNodeToGroup(topDefId, 'p-sub', 0, 'topdef-sub');
+    assert.ok(defInnerGroupId, 'setup: Sub should decompose inside Top\'s definition');
+
+    addProto('p-top', 'Top', [topDefId]);
+
+    st().createNewGraph({ name: 'Main', typeNodeId: null, color: '#333' });
+    const mainId = st().activeGraphId;
+    st().addNodeInstance(mainId, 'p-top', { x: 700, y: 700 }, 'top-inst');
+
+    return { subDefId, topDefId, defInnerGroupId, mainId };
+  };
+
+  it('decompose carries a nested node-group across instead of flattening it into a node', () => {
+    resetStore();
+    const { topDefId, defInnerGroupId, mainId } = buildTopWithNestedDefinition();
+
+    const topGroupId = st().decomposeNodeToGroup(mainId, 'p-top', 0, 'top-inst');
+    assert.ok(topGroupId, 'decompose should create a group');
+
+    const mainGroups = groupsOf(mainId);
+    assert.strictEqual(mainGroups.length, 2, 'expected the Top group plus the nested Sub group');
+
+    const nested = mainGroups.find(g => g.id !== topGroupId);
+    assert.strictEqual(nested.linkedNodePrototypeId, 'p-sub');
+    assert.notStrictEqual(nested.id, defInnerGroupId, 'the copy must get a fresh group id');
+    assert.strictEqual(
+      getGroup(topDefId, defInnerGroupId).memberInstanceIds.length, 2,
+      'the definition graph\'s own group must be left untouched'
+    );
+
+    // The nested group's anchor is a real instance in the main graph, flagged so the
+    // canvas hides it behind the group's shell rather than drawing a duplicate node.
+    const anchor = getGraph(mainId).instances.get(nested.anchorInstanceId);
+    assert.ok(anchor, 'nested group anchor instance should exist in the main graph');
+    assert.strictEqual(anchor.prototypeId, 'p-sub');
+    assert.strictEqual(anchor.isGroupAnchor, true);
+    assert.strictEqual(anchor.anchorForGroupId, nested.id);
+
+    // Nesting is derived from strict-subset membership, so the containment only
+    // registers if every nested member — and the nested anchor — is in the outer group.
+    const topGroup = getGroup(mainId, topGroupId);
+    assert.strictEqual(nested.memberInstanceIds.length, 2);
+    for (const memberId of nested.memberInstanceIds) {
+      assert.ok(topGroup.memberInstanceIds.includes(memberId), `Top group should contain ${memberId}`);
+    }
+    assert.ok(topGroup.memberInstanceIds.includes(nested.anchorInstanceId));
+    assert.ok(
+      nested.memberInstanceIds.length < topGroup.memberInstanceIds.length,
+      'nested membership must be a STRICT subset or the hierarchy never registers'
+    );
+  });
+
+  it('pushing a group back into its definition preserves the groups nested inside it', () => {
+    resetStore();
+    const { mainId } = buildTopWithNestedDefinition();
+
+    const topGroupId = st().decomposeNodeToGroup(mainId, 'p-top', 0, 'top-inst');
+    const result = st().updateDefinitionFromNodeGroup(mainId, topGroupId);
+    assert.ok(result, 'update should succeed');
+
+    const defGroups = groupsOf(result.defGraphId);
+    assert.strictEqual(defGroups.length, 1, 'the nested Sub group should land in the definition');
+    const nestedInDef = defGroups[0];
+    assert.strictEqual(nestedInDef.linkedNodePrototypeId, 'p-sub');
+
+    // The group being pushed IS the definition — it must not also appear as a group
+    // inside itself, which would nest Top in Top on the next expansion.
+    assert.ok(
+      !defGroups.some(g => g.linkedNodePrototypeId === 'p-top'),
+      'the pushed group must not be copied into its own definition'
+    );
+
+    const defGraph = getGraph(result.defGraphId);
+    const nestedAnchor = defGraph.instances.get(nestedInDef.anchorInstanceId);
+    assert.ok(nestedAnchor, 'nested anchor should be copied into the definition');
+    assert.strictEqual(nestedAnchor.isGroupAnchor, true);
+    for (const memberId of nestedInDef.memberInstanceIds) {
+      assert.ok(defGraph.instances.has(memberId), `definition should hold nested member ${memberId}`);
+    }
+  });
+
+  it('combining the outer group dissolves the groups nested inside it', () => {
+    resetStore();
+    const { mainId } = buildTopWithNestedDefinition();
+
+    const topGroupId = st().decomposeNodeToGroup(mainId, 'p-top', 0, 'top-inst');
+    const survivingId = st().combineNodeGroup(mainId, topGroupId);
+    assert.strictEqual(survivingId, 'top-inst');
+
+    assert.strictEqual(
+      groupsOf(mainId).length, 0,
+      'the nested group has no members left — it must fold up with its container, not survive wrapped around the combined node'
+    );
+
+    const graph = getGraph(mainId);
+    assert.strictEqual(graph.instances.size, 1, 'only the combined node should remain');
+    const survivor = graph.instances.get(survivingId);
+    assert.ok(!survivor.isGroupAnchor, 'the combined node should no longer be an anchor');
+  });
+
+  it('refreshing from the definition replaces nested groups instead of stranding them', () => {
+    resetStore();
+    const { mainId } = buildTopWithNestedDefinition();
+
+    const topGroupId = st().decomposeNodeToGroup(mainId, 'p-top', 0, 'top-inst');
+    const staleNestedId = groupsOf(mainId).find(g => g.id !== topGroupId).id;
+
+    const result = st().refreshNodeGroupFromDefinition(mainId, topGroupId);
+    assert.ok(result, 'refresh should succeed');
+
+    const mainGroups = groupsOf(mainId);
+    assert.strictEqual(mainGroups.length, 2, 'still exactly one Top group and one nested Sub group');
+    assert.ok(!getGraph(mainId).groups.has(staleNestedId), 'the pre-refresh nested group should be gone');
+
+    const nested = mainGroups.find(g => g.id !== topGroupId);
+    assert.strictEqual(nested.linkedNodePrototypeId, 'p-sub');
+
+    const graph = getGraph(mainId);
+    for (const memberId of nested.memberInstanceIds) {
+      assert.ok(graph.instances.has(memberId), `refreshed nested member ${memberId} should exist`);
+    }
+    assert.ok(graph.instances.has(nested.anchorInstanceId), 'refreshed nested anchor should exist');
+
+    const topGroup = getGroup(mainId, topGroupId);
+    for (const memberId of nested.memberInstanceIds) {
+      assert.ok(topGroup.memberInstanceIds.includes(memberId), `Top group should contain ${memberId}`);
+    }
+  });
+});

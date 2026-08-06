@@ -181,6 +181,35 @@ describe('computeGroupLayout', () => {
     expect(outerLayout.nestedContributors.some(c => c.nestedGroupId === 'empty')).toBe(true);
   });
 
+  it('a node-group folds a nested plain group, title pill included', () => {
+    const ctx = buildContext();
+    addNode(ctx, 'a', 0, 0);
+    addNode(ctx, 'b', 300, 0);
+    addNode(ctx, 'c', 600, 0);
+    const plain = { id: 'plain', name: 'A rather long plain group name', memberInstanceIds: ['a', 'b'] };
+    const ng = { id: 'ng', name: 'NG', memberInstanceIds: ['a', 'b', 'c'], linkedNodePrototypeId: 'p1' };
+    addGroup(ctx, plain);
+    addGroup(ctx, ng);
+
+    const plainLayout = computeGroupLayout(plain, ctx);
+    const ngLayout = computeGroupLayout(ng, ctx);
+    expect(plainLayout.ok).toBe(true);
+    expect(ngLayout.ok).toBe(true);
+
+    // A plain group's visualBounds top is its FLOATING title pill, which sits
+    // above its dashed rect with a gap. Folding only the members would leave the
+    // pill hanging over the shell's rim.
+    const pv = plainLayout.visualBounds;
+    expect(pv.y).toBe(plainLayout.label.y);
+    expect(pv.y).toBeLessThan(plainLayout.rect.y);
+
+    expect(ngLayout.nestedContributors.some(c => c.nestedGroupId === 'plain')).toBe(true);
+    expect(ngLayout.bbox.minY).toBeLessThanOrEqual(pv.y);
+    expect(ngLayout.rect.x).toBeLessThanOrEqual(pv.x - margin);
+    expect(ngLayout.rect.x + ngLayout.rect.w).toBeGreaterThanOrEqual(pv.x + pv.w + margin);
+    expect(ngLayout.rect.y + ngLayout.rect.h).toBeGreaterThanOrEqual(pv.y + pv.h + margin);
+  });
+
   it('peer node-groups (equal member sets) do NOT fold each other — neither is a strict subset', () => {
     const ctx = buildContext();
     addNode(ctx, 'a', 0, 0);
@@ -361,6 +390,43 @@ describe('computeGroupDepths', () => {
     expect(depths.get('b2')).toBeGreaterThan(depths.get('outer'));
     expect(depths.get('inner')).toBeGreaterThan(depths.get('b1'));
     expect(depths.get('inner')).toBeGreaterThan(depths.get('b2'));
+  });
+
+  it('nests a plain group inside a node-group', () => {
+    // The whole point: at depth 0 a plain group renders in the flat bottom
+    // layer, underneath the opaque shell containing it — i.e. invisible.
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'plain', name: 'P', memberInstanceIds: ['a', 'b'] });
+    addGroup(ctx, { id: 'ng', name: 'NG', memberInstanceIds: ['a', 'b', 'c'], linkedNodePrototypeId: 'p1' });
+
+    const childIndex = buildChildGroupIdsIndex(ctx.groupsById, ctx.groupsByMemberId);
+    expect(childIndex.get('ng').has('plain')).toBe(true);
+
+    const depths = computeGroupDepths(ctx.groupsById, ctx.groupsByMemberId, childIndex);
+    expect(depths.get('ng')).toBe(0);
+    expect(depths.get('plain')).toBe(1);
+  });
+
+  it('nests plain groups inside each other', () => {
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'inner', name: 'I', memberInstanceIds: ['a'] });
+    addGroup(ctx, { id: 'outer', name: 'O', memberInstanceIds: ['a', 'b'] });
+
+    const depths = depthsFor(ctx);
+    expect(depths.get('outer')).toBe(0);
+    expect(depths.get('inner')).toBe(1);
+  });
+
+  it('interleaves plain and node-groups down one nesting chain', () => {
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'ng-inner', name: 'NGI', memberInstanceIds: ['a'], linkedNodePrototypeId: 'p1' });
+    addGroup(ctx, { id: 'plain', name: 'P', memberInstanceIds: ['a', 'b'] });
+    addGroup(ctx, { id: 'ng-outer', name: 'NGO', memberInstanceIds: ['a', 'b', 'c'], linkedNodePrototypeId: 'p2' });
+
+    const depths = depthsFor(ctx);
+    expect(depths.get('ng-outer')).toBe(0);
+    expect(depths.get('plain')).toBe(1);
+    expect(depths.get('ng-inner')).toBe(2);
   });
 
   it('empty node-groups inherit depth from the group holding their anchor', () => {
