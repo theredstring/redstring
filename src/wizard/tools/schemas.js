@@ -225,23 +225,13 @@ export function getToolDefinitions(options = {}) {
                     },
                     groups: {
                         type: 'array',
-                        description: 'Optional: Array of groups to create. Add definedBy to make a Thing-Group.',
+                        description: 'Optional: Array of plain visual groups (loose clustering only). For a cluster that IS a concept with a web inside it, use buildComposition layers instead.',
                         items: {
                             type: 'object',
                             properties: {
                                 name: { type: 'string' },
                                 color: { type: 'string' },
-                                memberNames: { type: 'array', items: { type: 'string' } },
-                                definedBy: {
-                                    type: 'object',
-                                    description: 'Optional. Makes this a Thing-Group backed by a node. Creates the node if needed.',
-                                    properties: {
-                                        name: { type: 'string', description: 'Name of the backing node' },
-                                        color: { type: 'string', description: 'Color for the node' },
-                                        description: { type: 'string', description: 'What this node represents' }
-                                    },
-                                    required: ['name']
-                                }
+                                memberNames: { type: 'array', items: { type: 'string' } }
                             },
                             required: ['name', 'memberNames']
                         }
@@ -338,23 +328,13 @@ export function getToolDefinitions(options = {}) {
                     },
                     groups: {
                         type: 'array',
-                        description: 'Groups to organize nodes. Add definedBy to make a Thing-Group.',
+                        description: 'Plain visual groups for loose clustering. For a cluster that IS a concept with a web inside it, use buildComposition layers instead.',
                         items: {
                             type: 'object',
                             properties: {
                                 name: { type: 'string', description: 'Group name (e.g., "House Montague", "Engineering Team")' },
                                 color: { type: 'string', description: COLOR_DESC },
-                                memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must match names in the nodes array' },
-                                definedBy: {
-                                    type: 'object',
-                                    description: 'Optional. Makes this a Thing-Group backed by a node. Creates the node if needed.',
-                                    properties: {
-                                        name: { type: 'string', description: 'Name of the backing node' },
-                                        color: { type: 'string', description: 'Color for the node' },
-                                        description: { type: 'string', description: 'What this node represents' }
-                                    },
-                                    required: ['name']
-                                }
+                                memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must match names in the nodes array' }
                             },
                             required: ['name', 'memberNames']
                         }
@@ -366,8 +346,173 @@ export function getToolDefinitions(options = {}) {
             }
         },
         {
+            name: 'buildComposition',
+            description: 'Build nested node-group LAYERS in one call. A layer is a Thing that also has a web inside it: the Thing is created, its definition web is populated, and (when display is "decomposed") that web is spread open in the parent graph as a node-group you can see through. IMPORTANT: a layer\'s members go INSIDE its `definition.nodes` — never in the parent\'s `nodes` array. Layers nest: a definition can contain further layers. Use `use: "Existing Thing"` to invoke an existing web as a layer instead of authoring it again. This is the ONLY way to create node-groups — never orchestrate thingGroup/decomposeNode by hand.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    targetGraphId: { type: 'string', description: 'Graph to build into (default: active graph).' },
+                    nodes: {
+                        type: 'array',
+                        description: 'Optional plain nodes at the top level, alongside the layers.',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                color: { type: 'string', description: COLOR_DESC },
+                                description: { type: 'string' },
+                                type: { type: 'string', description: 'Optional type/category name for this node' },
+                                size: { type: 'string', description: 'Visual size: small, medium (default), large, huge' }
+                            },
+                            required: ['name']
+                        }
+                    },
+                    edges: {
+                        type: 'array',
+                        description: 'Connections at the top level. Endpoints may name a top-level node OR a layer (an edge to a layer attaches to the layer\'s Thing).',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                source: { type: 'string' },
+                                target: { type: 'string' },
+                                type: { type: 'string', description: 'Connection type name in Title Case (e.g., "Powers", "Feeds Into")' },
+                                directionality: { type: 'string', enum: ['unidirectional', 'bidirectional', 'none', 'reverse'] }
+                            },
+                            required: ['source', 'target']
+                        }
+                    },
+                    groups: {
+                        type: 'array',
+                        description: 'Optional PLAIN visual groups at the top level (loose clustering, no web inside). For a cluster that is itself a concept, use a layer.',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                color: { type: 'string', description: COLOR_DESC },
+                                memberNames: { type: 'array', items: { type: 'string' } }
+                            },
+                            required: ['name', 'memberNames']
+                        }
+                    },
+                    layers: {
+                        type: 'array',
+                        description: 'The node-group layers to build. Each layer is a Thing + the web inside it. Provide EITHER `definition` (author fresh contents) OR `use` (invoke an existing Thing\'s web).',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string', description: 'Name of the Thing / node-group (e.g., "Engine")' },
+                                color: { type: 'string', description: COLOR_DESC },
+                                description: { type: 'string', description: 'What this Thing is' },
+                                display: {
+                                    type: 'string',
+                                    enum: ['decomposed', 'collapsed'],
+                                    description: '"decomposed" (default): spread the web open in the parent graph as a visible node-group. "collapsed": the Thing has its web but stays closed — the user can navigate into it.'
+                                },
+                                use: { type: 'string', description: 'Name of an EXISTING Thing whose web should be invoked here instead of authoring a new one. Provide this OR definition, not both.' },
+                                definition: {
+                                    type: 'object',
+                                    description: 'The web inside this Thing. Its nodes ARE this layer\'s members.',
+                                    properties: {
+                                        nodes: {
+                                            type: 'array',
+                                            items: {
+                                                type: 'object',
+                                                properties: {
+                                                    name: { type: 'string' },
+                                                    color: { type: 'string', description: COLOR_DESC },
+                                                    description: { type: 'string' },
+                                                    type: { type: 'string' },
+                                                    size: { type: 'string' }
+                                                },
+                                                required: ['name']
+                                            }
+                                        },
+                                        edges: {
+                                            type: 'array',
+                                            items: {
+                                                type: 'object',
+                                                properties: {
+                                                    source: { type: 'string' },
+                                                    target: { type: 'string' },
+                                                    type: { type: 'string' },
+                                                    directionality: { type: 'string', enum: ['unidirectional', 'bidirectional', 'none', 'reverse'] }
+                                                },
+                                                required: ['source', 'target']
+                                            }
+                                        },
+                                        groups: {
+                                            type: 'array',
+                                            description: 'Plain visual groups inside this web.',
+                                            items: {
+                                                type: 'object',
+                                                properties: {
+                                                    name: { type: 'string' },
+                                                    color: { type: 'string' },
+                                                    memberNames: { type: 'array', items: { type: 'string' } }
+                                                },
+                                                required: ['name', 'memberNames']
+                                            }
+                                        },
+                                        layers: {
+                                            type: 'array',
+                                            description: 'Deeper layers nested inside this web (same shape as a top-level layer).',
+                                            items: {
+                                                type: 'object',
+                                                properties: {
+                                                    name: { type: 'string' },
+                                                    color: { type: 'string' },
+                                                    description: { type: 'string' },
+                                                    display: { type: 'string', enum: ['decomposed', 'collapsed'] },
+                                                    use: { type: 'string' },
+                                                    definition: {
+                                                        type: 'object',
+                                                        properties: {
+                                                            nodes: {
+                                                                type: 'array',
+                                                                items: {
+                                                                    type: 'object',
+                                                                    properties: {
+                                                                        name: { type: 'string' },
+                                                                        color: { type: 'string' },
+                                                                        description: { type: 'string' },
+                                                                        type: { type: 'string' }
+                                                                    },
+                                                                    required: ['name']
+                                                                }
+                                                            },
+                                                            edges: {
+                                                                type: 'array',
+                                                                items: {
+                                                                    type: 'object',
+                                                                    properties: {
+                                                                        source: { type: 'string' },
+                                                                        target: { type: 'string' },
+                                                                        type: { type: 'string' }
+                                                                    },
+                                                                    required: ['source', 'target']
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                required: ['name']
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            required: ['name']
+                        }
+                    },
+                    enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
+                    overwriteDescription: { type: 'boolean', description: 'Overwrite description from Wikipedia (default: false).' }
+                },
+                required: ['layers']
+            }
+        },
+        {
             name: 'createGroup',
-            description: 'Create a visual group to organize nodes together.',
+            description: 'Create a plain visual group to loosely cluster nodes together. The group is NOT a concept and has no web inside it — for that, use buildComposition layers.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -805,7 +950,7 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'sketchGraph',
-            description: 'Sketch a graph structure in lightweight shorthand before building it. Returns a quality preview (orphans, connectivity) and an expanded spec ready to pass to createPopulatedGraph or populateDefinitionGraph. Use this to validate structure cheaply before committing.',
+            description: 'Sketch a graph structure in lightweight shorthand before building it — including its LAYERS (depth of composition). Returns a quality preview (orphans, connectivity, nesting depth) and an expandedSpec that is DIRECTLY EXECUTABLE: pass it to buildComposition when the sketch has layers, or to createPopulatedGraph/populateDefinitionGraph when it is flat. Do not re-author the expandedSpec.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -823,11 +968,34 @@ export function getToolDefinitions(options = {}) {
                     },
                     groups: {
                         type: 'array',
-                        description: 'Groups as "GroupName: member1, member2" strings',
+                        description: 'Plain groups as "GroupName: member1, member2". A DOUBLE colon makes it a LAYER (a Thing with a web inside it): "Engine:: Pistons, Crankshaft". Add "(collapsed)" to keep the layer closed: "Drivetrain:: Gearbox, Axles (collapsed)". Use "Engine:: use" to invoke an EXISTING Thing\'s web.',
                         items: { type: 'string' }
+                    },
+                    layers: {
+                        type: 'array',
+                        description: 'Layers with real nesting (2+ levels). Each layer is a Thing plus the web inside it, in the same shorthand as the top level.',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                display: { type: 'string', enum: ['decomposed', 'collapsed'], description: '"decomposed" (default) spreads the web open in the parent; "collapsed" keeps the Thing closed.' },
+                                use: { type: 'string', description: 'Name of an existing Thing whose web to invoke here instead of authoring one.' },
+                                definition: {
+                                    type: 'object',
+                                    description: 'The web inside this layer — its nodes ARE the layer\'s members.',
+                                    properties: {
+                                        nodes: { type: 'array', items: { type: 'string' }, description: 'Node names, same shorthand as the top level' },
+                                        edges: { type: 'array', items: { type: 'string' }, description: '"Source -> Relation -> Target" strings' },
+                                        groups: { type: 'array', items: { type: 'string' }, description: 'Plain groups inside this web' },
+                                        layers: { type: 'array', items: { type: 'object' }, description: 'Deeper layers nested inside this web (same shape)' }
+                                    }
+                                }
+                            },
+                            required: ['name']
+                        }
                     }
                 },
-                required: ['name', 'nodes', 'edges']
+                required: ['name']
             }
         },
         {
@@ -959,6 +1127,11 @@ const TOOL_TIERS = {
     createGraph: 1, createPopulatedGraph: 1, expandGraph: 1,
     sketchGraph: 1, planTask: 1, askMultipleChoice: 1, listTools: 1,
     populateDefinitionGraph: 1, switchToGraph: 1, inspectWorkspace: 1,
+    // Tier 1 on purpose: composition must be reachable on a blank canvas.
+    // Gating it behind hasGroups/hasDefinitions (as the older thingGroup and
+    // decomposeNode are) meant node-groups could only be built once node-groups
+    // already existed — so the model never built the first one.
+    buildComposition: 1,
 
     // Tier 2: Context-triggered (included when graph has relevant content)
     createGroup: 'has3PlusNodes', updateGroup: 'hasGroups',
@@ -1004,7 +1177,10 @@ export function selectToolsForTurn({ graphState, userMessage, hasTabularData = f
     // done without any tool running, producing a churn loop). Code-side planning
     // (shape → fill → unfold → review) already covers builds.
     if (modelTier === 'small') {
-        const SMALL_MODEL_TOOLS = new Set(['createGraph', 'expandGraph', 'populateDefinitionGraph', 'sketchGraph', 'readGraph', 'updateNode', 'askMultipleChoice', 'switchToGraph']);
+        // buildComposition is included even though it takes the richest args in the
+        // toolset: it is ONE call for a whole nested structure, which is easier for
+        // a small model than orchestrating populate → define → decompose by hand.
+        const SMALL_MODEL_TOOLS = new Set(['createGraph', 'expandGraph', 'populateDefinitionGraph', 'buildComposition', 'sketchGraph', 'readGraph', 'updateNode', 'askMultipleChoice', 'switchToGraph']);
         return allTools.filter(t => SMALL_MODEL_TOOLS.has(t.name));
     }
 

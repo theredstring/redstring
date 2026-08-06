@@ -22,6 +22,7 @@ import { createGraph } from './createGraph.js';
 import { expandGraph } from './expandGraph.js';
 import { createPopulatedGraph } from './createPopulatedGraph.js';
 import { createGroup } from './createGroup.js';
+import { buildComposition } from './buildComposition.js';
 import { updateGroup } from './updateGroup.js';
 import { deleteGroup } from './deleteGroup.js';
 import { thingGroup } from './thingGroup.js';
@@ -71,6 +72,7 @@ const TOOLS = {
   expandGraph,
   createPopulatedGraph,
   createGroup,
+  buildComposition,
   updateGroup,
   deleteGroup,
   thingGroup,

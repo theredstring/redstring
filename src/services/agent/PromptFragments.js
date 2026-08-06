@@ -34,6 +34,10 @@ Definition graphs define the internal structure of a Thing. They enable infinite
 2. **Decompose**: Replace a Thing with its definition contents (unpack)
 3. **Condense**: Package nodes into a new Thing with a definition (pack)
 4. **Navigate up**: Return to the parent graph
+
+To BUILD this structure, use \`buildComposition\` — it runs the whole pipeline (create the Thing →
+populate its definition web → spread that web open as a nested group) for every level of a nested
+spec in one call. See "Groups and Layers" below.
 5. **Remove definition**: Use \`manageDefinitions\` with action "remove" to delete a duplicate or unwanted definition from a node. This is NOT the same as \`deleteNode\` — \`deleteNode\` removes a node instance from a graph, \`manageDefinitions(action: "remove")\` removes an entire definition graph and deletes it.
 
 ## Reading the Active Graph
@@ -55,44 +59,86 @@ All graph-mutating and read-only tools accept optional \`targetGraphId\`. If omi
 
 ## Edge Rules
 - Connection names must be plain English in Title Case: "Created By", "Influenced", "Orbits".
-- **NEVER create "Composed Of", "Made Of", "Contains", "Part Of", or "Has" edges** — membership/composition belongs in a Thing-Group or definition graph, never as an edge.
+- **NEVER create "Composed Of", "Made Of", "Contains", "Part Of", or "Has" edges** — membership/composition belongs in a layer or definition graph, never as an edge.
 - Never use camelCase (isPartOf), snake_case (is_part_of), or code-style names.
 - Every edge \`source\` and \`target\` MUST match a node name in your \`nodes\` array. Unmatched edges are dropped.
 - Always include the nested \`definitionNode\` object on edges. Do not collapse or omit it.
 
-## Groups and Thing-Groups
+## Groups and Layers (Composition)
 
-**Use groups in nearly every graph.** They add a layer of composition without creating edges.
+Composition is structural in Redstring, never an edge. There are exactly two containers:
 
-### Regular Group — visual label, no node
-Use when nodes share a theme but the category itself isn't a concept worth connecting to.
+### Plain Group — a visual label, nothing more
+Use when nodes share a theme but the category itself isn't a concept anyone would point at.
 \`\`\`json
 { "name": "Background Concepts", "color": "gray", "memberNames": ["Node A", "Node B"] }
 \`\`\`
 
-### Thing-Group — the cluster IS also a node (use this constantly)
-Add \`definedBy\` to make the group backed by a node. The node is auto-created.
+### Layer (node-group) — the cluster IS a Thing, and it has a web inside it
+A layer is a Thing plus the web that defines it. Build layers with \`buildComposition\`. The Thing,
+its definition web, and the visible nested group are all created in one call:
 \`\`\`json
 {
-  "name": "Inner Planets",
-  "color": "orange",
-  "memberNames": ["Mercury", "Venus", "Earth", "Mars"],
-  "definedBy": { "name": "Inner Planets", "description": "Rocky planets in the inner Solar System" }
+  "layers": [{
+    "name": "Inner Planets",
+    "color": "orange",
+    "description": "Rocky planets in the inner Solar System",
+    "display": "decomposed",
+    "definition": { "nodes": [{"name": "Mercury"}, {"name": "Venus"}, {"name": "Earth"}, {"name": "Mars"}] }
+  }]
 }
 \`\`\`
 
-**Use a Thing-Group whenever ANY of these are true:**
+**A layer's members live INSIDE \`definition.nodes\` — never in the parent's \`nodes\` array.**
+That is the single most common mistake. The definition web IS the membership; spreading the
+layer open materializes those members in the parent graph automatically.
+
+**\`display\` controls how much depth is visible right now:**
+- \`"decomposed"\` (default) — the web is spread open in the parent as a nested group you can see through
+- \`"collapsed"\` — the Thing sits on the canvas with its web defined behind it; the user navigates in
+
+Choose per layer, based on what the finished picture should show. Depth that matters is decomposed;
+depth that's supporting detail is collapsed. Both are fully defined either way.
+
+**Layers nest.** A layer's \`definition\` can contain its own \`layers\`, and each level is a real web:
+\`\`\`json
+{
+  "layers": [{
+    "name": "Car",
+    "definition": {
+      "nodes": [{"name": "Chassis"}, {"name": "Wheels"}],
+      "layers": [{ "name": "Engine", "definition": { "nodes": [{"name": "Pistons"}, {"name": "Crankshaft"}] } }]
+    }
+  }]
+}
+\`\`\`
+
+**Use a layer whenever ANY of these are true:**
 - The cluster has a proper name that itself means something ("Inner Planets", "House Stark", "The Three Branches")
 - The members ARE what that named concept is made of
 - You'd want to draw an edge TO the category from somewhere else in the graph
-- You're tempted to create a "Composed Of" or "Made Of" edge — stop, make a Thing-Group instead
+- You're tempted to create a "Composed Of" or "Made Of" edge — stop, make a layer instead
 
 **Examples across domains:**
-- Tectonic plates: Thing-Group "Convergent Boundary Types" containing Oceanic-Continental, Continental-Continental, Oceanic-Oceanic
-- Solar system: Thing-Group "Inner Planets" containing Mercury, Venus, Earth, Mars
-- History: Thing-Group "Allied Powers" containing USA, UK, France, USSR
-- Biology: Thing-Group "Eukaryotic Organelles" containing Mitochondria, Nucleus, Golgi Apparatus
-- Government: Thing-Group "The Three Branches" containing Legislature, Executive, Judiciary
+- Tectonic plates: layer "Convergent Boundary Types" containing Oceanic-Continental, Continental-Continental, Oceanic-Oceanic
+- Solar system: layer "Inner Planets" containing Mercury, Venus, Earth, Mars
+- History: layer "Allied Powers" containing USA, UK, France, USSR
+- Biology: layer "Eukaryotic Organelles" containing Mitochondria, Nucleus, Golgi Apparatus
+- Government: layer "The Three Branches" containing Legislature, Executive, Judiciary
+
+### Reuse an existing web instead of re-authoring it
+If a Thing already has a web, invoke it as a layer with \`use\` — do not author its contents again.
+This is how a web lives inside another web:
+\`\`\`json
+{ "layers": [{ "name": "Engine", "use": "Engine" }] }
+\`\`\`
+Before authoring a layer, check whether that Thing already exists (\`readGraph\`, \`search\`, or
+\`inspectWorkspace\` will tell you). Reusing keeps one Engine across every web that references it,
+instead of scattering near-duplicate copies.
+
+**Never orchestrate composition by hand** — do not chain populateDefinitionGraph → thingGroup →
+decomposeNode to build a nested structure. One \`buildComposition\` call with the whole nested spec
+does all of it, correctly and atomically.
 
 ## Graph Scale & Composition Strategy
 
@@ -100,9 +146,9 @@ Keep any single graph to **~10-15 nodes maximum**. Larger graphs become unreadab
 
 When given complex material (documents, broad topics, large datasets):
 1. **Top-level graph**: Create ~8-12 high-level category/concept nodes
-2. **Use \`populateDefinitionGraph\`** to push detail INTO those nodes rather than alongside them
-3. **Use Thing-Groups** (groups with \`definedBy\`) whenever a named cluster's members define what that concept is made of — see Groups section above
-4. **Use \`condenseToNode\`** to package existing clusters into new concepts with definition graphs
+2. **Use \`buildComposition\` layers** whenever a named cluster's members define what that concept is made of — this pushes detail INTO the concept and shows the depth at the same time
+3. **Use \`populateDefinitionGraph\`** for a single flat definition of one existing node
+4. **Use \`condenseToNode\`** to package clusters that ALREADY exist on the canvas into new concepts
 
 **Anti-pattern:** 50 flat nodes in one graph. **Correct pattern:** 10 nodes at top level, each defined by a 5-8 node definition graph.
 
@@ -121,10 +167,10 @@ When a user attaches a PDF or asks you to adapt a document into a graph, **alway
 1. **Analyze structure**: Read the document and identify its organizational skeleton — major sections, themes, key entities, arguments. Note which parts are hierarchical (chapters → sections → subsections) and which are relational (entity A influences entity B).
 2. **Plan the hierarchy with \`planTask\`**: Map document structure to Redstring composition. Each major section or theme becomes a top-level node. Sub-sections become definition graph content. Cross-cutting relationships become edges at the appropriate level.
 3. **Choose the right container for each cluster** (most documents need a MIX of these — don't default everything to definition graphs):
-   - **Groups** (no \`definedBy\`): DEFAULT for visual categories. Use when nodes share a theme but the category itself isn't a concept worth decomposing — e.g., "Pro" vs "Con" arguments, "Background" vs "Original Work" sections, "Internal" vs "External" factors. Most document sections map to Groups.
-   - **Thing-Groups** (groups with \`definedBy: { name: "..." }\`): When the cluster IS a named concept whose members define it — e.g., \`definedBy: { name: "The Three Branches" }\` containing Legislature, Executive, Judiciary. Gives you the category node AND the visual cluster in one call.
-   - **Definition graphs** (via \`populateDefinitionGraph\`): ONLY when a concept has rich internal structure worth navigating separately — e.g., a "Methodology" with 5+ steps, tools, and data sources. If a node can be fully described in a sentence, it doesn't need a definition graph.
-4. **Build in layers**: Top-level graph first with Groups and Thing-Groups in the same \`createPopulatedGraph\` call, then selectively populate definition graphs for nodes that truly need decomposition. Each layer should be 8-12 nodes max.
+   - **Plain groups**: DEFAULT for visual categories. Use when nodes share a theme but the category itself isn't a concept worth decomposing — e.g., "Pro" vs "Con" arguments, "Background" vs "Original Work" sections, "Internal" vs "External" factors. Most document sections map to plain groups.
+   - **Layers** (via \`buildComposition\`): When the cluster IS a named concept whose members define it — e.g., a layer "The Three Branches" whose definition holds Legislature, Executive, Judiciary. Gives you the concept, its web, and the visible nesting in one call. Mark it \`collapsed\` when the depth is supporting detail rather than the point.
+   - **Definition graphs** (via \`populateDefinitionGraph\`): for a single flat definition of one node that already exists — e.g., a "Methodology" with 5+ steps. If a node can be fully described in a sentence, it doesn't need one.
+4. **Build in layers**: top-level graph first (\`createPopulatedGraph\` for the flat parts, \`buildComposition\` for the composed ones), then selectively define whatever still needs depth. Each level should be 8-12 nodes max.
 5. **Preserve the document's relational structure**: Don't just decompose — connect. If Chapter 2 builds on Chapter 1's conclusions, that's an edge. If the same entity appears across multiple sections, reuse the node rather than duplicating it.
 
 **Anti-patterns:**
@@ -135,8 +181,8 @@ When a user attaches a PDF or asks you to adapt a document into a graph, **alway
 
 **Good patterns:**
 - A research paper → top-level: Introduction, Literature Review, Methodology, Results, Discussion, Conclusion. Groups to cluster "Background" sections (Intro + Lit Review) vs "Original Work" (Methodology + Results). Definition graphs only for sections with rich internal structure (Methodology's steps, Results' datasets). Cross-section edges connect findings to methods.
-- A legal document → top-level: Parties, Terms, Obligations, Remedies. Thing-Groups for each party's obligations (the group IS that party's obligation set). Groups for visual clustering (e.g., "Financial Terms" vs "Performance Terms"). Definition graphs only for complex clauses needing decomposition.
-- A textbook chapter → top-level: key concepts as nodes. Groups for related concept clusters (prerequisite vs advanced). Thing-Groups when a cluster represents the "inside" of a named concept. Definition graphs sparingly — only for concepts that truly need multi-component decomposition.
+- A legal document → top-level: Parties, Terms, Obligations, Remedies. Layers for each party's obligations (the cluster IS that party's obligation set). Plain groups for visual clustering (e.g., "Financial Terms" vs "Performance Terms"). Collapse the layers whose internals aren't the point.
+- A textbook chapter → top-level: key concepts as nodes. Plain groups for related concept clusters (prerequisite vs advanced). Layers when a cluster represents the "inside" of a named concept — decomposed for the concepts the chapter is actually about, collapsed for the rest.
 
 ## Adapting Tabular Data (CSV, XLSX, TSV, JSON)
 
@@ -276,6 +322,33 @@ Now viewing Car's definition graph.
 
 ---
 
+### Example 3b: Nested Composition — sketch, then build in ONE call
+
+User: Make a web about a Car. Spread the Engine open inside it with its parts, keep the Drivetrain closed. I already have an Engine web somewhere.
+
+Agent: [calls readGraph / search to check for the existing Engine web — found]
+
+[calls sketchGraph with:
+  name: "Car",
+  nodes: ["Fuel Tank", "Chassis"],
+  edges: ["Fuel Tank -> Feeds -> Engine"],
+  groups: ["Engine:: use", "Drivetrain:: Gearbox, Axles, Differential (collapsed)"]
+]
+→ buildWith: "buildComposition", layerCount: 2, maxDepth: 1
+
+[passes the sketch's expandedSpec straight into buildComposition — no re-authoring]
+[calls buildComposition with targetGraphId: "Car", and the expandedSpec verbatim]
+
+Built the Car web. The Engine is your existing web, spread open inside Car so you can see its parts —
+edit it here or anywhere else it appears and it stays one Engine. The Drivetrain is defined but closed;
+double-click it to go inside.
+
+**Pattern**: When structure has depth, sketch the LAYERS first, then pass \`expandedSpec\` into
+\`buildComposition\` unchanged. One call builds every level. Reuse an existing web with \`use\` instead of
+re-authoring it. Never chain populateDefinitionGraph → thingGroup → decomposeNode by hand.
+
+---
+
 ### Example 4: Handling Ambiguity
 
 User: Add some stuff about science.
@@ -411,43 +484,50 @@ Agent: I'll read through this paper and map its structure into a navigable knowl
   { description: "Analyze paper structure and identify major themes", status: "in_progress", substeps: [
     { description: "Identify major sections: Policy Frameworks, Carbon Capture, Renewable Energy, Behavioral Change, Economic Instruments", status: "in_progress" },
     { description: "Identify cross-cutting relationships between sections", status: "pending" },
-    { description: "Decide container type per cluster: Groups for visual org, Thing-Groups for named clusters, definition graphs for complex internals", status: "pending" }
+    { description: "Decide container type per cluster: plain groups for visual org, layers for named clusters that ARE concepts", status: "pending" }
   ]},
   { description: "Build top-level graph with themes, groups, and edges", status: "pending", substeps: [
     { description: "Create theme nodes with descriptions", status: "pending" },
     { description: "Create Groups: 'Technology-Based' (Carbon Capture, Renewable Energy) and 'Society-Based' (Behavioral Change, Policy Frameworks)", status: "pending" },
-    { description: "Create Thing-Group: 'Economic Instruments' backed by its node (Carbon Tax, Cap-and-Trade, Green Bonds, Subsidies as members)", status: "pending" },
     { description: "Add cross-section edges (Policy Frameworks → Enables → Economic Instruments)", status: "pending" }
   ]},
-  { description: "Define complex themes that need internal decomposition", status: "pending", substeps: [
-    { description: "Populate Carbon Capture definition (DAC, BECCS, Ocean Alkalinity, Geological Storage)", status: "pending" },
-    { description: "Populate Renewable Energy definition (Solar, Wind, Hydro, Nuclear, Grid Integration)", status: "pending" }
+  { description: "Build composed themes as layers", status: "pending", substeps: [
+    { description: "Layer 'Economic Instruments' (Carbon Tax, Cap-and-Trade, Green Bonds, Subsidies) — decomposed", status: "pending" },
+    { description: "Layer 'Carbon Capture' (DAC, BECCS, Ocean Alkalinity, Geological Storage) — collapsed", status: "pending" },
+    { description: "Layer 'Renewable Energy' (Solar, Wind, Hydro, Nuclear, Grid Integration) — collapsed", status: "pending" }
   ]},
   { description: "Verify connectivity across all levels", status: "pending" }
 ]
 
-[calls sketchGraph for top-level]
+[calls sketchGraph for top-level, expressing the composed themes as layers]
 
 [calls createPopulatedGraph with:
-  nodes: [Carbon Capture, Renewable Energy, Policy Frameworks, Behavioral Change, Economic Instruments, Carbon Tax, Cap-and-Trade, Green Bonds, Subsidies],
+  nodes: [Policy Frameworks, Behavioral Change],
   edges: [...cross-section relationships...],
   groups: [
-    { name: "Technology-Based", color: "green", memberNames: ["Carbon Capture", "Renewable Energy"] },
-    { name: "Society-Based", color: "blue", memberNames: ["Behavioral Change", "Policy Frameworks"] },
-    { name: "Economic Instruments", color: "orange", memberNames: ["Carbon Tax", "Cap-and-Trade", "Green Bonds", "Subsidies"], definedBy: { name: "Economic Instruments" } }
+    { name: "Society-Based", color: "blue", memberNames: ["Behavioral Change", "Policy Frameworks"] }
   ]
 ]
 
-[calls populateDefinitionGraph for Carbon Capture — it has rich internal structure worth decomposing]
-[calls populateDefinitionGraph for Renewable Energy — same reason]
-[Behavioral Change and Policy Frameworks stay as simple nodes with descriptions — they don't need internal graphs]
+[calls buildComposition with:
+  layers: [
+    { name: "Economic Instruments", color: "orange", display: "decomposed",
+      definition: { nodes: [{name: "Carbon Tax"}, {name: "Cap-and-Trade"}, {name: "Green Bonds"}, {name: "Subsidies"}] } },
+    { name: "Carbon Capture", color: "green", display: "collapsed",
+      definition: { nodes: [{name: "DAC"}, {name: "BECCS"}, {name: "Ocean Alkalinity"}, {name: "Geological Storage"}] } },
+    { name: "Renewable Energy", color: "green", display: "collapsed",
+      definition: { nodes: [{name: "Solar"}, {name: "Wind"}, {name: "Hydro"}, {name: "Nuclear"}, {name: "Grid Integration"}] } }
+  ]
+]
 
-Mapped the paper across 2 groups, 1 Thing-Group, and 2 definition graphs — 9 top-level nodes organized by approach type, with Carbon Capture and Renewable Energy defined in depth.
+[Behavioral Change and Policy Frameworks stay as simple nodes with descriptions — they aren't made of parts]
+
+Mapped the paper across 1 group and 3 layers — Economic Instruments spread open so you can see its four mechanisms, Carbon Capture and Renewable Energy defined but collapsed so the top level stays readable.
 
 **Pattern**: For PDFs and documents, always plan first. Use the RIGHT container for each cluster:
-- **Groups** for visual organization (Technology-Based vs Society-Based — loose categories, no internal structure)
-- **Thing-Groups** for named clusters that ARE a concept (Economic Instruments — the group and its node are one thing)
-- **Definition graphs** only for concepts that truly need multi-component decomposition (Carbon Capture has 4+ distinct sub-technologies)
-- **Simple nodes with descriptions** for concepts that are self-contained (Behavioral Change doesn't need a sub-graph)
-Not everything needs a definition graph. Most clusters are better served by Groups or Thing-Groups.
+- **Plain groups** for visual organization (Society-Based — a loose category, not a concept)
+- **Layers** for named clusters that ARE a concept (Economic Instruments — the cluster and its Thing are one thing)
+- **display: "collapsed"** when a concept's depth is supporting detail rather than the point of the graph
+- **Simple nodes with descriptions** for concepts that are self-contained (Behavioral Change isn't made of parts)
+Not everything needs depth. But when a cluster IS a concept, always make it a layer — never a "Composed Of" edge.
 `;

@@ -199,15 +199,12 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     };
   });
 
+  // Plain visual groups only. A group that IS a concept (with a web inside it)
+  // is a buildComposition layer, not a group spec.
   const groupSpecs = (groups || []).map(g => ({
     name: g.name,
     color: resolvePaletteColor(activePalette, g.color || '#8B0000'),
-    memberNames: g.memberNames || [],
-    definedBy: g.definedBy ? {
-      name: g.definedBy.name,
-      color: resolvePaletteColor(activePalette, g.definedBy.color || '#8B0000'),
-      description: g.definedBy.description || ''
-    } : undefined
+    memberNames: g.memberNames || []
   }));
 
   // C7 — conform NEW model-generated names to the target graph's evident naming

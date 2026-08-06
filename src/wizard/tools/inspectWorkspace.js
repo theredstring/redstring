@@ -66,7 +66,9 @@ export async function inspectWorkspace(args, graphState) {
       groupId: g.id,
       name: g.name || 'Unnamed',
       memberCount: g.memberInstanceIds?.length || 0,
-      isThingGroup: !!(g.definingNodeId || g.definedByNodeId)
+      // linkedNodePrototypeId is THE discriminator (definingNodeId/definedByNodeId
+      // are not fields on a group, so this always reported false).
+      isThingGroup: !!g.linkedNodePrototypeId
     }));
 
     return {

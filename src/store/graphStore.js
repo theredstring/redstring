@@ -1882,7 +1882,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         // fires again — e.g. from a second instance of the same prototype).
         if (graph.groups) {
           for (const existingGroup of graph.groups.values()) {
-            if (existingGroup.linkedNodePrototypeId === prototypeId && existingGroup.linkedDefinitionIndex === definitionIndex) {
+            if (existingGroup.linkedNodePrototypeId === prototypeId && (existingGroup.linkedDefinitionIndex ?? 0) === definitionIndex) {
               createdGroupId = existingGroup.id;
               console.warn(`[decomposeNodeToGroup] Group ${existingGroup.id} already exists for this prototype/definition — reusing instead of duplicating.`);
               return;
@@ -2086,7 +2086,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         // fires again — e.g. from a second instance of the same prototype).
         if (graph.groups) {
           for (const existingGroup of graph.groups.values()) {
-            if (existingGroup.linkedNodePrototypeId === prototypeId && existingGroup.linkedDefinitionIndex === definitionIndex) {
+            if (existingGroup.linkedNodePrototypeId === prototypeId && (existingGroup.linkedDefinitionIndex ?? 0) === definitionIndex) {
               createdGroupId = existingGroup.id;
               console.warn(`[decomposeEmptyNodeToGroup] Group ${existingGroup.id} already exists for this prototype/definition — reusing instead of duplicating.`);
               return;
@@ -4116,6 +4116,28 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
           if (memberInstanceIds.length > 0) {
             if (!graph.groups) graph.groups = new Map();
+
+            // Upsert: repeated bulk calls (e.g. expandGraph run twice) must merge into
+            // an existing same-named group instead of minting a duplicate on top of it.
+            const normalizedGroupName = (group.name || 'Group').trim().toLowerCase();
+            let existingGroup = null;
+            for (const g of graph.groups.values()) {
+              if ((g.name || '').trim().toLowerCase() === normalizedGroupName) {
+                existingGroup = g;
+              }
+            }
+            if (existingGroup) {
+              const memberSet = new Set(existingGroup.memberInstanceIds || []);
+              for (const memberId of memberInstanceIds) {
+                if (!memberSet.has(memberId)) {
+                  existingGroup.memberInstanceIds.push(memberId);
+                }
+              }
+              if (group.color) existingGroup.color = group.color;
+              console.log(`[applyBulkGraphUpdates] Merged into existing group "${group.name}" (${existingGroup.memberInstanceIds.length} members)`);
+              return;
+            }
+
             graph.groups.set(groupId, {
               id: groupId,
               name: group.name || 'Group',

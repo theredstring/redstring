@@ -46,10 +46,11 @@ Every node-creating tool also accepts an optional per-node \`size\` ("extra-smal
 - **replaceEdges**(edges[{source,target,oldEdgeName,newDefinitionNode}]*, targetGraphId) — Bulk-replace Connections
 
 ## Groups & Composition
-- **createGroup**(name*, color, memberNames[], definedBy, targetGraphId) — Create a Group (add definedBy for Thing-Group)
+- **buildComposition**(layers[{name*,display,definition|use}]*, nodes[], edges[], groups[], targetGraphId) — Build nested node-group LAYERS in one call. A layer is a Thing + the Web inside it, optionally spread open. Members go inside definition.nodes, never at the parent level. use:"Existing Thing" invokes an existing Web. THE way to create node-groups.
+- **createGroup**(name*, color, memberNames[], targetGraphId) — Create a plain visual Group (loose clustering, no Web inside)
 - **updateGroup**(name*, updates:{name,color,memberNames}, targetGraphId) — Modify a Group
 - **deleteGroup**(name*, targetGraphId) — Remove a Group
-- **thingGroup**(groupName*, nodeName*, targetGraphId) — Convert a Group to a Thing-Group
+- **thingGroup**(groupName*, nodeName*, targetGraphId) — Convert an EXISTING plain Group into a node-group (for new composition, use buildComposition)
 - **condenseToNode**(nodeNames[]*, newNodeName*, description, color, targetGraphId) — Package Things into a new Thing with definition Web
 - **decomposeNode**(nodeName*, targetGraphId) — Unpack a Thing's definition into current Web
 - **manageDefinitions**(nodeName*, action*:"add"|"remove"|"setActive", definitionGraphId) — Manage definition Webs

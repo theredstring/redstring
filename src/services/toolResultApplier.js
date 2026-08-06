@@ -197,6 +197,274 @@ function applyAbstractionChain(orderNames, dimension = 'Generalization Axis') {
   return { dimension, ownerId, rungs: ids };
 }
 
+// ─── buildComposition executor ────────────────────────────────────────────────
+//
+// The definition-first pipeline, run deterministically in code so the model
+// never has to orchestrate populate → define → decompose across tool calls:
+//
+//   Phase A (materialize, bottom-up): for each layer create its prototype and
+//   definition graph, recurse into the definition's contents, then bulk-apply
+//   this level's authored nodes plus one SHELL instance per layer.
+//   Phase B (decompose, top-down): decompose each `display:'decomposed'`
+//   layer's shell into a node-group — parent strictly before child, so the
+//   store's enclosing-group membership propagation derives the nesting.
+//
+// Layer prototypes are created here against the live store, so their ids are
+// real; only `use:` layers resolve by name (LAST match — old prototypes
+// accumulate in the Maps, first match would find a stale one).
+
+const COMPOSITION_MAX_DEPTH = 4;
+
+function resolvePrototypeByNameLast(name) {
+  const st = useGraphStore.getState();
+  const nl = String(name || '').toLowerCase().trim();
+  if (!nl) return null;
+  let id = null;
+  for (const [pid, proto] of st.nodePrototypes) {
+    if ((proto.name || '').toLowerCase().trim() === nl) id = pid; // LAST match
+  }
+  return id;
+}
+
+// Resolve/create type prototypes for a level's nodes (same behavior as the
+// createPopulatedGraph handler): reuse an existing prototype by name, else
+// mint one, so `type` strings become typeNodeId links.
+function resolveCompositionTypeMap(specNodes) {
+  const typeMap = new Map(); // lowercase type name -> protoId
+  for (const n of specNodes) {
+    if (!n?.type) continue;
+    const tLower = n.type.toLowerCase().trim();
+    if (typeMap.has(tLower)) continue;
+    const existing = resolvePrototypeByNameLast(n.type);
+    if (existing) {
+      typeMap.set(tLower, existing);
+    } else {
+      const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      typeMap.set(tLower, newProtoId);
+      useGraphStore.getState().addNodePrototype({
+        id: newProtoId,
+        name: n.type,
+        color: n.typeColor || '#A0A0A0',
+        description: n.typeDescription || '',
+        typeNodeId: null,
+        definitionGraphIds: []
+      });
+    }
+  }
+  return typeMap;
+}
+
+function groupExistsForPrototypeName(graphId, name) {
+  const st = useGraphStore.getState();
+  const graph = st.graphs.get(graphId);
+  if (!graph?.groups) return false;
+  const nl = String(name || '').toLowerCase().trim();
+  for (const g of graph.groups.values()) {
+    const proto = g.linkedNodePrototypeId ? st.nodePrototypes.get(g.linkedNodePrototypeId) : null;
+    if (proto && (proto.name || '').toLowerCase().trim() === nl) return true;
+  }
+  return false;
+}
+
+function materializeCompositionLevel(graphId, graphSpec, options, depth, warnings) {
+  const layers = Array.isArray(graphSpec?.layers) ? graphSpec.layers : [];
+
+  for (const layer of layers) {
+    if (!layer || !layer.name) { if (layer) layer._skip = true; continue; }
+    // AgentLoop's predictive mirror annotates this same spec object with its own
+    // synthetic ids — clear them so a stale predictive id can never be mistaken
+    // for a real store id here.
+    layer._protoId = null;
+    layer._defGraphId = null;
+    layer._reused = false;
+    layer._skip = false;
+
+    if (depth >= COMPOSITION_MAX_DEPTH) {
+      warnings.push(`Layer "${layer.name}" exceeds max nesting depth ${COMPOSITION_MAX_DEPTH} — ignored.`);
+      layer._skip = true;
+      continue;
+    }
+
+    // Idempotency: a node-group for a same-named prototype already in this
+    // graph means the layer is already built (re-run safety) — skip it whole.
+    if (groupExistsForPrototypeName(graphId, layer.name)) {
+      warnings.push(`Layer "${layer.name}" already exists as a node-group in this graph — skipped.`);
+      layer._skip = true;
+      continue;
+    }
+
+    // `use:` — invoke an existing web. Never modify the reused definition.
+    if (typeof layer.use === 'string' && layer.use.trim()) {
+      const existingProtoId = resolvePrototypeByNameLast(layer.use);
+      if (existingProtoId) {
+        const proto = useGraphStore.getState().nodePrototypes.get(existingProtoId);
+        layer._protoId = existingProtoId;
+        layer._defGraphId = proto?.definitionGraphIds?.[0] || null;
+        layer._reused = true;
+        continue;
+      }
+      warnings.push(`use: "${layer.use}" — no Thing with that name exists; creating a fresh empty Thing instead.`);
+    }
+
+    // Fresh layer: create the prototype, and a definition graph when there is
+    // content to hold (or the layer stays collapsed and should read as defined).
+    const protoId = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const provenance = wizardSemanticMetadata();
+    useGraphStore.getState().addNodePrototype({
+      id: protoId,
+      name: layer.name,
+      color: layer.color || NODE_DEFAULT_COLOR,
+      description: layer.description || '',
+      typeNodeId: null,
+      definitionGraphIds: [],
+      ...(provenance ? { semanticMetadata: provenance } : {})
+    });
+    layer._protoId = protoId;
+
+    const def = layer.definition || {};
+    const hasContent = (Array.isArray(def.nodes) && def.nodes.length > 0) ||
+      (Array.isArray(def.layers) && def.layers.length > 0);
+    if (hasContent || layer.display === 'collapsed') {
+      const defGraphId = `graph-def-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      useGraphStore.getState().createDefinitionGraphWithId(defGraphId, protoId);
+      layer._defGraphId = defGraphId;
+      if (hasContent) {
+        materializeCompositionLevel(defGraphId, def, options, depth + 1, warnings);
+        layoutAfterWizardMutation(defGraphId);
+        const gid = defGraphId;
+        setTimeout(() => {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gid } }));
+          }
+        }, 600);
+      }
+    }
+    // Empty + decomposed layers get no definition graph here on purpose:
+    // decomposeEmptyNodeToGroup creates and links one itself in Phase B.
+  }
+
+  // Bulk-apply this level: authored nodes plus one shell instance per layer.
+  const specNodes = Array.isArray(graphSpec?.nodes) ? graphSpec.nodes : [];
+  const typeMap = resolveCompositionTypeMap(specNodes);
+  const liveLayers = layers.filter(l => l && l._protoId && !l._skip);
+  const bulkData = {
+    nodes: [
+      ...specNodes.map((n, idx) => ({
+        name: n.name,
+        color: n.color,
+        description: n.description,
+        typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
+        sizeMul: n.sizeMul,
+        prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+        instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+        x: Math.random() * 600 + 200,
+        y: Math.random() * 500 + 200,
+        semanticMetadata: wizardSemanticMetadata()
+      })),
+      // Shells: applyBulkGraphUpdates reuses a caller-supplied prototypeId, so
+      // the instance lands on the layer's prototype. No color/description for
+      // reused (`use:`) prototypes — never clobber an existing web's identity.
+      ...liveLayers.map((l, idx) => ({
+        name: l.name,
+        ...(l._reused ? {} : { color: l.color, description: l.description }),
+        prototypeId: l._protoId,
+        instanceId: `inst-shell-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+        x: Math.random() * 600 + 200,
+        y: Math.random() * 500 + 200
+      }))
+    ],
+    edges: (Array.isArray(graphSpec?.edges) ? graphSpec.edges : []).map(e => ({
+      source: e.source,
+      target: e.target,
+      type: e.type || 'relates to',
+      directionality: e.directionality || 'unidirectional',
+      definitionNode: e.definitionNode || null
+    })),
+    groups: Array.isArray(graphSpec?.groups) ? graphSpec.groups : []
+  };
+  if (bulkData.nodes.length > 0 || bulkData.edges.length > 0 || bulkData.groups.length > 0) {
+    useGraphStore.getState().applyBulkGraphUpdates(graphId, bulkData);
+  }
+
+  if (options.enrich) {
+    const names = [...specNodes.map(n => n.name), ...liveLayers.filter(l => !l._reused).map(l => l.name)].filter(Boolean);
+    if (names.length > 0) {
+      const gid = graphId;
+      setTimeout(() => {
+        _enrichMultiple(names, gid, { overwriteDescription: options.overwriteDescription }).catch(err => {
+          console.warn('[Auto-Enrich] buildComposition enrichment failed:', err);
+        });
+      }, 1000);
+    }
+  }
+}
+
+function decomposeCompositionLayers(graphId, layers, warnings) {
+  for (const layer of (Array.isArray(layers) ? layers : [])) {
+    if (!layer || layer._skip || !layer._protoId) continue;
+    const st = useGraphStore.getState();
+    const protoId = layer._protoId;
+
+    if (layer.display === 'collapsed') {
+      // The Thing stays closed here; its own decomposed children spread open
+      // inside its definition graph (visible when the user navigates in).
+      if (!layer._reused && layer._defGraphId && layer.definition?.layers?.length) {
+        decomposeCompositionLayers(layer._defGraphId, layer.definition.layers, warnings);
+      }
+      continue;
+    }
+
+    const graph = st.graphs.get(graphId);
+    if (!graph) continue;
+
+    // Already decomposed here (re-run safety) — children came with it, skip.
+    let alreadyGrouped = false;
+    if (graph.groups) {
+      for (const g of graph.groups.values()) {
+        if (g.linkedNodePrototypeId === protoId) alreadyGrouped = true;
+      }
+    }
+    if (alreadyGrouped) continue;
+
+    // The shell to decompose: LAST non-anchor instance of the layer's prototype.
+    // Missing shell means the bulk name-dedup swallowed it (a same-named node
+    // with a different prototype already lived in this graph) — warn, don't crash.
+    let shellInstanceId = null;
+    for (const [instId, inst] of graph.instances) {
+      if (inst.prototypeId === protoId && !inst.isGroupAnchor) shellInstanceId = instId;
+    }
+    if (!shellInstanceId) {
+      warnings.push(`Layer "${layer.name}": no shell instance found in the target graph (a same-named node may already exist) — not decomposed.`);
+      continue;
+    }
+
+    const proto = st.nodePrototypes.get(protoId);
+    const defGraphId = layer._defGraphId || proto?.definitionGraphIds?.[0] || null;
+    if (defGraphId === graphId) {
+      warnings.push(`Layer "${layer.name}": definition graph is the target graph itself — not decomposed.`);
+      continue;
+    }
+    const defIndex = defGraphId ? Math.max(0, (proto?.definitionGraphIds || []).indexOf(defGraphId)) : 0;
+    const defGraph = defGraphId ? st.graphs.get(defGraphId) : null;
+    const populated = !!(defGraph?.instances && defGraph.instances.size > 0);
+
+    const groupId = populated
+      ? st.decomposeNodeToGroup(graphId, protoId, defIndex, shellInstanceId)
+      : st.decomposeEmptyNodeToGroup(graphId, protoId, defIndex, shellInstanceId);
+    if (!groupId) {
+      warnings.push(`Layer "${layer.name}": decompose did not produce a group.`);
+      continue;
+    }
+
+    // Children decompose in the SAME graph — the parent's decompose just copied
+    // their shells in, and decomposing them here triggers the enclosing-group
+    // membership propagation that derives the nesting. Parent strictly first.
+    if (!layer._reused && layer.definition?.layers?.length) {
+      decomposeCompositionLayers(graphId, layer.definition.layers, warnings);
+    }
+  }
+}
+
 // Injectable enrichment hooks. Browser (LeftAIView) supplies the real
 // Wikipedia-backed implementations via configureToolResultApplier; a headless
 // Node host leaves these no-ops so the applier stays pure and non-blocking.
@@ -1112,8 +1380,45 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       }
     }
 
-    const createdGroupId = store.decomposeNodeToGroup(graphId, realProtoId, result.definitionIndex ?? 0);
+    const createdGroupId = store.decomposeNodeToGroup(graphId, realProtoId, result.definitionIndex ?? 0, result.instanceId ?? null);
     console.log('[Wizard] decomposeNode result: groupId=', createdGroupId);
+    return;
+  }
+
+  // Handle buildComposition — nested node-group layers in one deterministic pass.
+  // The model authors the whole nested spec; the recursion runs here (see the
+  // executor helpers above) so no multi-call orchestration is required of it.
+  if (result.action === 'buildComposition' && result.spec) {
+    const graphId = result.graphId || store.activeGraphId;
+    if (!graphId || !store.graphs.has(graphId)) {
+      console.error('[Wizard] buildComposition: target graph not found:', graphId);
+      dispatchWizardToolFailed('buildComposition', 'target-graph-not-found', result);
+      return;
+    }
+    const options = {
+      enrich: result.enrich !== false,
+      overwriteDescription: result.overwriteDescription || false
+    };
+    const warnings = [];
+    console.log('[Wizard] Applying buildComposition to graph:', graphId, 'layers:', result.spec.layers?.length || 0);
+
+    materializeCompositionLevel(graphId, result.spec, options, 0, warnings);
+    try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
+
+    decomposeCompositionLayers(graphId, result.spec.layers, warnings);
+
+    // Layout runs AFTER decomposition on purpose: the layout engine is
+    // group-aware (offscreenLayout passes graph.groups through), so it can only
+    // place members sensibly once the groups exist.
+    layoutAfterWizardMutation(graphId);
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
+      }
+    }, 600);
+
+    if (warnings.length > 0) console.warn('[Wizard] buildComposition warnings:', warnings);
+    console.log('[Wizard] buildComposition complete for graph:', graphId);
     return;
   }
 

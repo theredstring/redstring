@@ -121,15 +121,12 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     };
   });
 
+  // Plain visual groups only. A group that IS a concept (with a web inside it)
+  // is a buildComposition layer, not a group spec.
   const groupSpecs = (groups || []).map(g => ({
     name: g.name,
     color: resolvePaletteColor(activePalette, g.color || '#8B0000'),
-    memberNames: g.memberNames || [],
-    definedBy: g.definedBy ? {
-      name: g.definedBy.name,
-      color: resolvePaletteColor(activePalette, g.definedBy.color || '#8B0000'),
-      description: g.definedBy.description || ''
-    } : undefined
+    memberNames: g.memberNames || []
   }));
 
   // Detect nodes that are being added to a non-active (definition) graph but already exist

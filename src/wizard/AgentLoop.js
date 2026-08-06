@@ -173,8 +173,13 @@ function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
  * ║  ADDING A NEW TOOL? You MUST add a handler here! This is step 4 of 5. ║
  * ║  Read .agent/workflows/add-wizard-tool.md for the full checklist.      ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
+ *
+ * This state must mirror what the STORE actually does, including its refusals.
+ * ContextBuilder renders it straight back into the model's context, so a
+ * handler that optimistically records a mutation the store rejected makes the
+ * failure invisible to the model. Exported for tests that pin that honesty.
  */
-function updateGraphState(graphState, _toolName, _args, result) {
+export function updateGraphState(graphState, _toolName, _args, result) {
   if (!result || result.error) return;
 
   if (result.action === 'createGraph') {
@@ -358,16 +363,43 @@ function updateGraphState(graphState, _toolName, _args, result) {
       }
     }
   } else if (result.action === 'convertToThingGroup') {
-    // Mark group as thing-group in predictive state
+    // Mirror convertGroupToNodeGroup exactly — including its refusals. Predictive
+    // state that claims a node-group the store never created is worse than no
+    // state at all: ContextBuilder renders it back and the model cannot tell.
     const targetGraphId = result.graphId || graphState.activeGraphId;
     const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
     if (targetGraph && targetGraph.groups) {
       const group = targetGraph.groups.find(g =>
         g.id === result.groupId || (result.groupName && g.name === result.groupName)
       );
-      if (group) {
-        group.linkedNodePrototypeId = result.prototypeId || 'proto-thing-group';
-        group.isThingGroup = true;
+      // The store aborts on an empty group (graphStore.js convertGroupToNodeGroup).
+      if (group && (group.memberInstanceIds || []).length > 0) {
+        const thingName = result.thingName || group.name;
+        let protoId = result.prototypeId;
+        if (!protoId || !(graphState.nodePrototypes || []).some(p => p.id === protoId)) {
+          protoId = `proto-thinggroup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          graphState.nodePrototypes = graphState.nodePrototypes || [];
+          graphState.nodePrototypes.push({
+            id: protoId,
+            name: thingName,
+            color: group.color,
+            description: '',
+            definitionGraphIds: []
+          });
+        }
+        const anchorInstId = `inst-anchor-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        targetGraph.instances = targetGraph.instances || [];
+        targetGraph.instances.push({
+          id: anchorInstId,
+          prototypeId: protoId,
+          name: thingName,
+          isGroupAnchor: true,
+          anchorForGroupId: group.id
+        });
+        group.linkedNodePrototypeId = protoId;
+        group.linkedDefinitionIndex = 0;
+        group.anchorInstanceId = anchorInstId;
+        group.name = thingName;
       }
     }
   } else if (result.action === 'combineThingGroup') {
@@ -492,15 +524,37 @@ function updateGraphState(graphState, _toolName, _args, result) {
           name: result.nodeName
         });
       } else {
-        // Just add the group (members remain)
+        // Just add the group (members remain). The prototype is registered for
+        // real in predictive state — a bare 'proto-condensed' string id resolved
+        // to nothing, so the group read as a node-group backed by no Thing.
+        const condensedProtoId = `proto-condensed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        graphState.nodePrototypes = graphState.nodePrototypes || [];
+        graphState.nodePrototypes.push({
+          id: condensedProtoId,
+          name: result.nodeName,
+          color: result.nodeColor,
+          description: result.description || '',
+          definitionGraphIds: []
+        });
+        const groupId = result.groupId || `group-${Date.now()}`;
+        const anchorInstId = `inst-anchor-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        targetGraph.instances = targetGraph.instances || [];
+        targetGraph.instances.push({
+          id: anchorInstId,
+          prototypeId: condensedProtoId,
+          name: result.nodeName,
+          isGroupAnchor: true,
+          anchorForGroupId: groupId
+        });
         targetGraph.groups = targetGraph.groups || [];
         targetGraph.groups.push({
-          id: result.groupId || `group-${Date.now()}`,
+          id: groupId,
           name: result.nodeName,
           color: result.nodeColor,
           memberInstanceIds: result.resolvedMemberIds || [],
-          linkedNodePrototypeId: 'proto-condensed',
-          isThingGroup: true
+          linkedNodePrototypeId: condensedProtoId,
+          linkedDefinitionIndex: 0,
+          anchorInstanceId: anchorInstId
         });
       }
     }
@@ -508,11 +562,19 @@ function updateGraphState(graphState, _toolName, _args, result) {
     // Keep original instance as group anchor, add decomposed instances from definition graph, add group
     const targetGraphId = result.graphId || graphState.activeGraphId;
     const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
-    if (targetGraph) {
+    const definitionIndex = result.definitionIndex ?? 0;
+    // Mirror the store's two refusals: it aborts on an empty definition graph,
+    // and reuses an existing group for the same prototype/definition instead of
+    // minting a duplicate.
+    const defInstances = result.definitionInstances || [];
+    const alreadyDecomposed = (targetGraph?.groups || []).some(g =>
+      g.linkedNodePrototypeId === result.prototypeId && (g.linkedDefinitionIndex ?? 0) === definitionIndex
+    );
+    if (targetGraph && defInstances.length > 0 && !alreadyDecomposed) {
       // Add decomposed instances from definition graph
       targetGraph.instances = targetGraph.instances || [];
       const memberInstIds = [];
-      for (const defInst of result.definitionInstances || []) {
+      for (const defInst of defInstances) {
         const newInstId = `inst-decomp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         memberInstIds.push(newInstId);
         targetGraph.instances.push({
@@ -543,11 +605,173 @@ function updateGraphState(graphState, _toolName, _args, result) {
         color: '#8B0000',
         memberInstanceIds: memberInstIds,
         linkedNodePrototypeId: result.prototypeId,
-        anchorInstanceId: result.originalInstanceId,
-        isThingGroup: true
+        linkedDefinitionIndex: definitionIndex,
+        anchorInstanceId: result.originalInstanceId
       });
 
-      console.error('[updateGraphState] decomposeNode:', result.nodeName, '→ added', (result.definitionInstances || []).length, 'instances, anchor=', result.originalInstanceId);
+      // Nested decompose: the new members belong to every group that already
+      // contained the original instance, or the containment hierarchy the canvas
+      // derives from subset membership never registers the nesting.
+      if (result.originalInstanceId) {
+        for (const otherGroup of targetGraph.groups) {
+          if (otherGroup.id === groupId) continue;
+          if (!Array.isArray(otherGroup.memberInstanceIds)) continue;
+          if (!otherGroup.memberInstanceIds.includes(result.originalInstanceId)) continue;
+          for (const newId of memberInstIds) {
+            if (!otherGroup.memberInstanceIds.includes(newId)) otherGroup.memberInstanceIds.push(newId);
+          }
+        }
+      }
+
+      console.error('[updateGraphState] decomposeNode:', result.nodeName, '→ added', defInstances.length, 'instances, anchor=', result.originalInstanceId);
+    } else {
+      console.error('[updateGraphState] decomposeNode: no predictive group for', result.nodeName,
+        defInstances.length === 0 ? '(definition graph is empty)' : '(already decomposed)');
+    }
+  } else if (result.action === 'buildComposition' && result.spec) {
+    // Mirror the deterministic executor in toolResultApplier: prototypes and
+    // definition graphs for every layer, shells in the parent, and — for
+    // decomposed layers — real node-groups with members, anchors and the
+    // enclosing-group propagation that makes nesting derive.
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph) {
+      graphState.graphs = graphState.graphs || [];
+      graphState.nodePrototypes = graphState.nodePrototypes || [];
+
+      const uid = (p) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      // Materialize one level: returns the instance ids created in `graph`.
+      const materialize = (graph, spec) => {
+        const createdIds = [];
+        graph.instances = graph.instances || [];
+        graph.groups = graph.groups || [];
+
+        for (const n of (spec.nodes || [])) {
+          const protoId = uid('proto');
+          const instId = uid('inst');
+          graphState.nodePrototypes.push({
+            id: protoId, name: n.name, color: n.color, description: n.description || '', definitionGraphIds: []
+          });
+          graph.instances.push({ id: instId, prototypeId: protoId, name: n.name });
+          createdIds.push(instId);
+        }
+
+        for (const layer of (spec.layers || [])) {
+          let protoId;
+          let defGraph = null;
+          if (layer.use) {
+            // Resolve an existing Thing by name — LAST match, as the applier does.
+            let found = null;
+            for (const p of graphState.nodePrototypes) {
+              if ((p.name || '').toLowerCase().trim() === layer.use.toLowerCase().trim()) found = p;
+            }
+            if (found) {
+              protoId = found.id;
+              const defId = (found.definitionGraphIds || [])[0];
+              defGraph = defId ? graphState.graphs.find(g => g.id === defId) : null;
+            }
+          }
+          if (!protoId) {
+            protoId = uid('proto');
+            graphState.nodePrototypes.push({
+              id: protoId, name: layer.name, color: layer.color, description: layer.description || '', definitionGraphIds: []
+            });
+          }
+          layer._protoId = protoId;
+
+          // Build the layer's definition web (authored layers only).
+          if (!layer.use && layer.definition) {
+            const defGraphId = uid('graph-def');
+            defGraph = { id: defGraphId, name: layer.name, instances: [], edgeIds: [], groups: [], definingNodeIds: [protoId] };
+            graphState.graphs.push(defGraph);
+            const proto = graphState.nodePrototypes.find(p => p.id === protoId);
+            if (proto) proto.definitionGraphIds = [defGraphId];
+            materialize(defGraph, layer.definition);
+          }
+          layer._defGraph = defGraph;
+
+          // Shell instance in this graph.
+          const shellId = uid('inst-shell');
+          graph.instances.push({ id: shellId, prototypeId: protoId, name: layer.name });
+          layer._shellId = shellId;
+          createdIds.push(shellId);
+        }
+
+        for (const g of (spec.groups || [])) {
+          const memberIds = [];
+          for (const memberName of (g.memberNames || [])) {
+            const inst = graph.instances.find(i => (i.name || '').toLowerCase().trim() === memberName.toLowerCase().trim());
+            if (inst) memberIds.push(inst.id);
+          }
+          if (memberIds.length > 0) {
+            graph.groups.push({ id: uid('group'), name: g.name, color: g.color, memberInstanceIds: memberIds });
+          }
+        }
+        return createdIds;
+      };
+
+      // Decompose top-down, parent strictly before child (same as the applier).
+      const decompose = (graph, layers) => {
+        for (const layer of (layers || [])) {
+          if (!layer._protoId) continue;
+          if (layer.display === 'collapsed') {
+            if (layer._defGraph && layer.definition?.layers?.length) {
+              decompose(layer._defGraph, layer.definition.layers);
+            }
+            continue;
+          }
+          const defGraph = layer._defGraph;
+          const memberIds = [];
+          graph.instances = graph.instances || [];
+          for (const defInst of (defGraph?.instances || [])) {
+            const newId = uid('inst-decomp');
+            graph.instances.push({ id: newId, prototypeId: defInst.prototypeId, name: defInst.name });
+            memberIds.push(newId);
+            // Carry the nested layer's shell identity into the parent graph, so a
+            // deeper decompose can find it here.
+            for (const child of (layer.definition?.layers || [])) {
+              if (child._shellId === defInst.id) child._shellId = newId;
+            }
+          }
+
+          const groupId = uid('group-decomp');
+          const anchor = graph.instances.find(i => i.id === layer._shellId);
+          if (anchor) {
+            anchor.isGroupAnchor = true;
+            anchor.anchorForGroupId = groupId;
+          }
+          graph.groups = graph.groups || [];
+          graph.groups.push({
+            id: groupId,
+            name: layer.name,
+            color: layer.color,
+            memberInstanceIds: memberIds,
+            linkedNodePrototypeId: layer._protoId,
+            linkedDefinitionIndex: 0,
+            anchorInstanceId: layer._shellId
+          });
+
+          // Enclosing-group propagation — what makes the nesting derive.
+          for (const other of graph.groups) {
+            if (other.id === groupId) continue;
+            if (!Array.isArray(other.memberInstanceIds)) continue;
+            if (!other.memberInstanceIds.includes(layer._shellId)) continue;
+            for (const newId of memberIds) {
+              if (!other.memberInstanceIds.includes(newId)) other.memberInstanceIds.push(newId);
+            }
+          }
+
+          if (layer.definition?.layers?.length) {
+            decompose(graph, layer.definition.layers);
+          }
+        }
+      };
+
+      materialize(targetGraph, result.spec);
+      decompose(targetGraph, result.spec.layers);
+
+      console.error('[updateGraphState] buildComposition:', result.layerCount, 'layers, maxDepth', result.maxDepth, '→ graph', targetGraphId);
     }
   } else if (result.action === 'setNodeType') {
     // Update prototype's typeNodeId in predictive state

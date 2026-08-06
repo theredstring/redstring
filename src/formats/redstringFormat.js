@@ -728,6 +728,7 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
               "redstring:linkedDefinitionIndex": group.linkedDefinitionIndex,
               "redstring:hasCustomLayout": group.hasCustomLayout,
               "redstring:anchorInstanceId": group.anchorInstanceId,
+              ...(group.emptyPlaceholderOrigin ? { "redstring:emptyPlaceholderOrigin": group.emptyPlaceholderOrigin } : {}),
               // RDF-style membership relationships
               "rdfs:member": (group.memberInstanceIds || []).map(memberId => ({
                 "@id": toIri(memberId)
@@ -1310,7 +1311,8 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 linkedNodePrototypeId: group['redstring:linkedNodePrototypeId'] || group.linkedNodePrototypeId,
                 linkedDefinitionIndex: group['redstring:linkedDefinitionIndex'] ?? group.linkedDefinitionIndex,
                 hasCustomLayout: group['redstring:hasCustomLayout'] ?? group.hasCustomLayout,
-                anchorInstanceId: group['redstring:anchorInstanceId'] || group.anchorInstanceId
+                anchorInstanceId: group['redstring:anchorInstanceId'] || group.anchorInstanceId,
+                emptyPlaceholderOrigin: group['redstring:emptyPlaceholderOrigin'] || group.emptyPlaceholderOrigin || undefined
               };
             } else {
               // Legacy format
@@ -1330,7 +1332,8 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 linkedNodePrototypeId: group.linkedNodePrototypeId,
                 linkedDefinitionIndex: group.linkedDefinitionIndex,
                 hasCustomLayout: group.hasCustomLayout,
-                anchorInstanceId: group.anchorInstanceId
+                anchorInstanceId: group.anchorInstanceId,
+                emptyPlaceholderOrigin: group.emptyPlaceholderOrigin || undefined
               };
             }
             
