@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { computeGroupLayout, buildChildGroupIdsIndex, computeGroupDepths, GROUP_LAYOUT_CONSTANTS as C } from '../groupLayout.js';
+import {
+  computeGroupLayout,
+  buildChildGroupIdsIndex,
+  computeGroupDepths,
+  buildParentGroupIdsIndex,
+  collectAffectedGroupIds,
+  buildEdgeZSlotIndex,
+  edgeZSlotFor,
+  placeholderIdForGroup,
+  groupIdFromPlaceholderId,
+  GROUP_LAYOUT_CONSTANTS as C,
+} from '../groupLayout.js';
 
 const GRID_SIZE = 100;
 const memberPadding = Math.max(24, Math.round(GRID_SIZE * 0.2));
@@ -360,5 +371,154 @@ describe('computeGroupDepths', () => {
     const depths = depthsFor(ctx);
     expect(depths.get('outer')).toBe(0);
     expect(depths.get('empty')).toBe(1);
+  });
+});
+
+describe('collectAffectedGroupIds', () => {
+  const indexesFor = (ctx) => {
+    const childIndex = buildChildGroupIdsIndex(ctx.groupsById, ctx.groupsByMemberId);
+    return {
+      groupsByMemberId: ctx.groupsByMemberId,
+      parentGroupIdsIndex: buildParentGroupIdsIndex(childIndex),
+    };
+  };
+
+  it('round-trips placeholder ids', () => {
+    expect(groupIdFromPlaceholderId(placeholderIdForGroup('g1'))).toBe('g1');
+    expect(groupIdFromPlaceholderId('inst-123')).toBe(null);
+    expect(groupIdFromPlaceholderId(undefined)).toBe(null);
+  });
+
+  it('resolves a moved member to its group', () => {
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'g1', name: 'G', memberInstanceIds: ['a', 'b'] });
+    const affected = collectAffectedGroupIds(['a'], indexesFor(ctx));
+    expect([...affected]).toEqual(['g1']);
+  });
+
+  it('resolves a placeholder id to the empty group it stands for', () => {
+    const ctx = buildContext();
+    addGroup(ctx, {
+      id: 'empty', name: 'E', memberInstanceIds: [], linkedNodePrototypeId: 'p1',
+      anchorInstanceId: 'anchor-e',
+    });
+    const affected = collectAffectedGroupIds([placeholderIdForGroup('empty')], indexesFor(ctx));
+    expect(affected.has('empty')).toBe(true);
+  });
+
+  it('walks up to containing ancestors transitively', () => {
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'inner', name: 'I', memberInstanceIds: ['a'], linkedNodePrototypeId: 'p1' });
+    addGroup(ctx, { id: 'middle', name: 'M', memberInstanceIds: ['a', 'b'], linkedNodePrototypeId: 'p2' });
+    addGroup(ctx, { id: 'outer', name: 'O', memberInstanceIds: ['a', 'b', 'c'], linkedNodePrototypeId: 'p3' });
+
+    const affected = collectAffectedGroupIds(['a'], indexesFor(ctx));
+    expect(affected.has('inner')).toBe(true);
+    expect(affected.has('middle')).toBe(true);
+    expect(affected.has('outer')).toBe(true);
+  });
+
+  it('reaches the parent of a nested EMPTY group moved by placeholder alone', () => {
+    // The drag case that used to leave the parent shell frozen: an empty
+    // node-group has no member instance, so only its placeholder id moves.
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'outer', name: 'O', memberInstanceIds: ['a', 'anchor-e'], linkedNodePrototypeId: 'p1' });
+    addGroup(ctx, {
+      id: 'empty', name: 'E', memberInstanceIds: [], linkedNodePrototypeId: 'p2',
+      anchorInstanceId: 'anchor-e',
+    });
+
+    const affected = collectAffectedGroupIds([placeholderIdForGroup('empty')], indexesFor(ctx));
+    expect(affected.has('empty')).toBe(true);
+    expect(affected.has('outer')).toBe(true);
+  });
+
+  it('returns an empty set for ids that belong to no group', () => {
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'g1', name: 'G', memberInstanceIds: ['a'] });
+    expect(collectAffectedGroupIds(['loose'], indexesFor(ctx)).size).toBe(0);
+  });
+});
+
+describe('connection z-slots', () => {
+  // Composition shape the canvas actually produces:
+  //   parent (depth 0) contains sibling node-groups A and B (depth 1);
+  //   B holds member 'nephew'. A is wired to 'nephew'.
+  const buildFamily = () => {
+    const ctx = buildContext();
+    addGroup(ctx, {
+      id: 'parent', name: 'P', linkedNodePrototypeId: 'pp',
+      anchorInstanceId: 'parent-anchor',
+      memberInstanceIds: ['a-anchor', 'b-anchor', 'nephew', 'cousin'],
+    });
+    addGroup(ctx, {
+      id: 'gA', name: 'A', linkedNodePrototypeId: 'pa',
+      anchorInstanceId: 'a-anchor', memberInstanceIds: ['cousin'],
+    });
+    addGroup(ctx, {
+      id: 'gB', name: 'B', linkedNodePrototypeId: 'pb',
+      anchorInstanceId: 'b-anchor', memberInstanceIds: ['nephew'],
+    });
+    const childIndex = buildChildGroupIdsIndex(ctx.groupsById, ctx.groupsByMemberId);
+    const depths = computeGroupDepths(ctx.groupsById, ctx.groupsByMemberId, childIndex);
+    return { ctx, depths, slots: buildEdgeZSlotIndex(ctx.groupsById, depths) };
+  };
+
+  it('puts an anchor at its own depth and a member one level above its group', () => {
+    const { depths, slots } = buildFamily();
+    expect(depths.get('parent')).toBe(0);
+    expect(depths.get('gB')).toBe(1);
+
+    // parent's anchor tucks under parent's own band
+    expect(slots.get('parent-anchor')).toBe(0);
+    // A's anchor tucks under A's band but clears parent's
+    expect(slots.get('a-anchor')).toBe(1);
+    // nephew is drawn above B's shell, so its connections must be too
+    expect(slots.get('nephew')).toBe(2);
+  });
+
+  it('routes a node-group → nephew connection above the sibling shell that holds the nephew', () => {
+    const { depths, slots } = buildFamily();
+    const topSlot = Math.max(...depths.values()) + 1;
+
+    const edge = { sourceId: 'a-anchor', destinationId: 'nephew' };
+    const slot = edgeZSlotFor(edge, slots, topSlot);
+
+    // Must clear gB's shell (depth 1), which is what used to swallow it.
+    expect(slot).toBeGreaterThan(depths.get('gB'));
+    expect(slot).toBe(2);
+  });
+
+  it('still tucks a top-level group\'s connection under its own band', () => {
+    const ctx = buildContext();
+    addGroup(ctx, {
+      id: 'g', name: 'G', linkedNodePrototypeId: 'p',
+      anchorInstanceId: 'g-anchor', memberInstanceIds: ['m'],
+    });
+    const childIndex = buildChildGroupIdsIndex(ctx.groupsById, ctx.groupsByMemberId);
+    const depths = computeGroupDepths(ctx.groupsById, ctx.groupsByMemberId, childIndex);
+    const slots = buildEdgeZSlotIndex(ctx.groupsById, depths);
+
+    // free node ↔ the group's title: below the shell, so it reads as ending at the pill
+    expect(edgeZSlotFor({ sourceId: 'loose', destinationId: 'g-anchor' }, slots, 1)).toBe(0);
+  });
+
+  it('sends self-loops to the top slot regardless of membership', () => {
+    const { slots } = buildFamily();
+    expect(edgeZSlotFor({ sourceId: 'nephew', destinationId: 'nephew' }, slots, 5)).toBe(5);
+    expect(edgeZSlotFor({ sourceId: 'loose', destinationId: 'loose' }, slots, 5)).toBe(5);
+  });
+
+  it('clamps to the top slot so an edge never outruns the deepest shell', () => {
+    const { slots } = buildFamily();
+    expect(edgeZSlotFor({ sourceId: 'a-anchor', destinationId: 'nephew' }, slots, 1)).toBe(1);
+  });
+
+  it('ignores plain thing-groups, which render no opaque shell', () => {
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'plain', name: 'Plain', memberInstanceIds: ['x', 'y'] });
+    const slots = buildEdgeZSlotIndex(ctx.groupsById, new Map([['plain', 0]]));
+    expect(slots.size).toBe(0);
+    expect(edgeZSlotFor({ sourceId: 'x', destinationId: 'y' }, slots, 1)).toBe(0);
   });
 });

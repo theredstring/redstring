@@ -8,7 +8,13 @@ import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacemen
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcPath, straightLabelPath, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle } from '../utils/canvas/edgeLabelPlacement.js';
-import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../services/groupLayout.js';
+import {
+  computeGroupLayout,
+  GROUP_LAYOUT_CONSTANTS,
+  groupIdFromPlaceholderId,
+  buildParentGroupIdsIndex,
+  collectAffectedGroupIds as collectAffectedGroupIdsPure,
+} from '../services/groupLayout.js';
 import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
 import saveCoordinator from '../services/SaveCoordinator.js';
 
@@ -237,6 +243,46 @@ export const useNodeDrag = ({
   }, [gridMode, gridSize]);
 
   // ---------------------------------------------------------------------------
+  // Group Containment Helpers
+  // ---------------------------------------------------------------------------
+  // Inverted view of childGroupIdsByGroupId: child → the groups that contain it.
+  // Rebuilt only when the structural index itself is replaced (group create/
+  // delete, membership change), so a drag frame just reads it.
+  const parentGroupIdsIndexRef = useRef({ src: null, map: new Map() });
+  const getParentGroupIdsIndex = useCallback(() => {
+    const src = childGroupIdsByGroupIdRef?.current || null;
+    const cached = parentGroupIdsIndexRef.current;
+    if (cached.src === src) return cached.map;
+    const map = buildParentGroupIdsIndex(src);
+    parentGroupIdsIndexRef.current = { src, map };
+    return map;
+  }, [childGroupIdsByGroupIdRef]);
+
+  // See collectAffectedGroupIds in groupLayout.js — this just binds it to the
+  // live indexes.
+  const collectAffectedGroupIds = useCallback((nodeIds) => (
+    collectAffectedGroupIdsPure(nodeIds, {
+      groupsByMemberId: groupsByNodeIdRef.current,
+      parentGroupIdsIndex: getParentGroupIdsIndex(),
+    })
+  ), [groupsByNodeIdRef, getParentGroupIdsIndex]);
+
+  // Dimensions to grid-snap a drag id against. Placeholder ids borrow their
+  // group's anchor dims — the same fallback computeGroupLayout uses to size the
+  // held-open box — so an empty group snaps on the same lattice as real members
+  // instead of drifting off-grid and jittering its parent's bbox every frame.
+  const dimsForDragId = useCallback((id) => {
+    const placeholderGroupId = groupIdFromPlaceholderId(id);
+    if (placeholderGroupId) {
+      const group = groupsByIdRef?.current?.get(placeholderGroupId);
+      const anchor = group?.anchorInstanceId ? nodeByIdRef.current.get(group.anchorInstanceId) : null;
+      return anchor ? getNodeDimensions(anchor, false, null) : null;
+    }
+    const node = nodeByIdRef.current.get(id);
+    return node ? getNodeDimensions(node, false, null) : null;
+  }, [groupsByIdRef, nodeByIdRef]);
+
+  // ---------------------------------------------------------------------------
   // DOM Element Caching (called once on drag start)
   // ---------------------------------------------------------------------------
   const cacheDOMElements = useCallback((nodeIds) => {
@@ -386,61 +432,56 @@ export const useNodeDrag = ({
       if (anchor) dragLabelAnchorsRef.current.set(edgeId, anchor);
     });
 
-    // Cache group <g> elements and sub-element metadata for all groups containing dragged nodes
-    const groupsByNode = groupsByNodeIdRef.current;
+    // Cache group <g> elements and sub-element metadata for every group whose box
+    // the drag can move — direct members, placeholder-carried empty node-groups,
+    // and their containing ancestors (see collectAffectedGroupIds).
     dragGroupMetaRef.current.clear();
-    nodeIdSet.forEach(nodeId => {
-      const groups = groupsByNode.get(nodeId);
-      if (groups) {
-        groups.forEach(({ groupId, memberInstanceIds }) => {
-          if (!dragGroupElsRef.current.has(groupId)) {
-            const els = container.querySelectorAll(`[data-group-id="${groupId}"]`);
-            if (els.length > 0) {
-              const arr = Array.from(els);
-              arr.forEach(el => { el.dataset.groupBaseTransform = el.style.transform || ''; });
-              dragGroupElsRef.current.set(groupId, arr);
+    collectAffectedGroupIds(nodeIdSet).forEach(groupId => {
+      if (dragGroupElsRef.current.has(groupId)) return;
+      const els = container.querySelectorAll(`[data-group-id="${groupId}"]`);
+      if (els.length === 0) return;
+      const arr = Array.from(els);
+      arr.forEach(el => { el.dataset.groupBaseTransform = el.style.transform || ''; });
+      dragGroupElsRef.current.set(groupId, arr);
 
-              // Cache sub-element references for direct attribute updates.
-              // The label (rect+text) only lives on one sub per group — on the
-              // `.group` element for regular groups, or on the separate
-              // `.node-group-title` element for thing-groups. The `.node-group-bg`
-              // sub has no label child, so derive shared dims at the group level.
-              const elements = arr.map(el => {
-                const isRegular = el.classList.contains('group');
-                const isBg = el.classList.contains('node-group-bg');
-                const labelG = el.querySelector(':scope > .group-label');
-                const labelRect = labelG?.querySelector('rect');
-                const labelText = labelG?.querySelector('text');
-                return {
-                  el,
-                  type: isRegular ? 'regular' : isBg ? 'bg' : 'title',
-                  directRects: Array.from(el.querySelectorAll(':scope > rect')),
-                  labelRect,
-                  labelText,
-                  labelWidth: labelRect ? parseFloat(labelRect.getAttribute('width')) : 0,
-                  labelHeight: labelRect ? parseFloat(labelRect.getAttribute('height')) : 0,
-                };
-              });
-              let groupLabelWidth = 0;
-              let groupLabelHeight = 0;
-              for (const sub of elements) {
-                if (sub.labelHeight > groupLabelHeight) {
-                  groupLabelWidth = sub.labelWidth;
-                  groupLabelHeight = sub.labelHeight;
-                }
-              }
-              dragGroupMetaRef.current.set(groupId, {
-                memberIds: memberInstanceIds ? [...memberInstanceIds] : [],
-                labelWidth: groupLabelWidth,
-                labelHeight: groupLabelHeight,
-                elements,
-              });
-            }
-          }
-        });
+      // Cache sub-element references for direct attribute updates.
+      // The label (rect+text) only lives on one sub per group — on the
+      // `.group` element for regular groups, or on the separate
+      // `.node-group-title` element for thing-groups. The `.node-group-bg`
+      // sub has no label child, so derive shared dims at the group level.
+      const elements = arr.map(el => {
+        const isRegular = el.classList.contains('group');
+        const isBg = el.classList.contains('node-group-bg');
+        const labelG = el.querySelector(':scope > .group-label');
+        const labelRect = labelG?.querySelector('rect');
+        const labelText = labelG?.querySelector('text');
+        return {
+          el,
+          type: isRegular ? 'regular' : isBg ? 'bg' : 'title',
+          directRects: Array.from(el.querySelectorAll(':scope > rect')),
+          labelRect,
+          labelText,
+          labelWidth: labelRect ? parseFloat(labelRect.getAttribute('width')) : 0,
+          labelHeight: labelRect ? parseFloat(labelRect.getAttribute('height')) : 0,
+        };
+      });
+      let groupLabelWidth = 0;
+      let groupLabelHeight = 0;
+      for (const sub of elements) {
+        if (sub.labelHeight > groupLabelHeight) {
+          groupLabelWidth = sub.labelWidth;
+          groupLabelHeight = sub.labelHeight;
+        }
       }
+      const memberInstanceIds = groupsByIdRef?.current?.get(groupId)?.memberInstanceIds;
+      dragGroupMetaRef.current.set(groupId, {
+        memberIds: Array.isArray(memberInstanceIds) ? [...memberInstanceIds] : [],
+        labelWidth: groupLabelWidth,
+        labelHeight: groupLabelHeight,
+        elements,
+      });
     });
-  }, [containerRef, edgesByNodeIdRef, groupsByNodeIdRef, groupsByIdRef, placedLabelsRef]);
+  }, [containerRef, edgesByNodeIdRef, groupsByIdRef, collectAffectedGroupIds, placedLabelsRef]);
 
   // Re-cache DOM elements after React re-renders for drag start.
   // The primary node moves to a separate JSX block (isDragging=true) on re-render,
@@ -491,13 +532,12 @@ export const useNodeDrag = ({
     // a grid line, so this stays cheap.
     if (draggingInfo.groupId && Array.isArray(draggingInfo.memberOffsets)) {
       return draggingInfo.memberOffsets.map(({ id, dx, dy }) => {
-        const node = nodeByIdRef.current.get(id);
+        const dims = gridMode === 'off' ? null : dimsForDragId(id);
         const xRaw = mouseCanvasX - dx;
         const yRaw = mouseCanvasY - dy;
-        if (!node || gridMode === 'off') {
+        if (!dims) {
           return { instanceId: id, x: xRaw, y: yRaw };
         }
-        const dims = getNodeDimensions(node, false, null);
         const centerX = xRaw + dims.currentWidth / 2;
         const centerY = yRaw + dims.currentHeight / 2;
         const snappedCenterX = Math.round(centerX / gridSize) * gridSize;
@@ -549,7 +589,7 @@ export const useNodeDrag = ({
       newY = mouseCanvasY - offset.y;
     }
     return [{ instanceId, x: newX, y: newY }];
-  }, [gridMode, gridSize, snapToGridAnimated, nodeByIdRef]);
+  }, [gridMode, gridSize, snapToGridAnimated, nodeByIdRef, dimsForDragId]);
 
   // ---------------------------------------------------------------------------
   // Update Edge DOM Elements During Drag (edges, arrows, labels)
@@ -1040,11 +1080,7 @@ export const useNodeDrag = ({
 
     const groupsByNode = groupsByNodeIdRef.current;
     const groupsById = groupsByIdRef?.current || new Map();
-    const affectedGroupIds = new Set();
-    movedNodeIds.forEach(nodeId => {
-      const groups = groupsByNode.get(nodeId);
-      if (groups) groups.forEach(({ groupId }) => affectedGroupIds.add(groupId));
-    });
+    const affectedGroupIds = collectAffectedGroupIds(movedNodeIds);
     if (affectedGroupIds.size === 0) return null;
 
     // Anchor instance IDs of node-groups whose box changed this frame. Returned so
@@ -1150,6 +1186,19 @@ export const useNodeDrag = ({
         }
       }
 
+      // Only the grabbed group wears the lift. Ancestors and nested children get
+      // their boxes recomputed too (they move with it), but popping their titles
+      // would misreport what's being held — and the static render only lifts the
+      // dragged group, so lifting them here would also pop-then-snap on release.
+      const isGrabbedGroup = draggingNodeInfoRef.current?.groupId === groupId;
+      const liftMatrixFor = (cx, cy) => (
+        isGrabbedGroup ? `translate(${cx} ${cy}) scale(1.08) translate(${-cx} ${-cy})` : null
+      );
+      const applyLiftMatrix = (el, matrix) => {
+        if (matrix) el.setAttribute('transform', matrix);
+        else el.removeAttribute('transform');
+      };
+
       meta.elements.forEach(sub => {
         // Clear CSS transform — use raw attribute positioning instead
         sub.el.style.transform = '';
@@ -1171,8 +1220,8 @@ export const useNodeDrag = ({
             // stale CSS transform so it can't fight the attribute.
             const lcx = labelX + groupLabelWidth / 2;
             const lcy = labelY + groupLabelHeight / 2;
-            const liftMatrix = `translate(${lcx} ${lcy}) scale(1.08) translate(${-lcx} ${-lcy})`;
-            sub.labelRect.setAttribute('transform', liftMatrix);
+            const liftMatrix = liftMatrixFor(lcx, lcy);
+            applyLiftMatrix(sub.labelRect, liftMatrix);
             sub.labelRect.style.transform = '';
             sub.labelRect.style.transformBox = '';
             sub.labelRect.style.transformOrigin = '';
@@ -1180,7 +1229,7 @@ export const useNodeDrag = ({
               sub.labelText.setAttribute('x', labelX + groupLabelWidth / 2);
               sub.labelText.setAttribute('y', labelY + groupLabelHeight / 2); // dominantBaseline:central centers it
               // Pop the text with the pill, pivoting off the same center.
-              sub.labelText.setAttribute('transform', liftMatrix);
+              applyLiftMatrix(sub.labelText, liftMatrix);
             }
           }
         } else if (sub.type === 'bg') {
@@ -1208,8 +1257,8 @@ export const useNodeDrag = ({
             // stale CSS transform so it can't fight the attribute.
             const lcx = labelX + groupLabelWidth / 2;
             const lcy = labelY + groupLabelHeight / 2;
-            const liftMatrix = `translate(${lcx} ${lcy}) scale(1.08) translate(${-lcx} ${-lcy})`;
-            sub.labelRect.setAttribute('transform', liftMatrix);
+            const liftMatrix = liftMatrixFor(lcx, lcy);
+            applyLiftMatrix(sub.labelRect, liftMatrix);
             sub.labelRect.style.transform = '';
             sub.labelRect.style.transformBox = '';
             sub.labelRect.style.transformOrigin = '';
@@ -1217,7 +1266,7 @@ export const useNodeDrag = ({
               sub.labelText.setAttribute('x', labelX + groupLabelWidth / 2);
               sub.labelText.setAttribute('y', labelY + groupLabelHeight / 2); // dominantBaseline:central centers it
               // Pop the text with the pill, pivoting off the same center.
-              sub.labelText.setAttribute('transform', liftMatrix);
+              applyLiftMatrix(sub.labelText, liftMatrix);
             }
           }
         }
@@ -1225,7 +1274,7 @@ export const useNodeDrag = ({
     });
 
     return affectedAnchorIds;
-  }, [groupsByNodeIdRef, groupsByIdRef, nodeByIdRef, baseDimsByIdRef, gridSize]);
+  }, [groupsByNodeIdRef, groupsByIdRef, nodeByIdRef, baseDimsByIdRef, gridSize, collectAffectedGroupIds]);
 
   // ---------------------------------------------------------------------------
   // Core DOM Drag Update (replaces performDragUpdate — writes to DOM, not store)
@@ -2157,23 +2206,12 @@ export const useNodeDrag = ({
       const mouseCanvasX = (clientX - rect.left - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
       const mouseCanvasY = (clientY - rect.top - currentPan.y) / currentZoom + canvasSizeRef.current.offsetY;
 
-      // Match computePositionUpdates: per-member independent snap.
-      const positionUpdates = info.memberOffsets.map(({ id, dx, dy }) => {
-        const node = nodeByIdRef.current.get(id);
-        const xRaw = mouseCanvasX - dx;
-        const yRaw = mouseCanvasY - dy;
-        if (!node || gridMode === 'off') return { instanceId: id, x: xRaw, y: yRaw };
-        const dims = getNodeDimensions(node, false, null);
-        const centerX = xRaw + dims.currentWidth / 2;
-        const centerY = yRaw + dims.currentHeight / 2;
-        const snappedCenterX = Math.round(centerX / gridSize) * gridSize;
-        const snappedCenterY = Math.round(centerY / gridSize) * gridSize;
-        return {
-          instanceId: id,
-          x: snappedCenterX - (dims.currentWidth / 2),
-          y: snappedCenterY - (dims.currentHeight / 2),
-        };
-      });
+      // Same per-member independent snap the drag frames used — call the shared
+      // helper rather than restating it, so the committed positions can't drift
+      // from the ones the DOM was showing a frame earlier (they did: this copy
+      // never learned about placeholder ids and dropped empty node-groups
+      // unsnapped).
+      const positionUpdates = computePositionUpdates(mouseCanvasX, mouseCanvasY, info);
 
       const graph = graphsMap?.get(activeGraphId);
       const groupName = graph?.groups?.get(info.groupId)?.name;
@@ -2309,7 +2347,7 @@ export const useNodeDrag = ({
     return { draggedNodeIds, primaryNodeId, checkGroupDrop, wasGroupDrag, finalPositions };
   }, [draggingNodeInfo, nodes, activeGraphId, storeActions, nodeByIdRef, gridMode, gridSize,
     preDragZoomLevel, dragZoomSettings, zoomLevelRef, panOffsetRef, containerRef, canvasSizeRef,
-    animateZoomAndPanToTarget, clearDOMTransforms]);
+    animateZoomAndPanToTarget, clearDOMTransforms, computePositionUpdates]);
 
   // ---------------------------------------------------------------------------
   // Edge Panning Effect (auto-pan when cursor near viewport edges during drag)

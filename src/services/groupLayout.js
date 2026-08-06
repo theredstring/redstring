@@ -28,6 +28,22 @@ export const GROUP_LAYOUT_CONSTANTS = Object.freeze({
 const FALLBACK_DIMS = { currentWidth: 200, currentHeight: 150 };
 const EMPTY_SET = new Set();
 
+/**
+ * Synthetic instance-id prefix for an empty node-group's held-open placeholder
+ * box. These ids never resolve to a real instance — they exist so the drag
+ * pipeline (offsets → position updates → layout → store commit) can move a
+ * memberless group's box with exactly the same machinery as a real member.
+ * `groupIdFromPlaceholderId` is the only sanctioned way to unwrap one.
+ */
+export const PLACEHOLDER_ID_PREFIX = '__placeholder__';
+
+export const placeholderIdForGroup = (groupId) => `${PLACEHOLDER_ID_PREFIX}${groupId}`;
+
+export const groupIdFromPlaceholderId = (id) =>
+  (typeof id === 'string' && id.startsWith(PLACEHOLDER_ID_PREFIX))
+    ? id.slice(PLACEHOLDER_ID_PREFIX.length)
+    : null;
+
 const memberBoundaryPaddingFor = (gridSize) =>
   Math.max(24, Math.round((gridSize ?? 0) * 0.2));
 
@@ -90,6 +106,68 @@ export function buildChildGroupIdsIndex(groupsById, groupsByMemberId) {
 }
 
 /**
+ * Inverts `buildChildGroupIdsIndex`: child group → the groups that contain it.
+ *
+ * @param {Map<string, Set<string>>} childGroupIdsByGroupId
+ * @returns {Map<string, Set<string>>}
+ */
+export function buildParentGroupIdsIndex(childGroupIdsByGroupId) {
+  const out = new Map();
+  if (!childGroupIdsByGroupId) return out;
+  for (const [parentId, childIds] of childGroupIdsByGroupId) {
+    for (const childId of childIds) {
+      let parents = out.get(childId);
+      if (!parents) { parents = new Set(); out.set(childId, parents); }
+      parents.add(parentId);
+    }
+  }
+  return out;
+}
+
+/**
+ * Every group whose box can change when the given instances move. Three
+ * sources, all required — miss any one and a shell stays painted at stale
+ * coordinates while the rest of the drag moves on:
+ *
+ *   1. Direct membership (`groupsByMemberId`).
+ *   2. Synthetic `__placeholder__<groupId>` ids. An empty node-group has no
+ *      member instance, so its box rides on a placeholder id that is NOT in
+ *      `groupsByMemberId` — nested empty children were dragged along by a
+ *      parent yet never had their own shell repositioned, which is what left
+ *      them sitting outside the parent's box mid-drag.
+ *   3. Containing ancestors, transitively. A parent folds its children's full
+ *      shells into its bbox, so moving a child resizes every group above it.
+ *
+ * @param {Iterable<string>} instanceIds - Moved ids, real or placeholder.
+ * @param {object} context
+ * @param {Map<string, Array<{groupId: string} | string>>} context.groupsByMemberId
+ * @param {Map<string, Set<string>>} [context.parentGroupIdsIndex]
+ * @returns {Set<string>}
+ */
+export function collectAffectedGroupIds(instanceIds, { groupsByMemberId, parentGroupIdsIndex } = {}) {
+  const affected = new Set();
+  if (!instanceIds) return affected;
+  const pending = [];
+  const add = (groupId) => {
+    if (!groupId || affected.has(groupId)) return;
+    affected.add(groupId);
+    pending.push(groupId);
+  };
+  for (const instanceId of instanceIds) {
+    const placeholderGroupId = groupIdFromPlaceholderId(instanceId);
+    if (placeholderGroupId) { add(placeholderGroupId); continue; }
+    const entries = groupsByMemberId?.get(instanceId);
+    if (!entries) continue;
+    for (const entry of entries) add(typeof entry === 'string' ? entry : entry?.groupId);
+  }
+  while (pending.length > 0) {
+    const parents = parentGroupIdsIndex?.get(pending.pop());
+    if (parents) parents.forEach(add);
+  }
+  return affected;
+}
+
+/**
  * Nesting depth per group, derived from the strict-subset child index:
  * a group's depth is how many other groups contain it (0 = outermost).
  * Containment is transitive, so every ancestor of an ancestor is also
@@ -130,6 +208,68 @@ export function computeGroupDepths(groupsById, groupsByMemberId, childGroupIdsBy
     }
   }
   return depths;
+}
+
+/**
+ * Per-instance z-slot for the connections that touch it. Node-group shells are
+ * opaque, so where a connection paints relative to them decides whether it is
+ * visible at all:
+ *
+ *   • A group's ANCHOR is its title tab. Connections to it sit at the group's own
+ *     depth, i.e. they emit before that group's shell and slide underneath its
+ *     band — which is what makes an edge read as terminating at the title pill.
+ *   • A MEMBER node is drawn above every shell, so connections to it sit one
+ *     level above its deepest containing node-group.
+ *
+ * Only node-groups are considered: plain thing-groups render as a dashed outline
+ * at the bottom of the stack and occlude nothing.
+ *
+ * @param {Map<string, object>} groupsById
+ * @param {Map<string, number>} groupDepthsByGroupId - from computeGroupDepths
+ * @returns {Map<string, number>} instanceId → slot (absent ⇒ 0)
+ */
+export function buildEdgeZSlotIndex(groupsById, groupDepthsByGroupId) {
+  const slots = new Map();
+  if (!groupsById) return slots;
+  const raise = (instanceId, slot) => {
+    if (!instanceId) return;
+    const current = slots.get(instanceId);
+    // Deepest wins: a node inside two nested node-groups must clear the inner
+    // one's shell, which is the one painted last.
+    if (current === undefined || slot > current) slots.set(instanceId, slot);
+  };
+  for (const group of groupsById.values()) {
+    if (!group?.linkedNodePrototypeId) continue;
+    const depth = groupDepthsByGroupId?.get(group.id) ?? 0;
+    if (Array.isArray(group.memberInstanceIds)) {
+      for (const memberId of group.memberInstanceIds) raise(memberId, depth + 1);
+    }
+    raise(group.anchorInstanceId, depth);
+  }
+  return slots;
+}
+
+/**
+ * Z-slot for one connection: the deeper of its two endpoints, so it is never
+ * hidden by a shell that doesn't contain BOTH ends. Keying the layer off "is
+ * either end an anchor" instead (the older scheme) buried a node-group wired to
+ * a node inside a SIBLING node-group — the edge went under every shell,
+ * including the sibling's, and vanished.
+ *
+ * Self-loops bulge off a single node's corner and must never be occluded, so
+ * they go straight to the top slot.
+ *
+ * @param {{sourceId: string, destinationId: string}} edge
+ * @param {Map<string, number>} slotByInstanceId - from buildEdgeZSlotIndex
+ * @param {number} topSlot - one above the deepest rendered shell
+ * @returns {number}
+ */
+export function edgeZSlotFor(edge, slotByInstanceId, topSlot) {
+  if (edge.sourceId === edge.destinationId) return topSlot;
+  return Math.min(topSlot, Math.max(
+    slotByInstanceId?.get(edge.sourceId) ?? 0,
+    slotByInstanceId?.get(edge.destinationId) ?? 0
+  ));
 }
 
 // Tab height is dictated by the label font: tall enough for the line box
@@ -314,7 +454,7 @@ function computeGroupLayoutInner(group, context) {
     // updateMultipleNodeInstancePositions when the placeholder is dragged. Once a
     // real member is added this whole branch stops applying — the member loop
     // above takes over and behaves exactly as it always has.
-    const placeholderId = `__placeholder__${group.id}`;
+    const placeholderId = placeholderIdForGroup(group.id);
     const origin = nodesById.get(placeholderId) || group.emptyPlaceholderOrigin;
     if (origin) {
       const dims = dimsById.get(placeholderId) || dimsById.get(group.anchorInstanceId) || FALLBACK_DIMS;

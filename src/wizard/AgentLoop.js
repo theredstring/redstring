@@ -923,12 +923,99 @@ const NON_MUTATING_TOOLS = new Set([
 const MAX_PLANTASK_CALLS = 3;
 
 /**
+ * Watchdog for a single tool call. Note this cannot interrupt a *synchronous*
+ * tool (nothing in JS can) — it bounds the wait for anything that yields to the
+ * event loop, and guarantees the turn reports a failure instead of hanging
+ * silently. The rejection is caught by the tool-call catch block, which surfaces
+ * it as a normal tool error and lets the loop continue.
+ */
+const TOOL_TIMEOUT_MS = 90000;
+
+// Semantic-web tools crawl remote endpoints (Wikidata/DBpedia) and legitimately
+// run for minutes on a multi-level import — they get a longer leash so the
+// watchdog only ever catches a genuine hang.
+const SLOW_TOOL_TIMEOUT_MS = 300000;
+const SLOW_TOOLS = new Set([
+  'importKnowledgeCluster', 'discoverOrbit', 'semanticSearch',
+  'materializeSemanticEntities', 'querySparql', 'enrichFromWikipedia'
+]);
+
+function withToolTimeout(promise, toolName, ms = SLOW_TOOLS.has(toolName) ? SLOW_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`Tool "${toolName}" timed out after ${Math.round(ms / 1000)}s and was abandoned. Try a narrower request.`)),
+        ms
+      );
+    })
+  ]);
+}
+
+/**
  * Sanitize tool results before sending to LLM conversation history.
  * Strips UI-only data (spec field, verbose arrays) to save tokens.
  * The original result is still yielded to the UI and used by updateGraphState.
  */
-function sanitizeResultForLLM(result) {
-  if (!result || !result.action) return result;
+// Hard ceiling on how much any single tool result may contribute to the
+// conversation. Tool results are pushed into `messages` and RE-UPLOADED on
+// every subsequent iteration, so one oversized result silently taxes the whole
+// rest of the turn. Read-only tools are the usual offenders: readGraph and
+// findDuplicates have no size limits of their own and, having no `action`
+// field, used to skip this function entirely — a large universe could park
+// hundreds of KB in history and make every later tool call look like a hang.
+const MAX_RESULT_CHARS = 24000;
+
+/**
+ * Shrink an oversized tool result by truncating its longest array fields until
+ * it fits, leaving a machine-readable note about what was dropped so the model
+ * knows the view is partial rather than believing it saw everything.
+ */
+function capResultSize(result) {
+  let serialized;
+  try {
+    serialized = JSON.stringify(result);
+  } catch {
+    return result; // not serializable — leave it alone
+  }
+  if (!serialized || serialized.length <= MAX_RESULT_CHARS) return result;
+
+  const capped = { ...result };
+  const truncatedFields = [];
+
+  // Longest arrays first — that is where the bulk almost always is.
+  const arrayFields = Object.keys(capped)
+    .filter(k => Array.isArray(capped[k]))
+    .map(k => ({ key: k, length: capped[k].length }))
+    .sort((a, b) => b.length - a.length);
+
+  for (const { key } of arrayFields) {
+    if (JSON.stringify(capped).length <= MAX_RESULT_CHARS) break;
+    const original = capped[key];
+    if (original.length <= 5) continue;
+    // Halve repeatedly rather than guessing a row count — entry sizes vary wildly.
+    let keep = original.length;
+    while (keep > 5 && JSON.stringify({ ...capped, [key]: original.slice(0, keep) }).length > MAX_RESULT_CHARS) {
+      keep = Math.floor(keep / 2);
+    }
+    capped[key] = original.slice(0, keep);
+    truncatedFields.push(`${key} (${keep} of ${original.length})`);
+  }
+
+  if (truncatedFields.length > 0) {
+    capped.truncated = true;
+    capped.truncationNote = `Result was too large for context and was truncated: ${truncatedFields.join(', ')}. Narrow the request (target a specific graph, raise the threshold, or filter) if you need the rest.`;
+  }
+  return capped;
+}
+
+export function sanitizeResultForLLM(result) {
+  if (!result) return result;
+  // Every result is size-capped, including read-only ones. This function used
+  // to bail on `!result.action`, which exempted exactly the tools most likely
+  // to be huge.
+  if (!result.action) return capResultSize(result);
   const cleaned = { ...result };
   // Remove spec field — it's for UI rendering, not LLM consumption
   delete cleaned.spec;
@@ -939,7 +1026,7 @@ function sanitizeResultForLLM(result) {
   if (Array.isArray(cleaned.groupsAdded) && cleaned.groupCount !== undefined) {
     delete cleaned.groupsAdded;
   }
-  return cleaned;
+  return capResultSize(cleaned);
 }
 
 /**
@@ -1474,13 +1561,21 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         try {
           console.error('[AgentLoop] Executing tool:', toolCall.name);
 
-          // Execute tool
-          const result = await executeTool(
-            toolCall.name,
-            toolCall.args,
-            graphState,
-            cid,
-            ensureSchedulerStarted
+          // Execute tool, with a watchdog. A tool that never settles used to
+          // hang the whole turn forever: abortSignal is only checked between
+          // tools (never inside one), the server learns about a cancel through
+          // res.on('close') which cannot fire while a synchronous tool blocks
+          // the event loop, and nothing else times out. Losing the tool is
+          // recoverable — the catch below reports it and the loop continues.
+          const result = await withToolTimeout(
+            executeTool(
+              toolCall.name,
+              toolCall.args,
+              graphState,
+              cid,
+              ensureSchedulerStarted
+            ),
+            toolCall.name
           );
 
           // Update graphState so subsequent tool calls see the latest state

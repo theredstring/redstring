@@ -31,6 +31,7 @@ import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR } from '../constants.js';
 import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from './fileStorage.js';
 import { importFromRedstring } from '../formats/redstringFormat.js';
 import { MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
+import { PLACEHOLDER_ID_PREFIX } from '../services/groupLayout.js';
 import { debugLogSync } from '../utils/debugLogger.js';
 import useHistoryStore from './historyStore.js';
 import { generateDescription } from '../utils/actionDescriptions.js';
@@ -3374,26 +3375,29 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         updates.forEach(({ instanceId, x, y }) => {
           // Empty node-group placeholders are tracked via a synthetic
           // `__placeholder__<groupId>` id (see NodeCanvas.jsx's group-drag-start
-          // handlers) that has no backing instance — the block below persists it
-          // into the group instead.
+          // handlers) that has no backing instance — persist those into the group
+          // instead. Deliberately independent of the anchor's own position — see
+          // emptyPlaceholderOrigin in decomposeEmptyNodeToGroup for why.
+          //
+          // Every placeholder in the batch is honored, not just the dragged
+          // group's own: dragging a group that CONTAINS empty node-groups ships
+          // their placeholders along in the same update list (they have no member
+          // instance to carry them), and keying this off the dragged groupId left
+          // those nested shells snapping back to their pre-drag spot on release —
+          // which also stretched the parent's box to span both positions.
+          if (typeof instanceId === 'string' && instanceId.startsWith(PLACEHOLDER_ID_PREFIX)) {
+            const group = graph.groups?.get(instanceId.slice(PLACEHOLDER_ID_PREFIX.length));
+            if (group?.linkedNodePrototypeId && !(group.memberInstanceIds?.length > 0)) {
+              group.emptyPlaceholderOrigin = { x, y };
+            }
+            return;
+          }
           const instance = graph.instances.get(instanceId);
           if (instance) {
             instance.x = x;
             instance.y = y;
           }
         });
-
-        // Persist an empty node-group's held-open placeholder position after it's
-        // intentionally dragged. Deliberately independent of the anchor's own
-        // position — see emptyPlaceholderOrigin in decomposeEmptyNodeToGroup for why.
-        const groupId = contextOptions.groupId;
-        const group = groupId ? graph.groups?.get(groupId) : null;
-        if (group?.linkedNodePrototypeId && !(group.memberInstanceIds?.length > 0)) {
-          const placeholderUpdate = updates.find(u => u.instanceId === `__placeholder__${groupId}`);
-          if (placeholderUpdate) {
-            group.emptyPlaceholderOrigin = { x: placeholderUpdate.x, y: placeholderUpdate.y };
-          }
-        }
       }));
     },
 

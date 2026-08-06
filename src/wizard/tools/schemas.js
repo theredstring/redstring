@@ -667,13 +667,13 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'switchToGraph',
-            description: 'Navigate to a different graph. Only use when user explicitly asks to navigate.',
+            description: 'Navigate to a different graph. Only use when the user explicitly asks to navigate ("show me", "go into", "open"). If the result says alreadyActive, you are already there — do not call it again.',
             parameters: {
                 type: 'object',
                 properties: {
-                    graphId: { type: 'string', description: 'ID of the graph to switch to' },
-                    graphName: { type: 'string', description: 'Name of the graph to switch to (alternative to graphId)' },
-                    nodeName: { type: 'string', description: 'Name of a node - switches to its first definition graph (alternative to graphId/graphName)' }
+                    graphName: { type: 'string', description: 'PREFERRED: name of the graph to switch to.' },
+                    nodeName: { type: 'string', description: 'Name of a node — switches to its first definition graph.' },
+                    graphId: { type: 'string', description: 'Only pass this when you got the id from a readGraph result. Do not guess ids; use graphName instead.' }
                 }
             }
         },

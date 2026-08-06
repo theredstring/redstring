@@ -490,6 +490,22 @@ function WizardLoadingText() {
   return <span className="wizard-loading-text">{displayText}</span>;
 }
 
+/**
+ * Strip `isStreaming` from messages loaded out of storage.
+ *
+ * A live run's message lives in component state; anything read back from
+ * localStorage or a conversation file is finished by definition. The flag is
+ * only cleared by an explicit done/error event, so a stream that died without
+ * one persisted `isStreaming: true` — and the inline thinking-dots at the
+ * bottom of the message bubble are gated on that flag alone, not on
+ * isProcessing. The result was a conversation that showed dots forever, with
+ * the send button (not the stop button) rendered, looking exactly like a stall.
+ */
+function clearStuckStreamingFlags(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages.map(m => (m?.isStreaming ? { ...m, isStreaming: false } : m));
+}
+
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
 const LeftAIView = ({ compact = false,
   active = true,
@@ -577,7 +593,7 @@ const LeftAIView = ({ compact = false,
               const localData = localStorage.getItem(`rs.aiChat.messages.${c.id}`);
               if (localData) {
                 const data = JSON.parse(localData);
-                return { ...c, messages: data.messages || [], graphId: c.graphId || initGraphId };
+                return { ...c, messages: clearStuckStreamingFlags(data.messages), graphId: c.graphId || initGraphId };
               }
             } catch { }
             return { ...c, messages: [], graphId: c.graphId || initGraphId };
@@ -643,6 +659,9 @@ const LeftAIView = ({ compact = false,
   ]);
 
   // Context window usage estimation
+  // Keyed by the block objects themselves, so entries disappear with the blocks.
+  const objectTokenCacheRef = React.useRef(new WeakMap());
+
   const contextUsage = React.useMemo(() => {
     // Known context windows by model pattern (tokens)
     const getContextWindow = (model) => {
@@ -660,6 +679,27 @@ const LeftAIView = ({ compact = false,
 
     const estimateTokens = (text) => text ? Math.ceil(text.length / 4) : 0;
 
+    // Tool args/results are re-measured on EVERY streaming delta (this memo's
+    // deps include `messages`, which is replaced per SSE event). Re-stringifying
+    // a large read-only result — readGraph on a big web, findDuplicates on a big
+    // universe — hundreds of times a second froze the panel, which is why the
+    // stop button stopped responding mid-run. Measure each object once and
+    // remember it; the estimate is a rough /4 anyway.
+    const estimateObjectTokens = (obj) => {
+      if (!obj) return 0;
+      if (typeof obj !== 'object') return estimateTokens(String(obj));
+      const cached = objectTokenCacheRef.current.get(obj);
+      if (cached !== undefined) return cached;
+      let size = 0;
+      try {
+        size = estimateTokens(JSON.stringify(obj));
+      } catch {
+        size = 0; // circular or otherwise unserializable — not worth failing over
+      }
+      objectTokenCacheRef.current.set(obj, size);
+      return size;
+    };
+
     const model = apiKeyInfo?.model || '';
     const contextWindow = getContextWindow(model);
 
@@ -673,8 +713,8 @@ const LeftAIView = ({ compact = false,
       if (msg.contentBlocks) {
         for (const block of msg.contentBlocks) {
           if (block.type === 'tool_call') {
-            conversationTokens += estimateTokens(block.name || '') + estimateTokens(JSON.stringify(block.args || {}));
-            conversationTokens += estimateTokens(JSON.stringify(block.result || {}));
+            conversationTokens += estimateTokens(block.name || '') + estimateObjectTokens(block.args);
+            conversationTokens += estimateObjectTokens(block.result);
           }
         }
       }
@@ -800,7 +840,7 @@ const LeftAIView = ({ compact = false,
                   const content = typeof fileRes === 'string' ? fileRes : fileRes.content;
                   if (content) {
                     const data = JSON.parse(content);
-                    return { ...c, messages: data.messages || [], graphId: resolvedGraphId };
+                    return { ...c, messages: clearStuckStreamingFlags(data.messages), graphId: resolvedGraphId };
                   }
                 }
               }
@@ -808,7 +848,7 @@ const LeftAIView = ({ compact = false,
               const localData = localStorage.getItem(`rs.aiChat.messages.${c.id}`);
               if (localData) {
                 const data = JSON.parse(localData);
-                return { ...c, messages: data.messages || [], graphId: resolvedGraphId };
+                return { ...c, messages: clearStuckStreamingFlags(data.messages), graphId: resolvedGraphId };
               }
             } catch (e) {
               console.warn(`[AI Collaboration] Failed to hydrate conversation ${c.id}:`, e);
@@ -816,7 +856,7 @@ const LeftAIView = ({ compact = false,
                 const localData = localStorage.getItem(`rs.aiChat.messages.${c.id}`);
                 if (localData) {
                   const data = JSON.parse(localData);
-                  return { ...c, messages: data.messages || [], graphId: resolvedGraphId };
+                  return { ...c, messages: clearStuckStreamingFlags(data.messages), graphId: resolvedGraphId };
                 }
               } catch { }
             }
@@ -855,7 +895,11 @@ const LeftAIView = ({ compact = false,
         // whole history from top to bottom.
         jumpToBottomRef.current = true;
         isPinnedToBottomRef.current = true;
-        setMessages(activeConv.messages || []);
+        // Nothing loaded from storage can still be streaming — a live run's
+        // message is held in component state, not read back from here. Clearing
+        // the flag on load lets a conversation poisoned by an earlier crashed
+        // stream recover instead of showing thinking-dots forever.
+        setMessages(clearStuckStreamingFlags(activeConv.messages));
       }
     }
     lastActiveIdRef.current = activeConversationId;
@@ -1270,17 +1314,18 @@ const LeftAIView = ({ compact = false,
   // flicker. We stabilize it with hysteresis just below.
   const wizardDotsWanted = React.useMemo(() => {
     if (viewMode !== 'wizard' || !isProcessing) return false;
-    const streamingMsg = messages.find(m => m.isStreaming);
+    // Take the LAST streaming message, not the first: the inline dots render for
+    // every streaming message, so if a stale one is ever present, keying off
+    // find() would lock this row onto the zombie while the live bubble drew its
+    // own dots — two ellipses at once for the whole run.
+    let streamingMsg = null;
+    for (const m of messages) if (m.isStreaming) streamingMsg = m;
     if (!streamingMsg) return false;
     const blocks = streamingMsg.contentBlocks;
-    const hasDefinitiveContent = blocks?.some(b =>
-      (b.type === 'text' && b.content) ||
-      (b.type === 'tool_call' && b.name !== 'planTask') ||
-      b.type === 'plan' ||
-      (b.type === 'thinking' && b.content) ||
-      (b.type === 'system_note' && b.content)
-    ) || !!streamingMsg.content;
-    const hasInlineDots = !hasDefinitiveContent;
+    // Must match the inline dots' own condition EXACTLY (see the message bubble
+    // render below), or the two disagree and you get either both or neither.
+    // The inline dots show when there are no content blocks and no content.
+    const hasInlineDots = !(blocks?.length > 0) && !streamingMsg.content;
     const hasStreamingText = blocks?.some(b => b.type === 'text' && b.content);
     const hasActiveThinking = blocks?.some(b => b.type === 'thinking' && !b.collapsed);
     const lastBlock = blocks?.[blocks.length - 1];
@@ -2534,9 +2579,16 @@ const LeftAIView = ({ compact = false,
                   c.id === targetConversationId ? { ...c, messages: updateMsgInArray(c.messages || []), timestamp: new Date().toISOString() } : c
                 ));
 
-                // Update the active UI messages ONLY if we are still on that tab
+                // Update the active UI messages ONLY if we are still on that tab.
+                // Read the CURRENT tab from the ref — `activeConversationId` here
+                // is captured from the same closure as targetConversationId, so
+                // comparing them was always true. After a mid-run tab switch that
+                // applied this run's updates to the other tab's array, where the
+                // message id isn't found and updateMsgInArray appends a NEW
+                // message with isStreaming: true — leaving two streaming messages
+                // and two entries sharing one id.
                 setMessages(prev => {
-                  if (activeConversationId === targetConversationId) {
+                  if (activeConversationIdRef.current === targetConversationId) {
                     return updateMsgInArray(prev);
                   }
                   return prev;
@@ -2550,6 +2602,20 @@ const LeftAIView = ({ compact = false,
         }
       } finally {
         reader.releaseLock();
+        // Backstop: isStreaming is normally cleared by an explicit done/error
+        // event. If the stream just ends without one — server closed the
+        // connection, process died, bridge restarted — the flag used to stay
+        // true forever. It is persisted to localStorage and rehydrated, so the
+        // message kept rendering thinking-dots on every later run while
+        // isProcessing was false: perpetual ellipsis with no stop button.
+        setMessages(prev => {
+          const idx = prev.findIndex(m => m.id === streamingMessageId);
+          if (idx < 0 || !prev[idx].isStreaming) return prev;
+          console.warn('[Wizard] Stream ended without a done event — clearing stuck isStreaming flag');
+          const updated = [...prev];
+          updated[idx] = { ...updated[idx], isStreaming: false };
+          return updated;
+        });
       }
       setIsConnected(true);
     } catch (error) {
@@ -3280,6 +3346,13 @@ const LeftAIView = ({ compact = false,
                 return;
               }
 
+              // The stop button renders on `isProcessing && currentAgentRequest`.
+              // This path used to set only the former, so a slow manual run (e.g.
+              // findDuplicates over the whole universe, which is what the
+              // graphState below sends) showed a disabled send button and left
+              // the user with no way to cancel.
+              const manualAbort = new AbortController();
+              setCurrentAgentRequest(manualAbort);
               try {
                 setIsProcessing(true);
                 setSelectedTestTool(null);
@@ -3330,7 +3403,8 @@ const LeftAIView = ({ compact = false,
                   const response = await bridgeFetch('/api/wizard/execute-tool', {
                     method: 'POST',
                     headers,
-                    body: JSON.stringify({ name: toolName, args: parsedArgs, graphState })
+                    body: JSON.stringify({ name: toolName, args: parsedArgs, graphState }),
+                    signal: manualAbort.signal
                   });
 
                   if (!response.ok) {
@@ -3341,9 +3415,14 @@ const LeftAIView = ({ compact = false,
                   addMessage('system', `**Result for ${toolName}:**\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``);
                 }
               } catch (e) {
-                addMessage('system', `❌ Error executing ${toolName}:\n${e.message}`);
+                if (e.name === 'AbortError') {
+                  addMessage('system', `Stopped ${toolName}.`);
+                } else {
+                  addMessage('system', `❌ Error executing ${toolName}:\n${e.message}`);
+                }
               } finally {
                 setIsProcessing(false);
+                setCurrentAgentRequest(null);
               }
             }} className="ai-flat-button" style={{ backgroundColor: theme.canvas.inactive, padding: '6px 12px', fontSize: '11px', border: `1px solid ${theme.canvas.border}`, borderRadius: '4px', cursor: 'pointer', color: theme.canvas.textPrimary }}>
               Execute {selectedTestTool.name}

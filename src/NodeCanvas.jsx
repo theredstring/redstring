@@ -44,7 +44,15 @@ import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './serv
 import { applyOffscreenLayout } from './services/offscreenLayout.js';
 import { oneShotLabel, attachOneShotOutcome, isOneShotAvailable } from './services/oneShot.js';
 import { suggestAbstractionName, suggestArrowDirection } from './wizard/tools/utils/suggestionCalls.js';
-import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS, buildChildGroupIdsIndex, computeGroupDepths } from './services/groupLayout.js';
+import {
+  computeGroupLayout,
+  GROUP_LAYOUT_CONSTANTS,
+  buildChildGroupIdsIndex,
+  computeGroupDepths,
+  buildEdgeZSlotIndex,
+  edgeZSlotFor,
+  placeholderIdForGroup,
+} from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
 import { debugLogSync } from './utils/debugLogger.js';
 import { getNodeHitbox, getVisualConnectionEndpoints, getLineNodeIntersection } from './utils/canvas/nodeHitbox.js';
@@ -412,7 +420,10 @@ function NodeCanvas() {
   const groupLongPressTimeout = useRef(null);
   // Split group rendering across z-layers: Phase 1 computes layouts and stores
   // JSX for later phases, so thing-group backgrounds/titles render at the right z-level
-  const nodeGroupBackgroundsRef = useRef([]);
+  // Shells are bucketed by nesting depth rather than kept in one flat list: the
+  // edge layer interleaves anchor edges between depths so a nested group's
+  // connections aren't buried under its parent's opaque band.
+  const nodeGroupBackgroundsByDepthRef = useRef(new Map()); // depth → JSX[]
   const nodeGroupTitlesRef = useRef([]);
   const thingGroupMemberIdsRef = useRef(new Set());
   const anchorInstanceIdsRef = useRef(new Set());
@@ -1435,15 +1446,22 @@ function NodeCanvas() {
   // so Phase 1 sorts groups by this before emitting JSX — deeper shells and
   // their titles paint later (above their parents) within each z-layer.
   const groupDepthByGroupIdRef = useRef(new Map());
-  useEffect(() => {
-    const map = new Map();
+  // instanceId → the z-slot connections touching it paint at (buildEdgeZSlotIndex).
+  const edgeZSlotByInstanceIdRef = useRef(new Map());
+
+  // Derived during render, not in an effect: the group render pass reads the
+  // depth and slot indexes, and a ref written by an effect would be one commit
+  // stale — refs don't schedule a re-render, so a freshly nested group would
+  // paint in the wrong z-order until something else happened to re-render.
+  const groupStructure = useMemo(() => {
+    const groupsByNodeId = new Map();
     const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
     if (graphData?.groups) {
       graphData.groups.forEach((group, groupId) => {
         if (!group.memberInstanceIds) return;
         group.memberInstanceIds.forEach(instId => {
-          if (!map.has(instId)) map.set(instId, []);
-          map.get(instId).push({ groupId, memberInstanceIds: group.memberInstanceIds });
+          if (!groupsByNodeId.has(instId)) groupsByNodeId.set(instId, []);
+          groupsByNodeId.get(instId).push({ groupId, memberInstanceIds: group.memberInstanceIds });
         });
         // Empty node-groups (the held-open placeholder — see
         // decomposeEmptyNodeToGroup) have no members to index by, but they're
@@ -1453,16 +1471,30 @@ function NodeCanvas() {
         // of tracking the drag live.
         if (group.memberInstanceIds.length === 0 && group.linkedNodePrototypeId && group.anchorInstanceId) {
           const anchorId = group.anchorInstanceId;
-          if (!map.has(anchorId)) map.set(anchorId, []);
-          map.get(anchorId).push({ groupId, memberInstanceIds: group.memberInstanceIds });
+          if (!groupsByNodeId.has(anchorId)) groupsByNodeId.set(anchorId, []);
+          groupsByNodeId.get(anchorId).push({ groupId, memberInstanceIds: group.memberInstanceIds });
         }
       });
     }
-    groupsByNodeIdRef.current = map;
-    groupsByIdRef.current = graphData?.groups || new Map();
-    childGroupIdsByGroupIdRef.current = buildChildGroupIdsIndex(groupsByIdRef.current, map);
-    groupDepthByGroupIdRef.current = computeGroupDepths(groupsByIdRef.current, map, childGroupIdsByGroupIdRef.current);
+    const groupsById = graphData?.groups || new Map();
+    const childGroupIds = buildChildGroupIdsIndex(groupsById, groupsByNodeId);
+    const groupDepths = computeGroupDepths(groupsById, groupsByNodeId, childGroupIds);
+    return {
+      groupsByNodeId,
+      groupsById,
+      childGroupIds,
+      groupDepths,
+      edgeZSlots: buildEdgeZSlotIndex(groupsById, groupDepths),
+    };
   }, [activeGraphId, graphsMap]);
+
+  // Mirrored into refs so the drag hook can read them per-frame without
+  // re-subscribing. Pure assignment of already-memoized values.
+  groupsByNodeIdRef.current = groupStructure.groupsByNodeId;
+  groupsByIdRef.current = groupStructure.groupsById;
+  childGroupIdsByGroupIdRef.current = groupStructure.childGroupIds;
+  groupDepthByGroupIdRef.current = groupStructure.groupDepths;
+  edgeZSlotByInstanceIdRef.current = groupStructure.edgeZSlots;
 
   // Clipboard ref for copy/paste operations
   const clipboardRef = useRef(null);
@@ -12637,18 +12669,23 @@ function NodeCanvas() {
                     // Shallowest-first so nested shells/titles emit after (above) their
                     // parents within each z-layer; stable sort keeps insertion order
                     // among siblings at the same depth.
-                    const groupDepths = groupDepthByGroupIdRef.current;
+                    const groupDepths = groupStructure.groupDepths;
                     const groups = graphData?.groups
                       ? Array.from(graphData.groups.values())
                         .sort((a, b) => (groupDepths.get(a.id) ?? 0) - (groupDepths.get(b.id) ?? 0))
                       : [];
-                    const ngBackgrounds = [];
+                    const ngBackgroundsByDepth = new Map();
                     const ngTitles = [];
                     const tgMemberIds = new Set();
                     const anchorIds = new Set();
+                    const pushBackgroundAtDepth = (depth, element) => {
+                      let bucket = ngBackgroundsByDepth.get(depth);
+                      if (!bucket) { bucket = []; ngBackgroundsByDepth.set(depth, bucket); }
+                      bucket.push(element);
+                    };
 
                     if (!groups.length) {
-                      nodeGroupBackgroundsRef.current = ngBackgrounds;
+                      nodeGroupBackgroundsByDepthRef.current = ngBackgroundsByDepth;
                       nodeGroupTitlesRef.current = ngTitles;
                       thingGroupMemberIdsRef.current = tgMemberIds;
                       anchorInstanceIdsRef.current = anchorIds;
@@ -12781,6 +12818,7 @@ function NodeCanvas() {
                       };
 
                       // Collect thing-group member IDs (including anchor) for edge/node z-splitting
+                      const groupDepth = groupDepths.get(group.id) ?? 0;
                       if (isNodeGroup) {
                         group.memberInstanceIds.forEach(id => tgMemberIds.add(id));
                         if (group.anchorInstanceId) {
@@ -12859,7 +12897,7 @@ function NodeCanvas() {
                               // why deriving it from the anchor's position doesn't work.
                               if (isNodeGroup && !(group.memberInstanceIds?.length > 0) && group.emptyPlaceholderOrigin) {
                                 offsets.push({
-                                  id: `__placeholder__${group.id}`,
+                                  id: placeholderIdForGroup(group.id),
                                   dx: mouseCanvasX - group.emptyPlaceholderOrigin.x,
                                   dy: mouseCanvasY - group.emptyPlaceholderOrigin.y
                                 });
@@ -12875,7 +12913,7 @@ function NodeCanvas() {
                                   const childGroup = groupsByIdRef.current.get(childId);
                                   if (!childGroup || childGroup.memberInstanceIds?.length > 0 || !childGroup.emptyPlaceholderOrigin) return;
                                   offsets.push({
-                                    id: `__placeholder__${childId}`,
+                                    id: placeholderIdForGroup(childId),
                                     dx: mouseCanvasX - childGroup.emptyPlaceholderOrigin.x,
                                     dy: mouseCanvasY - childGroup.emptyPlaceholderOrigin.y
                                   });
@@ -13007,7 +13045,7 @@ function NodeCanvas() {
                               // why deriving it from the anchor's position doesn't work.
                               if (isNodeGroup && !(group.memberInstanceIds?.length > 0) && group.emptyPlaceholderOrigin) {
                                 offsets.push({
-                                  id: `__placeholder__${group.id}`,
+                                  id: placeholderIdForGroup(group.id),
                                   dx: mouseCanvasX - group.emptyPlaceholderOrigin.x,
                                   dy: mouseCanvasY - group.emptyPlaceholderOrigin.y
                                 });
@@ -13023,7 +13061,7 @@ function NodeCanvas() {
                                   const childGroup = groupsByIdRef.current.get(childId);
                                   if (!childGroup || childGroup.memberInstanceIds?.length > 0 || !childGroup.emptyPlaceholderOrigin) return;
                                   offsets.push({
-                                    id: `__placeholder__${childId}`,
+                                    id: placeholderIdForGroup(childId),
                                     dx: mouseCanvasX - childGroup.emptyPlaceholderOrigin.x,
                                     dy: mouseCanvasY - childGroup.emptyPlaceholderOrigin.y
                                   });
@@ -13169,8 +13207,9 @@ function NodeCanvas() {
                       );
 
                       if (isNodeGroup) {
-                        // Thing-group backgrounds → Phase 2 (rendered after normal edges)
-                        ngBackgrounds.push(
+                        // Thing-group backgrounds → Phase 2, bucketed by nesting depth so the
+                        // edge layer can slip each depth's anchor edges in underneath.
+                        pushBackgroundAtDepth(groupDepth,
                           <g key={`bg-${group.id}`} className="node-group-bg" data-group-id={group.id} style={groupStyle}>
                             {/* Colored band is purely decorative — pointer-events:none lets
                                 anchor edges (rendered in the layer BELOW this bg) stay clickable
@@ -13232,7 +13271,7 @@ function NodeCanvas() {
                       }
                     });
 
-                    nodeGroupBackgroundsRef.current = ngBackgrounds;
+                    nodeGroupBackgroundsByDepthRef.current = ngBackgroundsByDepth;
                     nodeGroupTitlesRef.current = ngTitles;
                     thingGroupMemberIdsRef.current = tgMemberIds;
                     anchorInstanceIdsRef.current = anchorIds;
@@ -13268,32 +13307,27 @@ function NodeCanvas() {
                   })}
 
                   {isViewReady && (() => {
-                    // Use thing-group member IDs computed in Phase 1 (includes anchors)
-                    const nodeGroupMemberIds = thingGroupMemberIdsRef.current;
-                    const anchorIds = anchorInstanceIdsRef.current;
-
-                    // Split edges into three z-layers:
-                    // 1. Normal edges: neither endpoint is a thing-group member
-                    // 2. Anchor edges: at least one endpoint is an anchor → below backgrounds
-                    // 3. Internal member edges: between non-anchor members → above backgrounds
-                    // Self-loops belong to a single node and bulge off its corner, so they must
-                    // always paint above thing-group backgrounds (never occluded by them),
-                    // regardless of group membership or anchor status. Route them all to the
-                    // above-groups layer and exclude them from the below-groups layers.
-                    const isSelfLoop = (e) => e.sourceId === e.destinationId;
-                    const edgesBelowNodeGroups = visibleEdges.filter(e =>
-                      !isSelfLoop(e) &&
-                      !nodeGroupMemberIds.has(e.sourceId) && !nodeGroupMemberIds.has(e.destinationId)
-                    );
-                    const edgesToAnchors = visibleEdges.filter(e =>
-                      !isSelfLoop(e) &&
-                      (anchorIds.has(e.sourceId) || anchorIds.has(e.destinationId))
-                    );
-                    const edgesAboveNodeGroups = visibleEdges.filter(e =>
-                      isSelfLoop(e) ||
-                      ((nodeGroupMemberIds.has(e.sourceId) || nodeGroupMemberIds.has(e.destinationId)) &&
-                      !anchorIds.has(e.sourceId) && !anchorIds.has(e.destinationId))
-                    );
+                    // --- Connection z-order -------------------------------------------------
+                    // A connection paints at the level of its DEEPER endpoint — see
+                    // buildEdgeZSlotIndex / edgeZSlotFor in groupLayout.js for the rule and
+                    // why keying the layer off "is either end an anchor" hid a node-group
+                    // wired to a node inside a sibling node-group.
+                    const edgeZSlots = groupStructure.edgeZSlots;
+                    const nodeGroupShellsByDepth = nodeGroupBackgroundsByDepthRef.current;
+                    const shellDepths = Array.from(nodeGroupShellsByDepth.keys());
+                    const topEdgeSlot = (shellDepths.length ? Math.max(...shellDepths) : 0) + 1;
+                    const edgesBySlot = new Map();
+                    visibleEdges.forEach(edge => {
+                      const slot = edgeZSlotFor(edge, edgeZSlots, topEdgeSlot);
+                      let bucket = edgesBySlot.get(slot);
+                      if (!bucket) { bucket = []; edgesBySlot.set(slot, bucket); }
+                      bucket.push(edge);
+                    });
+                    // Ascending: each slot's edges emit, then the shells at that depth cover
+                    // whatever still belongs underneath them.
+                    const edgeZSlotOrder = Array.from(
+                      new Set([...edgesBySlot.keys(), ...shellDepths])
+                    ).sort((a, b) => a - b);
 
                     // edgeCurveInfo is computed via useMemo and available in scope
                     // (used for parallel edge curve offset calculation)
@@ -13343,13 +13377,11 @@ function NodeCanvas() {
                     });
                     // #endregion
 
-                    return (
-                      <>
-                        {/* Rebuild the visible-orb hit list fresh each render before the
-                            edge blocks below push their endpoint orbs into it. */}
-                        {void (connectionOrbHitsRef.current = [])}
-                        {/* Edges below thing-group backgrounds: normal edges + anchor-connected edges */}
-                        {edgesBelowNodeGroups.concat(edgesToAnchors).map((edge, idx) => {
+                    // One renderer for every connection, called from each of the three z-layers
+                    // below. It used to be two near-identical 1500-line copies, and they had
+                    // drifted — the "above" copy was missing the touch/pointer hitbox handlers,
+                    // so connections between node-group members could not be tapped.
+                    const renderConnectionEdge = (edge) => {
                           let sourceNode = nodeById.get(edge.sourceId);
                           let destNode = nodeById.get(edge.destinationId);
 
@@ -14791,7 +14823,7 @@ function NodeCanvas() {
                                     { minBow: labelArcMinBow }
                                   )
                                   : null;
-                                const labelArcId = `lombardi-label-below-${edge.id}`;
+                                const labelArcId = `lombardi-label-${edge.id}`;
 
                                 // Generous hitbox around the label text so the name is as
                                 // clickable as the line itself (labels often sit off the line).
@@ -14861,1400 +14893,23 @@ function NodeCanvas() {
                               })()}
                             </g>
                           );
-                        })}
-                        {/* Groups Phase 2: Thing-group backgrounds (above normal edges, below thing-group edges) */}
-                        {nodeGroupBackgroundsRef.current}
-                        {/* Edges above node-groups: connect to thing-group members (non-anchor) */}
-                        {edgesAboveNodeGroups.map((edge, idx) => {
-                          let sourceNode = nodeById.get(edge.sourceId);
-                          let destNode = nodeById.get(edge.destinationId);
-
-                          if (!sourceNode || !destNode) {
-                            return null;
-                          }
-                          // For anchor nodes, use current-frame ref positions and title dimensions
-                          const sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
-                          const eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
-                          if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
-                          if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
-                          const sNodeDims = sAnchorInfo
-                            ? { currentWidth: sAnchorInfo.width, currentHeight: sAnchorInfo.height }
-                            : (baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null));
-                          const eNodeDims = eAnchorInfo
-                            ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
-                            : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
-
-                          if (edge.sourceId === edge.destinationId) {
-                            const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
-                            const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
-                            let selfColor = sourceNode.color || NODE_DEFAULT_COLOR;
-                            let selfConnectionName = 'Connection';
-                            if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                              const defProto = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                              if (defProto) {
-                                selfColor = defProto.color || selfColor;
-                                selfConnectionName = defProto.name || selfConnectionName;
-                              }
-                            } else if (edge.typeNodeId) {
-                              if (edge.typeNodeId === 'base-connection-prototype') {
-                                selfColor = '#000000';
-                              } else {
-                                const proto = edgePrototypesMap.get(edge.typeNodeId);
-                                if (proto) {
-                                  selfColor = proto.color || selfColor;
-                                  selfConnectionName = proto.name || selfConnectionName;
-                                }
-                              }
-                            }
-                            const selfFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
-                            return (
-                              <SelfLoopEdge
-                                key={`edge-${edge.id}`}
-                                edge={edge}
-                                node={sourceNode}
-                                nodeDims={sNodeDims}
-                                curveInfo={edgeCurveInfo.get(edge.id)}
-                                isHovered={isHovered}
-                                isSelected={isSelected}
-                                edgeColor={selfColor}
-                                showConnectionNames={showConnectionNames}
-                                selectedEdgeIds={selectedEdgeIds}
-                                storeActions={storeActions}
-                                ignoreCanvasClick={ignoreCanvasClick}
-                                setLongPressingInstanceId={setLongPressingInstanceId}
-                                setDrawingConnectionFrom={setDrawingConnectionFrom}
-                                handleEdgePointerDownTouch={handleEdgePointerDownTouch}
-                                connectionName={selfConnectionName}
-                                connectionFontSize={selfFontSize}
-                                connectionWidth={connectionWidth}
-                                placedLabelsRef={placedLabelsRef}
-                              />
-                            );
-                          }
-
-                          // Check if this is a directed edge (has arrows)
-                          const arrowsToward = edge.directionality?.arrowsToward instanceof Set
-                            ? edge.directionality.arrowsToward
-                            : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
-
-                          // Check which ends have arrows
-                          const hasSourceArrow = arrowsToward.has(sourceNode.id);
-                          const hasDestArrow = arrowsToward.has(destNode.id);
-                          const isDirected = arrowsToward.size > 0;
-
-                          // Connection endpoint calculation
-                          let x1, y1, x2, y2;
-                          if (isRoutedStyle) {
-                            // Routed styles - use centers as base (ports/arcs override later)
-                            x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                            y1 = sourceNode.y + sNodeDims.currentHeight / 2;
-                            x2 = destNode.x + eNodeDims.currentWidth / 2;
-                            y2 = destNode.y + eNodeDims.currentHeight / 2;
-                          } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
-                            // Directed connections: calculate each endpoint based on whether it has an arrow
-                            // Sides with arrows draw to edge, sides without arrows draw to center
-                            const centerX1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                            const centerY1 = sourceNode.y + sNodeDims.currentHeight / 2;
-                            const centerX2 = destNode.x + eNodeDims.currentWidth / 2;
-                            const centerY2 = destNode.y + eNodeDims.currentHeight / 2;
-
-                            if (hasSourceArrow || hasDestArrow) {
-                              // Use edge-based calculation, then selectively apply results.
-                              // For thing-group endpoints, clip against the group's full outer box
-                              // so the arrow-side line terminates just outside the box (the anchor
-                              // tab sits inside it and the box paints on top, hiding a tab-edge end).
-                              const endpoints = getVisualConnectionEndpoints(
-                                sourceNode, destNode,
-                                sNodeDims, eNodeDims,
-                                selectedInstanceIds.has(sourceNode.id),
-                                selectedInstanceIds.has(destNode.id),
-                                true,
-                                sAnchorInfo?.outerBounds || null,
-                                eAnchorInfo?.outerBounds || null
-                              );
-
-                              // Source: use edge if has arrow, otherwise center
-                              x1 = hasSourceArrow ? endpoints.x1 : centerX1;
-                              y1 = hasSourceArrow ? endpoints.y1 : centerY1;
-
-                              // Dest: use edge if has arrow, otherwise center
-                              x2 = hasDestArrow ? endpoints.x2 : centerX2;
-                              y2 = hasDestArrow ? endpoints.y2 : centerY2;
-                            } else {
-                              // Fallback to centers (shouldn't reach here due to outer if condition)
-                              x1 = centerX1;
-                              y1 = centerY1;
-                              x2 = centerX2;
-                              y2 = centerY2;
-                            }
-                          } else {
-                            // Non-directed connections: use centers for traditional appearance
-                            x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                            y1 = sourceNode.y + sNodeDims.currentHeight / 2;
-                            x2 = destNode.x + eNodeDims.currentWidth / 2;
-                            y2 = destNode.y + eNodeDims.currentHeight / 2;
-                          }
-
-                          // Suppress edge hover (connection dots, hover-widened arrows, etc.)
-                          // while dragging — the dots would otherwise freeze at the last
-                          // hovered position instead of tracking the moving node.
-                          const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
-                          const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
-                          // Selected connections get the same endpoint-dot affordances as hovered
-                          // ones: the line shortens, dots sit at the pulled-back preview position,
-                          // and curved edges trim to their arrowhead depth. `isHovered` is force-
-                          // cleared during a node drag (see above), so routing selection geometry
-                          // through this flag — which stays true across the drag — keeps a selected
-                          // edge's dots tracking the moving node in lockstep with its arrowheads.
-                          const isActive = isHovered || isSelected;
-
-
-
-
-                          // Get edge color - prioritize definitionNodeIds for custom types, then typeNodeId for base types
-                          const getEdgeColor = () => {
-                            // First check definitionNodeIds (for custom connection types set via control panel)
-                            if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                              const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                              if (definitionNode) {
-                                return definitionNode.color || NODE_DEFAULT_COLOR;
-                              }
-                            }
-
-                            // Then check typeNodeId (for base connection type)
-                            if (edge.typeNodeId) {
-                              // Special handling for base connection prototype - ensure it's black
-                              if (edge.typeNodeId === 'base-connection-prototype') {
-                                return '#000000'; // Black color for base connection
-                              }
-                              const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
-                              if (edgePrototype) {
-                                return edgePrototype.color || NODE_DEFAULT_COLOR;
-                              }
-                            }
-
-                            return destNode.color || NODE_DEFAULT_COLOR;
-                          };
-                          const edgeColor = getEdgeColor();
-
-                          // Calculate arrow position and rotation
-                          const dx = x2 - x1;
-                          const dy = y2 - y1;
-                          const length = Math.sqrt(dx * dx + dy * dy);
-
-                          // Helper function to calculate edge intersection with rectangular nodes
-                          const getNodeEdgeIntersection = (nodeX, nodeY, nodeWidth, nodeHeight, dirX, dirY) => {
-                            const centerX = nodeX + nodeWidth / 2;
-                            const centerY = nodeY + nodeHeight / 2;
-                            const halfWidth = nodeWidth / 2;
-                            const halfHeight = nodeHeight / 2;
-                            const intersections = [];
-
-                            if (dirX > 0) {
-                              const t = halfWidth / dirX;
-                              const y = dirY * t;
-                              if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX + halfWidth, y: centerY + y, distance: t });
-                            }
-                            if (dirX < 0) {
-                              const t = -halfWidth / dirX;
-                              const y = dirY * t;
-                              if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX - halfWidth, y: centerY + y, distance: t });
-                            }
-                            if (dirY > 0) {
-                              const t = halfHeight / dirY;
-                              const x = dirX * t;
-                              if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY + halfHeight, distance: t });
-                            }
-                            if (dirY < 0) {
-                              const t = -halfHeight / dirY;
-                              const x = dirX * t;
-                              if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY - halfHeight, distance: t });
-                            }
-
-                            return intersections.reduce((closest, current) =>
-                              !closest || current.distance < closest.distance ? current : closest, null);
-                          };
-
-                          // Calculate edge intersections. For thing-group anchors the arrow tip must
-                          // sit on the group's OUTER box edge, not the anchor tab (which hides under
-                          // the box). getNodeEdgeIntersection rays from the box CENTER, which is wrong
-                          // here because the line doesn't pass through the outer-box center (the title
-                          // tab is at the top). Use the actual center line's exit point from the box.
-                          const sCenterForArrow = sourceNode.x + sNodeDims.currentWidth / 2;
-                          const sCenterForArrowY = sourceNode.y + sNodeDims.currentHeight / 2;
-                          const dCenterForArrow = destNode.x + eNodeDims.currentWidth / 2;
-                          const dCenterForArrowY = destNode.y + eNodeDims.currentHeight / 2;
-                          const sourceIntersection = sAnchorInfo?.outerBounds
-                            ? getLineNodeIntersection(
-                                sCenterForArrow, sCenterForArrowY, dCenterForArrow, dCenterForArrowY,
-                                { minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
-                                  maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
-                                  maxY: sAnchorInfo.outerBounds.y + sAnchorInfo.outerBounds.height }
-                              )
-                            : getNodeEdgeIntersection(
-                                sourceNode.x, sourceNode.y, sNodeDims.currentWidth, sNodeDims.currentHeight,
-                                dx / length, dy / length
-                              );
-
-                          const destIntersection = eAnchorInfo?.outerBounds
-                            ? getLineNodeIntersection(
-                                dCenterForArrow, dCenterForArrowY, sCenterForArrow, sCenterForArrowY,
-                                { minX: eAnchorInfo.outerBounds.x, minY: eAnchorInfo.outerBounds.y,
-                                  maxX: eAnchorInfo.outerBounds.x + eAnchorInfo.outerBounds.width,
-                                  maxY: eAnchorInfo.outerBounds.y + eAnchorInfo.outerBounds.height }
-                              )
-                            : getNodeEdgeIntersection(
-                                destNode.x, destNode.y, eNodeDims.currentWidth, eNodeDims.currentHeight,
-                                -dx / length, -dy / length
-                              );
-
-                          // Determine if each end of the edge should be shortened for arrows
-                          // (arrowsToward already calculated earlier for endpoint logic)
-
-                          // Check if this is a curved edge (parallel edge with non-zero offset)
-                          // The middle edge in an odd-numbered group has offset 0 and is straight
-                          const curveInfo = edgeCurveInfo.get(edge.id);
-                          let isCurvedEdge = false;
-                          if (curveInfo && curveInfo.totalInPair > 1) {
-                            const centerIndex = (curveInfo.totalInPair - 1) / 2;
-                            const offsetSteps = curveInfo.pairIndex - centerIndex;
-                            isCurvedEdge = offsetSteps !== 0;
-                          }
-
-                          // Only shorten connections at ends with arrows or hover state
-                          // For curved edges, NEVER change endpoints - we use trimmed paths instead
-                          // This ensures the curve shape stays consistent
-                          let shouldShortenSource = isCurvedEdge
-                            ? false  // Never change curve endpoints
-                            : (isActive || arrowsToward.has(sourceNode.id));
-                          let shouldShortenDest = isCurvedEdge
-                            ? false  // Never change curve endpoints
-                            : (isActive || arrowsToward.has(destNode.id));
-                          if (enableAutoRouting && routingStyle === 'manhattan') {
-                            // In Manhattan mode, never shorten for hover—only for actual arrows
-                            shouldShortenSource = arrowsToward.has(sourceNode.id);
-                            shouldShortenDest = arrowsToward.has(destNode.id);
-                          }
-
-                          // Determine actual start/end points for rendering
-                          let startX, startY, endX, endY;
-
-                          // For clean routing, use assigned ports; otherwise use intersection-based positioning
-                          if (enableAutoRouting && routingStyle === 'clean') {
-                            const portAssignment = cleanLaneOffsets.get(edge.id);
-                            if (portAssignment) {
-                              const { sourcePort, destPort } = portAssignment;
-
-                              // Check if this edge has directional arrows
-                              const hasSourceArrow = arrowsToward.has(sourceNode.id);
-                              const hasDestArrow = arrowsToward.has(destNode.id);
-
-                              // Use ports for directional connections, centers for non-directional
-                              startX = hasSourceArrow ? sourcePort.x : x1;
-                              startY = hasSourceArrow ? sourcePort.y : y1;
-                              endX = hasDestArrow ? destPort.x : x2;
-                              endY = hasDestArrow ? destPort.y : y2;
-                            } else {
-                              // Fallback to node centers for clean routing
-                              startX = x1;
-                              startY = y1;
-                              endX = x2;
-                              endY = y2;
-                            }
-                          } else {
-                            // Use intersection-based positioning for other routing modes.
-                            // Visible LINE endpoint uses the 4px-inset variant so the round
-                            // line cap (strokeLinecap="round", strokeWidth=6 → cap radius 3)
-                            // stops cleanly behind the arrow polygon's flat base. Arrow
-                            // placement still uses sourceIntersection/destIntersection (no
-                            // inset) downstream, so the arrow tip anchors at the literal
-                            // border.
-                            const insetLineEndpoints = (shouldShortenSource || shouldShortenDest)
-                              ? getVisualConnectionEndpoints(
-                                sourceNode, destNode, sNodeDims, eNodeDims,
-                                selectedInstanceIds.has(sourceNode.id),
-                                selectedInstanceIds.has(destNode.id),
-                                true,
-                                sAnchorInfo?.outerBounds || null,
-                                eAnchorInfo?.outerBounds || null
-                              )
-                              : null;
-                            startX = shouldShortenSource ? (insetLineEndpoints?.x1 ?? sourceIntersection?.x ?? x1) : x1;
-                            startY = shouldShortenSource ? (insetLineEndpoints?.y1 ?? sourceIntersection?.y ?? y1) : y1;
-                            endX = shouldShortenDest ? (insetLineEndpoints?.x2 ?? destIntersection?.x ?? x2) : x2;
-                            endY = shouldShortenDest ? (insetLineEndpoints?.y2 ?? destIntersection?.y ?? y2) : y2;
-                          }
-
-                          // Straight hover-preview: hovering an arrow-less end of a NON-curved edge
-                          // should look like a preview arrow — pull the visible line back by roughly
-                          // an arrowhead's length so the hover dot sits ahead of it at the border,
-                          // exactly where a real arrowhead would land. Curved edges do this via the
-                          // trimT trim below; Manhattan/Clean keep their own geometry.
-                          const isStraightRouting = !isRoutedStyle;
-                          let lineStartX = startX, lineStartY = startY, lineEndX = endX, lineEndY = endY;
-                          let straightDotSource = null, straightDotDest = null;
-                          if (isActive && isStraightRouting && !isCurvedEdge && length > 0) {
-                            const ux = dx / length, uy = dy / length;
-                            const previewBack = POLY_TIP * connectionWidth + 8;
-                            if (!arrowsToward.has(sourceNode.id) && sourceIntersection) {
-                              lineStartX = sourceIntersection.x + ux * previewBack;
-                              lineStartY = sourceIntersection.y + uy * previewBack;
-                              // Dot caps the shortened line end (tracks the connection end).
-                              straightDotSource = { x: lineStartX, y: lineStartY };
-                            }
-                            if (!arrowsToward.has(destNode.id) && destIntersection) {
-                              lineEndX = destIntersection.x - ux * previewBack;
-                              lineEndY = destIntersection.y - uy * previewBack;
-                              straightDotDest = { x: lineEndX, y: lineEndY };
-                            }
-                          }
-
-                          // Routed (Manhattan/Clean) geometry, computed ONCE per edge from the
-                          // shared helpers in edgeRouting.js — the same helpers useNodeDrag
-                          // uses. This used to be hand-inlined here AND again in the
-                          // above-groups block below AND partially re-derived at each <path>,
-                          // so the settled render and the drag-time render had no way to stay
-                          // in agreement. Keep every routed path reading from orthoPathD.
-                          let orthoRouting = null;
-                          let manhattanPathD = null;
-                          let manhattanSourceSide = null;
-                          let manhattanDestSide = null;
-
-                          if (enableAutoRouting && routingStyle === 'manhattan') {
-                            orthoRouting = computeManhattanRouting(sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends, {
-                              curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing,
-                            });
-                            startX = orthoRouting.startX;
-                            startY = orthoRouting.startY;
-                            endX = orthoRouting.endX;
-                            endY = orthoRouting.endY;
-                            manhattanPathD = orthoRouting.pathD;
-                            manhattanSourceSide = orthoRouting.sourceSide;
-                            manhattanDestSide = orthoRouting.destSide;
-                          } else if (enableAutoRouting && routingStyle === 'clean') {
-                            // startX/startY/endX/endY were already resolved from the port
-                            // assignment above and agree with this polyline's endpoints.
-                            orthoRouting = computeCleanRouting(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                          } else if (enableAutoRouting && routingStyle === 'lombardi') {
-                            orthoRouting = computeLombardiRouting(
-                              edge, sourceNode, destNode, sNodeDims, eNodeDims, lombardiTangents,
-                              { curvature: lombardiCurvature, selectedInstanceIds,
-                                curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing,
-                                sourceBounds: sAnchorInfo?.outerBounds ? {
-                                  minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
-                                  maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
-                                  maxY: sAnchorInfo.outerBounds.y + sAnchorInfo.outerBounds.height } : null,
-                                destBounds: eAnchorInfo?.outerBounds ? {
-                                  minX: eAnchorInfo.outerBounds.x, minY: eAnchorInfo.outerBounds.y,
-                                  maxX: eAnchorInfo.outerBounds.x + eAnchorInfo.outerBounds.width,
-                                  maxY: eAnchorInfo.outerBounds.y + eAnchorInfo.outerBounds.height } : null }
-                            );
-                            startX = orthoRouting.startX;
-                            startY = orthoRouting.startY;
-                            endX = orthoRouting.endX;
-                            endY = orthoRouting.endY;
-                          }
-
-                          // Orthogonal hover preview — the counterpart of the straight-edge
-                          // pull-back above, which Manhattan/Clean never had. Retract each
-                          // arrow-less end out of its node and a further arrowhead-length, and
-                          // drop the hover dot on the new endpoint. Without this these modes
-                          // had neither the shortening nor the dots, so a hovered connection
-                          // gave no affordance for adding an arrow.
-                          let orthoPathD = orthoRouting?.pathD || null;
-                          // Hit target always uses the FULL route: pointer-move hover detection
-                          // measures against the untrimmed polyline, so shrinking the click path
-                          // on hover would desync the two (and make the retracted ends dead).
-                          const orthoHitPathD = orthoPathD;
-                          if (orthoRouting && isActive) {
-                            // Lombardi's arrow-bearing ends already retreat by LOMBARDI_ARROW_INSET
-                            // (see computeLombardiRouting); match that here so a hovered dot sits
-                            // as far back as an arrow would, instead of drifting closer to the node.
-                            const previewBack = orthoRouting.kind === 'lombardi'
-                              ? LOMBARDI_ARROW_INSET + 8
-                              : POLY_TIP * connectionWidth + 8;
-                            const sBox = sAnchorInfo?.outerBounds
-                              ? { minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
-                                  maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
-                                  maxY: sAnchorInfo.outerBounds.y + sAnchorInfo.outerBounds.height }
-                              : getNodeHitbox(sourceNode, sNodeDims, selectedInstanceIds.has(sourceNode.id));
-                            const eBox = eAnchorInfo?.outerBounds
-                              ? { minX: eAnchorInfo.outerBounds.x, minY: eAnchorInfo.outerBounds.y,
-                                  maxX: eAnchorInfo.outerBounds.x + eAnchorInfo.outerBounds.width,
-                                  maxY: eAnchorInfo.outerBounds.y + eAnchorInfo.outerBounds.height }
-                              : getNodeHitbox(destNode, eNodeDims, selectedInstanceIds.has(destNode.id));
-
-                            let previewPts = orthoRouting.points;
-                            if (!arrowsToward.has(sourceNode.id)) {
-                              const t = trimRouteEnd(previewPts, sBox, true, previewBack);
-                              previewPts = t.points;
-                              straightDotSource = t.endpoint;
-                            }
-                            if (!arrowsToward.has(destNode.id)) {
-                              const t = trimRouteEnd(previewPts, eBox, false, previewBack);
-                              previewPts = t.points;
-                              straightDotDest = t.endpoint;
-                            }
-                            // Arc routings re-emit a shorter arc on the SAME circle here, so a
-                            // hovered Lombardi edge retracts without losing its curvature.
-                            orthoPathD = rebuildRoutedPath(orthoRouting, previewPts);
-                          }
-
-                          // Calculate parallel edge path using centralized utility
-                          // Note: curveInfo was already retrieved earlier for shouldShorten logic
-                          // Curved edges anchor an arrow-less end at the node CENTER and an
-                          // arrow-side end at the node BORDER (see x1/y1 logic above). The border
-                          // anchor is what visibly shortens the connection when an arrow is active.
-                          // On hover we want that same shortening as a preview, so pull the
-                          // arrow-less curve ends to the border too — making hover match arrow-active
-                          // geometry exactly (same parallelPath → same trim, arrows, dots).
-                          let curveStartX = startX, curveStartY = startY, curveEndX = endX, curveEndY = endY;
-                          if (isCurvedEdge && isActive) {
-                            const hoverBorder = getVisualConnectionEndpoints(
-                              sourceNode, destNode, sNodeDims, eNodeDims,
-                              selectedInstanceIds.has(sourceNode.id),
-                              selectedInstanceIds.has(destNode.id),
-                              true,
-                              sAnchorInfo?.outerBounds || null,
-                              eAnchorInfo?.outerBounds || null
-                            );
-                            if (!hasSourceArrow) { curveStartX = hoverBorder.x1; curveStartY = hoverBorder.y1; }
-                            if (!hasDestArrow) { curveEndX = hoverBorder.x2; curveEndY = hoverBorder.y2; }
-                          }
-                          const parallelPath = calculateParallelEdgePath(curveStartX, curveStartY, curveEndX, curveEndY, curveInfo, curveSpacing);
-                          // A routed style OWNS the geometry, so the parallel-edge bezier is
-                          // not what gets drawn — and everything downstream that keys off
-                          // useCurve (arrowhead placement, hover-dot border crossings, the
-                          // trimmed path) would otherwise measure against a curve nobody can
-                          // see. Parallel routed edges are already separated by the routing
-                          // itself: clean staggers their ports, Lombardi fans them into
-                          // distinct tangent slots.
-                          const useCurve = parallelPath.type === 'curve' && !orthoRouting;
-
-                          // Curved arrow placement (tips a fixed px from each endpoint, tangent angle).
-                          // Shared source of truth for both the arrowheads and the curve trim below.
-                          const curvedArrowPlacement = useCurve
-                            ? getCurvedArrowPlacement(parallelPath, connectionWidth, DEFAULT_TIP_INSET)
-                            : null;
-
-                          // For label placement, always use the visible segment (edge-to-edge).
-                          // This ensures labels are centered on the visible portion, not the drawn
-                          // portion. When an endpoint is a thing-group anchor, clip against the
-                          // group's full outer box so the segment excludes the whole group (not just
-                          // the title tab) — the midpoint then sits centered on the truly-visible run.
-                          const visibleEndpoints = getVisualConnectionEndpoints(
-                            sourceNode, destNode,
-                            sNodeDims, eNodeDims,
-                            selectedInstanceIds.has(sourceNode.id),
-                            selectedInstanceIds.has(destNode.id),
-                            true,
-                            sAnchorInfo?.outerBounds || null,
-                            eAnchorInfo?.outerBounds || null
-                          );
-                          const labelPlacementPath = calculateParallelEdgePath(
-                            visibleEndpoints.x1, visibleEndpoints.y1,
-                            visibleEndpoints.x2, visibleEndpoints.y2,
-                            curveInfo,
-                            curveSpacing
-                          );
-                          // Hover dots sit exactly where the bowed curve crosses each node's
-                          // border — the true visible connection end. The curve runs center→center
-                          // and bows out perpendicular, so its border crossing is laterally offset
-                          // from the straight chord's crossing (using the chord put dots off on
-                          // both axes). Walk the actual bezier out of each node box to find it.
-                          const dotBorderEndpoints = (useCurve && parallelPath.ctrlX !== null)
-                            ? (() => {
-                                const sBox = sAnchorInfo?.outerBounds
-                                  ? { minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
-                                      maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
-                                      maxY: sAnchorInfo.outerBounds.y + sAnchorInfo.outerBounds.height }
-                                  : { minX: sourceNode.x, minY: sourceNode.y,
-                                      maxX: sourceNode.x + sNodeDims.currentWidth,
-                                      maxY: sourceNode.y + sNodeDims.currentHeight };
-                                const eBox = eAnchorInfo?.outerBounds
-                                  ? { minX: eAnchorInfo.outerBounds.x, minY: eAnchorInfo.outerBounds.y,
-                                      maxX: eAnchorInfo.outerBounds.x + eAnchorInfo.outerBounds.width,
-                                      maxY: eAnchorInfo.outerBounds.y + eAnchorInfo.outerBounds.height }
-                                  : { minX: destNode.x, minY: destNode.y,
-                                      maxX: destNode.x + eNodeDims.currentWidth,
-                                      maxY: destNode.y + eNodeDims.currentHeight };
-                                const c = getCurveBorderCrossings(
-                                  parallelPath.startX, parallelPath.startY,
-                                  parallelPath.ctrlX, parallelPath.ctrlY,
-                                  parallelPath.endX, parallelPath.endY,
-                                  sBox, eBox
-                                );
-                                return { x1: c.source.x, y1: c.source.y, x2: c.dest.x, y2: c.dest.y };
-                              })()
-                            : null;
-
-                          // For hover effect or arrows on curved edges, trim the curve so it ends
-                          // exactly at the arrowhead tips (never overshoots them). Only trim the
-                          // end(s) that actually have an arrow; a plain hover keeps a small cosmetic
-                          // trim. Uses the SAME t values that place the arrowheads (curvedArrowPlacement)
-                          // so line and arrow stay in lockstep.
-                          let trimmedPath = null;
-                          const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
-                            (isActive || hasSourceArrow || hasDestArrow);
-                          if (shouldTrimCurve) {
-                            // On hover OR with a real arrow, pull the curve back to the arrowhead's
-                            // base depth (trimT) so a plain hover looks like a preview arrow — the
-                            // border-crossing dot then sits ahead of the line end, in the gap where
-                            // an arrowhead would go.
-                            const tStart = curvedArrowPlacement
-                              ? curvedArrowPlacement.source.trimT
-                              : (isActive ? 0.08 : 0);
-                            const tEnd = curvedArrowPlacement
-                              ? curvedArrowPlacement.dest.trimT
-                              : (isActive ? 0.92 : 1);
-                            trimmedPath = getTrimmedBezierPath(
-                              parallelPath.startX, parallelPath.startY,
-                              parallelPath.ctrlX, parallelPath.ctrlY,
-                              parallelPath.endX, parallelPath.endY,
-                              tStart, tEnd
-                            );
-                          }
-
-                          return (
-                            <g key={`edge-${edge.id}`} data-edge-id={edge.id}>
-                              {/* Main edge line - always same thickness */}
-                              {/* Glow effect for selected or hovered edge */}
-                              {(isSelected || isHovered) && (
-                                orthoRouting ? (
-                                  <path
-                                    d={orthoPathD}
-                                    fill="none"
-                                    stroke={edgeColor}
-                                    strokeWidth={20 * connectionWidth}
-                                    opacity={isSelected ? "0.3" : "0.2"}
-                                    style={{
-                                      filter: `drop-shadow(0 0 8px ${edgeColor})`
-                                    }}
-                                    strokeLinecap="round"
-                                  />
-                                ) : useCurve ? (
-                                  <path
-                                    d={trimmedPath ? trimmedPath.path : parallelPath.path}
-                                    fill="none"
-                                    stroke={edgeColor}
-                                    strokeWidth={20 * connectionWidth}
-                                    opacity={isSelected ? "0.3" : "0.2"}
-                                    style={{
-                                      filter: `drop-shadow(0 0 8px ${edgeColor})`
-                                    }}
-                                    strokeLinecap="round"
-                                  />
-                                ) : (
-                                  <line
-                                    x1={lineStartX}
-                                    y1={lineStartY}
-                                    x2={lineEndX}
-                                    y2={lineEndY}
-                                    stroke={edgeColor}
-                                    strokeWidth={20 * connectionWidth}
-                                    opacity={isSelected ? "0.3" : "0.2"}
-                                    style={{
-                                      filter: `drop-shadow(0 0 8px ${edgeColor})`
-                                    }}
-                                  />
-                                )
-                              )}
-
-                              {orthoRouting ? (
-                                <>
-                                  {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
-                                    <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={27 * connectionWidth} strokeLinecap="round" />
-                                  )}
-                                  {routingStyle === 'manhattan' && !arrowsToward.has(destNode.id) && (
-                                    <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={27 * connectionWidth} strokeLinecap="round" />
-                                  )}
-                                  <path
-                                    d={orthoPathD}
-                                    fill="none"
-                                    stroke={edgeColor}
-                                    strokeWidth={27 * connectionWidth}
-                                    style={{ transition: 'stroke 0.2s ease' }}
-                                    strokeLinecap="round"
-                                  />
-                                </>
-                              ) : useCurve ? (
-                                <path
-                                  d={trimmedPath ? trimmedPath.path : parallelPath.path}
-                                  fill="none"
-                                  stroke={edgeColor}
-                                  strokeWidth={27 * connectionWidth}
-                                  style={{ transition: 'stroke 0.2s ease' }}
-                                  strokeLinecap="round"
-                                />
-                              ) : (
-                                <line
-                                  x1={lineStartX}
-                                  y1={lineStartY}
-                                  x2={lineEndX}
-                                  y2={lineEndY}
-                                  stroke={edgeColor}
-                                  strokeWidth={27 * connectionWidth}
-                                  style={{ transition: 'stroke 0.2s ease' }}
-                                />
-                              )}
-
-                              {/* Invisible click area for edge selection - matches hover detection */}
-                              {orthoRouting ? (
-                                <path
-                                  d={orthoHitPathD}
-                                  fill="none"
-                                  stroke="transparent"
-                                  strokeWidth={Math.max(50, 44 * connectionWidth)}
-                                  style={{ cursor: 'pointer' }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    // Select the nearest overlapping connection, not just the topmost hitbox
-                                    selectEdgeFromClick(edge.id, e);
-                                  }}
-                                  onDoubleClick={(e) => {
-                                    e.stopPropagation();
-
-                                    // Find the defining node for this edge's connection type
-                                    let definingNodeId = null;
-
-                                    // Check definitionNodeIds first (for custom connection types)
-                                    if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                                      definingNodeId = edge.definitionNodeIds[0];
-                                    } else if (edge.typeNodeId) {
-                                      // Fallback to typeNodeId (for base connection type)
-                                      definingNodeId = edge.typeNodeId;
-                                    }
-
-                                    // Open the panel tab for the defining node
-                                    if (definingNodeId) {
-                                      storeActions.openRightPanelNodeTab(definingNodeId);
-                                    }
-                                  }}
-                                />
-                              ) : (
-                                <line
-                                  x1={x1}
-                                  y1={y1}
-                                  x2={x2}
-                                  y2={y2}
-                                  stroke="transparent"
-                                  strokeWidth={Math.max(50, 44 * connectionWidth)}
-                                  style={{ cursor: 'pointer' }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    // Select the nearest overlapping connection, not just the topmost hitbox
-                                    selectEdgeFromClick(edge.id, e);
-                                  }}
-                                  onDoubleClick={(e) => {
-                                    e.stopPropagation();
-
-                                    // Find the defining node for this edge's connection type
-                                    let definingNodeId = null;
-
-                                    // Check definitionNodeIds first (for custom connection types)
-                                    if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                                      definingNodeId = edge.definitionNodeIds[0];
-                                    } else if (edge.typeNodeId) {
-                                      // Fallback to typeNodeId (for base connection type)
-                                      definingNodeId = edge.typeNodeId;
-                                    }
-
-                                    // Open the panel tab for the defining node
-                                    if (definingNodeId) {
-                                      storeActions.openRightPanelNodeTab(definingNodeId);
-                                    }
-                                  }}
-                                />
-                              )}
-
-                              {/* Smart directional arrows with clickable toggle */}
-                              {(() => {
-                                // Calculate arrow positions (use fallback if intersections fail)
-                                let sourceArrowX, sourceArrowY, destArrowX, destArrowY, sourceArrowAngle, destArrowAngle;
-
-                                // For curved edges, calculate arrow/dot positions along the curve
-                                if (useCurve && parallelPath.ctrlX !== null && curvedArrowPlacement) {
-                                  // Curved edges: place arrowheads so their tips land a fixed pixel
-                                  // distance from each endpoint (at the node border, like straight
-                                  // edges) with the angle following the bezier tangent. Origins are
-                                  // pre-backed-off by the helper so translate() targets are the group
-                                  // origins the render expects.
-                                  sourceArrowX = curvedArrowPlacement.source.x;
-                                  sourceArrowY = curvedArrowPlacement.source.y;
-                                  sourceArrowAngle = curvedArrowPlacement.source.angle; // Points back toward source
-                                  destArrowX = curvedArrowPlacement.dest.x;
-                                  destArrowY = curvedArrowPlacement.dest.y;
-                                  destArrowAngle = curvedArrowPlacement.dest.angle; // Points toward dest
-                                } else if (orthoRouting?.kind === 'lombardi') {
-                                  // Lombardi has no node sides — an arc can leave at any bearing.
-                                  // The routing already resolved each arrowhead's origin and its
-                                  // tangent angle, so take them rather than re-deriving a direction
-                                  // from the chord (which on a bowed arc points somewhere else).
-                                  const srcA = orthoRouting.sourceArrow;
-                                  const dstA = orthoRouting.destArrow;
-                                  sourceArrowX = srcA ? srcA.x : startX;
-                                  sourceArrowY = srcA ? srcA.y : startY;
-                                  sourceArrowAngle = srcA ? srcA.angle : 0;
-                                  destArrowX = dstA ? dstA.x : endX;
-                                  destArrowY = dstA ? dstA.y : endY;
-                                  destArrowAngle = dstA ? dstA.angle : 0;
-                                } else if (enableAutoRouting && routingStyle === 'clean') {
-                                  // Clean mode: use actual port assignments for proper arrow positioning
-                                  const offset = 6;
-                                  const portAssignment = cleanLaneOffsets.get(edge.id);
-
-                                  if (portAssignment) {
-                                    const { sourcePort, destPort, sourceSide, destSide } = portAssignment;
-
-                                    // Position arrows pointing TOWARD the target node (into the edge)
-                                    // Arrow tip points toward the node, positioned outside the edge
-                                    switch (sourceSide) {
-                                      case 'top':
-                                        sourceArrowAngle = 90; // Arrow points down toward node
-                                        sourceArrowX = sourcePort.x;
-                                        sourceArrowY = sourcePort.y - offset;
-                                        break;
-                                      case 'bottom':
-                                        sourceArrowAngle = -90; // Arrow points up toward node
-                                        sourceArrowX = sourcePort.x;
-                                        sourceArrowY = sourcePort.y + offset;
-                                        break;
-                                      case 'left':
-                                        sourceArrowAngle = 0; // Arrow points right toward node
-                                        sourceArrowX = sourcePort.x - offset;
-                                        sourceArrowY = sourcePort.y;
-                                        break;
-                                      case 'right':
-                                        sourceArrowAngle = 180; // Arrow points left toward node
-                                        sourceArrowX = sourcePort.x + offset;
-                                        sourceArrowY = sourcePort.y;
-                                        break;
-                                    }
-
-                                    switch (destSide) {
-                                      case 'top':
-                                        destArrowAngle = 90; // Arrow points down toward node
-                                        destArrowX = destPort.x;
-                                        destArrowY = destPort.y - offset;
-                                        break;
-                                      case 'bottom':
-                                        destArrowAngle = -90; // Arrow points up toward node
-                                        destArrowX = destPort.x;
-                                        destArrowY = destPort.y + offset;
-                                        break;
-                                      case 'left':
-                                        destArrowAngle = 0; // Arrow points right toward node
-                                        destArrowX = destPort.x - offset;
-                                        destArrowY = destPort.y;
-                                        break;
-                                      case 'right':
-                                        destArrowAngle = 180; // Arrow points left toward node
-                                        destArrowX = destPort.x + offset;
-                                        destArrowY = destPort.y;
-                                        break;
-                                    }
-                                  } else {
-                                    // Fallback to center-based positioning
-                                    const deltaX = endX - startX;
-                                    const deltaY = endY - startY;
-                                    const isMainlyVertical = Math.abs(deltaY) > Math.abs(deltaX);
-
-                                    if (isMainlyVertical) {
-                                      sourceArrowAngle = deltaY > 0 ? -90 : 90;
-                                      sourceArrowX = startX;
-                                      sourceArrowY = startY + (deltaY > 0 ? offset : -offset);
-                                      destArrowAngle = deltaX > 0 ? 0 : 180;
-                                      destArrowX = endX + (deltaX > 0 ? -offset : offset);
-                                      destArrowY = endY;
-                                    } else {
-                                      sourceArrowAngle = deltaX > 0 ? 180 : 0;
-                                      sourceArrowX = startX + (deltaX > 0 ? offset : -offset);
-                                      sourceArrowY = startY;
-                                      destArrowAngle = deltaY > 0 ? 90 : -90;
-                                      destArrowX = endX;
-                                      destArrowY = endY + (deltaY > 0 ? -offset : offset);
-                                    }
-                                  }
-                                } else if (!sourceIntersection || !destIntersection) {
-                                  // Fallback positioning - arrows/dots closer to connection center  
-                                  const fallbackOffset = 20;
-                                  sourceArrowX = x1 + (dx / length) * fallbackOffset;
-                                  sourceArrowY = y1 + (dy / length) * fallbackOffset;
-                                  destArrowX = x2 - (dx / length) * fallbackOffset;
-                                  destArrowY = y2 - (dy / length) * fallbackOffset;
-                                  sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-                                  destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-                                } else if (enableAutoRouting && routingStyle === 'clean') {
-                                  // Clean routing arrow placement - position close to nodes for better visibility
-                                  const offset = 8; // Reduced offset for better visibility
-                                  const portAssignment = cleanLaneOffsets.get(edge.id);
-
-                                  if (portAssignment) {
-                                    const { sourcePort, destPort, sourceSide, destSide } = portAssignment;
-
-                                    // Position arrows close to the actual ports, pointing toward the nodes
-                                    switch (sourceSide) {
-                                      case 'top':
-                                        sourceArrowAngle = 90; // Arrow points down toward node
-                                        sourceArrowX = sourcePort.x;
-                                        sourceArrowY = sourcePort.y - offset;
-                                        break;
-                                      case 'bottom':
-                                        sourceArrowAngle = -90; // Arrow points up toward node
-                                        sourceArrowX = sourcePort.x;
-                                        sourceArrowY = sourcePort.y + offset;
-                                        break;
-                                      case 'left':
-                                        sourceArrowAngle = 0; // Arrow points right toward node
-                                        sourceArrowX = sourcePort.x - offset;
-                                        sourceArrowY = sourcePort.y;
-                                        break;
-                                      case 'right':
-                                        sourceArrowAngle = 180; // Arrow points left toward node
-                                        sourceArrowX = sourcePort.x + offset;
-                                        sourceArrowY = sourcePort.y;
-                                        break;
-                                    }
-
-                                    switch (destSide) {
-                                      case 'top':
-                                        destArrowAngle = 90; // Arrow points down toward node
-                                        destArrowX = destPort.x;
-                                        destArrowY = destPort.y - offset;
-                                        break;
-                                      case 'bottom':
-                                        destArrowAngle = -90; // Arrow points up toward node
-                                        destArrowX = destPort.x;
-                                        destArrowY = destPort.y + offset;
-                                        break;
-                                      case 'left':
-                                        destArrowAngle = 0; // Arrow points right toward node
-                                        destArrowX = destPort.x - offset;
-                                        destArrowY = destPort.y;
-                                        break;
-                                      case 'right':
-                                        destArrowAngle = 180; // Arrow points left toward node
-                                        destArrowX = destPort.x + offset;
-                                        destArrowY = destPort.y;
-                                        break;
-                                    }
-                                  } else {
-                                    // Fallback: position arrows close to node centers
-                                    sourceArrowX = startX;
-                                    sourceArrowY = startY;
-                                    sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-                                    destArrowX = endX;
-                                    destArrowY = endY;
-                                    destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-                                  }
-                                } else {
-                                  // Manhattan-aware arrow placement; falls back to straight orientation
-                                  const offset = 12;
-                                  if (enableAutoRouting && routingStyle === 'manhattan') {
-                                    // Destination arrow aligns to terminal segment into destination
-                                    const horizontalTerminal = Math.abs(endX - startX) > Math.abs(endY - startY);
-                                    if (horizontalTerminal) {
-                                      destArrowAngle = (endX >= startX) ? 0 : 180;
-                                      destArrowX = endX + ((endX >= startX) ? -offset : offset);
-                                      destArrowY = endY;
-                                    } else {
-                                      destArrowAngle = (endY >= startY) ? 90 : -90;
-                                      destArrowX = endX;
-                                      destArrowY = endY + ((endY >= startY) ? -offset : offset);
-                                    }
-                                    // Source arrow aligns to initial segment out of source (pointing back toward source)
-                                    const horizontalInitial = Math.abs(endX - startX) > Math.abs(endY - startY);
-                                    if (horizontalInitial) {
-                                      sourceArrowAngle = (endX - startX) >= 0 ? 180 : 0;
-                                      sourceArrowX = startX + ((endX - startX) >= 0 ? offset : -offset);
-                                      sourceArrowY = startY;
-                                    } else {
-                                      sourceArrowAngle = (endY - startY) >= 0 ? -90 : 90;
-                                      sourceArrowX = startX;
-                                      sourceArrowY = startY + ((endY - startY) >= 0 ? offset : -offset);
-                                    }
-                                  } else {
-                                    // Precise intersection positioning - adjust based on slope for visual consistency
-                                    const angle = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
-                                    const normalizedAngle = angle > 90 ? 180 - angle : angle;
-                                    // Shorter distance for quantized slopes (hitting node sides) vs diagonal (hitting corners)
-                                    const isQuantizedSlope = normalizedAngle < 15 || normalizedAngle > 75;
-                                    const arrowLength = isQuantizedSlope ? offset * 0.6 : offset;
-                                    sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-                                    sourceArrowX = sourceIntersection.x + (dx / length) * arrowLength;
-                                    sourceArrowY = sourceIntersection.y + (dy / length) * arrowLength;
-                                    destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-                                    destArrowX = destIntersection.x - (dx / length) * arrowLength;
-                                    destArrowY = destIntersection.y - (dy / length) * arrowLength;
-                                  }
-                                }
-
-                                // Override arrow orientation deterministically by Manhattan sides
-                                if (enableAutoRouting && routingStyle === 'manhattan') {
-                                  const sideOffset = 12;
-                                  // Destination arrow strictly based on destination side
-                                  if (manhattanDestSide === 'left') {
-                                    destArrowAngle = 0; // rightwards
-                                    destArrowX = endX - sideOffset;
-                                    destArrowY = endY;
-                                  } else if (manhattanDestSide === 'right') {
-                                    destArrowAngle = 180; // leftwards
-                                    destArrowX = endX + sideOffset;
-                                    destArrowY = endY;
-                                  } else if (manhattanDestSide === 'top') {
-                                    destArrowAngle = 90; // downwards
-                                    destArrowX = endX;
-                                    destArrowY = endY - sideOffset;
-                                  } else if (manhattanDestSide === 'bottom') {
-                                    destArrowAngle = -90; // upwards
-                                    destArrowX = endX;
-                                    destArrowY = endY + sideOffset;
-                                  }
-                                  // Source arrow strictly based on source side (points toward the source node)
-                                  if (manhattanSourceSide === 'left') {
-                                    sourceArrowAngle = 0; // rightwards
-                                    sourceArrowX = startX - sideOffset;
-                                    sourceArrowY = startY;
-                                  } else if (manhattanSourceSide === 'right') {
-                                    sourceArrowAngle = 180; // leftwards
-                                    sourceArrowX = startX + sideOffset;
-                                    sourceArrowY = startY;
-                                  } else if (manhattanSourceSide === 'top') {
-                                    sourceArrowAngle = 90; // downwards
-                                    sourceArrowX = startX;
-                                    sourceArrowY = startY - sideOffset;
-                                  } else if (manhattanSourceSide === 'bottom') {
-                                    sourceArrowAngle = -90; // upwards
-                                    sourceArrowX = startX;
-                                    sourceArrowY = startY + sideOffset;
-                                  }
-                                }
-
-                                // Hover "dot" affordances. For curved edges the arrow's translate
-                                // origin is a straight-line back-off that drifts OFF the curve on
-                                // sharply-bowed outer edges (and can land inside a wide node's box),
-                                // so dots use an explicit ON-curve point at the arrowhead's depth.
-                                // Other routings keep the arrow coords.
-                                // Curved: dot sits at the trimmed curve's visible end (the line's
-                                // new endpoint after the hover/arrow pull-back), tracking it exactly.
-                                // Falls back to the border crossing if the curve wasn't trimmed.
-                                const curveSourceDot = (useCurve && trimmedPath)
-                                  ? { x: trimmedPath.startX, y: trimmedPath.startY }
-                                  : (dotBorderEndpoints ? { x: dotBorderEndpoints.x1, y: dotBorderEndpoints.y1 } : null);
-                                const curveDestDot = (useCurve && trimmedPath)
-                                  ? { x: trimmedPath.endX, y: trimmedPath.endY }
-                                  : (dotBorderEndpoints ? { x: dotBorderEndpoints.x2, y: dotBorderEndpoints.y2 } : null);
-                                const sourceDotX = curveSourceDot ? curveSourceDot.x : (straightDotSource ? straightDotSource.x : sourceArrowX);
-                                const sourceDotY = curveSourceDot ? curveSourceDot.y : (straightDotSource ? straightDotSource.y : sourceArrowY);
-                                const destDotX = curveDestDot ? curveDestDot.x : (straightDotDest ? straightDotDest.x : destArrowX);
-                                const destDotY = curveDestDot ? curveDestDot.y : (straightDotDest ? straightDotDest.y : destArrowY);
-
-                                // Register touch hit-targets for a hovered/selected connection so
-                                // touch input can toggle arrows and win over the node underneath.
-                                //   - Endpoints WITHOUT an arrow → the "add arrow" orbs (only shown
-                                //     for the same routings the orb <circle>s render under, below).
-                                //   - Endpoints WITH an arrow → the arrowhead itself, so a tap on it
-                                //     removes the arrow. Arrowheads render for every routing, so this
-                                //     isn't gated on the orb routing condition.
-                                if (isHovered || isSelected) {
-                                  const orbR = Math.round(36 * connectionWidth);
-                                  // Every routing now computes an endpoint dot position: straight and
-                                  // orthogonal via their hover pull-back, curved via the trimmed
-                                  // curve end. Nothing left to exclude.
-                                  const showDots = true;
-                                  if (arrowsToward.has(sourceNode.id)) {
-                                    connectionOrbHitsRef.current.push({ cx: sourceArrowX, cy: sourceArrowY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
-                                  } else if (showDots) {
-                                    connectionOrbHitsRef.current.push({ cx: sourceDotX, cy: sourceDotY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
-                                  }
-                                  if (arrowsToward.has(destNode.id)) {
-                                    connectionOrbHitsRef.current.push({ cx: destArrowX, cy: destArrowY, r: orbR, edgeId: edge.id, nodeId: destNode.id });
-                                  } else if (showDots) {
-                                    connectionOrbHitsRef.current.push({ cx: destDotX, cy: destDotY, r: orbR, edgeId: edge.id, nodeId: destNode.id });
-                                  }
-                                }
-
-                                const handleArrowClick = (nodeId, e) => {
-                                  e.stopPropagation();
-
-                                  // Ignore the synthesized click that echoes a touch-driven orb
-                                  // toggle (which already fired on touchstart) — otherwise it
-                                  // double-toggles and cancels itself out.
-                                  if (performance.now() - orbToggleEchoRef.current < 700) {
-                                    orbToggleEchoRef.current = 0;
-                                    return;
-                                  }
-
-                                  // Toggle the arrow state for the specific node
-                                  storeActions.updateEdge(edge.id, (draft) => {
-                                    // Ensure directionality object exists
-                                    if (!draft.directionality) {
-                                      draft.directionality = { arrowsToward: new Set() };
-                                    }
-                                    // Ensure arrowsToward is a Set
-                                    if (!draft.directionality.arrowsToward) {
-                                      draft.directionality.arrowsToward = new Set();
-                                    }
-
-                                    // Toggle arrow for this specific node
-                                    if (draft.directionality.arrowsToward.has(nodeId)) {
-                                      draft.directionality.arrowsToward.delete(nodeId);
-                                    } else {
-                                      draft.directionality.arrowsToward.add(nodeId);
-                                    }
-                                  });
-                                };
-
-                                return (
-                                  <>
-                                    {/* Source Arrow - visible if arrow points toward source node */}
-                                    {arrowsToward.has(sourceNode.id) && (
-                                      <g
-                                        data-arrow="source"
-                                        transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90}) scale(${connectionWidth})`}
-                                        style={{ cursor: 'pointer' }}
-                                        onClick={(e) => handleArrowClick(sourceNode.id, e)}
-                                        onMouseDown={(e) => e.stopPropagation()}
-                                      >
-                                        {/* Glow effect for arrow - only when selected or hovered */}
-                                        {(isSelected || isHovered) && (
-                                          <polygon
-                                            points="-18,23 18,23 0,-23"
-                                            fill={edgeColor}
-                                            stroke={edgeColor}
-                                            strokeWidth="8"
-                                            strokeLinejoin="round"
-                                            strokeLinecap="round"
-                                            opacity={isSelected ? "0.3" : "0.2"}
-                                            style={{
-                                              filter: `drop-shadow(0 0 6px ${edgeColor})`
-                                            }}
-                                          />
-                                        )}
-                                        <polygon
-                                          points="-26,34 26,34 0,-34"
-                                          fill={edgeColor}
-                                          stroke={edgeColor}
-                                          strokeWidth="6"
-                                          strokeLinejoin="round"
-                                          strokeLinecap="round"
-                                          paintOrder="stroke fill"
-                                        />
-                                      </g>
-                                    )}
-
-                                    {/* Destination Arrow - visible if arrow points toward destination node */}
-                                    {arrowsToward.has(destNode.id) && (
-                                      <g
-                                        data-arrow="dest"
-                                        transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90}) scale(${connectionWidth})`}
-                                        style={{ cursor: 'pointer' }}
-                                        onClick={(e) => handleArrowClick(destNode.id, e)}
-                                        onMouseDown={(e) => e.stopPropagation()}
-                                      >
-                                        {/* Glow effect for arrow - only when selected or hovered */}
-                                        {(isSelected || isHovered) && (
-                                          <polygon
-                                            points="-18,23 18,23 0,-23"
-                                            fill={edgeColor}
-                                            stroke={edgeColor}
-                                            strokeWidth="8"
-                                            strokeLinejoin="round"
-                                            strokeLinecap="round"
-                                            opacity={isSelected ? "0.3" : "0.2"}
-                                            style={{
-                                              filter: `drop-shadow(0 0 6px ${edgeColor})`
-                                            }}
-                                          />
-                                        )}
-                                        <polygon
-                                          points="-26,34 26,34 0,-34"
-                                          fill={edgeColor}
-                                          stroke={edgeColor}
-                                          strokeWidth="6"
-                                          strokeLinejoin="round"
-                                          strokeLinecap="round"
-                                          paintOrder="stroke fill"
-                                        />
-                                      </g>
-                                    )}
-
-                                    {/* Endpoint Dots - visible when hovering OR when the connection is selected (straight edges or curved parallel edges) */}
-                                    {(isHovered || isSelected) && (
-                                      <>
-                                        {/* Source Dot - only show if arrow not pointing toward source */}
-                                        {!arrowsToward.has(sourceNode.id) && (
-                                          <g>
-                                            <circle
-                                              cx={sourceDotX}
-                                              cy={sourceDotY}
-                                              r={Math.round(36 * connectionWidth)}
-                                              fill="transparent"
-                                              style={{ cursor: 'pointer' }}
-                                              onClick={(e) => handleArrowClick(sourceNode.id, e)}
-                                              onMouseDown={(e) => e.stopPropagation()}
-                                            />
-                                            <circle
-                                              cx={sourceDotX}
-                                              cy={sourceDotY}
-                                              r={Math.round(30 * connectionWidth)}
-                                              fill={edgeColor}
-                                              style={{ pointerEvents: 'none' }}
-                                            />
-                                          </g>
-                                        )}
-
-                                        {/* Destination Dot - only show if arrow not pointing toward destination */}
-                                        {!arrowsToward.has(destNode.id) && (
-                                          <g>
-                                            <circle
-                                              cx={destDotX}
-                                              cy={destDotY}
-                                              r={Math.round(36 * connectionWidth)}
-                                              fill="transparent"
-                                              style={{ cursor: 'pointer' }}
-                                              onClick={(e) => handleArrowClick(destNode.id, e)}
-                                              onMouseDown={(e) => e.stopPropagation()}
-                                            />
-                                            <circle
-                                              cx={destDotX}
-                                              cy={destDotY}
-                                              r={Math.round(30 * connectionWidth)}
-                                              fill={edgeColor}
-                                              style={{ pointerEvents: 'none' }}
-                                            />
-                                          </g>
-                                        )}
-                                      </>
-                                    )}
-                                  </>
-                                );
-                              })()}
-
-                              {/* Connection name text — rendered after arrows so labels appear on top */}
-                              {showConnectionNames && (() => {
-                                const connectionFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
-                                let midX;
-                                let midY;
-                                let angle;
-                                if (enableAutoRouting && routingStyle === 'manhattan') {
-                                  const horizontalLen = Math.abs(endX - startX);
-                                  const verticalLen = Math.abs(endY - startY);
-                                  if (horizontalLen >= verticalLen) {
-                                    midX = (startX + endX) / 2;
-                                    midY = startY;
-                                    angle = 0;
-                                  } else {
-                                    midX = endX;
-                                    midY = (startY + endY) / 2;
-                                    angle = 90;
-                                  }
-                                } else {
-                                  // Use utility-calculated apex for curves, midpoint for lines
-                                  // Use labelPlacementPath (visible segment) for accurate centering
-                                  midX = labelPlacementPath.apexX;
-                                  midY = labelPlacementPath.apexY;
-                                  angle = labelPlacementPath.labelAngle;
-                                }
-
-                                // Determine connection name to display
-                                let connectionName = 'Connection';
-                                if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                                  const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                                  if (definitionNode) {
-                                    connectionName = definitionNode.name || 'Connection';
-                                  }
-                                } else if (edge.typeNodeId) {
-                                  const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
-                                  if (edgePrototype) {
-                                    connectionName = edgePrototype.name || 'Connection';
-                                  }
-                                }
-
-                                // Routed styles place the label ON the polyline.
-                                //
-                                // These branches used to call chooseLabelPlacement, whose on-path
-                                // strategy demands a segment longer than the entire label — at
-                                // connection font sizes almost nothing qualifies, so it fell
-                                // through to chord-based strategies that measure direction
-                                // endpoint-to-endpoint (a diagonal) and shove the label 40-80px
-                                // off to the side. Hence labels that sat tilted, detached, and
-                                // nowhere near the connection they name.
-                                if (orthoRouting) {
-                                  // Prefer the cached placement to avoid re-solving (and visibly
-                                  // re-shuffling) every label on every render.
-                                  //
-                                  // The cache MUST be keyed on the geometry it was computed from,
-                                  // not just the edge id. Keyed on the id alone it went stale on
-                                  // everything that moves a route without changing which edge it
-                                  // is: auto-layout, a node dragged elsewhere re-fanning this
-                                  // node's arcs, a change of routing style or curvature. The
-                                  // config-change effect that cleared it ran AFTER the render that
-                                  // needed clearing, and nothing re-rendered afterwards — so a
-                                  // label could sit at a position from a routing mode the user had
-                                  // already left.
-                                  //
-                                  // pathD is exactly the right signature: it is a complete,
-                                  // already-computed description of the drawn geometry. (It's the
-                                  // untrimmed route, so hovering doesn't churn the cache.)
-                                  // The crossing generation belongs in here for the same reason
-                                  // pathD does. A placement depends on where the OTHER connections
-                                  // run, so when one of them moves onto this label nothing about
-                                  // this edge changes and the stale, now-covered position would
-                                  // survive. Invalidating via the signature rather than by clearing
-                                  // the cache in an effect matters twice over: the effect would run
-                                  // after the render it was meant to protect (with nothing
-                                  // necessarily re-rendering afterwards), and it would throw away
-                                  // the anchors a drag needs to hold its placement.
-                                  const labelSignature = `${orthoRouting.pathD}|${connectionName}|${connectionFontSize}|${labelCrossingIndex?.generation ?? 0}`;
-                                  const cached = placedLabelsRef.current.get(edge.id);
-                                  if (cached && cached.position && cached.signature === labelSignature && !draggingNodeInfo) {
-                                    const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
-                                    midX = stabilized.x;
-                                    midY = stabilized.y;
-                                    angle = stabilized.angle || 0;
-                                  } else {
-                                    const placement = chooseRoutedLabelPlacement(
-                                      orthoRouting, connectionName, nodes, visibleNodeIds,
-                                      baseDimsById, placedLabelsRef.current, connectionFontSize,
-                                      edge.id, selectedInstanceIds, labelObstacleOptions
-                                    );
-                                    const stabilized = stabilizeLabelPosition(edge.id, placement.x, placement.y, placement.angle || 0);
-                                    midX = stabilized.x;
-                                    midY = stabilized.y;
-                                    angle = stabilized.angle || 0;
-
-                                    // Register the rect the label ACTUALLY occupies. The old code
-                                    // stored a pre-stabilization, always-horizontal box, so later
-                                    // labels dodged a phantom: wrong position for stabilized labels,
-                                    // and wrong axis entirely for vertical ones.
-                                    const halfW = estimateTextWidth(connectionName, connectionFontSize) / 2;
-                                    const halfH = connectionFontSize * 1.1 / 2;
-                                    const isVerticalLabel = Math.abs(((angle % 180) + 180) % 180 - 90) < 45;
-                                    placedLabelsRef.current.set(edge.id, {
-                                      rect: {
-                                        minX: midX - (isVerticalLabel ? halfH : halfW),
-                                        maxX: midX + (isVerticalLabel ? halfH : halfW),
-                                        minY: midY - (isVerticalLabel ? halfW : halfH),
-                                        maxY: midY + (isVerticalLabel ? halfW : halfH),
-                                      },
-                                      signature: labelSignature,
-                                      position: { x: midX, y: midY, angle },
-                                      // How far along the route this solve landed, so a drag can
-                                      // carry it instead of resetting to the midpoint. See ANCHORS
-                                      // in edgeLabelPlacement.js.
-                                      anchor: placement.anchor,
-                                    });
-                                  }
-                                }
-                                // For straight/curved routing, midX/midY/angle are already set from parallelPath above
-
-                                // midX/midY already sit at the center of the visible segment —
-                                // getVisualConnectionEndpoints clipped against each endpoint's real
-                                // occluder (node hitbox, or a thing-group's full outer box), so the
-                                // label needs no further nudging off the group box.
-                                const labelRenderX = midX;
-                                const labelRenderY = midY;
-
-                                // Adjust angle to keep text readable (never upside down),
-                                // then snap it into a bucket. The snap is what keeps a few hundred
-                                // labels affordable — see CONNECTION LABEL RENDERING BUDGETS. At
-                                // low label counts quantizeLabelAngle is the identity.
-                                const adjustedAngle = quantizeLabelAngle(
-                                  (angle > 90 || angle < -90) ? angle + 180 : angle
-                                );
-
-                                // Lombardi labels ride the arc itself rather than sitting on a
-                                // chord of it — whenever the bend is visible on screen and the
-                                // curved-label budget allows. labelArcPath returns null otherwise
-                                // (degenerate arc, no text, a label that would wrap the circle, or
-                                // a bow under labelArcMinBow), and a null falls through to the
-                                // straight rotated label below, which at that point is the same
-                                // picture for a fraction of the cost.
-                                //
-                                // Skipped mid-drag: the DOM-bypass updater rewrites the path each
-                                // frame (see useNodeDrag), but the <text> element's own transform
-                                // would fight it, so the drag path keeps the straight form.
-                                const labelArc = (orthoRouting?.arc && curveLabels)
-                                  ? labelArcPath(
-                                    orthoRouting.arc,
-                                    { x: labelRenderX, y: labelRenderY },
-                                    estimateTextWidth(connectionName, connectionFontSize),
-                                    { minBow: labelArcMinBow }
-                                  )
-                                  : null;
-                                const labelArcId = `lombardi-label-above-${edge.id}`;
-
-                                // Generous hitbox around the label text so the name is as
-                                // clickable as the line itself (labels often sit off the line).
-                                const labelHitW = estimateTextWidth(connectionName, connectionFontSize) + connectionFontSize * 0.9;
-                                const labelHitH = connectionFontSize * 1.5;
-
-                                return (
-                                  <g>
-                                    {/* Invisible click target covering the label text */}
-                                    <rect
-                                      x={labelRenderX - labelHitW / 2}
-                                      y={labelRenderY - labelHitH / 2}
-                                      width={labelHitW}
-                                      height={labelHitH}
-                                      rx={labelHitH / 2}
-                                      ry={labelHitH / 2}
-                                      fill="transparent"
-                                      transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
-                                      style={{ cursor: 'pointer' }}
-                                      {...getEdgeHitboxHandlers(edge.id)}
-                                    />
-                                    {/* Canvas-colored text creating a "hole" effect in the connection */}
-                                    {labelArc ? (
-                                      <>
-                                        {/* data-label-arc keeps the drag updater from mistaking
-                                            this for the edge's own path — see useNodeDrag. */}
-                                        <path id={labelArcId} d={labelArc.d} fill="none" stroke="none" data-label-arc="1" />
-                                        <text
-                                          fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
-                                          fontSize={connectionFontSize}
-                                          fontWeight="bold"
-                                          dominantBaseline="middle"
-                                          stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
-                                          strokeWidth={8 * (connectionFontSize / 54)}
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          paintOrder="stroke fill"
-                                          style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
-                                        >
-                                          <textPath href={`#${labelArcId}`} startOffset="50%" textAnchor="middle">
-                                            {connectionName}
-                                          </textPath>
-                                        </text>
-                                      </>
-                                    ) : (
-                                      <text
-                                        x={labelRenderX}
-                                        y={labelRenderY}
-                                        fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
-                                        fontSize={connectionFontSize}
-                                        fontWeight="bold"
-                                        textAnchor="middle"
-                                        dominantBaseline="middle"
-                                        transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
-                                        stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
-                                        strokeWidth={8 * (connectionFontSize / 54)}
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        paintOrder="stroke fill"
-                                        style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
-                                      >
-                                        {connectionName}
-                                      </text>
-                                    )}
-                                  </g>
-                                );
-                              })()}
-                            </g>
-                          );
-                        })}
-                      </>
+                    };
+
+                    return (
+                        <>
+                          {/* Rebuild the visible-orb hit list fresh each render before the
+                              edge blocks below push their endpoint orbs into it. */}
+                          {void (connectionOrbHitsRef.current = [])}
+                          {/* Connections and node-group shells interleaved by z-slot: each
+                              slot's connections, then the shells that are allowed to cover
+                              them (Groups Phase 2). See slotForEdge above. */}
+                          {edgeZSlotOrder.map(slot => (
+                            <React.Fragment key={`edge-z-slot-${slot}`}>
+                              {(edgesBySlot.get(slot) || []).map(renderConnectionEdge)}
+                              {nodeGroupShellsByDepth.get(slot)}
+                            </React.Fragment>
+                          ))}
+                        </>
                     );
                   })()}
 
