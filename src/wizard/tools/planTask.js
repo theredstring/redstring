@@ -16,6 +16,20 @@
  * @param {Object} args - { steps: [{ description, status, substeps?: [{ description, status }] }] }
  * @returns {Object} Plan state for conversation history
  */
+/**
+ * Valid step statuses. `skipped` means "considered and deliberately not done" —
+ * it settles a step without claiming the work happened. Without it the loop had
+ * no way to end a plan whose remaining steps turned out to be unnecessary: it
+ * would nudge the model three times and then stop with `nudge_limit`, leaving
+ * the plan permanently unfinished.
+ */
+export const STEP_STATUSES = ['pending', 'in_progress', 'done', 'skipped'];
+
+/** A step is settled when no further work on it is expected. */
+export function isSettled(step) {
+  return step?.status === 'done' || step?.status === 'skipped';
+}
+
 export async function planTask(args) {
   const { steps } = args;
 
@@ -42,7 +56,7 @@ export async function planTask(args) {
     if (!step.description) {
       throw new Error(`Step ${i + 1} is missing a description`);
     }
-    if (!['pending', 'in_progress', 'done'].includes(step.status)) {
+    if (!STEP_STATUSES.includes(step.status)) {
       step.status = 'pending';
     }
 
@@ -53,54 +67,64 @@ export async function planTask(args) {
         if (!sub.description) {
           throw new Error(`Step ${i + 1}, substep ${j + 1} is missing a description`);
         }
-        if (!['pending', 'in_progress', 'done'].includes(sub.status)) {
+        if (!STEP_STATUSES.includes(sub.status)) {
           sub.status = 'pending';
         }
       }
 
-      // Auto-complete: if all substeps are done, mark parent as done
-      if (step.substeps.length > 0 && step.substeps.every(s => s.status === 'done')) {
-        step.status = 'done';
+      // Auto-complete: if every substep is settled, so is the parent. `skipped`
+      // settles a step just as `done` does — a plan whose remaining steps turned
+      // out to be unnecessary is finished, not stuck.
+      if (step.substeps.length > 0 && step.substeps.every(s => isSettled(s))) {
+        step.status = step.substeps.every(s => s.status === 'skipped') ? 'skipped' : 'done';
       }
     }
   }
 
   const done = steps.filter(s => s.status === 'done').length;
+  const skipped = steps.filter(s => s.status === 'skipped').length;
   const inProgress = steps.filter(s => s.status === 'in_progress').length;
   const total = steps.length;
 
+  const statusIcon = (status) => {
+    if (status === 'done') return '[DONE]';
+    if (status === 'in_progress') return '[IN PROGRESS]';
+    if (status === 'skipped') return '[SKIPPED]';
+    return '[ ]';
+  };
+
   // Build formatted plan text for LLM conversation history
   const lines = steps.map((step, i) => {
-    const icon = step.status === 'done' ? '[DONE]'
-      : step.status === 'in_progress' ? '[IN PROGRESS]'
-      : '[ ]';
-    let line = `  ${i + 1}. ${icon} ${step.description}`;
+    let line = `  ${i + 1}. ${statusIcon(step.status)} ${step.description}`;
 
     // Add substep lines
     if (step.substeps && step.substeps.length > 0) {
-      const subDone = step.substeps.filter(s => s.status === 'done').length;
-      line += ` (${subDone}/${step.substeps.length} substeps)`;
+      const subSettled = step.substeps.filter(isSettled).length;
+      line += ` (${subSettled}/${step.substeps.length} substeps)`;
       for (let j = 0; j < step.substeps.length; j++) {
         const sub = step.substeps[j];
-        const subIcon = sub.status === 'done' ? '[DONE]'
-          : sub.status === 'in_progress' ? '[IN PROGRESS]'
-          : '[ ]';
         const letter = String.fromCharCode(97 + j); // a, b, c...
-        line += `\n    ${letter}. ${subIcon} ${sub.description}`;
+        line += `\n    ${letter}. ${statusIcon(sub.status)} ${sub.description}`;
       }
     }
     return line;
   });
 
-  const planText = `Plan (${done}/${total} complete):\n${lines.join('\n')}`;
+  const settled = done + skipped;
+  const skippedNote = skipped > 0 ? `, ${skipped} skipped` : '';
+  const planText = `Plan (${done}/${total} complete${skippedNote}):\n${lines.join('\n')}`;
 
   return {
     action: 'planTask',
     steps,
     done,
+    skipped,
     inProgress,
     total,
-    allComplete: done === total,
+    // A plan is complete when every step is settled, whether by doing it or by
+    // deciding it wasn't needed. Keying this on `done === total` alone is what
+    // made a skipped step an unfinishable plan.
+    allComplete: settled === total,
     planText
   };
 }

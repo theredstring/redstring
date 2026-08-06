@@ -811,12 +811,33 @@ html.dark-mode .ai-attachment-remove {
 }
 
 /* Context Usage Indicator */
+/* Now a button (click to compact), so the default button chrome has to go —
+   it should still read as the quiet status meter it was. */
 .ai-context-usage {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-left: auto;
-  padding: 2px 0;
+  padding: 2px 4px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.ai-context-usage:hover:not(:disabled) {
+  background: rgba(38, 0, 0, 0.06);
+}
+
+.ai-context-usage:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+html.dark-mode .ai-context-usage:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .ai-context-usage-bar {

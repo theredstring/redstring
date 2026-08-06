@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { runAgent } from './AgentLoop.js';
 import { streamLLM } from './LLMClient.js';
-import { buildContext } from './ContextBuilder.js';
+import { buildContext, buildPlanContext } from './ContextBuilder.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
 import fs from 'fs';
 
@@ -76,7 +76,8 @@ describe('AgentLoop', () => {
       expect(events).toEqual([
         { type: 'response', content: 'Hello! ' },
         { type: 'response', content: 'How can I help?' },
-        { type: 'done', iterations: 1 }
+        // `reason` distinguishes a model-signalled finish from a cap being hit.
+        { type: 'done', iterations: 1, reason: 'model_done' }
       ]);
 
       expect(executeTool).not.toHaveBeenCalled();
@@ -209,6 +210,107 @@ describe('AgentLoop', () => {
       // The breaker fires before the tool call is executed for this iteration.
       expect(executeTool).not.toHaveBeenCalled();
     });
+
+    it('charges cache reads at a fraction of an uncached token', async () => {
+      // The scenario the old accounting got wrong: a huge prompt that is almost
+      // entirely a cache hit. Summing promptTokens counted the full 100k and
+      // tripped the budget; the real bill is ~10% of that, so the run should
+      // continue. 5k uncached + 100k read * 0.1 + 1k completion = 16,000.
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'Done.' };
+        yield {
+          type: 'usage',
+          usage: {
+            promptTokens: 105000,
+            completionTokens: 1000,
+            totalTokens: 106000,
+            uncachedPromptTokens: 5000,
+            cacheReadTokens: 100000,
+            cacheCreationTokens: 0
+          }
+        };
+      });
+
+      const events = [];
+      for await (const event of runAgent('Go', mockGraphState, { ...mockConfig, maxAskTokens: 50000 }, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      const usage = events.find(e => e.type === 'usage');
+      expect(usage.askChargedTokens).toBe(16000);
+      // Uploaded still reports the full re-read, so waste stays visible.
+      expect(usage.askUploadedTokens).toBe(105000);
+      // Well under the 50k budget — no stop.
+      expect(events.some(e => e.reason === 'token_budget')).toBe(false);
+    });
+
+    it('charges cache writes at a premium over plain input', async () => {
+      // First iteration of a cached run pays 1.25x to populate the cache.
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'Done.' };
+        yield {
+          type: 'usage',
+          usage: {
+            promptTokens: 25000,
+            completionTokens: 0,
+            totalTokens: 25000,
+            uncachedPromptTokens: 1000,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 24000
+          }
+        };
+      });
+
+      const events = [];
+      for await (const event of runAgent('Go', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      // 1000 + 24000 * 1.25 = 31,000
+      expect(events.find(e => e.type === 'usage').askChargedTokens).toBe(31000);
+    });
+
+    it('falls back to charging the whole prompt when a provider reports no cache split', async () => {
+      // No caching fields at all (Gemini, local models): every input token is
+      // genuinely billed, so the charged total must NOT quietly discount them.
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'Done.' };
+        yield { type: 'usage', usage: { promptTokens: 8000, completionTokens: 500, totalTokens: 8500 } };
+      });
+
+      const events = [];
+      for await (const event of runAgent('Go', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      expect(events.find(e => e.type === 'usage').askChargedTokens).toBe(8500);
+    });
+
+    it('warns once when the ask crosses 80% of its budget', async () => {
+      let call = 0;
+      streamLLM.mockImplementation(async function* () {
+        if (call < 2) {
+          yield { type: 'tool_call', name: 'createNode', args: { name: `N${call}` }, id: `c${call}` };
+        } else {
+          yield { type: 'text', content: 'Finished.' };
+        }
+        call++;
+        yield { type: 'usage', usage: { promptTokens: 4500, completionTokens: 0, totalTokens: 4500 } };
+      });
+      executeTool.mockResolvedValue({ nodeId: 'node-1', name: 'N' });
+
+      const events = [];
+      // Budget 10k: iteration 1 = 4.5k (45%), iteration 2 = 9k (90% → warn).
+      for await (const event of runAgent('Go', mockGraphState, { ...mockConfig, maxAskTokens: 10000 }, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      // "Heads up" is the approach warning; the hard stop emits its own note, so
+      // match the warning specifically rather than any mention of the budget.
+      const warnings = events.filter(e => e.type === 'system_note' && e.content.startsWith('Heads up:'));
+      expect(warnings.length).toBe(1);
+      expect(warnings[0].content).toMatch(/90%/);
+    });
   });
 
   describe('multi-tool iteration', () => {
@@ -300,7 +402,10 @@ describe('AgentLoop', () => {
       executeTool.mockResolvedValue({ nodeId: 'node-1', goalId: 'goal-1' });
 
       const events = [];
-      for await (const event of runAgent('Create nodes', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
+      // Pin maxIterations rather than relying on the default. The default is now 77,
+      // which needs more than the 100-event safety break below to reach — so the
+      // loop was cut off mid-run and the last event was a 'response', never a 'done'.
+      for await (const event of runAgent('Create nodes', mockGraphState, { ...mockConfig, maxIterations: 10 }, mockEnsureSchedulerStarted)) {
         events.push(event);
         // Stop after reasonable number to avoid infinite test
         if (events.length > 100) break;
@@ -355,6 +460,150 @@ describe('AgentLoop', () => {
 
       expect(events.some(e => e.type === 'steering')).toBe(false);
       expect(events[events.length - 1]).toMatchObject({ type: 'done', reason: 'model_done' });
+    });
+  });
+
+  describe('conversation history trimming', () => {
+    it('drops oversized history by token size, not just message count', async () => {
+      let captured = null;
+      streamLLM.mockImplementation(async function* (messages) {
+        // Snapshot: AgentLoop keeps pushing onto this same array as the run
+        // proceeds, so holding the reference would measure the wrong thing.
+        captured = [...messages];
+        yield { type: 'text', content: 'ok' };
+      });
+
+      // Ten messages that are individually legal but collectively enormous. The
+      // old count-only window (20) would have replayed every one of them.
+      const conversationHistory = Array.from({ length: 10 }, (_, i) => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `${i}:${'x'.repeat(40000)}`
+      }));
+
+      const events = [];
+      for await (const event of runAgent('Go', mockGraphState, { ...mockConfig, conversationHistory }, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      // messages = [system, ...history, user]
+      const history = captured.slice(1, -1);
+      expect(history.length).toBeGreaterThan(0);
+      expect(history.length).toBeLessThan(conversationHistory.length);
+      // Trimming keeps the NEWEST turns — the last history entry must be the
+      // most recent one, not an old one.
+      expect(history[history.length - 1].content.startsWith('9:')).toBe(true);
+    });
+
+    it('keeps at least one turn even when it alone exceeds the budget', async () => {
+      let captured = null;
+      streamLLM.mockImplementation(async function* (messages) {
+        // Snapshot: AgentLoop keeps pushing onto this same array as the run
+        // proceeds, so holding the reference would measure the wrong thing.
+        captured = [...messages];
+        yield { type: 'text', content: 'ok' };
+      });
+
+      const conversationHistory = [{ role: 'user', content: 'y'.repeat(500000) }];
+
+      const events = [];
+      for await (const event of runAgent('Go', mockGraphState, { ...mockConfig, conversationHistory }, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      expect(captured.slice(1, -1).length).toBe(1);
+    });
+  });
+
+  describe('plan resumption', () => {
+    it('tells the model an inherited plan is already underway', async () => {
+      // The reported bug: a run stops on budget mid-plan, the user sends
+      // "continue", and the model re-plans from scratch instead of picking up at
+      // the next step. The plan now survives into the next turn, and the system
+      // prompt has to say so or the model treats it as a fresh request.
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'Continuing.' };
+      });
+
+      const stateWithPlan = {
+        ...mockGraphState,
+        _currentPlan: [
+          { description: 'Build layer 1', status: 'done' },
+          { description: 'Build layer 2', status: 'pending' }
+        ]
+      };
+
+      const events = [];
+      for await (const event of runAgent('continue', stateWithPlan, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+        if (events.length > 50) break;
+      }
+
+      // buildPlanContext is mocked in this suite, so assert the contract rather
+      // than the rendered string — the wording itself is covered in
+      // ContextBuilder.test.js.
+      expect(buildPlanContext).toHaveBeenCalledWith(
+        stateWithPlan._currentPlan,
+        expect.any(Number),
+        expect.any(Number),
+        { isResumed: true }
+      );
+    });
+
+    it('does not flag a fully settled plan as resumed', async () => {
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'Done.' };
+      });
+
+      const stateWithPlan = {
+        ...mockGraphState,
+        _currentPlan: [
+          { description: 'Build layer 1', status: 'done' },
+          { description: 'Optional polish', status: 'skipped' }
+        ]
+      };
+
+      const events = [];
+      for await (const event of runAgent('thanks', stateWithPlan, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+        if (events.length > 50) break;
+      }
+
+      expect(buildPlanContext).toHaveBeenCalledWith(
+        stateWithPlan._currentPlan,
+        expect.any(Number),
+        expect.any(Number),
+        { isResumed: false }
+      );
+      // A skipped step settles the plan, so the run ends instead of nudging.
+      expect(events[events.length - 1].reason).toBe('model_done');
+    });
+
+    it('lets a skipped step settle a plan instead of nudging to the limit', async () => {
+      // Same shape as the plan_incomplete test above, but the outstanding step is
+      // skipped rather than pending — the loop must accept it and stop cleanly.
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'Built what was needed.' };
+      });
+
+      const stateWithPlan = {
+        ...mockGraphState,
+        _currentPlan: [
+          { description: 'Build the graph', status: 'done' },
+          { description: 'Unnecessary extra', status: 'skipped' }
+        ]
+      };
+
+      const events = [];
+      for await (const event of runAgent('Build a graph', stateWithPlan, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+        if (events.length > 50) break;
+      }
+
+      // The plan must not be treated as unfinished. (A separate `first_iteration`
+      // nudge is expected here — it fires for any task-like prompt answered with
+      // text on iteration 0, independent of plan state.)
+      expect(events.some(e => e.type === 'steering' && e.kind === 'plan_incomplete')).toBe(false);
+      expect(events[events.length - 1].reason).not.toBe('nudge_limit');
     });
   });
 
@@ -429,7 +678,7 @@ describe('AgentLoop', () => {
 
       expect(events).toEqual([
         { type: 'error', message: 'LLM API error' },
-        { type: 'done', iterations: 1 }
+        { type: 'done', iterations: 1, reason: 'error' }
       ]);
     });
   });

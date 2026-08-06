@@ -28,9 +28,19 @@ import { queueThumbnailFetch } from '../../../services/imageCache.js';
 import headSvg from '../../../assets/svg/wizard/head.svg';
 import { getFileCategory, isTabularFile, readFileAsDataUrl, readFileAsText, readPdfAsText, readTabularFile, buildContentBlocks, SUPPORTED_IMAGE_TYPES, SUPPORTED_DOC_TYPES, MAX_FILE_SIZE } from '../../../ai/fileAttachmentUtils.js';
 import { getAllTabularData, clearTabularData } from '../../../services/tabularDataStore.js';
+import { estimateTokens, estimateObjectTokens, MAX_TOOL_RESULT_CHARS, CHARS_PER_TOKEN } from '../../../wizard/tokenEstimate.js';
+import { compactConversation } from '../../../wizard/compactConversation.js';
+import { WIZARD_SYSTEM_PROMPT } from '../../../services/agent/WizardPrompt.js';
 
 // Shared Components
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
+
+// Per-result ceiling expressed in tokens, for the context meter.
+const MAX_TOOL_RESULT_TOKENS = Math.ceil(MAX_TOOL_RESULT_CHARS / CHARS_PER_TOKEN);
+// Tool schemas are fetched from the bridge; until that lands, fall back to a
+// measured snapshot (45 tools ≈ 52.5k chars) so the meter isn't wildly optimistic
+// on first paint. Replaced by the live measurement as soon as the fetch returns.
+const TOOL_SCHEMA_FALLBACK_TOKENS = 13100;
 
 // Ask-queue safety bounds. MAX_WIZARD_QUEUE caps how many asks can pile up
 // behind a running one; MAX_CONSECUTIVE_ASK_ERRORS pauses auto-draining after
@@ -681,25 +691,18 @@ const LeftAIView = ({ compact = false,
       return 128000;
     };
 
-    const estimateTokens = (text) => text ? Math.ceil(text.length / 4) : 0;
-
     // Tool args/results are re-measured on EVERY streaming delta (this memo's
     // deps include `messages`, which is replaced per SSE event). Re-stringifying
     // a large read-only result — readGraph on a big web, findDuplicates on a big
     // universe — hundreds of times a second froze the panel, which is why the
     // stop button stopped responding mid-run. Measure each object once and
     // remember it; the estimate is a rough /4 anyway.
-    const estimateObjectTokens = (obj) => {
+    const measureCached = (obj) => {
       if (!obj) return 0;
-      if (typeof obj !== 'object') return estimateTokens(String(obj));
+      if (typeof obj !== 'object') return estimateObjectTokens(obj);
       const cached = objectTokenCacheRef.current.get(obj);
       if (cached !== undefined) return cached;
-      let size = 0;
-      try {
-        size = estimateTokens(JSON.stringify(obj));
-      } catch {
-        size = 0; // circular or otherwise unserializable — not worth failing over
-      }
+      const size = estimateObjectTokens(obj);
       objectTokenCacheRef.current.set(obj, size);
       return size;
     };
@@ -707,8 +710,16 @@ const LeftAIView = ({ compact = false,
     const model = apiKeyInfo?.model || '';
     const contextWindow = getContextWindow(model);
 
-    // Estimate system prompt + graph context (~3000-5000 tokens typically)
-    const systemPromptTokens = 3500;
+    // The fixed floor every request carries before a single word of conversation:
+    // the wizard system prompt (~12.2k) plus the tool definitions resent with every
+    // call (~13.1k across 45 tools). This was hardcoded at 3,500 — off by more than
+    // 7x — which is why the meter read comfortable right up until a run died of
+    // context exhaustion. Both halves are measured from the real artifacts rather
+    // than pinned to a number, so growing the prompt or adding a tool shows up here
+    // instead of silently eating the user's headroom.
+    const systemPromptTokens =
+      estimateTokens(WIZARD_SYSTEM_PROMPT)
+      + (wizardTools.length > 0 ? estimateObjectTokens(wizardTools) : TOOL_SCHEMA_FALLBACK_TOKENS);
 
     // Estimate conversation history tokens
     let conversationTokens = 0;
@@ -717,8 +728,12 @@ const LeftAIView = ({ compact = false,
       if (msg.contentBlocks) {
         for (const block of msg.contentBlocks) {
           if (block.type === 'tool_call') {
-            conversationTokens += estimateTokens(block.name || '') + estimateObjectTokens(block.args);
-            conversationTokens += estimateObjectTokens(block.result);
+            conversationTokens += estimateTokens(block.name || '') + measureCached(block.args);
+            // Measure what the MODEL received, not what the UI kept. Results are
+            // capped by sanitizeResultForLLM before they enter the conversation,
+            // so charging the meter for the full uncapped object (an all-graphs
+            // inspectWorkspace dump, say) reports context that was never sent.
+            conversationTokens += Math.min(measureCached(block.result), MAX_TOOL_RESULT_TOKENS);
           }
         }
       }
@@ -753,8 +768,8 @@ const LeftAIView = ({ compact = false,
     const totalUsed = systemPromptTokens + conversationTokens + pendingTokens + graphContextTokens;
     const percent = Math.min(Math.round((totalUsed / contextWindow) * 100), 100);
 
-    return { totalUsed, contextWindow, percent, conversationTokens };
-  }, [messages, apiKeyInfo?.model, contextItems, pendingAttachments]);
+    return { totalUsed, contextWindow, percent, conversationTokens, systemPromptTokens };
+  }, [messages, apiKeyInfo?.model, contextItems, pendingAttachments, wizardTools]);
 
   const [fileStatus, setFileStatus] = React.useState(null);
   React.useEffect(() => {
@@ -1834,6 +1849,44 @@ const LeftAIView = ({ compact = false,
     }
   };
 
+  /**
+   * Collapse the older part of this conversation into a summary, freeing context
+   * so a long session can keep going instead of dying of a full window.
+   *
+   * The plan is untouched by design — it lives in the store, not in the message
+   * array (see compactConversation.js) — so a compacted conversation still knows
+   * what it was building.
+   */
+  const runCompaction = React.useCallback(({ source } = {}) => {
+    if (isProcessingRef.current) {
+      addMessage('system', 'Cannot compact while a run is in progress — stop it first.');
+      return;
+    }
+
+    const current = messagesRef.current;
+    const result = compactConversation(current);
+    if (!result.compacted) {
+      addMessage('system', 'Nothing to compact yet — this conversation is still short.');
+      return;
+    }
+
+    const targetConvId = activeConversationIdRef.current;
+    setMessages(result.messages);
+    setConversations(prev => prev.map(c => (
+      c.id === targetConvId ? { ...c, messages: result.messages } : c
+    )));
+
+    const saved = result.tokensBefore - result.tokensAfter;
+    const pct = result.tokensBefore > 0 ? Math.round((saved / result.tokensBefore) * 100) : 0;
+    console.log('[Wizard] Compacted conversation', {
+      source, summarized: result.summarizedCount, before: result.tokensBefore, after: result.tokensAfter
+    });
+    addMessage('system',
+      `Compacted ${result.summarizedCount} earlier message${result.summarizedCount !== 1 ? 's' : ''} `
+      + `— freed roughly ${saved.toLocaleString()} tokens (${pct}%). Your plan is unaffected.`
+    );
+  }, [addMessage]);
+
   const handleSendMessage = async (overrideInput, sendOptions) => {
     const inputToUse = typeof overrideInput === 'string' ? overrideInput : currentInput;
     if (!inputToUse.trim() && pendingAttachments.length === 0) return;
@@ -1889,6 +1942,12 @@ const LeftAIView = ({ compact = false,
     if (userMessage.startsWith('/')) {
       const command = userMessage.slice(1).split(' ')[0].toLowerCase();
       const args = userMessage.slice(1).split(' ').slice(1);
+
+      if (command === 'compact') {
+        setCurrentInput('');
+        runCompaction({ source: 'command' });
+        return;
+      }
 
       if (command === 'test') {
         addMessage('user', userMessage);
@@ -2102,9 +2161,28 @@ const LeftAIView = ({ compact = false,
   const graphCount = graphsMap && typeof graphsMap.size === 'number' ? graphsMap.size : 0;
 
   const handleAutonomousAgent = async (question, persona = 'wizard') => {
-    // Clear this tab's durable plan at the start of each new request — plans from prior
-    // turns shouldn't contaminate new tasks. The conversation ID is stable per tab.
-    useGraphStore.getState().clearWizardPlanForConversation(activeConversationIdRef.current);
+    // Retire this tab's plan only when it is FINISHED. This used to clear
+    // unconditionally on every request, which made continuation impossible: the
+    // plan was deleted here and then read back a few hundred lines below when
+    // building graphState, so `_currentPlan` was always undefined and every
+    // "continue" re-planned from scratch — re-deriving work it had already done
+    // and burning the iterations it needed to finish.
+    //
+    // An unfinished plan is exactly what a continuation needs, so it survives. A
+    // finished one is stale by definition and would only invite the model to
+    // re-run completed steps. Steps the model marked `skipped` count as finished
+    // — that is what makes a plan abandonable rather than a trap.
+    {
+      const st = useGraphStore.getState();
+      const entry = st.wizardPlansByConversation?.[activeConversationIdRef.current];
+      const steps = entry?.steps;
+      const isFinished = Array.isArray(steps) && steps.length > 0
+        && steps.every(s => s.status === 'done' || s.status === 'skipped');
+      const isForeignGraph = entry && entry.graphId && entry.graphId !== activeGraphId;
+      if (!steps || isFinished || isForeignGraph) {
+        st.clearWizardPlanForConversation(activeConversationIdRef.current);
+      }
+    }
 
     // Bind this run's (globally-broadcast) telemetry to the conversation that
     // started it, so its tool chips don't leak into a tab the user switches to.
@@ -2134,9 +2212,29 @@ const LeftAIView = ({ compact = false,
       // Pre-create the AI message so telemetry tool_call events (which fire after the
       // fetch starts) land in this bubble rather than creating a second AI message bubble.
       const _preCreatedMsg = { id: streamingMessageId, sender: 'ai', content: '', timestamp: new Date().toISOString(), contentBlocks: [], isStreaming: true };
-      setMessages(prev => [...prev, _preCreatedMsg]);
+
+      // INVARIANT: at most one message is ever streaming. The thinking-dots row
+      // renders per-message, so a leftover isStreaming from a previous run draws
+      // its own ellipsis alongside the live one — the "two loading animations in
+      // one chat" report. Several paths can strand that flag (a stream that dies
+      // without a done event, a mid-run tab switch, a rehydrated conversation),
+      // and each has its own repair; enforcing the invariant at the single point
+      // where a new streaming bubble is born covers all of them at once,
+      // including any not yet identified.
+      const settleStale = (msgs) => {
+        let found = false;
+        for (const m of msgs) if (m?.isStreaming) { found = true; break; }
+        if (!found) return msgs;
+        console.warn('[Wizard] Found a stale streaming message when starting a run — settling it.');
+        return settleToolCallsInMessages(
+          msgs.map(m => (m?.isStreaming ? { ...m, isStreaming: false } : m)),
+          'The previous run ended before this tool returned a result.'
+        );
+      };
+
+      setMessages(prev => [...settleStale(prev), _preCreatedMsg]);
       setConversations(prev => prev.map(c => c.id === _preCreatedConvId
-        ? { ...c, messages: [...(c.messages || []), _preCreatedMsg], timestamp: new Date().toISOString() }
+        ? { ...c, messages: [...settleStale(c.messages || []), _preCreatedMsg], timestamp: new Date().toISOString() }
         : c
       ));
       _preCreated = true;
@@ -2145,7 +2243,14 @@ const LeftAIView = ({ compact = false,
 
       // Send recent conversation history for context memory
       const recentMessages = messages.slice(-10).map(msg => ({
-        role: msg.sender === 'user' ? 'user' : msg.sender === 'ai' ? 'assistant' : 'system',
+        // A compaction summary IS the earlier conversation — it has to survive
+        // into history or compacting would amount to deleting the transcript.
+        // AgentLoop drops role:'system' entries (they're context annotations, and
+        // graph context already rides in the system prompt), so the summary is
+        // sent as a user-role message instead.
+        role: msg.metadata?.kind === 'compaction-summary'
+          ? 'user'
+          : msg.sender === 'user' ? 'user' : msg.sender === 'ai' ? 'assistant' : 'system',
         content: msg.metadata?.contentBlocksForHistory || msg.content
       }));
 
@@ -2298,6 +2403,14 @@ const LeftAIView = ({ compact = false,
           }).filter(Boolean);
         })() : [],
         activeGraphId: effectiveActiveGraphId || null,
+        // Ordered list of graphs open as tabs. The context builder grades how much
+        // detail each graph gets by its distance from the active tab, so it needs
+        // the ordering — not just the set. Graphs that aren't open at all are the
+        // outermost tier and get a name-only roster entry.
+        openGraphIds: (() => {
+          const ids = useGraphStore.getState().openGraphIds;
+          return Array.isArray(ids) ? [...ids] : [];
+        })(),
         // Seed durable wizard plan so small models can resume after context clears.
         // Plans are keyed by conversation/tab ID so tabs don't contaminate each other.
         _currentPlan: (() => {
@@ -3929,7 +4042,20 @@ const LeftAIView = ({ compact = false,
               </button>
             ))}
             {messages.length > 0 && (
-              <div className="ai-context-usage" title={`~${contextUsage.totalUsed.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens used`}>
+              // Clicking the meter compacts the conversation. The meter is where
+              // the user already looks when they feel the session getting heavy,
+              // so it is the natural place to act on it; /compact does the same.
+              <button
+                type="button"
+                className="ai-context-usage"
+                disabled={isProcessing}
+                onClick={() => runCompaction({ source: 'meter' })}
+                title={
+                  `~${contextUsage.totalUsed.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens used`
+                  + `\n(${contextUsage.systemPromptTokens.toLocaleString()} of that is the fixed system prompt + tool definitions)`
+                  + `\n\nClick to compact this conversation — your plan is preserved.`
+                }
+              >
                 <div className="ai-context-usage-bar">
                   <div
                     className={`ai-context-usage-fill${contextUsage.percent >= 80 ? ' warning' : ''}${contextUsage.percent >= 95 ? ' critical' : ''}`}
@@ -3937,7 +4063,7 @@ const LeftAIView = ({ compact = false,
                   />
                 </div>
                 <span className="ai-context-usage-label">{contextUsage.percent}%</span>
-              </div>
+              </button>
             )}
           </div>
 

@@ -351,7 +351,33 @@ describe('LLMClient', () => {
       }
 
       const usage = chunks.find(c => c.type === 'usage');
-      expect(usage).toEqual({ type: 'usage', usage: { promptTokens: 1200, completionTokens: 34, totalTokens: 1234 } });
+      expect(usage).toEqual({
+        type: 'usage',
+        usage: {
+          promptTokens: 1200,
+          completionTokens: 34,
+          totalTokens: 1234,
+          uncachedPromptTokens: 1200,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0
+        }
+      });
+    });
+
+    it('credits OpenAI-reported cached prompt tokens', async () => {
+      global.fetch.mockResolvedValue(createMockFetchResponse([
+        'data: {"choices":[],"usage":{"prompt_tokens":1200,"completion_tokens":34,"total_tokens":1234,"prompt_tokens_details":{"cached_tokens":1000}}}',
+        'data: [DONE]'
+      ]));
+
+      const chunks = [];
+      for await (const chunk of streamLLM([{ role: 'user', content: 'Hi' }], [], { provider: 'openrouter', apiKey: 'k' })) {
+        chunks.push(chunk);
+      }
+
+      const usage = chunks.find(c => c.type === 'usage');
+      expect(usage.usage.cacheReadTokens).toBe(1000);
+      expect(usage.usage.uncachedPromptTokens).toBe(200);
     });
 
     it('requests usage in the stream via stream_options', async () => {
@@ -393,7 +419,86 @@ describe('LLMClient', () => {
       }
 
       const usage = chunks.find(c => c.type === 'usage');
-      expect(usage).toEqual({ type: 'usage', usage: { promptTokens: 500, completionTokens: 25, totalTokens: 525 } });
+      expect(usage).toEqual({
+        type: 'usage',
+        usage: {
+          promptTokens: 500,
+          completionTokens: 25,
+          totalTokens: 525,
+          uncachedPromptTokens: 500,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0
+        }
+      });
+    });
+
+    it('splits cached from uncached input tokens on Anthropic', async () => {
+      // With prompt caching live, input_tokens covers ONLY the uncached remainder;
+      // the cached prefix arrives in its own fields. promptTokens has to report the
+      // full input the model read, or context math silently loses the cached span.
+      global.fetch.mockResolvedValue(createMockFetchResponse([
+        'data: {"type":"message_start","message":{"usage":{"input_tokens":300,"cache_read_input_tokens":25000,"cache_creation_input_tokens":0,"output_tokens":0}}}',
+        'data: {"type":"message_delta","usage":{"output_tokens":40}}',
+        'data: {"type":"message_stop"}'
+      ]));
+
+      const chunks = [];
+      for await (const chunk of streamLLM([{ role: 'user', content: 'Hi' }], [], { provider: 'anthropic', apiKey: 'k' })) {
+        chunks.push(chunk);
+      }
+
+      const usage = chunks.find(c => c.type === 'usage');
+      expect(usage.usage).toEqual({
+        promptTokens: 25300,
+        completionTokens: 40,
+        totalTokens: 25340,
+        uncachedPromptTokens: 300,
+        cacheReadTokens: 25000,
+        cacheCreationTokens: 0
+      });
+    });
+
+    it('marks the system prefix and last tool as cacheable for Anthropic', async () => {
+      global.fetch.mockResolvedValue(createMockFetchResponse([
+        'data: {"type":"message_stop"}'
+      ]));
+
+      const tools = [
+        { name: 'alpha', description: 'a', input_schema: { type: 'object', properties: {} } },
+        { name: 'beta', description: 'b', input_schema: { type: 'object', properties: {} } }
+      ];
+      const messages = [
+        { role: 'system', content: 'STATIC PROMPT\nVOLATILE CONTEXT', cachePrefix: 'STATIC PROMPT\n' },
+        { role: 'user', content: 'Hi' }
+      ];
+
+      for await (const _ of streamLLM(messages, tools, { provider: 'anthropic', apiKey: 'k' })) { /* drain */ }
+
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      // System splits into a cached prefix + an uncached volatile tail.
+      expect(body.system).toEqual([
+        { type: 'text', text: 'STATIC PROMPT\n', cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: 'VOLATILE CONTEXT' }
+      ]);
+      // Only the LAST tool carries the breakpoint — it caches every tool before it.
+      expect(body.tools[0].cache_control).toBeUndefined();
+      expect(body.tools[1].cache_control).toEqual({ type: 'ephemeral' });
+    });
+
+    it('leaves the system message a plain string when there is no stable prefix', async () => {
+      global.fetch.mockResolvedValue(createMockFetchResponse([
+        'data: {"type":"message_stop"}'
+      ]));
+
+      const messages = [
+        { role: 'system', content: 'All of this changes every turn' },
+        { role: 'user', content: 'Hi' }
+      ];
+
+      for await (const _ of streamLLM(messages, [], { provider: 'anthropic', apiKey: 'k' })) { /* drain */ }
+
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body.system).toBe('All of this changes every turn');
     });
   });
 });

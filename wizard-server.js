@@ -281,6 +281,10 @@ app.post('/api/wizard', async (req, res) => {
       }
       // Per-ask token accounting — one line per ask so spend is inspectable in logs.
       if (lastUsage) {
+        // charged vs uploaded is the line to read: uploaded counts every input
+        // token the model saw, charged applies the cache discount. A large gap
+        // means caching is working; charged ≈ uploaded on a long run means it
+        // is not, and the ask is paying full price for identical bytes.
         console.log('[Wizard] Token usage:', {
           cid: llmConfig.cid,
           provider: llmConfig.provider,
@@ -288,7 +292,12 @@ app.post('/api/wizard', async (req, res) => {
           iterations: lastUsage.iteration,
           promptTokens: lastUsage.askPromptTokens,
           completionTokens: lastUsage.askCompletionTokens,
-          totalTokens: lastUsage.askTotalTokens
+          totalTokens: lastUsage.askTotalTokens,
+          uploadedTokens: lastUsage.askUploadedTokens,
+          chargedTokens: lastUsage.askChargedTokens,
+          cacheSavings: lastUsage.askUploadedTokens
+            ? `${Math.round((1 - (lastUsage.askChargedTokens / lastUsage.askUploadedTokens)) * 100)}%`
+            : 'n/a'
         });
       }
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);

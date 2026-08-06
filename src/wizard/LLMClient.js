@@ -155,7 +155,18 @@ function normalizeOpenAIUsage(usage) {
   const promptTokens = usage.prompt_tokens || 0;
   const completionTokens = usage.completion_tokens || 0;
   const totalTokens = usage.total_tokens || (promptTokens + completionTokens);
-  return { promptTokens, completionTokens, totalTokens };
+  // OpenAI and OpenRouter report cache hits under prompt_tokens_details when the
+  // upstream model supports it; it is automatic rather than opt-in, so there is
+  // nothing to declare on the request side — only a discount to credit here.
+  const cacheReadTokens = usage.prompt_tokens_details?.cached_tokens || 0;
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    uncachedPromptTokens: Math.max(0, promptTokens - cacheReadTokens),
+    cacheReadTokens,
+    cacheCreationTokens: 0
+  };
 }
 
 /**
@@ -630,12 +641,45 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
     }
   }
 
+  // Prompt caching. Anthropic caches the request prefix up to each cache_control
+  // breakpoint, in the fixed order tools → system → messages. Both of ours are
+  // stable for the whole ask — the 45 tool definitions never change, and the
+  // system prompt is static except for the graph context appended at its very
+  // end — so from iteration 2 onward this turns a ~25k-token re-upload into a
+  // cache read at a tenth of the price. Without it every iteration of a long
+  // agentic run pays full freight for identical bytes.
+  //
+  // The breakpoint on the system block goes after `cachePrefix` only; the volatile
+  // context that follows it must stay OUTSIDE the cached span or every iteration
+  // invalidates the entry and caching costs more than it saves (cache writes are
+  // 1.25x). AgentLoop supplies cachePrefix already split at that boundary.
+  const cachePrefix = systemMessage?.cachePrefix;
+  const systemContent = systemMessage?.content || '';
+  let systemField;
+  if (cachePrefix && systemContent.startsWith(cachePrefix)) {
+    const volatilePart = systemContent.slice(cachePrefix.length);
+    systemField = [
+      { type: 'text', text: cachePrefix, cache_control: { type: 'ephemeral' } },
+      ...(volatilePart ? [{ type: 'text', text: volatilePart }] : [])
+    ];
+  } else {
+    systemField = systemContent;
+  }
+
+  // A breakpoint on the LAST tool caches the entire tools block before it.
+  let cachedTools = tools;
+  if (Array.isArray(tools) && tools.length > 0) {
+    cachedTools = tools.map((t, i) =>
+      i === tools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' } } : t
+    );
+  }
+
   const payload = {
     model: model || 'claude-3-5-sonnet-20241022',
     max_tokens: maxTokens || 8192,
-    system: systemMessage?.content || '',
+    system: systemField,
     messages: conversationMessages,
-    ...(tools && tools.length > 0 ? { tools } : {}),
+    ...(cachedTools && cachedTools.length > 0 ? { tools: cachedTools } : {}),
     temperature: temperature ?? 0.7,
     stream: true
   };
@@ -664,7 +708,14 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
   // Token accounting: Anthropic reports input_tokens on message_start and a
   // cumulative output_tokens on each message_delta. Hold the input so we can
   // emit a complete usage event when the deltas land.
+  //
+  // input_tokens counts ONLY the uncached portion. Cached tokens arrive in their
+  // own fields and are billed differently (writes 1.25x, reads 0.1x), so they
+  // have to be carried separately rather than folded in — the whole point of the
+  // budget rework is that a cache read is not the same expense as a fresh upload.
   let anthropicInputTokens = 0;
+  let anthropicCacheReadTokens = 0;
+  let anthropicCacheCreationTokens = 0;
 
   try {
     while (true) {
@@ -691,15 +742,25 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
             // output_tokens arrives on each message_delta — emit the running total.
             if (chunk.type === 'message_start' && chunk.message?.usage) {
               anthropicInputTokens = chunk.message.usage.input_tokens || 0;
+              anthropicCacheReadTokens = chunk.message.usage.cache_read_input_tokens || 0;
+              anthropicCacheCreationTokens = chunk.message.usage.cache_creation_input_tokens || 0;
             }
             if (chunk.type === 'message_delta' && chunk.usage) {
               const completionTokens = chunk.usage.output_tokens || 0;
+              // promptTokens is the FULL input the model read, cached or not, so
+              // context-window math stays honest; the cache split rides alongside
+              // it for the cost calculation.
+              const promptTokens =
+                anthropicInputTokens + anthropicCacheReadTokens + anthropicCacheCreationTokens;
               yield {
                 type: 'usage',
                 usage: {
-                  promptTokens: anthropicInputTokens,
+                  promptTokens,
                   completionTokens,
-                  totalTokens: anthropicInputTokens + completionTokens
+                  totalTokens: promptTokens + completionTokens,
+                  uncachedPromptTokens: anthropicInputTokens,
+                  cacheReadTokens: anthropicCacheReadTokens,
+                  cacheCreationTokens: anthropicCacheCreationTokens
                 }
               };
             }

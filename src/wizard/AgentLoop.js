@@ -10,6 +10,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
 import { buildContext, buildPersistentContextHeader, buildPlanContext, truncateContext } from './ContextBuilder.js';
+import { MAX_TOOL_RESULT_CHARS, estimateObjectTokens } from './tokenEstimate.js';
+import { isSettled } from './tools/planTask.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
 import { selectToolsForTurn } from './tools/schemas.js';
 import { WIZARD_SYSTEM_PROMPT, SMALL_MODEL_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
@@ -22,6 +24,20 @@ const __dirname = __filename ? path.dirname(__filename) : process.cwd();
 
 // Load system prompt
 let SYSTEM_PROMPT = WIZARD_SYSTEM_PROMPT;
+
+// Cost weights for the per-ask budget, expressed as multiples of one uncached
+// input token. These are Anthropic's published prompt-caching ratios and are
+// close enough to other providers' to serve as a cross-provider proxy — the
+// budget needs the right order of magnitude, not a billing-grade invoice.
+const CACHE_READ_COST_RATIO = 0.1;
+const CACHE_WRITE_COST_RATIO = 1.25;
+// Fraction of the budget at which the run warns the user it is running out.
+const BUDGET_WARN_RATIO = 0.8;
+
+// Ceiling on replayed conversation history, in tokens. Sized to sit alongside
+// the ~25k fixed preamble and the 6k context header without crowding out the
+// current turn's own tool results.
+const MAX_HISTORY_TOKENS = 24000;
 
 /**
  * Shared helper: apply a bulk graph spec (nodes + edges) to the agent's internal
@@ -831,8 +847,8 @@ export function updateGraphState(graphState, _toolName, _args, result) {
   } else if (result.action === 'planTask') {
     // Store plan state on graphState for context injection (not real graph data)
     graphState._currentPlan = result.steps;
-    const done = result.steps.filter(s => s.status === 'done').length;
-    console.error('[updateGraphState] planTask: updated plan', done + '/' + result.steps.length, 'complete');
+    const settled = result.steps.filter(isSettled).length;
+    console.error('[updateGraphState] planTask: updated plan', settled + '/' + result.steps.length, 'settled');
   } else if (result.action === 'mergeNodes') {
     // Remove secondary prototype and remap its instances to primary
     const primaryName = (result.primaryName || '').toLowerCase().trim();
@@ -1005,7 +1021,11 @@ function* settleUnresolvedToolCalls(announced, resolvedIds, reason) {
 // findDuplicates have no size limits of their own and, having no `action`
 // field, used to skip this function entirely — a large universe could park
 // hundreds of KB in history and make every later tool call look like a hang.
-const MAX_RESULT_CHARS = 24000;
+//
+// Defined in tokenEstimate.js so the panel's context meter caps at the same
+// point; when they disagreed the meter billed the user for data the model
+// never saw.
+const MAX_RESULT_CHARS = MAX_TOOL_RESULT_CHARS;
 
 /**
  * Shrink an oversized tool result by truncating its longest array fields until
@@ -1147,10 +1167,39 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     .replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
     .replace(/{maxIterations}/g, String(maxIterations));
 
+  // Split the template at the {context} placeholder. Everything before it is
+  // byte-identical on every iteration of this ask, which makes it the cacheable
+  // prefix providers can charge a tenth of the price for; everything from the
+  // placeholder on is rebuilt each iteration from mutated graph state.
+  //
+  // In WizardPrompt.js the placeholder sits at the very end, so the prefix is
+  // essentially the whole ~12k-token prompt. buildSystemMessage() below keeps the
+  // two halves consistent, and providers that ignore `cachePrefix` still receive
+  // exactly the same concatenated string they got before.
+  const contextPlaceholderIdx = systemPromptTemplate.indexOf('{context}');
+  const systemStaticPrefix = contextPlaceholderIdx >= 0
+    ? systemPromptTemplate.slice(0, contextPlaceholderIdx)
+    : null;
+  const systemStaticSuffix = contextPlaceholderIdx >= 0
+    ? systemPromptTemplate.slice(contextPlaceholderIdx + '{context}'.length)
+    : '';
+
+  const buildSystemMessage = (contextText) => {
+    if (systemStaticPrefix === null) {
+      // No placeholder (custom systemPrompt from config) — nothing stable to cache.
+      return { role: 'system', content: systemPromptTemplate };
+    }
+    return {
+      role: 'system',
+      content: systemStaticPrefix + contextText + systemStaticSuffix,
+      cachePrefix: systemStaticPrefix
+    };
+  };
+
   // Build messages array with conversation history (sliding window)
   const conversationHistory = config.conversationHistory || [];
   const MAX_HISTORY_MESSAGES = 20;
-  const historyMessages = conversationHistory
+  const eligibleHistory = conversationHistory
     .filter(msg => {
       // Exclude system messages — they're context annotations that don't belong in
       // turn history (the graph context is already in the system prompt via {context})
@@ -1158,12 +1207,31 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       const hasContent = Array.isArray(msg.content) ? msg.content.length > 0 : (msg.content && msg.content.trim());
       return hasContent || (msg.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0);
     })
-    .slice(-MAX_HISTORY_MESSAGES) // Keep only recent history
-    .map(msg => ({
+    .slice(-MAX_HISTORY_MESSAGES); // Keep only recent history
+
+  // Then trim by SIZE, newest-first. The count cap alone is not a bound on
+  // anything that matters: twenty messages carrying large tool results are worth
+  // far more context than twenty one-liners, and it was the size that filled the
+  // window. Compaction measures in tokens, so this has to as well or the two
+  // disagree about what "too much history" means.
+  const historyMessages = [];
+  let historyTokens = 0;
+  for (let i = eligibleHistory.length - 1; i >= 0; i--) {
+    const msg = eligibleHistory[i];
+    const cost = estimateObjectTokens(msg.content) + estimateObjectTokens(msg.tool_calls);
+    // Always keep at least one turn, however large, so the model never loses the
+    // immediately preceding exchange.
+    if (historyTokens + cost > MAX_HISTORY_TOKENS && historyMessages.length > 0) break;
+    historyTokens += cost;
+    historyMessages.unshift({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content || null,
       tool_calls: msg.role === 'assistant' ? msg.tool_calls : undefined
-    }));
+    });
+  }
+  if (historyMessages.length < eligibleHistory.length) {
+    console.error(`[AgentLoop] History trimmed to ${historyMessages.length}/${eligibleHistory.length} messages (~${historyTokens} tokens).`);
+  }
 
   console.error('[AgentLoop] Conversation history:', historyMessages.length, 'messages');
 
@@ -1175,7 +1243,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const primingMessages = modelTier === 'small' ? [{ role: 'assistant', content: 'Understood.' }] : [];
 
   let messages = [
-    { role: 'system', content: systemPromptTemplate.replace('{context}', initialContext) },
+    buildSystemMessage(initialContext),
     ...primingMessages,
     ...historyMessages,
     { role: 'user', content: userMessage }
@@ -1218,16 +1286,47 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   // Per-ask token accounting, summed across every iteration's LLM call. Surfaced
   // to the UI/logs and used as a hard per-ask cost ceiling (see maxAskTokens).
+  //
+  // Three different numbers, because they answer three different questions:
+  //   askUploadedTokens — every input token the model read, cached or not. This is
+  //     what the old budget summed, and it grows quadratically by construction: an
+  //     agentic loop re-uploads the whole conversation every iteration, so a 25k
+  //     prompt over 20 iterations reads as 500k whether or not a byte changed.
+  //     Useful as a waste signal, useless as a cost ceiling.
+  //   askChargedTokens — cost-weighted, in units of one uncached input token. Cache
+  //     reads bill at ~0.1x and cache writes at ~1.25x, so with caching on this
+  //     tracks the actual bill instead of the byte count. THIS is what the budget caps.
+  //   askPromptTokens / askCompletionTokens — raw totals, kept for the UI readout.
   let askPromptTokens = 0;
   let askCompletionTokens = 0;
+  let askUploadedTokens = 0;
+  let askChargedTokens = 0;
+  // Whether we've already warned this ask, so the 80% notice fires once.
+  let budgetWarned = false;
+
+  // A plan present before the first iteration was inherited from a previous turn
+  // (the UI seeds _currentPlan from the durable store when the last run stopped
+  // mid-plan). It stops being "resumed" the moment the model calls planTask
+  // itself, at which point the plan is this turn's own.
+  let planWasResumed = Array.isArray(graphState._currentPlan) && graphState._currentPlan.length > 0
+    && !graphState._currentPlan.every(isSettled);
+  if (planWasResumed) {
+    const settledCount = graphState._currentPlan.filter(isSettled).length;
+    console.error(`[AgentLoop] Resuming a carried-over plan: ${settledCount}/${graphState._currentPlan.length} settled.`);
+  }
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     // Rebuild context from (potentially mutated) graphState so LLM sees current state
     {
       let freshContext = iteration > 0 ? buildPersistentContextHeader(graphState, contextItems) + attachmentContextSuffix : initialContext;
       if (modelTier === 'small') freshContext = truncateContext(freshContext, 2000);
-      const planCtx = graphState._currentPlan ? buildPlanContext(graphState._currentPlan, iteration, maxIterations) : '';
-      messages[0] = { role: 'system', content: systemPromptTemplate.replace('{context}', freshContext + planCtx) };
+      // A plan that was already present before this turn's first LLM call came
+      // from a previous turn — the model has not seen it yet in this ask, so it
+      // needs telling that it is resuming rather than starting.
+      const planCtx = graphState._currentPlan
+        ? buildPlanContext(graphState._currentPlan, iteration, maxIterations, { isResumed: planWasResumed })
+        : '';
+      messages[0] = buildSystemMessage(freshContext + planCtx);
     }
     // Small models have limited context windows — trim conversation history to prevent
     // the model from returning empty responses due to context overflow.
@@ -1374,30 +1473,71 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // it (per-iteration + running ask totals) so the UI and server logs can show
       // real spend. Providers that don't report usage simply leave iterationUsage null.
       if (iterationUsage) {
-        askPromptTokens += iterationUsage.promptTokens || 0;
-        askCompletionTokens += iterationUsage.completionTokens || 0;
+        const promptTokens = iterationUsage.promptTokens || 0;
+        const completionTokens = iterationUsage.completionTokens || 0;
+        const cacheReadTokens = iterationUsage.cacheReadTokens || 0;
+        const cacheCreationTokens = iterationUsage.cacheCreationTokens || 0;
+        // Providers that don't break out caching report the whole prompt as uncached.
+        const uncachedPromptTokens = iterationUsage.uncachedPromptTokens != null
+          ? iterationUsage.uncachedPromptTokens
+          : Math.max(0, promptTokens - cacheReadTokens - cacheCreationTokens);
+
+        askPromptTokens += promptTokens;
+        askCompletionTokens += completionTokens;
+        askUploadedTokens += promptTokens;
+        // Completion counts at face value. Output is really ~5x the price of input,
+        // but the budget exists to bound the runaway *input* re-upload, which
+        // dominates an agentic loop by an order of magnitude; weighting output too
+        // would make the ceiling harder to reason about for no practical gain.
+        askChargedTokens += Math.round(
+          uncachedPromptTokens
+          + (cacheCreationTokens * CACHE_WRITE_COST_RATIO)
+          + (cacheReadTokens * CACHE_READ_COST_RATIO)
+          + completionTokens
+        );
+
         yield {
           type: 'usage',
           iteration: iteration + 1,
-          promptTokens: iterationUsage.promptTokens || 0,
-          completionTokens: iterationUsage.completionTokens || 0,
+          promptTokens,
+          completionTokens,
           totalTokens: iterationUsage.totalTokens || 0,
+          cacheReadTokens,
+          cacheCreationTokens,
           askPromptTokens,
           askCompletionTokens,
-          askTotalTokens: askPromptTokens + askCompletionTokens
+          askTotalTokens: askPromptTokens + askCompletionTokens,
+          askUploadedTokens,
+          askChargedTokens
         };
 
         // Hard per-ask cost ceiling. Stop once cumulative spend crosses the budget,
         // regardless of how many iterations remain. This fires AFTER this iteration's
         // tool calls were yielded but BEFORE any of them execute, so every one of them
         // has to be settled or its chip spins forever on a finished run.
-        const askTotalTokens = askPromptTokens + askCompletionTokens;
-        if (askTotalTokens > maxAskTokens) {
-          console.error(`[AgentLoop] Per-ask token budget reached (${askTotalTokens} > ${maxAskTokens}) at iteration ${iteration + 1}. Stopping.`);
+        if (askChargedTokens > maxAskTokens) {
+          console.error(`[AgentLoop] Per-ask token budget reached (charged ${askChargedTokens} > ${maxAskTokens}, uploaded ${askUploadedTokens}) at iteration ${iteration + 1}. Stopping.`);
           yield* settleUnresolvedToolCalls(announcedToolCalls, resolvedToolCallIds, 'token budget reached');
-          yield { type: 'system_note', content: `Stopped: this ask reached its token budget (${askTotalTokens.toLocaleString()} tokens). Send "continue" to keep going.` };
-          yield { type: 'done', iterations: iteration + 1, reason: 'token_budget', askPromptTokens, askCompletionTokens, askTotalTokens };
+          yield { type: 'system_note', content: `Stopped: this ask reached its token budget (${askChargedTokens.toLocaleString()} tokens). Send "continue" to keep going — your plan is saved and will resume where it left off.` };
+          yield {
+            type: 'done',
+            iterations: iteration + 1,
+            reason: 'token_budget',
+            askPromptTokens,
+            askCompletionTokens,
+            askTotalTokens: askPromptTokens + askCompletionTokens,
+            askUploadedTokens,
+            askChargedTokens
+          };
           return;
+        }
+
+        // Warn once on approach, so the stop isn't the first sign of trouble.
+        if (!budgetWarned && maxAskTokens !== Infinity && askChargedTokens > maxAskTokens * BUDGET_WARN_RATIO) {
+          budgetWarned = true;
+          const pct = Math.round((askChargedTokens / maxAskTokens) * 100);
+          console.error(`[AgentLoop] Per-ask token budget at ${pct}% (${askChargedTokens}/${maxAskTokens}).`);
+          yield { type: 'system_note', content: `Heads up: this ask has used ${pct}% of its token budget (${askChargedTokens.toLocaleString()} of ${maxAskTokens.toLocaleString()}). Wrapping up soon; "continue" will resume the plan if it stops.` };
         }
       }
 
@@ -1449,7 +1589,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       }
 
       const planStatus = graphState._currentPlan
-        ? `plan: ${graphState._currentPlan.filter(s => s.status === 'done').length}/${graphState._currentPlan.length} done`
+        ? `plan: ${graphState._currentPlan.filter(isSettled).length}/${graphState._currentPlan.length} settled`
         : 'no plan';
       console.error(`[AgentLoop] Iteration ${iteration}/${maxIterations} complete. Text: ${iterationContent.length} chars, Tools: ${iterationToolCalls.length}, ${planStatus}`);
 
@@ -1514,10 +1654,10 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // No tool calls — check if the model should keep going or if it's truly done
       if (iterationToolCalls.length === 0) {
         const plan = graphState._currentPlan;
-        const planIncomplete = plan && plan.length > 0 && !plan.every(s => s.status === 'done');
+        const planIncomplete = plan && plan.length > 0 && !plan.every(isSettled);
 
         if (planIncomplete) {
-          const doneCount = plan.filter(s => s.status === 'done').length;
+          const doneCount = plan.filter(isSettled).length;
 
           // Completion-signal reconciliation. A text-only response here means the model
           // BELIEVES it's done — but the plan statuses say otherwise. The two signals have
@@ -1544,7 +1684,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           // Build specific list of incomplete steps so the model knows exactly what to do
           const incompleteSteps = plan
             .map((s, i) => ({ ...s, index: i + 1 }))
-            .filter(s => s.status !== 'done');
+            .filter(s => !isSettled(s));
           const stepList = incompleteSteps
             .map(s => `  ${s.index}. [${s.status.toUpperCase()}] ${s.description}`)
             .join('\n');
@@ -1560,7 +1700,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             // Can't touch the plan — so let it either do remaining work or close out in prose.
             yield steer('plan_incomplete', `Your plan still shows ${plan.length - doneCount} step(s) unfinished:\n${stepList}\n\nIf real work remains, call one of these now to do it:\n${availableToolList}\n\nOtherwise, if everything is actually built, reply to the user with a one-sentence summary of what you made.`);
           } else {
-            yield steer('plan_incomplete', `You replied with text, but your plan still shows ${plan.length - doneCount} step(s) as unfinished:\n${stepList}\n\nDo exactly ONE of these now:\n• If the work for those steps is already finished, call planTask and set them to "done" — don't re-describe the plan, just flip the statuses so the plan matches reality.\n• If work genuinely remains, call an action tool:\n${availableToolList}\n\nDon't reply with text again until the plan statuses are accurate.`);
+            yield steer('plan_incomplete', `You replied with text, but your plan still shows ${plan.length - doneCount} step(s) as unfinished:\n${stepList}\n\nDo exactly ONE of these now:\n• If the work for those steps is already finished, call planTask and set them to "done" — don't re-describe the plan, just flip the statuses so the plan matches reality.\n• If those steps turned out to be unnecessary, call planTask and set them to "skipped". A plan does not have to be fully executed to be finished.\n• If work genuinely remains, call an action tool:\n${availableToolList}\n\nDon't reply with text again until the plan statuses are accurate.`);
           }
           continue; // Skip termination, continue the loop
         }
@@ -1712,7 +1852,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // Without this, small models keep calling tools after the plan is complete.
       {
         const plan = graphState._currentPlan;
-        const planAllDone = plan && plan.length > 0 && plan.every(s => s.status === 'done');
+        const planAllDone = plan && plan.length > 0 && plan.every(isSettled);
         const calledPlanTask = iterationToolCalls.some(tc => tc.name === 'planTask');
         if (planAllDone && calledPlanTask && sparseDefinitionGraphs.length === 0) {
           console.error('[AgentLoop] ✓ Plan is 100% complete. Injecting stop message.');
@@ -1726,6 +1866,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       {
         const calledPlanTaskThisIter = iterationToolCalls.some(tc => tc.name === 'planTask');
         const ranMutatingThisIter = iterationToolCalls.some(tc => !NON_MUTATING_TOOLS.has(tc.name));
+        // Once the model has touched the plan itself, it is no longer inheriting
+        // someone else's — stop telling it not to re-plan.
+        if (calledPlanTaskThisIter) planWasResumed = false;
         if (calledPlanTaskThisIter && !ranMutatingThisIter) {
           consecutivePlanOnlyIterations++;
           if (consecutivePlanOnlyIterations >= 2 && !planTaskLocked) {
@@ -1756,7 +1899,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   // Max iterations reached
   const plan = graphState._currentPlan;
-  const planDone = plan ? plan.filter(s => s.status === 'done').length : 0;
+  const planDone = plan ? plan.filter(isSettled).length : 0;
   const planTotal = plan ? plan.length : 0;
   console.error(`[AgentLoop] ✗ Max iterations (${maxIterations}) reached. Plan: ${planDone}/${planTotal} done.`);
   yield { type: 'done', iterations: maxIterations, reason: 'max_iterations', planDone, planTotal };

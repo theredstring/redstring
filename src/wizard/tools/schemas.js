@@ -164,7 +164,7 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'readGraph',
-            description: 'Read all nodes, edges, and groups from the active graph. Call with NO arguments to read what the user currently sees. Only pass targetGraphId if you need a specific non-active graph.',
+            description: 'Read all nodes, edges, and groups from a graph. Primarily for NON-active graphs: pass targetGraphId for the one you need. The active graph is already described in full in your context header and refreshed every turn, so calling this with no arguments just re-reads what you can already see.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -772,12 +772,12 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'inspectWorkspace',
-            description: 'Quick comprehensive overview of the workspace. Returns all nodes, edges, and groups with their important IDs, organized by type. Much faster than searchNodes + searchConnections for getting a complete picture.',
+            description: 'Structural overview WITH IDs (instance IDs, prototype IDs, group IDs) for a graph. Use it when you need identifiers a tool requires. Do NOT use it to find out what the active graph contains — names, types, descriptions and connections are already in your context header, refreshed every turn.',
             parameters: {
                 type: 'object',
                 properties: {
                     graphId: { type: 'string', description: 'Optional: ID of a specific graph to inspect, defaults to active graph' },
-                    includeAllGraphs: { type: 'boolean', description: 'If true, returns summaries for ALL graphs in the workspace' }
+                    includeAllGraphs: { type: 'boolean', description: 'If true, returns a COUNTS-ONLY census of every graph (no node or edge contents). Use it to discover which graphs exist, then inspect a specific graphId for detail.' }
                 },
                 required: []
             }
@@ -821,7 +821,7 @@ export function getToolDefinitions(options = {}) {
                             type: 'object',
                             properties: {
                                 description: { type: 'string', description: 'What this step accomplishes' },
-                                status: { type: 'string', enum: ['pending', 'in_progress', 'done'], description: 'Current status of this step' },
+                                status: { type: 'string', enum: ['pending', 'in_progress', 'done', 'skipped'], description: 'Current status of this step. Use "skipped" for a step you have decided is not needed — it settles the step without claiming the work was done, and lets the plan finish.' },
                                 substeps: {
                                     type: 'array',
                                     description: 'Optional breakdown of this step into smaller chunks. Add substeps right before executing a step to plan the specific nodes, edges, or actions.',
@@ -829,7 +829,7 @@ export function getToolDefinitions(options = {}) {
                                         type: 'object',
                                         properties: {
                                             description: { type: 'string', description: 'Specific action within this step' },
-                                            status: { type: 'string', enum: ['pending', 'in_progress', 'done'] }
+                                            status: { type: 'string', enum: ['pending', 'in_progress', 'done', 'skipped'] }
                                         },
                                         required: ['description', 'status']
                                     }

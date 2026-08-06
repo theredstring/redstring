@@ -1,4 +1,4 @@
-import { resolveGraphId } from './resolveGraphId.js';
+import { resolveGraphId, describeGraphAmbiguity } from './resolveGraphId.js';
 
 /**
  * readGraph - Return the full active graph as a clean LLM-readable snapshot.
@@ -9,9 +9,13 @@ import { resolveGraphId } from './resolveGraphId.js';
  */
 
 export async function readGraph(args, graphState) {
-    const { nodePrototypes = [], graphs = [], edges = [], activeGraphId } = graphState;
+    const { nodePrototypes = [], graphs = [], edges = [], activeGraphId, openGraphIds = [] } = graphState;
 
-    let targetGraphId = resolveGraphId(args.targetGraphId, graphs, { activeGraphId }) || activeGraphId;
+    let targetGraphId = resolveGraphId(args.targetGraphId, graphs, { activeGraphId, openGraphIds }) || activeGraphId;
+    // Same-named graphs accumulate across sessions. Silently picking one and
+    // returning its contents as though it were the obvious answer is how the
+    // model ends up confidently reading a graph the user has never seen.
+    const ambiguityNote = describeGraphAmbiguity(args.targetGraphId, graphs, targetGraphId);
 
     if (!targetGraphId) {
         return { error: 'No graph specified. Create or open a graph first.' };
@@ -145,6 +149,18 @@ export async function readGraph(args, graphState) {
         ? `Large graph (${nodeList.length} nodes, ${edgeList.length} edges). Consider using searchNodes or searchConnections with a query to narrow focus.`
         : null;
 
+    // Reading the active graph is almost always redundant: the context header
+    // already carries its nodes, types, descriptions and connection triplets, and
+    // it is rebuilt from live state every iteration — so it is never staler than
+    // this result. The data is still returned (the model may want the IDs), but
+    // saying so is what stops the loop burning an iteration per re-read.
+    const isActiveGraph = targetGraphId === activeGraphId;
+    const redundancyNote = isActiveGraph
+        ? 'This is the active graph. Its contents are already in your context header, '
+        + 'refreshed every iteration — you do not need to call readGraph on it again. '
+        + 'Use these IDs if you need them, then proceed with the actual work.'
+        : null;
+
     return {
         graphName: activeGraph.name,
         graphId: targetGraphId,
@@ -155,6 +171,8 @@ export async function readGraph(args, graphState) {
         edges: edgeList,
         groups: groupList,
         ...(warning ? { warning } : {}),
+        ...(redundancyNote ? { note: redundancyNote } : {}),
+        ...(ambiguityNote ? { ambiguity: ambiguityNote } : {}),
         summary: `Graph "${activeGraph.name}": ${nodeList.length} node(s), ${edgeList.length} connection(s), ${groupList.length} group(s).`,
     };
 }
