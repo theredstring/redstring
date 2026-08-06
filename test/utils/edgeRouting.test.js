@@ -765,3 +765,96 @@ describe('labelArcPath minBow (screen-space curve budget)', () => {
     expect(declined).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// A connection to a THING-GROUP anchor is occluded by the group's whole outer
+// box, not by the anchor node's hitbox. Everything that positions itself "in the
+// middle of the connection" has to mean the middle of the part that is DRAWN.
+// ---------------------------------------------------------------------------
+describe('visible range of a Lombardi route', () => {
+  const d = dims(120, 100);
+  const a = node('a', 0, 0);
+  const b = node('b', 900, 0);
+  const edge = { id: 'e1', sourceId: 'a', destinationId: 'b', directionality: { arrowsToward: new Set(['b']) } };
+  const tangents = new Map([['e1', { sourceAngle: 0.6, destAngle: Math.PI - 0.6 }]]);
+
+  // 'a' is a group anchor: the group's box reaches most of the way to 'b', so
+  // the drawn curve is only the last stretch of the arc.
+  const groupBounds = { minX: -60, minY: -400, maxX: 620, maxY: 400 };
+
+  const routeWith = (sourceBounds) => computeLombardiRouting(
+    edge, a, b, d, d, tangents, { sourceBounds }
+  );
+
+  it('is the whole arc when nothing large occludes it', () => {
+    const r = routeWith(null);
+    expect(r.visibleRange.t0).toBeLessThan(0.2);
+    expect(r.visibleRange.t1).toBeGreaterThan(0.8);
+  });
+
+  it('starts where the arc leaves the group box', () => {
+    const r = routeWith(groupBounds);
+    // The group swallows the first half or so of the span.
+    expect(r.visibleRange.t0).toBeGreaterThan(0.4);
+    expect(r.visibleRange.t1).toBeGreaterThan(r.visibleRange.t0);
+
+    // And the point at t0 really is on the box border, not inside it.
+    const entry = arcPointAt(r.arc, r.visibleRange.t0);
+    expect(entry.x).toBeGreaterThanOrEqual(groupBounds.minX - 1);
+    expect(entry.x).toBeLessThanOrEqual(groupBounds.maxX + 1);
+  });
+
+  it('falls back to the full arc when the two occluders leave no gap', () => {
+    // Overlapping boxes: the arc enters the destination's box before it has left
+    // the source's, so the "visible" run comes out inverted. Placing into that
+    // would put the label at an arbitrary point outside the connection entirely.
+    const r = computeLombardiRouting(edge, a, b, d, d, tangents, {
+      sourceBounds: { minX: -60, minY: -400, maxX: 700, maxY: 400 },
+      destBounds: { minX: 650, minY: -400, maxX: 1100, maxY: 400 },
+    });
+    expect(r.visibleRange).toEqual({ t0: 0, t1: 1 });
+  });
+
+  it('never returns an inverted or out-of-bounds range', () => {
+    const boxes = [
+      null,
+      groupBounds,
+      { minX: -1000, minY: -1000, maxX: 2000, maxY: 2000 },
+      { minX: 800, minY: -50, maxX: 860, maxY: 50 },
+    ];
+    for (const box of boxes) {
+      const { t0, t1 } = routeWith(box).visibleRange;
+      expect(t0, `t0 for ${JSON.stringify(box)}`).toBeGreaterThanOrEqual(0);
+      expect(t1, `t1 for ${JSON.stringify(box)}`).toBeLessThanOrEqual(1);
+      expect(t1, `ordering for ${JSON.stringify(box)}`).toBeGreaterThan(t0);
+    }
+  });
+
+  it('puts the label on the drawn stretch rather than inside the group', () => {
+    const occluded = routeWith(groupBounds);
+    const placement = chooseRoutedLabelPlacement(
+      occluded, 'Connection', [], new Set(), new Map(), new Map(), 24, 'e1'
+    );
+    // Clear of the group box — which is exactly what "over into the node group"
+    // looked like before the range was honoured.
+    expect(placement.x).toBeGreaterThan(groupBounds.maxX);
+
+    // Without the range it lands at the arc's own midpoint, deep inside the box.
+    const unaware = placeLabelOnArc(occluded.arc);
+    expect(unaware.x).toBeLessThan(groupBounds.maxX);
+  });
+
+  it('keeps the anchor in arc parameters so a drag can reuse it', () => {
+    const occluded = routeWith(groupBounds);
+    const placement = chooseRoutedLabelPlacement(
+      occluded, 'Connection', [], new Set(), new Map(), new Map(), 24, 'e1'
+    );
+    expect(placement.anchor.t).toBeGreaterThanOrEqual(occluded.visibleRange.t0 - 1e-9);
+    expect(placement.anchor.t).toBeLessThanOrEqual(occluded.visibleRange.t1 + 1e-9);
+
+    // placeLabelOnRoute reads that t straight off the arc, so the two agree.
+    const reused = arcPointAt(occluded.arc, placement.anchor.t);
+    expect(Math.hypot(reused.x - placement.x, reused.y - placement.y))
+      .toBeLessThanOrEqual(Math.abs(placement.anchor.offset) + 1e-6);
+  });
+});

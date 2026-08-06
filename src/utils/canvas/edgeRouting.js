@@ -1159,6 +1159,12 @@ export function rebuildRoutedPath(routing, points) {
   return buildRoundedOrthogonalPath(points);
 }
 
+/** The whole arc is visible — the answer whenever there is nothing to clip against. */
+const FULL_ARC_RANGE = Object.freeze({ t0: 0, t1: 1 });
+
+/** Below this fraction of the arc a "visible" range is too short to place into. */
+const MIN_VISIBLE_ARC_FRACTION = 0.05;
+
 /**
  * Compute the full Lombardi routing descriptor for an edge.
  *
@@ -1186,13 +1192,23 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
   let sourceArrow = null;
   let destArrow = null;
 
+  // Each end's real occluder: a thing-group anchor hands us the GROUP's full
+  // outer box, which is vastly bigger than the anchor node's own hitbox. Resolved
+  // lazily because most edges never need either one.
+  let sBoxCache = null;
+  let dBoxCache = null;
+  const sourceBox = () => (sBoxCache ??=
+    options.sourceBounds || getNodeHitbox(sourceNode, sDims, !!selected?.has?.(sourceNode.id)));
+  const destBox = () => (dBoxCache ??=
+    options.destBounds || getNodeHitbox(destNode, dDims, !!selected?.has?.(destNode.id)));
+
   // Sampling is only needed to find where the arc crosses a node's box, which
-  // in turn is only needed for an END THAT HAS AN ARROW. An arrow-less edge —
-  // the common case — never pays for it, and neither does anything that only
-  // wants the circle (label placement, hit-testing, the pie-menu anchor).
+  // in turn is only needed for an END THAT HAS AN ARROW, or for a caller that
+  // asks for the visible range below. Hit-testing and the pie-menu anchor want
+  // only the circle, and never pay for it.
   if (hasSourceArrow || hasDestArrow) {
-    const sBox = options.sourceBounds || getNodeHitbox(sourceNode, sDims, !!selected?.has?.(sourceNode.id));
-    const dBox = options.destBounds || getNodeHitbox(destNode, dDims, !!selected?.has?.(destNode.id));
+    const sBox = sourceBox();
+    const dBox = destBox();
     const fullPoints = arc ? sampleArc(arc) : [p, q];
 
     // Tangent-following arrowheads. The source arrow points back at the source,
@@ -1228,6 +1244,8 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
   const from = startPt;
   const to = endPt;
 
+  let visibleRange = null;
+
   return {
     kind: 'lombardi',
     arc,
@@ -1237,6 +1255,35 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
     get points() {
       if (points === null) points = arc ? sampleArc(arc) : [from, to];
       return points;
+    },
+    /**
+     * The stretch of the arc the reader can actually SEE, in arc parameters.
+     *
+     * An arrow-less end stops at its node's centre and is covered by the node
+     * body, so the drawn curve is always a sub-range of [0,1] — and anything
+     * positioning itself "in the middle of the connection" has to mean the
+     * middle of THAT, not of the full centre-to-centre arc.
+     *
+     * Between two ordinary nodes the difference is a node-radius at each end and
+     * nobody notices. Against a THING-GROUP anchor it is the difference between
+     * on the line and nowhere near it: the occluder is the group's entire outer
+     * box, so most of the arc can be hidden, and a label at the arc's own
+     * midpoint lands deep inside the group with no connection under it.
+     *
+     * Lazy, and only the label placer reads it — an edge whose name is hidden
+     * pays nothing.
+     */
+    get visibleRange() {
+      if (visibleRange) return visibleRange;
+      if (!arc) return (visibleRange = FULL_ARC_RANGE);
+      const full = sampleArc(arc);
+      const t0 = arcParamOf(arc, trimRouteEnd(full, sourceBox(), true, 0).endpoint);
+      const t1 = arcParamOf(arc, trimRouteEnd(full, destBox(), false, 0).endpoint);
+      // Degenerate (overlapping nodes, or a group box that swallows the whole
+      // arc): a sliver gives the placer nothing to work with, and the full range
+      // at least keeps the label near its connection.
+      visibleRange = (t1 - t0) > MIN_VISIBLE_ARC_FRACTION ? { t0, t1 } : FULL_ARC_RANGE;
+      return visibleRange;
     },
     pathD: arc ? arcPathBetween(arc, startPt, endPt)
       : `M ${startPt.x},${startPt.y} L ${endPt.x},${endPt.y}`,

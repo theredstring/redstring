@@ -3089,6 +3089,33 @@ function NodeCanvas() {
     if (!showConnectionNames || !isRoutedStyle) return null;
     if (edges.length < 2 || edges.length > LABEL_CROSSING_BUDGET) return null;
 
+    // A label may only dodge what is actually DRAWN.
+    //
+    // Every routed style runs its geometry to the node CENTRES and lets the node
+    // body cover the ends, so the raw polyline always carries a stretch nobody
+    // can see. Indexing that stretch makes the placer count crossings against
+    // lines that aren't there, and since betterPlacement ranks crossings above
+    // everything else, one phantom is enough to push a label radially off a
+    // connection that had clear space on it.
+    //
+    // Between two ordinary nodes the phantom is a node-radius at each end. On a
+    // THING-GROUP anchor the occluder is the group's entire outer box, so the
+    // undrawn stretch can be most of the connection — which is why labels near a
+    // group were the ones floating off their lines.
+    const occluderFor = (node, dims) => {
+      const vb = node.isGroupAnchor
+        ? anchorPositionUpdatesRef.current.get(node.id)?.outerBounds
+        : null;
+      return vb
+        ? { minX: vb.x, minY: vb.y, maxX: vb.x + vb.width, maxY: vb.y + vb.height }
+        : getNodeHitbox(node, dims, selectedInstanceIds.has(node.id));
+    };
+    const visibleOnly = (pts, srcNode, dstNode, sDims, dDims) => {
+      if (!pts || pts.length < 2) return pts;
+      const fromSource = trimRouteEnd(pts, occluderFor(srcNode, sDims), true, 0).points;
+      return trimRouteEnd(fromSource, occluderFor(dstNode, dDims), false, 0).points;
+    };
+
     const polylines = new Map();
     for (const edge of edges) {
       const destId = edge.destinationId || edge.targetId;
@@ -3101,22 +3128,24 @@ function NodeCanvas() {
       const dDims = baseDimsById.get(destId);
       if (!sDims || !dDims) continue;
 
+      let raw;
       if (routingStyle === 'manhattan') {
-        polylines.set(edge.id, computeManhattanRouting(
+        raw = computeManhattanRouting(
           srcNode, dstNode, sDims, dDims, manhattanBends,
           { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing }
-        ).points);
+        ).points;
       } else if (routingStyle === 'clean') {
-        polylines.set(edge.id, computeCleanRouting(
+        raw = computeCleanRouting(
           edge, srcNode, dstNode, sDims, dDims, cleanLaneOffsets, cleanLaneSpacing
-        ).points);
+        ).points;
       } else {
         const { p, q, arc } = lombardiArcFor(
           edge, srcNode, dstNode, sDims, dDims, lombardiTangents, lombardiCurvature,
           { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing }
         );
-        polylines.set(edge.id, arc ? sampleArc(arc, 24) : [p, q]);
+        raw = arc ? sampleArc(arc, 24) : [p, q];
       }
+      polylines.set(edge.id, visibleOnly(raw, srcNode, dstNode, sDims, dDims));
     }
     const index = buildEdgeSegmentIndex(polylines);
     // Stamped so a cached placement can name the crossing landscape it was
@@ -3129,7 +3158,7 @@ function NodeCanvas() {
   }, [showConnectionNames, isRoutedStyle, edges, nodeById, baseDimsById,
     routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing,
     lombardiTangents, lombardiCurvature, edgeCurveInfo,
-    orthogonalLaneSpacing, lombardiLaneSpacing]);
+    orthogonalLaneSpacing, lombardiLaneSpacing, selectedInstanceIds]);
 
   // The obstacle set every label dodges. Identical for every edge, so build it
   // once — each placement call used to rebuild it from all visible nodes, which

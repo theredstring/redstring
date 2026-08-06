@@ -15,6 +15,7 @@ import {
   placeLabelOnRoute,
   estimateTextWidth,
 } from '../edgeLabelPlacement.js';
+import { trimRouteEnd } from '../edgeRouting.js';
 
 const rect = (minX, minY, maxX, maxY) => ({ minX, minY, maxX, maxY });
 const line = (...pts) => pts.map(([x, y]) => ({ x, y }));
@@ -243,5 +244,47 @@ describe('anchors: a drag keeps the placement the full solve chose', () => {
     for (const missing of [null, undefined, {}, { t: NaN, offset: 0 }]) {
       expect(placeLabelOnRoute(routing, missing).x).toBeCloseTo(600, 6);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A label may only dodge what the reader can SEE.
+//
+// Every routed style runs its geometry to the node centres and lets the node
+// body (or, for a thing-group anchor, the group's whole outer box) cover the
+// ends. Indexing that undrawn stretch makes the placer count crossings against
+// lines that aren't there — and betterPlacement ranks crossings above every
+// other consideration, so a single phantom pushes a label off a connection that
+// had clear space on it. NodeCanvas therefore clips each polyline with
+// trimRouteEnd before handing it to buildEdgeSegmentIndex; this pins why.
+// ---------------------------------------------------------------------------
+describe('crossing index over visible geometry only', () => {
+  // 'other' runs from deep inside a group box out to the right. Only the part
+  // past the box border is drawn.
+  const groupBox = { minX: -100, minY: -300, maxX: 400, maxY: 300 };
+  const full = line([0, 0], [800, 0]);
+  const visible = trimRouteEnd(full, groupBox, true, 0).points;
+
+  // A label sitting on its own connection, inside the group's footprint.
+  const labelRect = rect(150, -20, 300, 20);
+
+  it('counts a phantom crossing when the undrawn stretch is indexed', () => {
+    const index = buildEdgeSegmentIndex(new Map([['other', full]]));
+    expect(countCrossingEdges(labelRect, index, 'mine')).toBe(1);
+  });
+
+  it('counts none once the polyline is clipped to what is drawn', () => {
+    const index = buildEdgeSegmentIndex(new Map([['other', visible]]));
+    expect(countCrossingEdges(labelRect, index, 'mine')).toBe(0);
+  });
+
+  it('still sees the part that IS drawn', () => {
+    const index = buildEdgeSegmentIndex(new Map([['other', visible]]));
+    expect(countCrossingEdges(rect(500, -20, 650, 20), index, 'mine')).toBe(1);
+  });
+
+  it('leaves a polyline alone when nothing occludes it', () => {
+    const clear = trimRouteEnd(full, { minX: -900, minY: -900, maxX: -800, maxY: -800 }, true, 0).points;
+    expect(clear).toEqual(full);
   });
 });

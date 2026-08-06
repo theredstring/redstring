@@ -813,10 +813,25 @@ const arcAnchor = (arc, s) => {
     return { ...pt, nx, ny };
 };
 
-export const placeLabelOnArc = (arc) => {
+/**
+ * Map a position along the VISIBLE run onto the underlying arc parameter.
+ *
+ * ARC_ALONG is expressed as "how far along the connection the reader sees", which
+ * is only the same as the arc parameter when the whole arc is drawn. See
+ * `visibleRange` on the Lombardi descriptor for why they diverge — most sharply
+ * against a thing-group anchor, where the group's outer box hides much of the arc.
+ */
+const arcRangeParam = (range, s) => {
+    const t0 = Number.isFinite(range?.t0) ? range.t0 : 0;
+    const t1 = Number.isFinite(range?.t1) ? range.t1 : 1;
+    return t0 + s * (t1 - t0);
+};
+
+export const placeLabelOnArc = (arc, range = null) => {
     if (!arc) return { x: 0, y: 0, angle: 0, anchor: { t: 0.5, offset: 0 } };
-    const mid = arcPointAt(arc, 0.5);
-    return { x: mid.x, y: mid.y, angle: mid.angle, anchor: { t: 0.5, offset: 0 } };
+    const t = arcRangeParam(range, 0.5);
+    const mid = arcPointAt(arc, t);
+    return { x: mid.x, y: mid.y, angle: mid.angle, anchor: { t, offset: 0 } };
 };
 
 export const chooseArcLabelPlacement = (
@@ -839,9 +854,14 @@ export const chooseArcLabelPlacement = (
 
     const radialOffsets = [0, textHeight * 0.6, -textHeight * 0.6, textHeight, -textHeight];
 
+    // Slide along the VISIBLE run, not the whole arc — `s` is a fraction of what
+    // the reader can see, and arcRangeParam converts it to an arc parameter.
+    const range = options.range;
+
     let best = null;
     for (const s of ARC_ALONG) {
-        const anchor = arcAnchor(arc, s);
+        const t = arcRangeParam(range, s);
+        const anchor = arcAnchor(arc, t);
         for (const offset of radialOffsets) {
             const x = anchor.x + anchor.nx * offset;
             const y = anchor.y + anchor.ny * offset;
@@ -863,7 +883,10 @@ export const chooseArcLabelPlacement = (
                     // bow ever actually changing sides — comparing absolute radial
                     // vectors mistook that rotation for a flip and negated the
                     // offset on every sufficiently-large sweep.
-                    anchor: { t: s, offset, bowSign: Math.sign(arc.delta) },
+                    // Stored as an ARC parameter, not a visible-run fraction, so
+                    // placeLabelOnRoute can reuse it every drag frame without
+                    // needing the range re-derived.
+                    anchor: { t, offset, bowSign: Math.sign(arc.delta) },
                 };
             }
         }
@@ -871,14 +894,14 @@ export const chooseArcLabelPlacement = (
 
     if (best) return best;
 
-    const fallback = placeLabelOnArc(arc);
+    const fallback = placeLabelOnArc(arc, range);
     const fallbackRect = labelRectFor(fallback.x, fallback.y, textWidth, textHeight, fallback.angle);
     return {
         ...fallback,
         score: 0,
         crossings: countCrossingEdges(fallbackRect, options.segmentIndex, edgeId),
         rect: fallbackRect,
-        anchor: { t: 0.5, offset: 0 },
+        anchor: fallback.anchor,
     };
 };
 
@@ -939,7 +962,9 @@ export const placeLabelOnRoute = (routing, anchor = null) => {
             return { ...anchorOnPolyline(routing.points, anchor.t, anchor.offset), anchor };
         }
     }
-    return routing?.arc ? placeLabelOnArc(routing.arc) : placeLabelOnPath(routing?.points);
+    return routing?.arc
+        ? placeLabelOnArc(routing.arc, routing.visibleRange)
+        : placeLabelOnPath(routing?.points);
 };
 
 /** Full placement with obstacle avoidance. Used by the settled render. */
@@ -948,8 +973,11 @@ export const chooseRoutedLabelPlacement = (
     placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set(), options = {}
 ) => (
     routing?.arc
+        // The descriptor knows which stretch of its own arc is actually drawn;
+        // the placer must not wander outside it. See `visibleRange`.
         ? chooseArcLabelPlacement(routing.arc, connectionName, nodes, visibleNodeIds,
-            baseDimsById, placedLabels, fontSize, edgeId, selectedNodeIds, options)
+            baseDimsById, placedLabels, fontSize, edgeId, selectedNodeIds,
+            { ...options, range: routing.visibleRange })
         : chooseOrthogonalLabelPlacement(routing?.points, connectionName, nodes, visibleNodeIds,
             baseDimsById, placedLabels, fontSize, edgeId, selectedNodeIds, options)
 );
