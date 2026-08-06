@@ -6703,6 +6703,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
         // Sanitize and recover activeGraphId / openGraphIds:
         //   - drop dangling references to graphs that don't exist
+        //   - drop duplicate entries (a duplicate tab renders two React children
+        //     with the same key, which breaks reconciliation). Every store write
+        //     site guards against this, but a file written by an older build can
+        //     carry duplicates forever unless load heals them.
         //   - if activeGraphId is missing/dangling but valid open or saved graphs
         //     remain, pick one so the canvas doesn't render the empty state
         //     (the "loaded but unlinked" pattern)
@@ -6711,7 +6715,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           const graphExists = (id) => !!(id && graphsMap && (graphsMap instanceof Map ? graphsMap.has(id) : graphsMap[id]));
 
           if (Array.isArray(storeState.openGraphIds)) {
-            storeState.openGraphIds = storeState.openGraphIds.filter(graphExists);
+            const deduped = [...new Set(storeState.openGraphIds)];
+            if (deduped.length !== storeState.openGraphIds.length) {
+              console.warn(`[graphStore] openGraphIds contained ${storeState.openGraphIds.length - deduped.length} duplicate entr(ies) — deduplicated on load.`);
+            }
+            storeState.openGraphIds = deduped.filter(graphExists);
           } else {
             storeState.openGraphIds = [];
           }

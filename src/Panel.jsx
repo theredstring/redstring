@@ -811,7 +811,9 @@ const Panel = memo(forwardRef(
 
     // <<< ADD BACK: Derive data for open graphs for the left panel list view >>>
     const openGraphsForList = useMemo(() => {
-      return openGraphIds.map(id => {
+      // Dedupe: list entries are keyed by graph id, so a repeated entry would
+      // produce two children with the same React key.
+      return [...new Set(openGraphIds)].map(id => {
         const graphData = graphsMap.get(id); // Use reactive graphsMap
         if (!graphData) return null; // Handle case where graph might not be found
 

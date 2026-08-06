@@ -1026,7 +1026,15 @@ function NodeCanvas() {
   }, [activeGraphId, graphsMap, nodePrototypesMap, storeActions]);
 
   const headerGraphs = useMemo(() => {
-    return openGraphIds.map(graphId => {
+    // Dedupe defensively: tabs are keyed by graph.id in Header, so a repeated
+    // entry produces two children with the same key. The store heals duplicates
+    // on load, but this keeps rendering correct for any transient state too.
+    const seen = new Set();
+    return openGraphIds.filter(graphId => {
+      if (seen.has(graphId)) return false;
+      seen.add(graphId);
+      return true;
+    }).map(graphId => {
       const graph = graphsMap.get(graphId);
       if (!graph) return null;
 
