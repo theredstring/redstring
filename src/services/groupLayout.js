@@ -231,14 +231,26 @@ function computeGroupLayoutInner(group, context) {
 
   const C = GROUP_LAYOUT_CONSTANTS;
   const margin = memberBoundaryPaddingFor(gridSize) + C.innerCanvasBorder;
-  const rectX = minX - margin;
+  let rectX = minX - margin;
   const rectY = minY - margin;
-  const rectW = (maxX - minX) + margin * 2;
+  let rectW = (maxX - minX) + margin * 2;
   const rectH = (maxY - minY) + margin * 2;
 
   const labelText = group.name || 'Group';
   const labelWidth = labelWidthFor(labelText, measureLabelWidth, labelScale);
   const labelHeight = labelHeightConst(labelScale, labelFontSize);
+
+  // The background band must be at least as wide as the title plus its own
+  // breathing room, or the title spills past the band on narrow groups (few/
+  // small members with a long name). Grow symmetrically around the member
+  // bbox's center so the members don't get pushed toward one edge.
+  const minRectW = labelWidth + C.titlePaddingHorizontal * 2;
+  if (minRectW > rectW) {
+    const extra = minRectW - rectW;
+    rectX -= extra / 2;
+    rectW = minRectW;
+  }
+
   const labelX = rectX + (rectW - labelWidth) / 2;
   const labelY = rectY - labelHeight - C.titleToCanvasGap;
 
