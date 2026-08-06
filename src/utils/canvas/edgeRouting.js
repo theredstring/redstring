@@ -684,6 +684,13 @@ function capTangentChord(delta) {
 // and a radius bounded by roughly L²/(8·MIN_VISIBLE_BOW).
 export const MIN_VISIBLE_BOW = 0.4;
 
+// A Lombardi label only earns a <textPath> if its baseline visibly bends on
+// screen. Below this the curved and straight versions are the same picture.
+// Shared by the settled render (NodeCanvas) and the live drag updater
+// (useNodeDrag) so the two agree on when a label should curve — see
+// labelArcMinBow at each call site.
+export const LABEL_CURVE_MIN_SCREEN_PX = 1.2;
+
 // How far past the node border an arrowhead's origin sits, and (since the
 // line trims back by this same amount) how far the visible curve retreats
 // from the border too. The arrowhead polygon's tip reaches POLY_TIP (34, see
@@ -1007,7 +1014,7 @@ export const MAX_LABEL_SWEEP = Math.PI * 1.8;
 // The path is made longer than the text so `startOffset="50%"` has room either
 // side; a path exactly as long as the estimate would clip if the estimate ran
 // a few percent short.
-const LABEL_PATH_SLACK = 1.4;
+export const LABEL_PATH_SLACK = 1.4;
 
 /**
  * A path for a label to ride along its own arc, or null if it shouldn't.

@@ -105,7 +105,7 @@ import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath, MIN_VISIBLE_BOW, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, LOMBARDI_ARROW_INSET, sampleArc } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath, MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, LOMBARDI_ARROW_INSET, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
 import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
@@ -179,9 +179,6 @@ const LABEL_ANGLE_QUANTUM_MIN_COUNT = 48;
 // backstop: `labelArcMinBow` normally sheds them long before this bites.
 const CURVED_LABEL_BUDGET = 40;
 
-// A Lombardi label only earns a <textPath> if its baseline visibly bends on
-// screen. Below this the curved and straight versions are the same picture.
-const LABEL_CURVE_MIN_SCREEN_PX = 1.2;
 
 // Above this many visible connections, labels stop trying to dodge the ones
 // they land under. The dodge needs every connection's routed geometry plus a
