@@ -31,7 +31,14 @@ import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR } from '../constants.js';
 import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from './fileStorage.js';
 import { importFromRedstring } from '../formats/redstringFormat.js';
 import { MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
-import { PLACEHOLDER_ID_PREFIX } from '../services/groupLayout.js';
+import {
+  PLACEHOLDER_ID_PREFIX,
+  buildGroupsByMemberIdIndex,
+  buildChildGroupIdsIndex,
+  buildParentGroupIdsIndex,
+  collectAncestorGroupIds,
+  collectDescendantGroupIds,
+} from '../services/groupLayout.js';
 import { debugLogSync } from '../utils/debugLogger.js';
 import useHistoryStore from './historyStore.js';
 import { generateDescription } from '../utils/actionDescriptions.js';
@@ -592,6 +599,155 @@ const isGroupContainedInInstances = (group, instanceIdSet) => {
   if (group.anchorInstanceId && instanceIdSet.has(group.anchorInstanceId)) return true;
   const memberIds = Array.isArray(group.memberInstanceIds) ? group.memberInstanceIds : [];
   return memberIds.length > 0 && memberIds.every(id => instanceIdSet.has(id));
+};
+
+/**
+ * Group-to-group containment lives in `isGroupInsideGroup` (groupLayout.js) —
+ * the single definition shared with render-time depth. These wrappers resolve
+ * it against a live Immer draft.
+ *
+ * Reading draft Maps/arrays to build the indexes is safe (reads don't mark
+ * anything modified), but the indexes hold draft references, so they must be
+ * rebuilt per call and never cached across a `produce` boundary.
+ */
+const groupContainmentIndexesInDraft = (graph) => {
+  const groupsById = graph?.groups || new Map();
+  const childGroupIds = buildChildGroupIdsIndex(groupsById, buildGroupsByMemberIdIndex(groupsById));
+  return { groupsById, childGroupIds, parentGroupIds: buildParentGroupIdsIndex(childGroupIds) };
+};
+
+/**
+ * A node-group IS its linked prototype as far as the user is concerned — editing
+ * the group's identity (name/color) edits the Thing itself, everywhere it
+ * appears: the prototype, open right-panel tabs, the graphs it defines, and every
+ * other node-group bound to it.
+ *
+ * Call after the group's own name/color have already been written.
+ */
+const syncNodeGroupIdentity = (draft, group, nameChanged, colorChanged) => {
+  if (!group?.linkedNodePrototypeId || (!nameChanged && !colorChanged)) return;
+  const prototype = draft.nodePrototypes.get(group.linkedNodePrototypeId);
+  if (!prototype) {
+    console.warn(`[syncNodeGroupIdentity] Node-group ${group.id} references non-existent prototype ${group.linkedNodePrototypeId}`);
+    return;
+  }
+
+  if (nameChanged) {
+    console.log(`[syncNodeGroupIdentity] Syncing node-group name to prototype ${group.linkedNodePrototypeId}: "${prototype.name}" → "${group.name}"`);
+    prototype.name = group.name;
+    draft.rightPanelTabs.forEach(tab => {
+      if (tab.nodeId === group.linkedNodePrototypeId) tab.title = group.name;
+    });
+    // Matching updateNodePrototype: the graphs this prototype defines are named after it.
+    if (Array.isArray(prototype.definitionGraphIds)) {
+      prototype.definitionGraphIds.forEach(defGraphId => {
+        const defGraph = draft.graphs.get(defGraphId);
+        if (defGraph) defGraph.name = group.name;
+      });
+    }
+  }
+  if (colorChanged) {
+    console.log(`[syncNodeGroupIdentity] Syncing node-group color to prototype ${group.linkedNodePrototypeId}: "${prototype.color}" → "${group.color}"`);
+    prototype.color = group.color;
+  }
+
+  // Other node-groups in other graphs linked to the same prototype must follow too.
+  syncNodeGroupsToPrototype(draft, group.linkedNodePrototypeId, prototype, group.id);
+};
+
+const syncGroupSemanticRelationships = (group, stamp) => {
+  if (!group.semanticMetadata) {
+    group.semanticMetadata = { type: 'Group', relationships: [], createdAt: stamp, lastModified: stamp };
+  }
+  group.semanticMetadata.relationships = group.memberInstanceIds.map(memberId => ({
+    predicate: 'memberOf',
+    subject: memberId,
+    object: group.id,
+    source: 'redstring-grouping'
+  }));
+  group.semanticMetadata.lastModified = stamp;
+};
+
+/**
+ * Adds instances to a group and to every group that contains it, transitively.
+ *
+ * Containment is implicit — derived from membership, not stored — so adding a
+ * member to a nested group *alone* destroys the very relation that made it
+ * nested: it stops being contained, loses its depth, and a plain group with no
+ * depth drops to the flat bottom render layer, hidden behind the opaque shell
+ * that encloses it. Propagating upward keeps the relation intact, and it is
+ * also what the gesture meant: a node placed inside a group that sits inside a
+ * Thing is inside that Thing too.
+ *
+ * @returns {boolean} whether anything changed.
+ */
+const addMembersWithAncestors = (graph, groupId, instanceIds) => {
+  const group = graph?.groups?.get(groupId);
+  if (!group || !Array.isArray(instanceIds) || instanceIds.length === 0) return false;
+
+  // Resolved against the PRE-ADD state: the containment test compares member
+  // sets, and it stops holding the moment the target group has grown.
+  const { parentGroupIds } = groupContainmentIndexesInDraft(graph);
+  const targets = [group];
+  for (const ancestorId of collectAncestorGroupIds(groupId, parentGroupIds)) {
+    const ancestor = graph.groups.get(ancestorId);
+    if (ancestor && Array.isArray(ancestor.memberInstanceIds)) targets.push(ancestor);
+  }
+
+  const stamp = new Date().toISOString();
+  let changedAny = false;
+  for (const target of targets) {
+    const existing = new Set(target.memberInstanceIds);
+    let changed = false;
+    for (const id of instanceIds) {
+      if (existing.has(id)) continue;
+      // A group can never be a member of itself. Letting an anchor into its own
+      // group's member list is the one way to make containment mutual, which
+      // `isGroupInsideGroup` then has to break arbitrarily.
+      if (target.anchorInstanceId === id) continue;
+      target.memberInstanceIds.push(id);
+      existing.add(id);
+      changed = true;
+    }
+    if (changed) {
+      syncGroupSemanticRelationships(target, stamp);
+      changedAny = true;
+    }
+  }
+  return changedAny;
+};
+
+/**
+ * Removes instances from a group and from every group nested inside it,
+ * transitively — the mirror of `addMembersWithAncestors`. Pulling a node out of
+ * an outer group while an inner one keeps it breaks containment exactly the
+ * same way, and you cannot be inside a sub-part of a Thing you are not inside.
+ *
+ * @returns {boolean} whether anything changed.
+ */
+const removeMembersWithDescendants = (graph, groupId, instanceIds) => {
+  const group = graph?.groups?.get(groupId);
+  if (!group || !Array.isArray(instanceIds) || instanceIds.length === 0) return false;
+
+  const { childGroupIds } = groupContainmentIndexesInDraft(graph);
+  const targets = [group];
+  for (const descendantId of collectDescendantGroupIds(groupId, childGroupIds)) {
+    const descendant = graph.groups.get(descendantId);
+    if (descendant && Array.isArray(descendant.memberInstanceIds)) targets.push(descendant);
+  }
+
+  const removing = new Set(instanceIds);
+  const stamp = new Date().toISOString();
+  let changedAny = false;
+  for (const target of targets) {
+    const before = target.memberInstanceIds.length;
+    target.memberInstanceIds = target.memberInstanceIds.filter(id => !removing.has(id));
+    if (target.memberInstanceIds.length !== before) {
+      syncGroupSemanticRelationships(target, stamp);
+      changedAny = true;
+    }
+  }
+  return changedAny;
 };
 
 // Middleware to integrate with SaveCoordinator
@@ -1365,60 +1521,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           console.log(`[updateGroup] Group ${groupId} renamed from "${originalName}" to "${group.name}"`);
         }
 
-        // A node-group IS its linked prototype as far as the user is concerned — editing
-        // the group's identity (name/color) edits the Thing itself, everywhere it appears.
-        if ((nameChanged || colorChanged) && group.linkedNodePrototypeId) {
-          const prototype = draft.nodePrototypes.get(group.linkedNodePrototypeId);
-          if (prototype) {
-            if (nameChanged) {
-              console.log(`[updateGroup] Syncing node-group name to prototype ${group.linkedNodePrototypeId}: "${prototype.name}" → "${group.name}"`);
-              prototype.name = group.name;
-
-              // Update titles in right panel tabs
-              draft.rightPanelTabs.forEach(tab => {
-                if (tab.nodeId === group.linkedNodePrototypeId) {
-                  tab.title = group.name;
-                }
-              });
-            }
-            if (colorChanged) {
-              console.log(`[updateGroup] Syncing node-group color to prototype ${group.linkedNodePrototypeId}: "${prototype.color}" → "${group.color}"`);
-              prototype.color = group.color;
-            }
-
-            // Sync name change to any graphs defined by this prototype (matching updateNodePrototype logic)
-            if (nameChanged && Array.isArray(prototype.definitionGraphIds)) {
-              prototype.definitionGraphIds.forEach(defGraphId => {
-                const defGraph = draft.graphs.get(defGraphId);
-                if (defGraph) {
-                  defGraph.name = group.name;
-                }
-              });
-            }
-
-            // Other node-groups in other graphs linked to the same prototype must follow too.
-            syncNodeGroupsToPrototype(draft, group.linkedNodePrototypeId, prototype, groupId);
-          } else {
-            console.warn(`[updateGroup] Node-group ${groupId} references non-existent prototype ${group.linkedNodePrototypeId}`);
-          }
-        }
+        syncNodeGroupIdentity(draft, group, nameChanged, colorChanged);
       }));
     },
 
     /**
-     * Adds instances to a group, propagating the addition to every group that
-     * currently contains it.
-     *
-     * Containment between groups is implicit: group B is nested in group A iff
-     * B's members are a strict subset of A's (see computeChildGroupIdsForGroup in
-     * groupLayout.js). Adding a member to B alone therefore breaks the subset and
-     * silently un-nests it — it loses its depth, and a plain group that loses its
-     * depth drops back to the flat bottom layer where the containing node-group's
-     * opaque shell hides it. Propagating upward keeps the relation intact, and it
-     * matches what the drop actually meant: a node placed inside a group that sits
-     * inside a Thing is inside that Thing too.
-     *
-     * Same invariant the nested-decompose pass in decomposeNodeToGroup maintains.
+     * Adds instances to a group and to every group containing it, transitively.
+     * See `addMembersWithAncestors` for why the propagation is mandatory.
      *
      * @param {string} graphId - ID of the graph containing the group.
      * @param {string} groupId - ID of the group to add to.
@@ -1430,53 +1539,57 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
         if (!graph?.groups) return;
-        const group = graph.groups.get(groupId);
-        if (!group || !Array.isArray(instanceIds) || instanceIds.length === 0) return;
+        addMembersWithAncestors(graph, groupId, instanceIds);
+      }));
+    },
 
-        const stamp = new Date().toISOString();
-        const syncMetadata = (g) => {
-          if (!g.semanticMetadata) {
-            g.semanticMetadata = { type: 'Group', relationships: [], createdAt: stamp, lastModified: stamp };
-          }
-          g.semanticMetadata.relationships = g.memberInstanceIds.map(memberId => ({
-            predicate: 'memberOf',
-            subject: memberId,
-            object: g.id,
-            source: 'redstring-grouping'
-          }));
-          g.semanticMetadata.lastModified = stamp;
-        };
-        const addTo = (g) => {
-          const existing = new Set(g.memberInstanceIds);
-          let changed = false;
-          for (const id of instanceIds) {
-            if (existing.has(id)) continue;
-            g.memberInstanceIds.push(id);
-            existing.add(id);
-            changed = true;
-          }
-          if (changed) syncMetadata(g);
-        };
+    /**
+     * Removes instances from a group and from every group nested inside it.
+     * See `removeMembersWithDescendants`. Does not delete the instances
+     * themselves — they just stop being members.
+     *
+     * @param {string} graphId - ID of the graph containing the group.
+     * @param {string} groupId - ID of the group to remove from.
+     * @param {string[]} instanceIds - Instance IDs to remove.
+     * @param {Object} [contextOptions] - Save context flags.
+     */
+    removeInstancesFromGroup: (graphId, groupId, instanceIds, contextOptions = {}) => {
+      api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
+      return set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph?.groups) return;
+        removeMembersWithDescendants(graph, groupId, instanceIds);
+      }));
+    },
 
-        // Ancestors are resolved against the PRE-ADD member sets — the strict-subset
-        // test requires the container to be strictly larger, which stops holding the
-        // moment the target group has grown.
-        const targetMembers = new Set(group.memberInstanceIds);
-        const ancestors = [];
-        if (targetMembers.size > 0) {
-          graph.groups.forEach((other) => {
-            if (other.id === groupId || !Array.isArray(other.memberInstanceIds)) return;
-            if (other.memberInstanceIds.length <= targetMembers.size) return;
-            const otherMembers = new Set(other.memberInstanceIds);
-            for (const memberId of targetMembers) {
-              if (!otherMembers.has(memberId)) return;
-            }
-            ancestors.push(other);
-          });
-        }
+    /**
+     * Name/color/membership in one transaction, with membership routed through
+     * the propagating helpers. Exists for the agent + MCP paths, which arrive
+     * with all of it at once and would otherwise split a single op into three
+     * separate store writes (and three undo entries).
+     *
+     * @param {string} graphId
+     * @param {string} groupId
+     * @param {{name?: string, color?: string, addMemberIds?: string[], removeMemberIds?: string[]}} updates
+     * @param {Object} [contextOptions] - Save context flags.
+     */
+    updateGroupWithMembers: (graphId, groupId, updates = {}, contextOptions = {}) => {
+      api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
+      return set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        const group = graph?.groups?.get(groupId);
+        if (!group) return;
 
-        addTo(group);
-        ancestors.forEach(addTo);
+        const { name, color, addMemberIds, removeMemberIds } = updates;
+        const nameChanged = name !== undefined && name !== null && name !== group.name;
+        const colorChanged = color !== undefined && color !== null && color !== group.color;
+        if (nameChanged) group.name = name;
+        if (colorChanged) group.color = color;
+
+        if (addMemberIds?.length) addMembersWithAncestors(graph, groupId, addMemberIds);
+        if (removeMemberIds?.length) removeMembersWithDescendants(graph, groupId, removeMemberIds);
+
+        syncNodeGroupIdentity(draft, group, nameChanged, colorChanged);
       }));
     },
 
@@ -2192,20 +2305,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           }
         });
 
-        // Nested decompose: if the original instance was itself a member of
-        // other groups, the new member instances belong to those groups too.
-        // Without this the new group's members aren't a subset of the outer
-        // group's, so the containment hierarchy (z-order, shell folding,
-        // group drag) never registers the nesting.
-        graph.groups.forEach((otherGroup) => {
-          if (otherGroup.id === groupId) return;
-          if (!Array.isArray(otherGroup.memberInstanceIds)) return;
-          if (!otherGroup.memberInstanceIds.includes(originalInstanceId)) return;
-          const existing = new Set(otherGroup.memberInstanceIds);
-          for (const newId of memberInstanceIds) {
-            if (!existing.has(newId)) otherGroup.memberInstanceIds.push(newId);
-          }
-        });
+        // Nested decompose: if the original instance was itself inside other
+        // groups, the new members belong to those groups too, or the new group's
+        // members aren't contained by the outer group's and the containment
+        // hierarchy (z-order, shell folding, group drag) never registers the
+        // nesting. The new group is already anchored on the original instance,
+        // so its ancestors resolve through the shared containment rule — which
+        // also picks up ancestors-of-ancestors that the old one-level scan
+        // over `includes(originalInstanceId)` missed.
+        addMembersWithAncestors(graph, groupId, memberInstanceIds);
 
         createdGroupId = groupId;
         const nestedNote = nestedGroupIds.length > 0 ? `, ${nestedGroupIds.length} nested group(s)` : '';
@@ -2617,6 +2725,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           source: 'redstring-grouping'
         }));
         group.semanticMetadata.lastModified = new Date().toISOString();
+
+        // The old members were hard-deleted above, so every OTHER group still
+        // listing them is now pointing at instances that don't exist — sweep
+        // them the way removeMultipleNodeInstances does. Then push the
+        // replacements up to this group's containers, or the refreshed group
+        // stops being contained by them and drops out of the nesting.
+        graph.groups.forEach((otherGroup) => {
+          if (otherGroup.id === groupId || !Array.isArray(otherGroup.memberInstanceIds)) return;
+          otherGroup.memberInstanceIds = otherGroup.memberInstanceIds.filter(id => !oldMemberIdSet.has(id));
+        });
+        addMembersWithAncestors(graph, groupId, newInstanceIds);
 
         if (droppedCrossEdgeCount > 0) {
           console.warn(`[refreshNodeGroupFromDefinition] Dropped ${droppedCrossEdgeCount} edge(s) that connected the old group members to nodes outside the group.`);
@@ -4327,12 +4446,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
               }
             }
             if (existingGroup) {
-              const memberSet = new Set(existingGroup.memberInstanceIds || []);
-              for (const memberId of memberInstanceIds) {
-                if (!memberSet.has(memberId)) {
-                  existingGroup.memberInstanceIds.push(memberId);
-                }
-              }
+              addMembersWithAncestors(graph, existingGroup.id, memberInstanceIds);
               if (group.color) existingGroup.color = group.color;
               console.log(`[applyBulkGraphUpdates] Merged into existing group "${group.name}" (${existingGroup.memberInstanceIds.length} members)`);
               return;

@@ -696,6 +696,20 @@ export const useNodeDrag = ({
         if (!dragPos.has(edge.destinationId)) dPos = { x: eAnchor.x, y: eAnchor.y };
       }
 
+      // A group anchor's own dims are its TITLE PILL, but what actually occludes
+      // a connection into that group is the group's whole outer box. The settled
+      // render hands the router that box (see the sourceBounds/destBounds it
+      // passes to computeLombardiRouting); without the same thing here, the drag
+      // trims each end against the title pill instead — so the line runs to the
+      // middle of the group for the whole gesture and only snaps to the boundary
+      // on drop. Same inputs, same geometry, no jump.
+      const boundsOf = (anchor) => (anchor?.outerBounds ? {
+        minX: anchor.outerBounds.x,
+        minY: anchor.outerBounds.y,
+        maxX: anchor.outerBounds.x + anchor.outerBounds.width,
+        maxY: anchor.outerBounds.y + anchor.outerBounds.height,
+      } : null);
+
       // Keep the shell-cutout clip (see buildShellCutoutPath) tracking the group
       // boxes as they resize under the drag. Without this the connection keeps
       // being cut against wherever the shell WAS, which reads as the line
@@ -780,6 +794,8 @@ export const useNodeDrag = ({
               selectedInstanceIds: curSelectedIds,
               curveInfo: curCurveInfo.get(edgeId),
               laneSpacing: 200 * (multiConnectionCurveRef?.current ?? 1) * LOMBARDI_LANE_FRACTION,
+              sourceBounds: boundsOf(sAnchor),
+              destBounds: boundsOf(eAnchor),
             }
           );
         } else if (style === 'manhattan') {

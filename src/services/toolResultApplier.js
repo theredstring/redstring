@@ -1242,40 +1242,32 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       realGroupId = result.groupId;
     }
     if (realGroupId && result.updates) {
-      store.updateGroup(graphId, realGroupId, (group) => {
-        if (result.updates.name !== undefined) group.name = result.updates.name;
-        if (result.updates.color !== undefined) group.color = result.updates.color;
-        // Add/remove members by name
-        if (result.updates.addMembers) {
-          const graph = store.graphs.get(graphId);
-          for (const memberName of result.updates.addMembers) {
-            const nameLower = memberName.toLowerCase().trim();
-            for (const [instId, inst] of graph.instances) {
-              const proto = store.nodePrototypes.get(inst.prototypeId);
-              if ((proto?.name || '').toLowerCase().trim() === nameLower) {
-                if (!group.memberInstanceIds.includes(instId)) {
-                  group.memberInstanceIds.push(instId);
-                }
-                break;
-              }
+      // Resolve names → instance ids BEFORE the store call. These are pure
+      // reads of the current store, and doing them inside an Immer recipe
+      // (which is what this used to do) reads live state from inside a draft.
+      const graph = store.graphs.get(graphId);
+      const resolveMemberIds = (names) => {
+        const ids = [];
+        for (const memberName of names || []) {
+          const nameLower = memberName.toLowerCase().trim();
+          for (const [instId, inst] of graph.instances) {
+            const proto = store.nodePrototypes.get(inst.prototypeId);
+            if ((proto?.name || '').toLowerCase().trim() === nameLower) {
+              ids.push(instId);
+              break;
             }
           }
         }
-        if (result.updates.removeMembers) {
-          const graph = store.graphs.get(graphId);
-          const idsToRemove = new Set();
-          for (const memberName of result.updates.removeMembers) {
-            const nameLower = memberName.toLowerCase().trim();
-            for (const [instId, inst] of graph.instances) {
-              const proto = store.nodePrototypes.get(inst.prototypeId);
-              if ((proto?.name || '').toLowerCase().trim() === nameLower) {
-                idsToRemove.add(instId);
-                break;
-              }
-            }
-          }
-          group.memberInstanceIds = group.memberInstanceIds.filter(id => !idsToRemove.has(id));
-        }
+        return ids;
+      };
+
+      // updateGroupWithMembers, so membership changes propagate through the
+      // nesting chain rather than un-nesting this group.
+      store.updateGroupWithMembers(graphId, realGroupId, {
+        name: result.updates.name,
+        color: result.updates.color,
+        addMemberIds: resolveMemberIds(result.updates.addMembers),
+        removeMemberIds: resolveMemberIds(result.updates.removeMembers),
       });
       console.log('[Wizard] Successfully updated group:', realGroupId);
     } else {

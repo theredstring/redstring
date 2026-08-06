@@ -364,7 +364,7 @@ describe('computeGroupDepths', () => {
     expect(depths.get('g2')).toBe(0);
   });
 
-  it('counts every ancestor along a nesting chain (outer=0, middle=1, inner=2)', () => {
+  it('deepens by one per level along a nesting chain (outer=0, middle=1, inner=2)', () => {
     const ctx = buildContext();
     addGroup(ctx, { id: 'inner', name: 'I', memberInstanceIds: ['a'], linkedNodePrototypeId: 'p1' });
     addGroup(ctx, { id: 'middle', name: 'M', memberInstanceIds: ['a', 'b'], linkedNodePrototypeId: 'p2' });
@@ -438,6 +438,147 @@ describe('computeGroupDepths', () => {
     const depths = depthsFor(ctx);
     expect(depths.get('outer')).toBe(0);
     expect(depths.get('empty')).toBe(1);
+  });
+
+  it('is independent of group insertion order', () => {
+    // The old ancestor-count pass read parent depths while iterating the group
+    // Map, so a chain that included an anchored empty group came out different
+    // depending on which order the groups happened to be inserted in.
+    const chain = [
+      { id: 'outer', name: 'O', memberInstanceIds: ['a', 'm1', 'm2'] },
+      { id: 'mid', name: 'M', memberInstanceIds: ['m1', 'm2'], linkedNodePrototypeId: 'p1', anchorInstanceId: 'a' },
+      { id: 'leaf', name: 'L', memberInstanceIds: [], linkedNodePrototypeId: 'p2', anchorInstanceId: 'm1' },
+    ];
+    const expected = { outer: 0, mid: 1, leaf: 2 };
+
+    for (const groups of [chain, [...chain].reverse()]) {
+      const ctx = buildContext();
+      groups.forEach(g => addGroup(ctx, g));
+      const depths = depthsFor(ctx);
+      expect({
+        outer: depths.get('outer'), mid: depths.get('mid'), leaf: depths.get('leaf'),
+      }).toEqual(expected);
+    }
+  });
+});
+
+// Containment is never stored — no parent pointer — so `isGroupInsideGroup` is
+// the entire nesting model, shared by render-time depth and by the store's
+// membership propagation. These pin the cases where the old strict-subset-only
+// rule silently dropped a group out of the hierarchy, which hid it behind the
+// opaque shell that actually contained it.
+describe('group containment predicate', () => {
+  const childrenOf = (ctx) => buildChildGroupIdsIndex(ctx.groupsById, ctx.groupsByMemberId);
+
+  it('nests a plain group inside a node-group with the SAME members', () => {
+    // Reachable by dragging a node that the node-group already holds into a
+    // plain group nested inside it: the outer set doesn't grow, the inner one
+    // does, and strict subset stops holding.
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'ng', name: 'NG', memberInstanceIds: ['m1', 'd'], linkedNodePrototypeId: 'p1' });
+    addGroup(ctx, { id: 'plain', name: 'P', memberInstanceIds: ['m1', 'd'] });
+
+    const childIndex = childrenOf(ctx);
+    expect(childIndex.get('ng').has('plain')).toBe(true);
+    expect(childIndex.get('plain').has('ng')).toBe(false);
+
+    const depths = computeGroupDepths(ctx.groupsById, ctx.groupsByMemberId, childIndex);
+    expect(depths.get('ng')).toBe(0);
+    expect(depths.get('plain')).toBe(1);
+  });
+
+  it('leaves two plain groups with the same members incomparable', () => {
+    // Neither is opaque, so neither can hide the other — an arbitrary ordering
+    // would be worse than none.
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'a', name: 'A', memberInstanceIds: ['m1', 'm2'] });
+    addGroup(ctx, { id: 'b', name: 'B', memberInstanceIds: ['m1', 'm2'] });
+
+    const childIndex = childrenOf(ctx);
+    expect(childIndex.get('a').has('b')).toBe(false);
+    expect(childIndex.get('b').has('a')).toBe(false);
+  });
+
+  it('leaves two anchorless node-groups with the same members incomparable', () => {
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'a', name: 'A', memberInstanceIds: ['m1', 'm2'], linkedNodePrototypeId: 'p1' });
+    addGroup(ctx, { id: 'b', name: 'B', memberInstanceIds: ['m1', 'm2'], linkedNodePrototypeId: 'p2' });
+
+    const childIndex = childrenOf(ctx);
+    expect(childIndex.get('a').has('b')).toBe(false);
+    expect(childIndex.get('b').has('a')).toBe(false);
+  });
+
+  it('nests a POPULATED node-group by its anchor alone', () => {
+    // The anchor is the node-group's title tab on the parent canvas — its
+    // identity there, independent of membership. Restricting this to empty
+    // node-groups made nesting a cliff: a group was inside right up until it
+    // gained its first member, then silently wasn't.
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'outer', name: 'O', memberInstanceIds: ['a'] });
+    addGroup(ctx, { id: 'inner', name: 'I', memberInstanceIds: ['m1', 'm2'], linkedNodePrototypeId: 'p1', anchorInstanceId: 'a' });
+
+    const childIndex = childrenOf(ctx);
+    expect(childIndex.get('outer').has('inner')).toBe(true);
+
+    const depths = computeGroupDepths(ctx.groupsById, ctx.groupsByMemberId, childIndex);
+    expect(depths.get('outer')).toBe(0);
+    expect(depths.get('inner')).toBe(1);
+  });
+
+  it('folds an anchor-only child into the parent bbox', () => {
+    // Depth without the fold means the parent's rim cuts straight through a
+    // group it contains. The member loop can't reach this child — they share
+    // no member — so the dedicated pass has to.
+    const ctx = buildContext();
+    addNode(ctx, 'a', 0, 0);
+    addNode(ctx, 'm1', 1000, 1000);
+    addNode(ctx, 'm2', 1300, 1000);
+    const outer = { id: 'outer', name: 'O', memberInstanceIds: ['a'] };
+    const inner = { id: 'inner', name: 'I', memberInstanceIds: ['m1', 'm2'], linkedNodePrototypeId: 'p1', anchorInstanceId: 'a' };
+    addGroup(ctx, outer);
+    addGroup(ctx, inner);
+    ctx.childGroupIdsByGroupId = childrenOf(ctx);
+
+    const innerLayout = computeGroupLayout(inner, buildContext({
+      nodesById: ctx.nodesById, dimsById: ctx.dimsById,
+      groupsById: ctx.groupsById, groupsByMemberId: ctx.groupsByMemberId,
+    }));
+    const r = computeGroupLayout(outer, ctx);
+
+    expect(r.ok).toBe(true);
+    expect(r.bbox.maxX).toBeGreaterThanOrEqual(innerLayout.visualBounds.x + innerLayout.visualBounds.w);
+    expect(r.bbox.maxY).toBeGreaterThanOrEqual(innerLayout.visualBounds.y + innerLayout.visualBounds.h);
+    expect(r.nestedContributors.some(c => c.nestedGroupId === 'inner')).toBe(true);
+  });
+
+  it('stays antisymmetric when both directions claim containment', () => {
+    // Degenerate: a node-group listing its own anchor as a member. Without a
+    // tie-break the pair would resolve by Map iteration order and the two
+    // shells would swap layers between renders.
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'ng', name: 'NG', memberInstanceIds: ['m1', 'x'], linkedNodePrototypeId: 'p1', anchorInstanceId: 'x' });
+    addGroup(ctx, { id: 'plain', name: 'P', memberInstanceIds: ['m1', 'x'] });
+
+    const childIndex = childrenOf(ctx);
+    expect(childIndex.get('ng').has('plain')).toBe(true);
+    expect(childIndex.get('plain').has('ng')).toBe(false);
+
+    const depths = computeGroupDepths(ctx.groupsById, ctx.groupsByMemberId, childIndex);
+    expect(depths.get('ng')).toBe(0);
+    expect(depths.get('plain')).toBe(1);
+  });
+
+  it('does not mint a phantom child from a stale anchor', () => {
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'outer', name: 'O', memberInstanceIds: ['m1'] });
+    // Anchor instance was deleted; instance removal sweeps every member list,
+    // so no group holds it any more.
+    addGroup(ctx, { id: 'orphan', name: 'X', memberInstanceIds: [], linkedNodePrototypeId: 'p1', anchorInstanceId: 'ghost' });
+
+    const childIndex = childrenOf(ctx);
+    expect(childIndex.get('outer').has('orphan')).toBe(false);
+    expect(computeGroupDepths(ctx.groupsById, ctx.groupsByMemberId, childIndex).get('orphan')).toBe(0);
   });
 });
 

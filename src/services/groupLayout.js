@@ -96,54 +96,154 @@ const memberBoundaryPaddingFor = (gridSize) =>
   Math.max(24, Math.round((gridSize ?? 0) * 0.2));
 
 /**
- * Children are found by strict member-subset, for BOTH kinds of group. A plain
- * group nested inside a node-group must register here or it gets depth 0 and
- * paints in the flat bottom layer — underneath the opaque shell that contains
- * it, i.e. invisible. Being a child also folds its dashed rect and floating
- * title pill into the parent's bbox so the parent's rim clears them.
+ * Rules 3 and 4 of `isGroupInsideGroup`, without the antisymmetry tie-break.
+ * Split out so the tie-break can evaluate the relation in both directions
+ * without recursing.
  */
-function computeChildGroupIdsForGroup(group, groupsById, groupsByMemberId) {
+function containsByRules(inner, outer, outerMemberIdSet) {
+  const innerMembers = Array.isArray(inner.memberInstanceIds) ? inner.memberInstanceIds : [];
+  const outerMembers = Array.isArray(outer.memberInstanceIds) ? outer.memberInstanceIds : [];
+
+  // ANCHOR. A node-group's anchor instance is its title tab on the parent
+  // canvas — its identity there, independent of who its members are. That is
+  // exactly why it survives the mutations that break the subset test below:
+  // adding the first member to an empty node-group, or growing it until its
+  // members equal its container's. Restricting this to *empty* node-groups
+  // (the old rule) made nesting a cliff — a group was inside until the instant
+  // it gained a member, then silently wasn't.
+  if (inner.linkedNodePrototypeId && inner.anchorInstanceId
+    && outerMemberIdSet.has(inner.anchorInstanceId)) return true;
+
+  // SUBSET.
+  if (innerMembers.length === 0) return false;
+  if (innerMembers.length > outerMembers.length) return false;
+  for (const id of innerMembers) {
+    if (!outerMemberIdSet.has(id)) return false;
+  }
+  if (outerMembers.length > innerMembers.length) return true;
+
+  // Equal member sets. Deliberately narrow: the only failure mode nesting
+  // protects against here is an opaque shell painting over its own child, so
+  // only a node-group parent qualifies. Two plain groups are both unfilled
+  // dashed outlines and neither can hide the other — leaving them incomparable
+  // is correct. Two node-groups stay incomparable too; a real nesting between
+  // them is expressed through the anchor rule instead.
+  return !!outer.linkedNodePrototypeId && !inner.linkedNodePrototypeId;
+}
+
+/**
+ * THE definition of "group `inner` sits inside group `outer`". Nesting is not
+ * stored anywhere — no parent pointer — so this predicate is the whole model,
+ * and both render-time depth (z-order) and add-time membership propagation in
+ * graphStore must go through it. They used to carry separate, subtly divergent
+ * copies, which is how a node could be added to a nested group without being
+ * added to the groups containing it: the group then failed the containment
+ * test, lost its depth, and a plain group with no depth falls to the flat
+ * bottom render layer, underneath the opaque shell that encloses it.
+ *
+ * @param {object} inner
+ * @param {object} outer
+ * @param {Set<string>} [outerMemberIdSet] - prebuilt set of outer's members.
+ * @returns {boolean}
+ */
+export function isGroupInsideGroup(inner, outer, outerMemberIdSet = null) {
+  if (!inner || !outer || inner.id === outer.id) return false;
+  const innerMembers = Array.isArray(inner.memberInstanceIds) ? inner.memberInstanceIds : [];
+  const outerMembers = Array.isArray(outer.memberInstanceIds) ? outer.memberInstanceIds : [];
+  const outerSet = outerMemberIdSet || new Set(outerMembers);
+
+  if (!containsByRules(inner, outer, outerSet)) return false;
+  if (!containsByRules(outer, inner, new Set(innerMembers))) return true;
+
+  // Both directions claim containment. Only degenerate state gets here (e.g. a
+  // node-group that somehow lists its own anchor as a member), but the relation
+  // must stay antisymmetric regardless or `computeGroupDepths` resolves the
+  // pair by Map iteration order and shells swap layers between renders. Break
+  // it deterministically: more members wins, then node-group over plain, then id.
+  if (outerMembers.length !== innerMembers.length) return outerMembers.length > innerMembers.length;
+  if (!!outer.linkedNodePrototypeId !== !!inner.linkedNodePrototypeId) return !!outer.linkedNodePrototypeId;
+  return outer.id < inner.id;
+}
+
+/**
+ * anchorInstanceId → node-group ids anchored there. Lets the child scan find
+ * candidates that satisfy the anchor rule without sharing any member with the
+ * group being scanned (an empty node-group has none at all).
+ */
+function buildGroupIdsByAnchorIdIndex(groupsById) {
+  const out = new Map();
+  if (!groupsById) return out;
+  for (const group of groupsById.values()) {
+    if (!group?.linkedNodePrototypeId || !group.anchorInstanceId) continue;
+    let ids = out.get(group.anchorInstanceId);
+    if (!ids) { ids = []; out.set(group.anchorInstanceId, ids); }
+    ids.push(group.id);
+  }
+  return out;
+}
+
+/**
+ * Children of one group: every group that `isGroupInsideGroup` places inside it.
+ * Candidates come from two sources — groups sharing at least one member, and
+ * groups anchored at one of this group's members — which together cover every
+ * way the predicate can return true, without scanning all groups.
+ */
+function computeChildGroupIdsForGroup(group, groupsById, groupsByMemberId, groupIdsByAnchorId) {
   const memberIds = Array.isArray(group.memberInstanceIds) ? group.memberInstanceIds : [];
   if (memberIds.length === 0) return EMPTY_SET;
   const memberIdSet = new Set(memberIds);
   const childGroupIds = new Set();
+  const consider = (otherGroupId) => {
+    if (!otherGroupId || otherGroupId === group.id || childGroupIds.has(otherGroupId)) return;
+    const otherGroup = groupsById.get(otherGroupId);
+    if (!otherGroup) return;
+    if (isGroupInsideGroup(otherGroup, group, memberIdSet)) childGroupIds.add(otherGroupId);
+  };
+  const anchorIndex = groupIdsByAnchorId || buildGroupIdsByAnchorIdIndex(groupsById);
   for (const memberId of memberIds) {
-    const containingEntries = groupsByMemberId.get(memberId);
-    if (!containingEntries) continue;
-    for (const entry of containingEntries) {
-      const otherGroupId = typeof entry === 'string' ? entry : entry?.groupId;
-      if (!otherGroupId || otherGroupId === group.id) continue;
-      if (childGroupIds.has(otherGroupId)) continue;
-      const otherGroup = groupsById.get(otherGroupId);
-      if (!otherGroup) continue;
-      const otherMembers = Array.isArray(otherGroup.memberInstanceIds) ? otherGroup.memberInstanceIds : [];
-      if (otherMembers.length === 0 || otherMembers.length >= memberIds.length) continue;
-      let isStrictSubset = true;
-      for (const om of otherMembers) {
-        if (!memberIdSet.has(om)) { isStrictSubset = false; break; }
+    const containingEntries = groupsByMemberId?.get(memberId);
+    if (containingEntries) {
+      for (const entry of containingEntries) {
+        consider(typeof entry === 'string' ? entry : entry?.groupId);
       }
-      if (isStrictSubset) childGroupIds.add(otherGroupId);
     }
-  }
-  // Empty node-group placeholders can never satisfy the strict-subset test
-  // (no members to be a subset with), but they're still "inside" any group
-  // that holds their anchor instance as a member — the anchor is the only
-  // spatial tie they have. Without this they get no depth (z-order) and no
-  // shell fold (boundary padding) from their containing group.
-  if (groupsById) {
-    for (const [otherGroupId, otherGroup] of groupsById) {
-      if (otherGroupId === group.id || childGroupIds.has(otherGroupId)) continue;
-      if (!otherGroup?.linkedNodePrototypeId || !otherGroup.anchorInstanceId) continue;
-      if (Array.isArray(otherGroup.memberInstanceIds) && otherGroup.memberInstanceIds.length > 0) continue;
-      if (memberIdSet.has(otherGroup.anchorInstanceId)) childGroupIds.add(otherGroupId);
-    }
+    const anchored = anchorIndex.get(memberId);
+    if (anchored) for (const gid of anchored) consider(gid);
   }
   return childGroupIds;
 }
 
 /**
- * Precompute the strict-subset child relationships for every group. The result
- * is suitable for caching and passing into `computeGroupLayout` via
+ * instanceId → the groups that hold it, in the shape the layout/drag pipeline
+ * expects. Empty node-groups are indexed under their anchor instead: they have
+ * no member to index by, but they are still dragged by that anchor, and the
+ * DOM-bypass group-drag cache is keyed off this map — without the entry the box
+ * only jumps to its final spot on drop instead of tracking the drag live.
+ *
+ * @param {Map<string, object>} groupsById
+ * @returns {Map<string, Array<{groupId: string, memberInstanceIds: string[]}>>}
+ */
+export function buildGroupsByMemberIdIndex(groupsById) {
+  const out = new Map();
+  if (!groupsById) return out;
+  const push = (instanceId, groupId, memberInstanceIds) => {
+    let entries = out.get(instanceId);
+    if (!entries) { entries = []; out.set(instanceId, entries); }
+    entries.push({ groupId, memberInstanceIds });
+  };
+  groupsById.forEach((group, groupId) => {
+    if (!group.memberInstanceIds) return;
+    group.memberInstanceIds.forEach(instId => push(instId, groupId, group.memberInstanceIds));
+    if (group.memberInstanceIds.length === 0 && group.linkedNodePrototypeId && group.anchorInstanceId) {
+      push(group.anchorInstanceId, groupId, group.memberInstanceIds);
+    }
+  });
+  return out;
+}
+
+/**
+ * Precompute the child relationships for every group. The result is suitable
+ * for caching and passing into `computeGroupLayout` via
  * `context.childGroupIdsByGroupId`. Recompute only when the structural shape
  * of the group set changes (member additions/removals, group create/delete).
  *
@@ -154,8 +254,9 @@ function computeChildGroupIdsForGroup(group, groupsById, groupsByMemberId) {
 export function buildChildGroupIdsIndex(groupsById, groupsByMemberId) {
   const out = new Map();
   if (!groupsById || !groupsByMemberId) return out;
+  const anchorIndex = buildGroupIdsByAnchorIdIndex(groupsById);
   for (const group of groupsById.values()) {
-    out.set(group.id, computeChildGroupIdsForGroup(group, groupsById, groupsByMemberId));
+    out.set(group.id, computeChildGroupIdsForGroup(group, groupsById, groupsByMemberId, anchorIndex));
   }
   return out;
 }
@@ -177,6 +278,50 @@ export function buildParentGroupIdsIndex(childGroupIdsByGroupId) {
     }
   }
   return out;
+}
+
+/** Walks one containment index transitively from `groupId`, excluding it. */
+function closureFrom(groupId, index) {
+  const out = new Set();
+  if (!groupId || !index) return out;
+  const pending = [groupId];
+  while (pending.length > 0) {
+    const next = index.get(pending.pop());
+    if (!next) continue;
+    for (const id of next) {
+      if (id === groupId || out.has(id)) continue;
+      out.add(id);
+      pending.push(id);
+    }
+  }
+  return out;
+}
+
+/**
+ * Every group containing `groupId`, transitively. This is the set a membership
+ * addition has to propagate to: a node dropped into a group that sits inside a
+ * Thing is inside that Thing too, and the containment relation only survives if
+ * the enclosing groups actually list it.
+ *
+ * @param {string} groupId
+ * @param {Map<string, Set<string>>} parentGroupIdsIndex - from buildParentGroupIdsIndex
+ * @returns {Set<string>}
+ */
+export function collectAncestorGroupIds(groupId, parentGroupIdsIndex) {
+  return closureFrom(groupId, parentGroupIdsIndex);
+}
+
+/**
+ * Every group contained by `groupId`, transitively — the mirror of
+ * `collectAncestorGroupIds`, and the set a removal has to propagate to. You
+ * cannot be inside a sub-part of a Thing you are not inside.
+ *
+ * @param {string} groupId
+ * @param {Map<string, Set<string>>} childGroupIdsByGroupId - from buildChildGroupIdsIndex
+ * @returns {Set<string>}
+ */
+export function collectDescendantGroupIds(groupId, childGroupIdsByGroupId) {
+  return closureFrom(groupId, childGroupIdsByGroupId);
 }
 
 /**
@@ -223,43 +368,61 @@ export function collectAffectedGroupIds(instanceIds, { groupsByMemberId, parentG
 }
 
 /**
- * Nesting depth per group, derived from the strict-subset child index:
- * a group's depth is how many other groups contain it (0 = outermost).
- * Containment is transitive, so every ancestor of an ancestor is also
- * counted — depth(child) is always >= depth(parent) + 1, which makes this
- * safe to use as a paint order (sort ascending, deepest paints last/on top).
+ * Nesting depth per group (0 = outermost), as the LONGEST path up the
+ * containment DAG: `depth(g) = 0` with no parents, else `1 + max(depth(parent))`.
  *
- * Empty node-groups never appear as children in the subset scan (no members
- * to be a subset with), so they inherit depth from whichever group holds
- * their anchor instance as a member.
+ * Counting ancestors instead (the older scheme) only works when containment is
+ * transitive, and the anchor rule in `isGroupInsideGroup` is not: if C is inside
+ * B by subset but B is inside A only by anchor, A contains neither C's members
+ * nor C's anchor, so C and B both come out at depth 1 — the same paint layer,
+ * with the order left to Map iteration. Longest path guarantees
+ * depth(child) > depth(parent) for any DAG, which is what makes this safe to
+ * use as a paint order (sort ascending, deepest paints last/on top).
  *
  * @param {Map<string, object>} groupsById
- * @param {Map<string, Array<{groupId: string} | string>>} groupsByMemberId
+ * @param {Map<string, Array<{groupId: string} | string>>} [groupsByMemberId] -
+ *   unused; retained for call-site compatibility.
  * @param {Map<string, Set<string>>} childGroupIdsByGroupId
  * @returns {Map<string, number>}
  */
 export function computeGroupDepths(groupsById, groupsByMemberId, childGroupIdsByGroupId) {
   const depths = new Map();
   if (!childGroupIdsByGroupId) return depths;
-  for (const groupId of childGroupIdsByGroupId.keys()) depths.set(groupId, 0);
-  for (const childIds of childGroupIdsByGroupId.values()) {
-    for (const childId of childIds) {
-      depths.set(childId, (depths.get(childId) ?? 0) + 1);
-    }
-  }
-  if (groupsById && groupsByMemberId) {
-    for (const group of groupsById.values()) {
-      if (!group.linkedNodePrototypeId || !group.anchorInstanceId) continue;
-      if (Array.isArray(group.memberInstanceIds) && group.memberInstanceIds.length > 0) continue;
-      const entries = groupsByMemberId.get(group.anchorInstanceId);
-      if (!entries) continue;
-      let maxParentDepth = -1;
-      for (const entry of entries) {
-        const gid = typeof entry === 'string' ? entry : entry?.groupId;
-        if (!gid || gid === group.id) continue;
-        maxParentDepth = Math.max(maxParentDepth, depths.get(gid) ?? 0);
+  const parentIds = buildParentGroupIdsIndex(childGroupIdsByGroupId);
+
+  // Iterative DFS with white/grey/black colouring. `isGroupInsideGroup` is
+  // antisymmetric so the graph should be acyclic, but a corrupt group set must
+  // still terminate with stable depths rather than hang: a grey (back) edge is
+  // simply not counted.
+  const WHITE = 0, GREY = 1, BLACK = 2;
+  const color = new Map();
+  for (const rootId of childGroupIdsByGroupId.keys()) {
+    if (color.get(rootId) === BLACK) continue;
+    const stack = [rootId];
+    while (stack.length > 0) {
+      const id = stack[stack.length - 1];
+      const state = color.get(id) ?? WHITE;
+      if (state === BLACK) { stack.pop(); continue; }
+      const parents = parentIds.get(id);
+      if (state === WHITE) {
+        color.set(id, GREY);
+        let descended = false;
+        if (parents) {
+          for (const parentId of parents) {
+            if ((color.get(parentId) ?? WHITE) === WHITE) { stack.push(parentId); descended = true; }
+          }
+        }
+        if (descended) continue;
       }
-      if (maxParentDepth >= 0) depths.set(group.id, maxParentDepth + 1);
+      stack.pop();
+      let depth = 0;
+      if (parents) {
+        for (const parentId of parents) {
+          if (color.get(parentId) === BLACK) depth = Math.max(depth, (depths.get(parentId) ?? 0) + 1);
+        }
+      }
+      depths.set(id, depth);
+      color.set(id, BLACK);
     }
   }
   return depths;
@@ -413,6 +576,9 @@ function computeGroupLayoutInner(group, context) {
   }
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  // Children folded in via a shared member below. Whatever is left over is
+  // folded by the dedicated pass after the loop.
+  const foldedChildIds = new Set();
 
   for (const memberId of memberIds) {
     const node = nodesById.get(memberId);
@@ -460,6 +626,7 @@ function computeGroupLayoutInner(group, context) {
             } else if (nested.nodeGroupRect.y < contributingY) {
               contributingY = nested.nodeGroupRect.y;
             }
+            foldedChildIds.add(otherGroupId);
             nestedContributors.push({
               memberId,
               nestedGroupId: otherGroupId,
@@ -476,14 +643,15 @@ function computeGroupLayoutInner(group, context) {
     if (contributingBottom > maxY) maxY = contributingBottom;
   }
 
-  // Empty node-group children (anchored placeholders — see the empty-group
-  // pass in computeChildGroupIdsForGroup) contribute no members to the loop
-  // above, so fold their placeholder shells in directly.
+  // Children the member loop couldn't reach, because they share no member with
+  // this group: empty node-group placeholders, and node-groups that qualify by
+  // the anchor rule alone. Both still need their shell folded in, or this
+  // group's rim cuts straight through a group it contains.
   if (childGroupIds.size > 0 && groupsById) {
     for (const childId of childGroupIds) {
+      if (foldedChildIds.has(childId)) continue;
       const childGroup = groupsById.get(childId);
       if (!childGroup) continue;
-      if (childGroup.memberInstanceIds?.length > 0) continue;
       const nested = computeGroupLayout(childGroup, context);
       if (nested?.ok && nested.visualBounds) {
         const vb = nested.visualBounds;

@@ -612,6 +612,13 @@ export function updateGraphState(graphState, _toolName, _args, result) {
       // Nested decompose: the new members belong to every group that already
       // contained the original instance, or the containment hierarchy the canvas
       // derives from subset membership never registers the nesting.
+      //
+      // TODO: this is a one-level approximation of `isGroupInsideGroup`
+      // (groupLayout.js), which the real store now shares between propagation
+      // and render-time depth. Left as-is deliberately: this mutates a plain-array
+      // predictive mirror that the real store result overwrites moments later, so
+      // adopting the shared predicate would mean a Map/array adapter for state
+      // that is about to be discarded.
       if (result.originalInstanceId) {
         for (const otherGroup of targetGraph.groups) {
           if (otherGroup.id === groupId) continue;

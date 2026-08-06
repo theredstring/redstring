@@ -48,6 +48,9 @@ import {
   computeGroupLayout,
   GROUP_LAYOUT_CONSTANTS,
   buildChildGroupIdsIndex,
+  buildParentGroupIdsIndex,
+  buildGroupsByMemberIdIndex,
+  collectAncestorGroupIds,
   computeGroupDepths,
   buildEdgeZSlotIndex,
   edgeZSlotFor,
@@ -1459,35 +1462,16 @@ function NodeCanvas() {
   // stale — refs don't schedule a re-render, so a freshly nested group would
   // paint in the wrong z-order until something else happened to re-render.
   const groupStructure = useMemo(() => {
-    const groupsByNodeId = new Map();
     const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
-    if (graphData?.groups) {
-      graphData.groups.forEach((group, groupId) => {
-        if (!group.memberInstanceIds) return;
-        group.memberInstanceIds.forEach(instId => {
-          if (!groupsByNodeId.has(instId)) groupsByNodeId.set(instId, []);
-          groupsByNodeId.get(instId).push({ groupId, memberInstanceIds: group.memberInstanceIds });
-        });
-        // Empty node-groups (the held-open placeholder — see
-        // decomposeEmptyNodeToGroup) have no members to index by, but they're
-        // still draggable via their anchor. Without this, dragging one never
-        // matches the DOM-bypass group-drag cache/update path (both keyed off
-        // this map), so the box only jumps to its final spot on drop instead
-        // of tracking the drag live.
-        if (group.memberInstanceIds.length === 0 && group.linkedNodePrototypeId && group.anchorInstanceId) {
-          const anchorId = group.anchorInstanceId;
-          if (!groupsByNodeId.has(anchorId)) groupsByNodeId.set(anchorId, []);
-          groupsByNodeId.get(anchorId).push({ groupId, memberInstanceIds: group.memberInstanceIds });
-        }
-      });
-    }
     const groupsById = graphData?.groups || new Map();
+    const groupsByNodeId = buildGroupsByMemberIdIndex(groupsById);
     const childGroupIds = buildChildGroupIdsIndex(groupsById, groupsByNodeId);
     const groupDepths = computeGroupDepths(groupsById, groupsByNodeId, childGroupIds);
     return {
       groupsByNodeId,
       groupsById,
       childGroupIds,
+      parentGroupIds: buildParentGroupIdsIndex(childGroupIds),
       groupDepths,
       edgeZSlots: buildEdgeZSlotIndex(groupsById, groupDepths),
     };
@@ -6133,6 +6117,12 @@ function NodeCanvas() {
     // edge to/from the original node (deleting it would take those edges with it).
     storeActions.ensureGroupAnchor(activeGraphId, createdGroupId, { preferredAnchorInstanceId: instanceId });
 
+    // A no-op on the group itself — they're already members — but now that it is
+    // anchored on the original instance, this resolves the groups that instance
+    // was inside and pushes the new members up to them. Without it a node
+    // converted inside another group is born un-nested and paints beneath it.
+    storeActions.addInstancesToGroup(activeGraphId, createdGroupId, newInstanceIds);
+
     // Get the updated group data from store
     const currentState = useGraphStore.getState();
     const graph = currentState.graphs?.get(activeGraphId);
@@ -9249,7 +9239,12 @@ function NodeCanvas() {
 
               if (targetGroup) {
                 const isNodeGroup = !!targetGroup.linkedNodePrototypeId;
-                const groupName = targetGroup.name || 'Unnamed Group';
+                // The node joins every group this one sits inside, so shells the
+                // user didn't drop onto will visibly take it in. Say so when
+                // there's actually a chain above the target.
+                const ancestorCount = collectAncestorGroupIds(targetGroup.id, groupStructure.parentGroupIds).size;
+                const groupName = (targetGroup.name || 'Unnamed Group')
+                  + (ancestorCount > 0 ? ' (and others)' : '');
                 setAddToGroupDialog({
                   nodeIds: dragResult.draggedNodeIds,
                   groupId: targetGroup.id,

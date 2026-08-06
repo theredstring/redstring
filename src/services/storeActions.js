@@ -610,12 +610,12 @@ export function createStoreActions({
                         }
                       }
                       if (existingGid) {
-                        store.updateGroup(op.graphId, existingGid, (group) => {
-                          if (!Array.isArray(group.memberInstanceIds)) group.memberInstanceIds = [];
-                          for (const instId of (gData.memberInstanceIds || [])) {
-                            if (!group.memberInstanceIds.includes(instId)) group.memberInstanceIds.push(instId);
-                          }
-                          if (gData.color) group.color = gData.color;
+                        // Via updateGroupWithMembers, not a raw member push: if this
+                        // group sits inside others, the additions have to reach them
+                        // too or it stops registering as nested.
+                        store.updateGroupWithMembers(op.graphId, existingGid, {
+                          color: gData.color,
+                          addMemberIds: gData.memberInstanceIds || [],
                         });
                       } else {
                         store.createGroup(op.graphId, gData);
@@ -635,15 +635,14 @@ export function createStoreActions({
                       results.push({ type: op.type, ok: true, graphId: op.graphId, groupId: op.groupId });
                       break;
                     case 'updateGroup':
-                      store.updateGroup(op.graphId, op.groupId, (group) => {
-                        if (op.updates.newName) group.name = op.updates.newName;
-                        if (op.updates.newColor) group.color = op.updates.newColor;
-                        if (op.updates.addMemberIds && op.updates.addMemberIds.length > 0) {
-                          group.memberInstanceIds = [...new Set([...group.memberInstanceIds, ...op.updates.addMemberIds])];
-                        }
-                        if (op.updates.removeMemberIds && op.updates.removeMemberIds.length > 0) {
-                          group.memberInstanceIds = group.memberInstanceIds.filter(id => !op.updates.removeMemberIds.includes(id));
-                        }
+                      // Membership goes through updateGroupWithMembers so it
+                      // propagates through the nesting chain (up on add, down on
+                      // remove) instead of stranding this group outside it.
+                      store.updateGroupWithMembers(op.graphId, op.groupId, {
+                        name: op.updates.newName,
+                        color: op.updates.newColor,
+                        addMemberIds: op.updates.addMemberIds,
+                        removeMemberIds: op.updates.removeMemberIds,
                       });
                       results.push({ type: op.type, ok: true, groupId: op.groupId });
                       break;

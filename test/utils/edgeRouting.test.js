@@ -858,3 +858,46 @@ describe('visible range of a Lombardi route', () => {
       .toBeLessThanOrEqual(Math.abs(placement.anchor.offset) + 1e-6);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The settled render and the DOM-bypass drag updater must route from the SAME
+// inputs. A group anchor's own dims are its title pill; what actually occludes a
+// connection into the group is the group's outer box. Hand the router only the
+// former and the connection runs to the middle of the group — which is what the
+// drag did for the whole gesture before it passed these bounds through.
+// ---------------------------------------------------------------------------
+describe('group bounds change where an arrow lands', () => {
+  const pill = dims(120, 60);        // the anchor's title tab
+  const anchor = node('g', 0, 0);
+  const other = node('b', 900, 0);
+  const edge = {
+    id: 'e1', sourceId: 'g', destinationId: 'b',
+    directionality: { arrowsToward: new Set(['g']) },
+  };
+  const tangents = new Map([['e1', { sourceAngle: 0.6, destAngle: Math.PI - 0.6 }]]);
+  const groupBounds = { minX: -60, minY: -300, maxX: 620, maxY: 300 };
+
+  it('stops at the group boundary, not at the title pill', () => {
+    const withPill = computeLombardiRouting(edge, anchor, other, pill, pill, tangents);
+    const withGroup = computeLombardiRouting(edge, anchor, other, pill, pill, tangents, {
+      sourceBounds: groupBounds,
+    });
+
+    // Title-pill fallback keeps the arrow near the anchor — visually, at the
+    // middle of the group.
+    expect(withPill.sourceArrow.x).toBeLessThan(groupBounds.maxX);
+    // With the real occluder it clears the group's box entirely.
+    expect(withGroup.sourceArrow.x).toBeGreaterThan(groupBounds.maxX);
+
+    // Which is a large, plainly visible jump — exactly what snapped on drop.
+    expect(withGroup.sourceArrow.x - withPill.sourceArrow.x).toBeGreaterThan(100);
+  });
+
+  it('moves the drawn start of the line with it', () => {
+    const withPill = computeLombardiRouting(edge, anchor, other, pill, pill, tangents);
+    const withGroup = computeLombardiRouting(edge, anchor, other, pill, pill, tangents, {
+      sourceBounds: groupBounds,
+    });
+    expect(withGroup.startX).toBeGreaterThan(withPill.startX + 100);
+  });
+});
