@@ -12864,6 +12864,23 @@ function NodeCanvas() {
                                   dy: mouseCanvasY - group.emptyPlaceholderOrigin.y
                                 });
                               }
+                              // Nested EMPTY child groups ride along too: their box position
+                              // lives in emptyPlaceholderOrigin (no member instance to move),
+                              // so without an explicit placeholder offset a parent drag would
+                              // leave their shells behind. Non-empty children need nothing —
+                              // their members are already in the parent's offset list.
+                              const nestedChildIds = childGroupIdsByGroupIdRef.current.get(group.id);
+                              if (nestedChildIds) {
+                                nestedChildIds.forEach(childId => {
+                                  const childGroup = groupsByIdRef.current.get(childId);
+                                  if (!childGroup || childGroup.memberInstanceIds?.length > 0 || !childGroup.emptyPlaceholderOrigin) return;
+                                  offsets.push({
+                                    id: `__placeholder__${childId}`,
+                                    dx: mouseCanvasX - childGroup.emptyPlaceholderOrigin.x,
+                                    dy: mouseCanvasY - childGroup.emptyPlaceholderOrigin.y
+                                  });
+                                });
+                              }
                               nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
                             }, nodeLiftDelay);
                           }}
@@ -12993,6 +13010,23 @@ function NodeCanvas() {
                                   id: `__placeholder__${group.id}`,
                                   dx: mouseCanvasX - group.emptyPlaceholderOrigin.x,
                                   dy: mouseCanvasY - group.emptyPlaceholderOrigin.y
+                                });
+                              }
+                              // Nested EMPTY child groups ride along too: their box position
+                              // lives in emptyPlaceholderOrigin (no member instance to move),
+                              // so without an explicit placeholder offset a parent drag would
+                              // leave their shells behind. Non-empty children need nothing —
+                              // their members are already in the parent's offset list.
+                              const nestedChildIds = childGroupIdsByGroupIdRef.current.get(group.id);
+                              if (nestedChildIds) {
+                                nestedChildIds.forEach(childId => {
+                                  const childGroup = groupsByIdRef.current.get(childId);
+                                  if (!childGroup || childGroup.memberInstanceIds?.length > 0 || !childGroup.emptyPlaceholderOrigin) return;
+                                  offsets.push({
+                                    id: `__placeholder__${childId}`,
+                                    dx: mouseCanvasX - childGroup.emptyPlaceholderOrigin.x,
+                                    dy: mouseCanvasY - childGroup.emptyPlaceholderOrigin.y
+                                  });
                                 });
                               }
                               nodeDrag.startGroupDrag(group.id, offsets, downX, downY);

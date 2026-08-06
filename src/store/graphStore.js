@@ -1810,6 +1810,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
         // Remove the group container itself
         graph.groups.delete(groupId);
+
+        // Nested combine: the deleted member ids may still be listed in OUTER
+        // groups' membership (nesting is strict-subset membership). Strip them
+        // and substitute the surviving instance, or the combined node falls out
+        // of every group that contained the dissolved one.
+        graph.groups.forEach((otherGroup) => {
+          if (!Array.isArray(otherGroup.memberInstanceIds)) return;
+          const before = otherGroup.memberInstanceIds.length;
+          otherGroup.memberInstanceIds = otherGroup.memberInstanceIds.filter(id => !memberIdSet.has(id));
+          if (otherGroup.memberInstanceIds.length < before &&
+            !otherGroup.memberInstanceIds.includes(survivingInstanceId)) {
+            otherGroup.memberInstanceIds.push(survivingInstanceId);
+          }
+        });
       }));
 
       return createdInstanceId;
@@ -2010,6 +2024,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             })),
             createdAt: new Date().toISOString(),
             lastModified: new Date().toISOString()
+          }
+        });
+
+        // Nested decompose: if the original instance was itself a member of
+        // other groups, the new member instances belong to those groups too.
+        // Without this the new group's members aren't a subset of the outer
+        // group's, so the containment hierarchy (z-order, shell folding,
+        // group drag) never registers the nesting.
+        graph.groups.forEach((otherGroup) => {
+          if (otherGroup.id === groupId) return;
+          if (!Array.isArray(otherGroup.memberInstanceIds)) return;
+          if (!otherGroup.memberInstanceIds.includes(originalInstanceId)) return;
+          const existing = new Set(otherGroup.memberInstanceIds);
+          for (const newId of memberInstanceIds) {
+            if (!existing.has(newId)) otherGroup.memberInstanceIds.push(newId);
           }
         });
 

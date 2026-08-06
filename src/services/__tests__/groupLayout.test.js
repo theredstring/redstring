@@ -141,6 +141,34 @@ describe('computeGroupLayout', () => {
     expect(outerLayout.bbox.minY).toBe(innerLayout.nodeGroupRect.y);
   });
 
+  it('empty node-group placeholder folds into the parent shell via its anchor instance', () => {
+    const ctx = buildContext();
+    addNode(ctx, 'a', 0, 0);
+    addNode(ctx, 'anchor-e', 300, 0);
+    const empty = {
+      id: 'empty', name: 'E', memberInstanceIds: [], linkedNodePrototypeId: 'p1',
+      anchorInstanceId: 'anchor-e', emptyPlaceholderOrigin: { x: 300, y: 0 }
+    };
+    const outer = { id: 'outer', name: 'O', memberInstanceIds: ['a', 'anchor-e'], linkedNodePrototypeId: 'p2' };
+    addGroup(ctx, empty);
+    addGroup(ctx, outer);
+
+    const emptyLayout = computeGroupLayout(empty, ctx);
+    const outerLayout = computeGroupLayout(outer, ctx);
+    expect(emptyLayout.ok).toBe(true);
+    expect(outerLayout.ok).toBe(true);
+
+    // The placeholder's shell (rect + title tab) must sit fully inside the
+    // outer shell with margin clearance — before this it was invisible to the
+    // parent (no members ⇒ never a strict-subset child).
+    const ev = emptyLayout.visualBounds;
+    expect(outerLayout.rect.x).toBeLessThanOrEqual(ev.x - margin);
+    expect(outerLayout.rect.x + outerLayout.rect.w).toBeGreaterThanOrEqual(ev.x + ev.w + margin);
+    expect(outerLayout.rect.y + outerLayout.rect.h).toBeGreaterThanOrEqual(ev.y + ev.h + margin);
+    expect(outerLayout.bbox.minY).toBeLessThanOrEqual(ev.y);
+    expect(outerLayout.nestedContributors.some(c => c.nestedGroupId === 'empty')).toBe(true);
+  });
+
   it('peer node-groups (equal member sets) do NOT fold each other — neither is a strict subset', () => {
     const ctx = buildContext();
     addNode(ctx, 'a', 0, 0);

@@ -54,6 +54,19 @@ function computeChildGroupIdsForGroup(group, groupsById, groupsByMemberId) {
       if (isStrictSubset) childGroupIds.add(otherGroupId);
     }
   }
+  // Empty node-group placeholders can never satisfy the strict-subset test
+  // (no members to be a subset with), but they're still "inside" any group
+  // that holds their anchor instance as a member — the anchor is the only
+  // spatial tie they have. Without this they get no depth (z-order) and no
+  // shell fold (boundary padding) from their containing group.
+  if (groupsById) {
+    for (const [otherGroupId, otherGroup] of groupsById) {
+      if (otherGroupId === group.id || childGroupIds.has(otherGroupId)) continue;
+      if (!otherGroup?.linkedNodePrototypeId || !otherGroup.anchorInstanceId) continue;
+      if (Array.isArray(otherGroup.memberInstanceIds) && otherGroup.memberInstanceIds.length > 0) continue;
+      if (memberIdSet.has(otherGroup.anchorInstanceId)) childGroupIds.add(otherGroupId);
+    }
+  }
   return childGroupIds;
 }
 
@@ -226,6 +239,9 @@ function computeGroupLayoutInner(group, context) {
           if (!otherGroupId || !childGroupIds.has(otherGroupId)) continue;
           const otherGroup = groupsById.get(otherGroupId);
           if (!otherGroup) continue;
+          // Empty children have no member overlap with this loop — their
+          // placeholder shells are folded in the dedicated pass below.
+          if (!(otherGroup.memberInstanceIds?.length > 0)) continue;
           const nested = computeGroupLayout(otherGroup, context);
           if (nested && nested.ok) {
             // Fold the nested group's FULL shell (colored band + title tab)
@@ -259,6 +275,30 @@ function computeGroupLayoutInner(group, context) {
     if (contributingY < minY) minY = contributingY;
     if (contributingRight > maxX) maxX = contributingRight;
     if (contributingBottom > maxY) maxY = contributingBottom;
+  }
+
+  // Empty node-group children (anchored placeholders — see the empty-group
+  // pass in computeChildGroupIdsForGroup) contribute no members to the loop
+  // above, so fold their placeholder shells in directly.
+  if (childGroupIds.size > 0 && groupsById) {
+    for (const childId of childGroupIds) {
+      const childGroup = groupsById.get(childId);
+      if (!childGroup) continue;
+      if (childGroup.memberInstanceIds?.length > 0) continue;
+      const nested = computeGroupLayout(childGroup, context);
+      if (nested?.ok && nested.visualBounds) {
+        const vb = nested.visualBounds;
+        if (vb.x < minX) minX = vb.x;
+        if (vb.y < minY) minY = vb.y;
+        if (vb.x + vb.w > maxX) maxX = vb.x + vb.w;
+        if (vb.y + vb.h > maxY) maxY = vb.y + vb.h;
+        nestedContributors.push({
+          memberId: childGroup.anchorInstanceId || null,
+          nestedGroupId: childId,
+          contributedMinY: vb.y,
+        });
+      }
+    }
   }
 
   if (!isFinite(minX) && group.linkedNodePrototypeId) {
