@@ -6,7 +6,7 @@ import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
-import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcPath, straightLabelPath, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX, LABEL_PATH_SLACK } from '../utils/canvas/edgeRouting.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcPath, straightLabelPath, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle } from '../utils/canvas/edgeLabelPlacement.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../services/groupLayout.js';
 import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
@@ -61,6 +61,8 @@ export const useNodeDrag = ({
   zoomLevelRef,
   setPanOffset,
   setZoomLevel,
+  settledZoomLevel,
+  settledPanOffset,
 
   // Container / geometry
   containerRef,
@@ -338,79 +340,33 @@ export const useNodeDrag = ({
     // Measuring the label path costs a layout flush, so it happens exactly once
     // per edge here rather than per frame.
     //
-    // A Lombardi label's DOM shape — <path data-label-arc> + <textPath>, or a
-    // plain positioned <text> — is whatever the settled render picked based on
-    // the bow AT THE MOMENT BEFORE the drag started. Whichever it picked is
-    // frozen for the whole drag: React doesn't re-render every frame (that's
-    // the point of this DOM-bypass path), so nothing ever re-decides. A
-    // two-hop edge's bow keeps changing all drag long, purely from its
-    // neighbours' tangent fans re-solving — so an edge that started just under
-    // the curve threshold and crosses it mid-drag has no <path> to draw the
-    // arc into, and is stuck rendering as a straight label for a connection
-    // that's now visibly bowed. (The other direction — starts curved, flattens
-    // — is already handled below: the same <path> just gets a straight `d`.)
-    // So for a Lombardi edge, promote a plain <text> into the same
-    // <path>+<textPath> shape up front. It costs the textPath layout hit for
-    // this edge for the rest of the drag (see CURVED_LABEL_BUDGET's reasoning
-    // in NodeCanvas for why that's expensive at scale) — acceptable here
-    // because affectedEdgeIds is bounded by a couple of nodes' degree, not the
-    // whole graph. The settled render on drop reconciles it back to whichever
-    // shape the final bow actually earns.
-    const isLombardiDrag = enableAutoRoutingRef.current && routingStyleRef.current === 'lombardi';
-    const labelArcOf = (el, edgeId, pathIdSuffix) => {
-      const existing = el.querySelector('[data-label-arc]');
-      if (existing) {
-        let labelArcSpan = 0;
-        try { labelArcSpan = existing.getTotalLength(); } catch (_) { labelArcSpan = 0; }
-        return { labelArc: existing, labelArcSpan };
-      }
-      if (!isLombardiDrag) return { labelArc: null, labelArcSpan: 0 };
-      // Self-loops render their own <text x y> with no rotation and never gain
-      // a textPath — leave that shape alone.
-      const isSelfLoop = edgeDataIndex.get(edgeId)?.sourceId === edgeDataIndex.get(edgeId)?.destinationId;
-      const text = el.querySelector('text');
-      if (isSelfLoop || !text || text.querySelector('textPath')) {
-        return { labelArc: null, labelArcSpan: 0 };
-      }
-      try {
-        const textLength = text.getComputedTextLength?.() ?? 0;
-        if (!(textLength > 0)) return { labelArc: null, labelArcSpan: 0 };
-        const span = textLength * LABEL_PATH_SLACK;
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        const pathId = `drag-label-arc-${pathIdSuffix}`;
-        path.setAttribute('id', pathId);
-        path.setAttribute('data-label-arc', '1');
-        path.setAttribute('fill', 'none');
-        path.setAttribute('stroke', 'none');
-        // Placeholder geometry only — overwritten on the very next frame. Its
-        // LENGTH is what matters: it seeds labelArcSpan below, which (unlike
-        // the geometry) is reused every frame rather than remeasured.
-        path.setAttribute('d', `M ${-span / 2},0 L ${span / 2},0`);
-        text.parentNode.insertBefore(path, text);
-
-        text.removeAttribute('x');
-        text.removeAttribute('y');
-        text.removeAttribute('transform');
-        const textContent = text.textContent;
-        text.textContent = '';
-        const textPath = document.createElementNS('http://www.w3.org/2000/svg', 'textPath');
-        textPath.setAttribute('href', `#${pathId}`);
-        textPath.setAttribute('startOffset', '50%');
-        textPath.setAttribute('text-anchor', 'middle');
-        textPath.textContent = textContent;
-        text.appendChild(textPath);
-
-        return { labelArc: path, labelArcSpan: span };
-      } catch (_) {
-        return { labelArc: null, labelArcSpan: 0 };
-      }
+    // NOTE: a Lombardi label's DOM shape — <path data-label-arc> + <textPath>,
+    // or a plain positioned <text> — is whatever the settled render picked
+    // based on the bow just before the drag started, and stays that shape for
+    // the whole drag (nothing re-renders through React mid-drag to re-decide).
+    // An edge that crosses the curve threshold mid-drag is stuck rendering
+    // with whichever shape it started with. A previous attempt at fixing this
+    // promoted a plain <text> into <path>+<textPath> by mutating its children
+    // directly — that desynced React's fiber from the real DOM (React still
+    // believed the <text> had a single text-node child; a later settled render
+    // that landed back on the "straight" branch tried to patch that stale
+    // reference instead of replacing it, and the label froze until something
+    // else forced a remount). Reverted. Living with the wrong render shape for
+    // a handful of frames near the threshold is a much smaller defect than a
+    // label that stops moving entirely.
+    const labelArcOf = (el) => {
+      const labelArc = el.querySelector('[data-label-arc]');
+      if (!labelArc) return { labelArc: null, labelArcSpan: 0 };
+      let labelArcSpan = 0;
+      try { labelArcSpan = labelArc.getTotalLength(); } catch (_) { labelArcSpan = 0; }
+      return { labelArc, labelArcSpan };
     };
 
     affectedEdgeIds.forEach(edgeId => {
       // querySelectorAll returns all matches (edge appears in below + above blocks)
       const els = container.querySelectorAll(`[data-edge-id="${edgeId}"]`);
       if (els.length > 0) {
-        const cachedEls = Array.from(els).map((el, i) => ({
+        const cachedEls = Array.from(els).map(el => ({
           el,
           // A Lombardi label rides its own <path>. Exclude it here or the loop
           // below would stamp the EDGE's geometry onto it and the label would
@@ -420,11 +376,7 @@ export const useNodeDrag = ({
           arrows: Array.from(el.querySelectorAll('[data-arrow]')),
           selfArrow: el.querySelector('[data-arrow="self"]'),
           texts: Array.from(el.querySelectorAll('text')),
-          // Suffixed by i: the same edge can render into more than one <g
-          // data-edge-id> (see the comment above), and a promoted <path> needs
-          // an id unique across ALL of them, or the second textPath's href
-          // resolves to the first one's path.
-          ...labelArcOf(el, edgeId, `${edgeId}-${i}`),
+          ...labelArcOf(el),
         }));
         dragEdgeElsRef.current.set(edgeId, cachedEls);
       }
@@ -496,6 +448,22 @@ export const useNodeDrag = ({
   // Must run pre-paint: the drag-zoom animation's first RAF fires the same
   // frame as this commit, and needs the fresh DOM refs to write node/edge
   // transforms to the live elements rather than the detached pre-rerender ones.
+  //
+  // Also re-runs on settledZoomLevel/settledPanOffset, not just drag start.
+  // Those are debounced React state (~150ms after zoom/pan stops changing —
+  // see useCanvasTransform) that a drag routinely nudges mid-gesture: the
+  // default-on drag-zoom-out ramp settles a few hundred ms after grabbing a
+  // node, and edge-auto-pan settles whenever the cursor leaves the pan
+  // margin. Either fires a real NodeCanvas re-render while still dragging.
+  // For a Lombardi label that's normally a no-op (same DOM, new attribute
+  // values) — but if that render's live bow crosses the curved/straight
+  // threshold, the label's <path data-label-arc>+<textPath> vs plain <text>
+  // JSX is a different element type at that position, so React unmounts and
+  // remounts it. Nothing else told this hook that happened, so it kept
+  // writing every subsequent frame into the now-detached old node: the label
+  // visibly froze until the drag ended and a real render reconciled it.
+  // Re-running the cache here re-points dragEdgeElsRef at whatever DOM the
+  // settle-triggered render actually produced.
   useLayoutEffect(() => {
     if (!draggingNodeInfo) return;
     const ids = [];
@@ -508,7 +476,7 @@ export const useNodeDrag = ({
       draggingNodeInfo.memberOffsets.forEach(m => ids.push(m.id));
     }
     if (ids.length > 0) cacheDOMElements(ids);
-  }, [draggingNodeInfo, cacheDOMElements]);
+  }, [draggingNodeInfo, cacheDOMElements, settledZoomLevel, settledPanOffset]);
 
   // ---------------------------------------------------------------------------
   // Compute Position Updates (pure math, no side effects)

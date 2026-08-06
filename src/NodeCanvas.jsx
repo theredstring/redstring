@@ -1998,6 +1998,11 @@ function NodeCanvas() {
     zoomLevelRef,
     setPanOffset,
     setZoomLevel,
+    // Reactive (non-ref) settled values — see the re-cache effect in
+    // useNodeDrag for why these need to be actual render dependencies rather
+    // than refs.
+    settledZoomLevel: zoomLevel,
+    settledPanOffset: panOffset,
     containerRef,
     canvasSize,
     canvasSizeRef,

@@ -853,11 +853,17 @@ export const chooseArcLabelPlacement = (
             if (!best || betterPlacement(crossings, score, best)) {
                 best = {
                     x, y, angle: anchor.angle, score, crossings, rect,
-                    // nx/ny: the radial direction this offset was measured against,
-                    // so a later reuse (placeLabelOnRoute, every drag frame) can tell
-                    // whether the arc's bow has since flipped to the other side of
-                    // the chord — see the dot-product check there.
-                    anchor: { t: s, offset, nx: anchor.nx, ny: anchor.ny },
+                    // bowSign: which side of the p→q chord this arc bowed to when
+                    // the offset was measured, so a later reuse (placeLabelOnRoute,
+                    // every drag frame) can tell whether the bow has since flipped
+                    // to the other side — see the sign check there. This has to be
+                    // chord-relative (arc.delta, not the world-frame radial vector):
+                    // an ordinary drag continuously rotates the whole chord, which
+                    // rotates the radial direction right along with it without the
+                    // bow ever actually changing sides — comparing absolute radial
+                    // vectors mistook that rotation for a flip and negated the
+                    // offset on every sufficiently-large sweep.
+                    anchor: { t: s, offset, bowSign: Math.sign(arc.delta) },
                 };
             }
         }
@@ -909,14 +915,18 @@ export const placeLabelOnRoute = (routing, anchor = null) => {
             // whichever node is actually being dragged, and at a crowded fan
             // (lots of connections at that node) small bearing changes routinely
             // push a neighbour's demanded curvature through zero and out the
-            // other side. `nx, ny` here is the CURRENT radial direction; anchor's
-            // is whatever it was solved against. If they now point more than 90°
-            // apart, the offset's sign is measured in a frame that flipped
-            // underneath it — negate it so the label stays on the same side of
-            // the curve (which is what "dodging that other label/connection"
-            // meant) instead of jumping to mirror the flip.
-            const stillSameSide = !(Number.isFinite(anchor.nx) && Number.isFinite(anchor.ny))
-                || (nx * anchor.nx + ny * anchor.ny) >= 0;
+            // other side. When that happens the offset's sign needs negating so
+            // the label stays on the same side of the curve (what "dodging that
+            // other label/connection" meant) instead of jumping to mirror the
+            // flip. The comparison HAS to be chord-relative (arc.delta's sign,
+            // matching what the anchor was solved against) rather than the
+            // world-frame radial vector: an ordinary drag continuously rotates
+            // the whole chord, which rotates the radial direction right along
+            // with it with the bow never actually changing sides, so a
+            // world-frame comparison flags a flip on every wide sweep.
+            const currentSign = Math.sign(routing.arc.delta ?? 0);
+            const stillSameSide = !Number.isFinite(anchor.bowSign) || anchor.bowSign === 0
+                || currentSign === 0 || currentSign === anchor.bowSign;
             const offset = stillSameSide ? anchor.offset : -anchor.offset;
             return {
                 x: at.x + nx * offset,
