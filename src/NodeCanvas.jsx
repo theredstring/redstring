@@ -44,7 +44,7 @@ import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './serv
 import { applyOffscreenLayout } from './services/offscreenLayout.js';
 import { oneShotLabel, attachOneShotOutcome, isOneShotAvailable } from './services/oneShot.js';
 import { suggestAbstractionName, suggestArrowDirection } from './wizard/tools/utils/suggestionCalls.js';
-import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS, buildChildGroupIdsIndex } from './services/groupLayout.js';
+import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS, buildChildGroupIdsIndex, computeGroupDepths } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
 import { debugLogSync } from './utils/debugLogger.js';
 import { getNodeHitbox, getVisualConnectionEndpoints, getLineNodeIntersection } from './utils/canvas/nodeHitbox.js';
@@ -1431,6 +1431,10 @@ function NodeCanvas() {
   // computeGroupLayout call (static render + drag) so the per-call O(M·K·L)
   // child-detection scan happens once per group-graph mutation, not per frame.
   const childGroupIdsByGroupIdRef = useRef(new Map());
+  // Nesting depth per group (0 = outermost). SVG z-order is document order,
+  // so Phase 1 sorts groups by this before emitting JSX — deeper shells and
+  // their titles paint later (above their parents) within each z-layer.
+  const groupDepthByGroupIdRef = useRef(new Map());
   useEffect(() => {
     const map = new Map();
     const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
@@ -1457,6 +1461,7 @@ function NodeCanvas() {
     groupsByNodeIdRef.current = map;
     groupsByIdRef.current = graphData?.groups || new Map();
     childGroupIdsByGroupIdRef.current = buildChildGroupIdsIndex(groupsByIdRef.current, map);
+    groupDepthByGroupIdRef.current = computeGroupDepths(groupsByIdRef.current, map, childGroupIdsByGroupIdRef.current);
   }, [activeGraphId, graphsMap]);
 
   // Clipboard ref for copy/paste operations
@@ -12629,7 +12634,14 @@ function NodeCanvas() {
                     Thing-group backgrounds and titles are stored in refs for rendering at higher z-levels. */}
                   {(() => {
                     const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
-                    const groups = graphData?.groups ? Array.from(graphData.groups.values()) : [];
+                    // Shallowest-first so nested shells/titles emit after (above) their
+                    // parents within each z-layer; stable sort keeps insertion order
+                    // among siblings at the same depth.
+                    const groupDepths = groupDepthByGroupIdRef.current;
+                    const groups = graphData?.groups
+                      ? Array.from(graphData.groups.values())
+                        .sort((a, b) => (groupDepths.get(a.id) ?? 0) - (groupDepths.get(b.id) ?? 0))
+                      : [];
                     const ngBackgrounds = [];
                     const ngTitles = [];
                     const tgMemberIds = new Set();

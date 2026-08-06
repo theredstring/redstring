@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS as C } from '../groupLayout.js';
+import { computeGroupLayout, buildChildGroupIdsIndex, computeGroupDepths, GROUP_LAYOUT_CONSTANTS as C } from '../groupLayout.js';
 
 const GRID_SIZE = 100;
 const memberPadding = Math.max(24, Math.round(GRID_SIZE * 0.2));
@@ -250,5 +250,61 @@ describe('computeGroupLayout', () => {
     expect(Math.abs(rStatic.rect.h - rDrag.rect.h)).toBeLessThanOrEqual(epsilon);
     expect(Math.abs(rStatic.label.x - rDrag.label.x)).toBeLessThanOrEqual(epsilon);
     expect(Math.abs(rStatic.label.y - rDrag.label.y)).toBeLessThanOrEqual(epsilon);
+  });
+});
+
+describe('computeGroupDepths', () => {
+  const depthsFor = (ctx) => {
+    const childIndex = buildChildGroupIdsIndex(ctx.groupsById, ctx.groupsByMemberId);
+    return computeGroupDepths(ctx.groupsById, ctx.groupsByMemberId, childIndex);
+  };
+
+  it('assigns 0 to non-nested groups', () => {
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'g1', name: 'A', memberInstanceIds: ['a', 'b'], linkedNodePrototypeId: 'p1' });
+    addGroup(ctx, { id: 'g2', name: 'B', memberInstanceIds: ['c'], linkedNodePrototypeId: 'p2' });
+
+    const depths = depthsFor(ctx);
+    expect(depths.get('g1')).toBe(0);
+    expect(depths.get('g2')).toBe(0);
+  });
+
+  it('counts every ancestor along a nesting chain (outer=0, middle=1, inner=2)', () => {
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'inner', name: 'I', memberInstanceIds: ['a'], linkedNodePrototypeId: 'p1' });
+    addGroup(ctx, { id: 'middle', name: 'M', memberInstanceIds: ['a', 'b'], linkedNodePrototypeId: 'p2' });
+    addGroup(ctx, { id: 'outer', name: 'O', memberInstanceIds: ['a', 'b', 'c'], linkedNodePrototypeId: 'p3' });
+
+    const depths = depthsFor(ctx);
+    expect(depths.get('outer')).toBe(0);
+    expect(depths.get('middle')).toBe(1);
+    expect(depths.get('inner')).toBe(2);
+  });
+
+  it('keeps children strictly deeper than every parent when nesting overlaps', () => {
+    // inner sits inside both b1 and b2 (siblings), all inside outer.
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'inner', name: 'I', memberInstanceIds: ['a'], linkedNodePrototypeId: 'p1' });
+    addGroup(ctx, { id: 'b1', name: 'B1', memberInstanceIds: ['a', 'b'], linkedNodePrototypeId: 'p2' });
+    addGroup(ctx, { id: 'b2', name: 'B2', memberInstanceIds: ['a', 'c'], linkedNodePrototypeId: 'p3' });
+    addGroup(ctx, { id: 'outer', name: 'O', memberInstanceIds: ['a', 'b', 'c', 'd'], linkedNodePrototypeId: 'p4' });
+
+    const depths = depthsFor(ctx);
+    expect(depths.get('outer')).toBe(0);
+    expect(depths.get('b1')).toBeGreaterThan(depths.get('outer'));
+    expect(depths.get('b2')).toBeGreaterThan(depths.get('outer'));
+    expect(depths.get('inner')).toBeGreaterThan(depths.get('b1'));
+    expect(depths.get('inner')).toBeGreaterThan(depths.get('b2'));
+  });
+
+  it('empty node-groups inherit depth from the group holding their anchor', () => {
+    const ctx = buildContext();
+    addGroup(ctx, { id: 'outer', name: 'O', memberInstanceIds: ['a', 'anchor-e'], linkedNodePrototypeId: 'p1' });
+    // Empty placeholder group: no members, but its anchor lives inside outer.
+    addGroup(ctx, { id: 'empty', name: 'E', memberInstanceIds: [], linkedNodePrototypeId: 'p2', anchorInstanceId: 'anchor-e' });
+
+    const depths = depthsFor(ctx);
+    expect(depths.get('outer')).toBe(0);
+    expect(depths.get('empty')).toBe(1);
   });
 });

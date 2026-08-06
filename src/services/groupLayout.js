@@ -76,6 +76,49 @@ export function buildChildGroupIdsIndex(groupsById, groupsByMemberId) {
   return out;
 }
 
+/**
+ * Nesting depth per group, derived from the strict-subset child index:
+ * a group's depth is how many other groups contain it (0 = outermost).
+ * Containment is transitive, so every ancestor of an ancestor is also
+ * counted — depth(child) is always >= depth(parent) + 1, which makes this
+ * safe to use as a paint order (sort ascending, deepest paints last/on top).
+ *
+ * Empty node-groups never appear as children in the subset scan (no members
+ * to be a subset with), so they inherit depth from whichever group holds
+ * their anchor instance as a member.
+ *
+ * @param {Map<string, object>} groupsById
+ * @param {Map<string, Array<{groupId: string} | string>>} groupsByMemberId
+ * @param {Map<string, Set<string>>} childGroupIdsByGroupId
+ * @returns {Map<string, number>}
+ */
+export function computeGroupDepths(groupsById, groupsByMemberId, childGroupIdsByGroupId) {
+  const depths = new Map();
+  if (!childGroupIdsByGroupId) return depths;
+  for (const groupId of childGroupIdsByGroupId.keys()) depths.set(groupId, 0);
+  for (const childIds of childGroupIdsByGroupId.values()) {
+    for (const childId of childIds) {
+      depths.set(childId, (depths.get(childId) ?? 0) + 1);
+    }
+  }
+  if (groupsById && groupsByMemberId) {
+    for (const group of groupsById.values()) {
+      if (!group.linkedNodePrototypeId || !group.anchorInstanceId) continue;
+      if (Array.isArray(group.memberInstanceIds) && group.memberInstanceIds.length > 0) continue;
+      const entries = groupsByMemberId.get(group.anchorInstanceId);
+      if (!entries) continue;
+      let maxParentDepth = -1;
+      for (const entry of entries) {
+        const gid = typeof entry === 'string' ? entry : entry?.groupId;
+        if (!gid || gid === group.id) continue;
+        maxParentDepth = Math.max(maxParentDepth, depths.get(gid) ?? 0);
+      }
+      if (maxParentDepth >= 0) depths.set(group.id, maxParentDepth + 1);
+    }
+  }
+  return depths;
+}
+
 // Tab height is dictated by the label font: tall enough for the line box
 // (font * 1.4) plus vertical padding, with a sane minimum. `fontSize` is the
 // already-scaled px size; falls back to the fixed constant when not supplied.
