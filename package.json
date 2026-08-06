@@ -1,7 +1,7 @@
 {
   "name": "redstring",
   "private": true,
-  "version": "0.9.5",
+  "version": "0.9.6",
   "bin": {
     "redstring": "cli/redstring.js"
   },

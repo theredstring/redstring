@@ -427,12 +427,13 @@ const UnifiedBottomControlPanel = ({
     };
   }, [nodeDimensionEntries, viewportLimit, mobileState.isMobilePortrait]);
 
-  const nodeGroupPrototype = useMemo(() => {
-    if (!isNodeGroup || !selectedGroup?.linkedNodePrototypeId) return null;
-    const state = useGraphStore.getState();
-    if (!state?.nodePrototypes?.get) return null;
-    return state.nodePrototypes.get(selectedGroup.linkedNodePrototypeId) || null;
-  }, [isNodeGroup, selectedGroup?.linkedNodePrototypeId]);
+  // Subscribed, not a getState() snapshot: the linked prototype owns the node-group's
+  // name and color, so renaming or recoloring it (from here or anywhere else) has to
+  // re-render this preview — a one-shot read would leave the pill showing stale identity.
+  const linkedPrototypeId = isNodeGroup ? selectedGroup?.linkedNodePrototypeId : null;
+  const nodeGroupPrototype = useGraphStore(
+    state => (linkedPrototypeId ? state.nodePrototypes.get(linkedPrototypeId) || null : null)
+  );
 
   const nodeGroupRendererNode = useMemo(() => {
     if (!isNodeGroup || !selectedGroup) return null;

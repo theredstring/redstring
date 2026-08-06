@@ -336,6 +336,35 @@ const _createAndAssignGraphDefinition = (draft, prototypeId) => {
 };
 
 /**
+ * Mirrors a prototype's identity (name/color) onto every node-group linked to it.
+ *
+ * A node-group is the same Thing as its linked prototype from the user's point of view:
+ * whichever surface the edit came from — the group's title on canvas, the node's panel,
+ * a pie-menu color swatch — every other surface must show the result. Group records keep
+ * their own `name`/`color` fields (they predate the link and are what gets serialized), so
+ * they're kept in lockstep rather than dropped.
+ *
+ * @param {Object} draft - Immer draft of the store state.
+ * @param {string} prototypeId - Prototype whose identity is authoritative.
+ * @param {Object} prototype - The (already-updated) prototype draft.
+ * @param {string} [skipGroupId] - Group that originated the edit and is already correct.
+ */
+const syncNodeGroupsToPrototype = (draft, prototypeId, prototype, skipGroupId = null) => {
+  draft.graphs.forEach((graph) => {
+    graph.groups?.forEach((group, groupId) => {
+      if (groupId === skipGroupId) return;
+      if (group.linkedNodePrototypeId !== prototypeId) return;
+      if (prototype.name !== undefined && group.name !== prototype.name) {
+        group.name = prototype.name;
+      }
+      if (prototype.color !== undefined && group.color !== prototype.color) {
+        group.color = prototype.color;
+      }
+    });
+  });
+};
+
+/**
  * Helper function to normalize edge directionality to ensure arrowsToward is always a Set
  */
 const normalizeEdgeDirectionality = (directionality) => {
@@ -1179,6 +1208,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
         // Store original values for change tracking
         const originalName = group.name;
+        const originalColor = group.color;
         const originalMemberIds = [...group.memberInstanceIds];
 
         recipe(group);
@@ -1207,26 +1237,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         group.semanticMetadata.lastModified = new Date().toISOString();
 
         // Log changes for semantic integration
-        if (originalName !== group.name) {
+        const nameChanged = originalName !== group.name;
+        const colorChanged = originalColor !== group.color;
+        if (nameChanged) {
           console.log(`[updateGroup] Group ${groupId} renamed from "${originalName}" to "${group.name}"`);
+        }
 
-          // If this is a node-group, sync the name change to the linked prototype
-          if (group.linkedNodePrototypeId) {
-            const prototype = draft.nodePrototypes.get(group.linkedNodePrototypeId);
-            if (prototype) {
-              const prototypeOriginalName = prototype.name;
+        // A node-group IS its linked prototype as far as the user is concerned — editing
+        // the group's identity (name/color) edits the Thing itself, everywhere it appears.
+        if ((nameChanged || colorChanged) && group.linkedNodePrototypeId) {
+          const prototype = draft.nodePrototypes.get(group.linkedNodePrototypeId);
+          if (prototype) {
+            if (nameChanged) {
+              console.log(`[updateGroup] Syncing node-group name to prototype ${group.linkedNodePrototypeId}: "${prototype.name}" → "${group.name}"`);
               prototype.name = group.name;
-              console.log(`[updateGroup] Syncing node-group name to prototype ${group.linkedNodePrototypeId}: "${prototypeOriginalName}" → "${group.name}"`);
-
-              // Sync name change to any graphs defined by this prototype (matching updateNodePrototype logic)
-              if (Array.isArray(prototype.definitionGraphIds)) {
-                prototype.definitionGraphIds.forEach(defGraphId => {
-                  const defGraph = draft.graphs.get(defGraphId);
-                  if (defGraph) {
-                    defGraph.name = group.name;
-                  }
-                });
-              }
 
               // Update titles in right panel tabs
               draft.rightPanelTabs.forEach(tab => {
@@ -1234,9 +1258,26 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
                   tab.title = group.name;
                 }
               });
-            } else {
-              console.warn(`[updateGroup] Node-group ${groupId} references non-existent prototype ${group.linkedNodePrototypeId}`);
             }
+            if (colorChanged) {
+              console.log(`[updateGroup] Syncing node-group color to prototype ${group.linkedNodePrototypeId}: "${prototype.color}" → "${group.color}"`);
+              prototype.color = group.color;
+            }
+
+            // Sync name change to any graphs defined by this prototype (matching updateNodePrototype logic)
+            if (nameChanged && Array.isArray(prototype.definitionGraphIds)) {
+              prototype.definitionGraphIds.forEach(defGraphId => {
+                const defGraph = draft.graphs.get(defGraphId);
+                if (defGraph) {
+                  defGraph.name = group.name;
+                }
+              });
+            }
+
+            // Other node-groups in other graphs linked to the same prototype must follow too.
+            syncNodeGroupsToPrototype(draft, group.linkedNodePrototypeId, prototype, groupId);
+          } else {
+            console.warn(`[updateGroup] Node-group ${groupId} references non-existent prototype ${group.linkedNodePrototypeId}`);
           }
         }
       }));
@@ -1570,7 +1611,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         group.linkedNodePrototypeId = prototypeId;
         group.linkedDefinitionIndex = definitionIndex;
         group.hasCustomLayout = false; // Start with default syncing
-        group.color = prototype.color; // Sync color with prototype
+        // Identity now belongs to the prototype — the group mirrors it from here on.
+        group.name = prototype.name;
+        group.color = prototype.color;
 
         // Create an anchor instance for this thing-group (connection target)
         const anchorId = uuidv4();
@@ -3229,11 +3272,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const prototype = draft.nodePrototypes.get(prototypeId);
         if (prototype) {
           const originalName = prototype.name;
+          const originalColor = prototype.color;
           recipe(prototype); // Apply Immer updates
           const newName = prototype.name;
+          const nameChanged = newName !== originalName;
+          const colorChanged = prototype.color !== originalColor;
 
           // Sync name change to any graphs defined by this prototype
-          if (newName !== originalName && Array.isArray(prototype.definitionGraphIds)) {
+          if (nameChanged && Array.isArray(prototype.definitionGraphIds)) {
             prototype.definitionGraphIds.forEach(graphId => {
               const graph = draft.graphs.get(graphId);
               if (graph) {
@@ -3248,6 +3294,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
               tab.title = newName;
             }
           });
+
+          // Node-groups linked to this prototype ARE this Thing — mirror its identity.
+          if (nameChanged || colorChanged) {
+            syncNodeGroupsToPrototype(draft, prototypeId, prototype);
+          }
 
         } else {
           console.warn(`updateNodePrototype: Prototype with id ${prototypeId} not found.`);

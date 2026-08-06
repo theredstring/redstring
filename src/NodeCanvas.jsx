@@ -5874,6 +5874,16 @@ function NodeCanvas() {
   const groupPanelTarget = selectedGroup || lastSelectedGroup;
   const groupPanelMode = groupPanelTarget?.linkedNodePrototypeId ? "nodegroup" : "group";
 
+  // For a node-group the linked prototype owns name/color; selectedGroup is a snapshot
+  // taken at selection time, so read identity through the prototype wherever it's shown.
+  const selectedGroupEffectiveColor = useMemo(() => {
+    if (!selectedGroup) return null;
+    const linkedPrototype = selectedGroup.linkedNodePrototypeId
+      ? nodePrototypesMap.get(selectedGroup.linkedNodePrototypeId)
+      : null;
+    return linkedPrototype?.color || selectedGroup.color || null;
+  }, [selectedGroup, nodePrototypesMap]);
+
   // Group control panel action handlers
   const handleGroupPanelUngroup = useCallback(() => {
     if (!activeGraphId || !selectedGroup) return;
@@ -5888,10 +5898,14 @@ function NodeCanvas() {
 
   const handleGroupPanelEdit = useCallback(() => {
     if (!selectedGroup) return;
-    // Start inline editing mode
+    // Start inline editing mode. For a node-group the prototype owns the name, so seed
+    // from it — selectedGroup is a snapshot and may lag a prototype edit made elsewhere.
+    const linkedPrototype = selectedGroup.linkedNodePrototypeId
+      ? nodePrototypesMap.get(selectedGroup.linkedNodePrototypeId)
+      : null;
     setEditingGroupId(selectedGroup.id);
-    setTempGroupName(selectedGroup.name || 'Group');
-  }, [selectedGroup]);
+    setTempGroupName(linkedPrototype?.name || selectedGroup.name || 'Group');
+  }, [selectedGroup, nodePrototypesMap]);
 
   const handleGroupPanelColor = useCallback((e) => {
     if (!activeGraphId || !selectedGroup) return;
@@ -12674,12 +12688,23 @@ function NodeCanvas() {
                       // no anchor to fall back to, so they still skip when empty.
                       if (!members.length && !group.linkedNodePrototypeId) return;
 
+                      // A node-group's identity IS its linked prototype's — editing the
+                      // group's title or color edits the Thing itself. The group record
+                      // keeps mirrored name/color fields (that's what serializes), but the
+                      // prototype is authoritative, so read through to it here and the
+                      // title tracks prototype edits made from any other surface.
+                      const nodeGroupPrototype = group.linkedNodePrototypeId
+                        ? nodePrototypesMap.get(group.linkedNodePrototypeId)
+                        : null;
+                      const effectiveGroupName = nodeGroupPrototype?.name || group.name || 'Group';
+                      const effectiveGroupColor = nodeGroupPrototype?.color || group.color || '#8B0000';
+
                       // When this group's name is being edited, measure against the in-flight
                       // text so the label rect tracks keystrokes — pass an override-named
                       // shallow copy to keep the helper pure.
                       const groupForLayout = (editingGroupId === group.id)
                         ? { ...group, name: tempGroupName }
-                        : group;
+                        : (effectiveGroupName !== group.name ? { ...group, name: effectiveGroupName } : group);
                       const layout = computeGroupLayout(groupForLayout, layoutContext);
                       if (!layout.ok) return;
 
@@ -12690,15 +12715,14 @@ function NodeCanvas() {
                       const nodeGroupRectY = nodeGroupRect.y, nodeGroupRectH = nodeGroupRect.h;
 
                       const nodeGroupCornerR = GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius;
-                      const strokeColor = group.color || '#8B0000';
+                      const strokeColor = effectiveGroupColor;
                       const fontSize = groupLabelFontSize;
 
-                      const currentText = editingGroupId === group.id ? tempGroupName : (group.name || 'Group');
-                      const labelText = group.name || 'Group';
+                      const currentText = editingGroupId === group.id ? tempGroupName : effectiveGroupName;
+                      const labelText = effectiveGroupName;
                       const isGroupDragging = draggingNodeInfo?.groupId === group.id;
 
-                      const nodeGroupPrototype = isNodeGroup ? nodePrototypesMap.get(group.linkedNodePrototypeId) : null;
-                      const nodeGroupColor = nodeGroupPrototype?.color || strokeColor;
+                      const nodeGroupColor = effectiveGroupColor;
 
                       if (typeof window !== 'undefined' && window.__groupBoundsDebug) {
                         console.log('[GROUP-STATIC]', {
@@ -12772,7 +12796,7 @@ function NodeCanvas() {
                             if (wasDraggingRef.current || mouseMoved.current) return;
                             if (e.detail === 2) {
                               setEditingGroupId(group.id);
-                              setTempGroupName(group.name || 'Group');
+                              setTempGroupName(effectiveGroupName);
                             } else {
                               setSelectedGroup(group);
                               // Clear node/edge selection so the Node/Connection Control Panel
@@ -13000,7 +13024,7 @@ function NodeCanvas() {
                               // Double tap → inline rename (mirrors mouse dblclick).
                               lastGroupTapRef.current = { id: null, time: 0 };
                               setEditingGroupId(group.id);
-                              setTempGroupName(group.name || 'Group');
+                              setTempGroupName(effectiveGroupName);
                             } else {
                               // Single tap → select (mirrors the mouse onClick path).
                               lastGroupTapRef.current = { id: group.id, time: now };
@@ -13061,7 +13085,7 @@ function NodeCanvas() {
                                   }}
                                   onBlur={() => {
                                     const newName = tempGroupName.trim();
-                                    if (newName && activeGraphId && newName !== group.name) {
+                                    if (newName && activeGraphId && newName !== effectiveGroupName) {
                                       storeActions.updateGroup(activeGraphId, group.id, (draft) => { draft.name = newName; });
                                       if (selectedGroup?.id === group.id) {
                                         setSelectedGroup(prev => prev ? { ...prev, name: newName } : null);
@@ -17464,7 +17488,7 @@ function NodeCanvas() {
             onColorChange={handleDialogColorChange}
             currentColor={
               colorPickerTarget?.type === 'group'
-                ? (selectedGroup?.color || 'maroon')
+                ? (selectedGroupEffectiveColor || 'maroon')
                 : (nodeNamePrompt.visible
                   ? (nodeNamePrompt.color || NODE_DEFAULT_COLOR)
                   : (connectionNamePrompt.color || NODE_DEFAULT_COLOR))
