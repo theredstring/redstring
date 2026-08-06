@@ -853,7 +853,11 @@ export const chooseArcLabelPlacement = (
             if (!best || betterPlacement(crossings, score, best)) {
                 best = {
                     x, y, angle: anchor.angle, score, crossings, rect,
-                    anchor: { t: s, offset },
+                    // nx/ny: the radial direction this offset was measured against,
+                    // so a later reuse (placeLabelOnRoute, every drag frame) can tell
+                    // whether the arc's bow has since flipped to the other side of
+                    // the chord — see the dot-product check there.
+                    anchor: { t: s, offset, nx: anchor.nx, ny: anchor.ny },
                 };
             }
         }
@@ -900,9 +904,23 @@ export const placeLabelOnRoute = (routing, anchor = null) => {
             const at = arcPointAt(routing.arc, Math.max(0, Math.min(1, anchor.t)));
             const nx = (at.x - routing.arc.cx) / routing.arc.radius;
             const ny = (at.y - routing.arc.cy) / routing.arc.radius;
+            // A Lombardi arc's bow can flip to the other side of the chord
+            // between frames — a two-hop edge's tangent fan re-solves live off
+            // whichever node is actually being dragged, and at a crowded fan
+            // (lots of connections at that node) small bearing changes routinely
+            // push a neighbour's demanded curvature through zero and out the
+            // other side. `nx, ny` here is the CURRENT radial direction; anchor's
+            // is whatever it was solved against. If they now point more than 90°
+            // apart, the offset's sign is measured in a frame that flipped
+            // underneath it — negate it so the label stays on the same side of
+            // the curve (which is what "dodging that other label/connection"
+            // meant) instead of jumping to mirror the flip.
+            const stillSameSide = !(Number.isFinite(anchor.nx) && Number.isFinite(anchor.ny))
+                || (nx * anchor.nx + ny * anchor.ny) >= 0;
+            const offset = stillSameSide ? anchor.offset : -anchor.offset;
             return {
-                x: at.x + nx * anchor.offset,
-                y: at.y + ny * anchor.offset,
+                x: at.x + nx * offset,
+                y: at.y + ny * offset,
                 angle: at.angle,
                 anchor,
             };

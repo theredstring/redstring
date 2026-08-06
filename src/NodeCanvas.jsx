@@ -9358,7 +9358,10 @@ function NodeCanvas() {
       ignoreCanvasClick.current = false;
       // Only bail if there's nothing to dismiss — otherwise fall through so the
       // first click after a pan/glide doesn't waste itself just clearing the flag.
-      if (selectedInstanceIds.size === 0 && !plusSign) return;
+      // selectedGroup must be included here too: selecting a group clears
+      // selectedInstanceIds, so without this the very next click (meant to
+      // deselect the group) gets silently swallowed and a second click is needed.
+      if (selectedInstanceIds.size === 0 && !plusSign && !selectedGroup) return;
     }
 
     // Close Group panel on click-off like other panels
@@ -12961,6 +12964,12 @@ function NodeCanvas() {
                             groupTouchCleanupRef.current?.();
                             ignoreCanvasClick.current = true;
                             e.stopPropagation();
+                            // Without preventDefault, the browser follows this touchend with a
+                            // synthetic click at the same point, which re-hits the title's own
+                            // onClick below and double-selects the group (visible as the control
+                            // panel flickering / replaying its intro animation). Mirrors the
+                            // preventDefault call in handleNodeTouchEnd (useCanvasTouch.js).
+                            if (e.cancelable) e.preventDefault();
 
                             if (editingGroupId === group.id) return;
                             const now = Date.now();
