@@ -364,6 +364,7 @@ function NodeCanvas() {
         createGroup: () => { },
         updateGroup: () => { },
         deleteGroup: () => { },
+        cleanupOrphanedGroupAnchors: () => { },
         removeDefinitionFromNode: () => { },
         openGraphTabAndBringToTop: () => { },
         cleanupOrphanedData: () => { },
@@ -882,6 +883,22 @@ function NodeCanvas() {
     });
     if (brokenGroupIds.length === 0) return;
     brokenGroupIds.forEach(groupId => storeActions.ensureGroupAnchor(activeGraphId, groupId));
+  }, [activeGraphId, activeGraph?.groups, activeGraphInstances, storeActions]);
+
+  // Sweep the reverse case: anchor instances left behind after their group is gone.
+  // These are flagged isGroupAnchor and hidden from rendering unconditionally, so without
+  // this they stay invisible-but-connected indefinitely instead of surfacing the render bug.
+  useEffect(() => {
+    if (!activeGraphId || !activeGraphInstances) return;
+    let hasOrphan = false;
+    for (const inst of activeGraphInstances.values()) {
+      if (inst.isGroupAnchor && inst.anchorForGroupId && !activeGraph?.groups?.has(inst.anchorForGroupId)) {
+        hasOrphan = true;
+        break;
+      }
+    }
+    if (!hasOrphan) return;
+    storeActions.cleanupOrphanedGroupAnchors(activeGraphId);
   }, [activeGraphId, activeGraph?.groups, activeGraphInstances, storeActions]);
 
   // Get hydrated nodes for the active graph

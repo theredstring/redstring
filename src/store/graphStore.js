@@ -1284,6 +1284,52 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     },
 
     /**
+     * Removes any anchor instances in a graph whose group no longer exists.
+     *
+     * An anchor is normally hidden from rendering while its group is alive; if a group
+     * is ever lost without going through `deleteGroup`/`combineNodeGroup` (e.g. a stale
+     * save, a non-canonical mutation path), its anchor is left behind — still flagged
+     * `isGroupAnchor` and still connected via its edges — and renders invisible forever
+     * since the canvas hides flagged anchors unconditionally. This is the single-graph,
+     * proactive counterpart to `ensureGroupAnchor`'s "group missing its anchor" repair.
+     *
+     * @param {string} graphId - ID of the graph to sweep.
+     */
+    cleanupOrphanedGroupAnchors: (graphId) => {
+      set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph?.instances) return;
+
+        const orphanedAnchors = [];
+        for (const [instId, inst] of graph.instances.entries()) {
+          if (inst.isGroupAnchor && inst.anchorForGroupId && !graph.groups?.has(inst.anchorForGroupId)) {
+            orphanedAnchors.push(instId);
+          }
+        }
+        if (orphanedAnchors.length === 0) return;
+
+        orphanedAnchors.forEach(instId => {
+          const edgesToRemove = [];
+          draft.edges.forEach((edge, edgeId) => {
+            if (edge.sourceId === instId || edge.destinationId === instId) {
+              edgesToRemove.push(edgeId);
+            }
+          });
+          edgesToRemove.forEach(edgeId => {
+            draft.edges.delete(edgeId);
+            if (graph.edgeIds) {
+              const idx = graph.edgeIds.indexOf(edgeId);
+              if (idx > -1) graph.edgeIds.splice(idx, 1);
+            }
+          });
+          const anchorGroupId = graph.instances.get(instId)?.anchorForGroupId;
+          graph.instances.delete(instId);
+          console.log(`[cleanupOrphanedGroupAnchors] Removed orphaned anchor instance ${instId} (group ${anchorGroupId} no longer exists)`);
+        });
+      }));
+    },
+
+    /**
      * Ensures a group has a valid anchor instance, creating one or reassigning as needed.
      *
      * An anchor instance is the group's "representative" node on the canvas — it remains
