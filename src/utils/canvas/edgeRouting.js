@@ -79,6 +79,32 @@ export function parallelLaneRank(curveInfo) {
 }
 
 /**
+ * Sign that puts a bundle's fan into a frame BOTH of its members agree on.
+ *
+ * A lane rank is an index, so it says nothing about direction — but a router
+ * that spends that rank on a CHORD-RELATIVE quantity (a perpendicular offset, a
+ * tangent-chord angle) has implicitly expressed it in the edge's own p→q frame.
+ * Two connections between the same pair of nodes need not share that frame: the
+ * bundle is keyed on the UNORDERED pair, so an A→B connection and a B→A one land
+ * in the same bundle with opposite chords. Reversing the chord mirrors the
+ * perpendicular, which cancels the rank's opposite sign exactly — and the two
+ * connections draw on top of each other, which is the one thing the fan exists
+ * to prevent.
+ *
+ * Multiplying the rank by this restores the cancellation's other half. The frame
+ * is geometric (left-to-right, then top-to-bottom) rather than keyed on node ids
+ * so that the lane order matches what the reader sees: the upper lane stays the
+ * upper lane no matter which end of it the connection was drawn from.
+ *
+ * Any router whose fan is chord-relative MUST apply this. Routers that spend the
+ * rank on a GLOBAL axis instead — Manhattan slides its ports along a node side,
+ * which is an absolute direction — are already frame-independent and must not.
+ */
+export function bundleFrameSign(p, q) {
+  return (p.x !== q.x ? p.x <= q.x : p.y <= q.y) ? 1 : -1;
+}
+
+/**
  * Half the straight-line distance a port may travel along `side` before it
  * runs into the node's rounded corner.
  */
@@ -970,8 +996,14 @@ export function lombardiArcFor(edge, sourceNode, destNode, sDims, dDims, tangent
     // fixing the angle keeps the fan the same WIDTH on a short connection as on
     // a long one, which is what makes the members separately readable and
     // separately clickable at any distance.
+    // The bow is measured FROM THE CHORD, so it is chord-relative and the rank
+    // has to be read in the bundle's shared frame — otherwise a connection drawn
+    // B→A bows to the same side as its A→B sibling and the pair coincides. See
+    // bundleFrameSign.
     const chordLength = Math.hypot(q.x - p.x, q.y - p.y);
-    const bow = parallelLaneRank(options.curveInfo) * (options.laneSpacing ?? 0);
+    const bow = parallelLaneRank(options.curveInfo)
+      * (options.laneSpacing ?? 0)
+      * bundleFrameSign(p, q);
     const half = chordLength > 1e-6 ? 2 * Math.atan((2 * bow) / chordLength) : 0;
     thetaP = chord + half;
     thetaQ = chord - half + Math.PI;

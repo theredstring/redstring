@@ -3,6 +3,8 @@
  * Ensures multiple edges between the same nodes curve in opposite directions
  */
 
+import { bundleFrameSign } from './edgeRouting.js';
+
 // Distance (local units) from the arrowhead polygon origin to its tip.
 // The arrow polygon is "-26,34 26,34 0,-34" so the tip sits at local (0, -34).
 // Rendered as translate(origin) rotate(angle+90) scale(cw): under rotate(+90) the
@@ -234,9 +236,9 @@ export function calculateCurveControlPoint(startX, startY, endX, endY, curveInfo
   const perpOffset = offsetSteps * curveSpacing;
 
   // Normalize perpendicular direction for consistent curve direction
-  const useCanonical = startX !== endX ? (startX <= endX) : (startY <= endY);
-  const normDx = useCanonical ? edgeDx : -edgeDx;
-  const normDy = useCanonical ? edgeDy : -edgeDy;
+  const frame = bundleFrameSign({ x: startX, y: startY }, { x: endX, y: endY });
+  const normDx = edgeDx * frame;
+  const normDy = edgeDy * frame;
 
   const perpX = -normDy / edgeLen;
   const perpY = normDx / edgeLen;
@@ -312,11 +314,13 @@ export function calculateParallelEdgePath(startX, startY, endX, endY, curveInfo,
 
   // CRITICAL: Normalize perpendicular direction so all edges in a pair curve consistently
   // Without this, edges going A→B vs B→A would have opposite perpendicular vectors
-  // and would curve in the same visual direction instead of opposite
-  // We use a canonical direction: always compute perp as if going from min(start,end) to max
-  const useCanonical = startX !== endX ? (startX <= endX) : (startY <= endY);
-  const normDx = useCanonical ? edgeDx : -edgeDx;
-  const normDy = useCanonical ? edgeDy : -edgeDy;
+  // and would curve in the same visual direction instead of opposite.
+  // bundleFrameSign is the shared definition of that canonical direction — the
+  // Lombardi router reads the same one, so a bundle keeps its lane order when you
+  // switch routing styles.
+  const frame = bundleFrameSign({ x: startX, y: startY }, { x: endX, y: endY });
+  const normDx = edgeDx * frame;
+  const normDy = edgeDy * frame;
 
   // Perpendicular unit vector (rotated 90 degrees counter-clockwise from canonical direction)
   const perpX = -normDy / edgeLen;

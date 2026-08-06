@@ -20,6 +20,7 @@ import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { applyOffscreenLayout } from '../../../services/offscreenLayout.js';
 import { applyToolResultToStore, configureToolResultApplier, setWizardProvenanceContext } from '../../../services/toolResultApplier.js';
+import { settleToolCallBlocks, settleToolCallBlocksInPlace, settleToolCallsInMessages } from './toolCallStatus.js';
 import DruidInstance from '../../../services/DruidInstance.js';
 import { getTextColor } from '../../../utils/colorUtils.js';
 import { useTheme } from '../../../hooks/useTheme.js';
@@ -503,7 +504,10 @@ function WizardLoadingText() {
  */
 function clearStuckStreamingFlags(messages) {
   if (!Array.isArray(messages)) return [];
-  return messages.map(m => (m?.isStreaming ? { ...m, isStreaming: false } : m));
+  return settleToolCallsInMessages(
+    messages.map(m => (m?.isStreaming ? { ...m, isStreaming: false } : m)),
+    'The run ended before this tool returned a result.'
+  );
 }
 
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
@@ -2063,13 +2067,19 @@ const LeftAIView = ({ compact = false,
     // Reset the error breaker so a fresh send after Stop drains normally.
     queuePausedRef.current = false;
     consecutiveAskErrorsRef.current = 0;
-    if (currentAgentRequest) {
-      currentAgentRequest.abort();
-      setCurrentAgentRequest(null);
-      isProcessingRef.current = false;
-      setIsProcessing(false);
-      addMessage('system', hadQueued ? 'Agent execution stopped by user (queued asks cleared).' : 'Agent execution stopped by user.');
-    }
+    if (currentAgentRequest) currentAgentRequest.abort();
+    setCurrentAgentRequest(null);
+    // Always release the UI, even on the paths that set isProcessing without an
+    // abort controller (handleQuestion, a run whose controller was already
+    // cleared). Gating this on the controller left the input disabled with a
+    // stop button that did nothing.
+    isProcessingRef.current = false;
+    setIsProcessing(false);
+    // Any chip still spinning belongs to work that is now abandoned.
+    const stoppedReason = 'Stopped before this tool returned a result.';
+    setMessages(prev => settleToolCallsInMessages(prev, stoppedReason));
+    setConversations(prev => prev.map(c => ({ ...c, messages: settleToolCallsInMessages(c.messages || [], stoppedReason) })));
+    addMessage('system', hadQueued ? 'Agent execution stopped by user (queued asks cleared).' : 'Agent execution stopped by user.');
   };
 
   const getGraphInfo = () => {
@@ -2402,14 +2412,24 @@ const LeftAIView = ({ compact = false,
                 processedEvents.add(eventId);
 
                 // Apply tool results to store OUTSIDE the state updater
-                if (event.type === 'tool_result') {
+                let applyError = null;
+                if (event.type === 'tool_result' && !event.result?.cancelled) {
                   // Stamp wizard-authored entities with PROV provenance (P2.6)
                   setWizardProvenanceContext({
                     model: apiConfig?.model || undefined,
                     conversationId: targetConversationId
                   });
-                  applyToolResultToStore(event.name, event.result, event.id || event.toolCallId, targetConversationId);
-                  setWizardProvenanceContext(null);
+                  try {
+                    applyToolResultToStore(event.name, event.result, event.id || event.toolCallId, targetConversationId);
+                  } catch (applyErr) {
+                    // A throw here used to escape into the SSE catch below, which only
+                    // logs a parse warning — so the block's status update never ran and
+                    // the chip sat at "Running…" even though the tool had returned.
+                    console.error('[Wizard] Failed to apply tool result to store:', event.name, applyErr);
+                    applyError = applyErr;
+                  } finally {
+                    setWizardProvenanceContext(null);
+                  }
                 }
 
                 // Pre-compute plan card decision BEFORE updateMsgInArray so both
@@ -2485,9 +2505,19 @@ const LeftAIView = ({ compact = false,
                     console.log('[Wizard] tool_result received:', event.id, 'error:', !!event.result?.error, 'at', now);
                     const toolIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (toolIndex >= 0) {
-                      const newStatus = event.result?.error ? 'failed' : 'completed';
+                      // `cancelled` marks a call the loop announced but never ran (token
+                      // budget, stop, error) — that is not the tool failing, so it reads
+                      // as "Stopped" rather than "Failed".
+                      const newStatus = event.result?.cancelled ? 'cancelled'
+                        : (event.result?.error || applyError) ? 'failed'
+                        : 'completed';
                       const elapsed = now - (blocks[toolIndex].timestamp || now);
-                      blocks[toolIndex] = { ...blocks[toolIndex], status: newStatus, result: event.result, error: event.result?.error };
+                      blocks[toolIndex] = {
+                        ...blocks[toolIndex],
+                        status: newStatus,
+                        result: event.result,
+                        error: event.result?.error || (applyError ? `Could not apply to the graph: ${applyError.message}` : undefined)
+                      };
                       console.log('[Wizard] Updated tool_call to status:', newStatus, 'total elapsed:', elapsed, 'ms');
                     } else {
                       console.warn('[Wizard] tool_result received but no matching tool_call block found!', event.id);
@@ -2547,9 +2577,13 @@ const LeftAIView = ({ compact = false,
                     blocks.push({ type: 'text', content: `Error: ${event.message}` });
                     msg.content = `Error: ${event.message}`;
                     msg.isStreaming = false;
+                    settleToolCallBlocksInPlace(blocks, 'The run errored before this tool returned a result.');
                   } else if (event.type === 'done') {
                     msg.isStreaming = false;
                     msg.iterations = event.iterations;
+                    // The run is over: nothing will ever settle a chip still marked
+                    // running, and the stop button disappears along with it.
+                    settleToolCallBlocksInPlace(blocks, 'The run ended before this tool returned a result.');
                     // Collapse any thinking blocks still open when run ends
                     blocks.forEach((b, i) => { if (b.type === 'thinking' && !b.collapsed) blocks[i] = { ...b, collapsed: true }; });
                     const lastTextIdx = blocks.length - 1;
@@ -2608,27 +2642,41 @@ const LeftAIView = ({ compact = false,
         // true forever. It is persisted to localStorage and rehydrated, so the
         // message kept rendering thinking-dots on every later run while
         // isProcessing was false: perpetual ellipsis with no stop button.
+        const streamDiedReason = 'The connection ended before this tool returned a result.';
         setMessages(prev => {
           const idx = prev.findIndex(m => m.id === streamingMessageId);
-          if (idx < 0 || !prev[idx].isStreaming) return prev;
-          console.warn('[Wizard] Stream ended without a done event — clearing stuck isStreaming flag');
+          if (idx < 0) return prev;
+          const settledBlocks = settleToolCallBlocks(prev[idx].contentBlocks, streamDiedReason);
+          if (!prev[idx].isStreaming && settledBlocks === prev[idx].contentBlocks) return prev;
+          console.warn('[Wizard] Stream ended without a done event — clearing stuck run state');
           const updated = [...prev];
-          updated[idx] = { ...updated[idx], isStreaming: false };
+          updated[idx] = { ...updated[idx], isStreaming: false, contentBlocks: settledBlocks };
           return updated;
         });
+        // Same repair on the persisted copy, or the chip comes back "Running…"
+        // the next time this conversation is loaded from storage.
+        setConversations(prev => prev.map(c => c.id === targetConversationId
+          ? { ...c, messages: settleToolCallsInMessages(c.messages || [], streamDiedReason) }
+          : c
+        ));
       }
       setIsConnected(true);
     } catch (error) {
       if (error.name === 'AbortError') {
         if (!_preCreated) return; // bailed before pre-creation (no API key) — nothing to clean up
         // On cancel: remove the pre-created message if still empty, otherwise mark done
+        const stoppedReason = 'Stopped before this tool returned a result.';
         setMessages(prev => {
           const idx = prev.findIndex(m => m.id === streamingMessageId);
           if (idx < 0) return prev;
           const hasContent = prev[idx].contentBlocks?.some(b => b.content);
           if (!hasContent) return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
           const updated = [...prev];
-          updated[idx] = { ...updated[idx], isStreaming: false };
+          updated[idx] = {
+            ...updated[idx],
+            isStreaming: false,
+            contentBlocks: settleToolCallBlocks(updated[idx].contentBlocks, stoppedReason)
+          };
           return updated;
         });
         setConversations(prev => prev.map(c => c.id === _preCreatedConvId
@@ -2638,7 +2686,9 @@ const LeftAIView = ({ compact = false,
               if (idx < 0) return msgs;
               const hasContent = msgs[idx].contentBlocks?.some(b => b.content);
               if (!hasContent) return [...msgs.slice(0, idx), ...msgs.slice(idx + 1)];
-              return msgs.map((m, i) => i === idx ? { ...m, isStreaming: false } : m);
+              return msgs.map((m, i) => i === idx
+                ? { ...m, isStreaming: false, contentBlocks: settleToolCallBlocks(m.contentBlocks, stoppedReason) }
+                : m);
             })() }
           : c
         ));
@@ -3911,7 +3961,10 @@ const LeftAIView = ({ compact = false,
               e.target.style.height = 'auto';
               e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
             }} onKeyPress={handleKeyPress} placeholder={viewMode === 'druid' ? "Share an observation and I'll build upon it..." : viewMode === 'wizard' ? "Ask anything and I'll cast my spells..." : "Ask me anything about your Universe..."} disabled={isProcessing} className="ai-input" rows={1} />
-            {isProcessing && currentAgentRequest ? (
+            {/* Stop is offered whenever a run holds the input, not only when an
+                abort controller happens to exist — otherwise a run that lost its
+                controller left a disabled input and no way out. */}
+            {isProcessing ? (
               <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square /></button>
             ) : (
               <button onClick={handleSendMessage} disabled={(!currentInput.trim() && pendingAttachments.length === 0) || isProcessing} className="ai-send-button"><Send /></button>

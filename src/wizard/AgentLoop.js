@@ -954,6 +954,39 @@ function withToolTimeout(promise, toolName, ms = SLOW_TOOLS.has(toolName) ? SLOW
 }
 
 /**
+ * Settle every tool call that was announced to the UI but never executed.
+ *
+ * Announcing a call (tool_call_start / tool_call) is what draws the "Running…"
+ * chip in the panel; the chip only clears when a tool_result with the same id
+ * arrives. Several paths returned in between: the per-ask token budget trips
+ * immediately after an iteration's calls are yielded but before any of them run,
+ * an abort breaks out mid-list, and any throw inside the iteration skips the
+ * whole execution block. Each left a chip spinning forever on a run that was
+ * already over — nothing left to stop, and no result coming.
+ *
+ * `announced` also carries calls that only ever got a tool_call_start (the
+ * stream died before the arguments finished), which is why it is keyed by id
+ * rather than derived from the executed list.
+ */
+function* settleUnresolvedToolCalls(announced, resolvedIds, reason) {
+  for (const [id, name] of announced) {
+    if (resolvedIds.has(id)) continue;
+    resolvedIds.add(id);
+    console.error(`[AgentLoop] Settling unresolved tool call "${name}" (${reason})`);
+    yield {
+      type: 'tool_result',
+      name,
+      id,
+      result: {
+        cancelled: true,
+        reason,
+        error: `Not executed — the run stopped first (${reason}).`
+      }
+    };
+  }
+}
+
+/**
  * Sanitize tool results before sending to LLM conversation history.
  * Strips UI-only data (spec field, verbose arrays) to save tokens.
  * The original result is still yielded to the UI and used by updateGraphState.
@@ -1200,9 +1233,13 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       yield { type: 'done', iterations: iteration, reason: 'aborted' };
       return;
     }
+    // Tool-call bookkeeping lives OUTSIDE the try so the catch — and every early
+    // return below — can settle whatever was announced to the UI but never ran.
+    let iterationToolCalls = [];
+    const announcedToolCalls = new Map(); // id -> name, in announce order
+    const resolvedToolCallIds = new Set(); // ids that already got a tool_result
     try {
       let iterationContent = '';
-      let iterationToolCalls = [];
       let iterationUsage = null; // last usage chunk this call (providers report cumulative)
 
       // Re-evaluate tool selection each iteration (graphState changes after tool execution)
@@ -1219,7 +1256,6 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // Stream LLM response for this iteration
       // Track what we've yielded to prevent duplicates
       let yieldedChars = 0;
-      const emittedToolStarts = new Set();  // Deduplicate tool_call_start events
 
       // Small/local models sometimes write tool calls as prose (Task 5). For those,
       // buffer the response text instead of streaming it live so the salvaged call
@@ -1312,16 +1348,16 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           }
         } else if (chunk.type === 'tool_call_start') {
           // Deduplicate tool_call_start events (LLMClient may emit duplicates during streaming)
-          const dedupKey = chunk.id;
-          if (emittedToolStarts.has(dedupKey)) {
+          if (announcedToolCalls.has(chunk.id)) {
             console.error('[AgentLoop] ⚠️ Skipping duplicate tool_call_start:', chunk.name, chunk.id);
             continue;
           }
-          emittedToolStarts.add(dedupKey);
+          announcedToolCalls.set(chunk.id, chunk.name);
           console.error('[AgentLoop] Yielding tool_call_start:', chunk.name, chunk.id);
           yield chunk;
         } else if (chunk.type === 'tool_call') {
           iterationToolCalls.push(chunk);
+          announcedToolCalls.set(chunk.id, chunk.name);
           console.error('[AgentLoop] Yielding tool_call (final):', chunk.name);
           yield chunk;
         }
@@ -1345,11 +1381,13 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         };
 
         // Hard per-ask cost ceiling. Stop once cumulative spend crosses the budget,
-        // regardless of how many iterations remain. Runs after this iteration's tool
-        // calls have already been yielded so no in-flight work is lost.
+        // regardless of how many iterations remain. This fires AFTER this iteration's
+        // tool calls were yielded but BEFORE any of them execute, so every one of them
+        // has to be settled or its chip spins forever on a finished run.
         const askTotalTokens = askPromptTokens + askCompletionTokens;
         if (askTotalTokens > maxAskTokens) {
           console.error(`[AgentLoop] Per-ask token budget reached (${askTotalTokens} > ${maxAskTokens}) at iteration ${iteration + 1}. Stopping.`);
+          yield* settleUnresolvedToolCalls(announcedToolCalls, resolvedToolCallIds, 'token budget reached');
           yield { type: 'system_note', content: `Stopped: this ask reached its token budget (${askTotalTokens.toLocaleString()} tokens). Send "continue" to keep going.` };
           yield { type: 'done', iterations: iteration + 1, reason: 'token_budget', askPromptTokens, askCompletionTokens, askTotalTokens };
           return;
@@ -1377,6 +1415,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           iterationContent = remainingText;
           // Surface the recovered calls to the UI in written order.
           for (const tc of iterationToolCalls) {
+            announcedToolCalls.set(tc.id, tc.name);
             yield { type: 'tool_call_start', id: tc.id, name: tc.name };
             yield { type: 'tool_call', name: tc.name, args: tc.args, id: tc.id };
           }
@@ -1392,6 +1431,14 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         // Native tool calls arrived alongside buffered text (rare for small models) —
         // flush the prose that was withheld during streaming.
         yield { type: 'response', content: iterationContent };
+      }
+
+      // A tool_call_start announces the chip; the matching tool_call carries the
+      // arguments. A stream that dies in between (or a call dropped for an empty
+      // name) leaves the first without the second — and this iteration is about to
+      // end in a nudge, a continue, or a stop, none of which would ever settle it.
+      if (iterationToolCalls.length === 0) {
+        yield* settleUnresolvedToolCalls(announcedToolCalls, resolvedToolCallIds, 'the call never completed');
       }
 
       const planStatus = graphState._currentPlan
@@ -1416,6 +1463,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           if (last === prev1 && last === prev2) {
             console.error(`[AgentLoop] Infinite loop detected: iteration ${iteration} repeated the exact same tool calls and arguments for 3 iterations: [${sig}]. Stopping.`);
             yield { type: 'response', content: 'I noticed I was repeating the exact same actions multiple times. Stopping to avoid an infinite loop.' };
+            yield* settleUnresolvedToolCalls(announcedToolCalls, resolvedToolCallIds, 'repeat loop detected');
             yield { type: 'done', iterations: iteration + 1, reason: 'loop_detected' };
             return;
           }
@@ -1547,6 +1595,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           if (planTaskLocked || planTaskCallCount >= MAX_PLANTASK_CALLS) {
             console.error(`[AgentLoop] planTask blocked (locked=${planTaskLocked}, count=${planTaskCallCount}/${MAX_PLANTASK_CALLS}). Returning locked result.`);
             const lockedResult = { locked: true, message: 'Plan locked — execute the next incomplete step' };
+            resolvedToolCallIds.add(toolCall.id);
             yield { type: 'tool_result', name: toolCall.name, result: lockedResult, id: toolCall.id };
             messages.push({
               role: 'tool',
@@ -1586,6 +1635,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           if (!NON_MUTATING_TOOLS.has(toolCall.name)) hasMutatedThisTurn = true;
 
           // Stream tool result event
+          resolvedToolCallIds.add(toolCall.id);
           yield {
             type: 'tool_result',
             name: toolCall.name,
@@ -1613,6 +1663,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           console.error('[AgentLoop] Failed tool args:', JSON.stringify(toolCall.args, null, 2));
 
           // Stream error event
+          resolvedToolCallIds.add(toolCall.id);
           yield {
             type: 'tool_result',
             name: toolCall.name,
@@ -1628,6 +1679,15 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           });
         }
       }
+
+      // The loop above `break`s on abort, and a tool_call_start whose arguments never
+      // finished streaming never makes it into iterationToolCalls at all. Either way
+      // the UI is still showing a chip for it.
+      yield* settleUnresolvedToolCalls(
+        announcedToolCalls,
+        resolvedToolCallIds,
+        abortSignal?.aborted ? 'run stopped' : 'no result returned'
+      );
 
       // If any definition graph was just populated sparsely (< 5 nodes), nudge the model
       // to expand it before declaring the step done. Takes priority over the plan-complete
@@ -1675,10 +1735,12 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     } catch (error) {
       if (error.name === 'AbortError' || error.message?.includes('aborted')) {
         console.error('[AgentLoop] ✓ Agent loop aborted gracefully (user cancelled)');
+        yield* settleUnresolvedToolCalls(announcedToolCalls, resolvedToolCallIds, 'run stopped');
         yield { type: 'done', iterations: iteration + 1, reason: 'aborted' };
         return;
       }
       console.error(`[AgentLoop] ✗ Unexpected error at iteration ${iteration}:`, error.message);
+      yield* settleUnresolvedToolCalls(announcedToolCalls, resolvedToolCallIds, 'the run errored');
       yield { type: 'error', message: error.message };
       yield { type: 'done', iterations: iteration + 1, reason: 'error' };
       return;

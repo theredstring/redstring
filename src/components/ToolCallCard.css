@@ -39,6 +39,11 @@
   color: rgba(244, 67, 54, 0.8);
 }
 
+/* Never ran — the run ended first. Muted rather than alarming: nothing broke. */
+.status-cancelled .tool-icon {
+  color: var(--canvas-text-muted);
+}
+
 .tool-header-content {
   display: flex;
   flex-direction: column;
@@ -245,6 +250,11 @@
 
 .status-failed .tool-call-header {
   border-left: 2px solid rgba(244, 67, 54, 0.5);
+}
+
+.status-cancelled .tool-call-header {
+  border-left: 2px dashed var(--canvas-border);
+  opacity: 0.75;
 }
 
 .args-container {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Undo2, Loader2, CheckCircle2, XCircle, Circle, ChevronDown, X } from 'lucide-react';
+import { Undo2, Loader2, CheckCircle2, XCircle, Circle, ChevronDown, X, Ban } from 'lucide-react';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import './ToolCallCard.css';
 
@@ -20,6 +20,9 @@ const TOOL_DISPLAY_LABELS = {
     // Search & discovery
     searchNodes: 'Searching things',
     getInstancesOfPrototype: 'Finding instances',
+    findDuplicates: 'Finding duplicates',
+    mergeNodes: 'Merging things',
+    mergeGraphs: 'Merging webs',
     // Web (Graph) management
     readGraph: 'Reading web',
     createGraph: 'Creating new web',
@@ -74,11 +77,14 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
     // Use timestamp from block if available, otherwise use mount time
     const startTime = timestamp || mountTime;
 
-    // Effect to handle minimum display time for 'running' state
+    // Effect to handle minimum display time for 'running' state.
+    // Every non-running status is terminal here — an allow-list of known terminal
+    // values would leave any status it didn't enumerate (e.g. 'cancelled') stuck
+    // displaying the spinner it was mounted with.
     useEffect(() => {
-        if (status === 'running') {
-            setDisplayStatus('running');
-        } else if (status === 'completed' || status === 'failed') {
+        if (status === 'running' || !status) {
+            setDisplayStatus(status || 'running');
+        } else {
             const elapsed = Date.now() - startTime;
             if (elapsed < MIN_RUNNING_DISPLAY_TIME) {
                 // Tool completed too fast - keep showing 'running' until minimum time elapsed
@@ -115,6 +121,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
             case 'running': return <Loader2 size={18} className="tool-icon-spin" />;
             case 'completed': return <CheckCircle2 size={18} />;
             case 'failed': return <XCircle size={18} />;
+            case 'cancelled': return <Ban size={18} />;
             default: return <Circle size={18} />;
         }
     };
@@ -124,6 +131,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
             case 'running': return 'status-running';
             case 'completed': return 'status-completed';
             case 'failed': return 'status-failed';
+            case 'cancelled': return 'status-cancelled';
             default: return '';
         }
     };
@@ -133,6 +141,9 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
             case 'running': return 'Running...';
             case 'completed': return '';
             case 'failed': return 'Failed';
+            // The tool never ran — the run ended first. Distinct from 'failed',
+            // which means the tool ran and threw.
+            case 'cancelled': return 'Stopped';
             default: return '';
         }
     };

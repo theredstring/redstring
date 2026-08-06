@@ -16,8 +16,10 @@ import {
   computeLombardiTangents,
   lombardiArcFor,
   sampleArc,
+  arcPointAt,
   parallelLaneRank,
 } from '../edgeRouting.js';
+import { calculateParallelEdgePath } from '../parallelEdgeUtils.js';
 import { calculateStaggeredPosition, getPortPosition } from '../portPositioning.js';
 
 const DIMS = { currentWidth: 300, currentHeight: 200, scaledCornerRadius: 40 };
@@ -195,8 +197,13 @@ describe('manhattan routing of a bundle', () => {
 });
 
 /** Where each solved arc actually sits at the middle of its span. */
+// The TRUE middle of the arc, via arcPointAt(0.5) — not a sampled vertex.
+// sampleArc(arc, 32)[16] is one step past the middle, and which way "past" points
+// depends on the direction of travel. Two arcs on the SAME circle traversed in
+// opposite directions therefore came out ~130px apart, which is how an
+// anti-parallel bundle that drew as a single line still passed these tests.
 const midpointsOf = (solved) => solved.map(({ p, q, arc }) => (
-  arc ? sampleArc(arc, 32)[16] : { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 }
+  arc ? arcPointAt(arc, 0.5) : { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 }
 ));
 
 describe('lombardi routing of a bundle', () => {
@@ -258,6 +265,59 @@ describe('lombardi routing of a bundle', () => {
     ];
     const mids = midpointsOf(arcsFor(nodes, edges));
     expect(Math.hypot(mids[0].x - mids[1].x, mids[0].y - mids[1].y)).toBeGreaterThan(8);
+  });
+
+  it('draws the same fan whichever end each member was drawn from', () => {
+    // The invariant behind bundleFrameSign, and the one that actually failed:
+    // a bundle's lanes belong to the PAIR, not to either member's direction. The
+    // bow is measured from the chord, so reversing a member reverses the
+    // perpendicular it is measured against — which cancels its opposite lane rank
+    // exactly and drops it onto its sibling's circle. Both connections then draw
+    // as one line, with two labels stacked on it and nothing to click apart.
+    const nodes = [nodeAt('a', 0, 0), nodeAt('b', 900, 200)];
+    const sameWay = midpointsOf(arcsFor(nodes, bundle(2)));
+    const bothWays = midpointsOf(arcsFor(nodes, [
+      { id: 'e0', sourceId: 'a', destinationId: 'b' },
+      { id: 'e1', sourceId: 'b', destinationId: 'a' },
+    ]));
+
+    for (let i = 0; i < 2; i++) {
+      expect(bothWays[i].x, `lane ${i} x`).toBeCloseTo(sameWay[i].x, 6);
+      expect(bothWays[i].y, `lane ${i} y`).toBeCloseTo(sameWay[i].y, 6);
+    }
+  });
+
+  it('matches the lane order the straight styles give the same bundle', () => {
+    // Switching routing style must not reshuffle which connection is which lane.
+    // Both routers read bundleFrameSign, so their fans agree by construction —
+    // this pins that they keep agreeing.
+    const nodes = [nodeAt('a', 0, 0), nodeAt('b', 900, 200)];
+    const edges = [
+      { id: 'e0', sourceId: 'a', destinationId: 'b' },
+      { id: 'e1', sourceId: 'b', destinationId: 'a' },
+    ];
+    const info = curveInfoForPairs(edges);
+    const arcMids = midpointsOf(arcsFor(nodes, edges));
+
+    const straightApexes = edges.map((e) => {
+      const s = nodes.find(n => n.id === e.sourceId);
+      const d = nodes.find(n => n.id === e.destinationId);
+      const path = calculateParallelEdgePath(
+        s.x + DIMS.currentWidth / 2, s.y + DIMS.currentHeight / 2,
+        d.x + DIMS.currentWidth / 2, d.y + DIMS.currentHeight / 2,
+        info.get(e.id), LANE * 2 // a quadratic's apex sits at half its control offset
+      );
+      return { x: path.apexX, y: path.apexY };
+    });
+
+    // Same side of the chord for each member — compare the sign of the offset
+    // from the chord midpoint rather than the magnitudes, which the two styles
+    // are not obliged to match exactly.
+    const chordMid = { x: 450 + DIMS.currentWidth / 2, y: 100 + DIMS.currentHeight / 2 };
+    for (let i = 0; i < 2; i++) {
+      expect(Math.sign(arcMids[i].y - chordMid.y), `lane ${i} side`)
+        .toBe(Math.sign(straightApexes[i].y - chordMid.y));
+    }
   });
 
   it('draws the same fan whatever order the bundle is listed in', () => {

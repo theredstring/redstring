@@ -1,0 +1,55 @@
+/**
+ * Terminal-state repair for wizard tool-call chips.
+ *
+ * A chip is drawn by the tool_call/tool_call_start SSE event and only leaves
+ * "Running…" when a tool_result carrying the same id arrives. Anything that ends
+ * a run in between — the agent loop's early exits, a dropped stream, a server
+ * restart, the user hitting Stop — left the chip spinning forever on a finished
+ * run, with no stop button rendered because isProcessing was already false.
+ *
+ * AgentLoop now settles its own unfinished calls (settleUnresolvedToolCalls
+ * there), which is the real fix. These are the client-side backstop for what it
+ * cannot reach — the connection dying mid-stream — and for chips already
+ * persisted in a running state by an earlier session.
+ */
+
+const NON_TERMINAL_TOOL_STATUSES = new Set(['running', 'queued', 'pending']);
+
+const isUnsettled = (block) =>
+  block?.type === 'tool_call' && (!block.status || NON_TERMINAL_TOOL_STATUSES.has(block.status));
+
+/**
+ * Returns a settled copy of `blocks`, or the same reference when nothing needed
+ * changing — callers rely on identity to skip React state updates.
+ */
+export function settleToolCallBlocks(blocks, reason) {
+  if (!Array.isArray(blocks)) return blocks;
+  let changed = false;
+  const settled = blocks.map(b => {
+    if (!isUnsettled(b)) return b;
+    changed = true;
+    return { ...b, status: 'cancelled', error: b.error || reason };
+  });
+  return changed ? settled : blocks;
+}
+
+/** In-place variant for the SSE updater, which builds one `blocks` array it then assigns. */
+export function settleToolCallBlocksInPlace(blocks, reason) {
+  if (!Array.isArray(blocks)) return;
+  for (let i = 0; i < blocks.length; i++) {
+    if (!isUnsettled(blocks[i])) continue;
+    blocks[i] = { ...blocks[i], status: 'cancelled', error: blocks[i].error || reason };
+  }
+}
+
+export function settleToolCallsInMessages(messages, reason) {
+  if (!Array.isArray(messages)) return messages;
+  let changed = false;
+  const settled = messages.map(m => {
+    const blocks = settleToolCallBlocks(m?.contentBlocks, reason);
+    if (blocks === m?.contentBlocks) return m;
+    changed = true;
+    return { ...m, contentBlocks: blocks };
+  });
+  return changed ? settled : messages;
+}
