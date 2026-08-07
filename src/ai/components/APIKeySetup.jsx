@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Eye, EyeOff, CheckCircle, AlertCircle, ExternalLink, Settings, Trash2 } from 'lucide-react';
 import apiKeyManager from '../../services/apiKeyManager.js';
+import { useProviderModels } from '../../hooks/useProviderModels.js';
 import './APIKeySetup.css';
 
 const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
@@ -25,30 +26,12 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
 
   const providers = apiKeyManager.getCommonProviders();
-  const [providerModels, setProviderModels] = useState(() =>
-    apiKeyManager.getModelsForProvider(provider)
-  );
-
-  useEffect(() => {
-    setProviderModels(apiKeyManager.getModelsForProvider(provider));
-  }, [provider]);
-
-  useEffect(() => {
-    if (provider !== 'google') return undefined;
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      let keyToUse = apiKey && apiKey.trim();
-      if (!keyToUse) {
-        try { keyToUse = await apiKeyManager.getAPIKey(); } catch { keyToUse = null; }
-      }
-      if (!keyToUse) return;
-      const merged = await apiKeyManager.getMergedGeminiModels(keyToUse);
-      if (!cancelled && Array.isArray(merged) && merged.length > 0) {
-        setProviderModels(merged);
-      }
-    }, 500);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [provider, apiKey]);
+  // Live model list for every provider, not just Gemini — see modelCatalog.js.
+  const { models: providerModels } = useProviderModels(provider, apiKey, endpoint, model);
+  // Sticky "Custom..." selection — the derived check can't distinguish "user
+  // picked Custom and hasn't typed yet" from "model is empty".
+  const [useCustomModel, setUseCustomModel] = useState(false);
+  const isCustomModel = useCustomModel || (!!model && !providerModels.some(m => m.id === model));
 
   useEffect(() => {
     loadExistingKey();
@@ -65,6 +48,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
         setProvider(keyInfo.provider);
         setEndpoint(keyInfo.endpoint || '');
         setModel(keyInfo.model || '');
+        setUseCustomModel(false);
         setIsEditingExisting(false);
         setAllowKeyEdit(false);
       } else {
@@ -95,6 +79,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
     setProvider(newProvider);
     setSelectedPreset(null);
     setConnectionTestResult(null);
+    setUseCustomModel(false);
     // Auto-set defaults for known providers
     if (newProvider !== 'custom') {
       const defaultEndpoint = apiKeyManager.getDefaultEndpoint(newProvider);
@@ -110,6 +95,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
 
   const handlePresetSelect = (preset) => {
     setSelectedPreset(preset);
+    setUseCustomModel(false);
     setProvider('local');
     setEndpoint(preset.endpoint);
     setModel(preset.commonModels[0] || '');
@@ -369,6 +355,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
 
   const handleRecentModelSelect = (value) => {
     if (!value) return;
+    setUseCustomModel(false);
     setModel(value);
   };
 
@@ -636,9 +623,13 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                     <select
                       id="model-presets"
                       className="model-input"
-                      value={providerModels.some(m => m.id === model) ? model : 'custom'}
+                      value={isCustomModel ? 'custom' : model}
                       onChange={(e) => {
-                        if (e.target.value !== 'custom') {
+                        if (e.target.value === 'custom') {
+                          setUseCustomModel(true);
+                          setModel('');
+                        } else {
+                          setUseCustomModel(false);
                           setModel(e.target.value);
                         }
                       }}
@@ -650,12 +641,12 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                       <option value="custom">Custom / Other...</option>
                     </select>
 
-                    {(providerModels.every(m => m.id !== model) || providerModels.find(m => m.id === model) === undefined || model === 'custom') && (
+                    {isCustomModel && (
                       <div className="custom-model-input mt-2">
                         <input
                           id="model"
                           type="text"
-                          value={model === 'custom' ? '' : model}
+                          value={model}
                           onChange={(e) => setModel(e.target.value)}
                           placeholder="Enter model ID (e.g. gpt-4o)"
                           disabled={isLoading}

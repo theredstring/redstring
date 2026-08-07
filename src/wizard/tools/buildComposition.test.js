@@ -107,6 +107,47 @@ describe('buildComposition (validation + normalization)', () => {
 
     expect(r.layerCount).toBe(1);
   });
+
+  // Weak models (DeepSeek et al.) hand-escape `layers` because every provider
+  // path flattens the schema to a JSON string. Each of these used to coerce to
+  // [] and surface as "At least one layer is required".
+  it('tolerates a lone layer object where an array was expected', async () => {
+    const r = await buildComposition({
+      layers: { name: 'Engine', definition: { nodes: [{ name: 'A' }, { name: 'B' }] } }
+    }, graphState());
+
+    expect(r.layerCount).toBe(1);
+    expect(r.spec.layers[0].name).toBe('Engine');
+  });
+
+  it('tolerates layers wrapped under a repeat of the parameter name', async () => {
+    const r = await buildComposition({
+      layers: JSON.stringify({ layers: [{ name: 'Engine', definition: { nodes: [{ name: 'A' }] } }] })
+    }, graphState());
+
+    expect(r.layerCount).toBe(1);
+  });
+
+  it('tolerates a fenced JSON string and trailing commas', async () => {
+    const r = await buildComposition({
+      layers: '```json\n[{"name": "Engine", "definition": {"nodes": [{"name": "A"},]},}]\n```'
+    }, graphState());
+
+    expect(r.layerCount).toBe(1);
+  });
+
+  it('tolerates bare layer names as strings', async () => {
+    const r = await buildComposition({
+      layers: ['Engine', 'Chassis']
+    }, graphState());
+
+    expect(r.spec.layers.map(l => l.name)).toEqual(['Engine', 'Chassis']);
+  });
+
+  it('echoes what actually arrived when layers is unusable', async () => {
+    await expect(buildComposition({ layers: '[{"name": "Engine"' }, graphState()))
+      .rejects.toThrow(/received string \[\{"name": "Engine"/);
+  });
 });
 
 describe('sketchGraph layer shorthand', () => {

@@ -22,7 +22,8 @@ import { resolveGraphId } from './resolveGraphId.js';
 import {
   normalizeGraphSpec,
   createSpecContext,
-  coerceArray
+  coerceArray,
+  describeReceived
 } from './utils/graphSpec.js';
 
 /**
@@ -38,8 +39,14 @@ export async function buildComposition(args, graphState) {
 
   const layers = coerceArray(args.layers);
   if (layers.length === 0) {
+    // `layers` arrives as a hand-escaped JSON string on every provider path
+    // (flattenDeepNesting), so "empty" usually means malformed rather than
+    // missing. Echo what actually arrived — a model cannot repair its own broken
+    // JSON if the error only tells it the field was required.
     throw new Error(
-      'At least one layer is required. A layer is a Thing with a web inside it. Example: ' +
+      `At least one layer is required (received ${describeReceived(args.layers)}). ` +
+      'If that looks like your layers, the JSON string was malformed — re-send it as valid JSON. ' +
+      'A layer is a Thing with a web inside it. Example: ' +
       'buildComposition({"layers": [{"name": "Engine", "display": "decomposed", "definition": {"nodes": [{"name": "Pistons"}, {"name": "Crankshaft"}]}}]}). ' +
       'For a flat graph with no composition, use createPopulatedGraph or expandGraph instead.'
     );

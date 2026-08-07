@@ -32,17 +32,78 @@ export const generateConnectionColor = (name) => {
   return `hsl(${Math.abs(hash) % 360}, 60%, 45%)`;
 };
 
-/** Tolerate a JSON string where an array was expected (small models do this). */
+/**
+ * Keys a model plausibly wraps a list under when it re-states the parameter name
+ * inside the value (`layers: {"layers": [...]}`).
+ */
+const ARRAY_WRAPPER_KEYS = new Set(['layers', 'nodes', 'edges', 'groups', 'memberNames', 'items', 'list', 'data', 'values']);
+
+/** Drop a ```json fence a model wrapped around a JSON payload. */
+const stripCodeFence = (text) => {
+  const m = text.match(/^```(?:json|JSON)?\s*([\s\S]*?)\s*```$/);
+  return m ? m[1].trim() : text;
+};
+
+/** JSON.parse, then one retry with trailing commas removed. Returns undefined on failure. */
+const parseLoose = (text) => {
+  for (const candidate of [text, text.replace(/,\s*([}\]])/g, '$1')]) {
+    try { return JSON.parse(candidate); } catch { /* try next */ }
+  }
+  return undefined;
+};
+
+/**
+ * Tolerate the shapes small models hand back where an array was expected.
+ *
+ * Every provider path runs tool schemas through flattenDeepNesting, so
+ * `layers` reaches us as a *JSON string the model hand-escaped* — the single
+ * most error-prone thing we ask of it. Weak models (DeepSeek et al.) also send a
+ * lone object instead of a one-element array, wrap the list under a repeat of
+ * the parameter name, or fence the JSON. Each of those used to coerce to `[]`,
+ * which surfaced as "At least one layer is required" — an error that reads as
+ * "you forgot layers" when the model in fact sent them.
+ */
 export function coerceArray(value) {
   if (Array.isArray(value)) return value;
-  if (typeof value === 'string' && value.trim()) {
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch { return []; }
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value);
+    // `{ "layers": [...] }` where an array was expected — but never unwrap a real
+    // item, which carries its own identity (`name`, or an edge's `source`).
+    if (!('name' in value) && !('source' in value)) {
+      const wrapped = entries.find(([k, v]) => Array.isArray(v) && ARRAY_WRAPPER_KEYS.has(k));
+      if (wrapped) return wrapped[1];
+    }
+    return [value]; // a single item where an array was expected
   }
+
+  if (typeof value === 'string' && value.trim()) {
+    const text = stripCodeFence(value.trim());
+    const parsed = parseLoose(text);
+    if (parsed !== undefined) return coerceArray(parsed);
+    // A bare name ("Engine") is a legible one-item list; prose is not.
+    if (!/^[[{]/.test(text) && text.length < 80 && !text.includes('\n')) return [text];
+    return [];
+  }
+
   return [];
 }
+
+/** Describe what actually arrived, for error messages the model has to act on. */
+export function describeReceived(value) {
+  if (value === undefined) return 'nothing';
+  if (value === null) return 'null';
+  let preview;
+  try { preview = typeof value === 'string' ? value : JSON.stringify(value); } catch { preview = String(value); }
+  preview = String(preview);
+  if (preview.length > 300) preview = `${preview.slice(0, 300)}… (truncated)`;
+  return `${Array.isArray(value) ? 'array' : typeof value} ${preview}`;
+}
+
+/** `"Engine"` → `{ name: 'Engine' }`, for lists whose items are named things. */
+const itemize = (arr) => arr.map(item => (
+  typeof item === 'string' && item.trim() ? { name: item.trim() } : item
+));
 
 /** All prototype names in the serialized graphState (Array or Map). */
 export function prototypeNameSet(graphState) {
@@ -85,10 +146,11 @@ export function createSpecContext(palette, graphState) {
  */
 export function normalizeGraphSpec(spec, ctx, depth = 0, path = 'graph') {
   const { palette, knownPrototypes, warnings, stats } = ctx;
-  const nodes = coerceArray(spec?.nodes);
+  // Named lists tolerate bare strings; edges cannot (they need two endpoints).
+  const nodes = itemize(coerceArray(spec?.nodes));
   const edges = coerceArray(spec?.edges);
-  const groups = coerceArray(spec?.groups);
-  const layers = coerceArray(spec?.layers);
+  const groups = itemize(coerceArray(spec?.groups));
+  const layers = itemize(coerceArray(spec?.layers));
 
   stats.maxDepth = Math.max(stats.maxDepth, depth);
 
@@ -98,7 +160,7 @@ export function normalizeGraphSpec(spec, ctx, depth = 0, path = 'graph') {
   // swallowed by name de-duplication, and with no shell to decompose the layer
   // never opens into a node-group. See dropLayerNameCollisions for why the
   // duplicate is folded in rather than simply discarded.
-  const rawLayers = coerceArray(spec?.layers).filter(l => l && l.name);
+  const rawLayers = layers.filter(l => l && l.name);
   const layersByKey = new Map(rawLayers.map(l => [String(l.name).toLowerCase().trim(), l]));
 
   const collidingNodeNames = [];

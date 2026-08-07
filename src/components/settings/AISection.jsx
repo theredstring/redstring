@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle, AlertCircle, Trash2, RefreshCw } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import apiKeyManager from '../../services/apiKeyManager.js';
+import { useProviderModels } from '../../hooks/useProviderModels.js';
+import { getProviderLabel } from '../../services/modelCatalog.js';
 import debugConfig from '../../utils/debugConfig.js';
 import './AISection.css';
 
@@ -32,6 +34,9 @@ const AISection = () => {
   const [customProviderName, setCustomProviderName] = useState('');
   const [endpoint, setEndpoint] = useState('');
   const [model, setModel] = useState('');
+  // Sticky "Custom..." selection: the derived check below can't tell "user picked
+  // Custom and hasn't typed yet" from "model is empty", so track it explicitly.
+  const [useCustomModel, setUseCustomModel] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -40,6 +45,9 @@ const AISection = () => {
   const [existingKeyInfo, setExistingKeyInfo] = useState(null);
   const [isValidating, setIsValidating] = useState(false);
   const [recentModels, setRecentModels] = useState([]);
+  // Providers the user already has a saved key for. The panel edits one active
+  // config, so without this a stored key for another provider is invisible.
+  const [savedProviders, setSavedProviders] = useState([]);
   const [isEditingExisting, setIsEditingExisting] = useState(false);
   const [allowKeyEdit, setAllowKeyEdit] = useState(true);
   const [localPresets] = useState(() => apiKeyManager.getLocalProviderPresets());
@@ -87,12 +95,19 @@ const AISection = () => {
   };
 
   const providers = apiKeyManager.getCommonProviders();
-  const providerModels = apiKeyManager.getModelsForProvider(provider);
+  // Live model list from the provider's own models endpoint, with a static
+  // fallback — hand-maintained lists go stale within weeks.
+  const { models: providerModels, isLive, isLoading: isLoadingModels, needsKey: modelsNeedKey, refresh: refreshModels } =
+    useProviderModels(provider, apiKey, endpoint, model);
+  // Custom either because the user picked "Custom...", or because the stored model
+  // isn't one of the provider's presets (e.g. restored from a saved key).
+  const isCustomModel = useCustomModel || (!!model && !providerModels.some(m => m.id === model));
 
   // Load existing key and recent models on mount
   useEffect(() => {
     loadExistingKey();
     loadRecentModels();
+    loadSavedProviders();
   }, []);
 
   const loadExistingKey = async () => {
@@ -103,6 +118,7 @@ const AISection = () => {
         setProvider(keyInfo.provider);
         setEndpoint(keyInfo.endpoint || '');
         setModel(keyInfo.model || '');
+        setUseCustomModel(false);
         setIsEditingExisting(false);
         setAllowKeyEdit(false);
       } else {
@@ -112,6 +128,15 @@ const AISection = () => {
       }
     } catch (error) {
       console.error('Failed to load existing key info:', error);
+    }
+  };
+
+  const loadSavedProviders = async () => {
+    try {
+      const profiles = await apiKeyManager.listProfiles();
+      setSavedProviders([...new Set((profiles || []).map(p => p.provider).filter(Boolean))]);
+    } catch (err) {
+      console.warn('Failed to list saved API key profiles:', err);
     }
   };
 
@@ -130,6 +155,7 @@ const AISection = () => {
     setProvider(newProvider);
     setSelectedPreset(null);
     setConnectionTestResult(null);
+    setUseCustomModel(false);
     if (newProvider !== 'custom') {
       const defaultEndpoint = apiKeyManager.getDefaultEndpoint(newProvider);
       const defaultModel = apiKeyManager.getDefaultModel(newProvider);
@@ -143,6 +169,7 @@ const AISection = () => {
 
   const handlePresetSelect = (preset) => {
     setSelectedPreset(preset);
+    setUseCustomModel(false);
     setProvider('local');
     setEndpoint(preset.endpoint);
     setModel(preset.commonModels[0] || '');
@@ -254,6 +281,7 @@ const AISection = () => {
 
       await loadExistingKey();
       await loadRecentModels();
+      await loadSavedProviders();
 
       // Dispatch event to notify LeftAIView
       window.dispatchEvent(new Event('aiKeyConfigChanged'));
@@ -374,6 +402,7 @@ const AISection = () => {
 
   const handleRecentModelSelect = (value) => {
     if (!value) return;
+    setUseCustomModel(false);
     setModel(value);
   };
 
@@ -472,7 +501,11 @@ const AISection = () => {
           <div className="settings-row">
             <div className="settings-row-label">
               Provider
-              <div className="settings-row-description">AI service to use</div>
+              <div className="settings-row-description">
+                {savedProviders.length > 1
+                  ? 'AI service to use — switching keeps each saved key'
+                  : 'AI service to use'}
+              </div>
             </div>
             <select
               value={provider}
@@ -481,7 +514,9 @@ const AISection = () => {
               className="ai-input"
             >
               {providers.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+                <option key={p.id} value={p.id}>
+                  {savedProviders.includes(p.id) ? `${p.name} — key saved` : p.name}
+                </option>
               ))}
               <option value="local">Local LLM Server</option>
             </select>
@@ -618,15 +653,29 @@ const AISection = () => {
             <div className="settings-row">
               <div className="settings-row-label">
                 Model
-                <div className="settings-row-description">Which model to use</div>
+                <div className="settings-row-description">
+                  {isLoadingModels
+                    ? `Loading ${getProviderLabel(provider)}'s current models…`
+                    : isLive
+                      ? `Live from ${getProviderLabel(provider)}, newest first`
+                      : modelsNeedKey
+                        ? savedProviders.includes(provider)
+                          ? `Your saved ${getProviderLabel(provider)} key is stored — re-enter it above to load current models`
+                          : `Add your ${getProviderLabel(provider)} key above to load current models`
+                        : `Couldn't reach ${getProviderLabel(provider)} — showing a short built-in list`}
+                </div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {providerModels.length > 0 ? (
                   <>
                     <select
-                      value={providerModels.some(m => m.id === model) ? model : 'custom'}
+                      value={isCustomModel ? 'custom' : model}
                       onChange={(e) => {
-                        if (e.target.value !== 'custom') {
+                        if (e.target.value === 'custom') {
+                          setUseCustomModel(true);
+                          setModel('');
+                        } else {
+                          setUseCustomModel(false);
                           setModel(e.target.value);
                         }
                       }}
@@ -639,10 +688,22 @@ const AISection = () => {
                       <option value="custom">Custom...</option>
                     </select>
 
-                    {(providerModels.every(m => m.id !== model) || model === 'custom') && (
+                    <button
+                      type="button"
+                      onClick={refreshModels}
+                      disabled={isLoadingModels}
+                      className="ai-action-btn ai-btn-secondary"
+                      title="Re-fetch the model list (cached for 24h)"
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', alignSelf: 'flex-start' }}
+                    >
+                      <RefreshCw size={12} />
+                      Refresh models
+                    </button>
+
+                    {isCustomModel && (
                       <input
                         type="text"
-                        value={model === 'custom' ? '' : model}
+                        value={model}
                         onChange={(e) => setModel(e.target.value)}
                         placeholder="gpt-4o"
                         disabled={isLoading}

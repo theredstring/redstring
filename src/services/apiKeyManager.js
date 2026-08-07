@@ -6,6 +6,7 @@
  */
 
 import { encryptSecret, decryptSecret, isEncrypted } from '../utils/secureStore.js';
+import { getFallbackModels } from './modelCatalog.js';
 
 class APIKeyManager {
   constructor() {
@@ -230,6 +231,36 @@ class APIKeyManager {
     } catch (err) {
       console.warn('[API Key Manager] Failed to read recent OpenRouter models', err);
       return [];
+    }
+  }
+
+  /**
+   * Retrieve the stored key belonging to a specific provider, ignoring which
+   * profile is active. `getAPIKey()` always returns the active profile's key —
+   * sending that to a different provider's API just yields a 401, so anything
+   * that talks to a provider the user isn't currently using needs this instead.
+   * @param {string} provider
+   * @returns {Promise<string|null>} plaintext key, or null if no profile matches
+   */
+  async getAPIKeyForProvider(provider) {
+    try {
+      if (!provider) return null;
+      const profiles = await this._getProfilesInternal();
+      const target = String(provider).toLowerCase();
+
+      // Newest match wins — profiles accumulate and later ones are current.
+      let match = null;
+      for (const data of Object.values(profiles)) {
+        if (String(data?.provider || '').toLowerCase() === target) match = data;
+      }
+      if (!match?.key) return null;
+
+      return isEncrypted(match.key)
+        ? await decryptSecret(match.key)
+        : this.deobfuscate(match.key);
+    } catch (error) {
+      console.warn('[API Key Manager] Failed to retrieve key for provider', provider, error);
+      return null;
     }
   }
 
@@ -599,11 +630,16 @@ class APIKeyManager {
    * @param {string} provider - Provider ID
    * @returns {Array} List of model objects
    */
+  /**
+   * Synchronous fallback list only. UI should use the `useProviderModels` hook,
+   * which fetches each provider's live model list — hand-maintained lists here
+   * go stale within weeks of a new model release.
+   */
   getModelsForProvider(provider) {
     if (provider === 'google') return this.getGeminiModels();
     if (provider === 'anthropic') return this.getAnthropicModels();
     if (provider === 'openrouter') return this.getOpenRouterModels();
-    return [];
+    return getFallbackModels(provider);
   }
 
   getCommonProviders() {
