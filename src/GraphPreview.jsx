@@ -5,6 +5,9 @@ import useGraphStore from "./store/graphStore.js";
 import { getTextColor } from './utils/colorUtils.js';
 import { useTheme } from './hooks/useTheme.js';
 
+// Canvas nodes round at NODE_CORNER_RADIUS * 1.4 (see getNodeDimensions)
+const PREVIEW_CORNER_RADIUS = NODE_CORNER_RADIUS * 1.4;
+
 const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
   const theme = useTheme();
   // Access store for prototype data to determine edge colors
@@ -170,7 +173,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
           const scaledHeight = node.height;
 
           // Use scaled corner radius to match Node.jsx
-          const imageCornerRadius = NODE_CORNER_RADIUS * scale;
+          const imageCornerRadius = PREVIEW_CORNER_RADIUS * scale;
 
           return (
             <clipPath key={`clip-${node.id}`} id={`clip-${node.id}`}>
@@ -330,7 +333,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
             const strokeRectHeight = Math.max(0, scaledHeight - imageNodeStrokeWidth);
 
             // Use same logic as clipPath for consistency
-            const imageCornerRadius = NODE_CORNER_RADIUS * scale;
+            const imageCornerRadius = PREVIEW_CORNER_RADIUS * scale;
             const strokeRectRx = Math.max(0, imageCornerRadius - strokeOffset);
             const strokeRectRy = Math.max(0, imageCornerRadius - strokeOffset);
 
@@ -401,8 +404,8 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                   height={scaledHeight}
                   fill={nodeColor} // Use node color
                   // More rounded corners to match other network representations
-                  rx={NODE_CORNER_RADIUS * scale}
-                  ry={NODE_CORNER_RADIUS * scale}
+                  rx={PREVIEW_CORNER_RADIUS * scale}
+                  ry={PREVIEW_CORNER_RADIUS * scale}
                 />
                 {/* Conditional text for rect nodes */}
                 {showText && (
