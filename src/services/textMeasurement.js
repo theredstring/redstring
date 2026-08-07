@@ -123,6 +123,23 @@ export function wrapTextToLines(text, maxWidth, fontString) {
 export const edgeLabelFontString = (fontSize) => buildFontString(fontSize, "'EmOne', sans-serif", 'bold');
 
 /**
+ * Is EmOne itself actually available to measure against yet?
+ *
+ * Deliberately checks the custom family ALONE, with no `sans-serif` fallback in
+ * the string: `check()` answers "can you render this spec", and a spec ending in
+ * a fallback is always satisfiable, so including one would return true while
+ * EmOne was still in flight — the exact case this exists to catch.
+ */
+export function edgeLabelFontLoaded(fontSize) {
+  if (typeof document === 'undefined' || !document.fonts?.check) return false;
+  try {
+    return document.fonts.check(buildFontString(fontSize, "'EmOne'", 'bold'));
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
  * Per-glyph advances, in px, for a connection label placed glyph by glyph along
  * a curve. Null when the text must not be split — see
  * `edgeLabelGlyphAdvancesEm`, whose fallback rules this inherits.
@@ -156,10 +173,25 @@ export function edgeLabelGlyphAdvances(text, fontSize) {
   const rawTotal = raw.reduce((sum, w) => sum + w, 0);
   if (!(rawTotal > 0)) return null;
 
-  // No measurement available — the buckets on their own are still a usable
-  // label, a few percent wide. Guarded rather than trusted: the measurement
-  // engine needs a canvas, and throws rather than declining without one, which
-  // is a poor reason for a connection label to take the canvas down with it.
+  // Only normalize against a measurement that means anything.
+  //
+  // Before EmOne loads, measuring resolves to whatever fallback the system
+  // hands back, and normalizing to THAT total is far worse than not
+  // normalizing at all: it scales every advance by a ratio between two
+  // unrelated fonts. The buckets then stop describing EmOne, the cumulative
+  // positions drift, and since each glyph's angle is derived from its position
+  // along the arc, the label doesn't just space badly — it rotates its
+  // characters to angles that belong to a label of a different length, and
+  // comes out visibly scrambled.
+  //
+  // The raw buckets are the safe answer here. They're font-specific to EmOne by
+  // construction and independent of anything the browser has finished loading,
+  // so they're a few percent wide and nothing worse. NodeCanvas re-renders once
+  // the font arrives (see the fonts-ready effect) and this starts normalizing.
+  if (!edgeLabelFontLoaded(fontSize)) return raw;
+
+  // The engine needs a canvas and throws rather than declining without one,
+  // which is a poor reason for a connection label to take the canvas down.
   let measured = 0;
   try {
     measured = measureTextWidth(text, edgeLabelFontString(fontSize));

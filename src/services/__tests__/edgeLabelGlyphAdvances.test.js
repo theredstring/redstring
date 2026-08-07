@@ -11,9 +11,52 @@
  * measure with, and a connection label must not take the canvas down with it.
  */
 
-import { describe, it, expect } from 'vitest';
-import { edgeLabelGlyphAdvances } from '../textMeasurement.js';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { edgeLabelGlyphAdvances, edgeLabelFontLoaded } from '../textMeasurement.js';
 import { edgeLabelGlyphAdvancesEm } from '../layoutGeometry.js';
+
+// jsdom ships no FontFaceSet at all, so this is defined rather than spied on.
+const hadFonts = Object.prototype.hasOwnProperty.call(document, 'fonts');
+const stubFonts = (value) => {
+  Object.defineProperty(document, 'fonts', { value, configurable: true, writable: true });
+};
+const restoreFonts = () => {
+  if (hadFonts) return;
+  delete document.fonts;
+};
+
+describe('edgeLabelFontLoaded', () => {
+  afterEach(restoreFonts);
+
+  it('asks about EmOne alone, never a spec a fallback could satisfy', () => {
+    // The bug this guards: `check()` answers "can you render this spec", so a
+    // spec ending in `sans-serif` is ALWAYS satisfiable and would report the
+    // font ready while EmOne was still loading.
+    const check = vi.fn(() => true);
+    stubFonts({ check, ready: Promise.resolve() });
+
+    edgeLabelFontLoaded(59.4);
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(check.mock.calls[0][0]).toContain('EmOne');
+    expect(check.mock.calls[0][0]).not.toContain('sans-serif');
+  });
+
+  it('reports not-ready rather than throwing when fonts are unavailable', () => {
+    stubFonts(undefined);
+    expect(edgeLabelFontLoaded(59.4)).toBe(false);
+
+    stubFonts({ check: () => { throw new Error('nope'); } });
+    expect(edgeLabelFontLoaded(59.4)).toBe(false);
+  });
+
+  it('reports ready only when the check passes', () => {
+    stubFonts({ check: () => true, ready: Promise.resolve() });
+    expect(edgeLabelFontLoaded(59.4)).toBe(true);
+
+    stubFonts({ check: () => false, ready: Promise.resolve() });
+    expect(edgeLabelFontLoaded(59.4)).toBe(false);
+  });
+});
 
 describe('edgeLabelGlyphAdvances', () => {
   it('returns one advance per character', () => {
@@ -27,6 +70,24 @@ describe('edgeLabelGlyphAdvances', () => {
     const advances = edgeLabelGlyphAdvances('is a kind of', 40);
     expect(advances).not.toBeNull();
     expect(advances.every((w) => Number.isFinite(w) && w > 0)).toBe(true);
+  });
+
+  it('ignores a measurement taken before the real font loaded', () => {
+    // The scrambled-label bug. With EmOne still in flight, measuring resolves
+    // against some fallback face, and normalizing to that total rescales every
+    // advance by a ratio between two unrelated fonts. Because each glyph's
+    // ANGLE is derived from its position along the arc, wrong widths don't just
+    // space the label badly — they rotate its characters to angles belonging to
+    // a label of a different length, which is what came out visibly jumbled.
+    const em = edgeLabelGlyphAdvancesEm('is a kind of');
+    const rawTotal = em.reduce((s, e) => s + e, 0) * 40;
+
+    // Font absent: must fall back to unscaled buckets, whatever measurement says.
+    stubFonts({ check: () => false, ready: Promise.resolve() });
+    const beforeLoad = edgeLabelGlyphAdvances('is a kind of', 40);
+    expect(beforeLoad.reduce((s, w) => s + w, 0)).toBeCloseTo(rawTotal, 6);
+
+    restoreFonts();
   });
 
   it('scales with font size', () => {

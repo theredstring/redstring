@@ -3703,6 +3703,35 @@ function NodeCanvas() {
     clearLabelStabilization();
   }, [enableAutoRouting, routingStyle, manhattanBends, cleanLaneSpacing, lombardiCurvature, showConnectionNames, connectionLabelSize, textSettings?.fontSize]);
 
+  // Re-render once the label font actually arrives.
+  //
+  // A curved label's glyph positions come from per-character advances, and those
+  // can only be measured against a font the browser has finished loading. Labels
+  // that render first fall back to unmeasured bucket widths (see
+  // edgeLabelGlyphAdvances) — close, but not what the text will actually be
+  // drawn at. Without this, that first approximation is permanent: nothing else
+  // re-renders an edge on its own, so the labels present at startup stayed
+  // slightly off while any label drawn later was correct, and nudging a node was
+  // the only way to fix one. getNodeDimensions has carried the same listener for
+  // node text for exactly this reason (see utils.js).
+  // Value intentionally unread — edges are rendered inline by
+  // renderConnectionEdge with no memo of their own, so a commit is all that's
+  // needed to re-solve every label.
+  const [, bumpLabelFontVersion] = useState(0);
+  useEffect(() => {
+    if (typeof document === 'undefined' || !document.fonts?.ready) return;
+    let cancelled = false;
+    document.fonts.ready.then(() => {
+      if (cancelled) return;
+      // The placements were solved against the estimated widths; they have to go
+      // too, or the labels re-render at correct sizes into stale positions.
+      placedLabelsRef.current.clear();
+      clearLabelStabilization();
+      bumpLabelFontVersion((v) => v + 1);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   // Every label's position depends on where the OTHER labels landed —
   // chooseRoutedLabelPlacement dodges the rects already in placedLabelsRef. So
   // renaming one connection (or retyping it, which renames it) invalidates the
