@@ -84,9 +84,19 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     typeDescription: n.typeDescription || ''
   }));
 
+  // Composition. Normalized BEFORE edge validation because a layer materializes
+  // as a Thing at this level, which makes its name a legal edge endpoint — and
+  // the validator has no other way to know that. Validating first would silently
+  // drop every edge pointing at a layer, which is exactly the kind of "you built
+  // it wrong" feedback that pushes the model back toward flat graphs.
+  const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState });
+  const layerSpecs = layerResult ? layerResult.layers : [];
+  const layerWarnings = layerResult ? layerResult.warnings : [];
+
   // Validate edges: strip any that reference nodes not in the nodes array or existing graph
   const existingNodeNames = (graphState.nodePrototypes || []).map(p => p.name).filter(Boolean);
-  const { validEdges, droppedEdges } = await validateEdgesSmart(nodeSpecs, edges || [], existingNodeNames);
+  const endpointCandidates = [...nodeSpecs, ...layerSpecs.map(l => ({ name: l.name }))];
+  const { validEdges, droppedEdges } = await validateEdgesSmart(endpointCandidates, edges || [], existingNodeNames);
 
   // Accept either definitionNode object OR a plain type string (like createPopulatedGraph allows).
   // Auto-construct definitionNode from type string so small models can use simple edge format.
@@ -146,14 +156,6 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
       duplicateNodeWarning = `WARNING: The following nodes already exist in this universe and will create duplicates: ${duplicates.map(n => `"${n.name}"`).join(', ')}. These nodes were added to the parent graph. You are now inside a definition graph — add sub-components that describe the INTERNALS of the concept, not the sibling nodes from the parent web.`;
     }
   }
-
-  // Composition. Adding layers here is what stops this tool flattening its own
-  // work: expandGraph is what the quality-repair loop reaches for, and while it
-  // could only emit flat nodes and edges, every "fix orphaned nodes" pass
-  // dismantled whatever nesting a build had produced.
-  const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState });
-  const layerSpecs = layerResult ? layerResult.layers : [];
-  const layerWarnings = layerResult ? layerResult.warnings : [];
 
   // Analyze graph quality for LLM feedback. Layers are passed through so an edge
   // pointing at one counts as a real connection rather than leaving its other

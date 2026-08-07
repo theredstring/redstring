@@ -8,6 +8,76 @@ const COLOR_DESC = 'Color name from the chosen palette (e.g., "red", "tan", "nav
 const SIZE_SCHEMA = { type: 'string', enum: NODE_SIZE_NAMES, description: NODE_SIZE_FIELD_DESC };
 
 /**
+ * Compact `layers` parameter for the flat build tools.
+ *
+ * Composition used to be reachable only through buildComposition, which meant the
+ * model had to consciously switch tools to get any depth — and the quality-repair
+ * loop, which runs expandGraph, could only ever flatten what a build had composed.
+ * Offering layers on the default path is what makes nesting the natural output
+ * rather than something that has to be asked for.
+ *
+ * The schema shows one level explicitly and says deeper nesting is allowed rather
+ * than spelling out the full recursion: the normalizer handles arbitrary depth
+ * either way, and repeating buildComposition's whole nested block in three more
+ * tools would add thousands of tokens to every single request.
+ */
+const LAYERS_PARAM = {
+    type: 'array',
+    description: 'Optional LAYERS — clusters that are themselves concepts. A layer creates a Thing, populates the web inside it, and (when display is "decomposed") spreads that web open here as a node-group. Its members go INSIDE `definition`, never in the top-level `nodes` array. Prefer a layer over a plain group whenever the cluster has a name that means something on its own. A `definition` may itself contain `layers` for deeper nesting.',
+    items: {
+        type: 'object',
+        properties: {
+            name: { type: 'string', description: 'Name of the Thing / node-group. It must make sense away from this graph — a layer is reusable, so qualify it when the bare name would be ambiguous elsewhere (e.g. "Back of House for Texas Roadhouse", not "Back of House"). Leave genuinely universal concepts unqualified ("Engine", "Mitochondria").' },
+            color: { type: 'string', description: COLOR_DESC },
+            description: { type: 'string', description: 'What this Thing is' },
+            display: {
+                type: 'string',
+                enum: ['decomposed', 'collapsed'],
+                description: '"decomposed" (default): spread the web open here as a visible node-group. "collapsed": defined but closed — the user navigates in.'
+            },
+            use: { type: 'string', description: 'Name of an EXISTING Thing whose web should be invoked here instead of authoring a new one. Provide this OR definition, not both.' },
+            definition: {
+                type: 'object',
+                description: 'The web inside this Thing. Its nodes ARE this layer\'s members.',
+                properties: {
+                    nodes: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                color: { type: 'string', description: COLOR_DESC },
+                                description: { type: 'string' },
+                                type: { type: 'string' }
+                            },
+                            required: ['name']
+                        }
+                    },
+                    edges: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                source: { type: 'string' },
+                                target: { type: 'string' },
+                                type: { type: 'string', description: 'Connection type in Title Case' }
+                            },
+                            required: ['source', 'target']
+                        }
+                    },
+                    layers: {
+                        type: 'array',
+                        description: 'Deeper layers nested inside this web (same shape as this one).',
+                        items: { type: 'object' }
+                    }
+                }
+            }
+        },
+        required: ['name']
+    }
+};
+
+/**
  * Get tool definitions for LLM
  * @returns {Array} Tool definitions
  */
@@ -225,7 +295,7 @@ export function getToolDefinitions(options = {}) {
                     },
                     groups: {
                         type: 'array',
-                        description: 'Optional: Array of plain visual groups (loose clustering only). For a cluster that IS a concept with a web inside it, use buildComposition layers instead.',
+                        description: 'Plain visual groups: loose clustering ONLY, for a label nobody would point at as a concept. If the cluster has a name that means something on its own, use `layers` instead.',
                         items: {
                             type: 'object',
                             properties: {
@@ -236,6 +306,7 @@ export function getToolDefinitions(options = {}) {
                             required: ['name', 'memberNames']
                         }
                     },
+                    layers: LAYERS_PARAM,
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
                     enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
                     overwriteDescription: { type: 'boolean', description: 'Overwrite description from Wikipedia (default: false).' }
@@ -328,7 +399,7 @@ export function getToolDefinitions(options = {}) {
                     },
                     groups: {
                         type: 'array',
-                        description: 'Plain visual groups for loose clustering. For a cluster that IS a concept with a web inside it, use buildComposition layers instead.',
+                        description: 'Plain visual groups: loose clustering ONLY, for a label nobody would point at as a concept. If the cluster has a name that means something on its own, use `layers` instead.',
                         items: {
                             type: 'object',
                             properties: {
@@ -339,6 +410,7 @@ export function getToolDefinitions(options = {}) {
                             required: ['name', 'memberNames']
                         }
                     },
+                    layers: LAYERS_PARAM,
                     enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
                     overwriteDescription: { type: 'boolean', description: 'Overwrite description from Wikipedia (default: false).' }
                 },
@@ -648,7 +720,7 @@ export function getToolDefinitions(options = {}) {
                     },
                     groups: {
                         type: 'array',
-                        description: 'Groups to organize nodes.',
+                        description: 'Plain visual groups: loose clustering ONLY, for a label nobody would point at as a concept. If the cluster has a name that means something on its own, use `layers` instead.',
                         items: {
                             type: 'object',
                             properties: {
@@ -659,6 +731,7 @@ export function getToolDefinitions(options = {}) {
                             required: ['name', 'memberNames']
                         }
                     },
+                    layers: LAYERS_PARAM,
                     enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
                     overwriteDescription: { type: 'boolean', description: 'Overwrite description from Wikipedia (default: false).' }
                 },

@@ -396,18 +396,57 @@ const getFallbackPlacement = (pathPoints, textWidth, textHeight, obstacles) => {
 const MIN_ANCHOR_SEGMENT = 24; // px — shorter than this reads as a stub, not a run
 
 /**
+ * How much of `rect` is buried under the obstacles, in square pixels.
+ *
+ * A COUNT of collisions would be nearly as discontinuous as the boolean it
+ * replaces: a label sliding off the corner of a node drops from 1 to 0 in one
+ * step. Area goes to zero smoothly as the label clears, which is the whole
+ * point — it makes "least bad" a continuous function of position, so a label
+ * with nowhere good to go drifts rather than teleports.
+ */
+const overlapArea = (rect, obstacles) => {
+    let area = 0;
+    for (let i = 0; i < obstacles.length; i++) {
+        const o = obstacles[i];
+        const w = Math.min(rect.maxX, o.maxX) - Math.max(rect.minX, o.minX);
+        if (w <= 0) continue;
+        const h = Math.min(rect.maxY, o.maxY) - Math.max(rect.minY, o.minY);
+        if (h <= 0) continue;
+        area += w * h;
+    }
+    return area;
+};
+
+/**
  * Rank one candidate placement against the best so far.
  *
- * Crossings come FIRST, and not as a weighted term in the score. The score
- * mixes quantities with no common unit — a segment's length in pixels, a flat
- * bonus for being horizontal, a penalty for drifting off centre — so any weight
- * chosen for "a connection runs through this label" would be arbitrary at one
- * graph scale and wrong at another. Ordering on the count instead says the only
- * thing that is actually true at every scale: a spot nothing runs through beats
- * a spot something does, and everything else is a tiebreak.
+ * OVERLAP first, then crossings, then score.
+ *
+ * Overlap leads because covering a node or another label is worse than having a
+ * line drawn across you. It also has to lead for compatibility: every candidate
+ * that used to survive the old hard reject has overlap 0, so among those this
+ * degrades exactly to the previous (crossings, score) ordering and places them
+ * identically. The ordering only decides anything new in the case that used to
+ * have no answer at all.
+ *
+ * That case is why this changed. Candidates that collided were previously
+ * discarded outright, and a label with no free spot fell through to the bare
+ * midpoint of its arc — discarding every dodge and landing hundreds of pixels
+ * from wherever it had been. As geometry moved under a drag, a label would cross
+ * that threshold and teleport, then teleport back. Ranking the bad candidates
+ * instead of dropping them means the worst that happens now is the label slides
+ * to the least-buried spot on its own connection and stays there.
+ *
+ * Crossings keep their place ahead of the score for the original reason: the
+ * score mixes quantities with no common unit — a segment's length in pixels, a
+ * flat bonus for being horizontal, a penalty for drifting off centre — so any
+ * weight chosen for "a connection runs through this label" would be arbitrary at
+ * one graph scale and wrong at another.
  */
-const betterPlacement = (crossings, score, best) => (
-    crossings !== best.crossings ? crossings < best.crossings : score > best.score
+const betterPlacement = (overlap, crossings, score, best) => (
+    overlap !== best.overlap ? overlap < best.overlap
+        : crossings !== best.crossings ? crossings < best.crossings
+            : score > best.score
 );
 
 // Break a polyline into scored, orientation-tagged segments (longest first).
@@ -776,16 +815,22 @@ export const chooseOrthogonalLabelPlacement = (
                 const x = baseX + perpX * offset;
                 const y = baseY + perpY * offset;
                 const rect = labelRectFor(x, y, textWidth, textHeight, seg.angle);
-                if (rectIntersectsAny(rect, obstacles)) continue;
+
+                // See betterPlacement: least-buried wins rather than
+                // free-or-nothing, so a label with no clear spot slides instead
+                // of dropping to the midpoint. Early-out skips the crossing
+                // query for candidates that already cannot win.
+                const overlap = overlapArea(rect, obstacles);
+                if (best && overlap > best.overlap) continue;
 
                 const crossings = countCrossingEdges(rect, options.segmentIndex, edgeId);
                 const score = seg.length
                     + seg.orientationBonus
                     - Math.abs(t - 0.5) * 300   // hug the middle of the run
                     - Math.abs(offset) * 6;      // and hug the line itself
-                if (!best || betterPlacement(crossings, score, best)) {
+                if (!best || betterPlacement(overlap, crossings, score, best)) {
                     best = {
-                        x, y, angle: seg.angle, score, crossings, rect,
+                        x, y, angle: seg.angle, score, crossings, overlap, rect,
                         anchor: {
                             t: seg.totalLength > 0
                                 ? (seg.startLength + seg.length * t) / seg.totalLength
@@ -800,14 +845,16 @@ export const chooseOrthogonalLabelPlacement = (
 
     if (best) return best;
 
-    // Everything collided — staying on the line beats drifting into open space,
-    // because a label nobody can trace back to its connection is worse than one
-    // that overlaps a node.
+    // Only reachable when there were no usable segments to build candidates
+    // from. "Everything collided" is no longer a route to here — that case now
+    // takes the least-buried rung of the ladder, which is both on the line and
+    // near where the label already was.
     const fallback = placeLabelOnPath(pathPoints);
     const fallbackRect = labelRectFor(fallback.x, fallback.y, textWidth, textHeight, fallback.angle);
     return {
         ...fallback,
         score: 0,
+        overlap: overlapArea(fallbackRect, obstacles),
         crossings: countCrossingEdges(fallbackRect, options.segmentIndex, edgeId),
         rect: fallbackRect,
         anchor: fallback.anchor,
@@ -896,13 +943,20 @@ export const chooseArcLabelPlacement = (
             const x = anchor.x + anchor.nx * offset;
             const y = anchor.y + anchor.ny * offset;
             const rect = labelRectFor(x, y, textWidth, textHeight, anchor.angle);
-            if (rectIntersectsAny(rect, obstacles)) continue;
+
+            // Overlap decides first, so a candidate already more buried than the
+            // incumbent cannot win however it scores — and skipping it here also
+            // skips the crossing query, which is the expensive half. In the
+            // common case (a free spot exists early) this runs the query for
+            // fewer candidates than the old hard reject did.
+            const overlap = overlapArea(rect, obstacles);
+            if (best && overlap > best.overlap) continue;
 
             const crossings = countCrossingEdges(rect, options.segmentIndex, edgeId);
             const score = -Math.abs(s - 0.5) * 300 - Math.abs(offset) * 6;
-            if (!best || betterPlacement(crossings, score, best)) {
+            if (!best || betterPlacement(overlap, crossings, score, best)) {
                 best = {
-                    x, y, angle: anchor.angle, score, crossings, rect,
+                    x, y, angle: anchor.angle, score, crossings, overlap, rect,
                     // bowSign: which side of the p→q chord this arc bowed to when
                     // the offset was measured, so a later reuse (placeLabelOnRoute,
                     // every drag frame) can tell whether the bow has since flipped
@@ -924,11 +978,15 @@ export const chooseArcLabelPlacement = (
 
     if (best) return best;
 
+    // Only reachable if the ladder produced no candidates at all (no arc to
+    // anchor on). A label that merely had nowhere GOOD to go was handled above,
+    // by taking the least-buried rung rather than dropping to here.
     const fallback = placeLabelOnArc(arc, range);
     const fallbackRect = labelRectFor(fallback.x, fallback.y, textWidth, textHeight, fallback.angle);
     return {
         ...fallback,
         score: 0,
+        overlap: overlapArea(fallbackRect, obstacles),
         crossings: countCrossingEdges(fallbackRect, options.segmentIndex, edgeId),
         rect: fallbackRect,
         anchor: fallback.anchor,

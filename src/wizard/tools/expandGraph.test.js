@@ -194,3 +194,78 @@ describe('expandGraph', () => {
     expect(result.spec.edges[0].definitionNode.description).toBe('Orbital relationship');
   });
 });
+
+describe('expandGraph — composition', () => {
+  const mockCid2 = 'cid';
+  const noop = () => {};
+
+  const graphState = {
+    activeGraphId: 'graph-1',
+    graphs: [{ id: 'graph-1', name: 'Cell', instances: [], edgeIds: [], groups: [] }],
+    nodePrototypes: []
+  };
+
+  // The point of 2.1: expandGraph is what the quality-repair loop runs. While it
+  // could only emit flat nodes and edges, every repair pass dismantled whatever
+  // nesting a build had produced.
+  it('accepts layers and carries them into the spec for the applier', async () => {
+    const result = await expandGraph(
+      {
+        nodes: [{ name: 'Cell Membrane' }],
+        layers: [{
+          name: 'Cytoplasm',
+          description: 'The cell interior',
+          definition: { nodes: [{ name: 'Mitochondria' }, { name: 'Ribosome' }] }
+        }]
+      },
+      graphState, mockCid2, noop
+    );
+
+    expect(result.layerCount).toBe(1);
+    expect(result.layersAdded).toEqual(['Cytoplasm']);
+    expect(result.spec.layers).toHaveLength(1);
+    expect(result.spec.layers[0].definition.nodes.map(n => n.name))
+      .toEqual(['Mitochondria', 'Ribosome']);
+  });
+
+  it('builds from layers alone, with no flat nodes at all', async () => {
+    const result = await expandGraph(
+      {
+        layers: [{
+          name: 'Cytoplasm',
+          definition: { nodes: [{ name: 'Mitochondria' }, { name: 'Ribosome' }] }
+        }]
+      },
+      graphState, mockCid2, noop
+    );
+    expect(result.layerCount).toBe(1);
+    expect(result.nodeCount).toBe(0);
+  });
+
+  // The false-orphan bug: an edge to a layer used to be invisible to the quality
+  // analyzer, so its other endpoint was reported orphaned and the model "fixed"
+  // it by adding flat hub edges.
+  it('does not report a node orphaned when its only edge points at a layer', async () => {
+    const result = await expandGraph(
+      {
+        nodes: [{ name: 'Cell Membrane', description: 'Outer boundary' }],
+        edges: [{ source: 'Cell Membrane', target: 'Cytoplasm', type: 'Encloses' }],
+        layers: [{
+          name: 'Cytoplasm',
+          description: 'The cell interior',
+          definition: { nodes: [{ name: 'Mitochondria' }, { name: 'Ribosome' }] }
+        }]
+      },
+      graphState, mockCid2, noop
+    );
+    expect(result.qualityReport.orphanedNodes).toHaveLength(0);
+  });
+
+  it('surfaces layer warnings rather than swallowing them', async () => {
+    const result = await expandGraph(
+      { layers: [{ name: 'Empty', definition: { nodes: [] } }] },
+      graphState, mockCid2, noop
+    );
+    expect(result.layerWarnings.some(w => w.includes('empty'))).toBe(true);
+  });
+});

@@ -299,11 +299,34 @@ const PINCH_GLIDE_STRENGTH_FRICTION_RANGE = 0.08; // friction offset sweep for t
 // stream of ctrl+wheel events and macOS emits no inertia of its own for
 // magnification — so the gesture end is inferred from an idle gap. Safari's
 // GestureEvent path has a real `gestureend` and launches from there directly.
-const TRACKPAD_ZOOM_IDLE_END_MS = 70;           // no zoom wheel event for this long = fingers lifted
+// The idle gap is dead time — the zoom is frozen between the last event and the
+// coast launching — so it is measured against the gesture's OWN event rate
+// rather than fixed. Pinch events are frame-locked, so a stream running at 60fps
+// ends after ~40ms while one throttled to 30fps by a heavy canvas gets ~80ms
+// before it's called stopped. A fixed threshold either stalls visibly on fast
+// streams or false-ends constantly on slow ones. A false end self-corrects: the
+// next wheel event stops the glide at the top of handleWheel.
+const TRACKPAD_ZOOM_MAX_STEP_DELTA = 40;        // |deltaY| above this in pixel mode is a mouse wheel detent, not a trackpad
+const TRACKPAD_ZOOM_IDLE_GAP_MULTIPLE = 2.4;    // idle gap = this × the gesture's recent inter-event interval
+const TRACKPAD_ZOOM_IDLE_END_MIN_MS = 34;       // floor: two frames at 60fps
+const TRACKPAD_ZOOM_IDLE_END_MAX_MS = 110;      // ceiling: past this the "release" is too stale to coast from
 const TRACKPAD_ZOOM_VELOCITY_WINDOW_MS = 90;    // how far back from the last zoom event to sample release velocity
-const TRACKPAD_ZOOM_MOMENTUM_BOOST = 0.75;      // launch gentler than the fingers were moving (trackpad pinch is a precision gesture)
-const TRACKPAD_ZOOM_MOMENTUM_FRICTION = 0.85;   // per-frame retention for the trackpad coast (shorter tail than touch)
-const TRACKPAD_ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY = 0.90; // retention for fast pinches, ramped in like the touch glide
+// Launch at the speed the fingers were actually moving. Anything below 1 puts a
+// visible step down in speed at the handoff — the coast has to pick up exactly
+// where the gesture left off or the release reads as a hitch.
+const TRACKPAD_ZOOM_MOMENTUM_BOOST = 1.0;
+// Friction is where the trackpad coast is kept SHORT. The total extra zoom of a
+// coast is (velocity × frame) / (1 − friction), so these retentions give roughly
+// a third of what the touch pinch glide coasts: a settle, not a throw. The
+// trackpad is a precision instrument and lands where you aimed it — the glide is
+// there to remove the dead stop at release, not to carry the view onward.
+const TRACKPAD_ZOOM_MOMENTUM_FRICTION = 0.62;   // ~5 frames of tail at typical release speed
+const TRACKPAD_ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY = 0.74; // fast gestures get a little more, ramped in like the touch glide
+const TRACKPAD_ZOOM_GLIDE_FRICTION_MIN = 0.45;  // strength slider floor — barely a settle
+const TRACKPAD_ZOOM_GLIDE_FRICTION_MAX = 0.88;  // strength slider ceiling — still short of the touch glide's default
+// Wider than the touch equivalent so the slider actually spans "almost nothing"
+// to "noticeable" around a default that is deliberately near the low end.
+const TRACKPAD_ZOOM_GLIDE_STRENGTH_FRICTION_RANGE = 0.30;
 // Launch floor is deliberately well above ZOOM_MOMENTUM_MIN_SPEED (the stop
 // threshold): a slow, deliberate trackpad pinch still clears the stop
 // threshold, and coasting after one reads as overshoot rather than momentum.
@@ -2555,8 +2578,11 @@ function NodeCanvas() {
     const effMinZoom = Number.isFinite(minZoomBound) ? minZoomBound : MIN_ZOOM;
     const effMaxZoom = Number.isFinite(maxZoomBound) ? maxZoomBound : MAX_ZOOM;
 
-    // Strength scales the launch kick around 1× at the 0.5 default.
-    const strengthVelScale = 1 + (strength - 0.5) * PINCH_GLIDE_STRENGTH_VEL_RANGE;
+    // Strength scales the launch kick around 1× at the 0.5 default — except on
+    // trackpad, where the launch speed must always equal the gesture speed or
+    // the release grows a seam (a step up at high strength, down at low). There,
+    // strength moves friction only: same handoff, longer or shorter tail.
+    const strengthVelScale = isTrackpad ? 1 : 1 + (strength - 0.5) * PINCH_GLIDE_STRENGTH_VEL_RANGE;
     const boost = isTrackpad ? TRACKPAD_ZOOM_MOMENTUM_BOOST : ZOOM_MOMENTUM_BOOST;
     let vel = initialVel * boost * strengthVelScale;
     vel = Math.max(-ZOOM_MOMENTUM_MAX_SPEED, Math.min(ZOOM_MOMENTUM_MAX_SPEED, vel));
@@ -2573,8 +2599,15 @@ function NodeCanvas() {
       friction = frictionBase + (frictionHigh - frictionBase) * overshoot;
     }
     // Strength also stretches/shrinks the coast, mirroring the pan glide's
-    // GLIDE_STRENGTH_FRICTION_RANGE treatment. Clamped well below 1.
-    friction = Math.max(0.78, Math.min(0.95, friction + (strength - 0.5) * PINCH_GLIDE_STRENGTH_FRICTION_RANGE));
+    // GLIDE_STRENGTH_FRICTION_RANGE treatment. Clamped well below 1. The clamp
+    // is per-source: the touch floor of 0.78 sits ABOVE the trackpad's whole
+    // range, and applying it there would quietly undo the short trackpad tail.
+    const strengthFrictionRange = isTrackpad
+      ? TRACKPAD_ZOOM_GLIDE_STRENGTH_FRICTION_RANGE
+      : PINCH_GLIDE_STRENGTH_FRICTION_RANGE;
+    const frictionFloor = isTrackpad ? TRACKPAD_ZOOM_GLIDE_FRICTION_MIN : 0.78;
+    const frictionCeil = isTrackpad ? TRACKPAD_ZOOM_GLIDE_FRICTION_MAX : 0.95;
+    friction = Math.max(frictionFloor, Math.min(frictionCeil, friction + (strength - 0.5) * strengthFrictionRange));
 
     zoomMomentumRef.current.vel = vel;
     zoomMomentumRef.current.anchorClient = { x: anchorClient.x, y: anchorClient.y };
@@ -2648,7 +2681,10 @@ function NodeCanvas() {
   // cursor position of the most recent zoom event (the point the coast pins).
   // `endTimerId` is the idle timer that stands in for the missing "fingers
   // lifted" event on the ctrl+wheel path.
-  const trackpadZoomGestureRef = useRef({ hist: [], anchorClient: null, endTimerId: null });
+  // `sensitivity` latches the zoom rate the gesture started with so continuation
+  // events (modifier released mid-stream) don't change speed. A non-empty `hist`
+  // also *is* the "zoom gesture in flight" flag handleWheel routes on.
+  const trackpadZoomGestureRef = useRef({ hist: [], anchorClient: null, endTimerId: null, sensitivity: null });
 
   const clearTrackpadZoomGesture = useCallback(() => {
     const ref = trackpadZoomGestureRef.current;
@@ -2656,6 +2692,7 @@ function NodeCanvas() {
     ref.endTimerId = null;
     ref.hist = [];
     ref.anchorClient = null;
+    ref.sensitivity = null;
   }, []);
 
   // Called when the trackpad pinch stops (idle gap on wheel, or `gestureend` in
@@ -2669,6 +2706,7 @@ function NodeCanvas() {
     const anchorClient = ref.anchorClient;
     ref.hist = [];
     ref.anchorClient = null;
+    ref.sensitivity = null;
 
     if (!anchorClient || hist.length < 2) return;
     const container = containerRef.current;
@@ -2711,17 +2749,35 @@ function NodeCanvas() {
   // Record one zoom step of a trackpad pinch and (re)arm the idle end timer.
   // `zoom` is the zoom this step targeted; sampling the target rather than the
   // eased on-screen value keeps the measured velocity true to the fingers.
-  const recordTrackpadZoomSample = useCallback((zoom, clientX, clientY) => {
+  const recordTrackpadZoomSample = useCallback((zoom, clientX, clientY, sensitivity = null) => {
     if (!Number.isFinite(zoom) || zoom <= 0) return;
     const ref = trackpadZoomGestureRef.current;
+    if (sensitivity != null && ref.hist.length === 0) ref.sensitivity = sensitivity;
     const now = performance.now();
     ref.hist.push({ t: now, lz: Math.log(zoom) });
     while (ref.hist.length > 2 && now - ref.hist[0].t > TRACKPAD_ZOOM_VELOCITY_WINDOW_MS * 2) {
       ref.hist.shift();
     }
     ref.anchorClient = { x: clientX, y: clientY };
+
+    // Idle gap scaled to this gesture's own cadence — see the constants. Median
+    // of the recent intervals, so one dropped frame doesn't stretch the gap.
+    let idleMs = TRACKPAD_ZOOM_IDLE_END_MAX_MS;
+    if (ref.hist.length >= 3) {
+      const gaps = [];
+      for (let i = Math.max(1, ref.hist.length - 5); i < ref.hist.length; i++) {
+        gaps.push(ref.hist[i].t - ref.hist[i - 1].t);
+      }
+      gaps.sort((a, b) => a - b);
+      const median = gaps[Math.floor(gaps.length / 2)];
+      idleMs = Math.min(
+        TRACKPAD_ZOOM_IDLE_END_MAX_MS,
+        Math.max(TRACKPAD_ZOOM_IDLE_END_MIN_MS, median * TRACKPAD_ZOOM_IDLE_GAP_MULTIPLE)
+      );
+    }
+
     if (ref.endTimerId) clearTimeout(ref.endTimerId);
-    ref.endTimerId = setTimeout(() => endTrackpadZoomGesture(), TRACKPAD_ZOOM_IDLE_END_MS);
+    ref.endTimerId = setTimeout(() => endTrackpadZoomGesture(), idleMs);
   }, [endTrackpadZoomGesture]);
 
   useEffect(() => clearTrackpadZoomGesture, [clearTrackpadZoomGesture]);
@@ -8305,16 +8361,35 @@ function NodeCanvas() {
     // emits large deltas. Pinch gestures (Mac and Windows precision touchpads)
     // emit |deltaY| ~1-10 per event, so small-delta Ctrl+scroll = trackpad pinch.
     const isPinch = e.ctrlKey && !e.metaKey && Math.abs(deltaY) < 20;
+    // Trackpad vs. mouse wheel, for glide eligibility: a wheel detent lands as
+    // one large step (~100px, or line-mode), a trackpad streams small pixel
+    // deltas at frame rate. Cmd+two-finger-scroll zooming is a trackpad gesture
+    // and deserves the coast just as much as a pinch does.
+    const isTrackpadDelta = e.deltaMode === 0 && Math.abs(deltaY) < TRACKPAD_ZOOM_MAX_STEP_DELTA;
 
     if (abstractionCarouselVisible) return;
 
-    if (isZoom) {
+    // A zoom gesture already in flight keeps every following wheel event, held
+    // modifier or not, until the stream itself stops (the tracker's idle timer
+    // clears `hist`). macOS keeps delivering the gesture's momentum tail after
+    // the fingers lift, and releasing Cmd mid-tail used to drop those events
+    // into the pan path — the view would stop zooming and start sliding.
+    const zoomGesture = trackpadZoomGestureRef.current;
+    const isZoomContinuation = !isZoom && zoomGesture.hist.length > 0;
+
+    if (isZoom || isZoomContinuation) {
       if (draggingNodeInfo || isAnimatingZoomRef.current) return;
       e.stopPropagation();
       isPanningOrZooming.current = true;
       // Slider 0.5 = default (maps to the original TRACKPAD_ZOOM_SENSITIVITY = 6.5).
       const trackpadSensitivity = (trackpadZoomSensitivityRef.current ?? 0.5) * 13;
-      const zoomDelta = deltaY * (isPinch ? trackpadSensitivity : SMOOTH_MOUSE_WHEEL_ZOOM_SENSITIVITY);
+      // Continuation events reuse the sensitivity the gesture started with —
+      // re-deriving it once the modifier is gone would change the zoom rate
+      // mid-gesture, which is exactly the seam this latch exists to remove.
+      const sensitivity = (isZoomContinuation && zoomGesture.sensitivity != null)
+        ? zoomGesture.sensitivity
+        : (isPinch ? trackpadSensitivity : SMOOTH_MOUSE_WHEEL_ZOOM_SENSITIVITY);
+      const zoomDelta = deltaY * sensitivity;
       const opId = ++zoomOpIdRef.current;
 
       // Applied synchronously, straight off the live refs.
@@ -8345,10 +8420,20 @@ function NodeCanvas() {
       });
       setPanAndZoom(result.panOffset, result.zoomLevel);
 
-      // Feed the glide tracker only for actual pinches — a ctrl+mouse-wheel
+      // Feed the glide tracker for trackpad-driven zoom only — a mouse wheel
       // detent is discrete input and coasting off it would feel unmoored.
-      if (isPinch) {
-        recordTrackpadZoomSample(result.zoomLevel, e.clientX, e.clientY);
+      if (isPinch || isTrackpadDelta || isZoomContinuation) {
+        if (deltaY === 0) {
+          // Chromium punctuates a finished gesture with a zero-delta wheel
+          // event. Recording it would append a zero-motion sample and drag the
+          // measured release velocity down — the release reads as a stumble.
+          // It's the closest thing this path has to a real "fingers lifted"
+          // signal, so launch the coast from it immediately instead of waiting
+          // out the idle gap.
+          endTrackpadZoomGesture();
+        } else {
+          recordTrackpadZoomSample(result.zoomLevel, e.clientX, e.clientY, sensitivity);
+        }
       } else {
         clearTrackpadZoomGesture();
       }

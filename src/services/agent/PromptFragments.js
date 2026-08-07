@@ -60,23 +60,28 @@ All graph-mutating and read-only tools accept optional \`targetGraphId\`. If omi
 ## Edge Rules
 - Connection names must be plain English in Title Case: "Created By", "Influenced", "Orbits".
 - **NEVER create "Composed Of", "Made Of", "Contains", "Part Of", or "Has" edges** — membership/composition belongs in a layer or definition graph, never as an edge.
+- **NEVER build a hub.** If most nodes in a graph connect to one central node, especially with the
+  same relation repeated, that is containment wearing a disguise — the same mistake as a
+  "Composed Of" edge. Make the center a layer and put those nodes inside it.
+  ❌ Mitochondria → Suspended In → Cytoplasm, Ribosome → Suspended In → Cytoplasm, ×7 more
+  ✅ a \`Cytoplasm\` layer whose definition holds the organelles, connected to its true peers
+  (Cell Membrane, Nucleus) by relations that actually differ from each other.
+  Connections should describe how things ACT on each other. If you write the same relation more
+  than two or three times in one graph, you are labelling structure, not describing it.
 - Never use camelCase (isPartOf), snake_case (is_part_of), or code-style names.
 - Every edge \`source\` and \`target\` MUST match a node name in your \`nodes\` array. Unmatched edges are dropped.
 - Always include the nested \`definitionNode\` object on edges. Do not collapse or omit it.
 
 ## Groups and Layers (Composition)
 
-Composition is structural in Redstring, never an edge. There are exactly two containers:
-
-### Plain Group — a visual label, nothing more
-Use when nodes share a theme but the category itself isn't a concept anyone would point at.
-\`\`\`json
-{ "name": "Background Concepts", "color": "gray", "memberNames": ["Node A", "Node B"] }
-\`\`\`
+Composition is structural in Redstring, never an edge. There are exactly two containers,
+and **the layer is the default** — reach for a plain group only when a layer would be wrong.
 
 ### Layer (node-group) — the cluster IS a Thing, and it has a web inside it
-A layer is a Thing plus the web that defines it. Build layers with \`buildComposition\`. The Thing,
-its definition web, and the visible nested group are all created in one call:
+A layer is a Thing plus the web that defines it. Every build tool accepts \`layers\`
+(\`createPopulatedGraph\`, \`expandGraph\`, \`populateDefinitionGraph\`, \`buildComposition\`), so you
+never have to switch tools to get depth. The Thing, its definition web, and the visible nested
+group are all created in one call:
 \`\`\`json
 {
   "layers": [{
@@ -118,6 +123,30 @@ depth that's supporting detail is collapsed. Both are fully defined either way.
 - The members ARE what that named concept is made of
 - You'd want to draw an edge TO the category from somewhere else in the graph
 - You're tempted to create a "Composed Of" or "Made Of" edge — stop, make a layer instead
+- You're about to connect several nodes to one central node with the same relation — that
+  central node is a layer, and those nodes belong inside it
+
+### Naming a layer — it has to make sense somewhere else
+A layer creates a real Thing that can be placed in any web, so its name must identify it away
+from the graph you authored it in.
+- Genuinely universal concepts stay bare: "Engine", "Mitochondria", "The Legislature". There is
+  one of these and everyone means the same thing by it.
+- Compositions that only mean something relative to a parent get qualified:
+  ❌ "Back of House" → ✅ "Back of House for Texas Roadhouse"
+  ❌ "Operations" → ✅ "Operations at Cascade Logistics"
+- If a Thing with that name already exists and you mean THAT one, invoke it with \`use:\` instead
+  of authoring a second copy. If you mean a different one, qualify the name.
+
+A layer is not a folder. "Components", "Overview", "Miscellaneous", "Other" are not concepts —
+if that is the best name you have, it should be a plain group or nothing at all.
+
+### Plain Group — a visual label, nothing more
+Only when the cluster's name isn't a concept anyone would point at: a temporary contrast in one
+graph ("Pro" vs "Con"), or a shading of nodes you'd never want to reference from elsewhere.
+\`\`\`json
+{ "name": "Background Concepts", "color": "gray", "memberNames": ["Node A", "Node B"] }
+\`\`\`
+If you can imagine drawing an edge to the group, or reusing it in another web, it is a layer.
 
 **Examples across domains:**
 - Tectonic plates: layer "Convergent Boundary Types" containing Oceanic-Continental, Continental-Continental, Oceanic-Oceanic
@@ -132,9 +161,15 @@ This is how a web lives inside another web:
 \`\`\`json
 { "layers": [{ "name": "Engine", "use": "Engine" }] }
 \`\`\`
-Before authoring a layer, check whether that Thing already exists (\`readGraph\`, \`search\`, or
-\`inspectWorkspace\` will tell you). Reusing keeps one Engine across every web that references it,
-instead of scattering near-duplicate copies.
+Before authoring a layer whose name you recognise, check whether that Thing already has a web:
+\`inspectWorkspace({ mode: "reusable", query: "engine" })\` lists exactly that. Reusing keeps one
+Engine across every web that references it, instead of scattering near-duplicate copies.
+
+### Don't overdo it
+Depth is warranted when a cluster's members define what it is — not for every cluster and not for
+its own sake. A genuinely flat subject stays flat: the eight planets are eight nodes, and wrapping
+each in a layer would add ceremony without adding meaning. Aim for depth where the structure is
+real, and stop when the next level down would just restate the name above it.
 
 **Never orchestrate composition by hand** — do not chain populateDefinitionGraph → thingGroup →
 decomposeNode to build a nested structure. One \`buildComposition\` call with the whole nested spec
@@ -167,8 +202,8 @@ When a user attaches a PDF or asks you to adapt a document into a graph, **alway
 1. **Analyze structure**: Read the document and identify its organizational skeleton — major sections, themes, key entities, arguments. Note which parts are hierarchical (chapters → sections → subsections) and which are relational (entity A influences entity B).
 2. **Plan the hierarchy with \`planTask\`**: Map document structure to Redstring composition. Each major section or theme becomes a top-level node. Sub-sections become definition graph content. Cross-cutting relationships become edges at the appropriate level.
 3. **Choose the right container for each cluster** (most documents need a MIX of these — don't default everything to definition graphs):
-   - **Plain groups**: DEFAULT for visual categories. Use when nodes share a theme but the category itself isn't a concept worth decomposing — e.g., "Pro" vs "Con" arguments, "Background" vs "Original Work" sections, "Internal" vs "External" factors. Most document sections map to plain groups.
-   - **Layers** (via \`buildComposition\`): When the cluster IS a named concept whose members define it — e.g., a layer "The Three Branches" whose definition holds Legislature, Executive, Judiciary. Gives you the concept, its web, and the visible nesting in one call. Mark it \`collapsed\` when the depth is supporting detail rather than the point.
+   - **Layers**: the DEFAULT for a document's real structure. A chapter, a theme, a named argument, a party's obligations — these are concepts whose members define them, so each becomes a layer holding its own contents. Mark it \`collapsed\` when the depth is supporting detail rather than the point. Most document sections map to layers.
+   - **Plain groups**: only for contrasts that exist purely to be looked at in this one graph — "Pro" vs "Con" arguments, "Internal" vs "External" factors. If you'd ever reference the group from elsewhere, it is a layer.
    - **Definition graphs** (via \`populateDefinitionGraph\`): for a single flat definition of one node that already exists — e.g., a "Methodology" with 5+ steps. If a node can be fully described in a sentence, it doesn't need one.
 4. **Build in layers**: top-level graph first (\`createPopulatedGraph\` for the flat parts, \`buildComposition\` for the composed ones), then selectively define whatever still needs depth. Each level should be 8-12 nodes max.
 5. **Preserve the document's relational structure**: Don't just decompose — connect. If Chapter 2 builds on Chapter 1's conclusions, that's an edge. If the same entity appears across multiple sections, reuse the node rather than duplicating it.
@@ -181,8 +216,8 @@ When a user attaches a PDF or asks you to adapt a document into a graph, **alway
 
 **Good patterns:**
 - A research paper → top-level: Introduction, Literature Review, Methodology, Results, Discussion, Conclusion. Groups to cluster "Background" sections (Intro + Lit Review) vs "Original Work" (Methodology + Results). Definition graphs only for sections with rich internal structure (Methodology's steps, Results' datasets). Cross-section edges connect findings to methods.
-- A legal document → top-level: Parties, Terms, Obligations, Remedies. Layers for each party's obligations (the cluster IS that party's obligation set). Plain groups for visual clustering (e.g., "Financial Terms" vs "Performance Terms"). Collapse the layers whose internals aren't the point.
-- A textbook chapter → top-level: key concepts as nodes. Plain groups for related concept clusters (prerequisite vs advanced). Layers when a cluster represents the "inside" of a named concept — decomposed for the concepts the chapter is actually about, collapsed for the rest.
+- A legal document → top-level: Parties, Terms, Obligations, Remedies. A layer per party's obligation set, named so it reads on its own ("Obligations of the Licensee", not "Obligations"). Collapse the layers whose internals aren't the point.
+- A textbook chapter → top-level: key concepts as nodes. Layers when a cluster represents the "inside" of a named concept — decomposed for the concepts the chapter is actually about, collapsed for the rest. A plain group only for a reading-order contrast like prerequisite vs advanced.
 
 ## Adapting Tabular Data (CSV, XLSX, TSV, JSON)
 
