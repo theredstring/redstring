@@ -1096,12 +1096,53 @@ function radialLayoutCentered(nodes, edges, cfg, meta = {}) {
 }
 
 /**
- * A path laid around a circle instead of serpentined across the canvas — the
- * paper's *circular Lombardi drawing* of a chain, with all vertices on one
- * circle and every edge an arc meeting it at a constant angle.
+ * How wide an opening to leave in the ring, as a multiple of its longest chord.
  *
- * One gap is left open so the sequence reads as a sequence and not a loop, and
- * so the first and last node don't end up as neighbours.
+ * A chain is a sequence, not a loop, so the ring must not close — the first and
+ * last node have to be visibly further apart than any linked pair, or the eye
+ * reads a circuit. Scaling the opening off the longest chord rather than fixing
+ * an angle is what makes the shape adapt to length on its own: at three or four
+ * nodes this opening is a large share of the circle and the result is a broad
+ * open arc, and as nodes are added its share shrinks and the drawing closes up
+ * toward a near-complete circuit.
+ */
+const ARC_CHAIN_OPENING = 1.25;
+
+/**
+ * How wide a sequence may run before it is worth curling up, in graph units.
+ *
+ * A circle is the compact way to draw a LONG sequence and the wrong way to draw
+ * a short one — five nodes bent round a ring is a circle nobody asked for, and
+ * reads far worse than the same five nodes in a line. So the curl is not a
+ * property of the shape, it is what the drawing does when staying flat gets
+ * expensive: lay the chain as flat as it can be laid, and curl only as far as
+ * it takes to stay inside this width.
+ *
+ * Roughly ten node-widths — about as much as is legible at one glance. Short
+ * chains never reach it and come out as gentle horizontal arcs; long ones curl
+ * until they close into the near-complete circuit a long sequence wants.
+ */
+const ARC_CHAIN_TARGET_WIDTH = 4000;
+
+/**
+ * A path laid around an open circle — the paper's *circular Lombardi drawing*
+ * of a chain, with all vertices on one circle and every edge an arc meeting it
+ * at a constant angle, left open so a sequence never reads as a circuit.
+ *
+ * WHY THE RING AND NOT A SHALLOW ARC
+ * A circle is the COMPACT way to draw a long sequence, and dramatically so. Its
+ * circumference is the chain's own length, so its width is that length over π —
+ * about a third of what the same chain laid out in a gentle bow would need. A
+ * 20-node sequence drawn as a shallow arc is ~13000px wide and runs off across
+ * the canvas; the same sequence on a ring is ~4000px across.
+ *
+ * The cost is real and worth stating: on a ring the edges take every angle,
+ * so the labels down the left and right sides are close to vertical. That is
+ * inherent to the shape rather than a defect in the placement — there is no
+ * rotation of a circle that makes all of its tangents level. What the rotation
+ * DOES control is where the sequence begins, so it begins at the top, where the
+ * tangent is horizontal, and runs clockwise: the reader meets the opening and
+ * the first few connections at their most readable.
  */
 function arcChainLayoutCentered(nodes, edges, cfg, meta = {}) {
   const nodeById = new Map(nodes.map(n => [n.id, n]));
@@ -1127,25 +1168,94 @@ function arcChainLayoutCentered(nodes, edges, cfg, meta = {}) {
   }
   nodes.forEach(node => { if (!seen.has(node.id)) order.push(node.id); });
 
-  // Chords for the real edges, then one deliberately wide chord to hold the
-  // circle open between the last node and the first.
-  const chords = [];
-  for (let i = 0; i < order.length - 1; i++) {
+  // One chord per real edge, given a way of measuring how far the two nodes
+  // reach along it. How much a node reaches depends on the direction the chord
+  // runs, which is the whole reason there is more than one measure below.
+  const chordsWith = (extentsOf) => order.slice(0, -1).map((_, i) => {
     const a = nodeById.get(order[i]);
     const b = nodeById.get(order[i + 1]);
     const edge = lookupEdge(edgeIndex, order[i], order[i + 1]);
     const label = labelSpanOf(edge, cfg.edgeLabelFontSize);
     const gap = label > 0 ? cfg.labelPadding : cfg.nodeGap;
-    chords.push(Math.max(cfg.minEdgeLength, circumRadius(a) + circumRadius(b) + label + gap));
-  }
-  chords.push(Math.max(...chords) * 1.5);
+    return Math.max(cfg.minEdgeLength, extentsOf(a, b, i) + label + gap);
+  });
 
-  const radius = solveRingRadius(chords);
-  const angles = ringAngles(chords, radius);
-  return new Map(order.map((id, i) => [id, {
-    x: Math.cos(angles[i]) * radius,
-    y: Math.sin(angles[i]) * radius
-  }]));
+  // No directions known yet — the circumscribed radius is the only safe answer,
+  // and a generous one: for a 300x100 node it reserves 158 where a tangential
+  // chord needs about 110.
+  const worstCase = (a, b) => circumRadius(a) + circumRadius(b);
+  // A bow's edges all run within ~20° of level, so measure them as level.
+  const level = (a, b) => halfExtentTowards(a, 1, 0) + halfExtentTowards(b, 1, 0);
+  // Measured against a placement that already exists.
+  const along = (prior) => (a, b, i) => {
+    const pa = prior.get(order[i]);
+    const pb = prior.get(order[i + 1]);
+    return halfExtentTowards(a, pb.x - pa.x, pb.y - pa.y)
+      + halfExtentTowards(b, pb.x - pa.x, pb.y - pa.y);
+  };
+
+  // Walk the chain round a circle of the given radius, starting at the top.
+  // In screen coordinates that is -π/2, the one point on a circle where the
+  // tangent is horizontal; increasing the angle runs clockwise, so a sequence
+  // always opens with its flattest, most readable connections whether it ends
+  // up a gentle bow or a full ring.
+  //
+  // Each edge gets exactly the angle its own chord needs, and every bit of
+  // leftover goes into the opening. Sharing the leftover out around the ring
+  // instead (what ringAngles does for a true cycle) would pad every edge
+  // equally and quietly narrow the one thing holding the sequence open.
+  const walk = (chords, radius) => {
+    const steps = chords.map(c => 2 * Math.asin(Math.min(1, c / (2 * radius))));
+    let theta = -Math.PI / 2;
+    const out = new Map();
+    order.forEach((id, i) => {
+      out.set(id, { x: Math.cos(theta) * radius, y: Math.sin(theta) * radius });
+      theta += steps[i] ?? 0;
+    });
+    return out;
+  };
+
+  const spanOf = (placed) => {
+    const xs = [...placed.entries()].map(([id, p]) => {
+      const { w } = boxOf(nodeById.get(id));
+      return [p.x - w / 2, p.x + w / 2];
+    });
+    return Math.max(...xs.map(x => x[1])) - Math.min(...xs.map(x => x[0]));
+  };
+
+  // Radius that leaves a gentle bow rather than a dead straight line: enough
+  // curve to still read as a Lombardi drawing, shallow enough that nothing
+  // tilts more than about 20° and the whole thing reads left to right.
+  const bowRadius = (chords) => chords.reduce((sum, c) => sum + c, 0) * 3;
+
+  const ring = (chords) => walk(chords, solveRingRadius([
+    ...chords,
+    Math.max(...chords) * (cfg.arcChainOpening ?? ARC_CHAIN_OPENING)
+  ]));
+
+  // ── Bow, or ring? ────────────────────────────────────────────────────────
+  // Only those two are worth drawing. Curled all the way the chain is a compact
+  // ring; flat, it is a horizontal bow. Everything in between is a big open C,
+  // WIDER than the ring and TALLER than the bow at once, because opening a ring
+  // up pushes its ends apart faster than it flattens them.
+  //
+  // The choice is made ONCE, and from the bow's own geometry — a candidate flat
+  // shape measured as a flat thing. Deciding it separately inside each
+  // refinement pass let the two passes disagree, and the size stopped being
+  // monotone in the length of the chain: a nine-node sequence came out narrower
+  // than an eight-node one.
+  const bowChords = chordsWith(level);
+  const bow = walk(bowChords, bowRadius(bowChords));
+
+  if (spanOf(bow) <= (cfg.arcChainTargetWidth ?? ARC_CHAIN_TARGET_WIDTH)) {
+    return bow;
+  }
+
+  // Committed to a ring, refine it the way cycleLayoutCentered and
+  // starLayoutCentered do: solve once blind to get bearings, then re-solve
+  // measuring each node along the direction its chord actually runs.
+  const coarse = ring(chordsWith(worstCase));
+  return ring(chordsWith(along(coarse)));
 }
 
 // ============================================================================
@@ -1481,7 +1591,7 @@ function packComponents(blocks, cfg) {
  * and the connection-label size is a user setting. Expressing it in ems makes
  * "comfortable" mean the same thing at every setting.
  */
-const LABEL_PADDING_EM = 0.6;
+const LABEL_PADDING_EM = 2.5;
 
 /**
  * Defaults merged with a caller's options, plus the values that are DERIVED

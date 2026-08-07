@@ -680,6 +680,90 @@ describe('arcChainLayout', () => {
   it('falls back to the serpentine chain for degenerate lengths', () => {
     expect(arcChainLayout([node('a'), node('b')], [edge('a', 'b')]).size).toBe(2);
   });
+
+  // Font size is pinned rather than defaulted: the label is over half of every
+  // chord, so the size labels are drawn at decides where the bow-to-ring switch
+  // falls. 32 is a realistic connection-label setting; at this size the switch
+  // lands at nine nodes, and the cases below stay clear of it.
+  const ringOf = (n, opts = {}) => {
+    const nodes = Array.from({ length: n }, (_, i) => node(`c${i}`, 300, 100));
+    const edges = Array.from({ length: n - 1 }, (_, i) => edge(`c${i}`, `c${i + 1}`, 'leads to'));
+    const pos = arcChainLayout(nodes, edges, {
+      edgeLabelFontSize: 32,
+      topologyMeta: { startId: 'c0' },
+      ...opts
+    });
+    const xs = nodes.map(nd => pos.get(nd.id).x);
+    const ys = nodes.map(nd => pos.get(nd.id).y);
+    return {
+      nodes,
+      edges,
+      pos,
+      width: Math.max(...xs) - Math.min(...xs) + 300,
+      height: Math.max(...ys) - Math.min(...ys) + 100
+    };
+  };
+
+  it('draws a short sequence flat, not as a circle', () => {
+    // Five nodes bent round a ring is a circle nobody asked for. While staying
+    // flat is affordable, the chain stays flat.
+    [3, 5, 8].forEach(n => {
+      const { width, height } = ringOf(n);
+      expect(width).toBeGreaterThan(height * 2);
+    });
+  });
+
+  it('curls up once staying flat gets too wide', () => {
+    // The same eight-node chain, drawn either way purely by moving the width it
+    // is allowed. This tests the mechanism rather than where the default
+    // threshold happens to fall.
+    const flat = ringOf(8, { arcChainTargetWidth: 100000 });
+    const curled = ringOf(8, { arcChainTargetWidth: 500 });
+    expect(flat.width).toBeGreaterThan(flat.height * 2);
+    expect(curled.width).toBeLessThan(curled.height * 2);
+    // Curling is what buys the compactness.
+    expect(curled.width).toBeLessThan(flat.width);
+  });
+
+  it('grows with the length of the sequence', () => {
+    // The ring's circumference IS the chain, so its size is a consequence of
+    // the content rather than of a constant. Measured within each regime, since
+    // the bow-to-ring switch is deliberately a step change.
+    const rings = [12, 20, 30].map(n => ringOf(n).width);
+    rings.forEach((w, i) => { if (i > 0) expect(w).toBeGreaterThan(rings[i - 1]); });
+    const bows = [3, 5, 8].map(n => ringOf(n).width);
+    bows.forEach((w, i) => { if (i > 0) expect(w).toBeGreaterThan(bows[i - 1]); });
+  });
+
+  it('stays compact — a ring, not a run across the canvas', () => {
+    // The reason to draw a sequence round a circle at all: its width is the
+    // chain's length over π. Laid out in a line, 20 nodes at these sizes would
+    // span upward of 12000px.
+    const { width, height } = ringOf(20);
+    expect(width).toBeLessThan(6000);
+    // Roughly as tall as it is wide, which is what "circular" means here.
+    expect(width / height).toBeGreaterThan(0.6);
+    expect(width / height).toBeLessThan(1.7);
+  });
+
+  it('begins at the top, where the tangent is level', () => {
+    // A circle has no rotation that levels every tangent, so the placement
+    // decides only WHERE the readable part goes. It goes at the beginning.
+    const { pos, nodes } = ringOf(20);
+    const topMost = nodes.reduce((best, nd) =>
+      (pos.get(nd.id).y < pos.get(best.id).y ? nd : best), nodes[0]);
+    expect(topMost.id).toBe('c0');
+
+    const centre = (id) => {
+      const p = pos.get(id);
+      return { x: p.x + 150, y: p.y + 50 };
+    };
+    const tiltOf = (a, b) => {
+      const deg = Math.abs(Math.atan2(centre(b).y - centre(a).y, centre(b).x - centre(a).x) * 180 / Math.PI);
+      return deg > 90 ? 180 - deg : deg;
+    };
+    expect(tiltOf('c0', 'c1')).toBeLessThan(15);
+  });
 });
 
 describe('patternLayout under Lombardi routing', () => {
