@@ -712,13 +712,23 @@ export const MIN_VISIBLE_BOW = 0.4;
 // before it is worth curving. Shared by the settled render (NodeCanvas) and the
 // live drag updater (useNodeDrag) so the two agree — see `labelCurveMinBow`.
 //
-// Set LOW on purpose: sub-pixel, i.e. curve anything that bends at all. This
-// briefly went to 8 to buy frames back by shedding curves, and that worked —
-// but it was treating the symptom. The reason curved labels were expensive was
+// ZERO on purpose: curve every label whose connection curves, at every zoom.
+// This briefly went to 8 to buy frames back by shedding curves, and that worked
+// — but it was treating the symptom. The reason curved labels were expensive was
 // that every character carried an exact, unique rotation matrix, and bucketing
 // those (see CURVED_GLYPH_ANGLE_QUANTUM) takes 40 curved labels from 15.2ms to
 // 8.4ms — the frame floor. With the cost gone there is no reason left to
 // straighten anything, so this went back down.
+//
+// It stopped at 0.6 first, and 0.6 was still wrong for a reason worth recording:
+// ANY positive value here makes the threshold zoom-dependent (see
+// labelCurveMinBow), which makes the CURVED/STRAIGHT DECISION zoom-dependent —
+// so zooming out far enough popped the flattest label or two from curved to
+// straight mid-gesture. Sub-pixel or not, that is a visible discontinuity in the
+// one interaction this whole rewrite exists to make smooth, and it is also a
+// form change landing mid-drag, which the drag updater then has to chase. At 0
+// the floor is a constant MIN_VISIBLE_BOW and the decision depends only on the
+// geometry, so nothing about a label changes because the viewer moved.
 //
 // Which restores the original argument, now with a measurement behind it rather
 // than an assumption: labels following their arcs IS Lombardi, and the count of
@@ -727,15 +737,18 @@ export const MIN_VISIBLE_BOW = 0.4;
 //
 // `window.__labelCurveMinPx` overrides at runtime if a graph ever does want
 // curves shed — the lever still works, it is just no longer the first resort.
-export const LABEL_CURVE_MIN_SCREEN_PX = 0.6;
+export const LABEL_CURVE_MIN_SCREEN_PX = 0;
 
 /**
  * The bow, in canvas units, a label must clear at this zoom before it curves.
  *
  * Converts the on-screen threshold back into canvas space by dividing out the
  * zoom, so the test is "can the viewer see this bend" rather than "is it big in
- * canvas coordinates" — a 3px canvas bow is invisible zoomed out and obvious
- * zoomed in, and the label should follow the viewer, not the data.
+ * canvas coordinates". At the default threshold of 0 that conversion is inert
+ * and this is the constant floor below — deliberately, per
+ * LABEL_CURVE_MIN_SCREEN_PX. The zoom term is still here because the runtime
+ * override needs it: a graph that does want curves shed wants them shed by what
+ * the viewer can see, not by canvas units.
  *
  * Floors at MIN_VISIBLE_BOW: past that, solveLombardiArc already emitted a
  * straight line, so there is nothing left to curve either way.

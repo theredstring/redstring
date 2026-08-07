@@ -73,7 +73,7 @@ comments say.
 | Cost of that layout read | 0.1ms — translate keeps SVG text layout valid | **4.9ms @ 600 textPath labels** — scale invalidates all glyph/textPath layout (`EdgeGlowIndicator.jsx:123-140`) |
 | Transform mutations per gesture | 1 per wheel event, ends with input (+momentum tail) | **1 per rAF frame** for the whole gesture **plus ease tail plus glide extension** (`NodeCanvas.jsx:2745-2884`, `2890-2933`) |
 | `labelAngleQuantum` at settle | referentially stable → zero label churn | re-derived from `zoomLevel` (`NodeCanvas.jsx:3611-3628`) → when the bucket crosses a threshold, **every** label + hit-rect gets a new `rotate()` → bulk DOM diff → full glyph re-raster |
-| `labelArcMinBow` at settle | unchanged | `LABEL_CURVE_MIN_SCREEN_PX / zoomLevel` (`NodeCanvas.jsx:3653-3656`) → labels flip `<textPath>` ↔ `<text>` **structurally** |
+| `labelArcMinBow` at settle | unchanged | ~~`LABEL_CURVE_MIN_SCREEN_PX / zoomLevel` → labels flip form~~ **FIXED** — threshold is 0, so the floor is a zoom-independent constant and no label changes form because the viewer moved. Curved and straight are also the same element now, so a flip would be an attribute change rather than a remount |
 | Settles per gesture | one, after the gesture | **one per detent burst** for mouse-wheel zoom (detents >150ms apart each reset the 150ms timer independently) |
 | Off-screen/glow set | translates rigidly — flares just move | grows/shrinks monotonically — **flares mount/unmount every frame** (`EdgeGlowIndicator.jsx:174-364`) |
 

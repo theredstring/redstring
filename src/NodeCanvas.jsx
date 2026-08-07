@@ -125,7 +125,7 @@ import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
-import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, labelBoundsFor } from './utils/canvas/edgeLabelPlacement.js';
+import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, labelBoundsFor, labelFrameToken, straightLabelTransform } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -255,11 +255,11 @@ const LABEL_ANGLE_QUANTUM_MIN_COUNT = 48;
 // ones cost N. That is a gentler curve, and 40 is now a conservative number on
 // it rather than a cliff-edge one.
 //
-// Kept at 40 regardless, but it is no longer the primary bound: that is now
-// LABEL_CURVE_MIN_SCREEN_PX, which sheds the curves nobody can see rather than
-// the ones that arrive after the fortieth edge. This is the backstop for the
-// case that threshold can't catch — dense AND zoomed in, where every bow is
-// genuinely visible and there are still too many of them.
+// Kept at 40, and it is now the ONLY bound. LABEL_CURVE_MIN_SCREEN_PX was the
+// other one — shed the curves nobody can see — and it has since gone to 0,
+// because any positive value makes the curved/straight decision depend on the
+// zoom and pops labels between forms mid-gesture. So this count is what stands
+// between a dense graph and a lot of glyph matrices.
 //
 // Note it is currently fed the WHOLE graph's edge count rather than the visible
 // one, because viewport culling is disabled (see ENABLE_CULLING). On a graph
@@ -3663,9 +3663,9 @@ function NodeCanvas() {
   // in straight ones to the glyph atlas. That multiple, applied to every label,
   // is what the glyph fix alone left on the table.
   //
-  // So curve only where the curve can actually be seen — see
-  // labelCurveMinBow. The count budget is a backstop for the
-  // dense-and-zoomed-in case the bow threshold doesn't catch.
+  // The count budget is what bounds that. The bow threshold no longer helps:
+  // labelCurveMinBow defaults to a constant floor now, deliberately, so that
+  // nothing about a label changes because the viewer zoomed.
   const curveLabels = visibleEdges.length <= CURVED_LABEL_BUDGET;
   const labelArcMinBow = labelCurveMinBow(zoomLevel);
   // Curved labels get their OWN rotation bucket rather than the canvas-wide
@@ -15550,6 +15550,20 @@ function NodeCanvas() {
                                   )
                                   : null;
 
+                                // What React is about to commit, in one string, so the drag
+                                // updater can put the DOM back exactly here before React diffs
+                                // against it. See LABEL FRAMES in edgeLabelPlacement.js for why
+                                // this has to come from the render rather than from a snapshot
+                                // the drag takes for itself.
+                                const glyphAttrs = labelGlyphs ? {
+                                  x: labelGlyphs.x.map((v) => v.toFixed(2)).join(' '),
+                                  y: labelGlyphs.y.map((v) => v.toFixed(2)).join(' '),
+                                  rotate: labelGlyphs.rotate.map((v) => v.toFixed(2)).join(' '),
+                                } : null;
+                                const labelFrame = labelFrameToken(
+                                  glyphAttrs, labelRenderX, labelRenderY, adjustedAngle
+                                );
+
                                 // Generous hitbox around the label text so the name is as
                                 // clickable as the line itself (labels often sit off the line).
                                 const labelHitW = estimateTextWidth(connectionName, connectionFontSize) + connectionFontSize * 0.9;
@@ -15580,9 +15594,10 @@ function NodeCanvas() {
                                          updater, which rewrites these same three lists per frame. */
                                       <text
                                         data-connection-label="1"
-                                        x={labelGlyphs.x.map((v) => v.toFixed(2)).join(' ')}
-                                        y={labelGlyphs.y.map((v) => v.toFixed(2)).join(' ')}
-                                        rotate={labelGlyphs.rotate.map((v) => v.toFixed(2)).join(' ')}
+                                        data-label-frame={labelFrame}
+                                        x={glyphAttrs.x}
+                                        y={glyphAttrs.y}
+                                        rotate={glyphAttrs.rotate}
                                         fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
                                         fontSize={connectionFontSize}
                                         fontWeight="bold"
@@ -15602,6 +15617,7 @@ function NodeCanvas() {
                                     ) : (
                                       <text
                                         data-connection-label="1"
+                                        data-label-frame={labelFrame}
                                         x={labelRenderX}
                                         y={labelRenderY}
                                         fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
@@ -15609,7 +15625,7 @@ function NodeCanvas() {
                                         fontWeight="bold"
                                         textAnchor="middle"
                                         dominantBaseline="middle"
-                                        transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
+                                        transform={straightLabelTransform(adjustedAngle, labelRenderX, labelRenderY)}
                                         {...(labelHaloEnabled ? {
                                           stroke: darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor),
                                           strokeWidth: 8 * (connectionFontSize / 54),

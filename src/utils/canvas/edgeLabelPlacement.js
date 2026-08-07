@@ -575,6 +575,18 @@ const labelRectFor = (x, y, textWidth, textHeight, angle) => {
  */
 export const labelBoundsFor = labelRectFor;
 
+/**
+ * Label box height as a multiple of the font size.
+ *
+ * The renderer registers each placed label at 1.1x, so the placers have to
+ * reserve 1.1x too. They used to reserve a flat 1x, which sounds harmless and
+ * is not: a placer that believes labels are 10% shorter than the boxes they
+ * later occupy will happily call two of them clear of each other and then watch
+ * them touch. Same failure as labelBoundsFor's, one dimension down — two
+ * definitions of how big a label is, drifting apart.
+ */
+export const LABEL_BOX_LINE_HEIGHT = 1.1;
+
 // ---------------------------------------------------------------------------
 // CONNECTIONS AS OBSTACLES
 //
@@ -780,7 +792,10 @@ export const chooseOrthogonalLabelPlacement = (
     if (segments.length === 0) return placeLabelOnPath(pathPoints);
 
     const textWidth = estimateTextWidth(connectionName, fontSize);
+    // One line height for the offset ladder; the slightly taller box the
+    // renderer will actually register for collision tests.
     const textHeight = fontSize;
+    const boxHeight = fontSize * LABEL_BOX_LINE_HEIGHT;
 
     // The node obstacle set is identical for every edge in a pass, so a caller
     // placing many labels should build it once and hand it in — rebuilding it
@@ -814,7 +829,7 @@ export const chooseOrthogonalLabelPlacement = (
             for (const offset of perpOffsets) {
                 const x = baseX + perpX * offset;
                 const y = baseY + perpY * offset;
-                const rect = labelRectFor(x, y, textWidth, textHeight, seg.angle);
+                const rect = labelRectFor(x, y, textWidth, boxHeight, seg.angle);
 
                 // See betterPlacement: least-buried wins rather than
                 // free-or-nothing, so a label with no clear spot slides instead
@@ -850,7 +865,7 @@ export const chooseOrthogonalLabelPlacement = (
     // takes the least-buried rung of the ladder, which is both on the line and
     // near where the label already was.
     const fallback = placeLabelOnPath(pathPoints);
-    const fallbackRect = labelRectFor(fallback.x, fallback.y, textWidth, textHeight, fallback.angle);
+    const fallbackRect = labelRectFor(fallback.x, fallback.y, textWidth, boxHeight, fallback.angle);
     return {
         ...fallback,
         score: 0,
@@ -876,8 +891,47 @@ export const chooseOrthogonalLabelPlacement = (
 // a steeply curving arc reads as belonging to nothing.
 // ---------------------------------------------------------------------------
 
-// Same ladder as the orthogonal placer: hug the middle of the run, then slide.
-const ARC_ALONG = [0.5, 0.44, 0.56, 0.36, 0.64, 0.28, 0.72];
+// Where along the visible run to try, nearest the middle first.
+//
+// Longer than the orthogonal placer's ladder because sliding now has to carry
+// the work the radial rungs used to (see RADIAL OFFSETS below): these span
+// 0.14-0.86 of the run, where the old seven only reached 0.28-0.72 and leant on
+// stepping off the curve for anything further.
+const ARC_ALONG = [
+  0.5, 0.44, 0.56, 0.38, 0.62, 0.32, 0.68, 0.26, 0.74, 0.2, 0.8, 0.14, 0.86,
+];
+
+// RADIAL OFFSETS — a last resort, not a rung. In line heights.
+//
+// Stepping a label off its curve is qualitatively worse than sliding it along
+// one. On a polyline, offsetting reads fine: the label sits parallel to a
+// straight run, a line height away, obviously belonging to it. On an ARC it
+// lands on a concentric circle of a DIFFERENT radius — a curve the drawing does
+// not contain — visibly detached from the connection it names. And a label's
+// first job is to say which connection it names.
+//
+// This placer used to interleave the two, offering all five offsets at every
+// position along the arc and letting the ranking sort it out. But the ranking
+// sorts by overlap first, so any off-curve candidate that shaved a few square
+// pixels off the overlap beat every on-curve one — and overlap fires early,
+// since the obstacle set inflates every node by 18px and includes every label
+// already placed. Labels ended up off their arcs constantly, including in plenty
+// of cases where sliding a little further along would have been clean.
+//
+// So the arc is searched first, on its own. Only if nothing ON the curve comes
+// out clear does this ladder open at all, and its candidates then compete
+// against the best on-curve one rather than replacing it.
+//
+// The trigger is OVERLAP alone, deliberately — not crossings. Overlap means
+// something solid is on top of the label: a node, or another label. That is the
+// case this tier exists for, and it is the one that has no other answer —
+// parallel connections between the same two nodes fan their arcs a lane apart
+// and stack their labels, and no amount of sliding separates them. A CROSSING is
+// different: it only means a line passes through the label, which in a Lombardi
+// drawing is routine and stays readable, and is not worth detaching a label from
+// its own connection over. Crossings still rank candidates within each phase, so
+// a clean slide that also dodges a line still wins on its own merits.
+const ARC_RADIAL_LADDER = [0.6, -0.6, 1, -1];
 
 /** Point, tangent angle and outward radial normal at a parameter on the arc. */
 const arcAnchor = (arc, s) => {
@@ -918,7 +972,10 @@ export const chooseArcLabelPlacement = (
     if (!arc) return { x: 0, y: 0, angle: 0 };
 
     const textWidth = estimateTextWidth(connectionName, fontSize);
+    // One line height for the offset ladder; the slightly taller box the
+    // renderer will actually register for collision tests.
     const textHeight = fontSize;
+    const boxHeight = fontSize * LABEL_BOX_LINE_HEIGHT;
 
     // See chooseOrthogonalLabelPlacement — prebuilt obstacles when the caller
     // is placing a whole graph's worth of labels.
@@ -929,50 +986,59 @@ export const chooseArcLabelPlacement = (
         });
     }
 
-    const radialOffsets = [0, textHeight * 0.6, -textHeight * 0.6, textHeight, -textHeight];
-
     // Slide along the VISIBLE run, not the whole arc — `s` is a fraction of what
     // the reader can see, and arcRangeParam converts it to an arc parameter.
     const range = options.range;
 
     let best = null;
-    for (const s of ARC_ALONG) {
+    const consider = (s, offset) => {
         const t = arcRangeParam(range, s);
         const anchor = arcAnchor(arc, t);
-        for (const offset of radialOffsets) {
-            const x = anchor.x + anchor.nx * offset;
-            const y = anchor.y + anchor.ny * offset;
-            const rect = labelRectFor(x, y, textWidth, textHeight, anchor.angle);
+        const x = anchor.x + anchor.nx * offset;
+        const y = anchor.y + anchor.ny * offset;
+        const rect = labelRectFor(x, y, textWidth, boxHeight, anchor.angle);
 
-            // Overlap decides first, so a candidate already more buried than the
-            // incumbent cannot win however it scores — and skipping it here also
-            // skips the crossing query, which is the expensive half. In the
-            // common case (a free spot exists early) this runs the query for
-            // fewer candidates than the old hard reject did.
-            const overlap = overlapArea(rect, obstacles);
-            if (best && overlap > best.overlap) continue;
+        // Overlap decides first, so a candidate already more buried than the
+        // incumbent cannot win however it scores — and skipping it here also
+        // skips the crossing query, which is the expensive half. In the
+        // common case (a free spot exists early) this runs the query for
+        // fewer candidates than the old hard reject did.
+        const overlap = overlapArea(rect, obstacles);
+        if (best && overlap > best.overlap) return;
 
-            const crossings = countCrossingEdges(rect, options.segmentIndex, edgeId);
-            const score = -Math.abs(s - 0.5) * 300 - Math.abs(offset) * 6;
-            if (!best || betterPlacement(overlap, crossings, score, best)) {
-                best = {
-                    x, y, angle: anchor.angle, score, crossings, overlap, rect,
-                    // bowSign: which side of the p→q chord this arc bowed to when
-                    // the offset was measured, so a later reuse (placeLabelOnRoute,
-                    // every drag frame) can tell whether the bow has since flipped
-                    // to the other side — see the sign check there. This has to be
-                    // chord-relative (arc.delta, not the world-frame radial vector):
-                    // an ordinary drag continuously rotates the whole chord, which
-                    // rotates the radial direction right along with it without the
-                    // bow ever actually changing sides — comparing absolute radial
-                    // vectors mistook that rotation for a flip and negated the
-                    // offset on every sufficiently-large sweep.
-                    // Stored as an ARC parameter, not a visible-run fraction, so
-                    // placeLabelOnRoute can reuse it every drag frame without
-                    // needing the range re-derived.
-                    anchor: { t, offset, bowSign: Math.sign(arc.delta) },
-                };
-            }
+        const crossings = countCrossingEdges(rect, options.segmentIndex, edgeId);
+        const score = -Math.abs(s - 0.5) * 300 - Math.abs(offset) * 6;
+        if (!best || betterPlacement(overlap, crossings, score, best)) {
+            best = {
+                x, y, angle: anchor.angle, score, crossings, overlap, rect,
+                // bowSign: which side of the p→q chord this arc bowed to when
+                // the offset was measured, so a later reuse (placeLabelOnRoute,
+                // every drag frame) can tell whether the bow has since flipped
+                // to the other side — see the sign check there. This has to be
+                // chord-relative (arc.delta, not the world-frame radial vector):
+                // an ordinary drag continuously rotates the whole chord, which
+                // rotates the radial direction right along with it without the
+                // bow ever actually changing sides — comparing absolute radial
+                // vectors mistook that rotation for a flip and negated the
+                // offset on every sufficiently-large sweep.
+                // Stored as an ARC parameter, not a visible-run fraction, so
+                // placeLabelOnRoute can reuse it every drag frame without
+                // needing the range re-derived.
+                anchor: { t, offset, bowSign: Math.sign(arc.delta) },
+            };
+        }
+    };
+
+    // ON THE CURVE FIRST — the whole arc, before any thought of leaving it.
+    for (const s of ARC_ALONG) consider(s, 0);
+
+    // Off it only when something solid is on top of the label wherever it slides
+    // to. See RADIAL OFFSETS for why overlap opens this and crossings do not.
+    // The on-curve winner stays in `best`, so an off-curve candidate has to
+    // actually beat it, and the score penalty keeps the smallest step that works.
+    if (best && best.overlap > 0) {
+        for (const s of ARC_ALONG) {
+            for (const lineHeights of ARC_RADIAL_LADDER) consider(s, textHeight * lineHeights);
         }
     }
 
@@ -982,7 +1048,7 @@ export const chooseArcLabelPlacement = (
     // anchor on). A label that merely had nowhere GOOD to go was handled above,
     // by taking the least-buried rung rather than dropping to here.
     const fallback = placeLabelOnArc(arc, range);
-    const fallbackRect = labelRectFor(fallback.x, fallback.y, textWidth, textHeight, fallback.angle);
+    const fallbackRect = labelRectFor(fallback.x, fallback.y, textWidth, boxHeight, fallback.angle);
     return {
         ...fallback,
         score: 0,
@@ -1104,6 +1170,91 @@ export const chooseLabelPlacement = (pathPoints, connectionName, nodes, visibleN
 
     // Fallback: midpoint with best available offset
     return getFallbackPlacement(pathPoints, textWidth, textHeight, allObstacles);
+};
+
+// ---------------------------------------------------------------------------
+// LABEL FRAMES
+//
+// A connection label is one <text> in one of two forms: CURVED (per-glyph x/y/
+// rotate lists, textAnchor start, no transform) or STRAIGHT (single x/y, a
+// rotate() transform, textAnchor middle, no rotate list). React owns those
+// attributes. A drag rewrites them every frame, behind React's back.
+//
+// That is fine right up until the drag ends, because of how React updates the
+// DOM: it writes only the attributes whose PROPS changed between its own two
+// renders. It has no idea this hook has been mutating them. So if the settled
+// render happens to produce the same value React last rendered for some
+// attribute — which is common, since quantized rotations frequently land in the
+// identical buckets after a modest move — React skips that write, and the
+// attribute keeps whatever the last drag frame left there. Positions from the
+// new geometry, rotations from the old: the label's characters end up at the
+// right places pointing the wrong ways, overlapping and unreadable.
+//
+// The fix is to put the DOM back the way React believes it is before React
+// diffs. That requires knowing what React last rendered, and the drag hook used
+// to guess by snapshotting the attributes when the drag began. The guess is
+// wrong whenever React re-renders DURING the drag — which it does, routinely:
+// the drag-zoom-out ramp settles mid-gesture and re-renders every label.
+//
+// So React states it instead of us inferring it. `labelFrameToken` goes into a
+// data attribute on the same element, rendered from the same values as the
+// props, and `applyLabelFrame` reads it back. It cannot go stale: if React
+// skipped writing the token, the values it encodes did not change either, so it
+// still describes the committed props exactly.
+// ---------------------------------------------------------------------------
+
+/** The transform a straight label carries. Shared so the token round-trips exactly. */
+export const straightLabelTransform = (angle, x, y) => `rotate(${angle}, ${x}, ${y})`;
+
+/**
+ * Encode a label's rendered form for `applyLabelFrame` to restore.
+ *
+ * Curved callers pass the already-joined attribute strings they are handing to
+ * the props, so this adds one concatenation rather than a second pass over the
+ * glyphs.
+ *
+ * @param {{x:string,y:string,rotate:string}|null} glyphs joined lists, or null for straight
+ * @param {number} x straight-form x (ignored when curved)
+ * @param {number} y straight-form y (ignored when curved)
+ * @param {number} angle straight-form rotation in degrees (ignored when curved)
+ */
+export const labelFrameToken = (glyphs, x, y, angle) => (
+    glyphs ? `g|${glyphs.x}|${glyphs.y}|${glyphs.rotate}` : `s|${x}|${y}|${angle}`
+);
+
+/**
+ * Put a label <text> back into the form its token describes.
+ *
+ * Each form clears the other's attributes on the way in — a leftover `rotate`
+ * list scatters a straight label's glyphs, and a leftover `transform` spins a
+ * curved one about its first glyph.
+ *
+ * @returns {boolean} false if the token was missing or malformed, so a caller
+ *   can tell "restored" from "nothing to restore".
+ */
+export const applyLabelFrame = (el, token) => {
+    if (!el || typeof token !== 'string') return false;
+    const parts = token.split('|');
+    if (parts.length !== 4) return false;
+    const [form, a, b, c] = parts;
+
+    if (form === 'g') {
+        el.setAttribute('x', a);
+        el.setAttribute('y', b);
+        el.setAttribute('rotate', c);
+        el.removeAttribute('transform');
+        el.setAttribute('text-anchor', 'start');
+        return true;
+    }
+    if (form === 's') {
+        el.setAttribute('x', a);
+        el.setAttribute('y', b);
+        el.removeAttribute('rotate');
+        el.setAttribute('transform', straightLabelTransform(c, a, b));
+        el.setAttribute('text-anchor', 'middle');
+        return true;
+    }
+    return false;
 };
 
 // NOTE: connection labels are now centered on the visible segment directly by

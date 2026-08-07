@@ -7,7 +7,7 @@ import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
-import { placeLabelOnRoute, quantizeAngle } from '../utils/canvas/edgeLabelPlacement.js';
+import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransform } from '../utils/canvas/edgeLabelPlacement.js';
 import {
   computeGroupLayout,
   GROUP_LAYOUT_CONSTANTS,
@@ -290,25 +290,26 @@ export const useNodeDrag = ({
     const container = containerRef.current;
     if (!container) return;
 
-    // Two pieces of label state survive a re-cache, keyed by the element itself.
+    // One piece of label state survives a re-cache, keyed by the element itself:
+    // whether this hook has written to that label at all. The drag-end restore
+    // is gated on it, and a re-cache (a settle — see the effect below) can
+    // easily be the last thing to happen before the drop, so a fresh flag would
+    // read "untouched" for a label that has been rewritten all gesture.
     //
-    // A mid-drag re-cache (a settle — see the effect below) runs against a DOM
-    // this hook has been writing to every frame, so re-reading the attributes
-    // there would capture the DRAG's values, not React's, and drag end would
-    // then "restore" the label to a pose React never rendered. The first
-    // snapshot is the only one taken before any mutation, so it is the one to
-    // keep. `labelTouched` rides along with it so the drag-end restore still
-    // knows this label has been written to, even if a re-cache was the last
-    // thing to happen before the drop.
+    // What does NOT survive, and what is no longer captured at all, is a
+    // snapshot of React's attributes. That is now read from `data-label-frame`
+    // at restore time — see LABEL FRAMES in edgeLabelPlacement.js. Snapshotting
+    // it here could only ever be a guess: correct at drag start, and wrong the
+    // moment React re-rendered the label mid-gesture, which the settle does.
     //
-    // `labelForm` deliberately does NOT survive: it records which form this
-    // hook last put the DOM in, and the render that prompted the re-cache may
-    // have put it in the other one. Carrying it over would let the next frame
-    // skip clearing the attributes of a form React had just re-applied.
+    // `labelForm` deliberately does NOT survive either: it records which form
+    // this hook last put the DOM in, and the render that prompted the re-cache
+    // may have put it in the other one. Carrying it over would let the next
+    // frame skip clearing the attributes of a form React had just re-applied.
     const priorLabelState = new Map();
     dragEdgeElsRef.current.forEach(els => {
-      els.forEach(({ labelText, labelSnapshot, labelTouched }) => {
-        if (labelText && labelSnapshot) priorLabelState.set(labelText, { labelSnapshot, labelTouched });
+      els.forEach(({ labelText, labelTouched }) => {
+        if (labelText && labelTouched) priorLabelState.set(labelText, { labelTouched });
       });
     });
 
@@ -420,21 +421,12 @@ export const useNodeDrag = ({
     // same helper the settled render uses is what keeps the two in step.
     const labelTextOf = (el) => {
       const labelText = el.querySelector('text[data-connection-label]');
-      if (!labelText) return { labelText: null, labelAdvances: null, labelSnapshot: null, labelTouched: null };
+      if (!labelText) return { labelText: null, labelAdvances: null, labelTouched: null };
       const fontSize = parseFloat(labelText.getAttribute('font-size'));
       const prior = priorLabelState.get(labelText);
       return {
         labelText,
         labelAdvances: edgeLabelGlyphAdvances(labelText.textContent, fontSize),
-        // What React believes this element looks like. Restored in
-        // clearDOMTransforms — see there for why that is not optional.
-        labelSnapshot: prior?.labelSnapshot ?? {
-          x: labelText.getAttribute('x'),
-          y: labelText.getAttribute('y'),
-          rotate: labelText.getAttribute('rotate'),
-          transform: labelText.getAttribute('transform'),
-          textAnchor: labelText.getAttribute('text-anchor'),
-        },
         labelForm: { current: null },
         labelTouched: prior?.labelTouched ?? { current: false },
       };
@@ -962,7 +954,7 @@ export const useNodeDrag = ({
             labelTouched.current = true;
             labelText.setAttribute('x', labelPos.x);
             labelText.setAttribute('y', labelPos.y);
-            labelText.setAttribute('transform', `rotate(${labelAdj}, ${labelPos.x}, ${labelPos.y})`);
+            labelText.setAttribute('transform', straightLabelTransform(labelAdj, labelPos.x, labelPos.y));
             if (labelForm.current !== 'straight') {
               labelText.setAttribute('text-anchor', 'middle');
               labelText.removeAttribute('rotate');
@@ -1790,26 +1782,21 @@ export const useNodeDrag = ({
     //
     // Not cosmetic — load-bearing. React only writes attributes whose props
     // changed between ITS renders, and it has no idea this hook has been
-    // rewriting them every frame. Drop a node back where it started (or anywhere
-    // its label re-solves to the same place) and the settled render diffs
-    // identical props, skips every write, and leaves whatever form the last drag
-    // frame happened to leave behind — a `rotate` list scattering a straight
-    // label's glyphs, or a stale `transform` spinning a curved one. Restoring
-    // the snapshot first means React is always diffing against a DOM that
-    // matches its own picture of it.
+    // rewriting them every frame. Drop a node back where it started — or, far
+    // more often, anywhere that leaves any ONE of these attributes matching what
+    // React last rendered, which quantized rotations do constantly — and the
+    // settled render skips that write and leaves the last drag frame's value in
+    // place. Positions from the new geometry with rotations from the old is
+    // exactly the scrambled label this exists to prevent.
+    //
+    // The target pose is read from the element's own `data-label-frame`, which
+    // React renders alongside the attributes it encodes, so it always describes
+    // React's last commit however many times React re-rendered mid-drag. See
+    // LABEL FRAMES in edgeLabelPlacement.js.
     dragEdgeElsRef.current.forEach(els => {
-      els.forEach(({ labelText, labelSnapshot, labelTouched }) => {
-        if (!labelText || !labelSnapshot || !labelTouched?.current) return;
-        for (const [attr, value] of [
-          ['x', labelSnapshot.x],
-          ['y', labelSnapshot.y],
-          ['rotate', labelSnapshot.rotate],
-          ['transform', labelSnapshot.transform],
-          ['text-anchor', labelSnapshot.textAnchor],
-        ]) {
-          if (value == null) labelText.removeAttribute(attr);
-          else labelText.setAttribute(attr, value);
-        }
+      els.forEach(({ labelText, labelTouched }) => {
+        if (!labelText || !labelTouched?.current) return;
+        applyLabelFrame(labelText, labelText.getAttribute('data-label-frame'));
       });
     });
 

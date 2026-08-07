@@ -43,17 +43,32 @@ const radiusOf = (arc, pt) => Math.hypot(pt.x - arc.cx, pt.y - arc.cy);
 describe('labelCurveMinBow', () => {
   afterEach(() => { delete window.__labelCurveMinPx; });
 
-  it('asks for a fixed number of SCREEN pixels, whatever the zoom', () => {
-    // The canvas-space threshold has to grow as you zoom out, because the same
-    // canvas bow covers fewer screen pixels there.
+  it('does not move with the zoom, so no label changes form as you zoom', () => {
+    // THE point of the default being 0. Any positive screen-pixel threshold
+    // makes the canvas-space floor grow as you zoom out, which makes the
+    // curved/straight decision a function of the viewport — so zooming out far
+    // enough pops the flattest labels from curved to straight and back. Whether
+    // the bow it sheds is sub-pixel is beside the point: the POP is not, and it
+    // lands in the middle of the one gesture this all exists to keep smooth.
+    expect(LABEL_CURVE_MIN_SCREEN_PX).toBe(0);
+    const bows = [0.01, 0.25, 0.5, 1, 2, 1000].map(labelCurveMinBow);
+    for (const bow of bows) expect(bow).toBe(MIN_VISIBLE_BOW);
+  });
+
+  it('still converts SCREEN pixels to canvas units when a threshold is set', () => {
+    // The zoom term is inert at the default but has to stay correct, because
+    // the override below is the lever for shedding curves — and it should shed
+    // by what the viewer can see, not by canvas units.
+    window.__labelCurveMinPx = 8;
     for (const zoom of [0.25, 0.5, 1, 2]) {
       const bow = labelCurveMinBow(zoom);
-      if (bow > MIN_VISIBLE_BOW) expect(bow * zoom).toBeCloseTo(LABEL_CURVE_MIN_SCREEN_PX, 6);
+      if (bow > MIN_VISIBLE_BOW) expect(bow * zoom).toBeCloseTo(8, 6);
     }
     expect(labelCurveMinBow(0.5)).toBeGreaterThan(labelCurveMinBow(2));
   });
 
-  it('bottoms out at MIN_VISIBLE_BOW once zoomed far enough in', () => {
+  it('bottoms out at MIN_VISIBLE_BOW, below which there is no arc to curve on', () => {
+    window.__labelCurveMinPx = 8;
     expect(labelCurveMinBow(1000)).toBe(MIN_VISIBLE_BOW);
     expect(labelCurveMinBow(0.01)).toBeGreaterThan(MIN_VISIBLE_BOW);
   });
@@ -67,17 +82,18 @@ describe('labelCurveMinBow', () => {
   });
 
   it('ignores a nonsense override rather than straightening everything', () => {
+    // Falls back to the default threshold, which the floor then takes over.
     window.__labelCurveMinPx = 'wide';
-    expect(labelCurveMinBow(1)).toBeCloseTo(LABEL_CURVE_MIN_SCREEN_PX, 6);
+    expect(labelCurveMinBow(1)).toBe(MIN_VISIBLE_BOW);
 
     window.__labelCurveMinPx = -5;
-    expect(labelCurveMinBow(1)).toBeCloseTo(LABEL_CURVE_MIN_SCREEN_PX, 6);
+    expect(labelCurveMinBow(1)).toBe(MIN_VISIBLE_BOW);
   });
 
   it('is the lever that sheds shallow curves when a graph needs it', () => {
     // 200px of text on a 4000px-radius circle bows ~1.25px — a curve at the
-    // default sub-pixel floor, straightened once the threshold is raised past
-    // it. The default is low because bucketing rotations made curves cheap (see
+    // default floor, straightened once the threshold is raised past it. The
+    // default is 0 because bucketing rotations made curves cheap (see
     // CURVED_GLYPH_ANGLE_QUANTUM); this checks the escape hatch still works.
     const arc = arcAt();
     const anchor = { x: 4000, y: 0 };
