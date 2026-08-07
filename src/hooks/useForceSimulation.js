@@ -6,6 +6,7 @@ import {
   MAX_LAYOUT_SCALE_MULTIPLIER,
   estimateEdgeLabelWidth
 } from '../services/graphLayoutService.js';
+import { EDGE_LABEL_BASE_FONT_SIZE } from '../services/layoutGeometry.js';
 
 /**
  * Custom hook encapsulating the force-directed simulation engine.
@@ -29,10 +30,10 @@ export function useForceSimulation({
   onLayoutScaleMultiplierChange,
   onLayoutIterationPresetChange,
   onLayoutScalePresetChange,
-  // Resolved connection label font (59.4 × textSettings.fontSize ×
+  // Resolved connection label font (base × textSettings.fontSize ×
   // connectionLabelSize) so labeled edges reserve the space the canvas
   // actually renders
-  connectionFontSize = 59.4,
+  connectionFontSize = EDGE_LABEL_BASE_FONT_SIZE,
 }) {
   // --- Defaults ---
   const {

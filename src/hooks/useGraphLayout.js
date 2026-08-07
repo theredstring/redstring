@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FORCE_LAYOUT_DEFAULTS, LAYOUT_ITERATION_PRESETS, deriveGroupVisualBounds } from '../services/graphLayoutService.js';
 import { runLayout, cancelLayout } from '../services/layoutRunner.js';
+import { EDGE_LABEL_BASE_FONT_SIZE } from '../services/layoutGeometry.js';
 import { getNodeDimensions } from '../utils'; // Assumed utility
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 import { HEADER_HEIGHT } from '../constants';
@@ -133,9 +134,9 @@ export const useGraphLayout = ({
     layoutSolver = 'force',
     // Force tuner settings — individual force params for consistency with AI and interactive sim
     forceTunerSettings = null,
-    // Resolved connection label font (59.4 × textSettings.fontSize ×
+    // Resolved connection label font (base × textSettings.fontSize ×
     // connectionLabelSize) so layout reserves the space labels actually render at
-    connectionFontSize = 59.4,
+    connectionFontSize = EDGE_LABEL_BASE_FONT_SIZE,
     // Zoom/pan control for zoom-to-fit after auto-layout
     setZoomLevel = null,
     setPanOffset = null,

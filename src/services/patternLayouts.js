@@ -30,6 +30,7 @@
 
 import { forceDirectedLayout } from './graphLayoutService.js';
 import {
+  EDGE_LABEL_BASE_FONT_SIZE,
   MIN_BOX,
   boxOf,
   halfExtentTowards,
@@ -77,8 +78,8 @@ export const PATTERN_LAYOUT_DEFAULTS = {
   labelPadding: 90,
   // No edge is ever shorter than this, even between two tiny unlabeled nodes.
   minEdgeLength: 260,
-  // Must track NodeCanvas: 59.4 × textSettings.fontSize × connectionLabelSize.
-  edgeLabelFontSize: 59.4,
+  // Must track NodeCanvas: base × textSettings.fontSize × connectionLabelSize.
+  edgeLabelFontSize: EDGE_LABEL_BASE_FONT_SIZE,
 
   // Ceiling on how much a level gap may grow to separate colliding sibling
   // labels. A pathological fan (one parent, twenty verbosely-labelled
@@ -1476,7 +1477,7 @@ function packComponents(blocks, cfg) {
  * Label breathing room, as a multiple of the label's own font size.
  *
  * A flat pixel value cannot be right at two text sizes at once: 90px is
- * reasonable either side of 59.4px text and absurd either side of 30px text,
+ * reasonable either side of 70px text and absurd either side of 30px text,
  * and the connection-label size is a user setting. Expressing it in ems makes
  * "comfortable" mean the same thing at every setting.
  */

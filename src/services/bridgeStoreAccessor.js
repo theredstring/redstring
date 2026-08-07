@@ -83,7 +83,7 @@ export function getAutoLayoutSettings() {
   return {
     // The size connection labels are actually DRAWN at. Layout reserves room
     // along each edge for its label, so if this is missing the solver falls
-    // back to the 59.4 base and reserves space for text twice the size of what
+    // back to the unscaled base and reserves space for text twice the size of what
     // the canvas renders — which is how generated graphs came out several times
     // more spread out than the interactive Auto-Layout button produces.
     edgeLabelFontSize: resolveEdgeLabelFontSize(store.textSettings, store.connectionLabelSize),

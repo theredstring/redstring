@@ -92,10 +92,10 @@ export const circumRadius = (node) => {
  * Base font size NodeCanvas draws connection labels at, before user settings.
  * Every layout entry point should pass the RESOLVED size (see
  * `resolveEdgeLabelFontSize`) rather than relying on this default — reserving
- * space at 59.4 for labels the canvas draws at 32 is how a diagram ends up
+ * space at 71.28 for labels the canvas draws at 32 is how a diagram ends up
  * three times wider than the text in it.
  */
-export const EDGE_LABEL_BASE_FONT_SIZE = 59.4;
+export const EDGE_LABEL_BASE_FONT_SIZE = 71.28;
 
 /**
  * The size connection labels are actually drawn at, from the two store settings

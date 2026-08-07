@@ -43,6 +43,7 @@
  */
 
 import {
+  EDGE_LABEL_BASE_FONT_SIZE,
   boxOf,
   boxMTV,
   halfExtentTowards,
@@ -496,7 +497,7 @@ function pairIndex(edges) {
     const k = pairKey(e.sourceId, e.destinationId);
     const existing = index.get(k);
     // Keep the widest label — that is the binding spacing requirement.
-    if (!existing || labelSpanOf(e, 59.4) > labelSpanOf(existing, 59.4)) index.set(k, e);
+    if (!existing || labelSpanOf(e, EDGE_LABEL_BASE_FONT_SIZE) > labelSpanOf(existing, EDGE_LABEL_BASE_FONT_SIZE)) index.set(k, e);
   });
   return index;
 }
