@@ -6,7 +6,7 @@ import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
-import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX } from '../utils/canvas/edgeRouting.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle } from '../utils/canvas/edgeLabelPlacement.js';
 import {
   computeGroupLayout,
@@ -648,12 +648,11 @@ export const useNodeDrag = ({
     const isRoutedStyle = enableAutoRoutingRef.current &&
       (routingStyle === 'manhattan' || routingStyle === 'clean' || routingStyle === 'lombardi');
 
-    // Same zoom-scaled floor the settled render uses (see labelArcMinBow in
-    // NodeCanvas) — without it this fell back to the bare MIN_VISIBLE_BOW,
-    // a much smaller threshold, so a label could ride an arc all drag long
-    // that the settled render would have called flat and snap straight the
-    // instant the drag ended.
-    const labelArcMinBow = Math.max(MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX / Math.max(zoomLevelRef?.current ?? 1, 0.01));
+    // The same zoom-scaled threshold the settled render uses. Shared rather
+    // than re-derived: when this hook computed its own, it used a smaller one,
+    // so a label could ride an arc all drag long that the settled render called
+    // flat — and snap straight the instant the drag ended.
+    const labelArcMinBow = labelCurveMinBow(zoomLevelRef?.current ?? 1);
 
     // Read once per frame, not once per edge — it cannot change mid-frame, and
     // the routing below needs it as well as the arrowhead transform does (the
@@ -921,7 +920,7 @@ export const useNodeDrag = ({
           const dragLabelGlyphs = (routing.arc && labelText && labelAdvances)
             ? labelArcGlyphFrames(routing.arc, labelPos, labelAdvances, {
               minBow: labelArcMinBow,
-              rotationQuantum: labelAngleQuantumRef?.current ?? 0,
+              rotationQuantum: curvedGlyphQuantum(labelAngleQuantumRef?.current ?? 0),
             })
             : null;
           // Glow, visible stroke and click target all share the routed geometry.

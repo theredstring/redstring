@@ -10,12 +10,17 @@
  * or a label could curve under one renderer and not the other.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   labelArcGlyphFrames,
   labelArcPath,
+  labelCurveMinBow,
+  curvedGlyphQuantum,
   solveLombardiArc,
   MAX_LABEL_SWEEP,
+  MIN_VISIBLE_BOW,
+  LABEL_CURVE_MIN_SCREEN_PX,
+  CURVED_GLYPH_ANGLE_QUANTUM,
 } from '../edgeRouting.js';
 
 // A circle centred at the origin. Only the centre is ever read — the label rides
@@ -34,6 +39,106 @@ const centreOf = (frames, advances, i) => ({
 });
 
 const radiusOf = (arc, pt) => Math.hypot(pt.x - arc.cx, pt.y - arc.cy);
+
+describe('labelCurveMinBow', () => {
+  afterEach(() => { delete window.__labelCurveMinPx; });
+
+  it('asks for a fixed number of SCREEN pixels, whatever the zoom', () => {
+    // The canvas-space threshold has to grow as you zoom out, because the same
+    // canvas bow covers fewer screen pixels there.
+    for (const zoom of [0.25, 0.5, 1, 2]) {
+      const bow = labelCurveMinBow(zoom);
+      if (bow > MIN_VISIBLE_BOW) expect(bow * zoom).toBeCloseTo(LABEL_CURVE_MIN_SCREEN_PX, 6);
+    }
+    expect(labelCurveMinBow(0.5)).toBeGreaterThan(labelCurveMinBow(2));
+  });
+
+  it('bottoms out at MIN_VISIBLE_BOW once zoomed far enough in', () => {
+    expect(labelCurveMinBow(1000)).toBe(MIN_VISIBLE_BOW);
+    expect(labelCurveMinBow(0.01)).toBeGreaterThan(MIN_VISIBLE_BOW);
+  });
+
+  it('is overridable at runtime, and 0 restores curve-everything', () => {
+    window.__labelCurveMinPx = 40;
+    expect(labelCurveMinBow(1)).toBe(40);
+
+    window.__labelCurveMinPx = 0;
+    expect(labelCurveMinBow(1)).toBe(MIN_VISIBLE_BOW);
+  });
+
+  it('ignores a nonsense override rather than straightening everything', () => {
+    window.__labelCurveMinPx = 'wide';
+    expect(labelCurveMinBow(1)).toBeCloseTo(LABEL_CURVE_MIN_SCREEN_PX, 6);
+
+    window.__labelCurveMinPx = -5;
+    expect(labelCurveMinBow(1)).toBeCloseTo(LABEL_CURVE_MIN_SCREEN_PX, 6);
+  });
+
+  it('is the lever that sheds shallow curves when a graph needs it', () => {
+    // 200px of text on a 4000px-radius circle bows ~1.25px — a curve at the
+    // default sub-pixel floor, straightened once the threshold is raised past
+    // it. The default is low because bucketing rotations made curves cheap (see
+    // CURVED_GLYPH_ANGLE_QUANTUM); this checks the escape hatch still works.
+    const arc = arcAt();
+    const anchor = { x: 4000, y: 0 };
+    const advances = evenAdvances(10, 20);
+
+    expect(labelArcGlyphFrames(arc, anchor, advances, { minBow: labelCurveMinBow(1) })).not.toBeNull();
+
+    window.__labelCurveMinPx = 8;
+    expect(labelArcGlyphFrames(arc, anchor, advances, { minBow: labelCurveMinBow(1) })).toBeNull();
+  });
+});
+
+describe('curvedGlyphQuantum', () => {
+  afterEach(() => { delete window.__curvedGlyphQuantum; });
+
+  it('buckets curved glyphs even when the canvas-wide quantum is off', () => {
+    // The whole point: labelAngleQuantum is 0 at every edge count where curving
+    // happens, so curved labels would otherwise carry exact per-character
+    // angles — which is what made them expensive.
+    expect(curvedGlyphQuantum(0)).toBe(CURVED_GLYPH_ANGLE_QUANTUM);
+  });
+
+  it('defers to a coarser canvas-wide quantum rather than undercutting it', () => {
+    expect(curvedGlyphQuantum(9)).toBe(9);
+    expect(curvedGlyphQuantum(2)).toBe(CURVED_GLYPH_ANGLE_QUANTUM);
+  });
+
+  it('is overridable, including back to exact angles', () => {
+    window.__curvedGlyphQuantum = 9;
+    expect(curvedGlyphQuantum(0)).toBe(9);
+
+    window.__curvedGlyphQuantum = 0;
+    expect(curvedGlyphQuantum(0)).toBe(0);
+  });
+
+  it('bounds the distinct rotations a whole CANVAS of labels emits', () => {
+    // The saving is across labels, not within one. A single label spanning a
+    // wide arc still puts its characters several degrees apart, so its own
+    // glyphs may not share buckets at all — but forty labels scattered around
+    // a graph can only ever land in 360/quantum of them between them, where
+    // exact angles give a fresh matrix per character forever. That bound is
+    // what the glyph cache is sensitive to.
+    const arc = arcAt();
+    const advances = evenAdvances(13, 26);
+    const q = curvedGlyphQuantum(0);
+
+    const exact = new Set();
+    const bucketed = new Set();
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * Math.PI * 2;
+      const anchor = { x: 300 * Math.cos(a), y: 300 * Math.sin(a) };
+      labelArcGlyphFrames(arc, anchor, advances, { rotationQuantum: 0 })
+        ?.rotate.forEach((r) => exact.add(r));
+      labelArcGlyphFrames(arc, anchor, advances, { rotationQuantum: q })
+        ?.rotate.forEach((r) => bucketed.add(r));
+    }
+
+    expect(bucketed.size).toBeLessThanOrEqual(Math.ceil(360 / q) + 1);
+    expect(bucketed.size).toBeLessThan(exact.size / 4);
+  });
+});
 
 describe('labelArcGlyphFrames — null guards', () => {
   const arc = arcAt();

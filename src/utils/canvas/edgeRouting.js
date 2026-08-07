@@ -708,25 +708,82 @@ function capTangentChord(delta) {
 // and a radius bounded by roughly L²/(8·MIN_VISIBLE_BOW).
 export const MIN_VISIBLE_BOW = 0.4;
 
-// A Lombardi label only curves if its baseline bends at all on screen. Shared
-// by the settled render (NodeCanvas) and the live drag updater (useNodeDrag) so
-// the two agree on when a label should curve — see labelArcMinBow at each call
-// site.
+// How far a label's baseline must actually bend ON SCREEN, in CSS pixels,
+// before it is worth curving. Shared by the settled render (NodeCanvas) and the
+// live drag updater (useNodeDrag) so the two agree — see `labelCurveMinBow`.
 //
-// Set LOW on purpose. A curved label costs one glyph matrix per character where
-// a straight one costs a single matrix for the whole run, and raising this is
-// the obvious-looking way to spend less of that — but it is the wrong lever.
-// What actually costs the frames in Lombardi is the number of DISTINCT label
-// rotations, which the angle quantum governs and which applies to straight
-// labels too; shedding curves buys comparatively little and takes the mode's
-// whole point with it. Labels following their arcs IS Lombardi. So curve early,
-// and let CURVED_LABEL_BUDGET bound the count instead — a ceiling on how many,
-// not a tax on how curved.
+// Set LOW on purpose: sub-pixel, i.e. curve anything that bends at all. This
+// briefly went to 8 to buy frames back by shedding curves, and that worked —
+// but it was treating the symptom. The reason curved labels were expensive was
+// that every character carried an exact, unique rotation matrix, and bucketing
+// those (see CURVED_GLYPH_ANGLE_QUANTUM) takes 40 curved labels from 15.2ms to
+// 8.4ms — the frame floor. With the cost gone there is no reason left to
+// straighten anything, so this went back down.
 //
-// The effective floor bottoms out at MIN_VISIBLE_BOW once you are zoomed past
-// about 1.5x, and anything flatter than that was already emitted as a straight
-// line by solveLombardiArc — so below there is nothing left to curve anyway.
+// Which restores the original argument, now with a measurement behind it rather
+// than an assumption: labels following their arcs IS Lombardi, and the count of
+// curves is the wrong thing to economise on. What actually costs frames is
+// distinct glyph matrices, and that is the quantum's job.
+//
+// `window.__labelCurveMinPx` overrides at runtime if a graph ever does want
+// curves shed — the lever still works, it is just no longer the first resort.
 export const LABEL_CURVE_MIN_SCREEN_PX = 0.6;
+
+/**
+ * The bow, in canvas units, a label must clear at this zoom before it curves.
+ *
+ * Converts the on-screen threshold back into canvas space by dividing out the
+ * zoom, so the test is "can the viewer see this bend" rather than "is it big in
+ * canvas coordinates" — a 3px canvas bow is invisible zoomed out and obvious
+ * zoomed in, and the label should follow the viewer, not the data.
+ *
+ * Floors at MIN_VISIBLE_BOW: past that, solveLombardiArc already emitted a
+ * straight line, so there is nothing left to curve either way.
+ */
+export function labelCurveMinBow(zoom) {
+  const override = (typeof window !== 'undefined') ? Number(window.__labelCurveMinPx) : NaN;
+  const px = (Number.isFinite(override) && override >= 0) ? override : LABEL_CURVE_MIN_SCREEN_PX;
+  return Math.max(MIN_VISIBLE_BOW, px / Math.max(zoom, 0.01));
+}
+
+// The angle bucket curved labels snap their per-glyph rotations into.
+//
+// This is the whole reason curved labels are affordable, and it is a SEPARATE
+// number from the canvas-wide `labelAngleQuantum` for a reason worth stating:
+// that one switches off below 48 edges, and curved labels only exist below 40,
+// so in the regime where curving happens the canvas-wide quantum is always
+// zero. Curved labels were paying exact, unique rotations for every character
+// precisely because nothing was left to bucket them.
+//
+// Measured (Electron 39, EmOne 59.4px, 1400x900, zoom sweep, median frame):
+//
+//     40 curved labels, exact angles ....  15.2 ms
+//     40 curved labels, 4° buckets .....    8.4 ms   <- frame floor
+//     40 curved labels, 9° buckets .....    8.3 ms
+//
+// 4° rather than 9° deliberately. A straight label snapped by q tilts as a
+// whole and nobody notices; a curved one snaps each character independently, so
+// neighbouring glyphs can land in different buckets and the text reads slightly
+// wobbly along the arc instead of flowing. 4° halves the worst-case tilt to 2°
+// and still collapses several hundred distinct matrices into a few dozen — the
+// table above shows it already at the frame floor, so the extra precision is
+// free. Raise toward 9 only if a measurement says the buckets are still the
+// bottleneck; the win is nearly all in the first step away from exact.
+//
+// `window.__curvedGlyphQuantum` overrides at runtime (0 = exact angles).
+export const CURVED_GLYPH_ANGLE_QUANTUM = 4;
+
+/**
+ * The rotation bucket a curved label's glyphs should snap to, given whatever
+ * the canvas-wide quantum currently is. Takes the coarser of the two: a dense
+ * canvas that has already decided on 9° shouldn't have curved labels quietly
+ * rendering finer than everything around them.
+ */
+export function curvedGlyphQuantum(canvasQuantum = 0) {
+  const override = (typeof window !== 'undefined') ? Number(window.__curvedGlyphQuantum) : NaN;
+  const base = (Number.isFinite(override) && override >= 0) ? override : CURVED_GLYPH_ANGLE_QUANTUM;
+  return Math.max(base, canvasQuantum || 0);
+}
 
 // Distance (local units) from the arrowhead polygon's origin to its tip.
 //

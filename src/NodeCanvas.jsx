@@ -118,7 +118,7 @@ import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcGlyphFrames, MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
 import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
@@ -255,14 +255,17 @@ const LABEL_ANGLE_QUANTUM_MIN_COUNT = 48;
 // ones cost N. That is a gentler curve, and 40 is now a conservative number on
 // it rather than a cliff-edge one.
 //
-// Kept at 40 regardless, for two reasons. It is still the right SHAPE of budget
-// — a ceiling on how many labels curve, deliberately in preference to raising
-// LABEL_CURVE_MIN_SCREEN_PX, because that keeps Lombardi looking like Lombardi
-// where a bow threshold high enough to matter just straightens everything. And
-// it is currently fed the WHOLE graph's edge count rather than the visible one,
-// because viewport culling is disabled (see ENABLE_CULLING) — so on any real
-// universe this budget is what decides that nothing curves at all. Re-tune it
-// when culling comes back and it is measuring what its name says.
+// Kept at 40 regardless, but it is no longer the primary bound: that is now
+// LABEL_CURVE_MIN_SCREEN_PX, which sheds the curves nobody can see rather than
+// the ones that arrive after the fortieth edge. This is the backstop for the
+// case that threshold can't catch — dense AND zoomed in, where every bow is
+// genuinely visible and there are still too many of them.
+//
+// Note it is currently fed the WHOLE graph's edge count rather than the visible
+// one, because viewport culling is disabled (see ENABLE_CULLING). On a graph
+// past 40 edges that makes it, not the bow threshold, the thing deciding
+// nothing curves. Re-tune when culling returns and it measures what its name
+// says.
 const CURVED_LABEL_BUDGET = 40;
 
 // Shared empty obstacle list, so the memo below can skip the work without
@@ -3656,20 +3659,32 @@ function NodeCanvas() {
 
   // A curved Lombardi label costs more than a straight one even now that the
   // glyphs are placed by hand rather than by a <textPath>: every character gets
-  // its own rotation, so it is a glyph-atlas key per character against one for
-  // the whole run.
+  // its own rotation, so ONE curved label is worth roughly its character count
+  // in straight ones to the glyph atlas. That multiple, applied to every label,
+  // is what the glyph fix alone left on the table.
   //
-  // So curve only where the curve is actually visible. A bend of a few canvas
-  // pixels is sub-pixel on screen once you're zoomed out, and there the curved
-  // and straight labels are literally the same picture — so require the bow to
-  // clear LABEL_CURVE_MIN_SCREEN_PX *on screen*, which converts back to a
-  // canvas-space floor by dividing out the zoom. The count budget is a backstop
-  // for the dense-and-zoomed-in case this doesn't catch.
+  // So curve only where the curve can actually be seen — see
+  // labelCurveMinBow. The count budget is a backstop for the
+  // dense-and-zoomed-in case the bow threshold doesn't catch.
   const curveLabels = visibleEdges.length <= CURVED_LABEL_BUDGET;
-  const labelArcMinBow = Math.max(
-    MIN_VISIBLE_BOW,
-    LABEL_CURVE_MIN_SCREEN_PX / Math.max(zoomLevel, 0.01)
-  );
+  const labelArcMinBow = labelCurveMinBow(zoomLevel);
+  // Curved labels get their OWN rotation bucket rather than the canvas-wide
+  // one, which is zero at every edge count where curving happens — see
+  // CURVED_GLYPH_ANGLE_QUANTUM. This is what makes curves affordable at all.
+  const curvedLabelQuantum = curvedGlyphQuantum(labelAngleQuantum);
+
+  // Connection labels carry a stroked halo so they stay legible over the lines
+  // they sit on. It may also be expensive out of proportion to how it looks:
+  // the browser's fast path for text is a cached per-glyph alpha mask, and
+  // STROKED text generally can't use it — each glyph is converted to a path and
+  // rasterised outline-first, every paint, with nothing to reuse. If that's
+  // what's happening, the halo is not "one extra draw", it is what keeps these
+  // labels off the cached path altogether.
+  //
+  // `window.__labelHalo = false` drops it so the difference can be measured on
+  // a real graph rather than argued about. Nudge the zoom afterwards to force a
+  // re-render. Not wired to a setting — this is a probe, not a preference.
+  const labelHaloEnabled = typeof window === 'undefined' || window.__labelHalo !== false;
 
   // Reset the label caches when the routing configuration changes.
   //
@@ -15502,7 +15517,7 @@ function NodeCanvas() {
                                     orthoRouting.arc,
                                     { x: labelRenderX, y: labelRenderY },
                                     labelGlyphAdvances,
-                                    { minBow: labelArcMinBow, rotationQuantum: labelAngleQuantum }
+                                    { minBow: labelArcMinBow, rotationQuantum: curvedLabelQuantum }
                                   )
                                   : null;
 
@@ -15544,11 +15559,13 @@ function NodeCanvas() {
                                         fontWeight="bold"
                                         textAnchor="start"
                                         dominantBaseline="middle"
-                                        stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
-                                        strokeWidth={8 * (connectionFontSize / 54)}
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        paintOrder="stroke fill"
+                                        {...(labelHaloEnabled ? {
+                                          stroke: darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor),
+                                          strokeWidth: 8 * (connectionFontSize / 54),
+                                          strokeLinecap: 'round',
+                                          strokeLinejoin: 'round',
+                                          paintOrder: 'stroke fill',
+                                        } : null)}
                                         style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
                                       >
                                         {connectionName}
@@ -15564,11 +15581,13 @@ function NodeCanvas() {
                                         textAnchor="middle"
                                         dominantBaseline="middle"
                                         transform={`rotate(${adjustedAngle}, ${labelRenderX}, ${labelRenderY})`}
-                                        stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
-                                        strokeWidth={8 * (connectionFontSize / 54)}
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        paintOrder="stroke fill"
+                                        {...(labelHaloEnabled ? {
+                                          stroke: darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor),
+                                          strokeWidth: 8 * (connectionFontSize / 54),
+                                          strokeLinecap: 'round',
+                                          strokeLinejoin: 'round',
+                                          paintOrder: 'stroke fill',
+                                        } : null)}
                                         style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
                                       >
                                         {connectionName}
