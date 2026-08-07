@@ -347,7 +347,13 @@ export const useGraphLayout = ({
                 id: edge.id,
                 sourceId: edge.sourceId,
                 destinationId: edge.destinationId,
-                name: resolveConnectionName(edge, nodePrototypesMap, edgePrototypesMap)
+                name: resolveConnectionName(edge, nodePrototypesMap, edgePrototypesMap),
+                // Which way the arrow POINTS, which is not always the order the
+                // connection was drawn in — topology detection orients trees by
+                // this. Sent as a plain array: the solver runs in a worker, and
+                // an array survives every path (structured clone and JSON) that
+                // a Set does not.
+                directionality: { arrowsToward: [...(edge.directionality?.arrowsToward || [])] }
             }));
 
         const layoutWidth = Math.max(2000, canvasSize?.width || 2000);

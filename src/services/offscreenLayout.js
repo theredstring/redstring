@@ -63,7 +63,15 @@ export function applyOffscreenLayout(graphId) {
         if (proto?.name) connName = proto.name;
       }
       // id retained for Lombardi's per-edge tangent fan (see lombardiEdgeKey).
-      return { id: e.id, sourceId: e.sourceId, destinationId: e.destinationId, name: connName };
+      // directionality as a plain array — topology detection orients trees by
+      // the arrow, not by the order the connection happened to be drawn in.
+      return {
+        id: e.id,
+        sourceId: e.sourceId,
+        destinationId: e.destinationId,
+        name: connName,
+        directionality: { arrowsToward: [...(e.directionality?.arrowsToward || [])] }
+      };
     });
 
   const groups = Array.from(graph.groups?.values() || []);

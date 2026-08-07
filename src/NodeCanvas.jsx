@@ -2083,10 +2083,8 @@ function NodeCanvas() {
   // Settled values used where React re-renders are acceptable (child props, culling, view persistence)
   const panOffset = transform.settledPan;
   const zoomLevel = transform.settledZoom;
-  // True from the first mutation of a pan/zoom gesture until it settles. Lets
-  // render-time budgets pick a cheaper form while the view is in motion — see
-  // labelAngleQuantum.
-  const isViewMoving = transform.isMoving;
+  // NOTE: transform.isMoving is deliberately NOT read here. Reading it makes
+  // every gesture's start and end a full canvas re-render — see labelAngleQuantum.
 
   // Apply DOM transform after mount and whenever canvasSize changes.
   // This is the ONLY place the SVG transform is written — JSX style omits `transform`
@@ -3596,23 +3594,22 @@ function NodeCanvas() {
   // where the labels are small and numerous, that permits a coarse bucket;
   // zoomed in, where a tilt would show, it tightens automatically.
   //
-  // That tightening is correct at rest and ruinous in motion, which is why
-  // zooming a label-bearing Lombardi graph fell apart while panning it didn't.
-  // Panning holds the zoom fixed, so the bucket it started with is the bucket it
-  // keeps. Zooming walks the quantum down its curve — past zoom ~2 it asks for
-  // 4°, past ~4 for 2°, and the budget table above prices 200 labels at 1.5° at
-  // 24ms/frame and at exact angles 41ms. The atlas thrashes for a tilt precision
-  // nobody can resolve on a moving view.
+  // This deliberately does NOT vary with whether the view is moving.
   //
-  // So while the view is moving, take the coarsest bucket outright and restore
-  // the zoom-derived one when it settles. The error this trades away is angular
-  // precision on labels that are sliding across the screen; what it buys is the
-  // difference between a repaint that fits in a frame and one that doesn't.
-  // `isViewMoving` flips twice per gesture, so this costs two re-renders, not
-  // sixty (see useCanvasTransform).
+  // It used to: a gesture took the coarsest bucket and released it on settle, on
+  // the theory that in-motion tilt precision is invisible. The theory was fine
+  // and the delivery was not. "Is the view moving" had to be React state for the
+  // memo to read it, so each gesture flipped it twice, and each flip re-rendered
+  // the whole canvas — re-solving every route and every label placement. On the
+  // real universe that single re-render measured 143ms with labels on against a
+  // 15ms worst frame with them off. Two of those per gesture is the stutter it
+  // was supposed to prevent, and it bought nothing measurable: sweeping the
+  // scale over a real graph costs the same 8.3ms/frame at exact angles as at 9°.
+  //
+  // The zoom-derived bucket below is kept — it is computed from settled zoom, so
+  // it costs nothing during a gesture.
   const labelAngleQuantum = useMemo(() => {
     if (visibleEdges.length <= LABEL_ANGLE_QUANTUM_MIN_COUNT) return 0;
-    if (isViewMoving) return MAX_LABEL_ANGLE_QUANTUM;
     const halfWidthOnScreen = LABEL_HALF_WIDTH_CANVAS * zoomLevel;
     const wanted = halfWidthOnScreen > LABEL_ANGLE_ERROR_PX
       ? Math.min(
@@ -3628,7 +3625,7 @@ function NodeCanvas() {
     // already fast. Ceil on the division keeps the result at or under `wanted`,
     // so the error budget above still holds.
     return 90 / Math.max(1, Math.ceil(90 / wanted));
-  }, [visibleEdges.length, zoomLevel, isViewMoving]);
+  }, [visibleEdges.length, zoomLevel]);
 
   const quantizeLabelAngle = useCallback(
     (degrees) => quantizeAngle(degrees, labelAngleQuantum),

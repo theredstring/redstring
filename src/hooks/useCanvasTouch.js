@@ -124,6 +124,17 @@ export const useCanvasTouch = ({
     // Pending single-tap selection — deferred so a second tap can cancel it
     // before selection fires, matching the mouse CLICK_DELAY path.
     const pendingNodeTapRef = useRef(null);
+    // Drop a deferred tap selection that a later gesture has invalidated. The
+    // timer fires NODE_DOUBLE_TAP_MS after the tap's touchend — long enough for
+    // the user to have already put the finger back down and started dragging
+    // (the touch lift delay is floored at the same NODE_DOUBLE_TAP_MS), and the
+    // callback would then toggle selection on a node that is mid-drag.
+    const cancelPendingNodeTap = () => {
+        if (pendingNodeTapRef.current) {
+            clearTimeout(pendingNodeTapRef.current.timer);
+            pendingNodeTapRef.current = null;
+        }
+    };
 
     const suppressMouseDownResetTimeoutRef = useRef(null);
 
@@ -955,6 +966,8 @@ export const useCanvasTouch = ({
                 if (started) {
                     ts.longPressReady = false;
                     setSelectedNodeIdForPieMenu(null);
+                    // A drag supersedes any tap selection still waiting to fire.
+                    cancelPendingNodeTap();
                     // Cancel connection intent once dragging node
                     setLongPressingInstanceId(null);
                 } else {
@@ -1056,6 +1069,7 @@ export const useCanvasTouch = ({
 
                         const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
                         setDrawingConnectionFrom({ sourceInstanceId: armedNode.id, startX: startPt.x, startY: startPt.y, currentX, currentY });
+                        cancelPendingNodeTap();
                         setLongPressingInstanceId(null);
                     } else {
                         // Still inside node, haven't left yet -> Don't start connection, continue waiting
@@ -1076,6 +1090,7 @@ export const useCanvasTouch = ({
                     } else {
                         touchState.current.longPressReady = false;
                         setSelectedNodeIdForPieMenu(null);
+                        cancelPendingNodeTap();
                         setLongPressingInstanceId(null);
                     }
                 }
@@ -1213,9 +1228,14 @@ export const useCanvasTouch = ({
         // still arms the long-press timer at 200ms which calls startDragForNode
         // and sets touchState.current.isDragging = true. Without the isDragging
         // guard here, the held-then-released gesture would also select the node.
+        // Read draggingNodeInfo from its ref, not the closure state: the
+        // window-capture release listener runs handleMouseUp before this
+        // handler, and React may not have committed the drag-start/end
+        // transition into this render's closure. drawingConnectionFrom is read
+        // from its ref for the same reason.
         const wasDragOrConnection =
             touchState.current.isDragging ||
-            !!draggingNodeInfo ||
+            !!(draggingNodeInfoRef?.current || draggingNodeInfo) ||
             drawingConnectionFromRef.current;
         // multiTouchGestureRef: a finger that started on a node and became half
         // of a pinch can end with near-zero movement — that lift is pinch-end,
@@ -1262,6 +1282,10 @@ export const useCanvasTouch = ({
                 const tapNodeId = nodeData.id;
                 const timer = setTimeout(() => {
                     pendingNodeTapRef.current = null;
+                    // Belt-and-braces for the cancel calls at the gesture-start
+                    // sites: if a drag or connection-draw is in flight by now,
+                    // the user is manipulating the node, not selecting it.
+                    if (touchState.current.isDragging || draggingNodeInfoRef?.current || drawingConnectionFromRef.current) return;
                     const currentSelection = selectedInstanceIdsRef.current;
                     const wasSelected = currentSelection.has(tapNodeId);
                     setSelectedInstanceIds(prev => {
@@ -1275,7 +1299,12 @@ export const useCanvasTouch = ({
                         }
                         return newSelected;
                     });
-                    storeActions.updateNodeInstance(tapNodeId, { selected: !wasSelected });
+                    // No store write here: selection lives entirely in
+                    // selectedInstanceIds (the mouse path at handleNodeMouseDown
+                    // does the same). The old updateNodeInstance(tapNodeId, {...})
+                    // call used the wrong signature — (graphId, instanceId, recipe) —
+                    // so it never mutated anything, it only dirtied the save
+                    // change-context on every tap.
                     if (!wasSelected) {
                         setSelectedNodeIdForPieMenu(tapNodeId);
                     }

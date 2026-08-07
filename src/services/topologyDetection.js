@@ -40,6 +40,36 @@ export const TOPOLOGY_LAYOUT = {
 const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
 /**
+ * Which way an edge POINTS, as opposed to which way it was authored.
+ *
+ * `sourceId → destinationId` is the order the connection happened to be drawn
+ * in. The arrowhead the reader actually sees is `directionality.arrowsToward`,
+ * a set of node ids, and the two can disagree: flipping an arrow in the
+ * connection panel rewrites the set, not the endpoints. A taxonomy built by
+ * dragging from the general term but arrowed toward it is a perfectly ordinary
+ * thing to build, and reading only the endpoints draws it upside down.
+ *
+ * An edge with no arrows, or with arrows both ways, makes no directional claim.
+ * Those keep authoring order rather than being dropped: a hierarchy is an
+ * all-or-nothing test (every node reached exactly once), so discarding one
+ * unarrowed edge in an otherwise-arrowed taxonomy would stop it being a
+ * hierarchy at all. Keeping the endpoint order means a graph that has never
+ * touched directionality classifies exactly as it always has.
+ */
+function semanticArcOf(edge) {
+  const toward = edge?.directionality?.arrowsToward;
+  const has = (id) => (
+    toward instanceof Set ? toward.has(id)
+      : Array.isArray(toward) ? toward.includes(id)
+        : false
+  );
+  const atSource = has(edge.sourceId);
+  const atDest = has(edge.destinationId);
+  if (atSource && !atDest) return [edge.destinationId, edge.sourceId];
+  return [edge.sourceId, edge.destinationId];
+}
+
+/**
  * Collapse a raw edge list into the simple undirected graph used for shape
  * detection. Parallel edges keep the LONGEST label so downstream spacing
  * reserves room for the widest thing that will actually be drawn there.
@@ -135,8 +165,13 @@ function isDirectedAcyclic(nodeIds, edges) {
 
   edges.forEach(edge => {
     if (edge.sourceId === edge.destinationId) return;
-    outgoing.get(edge.sourceId).push(edge.destinationId);
-    inDegree.set(edge.destinationId, inDegree.get(edge.destinationId) + 1);
+    // findHierarchy hands this already-oriented arcs, where semanticArcOf is
+    // the identity; every other caller passes raw edges and needs the arrows
+    // read, or a taxonomy arrowed toward its root looks like a cycle.
+    const [from, to] = semanticArcOf(edge);
+    if (!outgoing.has(from) || !inDegree.has(to)) return;
+    outgoing.get(from).push(to);
+    inDegree.set(to, inDegree.get(to) + 1);
   });
 
   const queue = [];
@@ -183,10 +218,11 @@ export function findHierarchy(nodes, edges) {
   (edges || []).forEach(edge => {
     if (!edge || edge.sourceId === edge.destinationId) return;
     if (!idSet.has(edge.sourceId) || !idSet.has(edge.destinationId)) return;
-    const key = `${edge.sourceId}>${edge.destinationId}`;
+    const arc = semanticArcOf(edge);
+    const key = `${arc[0]}>${arc[1]}`;
     if (seen.has(key)) return;
     seen.add(key);
-    arcs.push([edge.sourceId, edge.destinationId]);
+    arcs.push(arc);
   });
 
   const test = (inverted) => {
@@ -261,7 +297,8 @@ export function chooseTreeRoot(nodes, edges, adjacency, preferredId = null) {
 
   const hasIncoming = new Set();
   edges.forEach(edge => {
-    if (edge.sourceId !== edge.destinationId) hasIncoming.add(edge.destinationId);
+    if (edge.sourceId === edge.destinationId) return;
+    hasIncoming.add(semanticArcOf(edge)[1]);
   });
   const sources = ids.filter(id => !hasIncoming.has(id));
 
@@ -467,9 +504,10 @@ function isForkJoinDiamond(nodes, edges) {
   const outDegree = new Map(nodes.map(n => [n.id, 0]));
   edges.forEach(edge => {
     if (!edge || edge.sourceId === edge.destinationId) return;
-    if (!inDegree.has(edge.destinationId) || !outDegree.has(edge.sourceId)) return;
-    inDegree.set(edge.destinationId, inDegree.get(edge.destinationId) + 1);
-    outDegree.set(edge.sourceId, outDegree.get(edge.sourceId) + 1);
+    const [from, to] = semanticArcOf(edge);
+    if (!inDegree.has(to) || !outDegree.has(from)) return;
+    inDegree.set(to, inDegree.get(to) + 1);
+    outDegree.set(from, outDegree.get(from) + 1);
   });
 
   let sources = 0;

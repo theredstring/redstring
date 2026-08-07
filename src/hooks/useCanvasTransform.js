@@ -11,10 +11,13 @@ import { useRef, useState, useCallback } from 'react';
  * props, view-state persistence).  These update only after the user stops
  * interacting for `SETTLE_DELAY` ms.
  *
- * `isMoving` is the inverse signal: true from the first mutation of a gesture
- * until it settles.  It flips at most twice per gesture, so a consumer can swap
- * to a cheaper rendering while the view is in motion without re-rendering per
- * frame — see `labelAngleQuantum` in NodeCanvas.
+ * `isMovingRef` is the inverse signal: true from the first mutation of a gesture
+ * until it settles.  It is a REF, not state, on purpose.  It was state once, so
+ * that a memo could pick a cheaper rendering while the view moved — but the
+ * canvas is expensive enough to render that the two flips per gesture cost more
+ * than any in-motion shortcut saved (measured at 143ms per flip on a real
+ * universe with connection labels on).  Anything reading this must do so from a
+ * per-frame or event path, never from render scope.
  */
 
 const SETTLE_DELAY = 150; // ms of inactivity before settled state updates
@@ -25,8 +28,7 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize) {
 
   const [settledPan, setSettledPan] = useState({ x: 0, y: 0 });
   const [settledZoom, setSettledZoom] = useState(1);
-  const [isMoving, setIsMoving] = useState(false);
-  // Mirrors isMoving so the per-frame path can check it without reading state.
+  // Gesture-in-flight flag. A ref, never state — see the header note.
   const movingRef = useRef(false);
 
   const settleTimerRef = useRef(null);
@@ -64,16 +66,10 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize) {
 
   // Schedule a deferred React state update when interaction settles.
   const scheduleSettle = useCallback(() => {
-    // One state flip at the start of a gesture, one at the end — never per
-    // frame. The ref guard is what keeps this out of the per-frame cost.
-    if (!movingRef.current) {
-      movingRef.current = true;
-      setIsMoving(true);
-    }
+    movingRef.current = true;
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = setTimeout(() => {
       movingRef.current = false;
-      setIsMoving(false);
       setSettledPan({ ...panRef.current });
       setSettledZoom(zoomRef.current);
     }, SETTLE_DELAY);
@@ -83,7 +79,6 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize) {
   const flushSettle = useCallback(() => {
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     movingRef.current = false;
-    setIsMoving(false);
     setSettledPan({ ...panRef.current });
     setSettledZoom(zoomRef.current);
   }, []);
@@ -148,7 +143,6 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize) {
     settledZoom,
 
     // True while a pan/zoom gesture is in flight (see the header note)
-    isMoving,
     isMovingRef: movingRef,
 
     // Mutators

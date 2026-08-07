@@ -198,32 +198,75 @@ function centersToTopLeft(positions, nodeById) {
 // ============================================================================
 
 /**
- * Turn per-level edge lists into main-axis gaps.
+ * Main-axis gap ONE edge needs, given how far sideways it already runs.
  *
- * For each edge we already know its cross-axis offset (the horizontal shift
- * between parent and child in a vertical tree). The required straight-line
- * length L and that offset give the main-axis component by Pythagoras:
+ * The constraint is the file header's inequality projected onto the two axes:
+ * an edge spanning `gap` along the level axis and `crossDelta` across it is
+ * `hypot(gap, crossDelta)` long, and that has to cover the two nodes' extents
+ * plus the label.
  *
- *     gap >= sqrt(L² - Δcross²)
+ * WHY THIS IS A SOLVE AND NOT A FORMULA
+ * The required length depends on the DIRECTION the edge runs, because a node's
+ * extent along the edge does — that is the whole point of `halfExtentTowards`.
+ * But the direction depends on the gap, which is what we are solving for. This
+ * used to be written as a formula by passing direction `(crossDelta, 1)` for a
+ * vertical tree, with the `1` standing in for the unknown gap. `crossDelta` is
+ * in pixels, so that vector is not "mostly vertical" — it is very nearly
+ * horizontal, and the measured extent was the wrong one by a factor of ~4:
  *
- * An edge that already runs far sideways needs less vertical room; a straight
- * parent-above-child edge needs the whole label length. Taking the max over
- * every edge crossing a level yields the tightest gap that still fits every
- * label at that depth.
+ *     440x100 node, crossDelta 60   vertical tree reserved 220, needed 50
+ *                                   horizontal tree reserved 50, needed 221
+ *
+ * So a vertical tree spread every level out over four times as far as it
+ * needed, and a horizontal one packed levels closer than the labels fit.
+ *
+ * Bisection rather than fixed-point iteration: `required` FALLS as the gap
+ * grows (the edge straightens onto the main axis, and for a wide node that
+ * shrinks its extent), so iterating `gap = f(gap)` on a decreasing map can sit
+ * in a two-cycle forever. `fits` is what we actually care about, `hi` always
+ * satisfies it, and returning `hi` is therefore always a legal answer — the
+ * same shape as solveRingRadius above.
+ */
+function solveMainGap(a, b, edge, cfg, crossDelta, vertical, span = 1) {
+  const floor = vertical
+    ? (boxOf(a).h + boxOf(b).h) / 2 + cfg.nodeGap
+    : (boxOf(a).w + boxOf(b).w) / 2 + cfg.nodeGap;
+
+  const fits = (gap) => {
+    const dirX = vertical ? crossDelta : gap;
+    const dirY = vertical ? gap : crossDelta;
+    const required = requiredEdgeLength(a, b, edge, cfg, dirX, dirY) / Math.max(1, span);
+    return Math.hypot(gap, crossDelta) >= required;
+  };
+
+  const lo0 = Math.max(cfg.minEdgeLength, floor);
+  if (fits(lo0)) return lo0;
+
+  let hi = lo0;
+  for (let i = 0; i < 60 && !fits(hi); i++) hi = hi * 1.5 + 1;
+
+  let lo = lo0;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) hi = mid; else lo = mid;
+  }
+  return hi;
+}
+
+/**
+ * Turn per-level edge lists into main-axis gaps — the aligned-rows form, where
+ * every edge crossing a depth is stretched to the longest one's requirement.
+ *
+ * Still used by the layered DAG layout, where a node can have several
+ * predecessors and so has no single parent to hang a ragged offset off.
+ * `treeLayoutCentered` uses the per-edge solver directly instead.
  */
 function resolveLevelGaps(levelEdges, levelSiblings, cfg, vertical) {
   return levelEdges.map((edgesAtLevel, depth) => {
     let gap = cfg.minEdgeLength;
 
     edgesAtLevel.forEach(({ a, b, edge, crossDelta, span = 1 }) => {
-      const dirX = vertical ? crossDelta : 1;
-      const dirY = vertical ? 1 : crossDelta;
-      const required = requiredEdgeLength(a, b, edge, cfg, dirX, dirY) / Math.max(1, span);
-      const mainComponent = Math.sqrt(Math.max(0, required * required - crossDelta * crossDelta));
-      const floor = vertical
-        ? (boxOf(a).h + boxOf(b).h) / 2 + cfg.nodeGap
-        : (boxOf(a).w + boxOf(b).w) / 2 + cfg.nodeGap;
-      gap = Math.max(gap, mainComponent, floor);
+      gap = Math.max(gap, solveMainGap(a, b, edge, cfg, crossDelta, vertical, span));
     });
 
     return Math.max(gap, solveSiblingLabelGap(levelSiblings?.[depth], cfg, gap));
@@ -232,27 +275,32 @@ function resolveLevelGaps(levelEdges, levelSiblings, cfg, vertical) {
 
 /**
  * Centre-to-centre cross separation each adjacent sibling pair needs so their
- * two labels don't overlap, given the level gaps already solved.
+ * two labels don't overlap, given the main-axis gaps already solved.
  *
  * Labels sit at edge midpoints and every edge in a fan leaves the same parent,
  * so two adjacent labels are only half as far apart as their children are —
  * hence the factor of 2 when converting the requirement back to child spacing.
  *
+ * `gapOf` takes a CHILD id rather than a depth, because the tree now gives each
+ * edge its own main-axis run. That is also strictly more accurate than the old
+ * per-level lookup: a label's cross-axis sweep depends on the angle of the edge
+ * it rides, and with ragged levels two siblings' edges can have different ones.
+ *
+ * @param {(childId: string) => number} gapOf main-axis run of that child's edge
  * @returns {Map<string, number>} "childA|childB" → required separation
  */
-function computeSiblingSeparations(levelSiblings, gaps, cfg) {
+function computeSiblingSeparations(levelSiblings, gapOf, cfg) {
   const required = new Map();
   const lineHeight = cfg.edgeLabelFontSize * 1.2;
 
-  levelSiblings.forEach((groups, depth) => {
-    const gap = gaps[depth];
-    if (!gap) return;
-
+  levelSiblings.forEach((groups) => {
     groups.forEach(({ parentCross, kids }) => {
       for (let i = 1; i < kids.length; i++) {
         const a = kids[i - 1];
         const b = kids[i];
         const sweep = (kid) => {
+          const gap = gapOf(kid.id);
+          if (!gap) return 0;
           const delta = kid.cross - parentCross;
           const length = Math.hypot(delta, gap) || 1;
           return (kid.labelWidth * Math.abs(delta) / length + lineHeight * gap / length) / 2;
@@ -494,63 +542,91 @@ function treeLayoutCentered(nodes, edges, cfg, meta = {}) {
     const noPairGap = () => 0;
     pack(noPairGap);
 
-    // Collect the edges crossing each level, plus each parent's fan of
-    // children (cross position + label width) so the gap solver can check
-    // adjacent siblings' labels for collision.
+    // Each parent's fan of children (cross position + label width), so the
+    // sibling solver can check adjacent labels for collision.
     const collect = () => {
-      const levelEdges = Array.from({ length: maxDepth }, () => []);
-      const levelSiblings = Array.from({ length: maxDepth }, () => []);
+      const levelSiblings = Array.from({ length: Math.max(1, maxDepth) }, () => []);
       children.forEach((kids, parentId) => {
         if (kids.length === 0) return;
         const d = depth.get(parentId);
         if (d >= maxDepth) return;
-        const parent = nodeById.get(parentId);
-        const fan = [];
-        kids.forEach(kidId => {
-          const edge = lookupEdge(edgeIndex, parentId, kidId);
-          levelEdges[d].push({
-            a: parent,
-            b: nodeById.get(kidId),
-            edge,
-            crossDelta: Math.abs(cross.get(kidId) - cross.get(parentId))
-          });
-          fan.push({
-            id: kidId,
-            cross: cross.get(kidId),
-            labelWidth: labelSpanOf(edge, cfg.edgeLabelFontSize)
-          });
-        });
+        const fan = kids.map(kidId => ({
+          id: kidId,
+          cross: cross.get(kidId),
+          labelWidth: labelSpanOf(lookupEdge(edgeIndex, parentId, kidId), cfg.edgeLabelFontSize)
+        }));
         fan.sort((a, b) => a.cross - b.cross);
         levelSiblings[d].push({ parentId, parentCross: cross.get(parentId), kids: fan });
       });
-      return { levelEdges, levelSiblings };
+      return levelSiblings;
     };
 
-    let { levelEdges, levelSiblings } = collect();
-    let gaps = resolveLevelGaps(levelEdges, levelSiblings, cfg, vertical);
+    // ── Main-axis placement, per EDGE rather than per level ───────────────
+    // Levels used to share one gap per depth, so the longest label at a depth
+    // set the distance for every sibling. On a taxonomy where one child of
+    // "Mammal" is reached by "has been domesticated as" and the others by
+    // "is a", that stretched the short edges to 2.4x the length they needed —
+    // one edge sitting at its true minimum and the rest visibly adrift, which
+    // is the shape of the complaint this pass exists to answer.
+    //
+    // A child now sits exactly as far from its parent as its OWN edge needs.
+    // Rows no longer line up, and that is the trade: depth still increases
+    // monotonically (every gap clears the two boxes plus nodeGap), so the
+    // hierarchy still reads, but no edge is padded out on a sibling's behalf.
+    const solveEdgeGaps = () => {
+      const perChild = new Map();
+      children.forEach((kids, parentId) => {
+        const parent = nodeById.get(parentId);
+        kids.forEach(kidId => {
+          perChild.set(kidId, solveMainGap(
+            parent,
+            nodeById.get(kidId),
+            lookupEdge(edgeIndex, parentId, kidId),
+            cfg,
+            Math.abs(cross.get(kidId) - cross.get(parentId)),
+            vertical
+          ));
+        });
+      });
+      return perChild;
+    };
+
+    let levelSiblings = collect();
+    let edgeGap = solveEdgeGaps();
 
     // ── Pass 2: buy label clearance on the cheap axis ────────────────────
-    // A fan whose labels collide can be fixed two ways: steepen the fan (widen
-    // the LEVEL gap) or spread the siblings (widen the CROSS gap). The level
-    // gap is shared by every node at that depth, so one bad fan pays across
-    // the whole diagram — on a sentence diagram that measured +65% width.
-    // Widening the siblings costs only that fan. So compute what separation
-    // each colliding pair actually needs, repack with it, and let the level
-    // solver mop up whatever remains.
-    const required = computeSiblingSeparations(levelSiblings, gaps, cfg);
-    if (required.size > 0) {
+    // A fan whose labels collide can be fixed two ways: steepen the fan (push
+    // the children further out) or spread them sideways. Spreading is the
+    // cheaper axis — pushing a child out lengthens its edge past what its own
+    // label needs, which is the very thing this layout is trying to stop. So
+    // compute what separation each colliding pair actually needs and repack.
+    //
+    // Twice, because the ragged solve has no level-wide fallback behind it:
+    // repacking moves the children, which changes their edges' angles, which
+    // changes how far each label sweeps across its neighbours.
+    for (let round = 0; round < 2; round++) {
+      const required = computeSiblingSeparations(levelSiblings, id => edgeGap.get(id), cfg);
+      if (required.size === 0) break;
       pack((aId, bId) => {
         const need = required.get(`${aId}|${bId}`) || required.get(`${bId}|${aId}`);
         if (!need) return 0;
         // `need` is centre-to-centre; the packer wants box-edge separation.
         return need - (crossExtent(aId) + crossExtent(bId)) / 2;
       });
-      ({ levelEdges, levelSiblings } = collect());
-      gaps = resolveLevelGaps(levelEdges, levelSiblings, cfg, vertical);
+      levelSiblings = collect();
+      edgeGap = solveEdgeGaps();
     }
 
-    const mainAt = [0];
-    for (let d = 0; d < maxDepth; d++) mainAt.push(mainAt[d] + gaps[d]);
+    // Walk the gaps down the tree into absolute main-axis coordinates.
+    const mainOf = new Map([[rootId, 0]]);
+    const mainQueue = [rootId];
+    for (let head = 0; head < mainQueue.length; head++) {
+      const parentId = mainQueue[head];
+      (children.get(parentId) || []).forEach(kidId => {
+        mainOf.set(kidId, mainOf.get(parentId) + (edgeGap.get(kidId) ?? cfg.minEdgeLength));
+        mainQueue.push(kidId);
+      });
+    }
 
     // Where the root goes when the hierarchy points inward — "Dog is a kind of
     // Mammal", arrows running from specific to general. Structure alone can't
@@ -566,8 +642,7 @@ function treeLayoutCentered(nodes, edges, cfg, meta = {}) {
 
     const positions = new Map();
     nodes.forEach(node => {
-      const d = depth.get(node.id);
-      const main = mainAt[d] * sign;
+      const main = (mainOf.get(node.id) ?? 0) * sign;
       const c = cross.get(node.id) ?? 0;
       positions.set(node.id, vertical ? { x: c, y: main } : { x: main, y: c });
     });
@@ -575,13 +650,23 @@ function treeLayoutCentered(nodes, edges, cfg, meta = {}) {
   };
 
   const direction = cfg.treeDirection || 'auto';
-  if (direction === 'vertical') return attempt(true);
   if (direction === 'horizontal') return attempt(false);
 
-  // 'auto': lay out both ways, keep whichever fits the canvas better. With
-  // long labels the level axis stretches, so the better orientation is the one
-  // that spends that stretch on the canvas's longer side.
-  return pickBetterFit(attempt(true), attempt(false), nodeById, cfg);
+  // 'auto' and 'vertical' both mean TOP-DOWN for a tree, deliberately.
+  //
+  // 'auto' used to lay the tree out both ways and keep whichever fitted the
+  // canvas better — but `cfg.width`/`cfg.height` come from the live viewport,
+  // so the same graph ran top-to-bottom in a tall window and right-to-left in a
+  // wide one, and resizing the window rotated the hierarchy. Depth is the one
+  // thing a tree is FOR; which way it points should be a fixed convention the
+  // reader can learn, not a function of the panel widths.
+  //
+  // Down is the direction that matches `rootPlacement: 'top'` and the Tree of
+  // Porphyry note in that comment: the general term above, the specific below.
+  // `treeDirection: 'horizontal'` still forces the other axis for callers that
+  // want it, and layeredLayoutCentered keeps its own canvas-aware choice — a
+  // DAG's flow axis is genuinely a fitting question, a taxonomy's is not.
+  return attempt(true);
 }
 
 // ============================================================================
@@ -1235,7 +1320,14 @@ function layeredLayoutCentered(nodes, edges, cfg) {
     // own label needed. Spreading the siblings instead costs only that fan.
     // This is the same two-pass structure treeLayoutCentered uses; layered was
     // simply never given it.
-    const required = computeSiblingSeparations(levelSiblings, gaps, cfg);
+    // Layers stay aligned (a DAG node can have several predecessors, so it has
+    // no single parent to hang a ragged offset off), so every child's edge runs
+    // the gap of the layer above it.
+    const required = computeSiblingSeparations(
+      levelSiblings,
+      id => gaps[(layer.get(id) ?? 0) - 1],
+      cfg
+    );
     if (required.size > 0) {
       packLayers((aId, bId) => required.get(`${aId}|${bId}`) || required.get(`${bId}|${aId}`) || 0);
       ({ levelEdges, levelSiblings } = collect());

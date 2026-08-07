@@ -18,6 +18,36 @@ function toTitleCase(str) {
     .replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
 }
 
+/**
+ * The spec's `directionality` string as the arrowsToward id list the rest of
+ * the app uses. Mirrors the mapping applied when the edges are actually
+ * created below; the layout needs it too, because topology detection orients a
+ * tree by the arrow rather than by which endpoint the model happened to list
+ * first.
+ */
+function specArrowsToward(edge, sourceId, targetId) {
+  switch (edge?.directionality) {
+    case 'bidirectional': return [sourceId, targetId];
+    case 'none':
+    case 'undirected': return [];
+    case 'reverse': return [sourceId];
+    default: return [targetId];
+  }
+}
+
+/** Layout edge for a spec edge — name and arrows included, both load-bearing. */
+function specLayoutEdge(edge, sourceId, destinationId) {
+  return {
+    sourceId,
+    destinationId,
+    // Without this the layout reserves no room for the label it is about to
+    // draw, so every generated edge came out the same length regardless of how
+    // much text sits on it.
+    name: toTitleCase(edge?.relation || edge?.type || ''),
+    directionality: { arrowsToward: specArrowsToward(edge, sourceId, destinationId) }
+  };
+}
+
 // Generate a unique color for a connection type based on its name (deterministic hash)
 function generateConnectionColor(connectionName) {
   if (!connectionName) return NODE_DEFAULT_COLOR; // Fallback blue
