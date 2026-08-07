@@ -70,3 +70,27 @@ export function settleToolCallsInMessages(messages, reason) {
   });
   return changed ? settled : messages;
 }
+
+/**
+ * Repair messages read back out of a conversation array: settle stale chips and
+ * strip `isStreaming`.
+ *
+ * The flag is only cleared by an explicit done/error event, so a stream that died
+ * without one persisted `isStreaming: true` — and the inline thinking-dots are
+ * gated on that flag alone, not on isProcessing. The result was a conversation
+ * that showed dots forever with the send (not stop) button rendered, looking
+ * exactly like a stall.
+ *
+ * `exemptId` is the message a run is streaming into RIGHT NOW. The premise that
+ * "nothing in here can still be streaming" is false for the conversations array,
+ * which is written live during a run — so switching tabs mid-run ran this sweep
+ * over the live bubble and stripped the flag off the message that was still
+ * filling, freezing it for the rest of the run.
+ */
+export function clearStuckStreamingFlags(messages, exemptId = null) {
+  if (!Array.isArray(messages)) return [];
+  const settled = settleToolCallsInMessages(messages, 'The run ended before this tool returned a result.');
+  if (settled === messages || !exemptId) return settled;
+  // Order and length are preserved above, so index alignment holds.
+  return settled.map((m, i) => (messages[i]?.id === exemptId ? messages[i] : m));
+}

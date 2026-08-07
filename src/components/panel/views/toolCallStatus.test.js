@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   settleToolCallBlocks,
   settleToolCallBlocksInPlace,
-  settleToolCallsInMessages
+  settleToolCallsInMessages,
+  clearStuckStreamingFlags
 } from './toolCallStatus.js';
 
 const REASON = 'The run ended before this tool returned a result.';
@@ -76,5 +77,53 @@ describe('settleToolCallsInMessages', () => {
   it('returns the same array when every chip is already terminal', () => {
     const messages = [{ id: '1', sender: 'ai', contentBlocks: [{ type: 'tool_call', status: 'completed' }] }];
     expect(settleToolCallsInMessages(messages, REASON)).toBe(messages);
+  });
+});
+
+
+describe('clearStuckStreamingFlags', () => {
+  const live = () => ({
+    id: 'live',
+    sender: 'ai',
+    isStreaming: true,
+    contentBlocks: [{ type: 'tool_call', id: 'x', name: 'readGraph', status: 'running' }]
+  });
+  const stale = () => ({
+    id: 'stale',
+    sender: 'ai',
+    isStreaming: true,
+    contentBlocks: [{ type: 'tool_call', id: 'y', name: 'expandGraph', status: 'running' }]
+  });
+
+  it('settles a bubble left streaming by a crashed run', () => {
+    const out = clearStuckStreamingFlags([stale()]);
+    expect(out[0].isStreaming).toBe(false);
+    expect(out[0].contentBlocks[0].status).toBe('cancelled');
+  });
+
+  // `conversations` is written live during a run, so a mid-run tab switch used to
+  // run this sweep over the bubble that was still filling — freezing it for the
+  // rest of the run with its chips cancelled under it.
+  it('leaves the message a run is currently streaming into alone', () => {
+    const messages = [stale(), live()];
+    const out = clearStuckStreamingFlags(messages, 'live');
+    expect(out[0].isStreaming).toBe(false);
+    expect(out[1]).toBe(messages[1]);
+    expect(out[1].isStreaming).toBe(true);
+    expect(out[1].contentBlocks[0].status).toBe('running');
+  });
+
+  it('still settles stale chips on messages that were never streaming', () => {
+    const messages = [{ id: '1', sender: 'ai', contentBlocks: [{ type: 'tool_call', status: 'running' }] }];
+    expect(clearStuckStreamingFlags(messages)[0].contentBlocks[0].status).toBe('cancelled');
+  });
+
+  it('returns the same array when there is nothing to repair', () => {
+    const messages = [{ id: '1', sender: 'ai', contentBlocks: [{ type: 'tool_call', status: 'completed' }] }];
+    expect(clearStuckStreamingFlags(messages, 'live')).toBe(messages);
+  });
+
+  it('normalizes a missing array to empty', () => {
+    expect(clearStuckStreamingFlags(undefined)).toEqual([]);
   });
 });

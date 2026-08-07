@@ -89,7 +89,7 @@ function layoutAfterWizardMutation(graphId) {
 const LAYOUT_DISPATCH_DELAY_MS = 600;
 const __pendingLayoutTimers = new Map(); // graphId -> timer id
 
-function scheduleGraphLayout(graphId, delay = LAYOUT_DISPATCH_DELAY_MS) {
+export function scheduleGraphLayout(graphId, delay = LAYOUT_DISPATCH_DELAY_MS) {
   if (!graphId) return;
   const pending = __pendingLayoutTimers.get(graphId);
   if (pending) {
@@ -116,7 +116,7 @@ function scheduleGraphLayout(graphId, delay = LAYOUT_DISPATCH_DELAY_MS) {
 const ENRICH_DELAY_MS = 1000;
 const __pendingEnrich = new Map(); // graphId -> { timer, names:Set, overwriteDescription }
 
-function scheduleEnrichment(names, graphId, { overwriteDescription = false } = {}) {
+export function scheduleEnrichment(names, graphId, { overwriteDescription = false } = {}) {
   const list = (Array.isArray(names) ? names : []).filter(Boolean);
   if (list.length === 0) return;
 
@@ -210,11 +210,7 @@ function applyUnfoldPlan(unfoldPlan, { enrich = true, overwriteDescription = fal
 
       if (enrich) {
         const insideNames = member.nodes.map(n => n.name);
-        setTimeout(() => {
-          _enrichMultiple(insideNames, gid, { overwriteDescription }).catch(err => {
-            console.warn('[Auto-Enrich] Unfold enrichment failed:', err);
-          });
-        }, 1000);
+        scheduleEnrichment(insideNames, gid, { overwriteDescription });
       }
 
       applied.push({ member: member.memberName, graphId: defGraphId, shape: member.insideShape || null });
@@ -499,11 +495,7 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
     const names = [...specNodes.map(n => n.name), ...liveLayers.filter(l => !l._reused).map(l => l.name)].filter(Boolean);
     if (names.length > 0) {
       const gid = graphId;
-      setTimeout(() => {
-        _enrichMultiple(names, gid, { overwriteDescription: options.overwriteDescription }).catch(err => {
-          console.warn('[Auto-Enrich] buildComposition enrichment failed:', err);
-        });
-      }, 1000);
+      scheduleEnrichment(names, gid, { overwriteDescription: options.overwriteDescription });
     }
   }
 }
@@ -1794,11 +1786,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         }
       }
 
-      setTimeout(() => {
-        _enrichMultiple(newNodeNames, graphId, { overwriteDescription: result.overwriteDescription || false }).catch(err => {
-          console.warn('[Auto-Enrich] Batch enrichment failed:', err);
-        });
-      }, 1000);
+      scheduleEnrichment(newNodeNames, graphId, { overwriteDescription: result.overwriteDescription || false });
     }
 
     return;
@@ -1975,11 +1963,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         }
       }
 
-      setTimeout(() => {
-        _enrichMultiple(nodeNames, graphId, { overwriteDescription: result.overwriteDescription || false }).catch(err => {
-          console.warn('[Auto-Enrich] Batch enrichment failed:', err);
-        });
-      }, 1000);
+      scheduleEnrichment(nodeNames, graphId, { overwriteDescription: result.overwriteDescription || false });
     }
 
     // 6. A3 unfold — open each member into its own definition graph of its
@@ -2077,11 +2061,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     // 5. Enrichment only if explicitly requested (default false for tabular imports)
     if (result.enrich === true) {
       const nodeNames = result.spec.nodes.map(n => n.name);
-      setTimeout(() => {
-        _enrichMultiple(nodeNames, graphId, { overwriteDescription: false }).catch(err => {
-          console.warn('[Auto-Enrich] Batch enrichment failed:', err);
-        });
-      }, 1000);
+      scheduleEnrichment(nodeNames, graphId, { overwriteDescription: false });
     }
 
     // Clear tabular data store after successful import
@@ -2199,11 +2179,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     // Launch batch Wikipedia enrichment asynchronously (if enrich is not explicitly false)
     if (result.enrich !== false) {
       const nodeNames = result.spec.nodes.map(n => n.name);
-      setTimeout(() => {
-        _enrichMultiple(nodeNames, activeGraphId, { overwriteDescription: result.overwriteDescription || false }).catch(err => {
-          console.warn('[Auto-Enrich] Batch enrichment failed:', err);
-        });
-      }, 1000);
+      scheduleEnrichment(nodeNames, activeGraphId, { overwriteDescription: result.overwriteDescription || false });
     }
   }
 

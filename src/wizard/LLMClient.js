@@ -492,7 +492,10 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
   try {
     while (true) {
       if (signal?.aborted) {
-        reader.cancel();
+        // Awaited and caught: a floating cancel() on a body that already errored
+        // becomes an unhandled rejection, which in Electron surfaces as a crash
+        // dialog for something entirely recoverable.
+        await reader.cancel().catch(() => { });
         break;
       }
       const { done, value } = await reader.read();
@@ -882,7 +885,10 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
   try {
     while (true) {
       if (signal?.aborted) {
-        reader.cancel();
+        // Awaited and caught: a floating cancel() on a body that already errored
+        // becomes an unhandled rejection, which in Electron surfaces as a crash
+        // dialog for something entirely recoverable.
+        await reader.cancel().catch(() => { });
         break;
       }
       const { done, value } = await reader.read();
@@ -1062,7 +1068,10 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
   try {
     while (true) {
       if (signal?.aborted) {
-        reader.cancel();
+        // Awaited and caught: a floating cancel() on a body that already errored
+        // becomes an unhandled rejection, which in Electron surfaces as a crash
+        // dialog for something entirely recoverable.
+        await reader.cancel().catch(() => { });
         break;
       }
       const { done, value } = await reader.read();
@@ -1399,7 +1408,10 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
   try {
     while (true) {
       if (signal?.aborted) {
-        reader.cancel();
+        // Awaited and caught: a floating cancel() on a body that already errored
+        // becomes an unhandled rejection, which in Electron surfaces as a crash
+        // dialog for something entirely recoverable.
+        await reader.cancel().catch(() => { });
         break;
       }
       const { done, value } = await reader.read();

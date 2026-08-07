@@ -698,6 +698,8 @@ let pendingActions = [];
 const inflightActionIds = new Set();
 const inflightMeta = new Map(); // id -> { ts, action, params }
 const completedActions = new Map(); // id -> { result, completedAt }
+/** How long a client may hold a leased action before it is offered to another. */
+const INFLIGHT_TTL_MS = 300000; // 5 min, matching completedActions
 let telemetry = [];
 let chatLog = [];
 
@@ -728,6 +730,19 @@ app.get('/api/bridge/pending-actions', (req, res) => {
     // Headless: the runtime executes actions in-process, so never hand them to a
     // (coexisting) browser — that would double-apply the same mutation.
     if (isHeadless()) return res.json({ pendingActions: [] });
+    // Expire stale leases first. A client that leased an action and then died
+    // never reports back, and this filter is what hides the action from every
+    // other client — so without a TTL that action is hidden permanently. Same
+    // 5 minutes completedActions already uses.
+    const leaseCutoff = Date.now() - INFLIGHT_TTL_MS;
+    for (const [id, meta] of inflightMeta) {
+      if (meta.ts < leaseCutoff) {
+        inflightMeta.delete(id);
+        inflightActionIds.delete(id);
+        console.warn(`[Wizard] Lease on action ${id} (${meta.action}) expired — returning it to the queue.`);
+      }
+    }
+
     const available = pendingActions.filter(a => !inflightActionIds.has(a.id));
     available.forEach(a => {
       inflightActionIds.add(a.id);

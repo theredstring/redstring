@@ -20,7 +20,7 @@ import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { applyOffscreenLayout } from '../../../services/offscreenLayout.js';
 import { applyToolResultToStore, configureToolResultApplier, setWizardProvenanceContext } from '../../../services/toolResultApplier.js';
-import { settleToolCallBlocks, settleToolCallBlocksInPlace, settleToolCallsInMessages } from './toolCallStatus.js';
+import { settleToolCallBlocks, settleToolCallBlocksInPlace, settleToolCallsInMessages, clearStuckStreamingFlags } from './toolCallStatus.js';
 import DruidInstance from '../../../services/DruidInstance.js';
 import { getTextColor } from '../../../utils/colorUtils.js';
 import { useTheme } from '../../../hooks/useTheme.js';
@@ -203,7 +203,28 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
  * This is near-instant: one HTTP call + a single store write.
  * Images appear progressively as they're fetched in the background.
  */
+// Names currently being enriched. A build fires enrichment per level, and each
+// call POSTs to /api/enrich and then rewrites the whole prototype Map — so two
+// overlapping calls for the same nodes did the same lookup twice and applied the
+// same updates twice. Dropping already-in-flight names collapses them to one.
+const __enrichInFlight = new Set();
+
 async function enrichMultipleNodes(nodeNames, _graphId, { overwriteDescription = false } = {}) {
+  const requested = (Array.isArray(nodeNames) ? nodeNames : []).filter(Boolean);
+  const fresh = requested.filter(n => !__enrichInFlight.has(String(n).toLowerCase().trim()));
+  if (fresh.length === 0) {
+    if (requested.length > 0) console.log(`[Auto-Enrich] ⏭️ All ${requested.length} node(s) already being enriched — skipping duplicate request`);
+    return [];
+  }
+  fresh.forEach(n => __enrichInFlight.add(String(n).toLowerCase().trim()));
+  try {
+    return await runEnrichment(fresh, { overwriteDescription });
+  } finally {
+    fresh.forEach(n => __enrichInFlight.delete(String(n).toLowerCase().trim()));
+  }
+}
+
+async function runEnrichment(nodeNames, { overwriteDescription = false } = {}) {
   console.log(`[Auto-Enrich] 🚀 Starting enrichment for ${nodeNames.length} nodes (via server)`);
 
   // ── Phase 1: Server-side batch Wikipedia lookup ──
@@ -506,24 +527,6 @@ function WizardLoadingText() {
   return <span className="wizard-loading-text">{displayText}</span>;
 }
 
-/**
- * Strip `isStreaming` from messages loaded out of storage.
- *
- * A live run's message lives in component state; anything read back from
- * localStorage or a conversation file is finished by definition. The flag is
- * only cleared by an explicit done/error event, so a stream that died without
- * one persisted `isStreaming: true` — and the inline thinking-dots at the
- * bottom of the message bubble are gated on that flag alone, not on
- * isProcessing. The result was a conversation that showed dots forever, with
- * the send button (not the stop button) rendered, looking exactly like a stall.
- */
-function clearStuckStreamingFlags(messages) {
-  if (!Array.isArray(messages)) return [];
-  return settleToolCallsInMessages(
-    messages.map(m => (m?.isStreaming ? { ...m, isStreaming: false } : m)),
-    'The run ended before this tool returned a result.'
-  );
-}
 
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
 const LeftAIView = ({ compact = false,
@@ -642,6 +645,11 @@ const LeftAIView = ({ compact = false,
   // Stable ref for conversations (avoid stale closures in effects/event handlers).
   const conversationsRef = React.useRef(conversations);
   React.useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
+  // Id of the message a run is streaming into right now, or null. The tab-switch
+  // sweep below has to know about it: `conversations` IS written live during a
+  // run, so "nothing loaded from here can still be streaming" is false, and
+  // switching tabs mid-run stripped the flag off the bubble that was still filling.
+  const liveStreamingMessageIdRef = React.useRef(null);
   // Conversation that owns the in-flight agent run. Telemetry arrives as a
   // GLOBAL window event with no conversation id, so without this a run started
   // in tab A dumps its tool chips into tab B after a tab switch.
@@ -689,6 +697,22 @@ const LeftAIView = ({ compact = false,
   // Last iteration's input split — what the context is actually being spent on.
   const [costBreakdown, setCostBreakdown] = React.useState(null);
 
+  // The fixed floor every request carries before a single word of conversation:
+  // the wizard system prompt (~12.2k) plus the tool definitions resent with every
+  // call (~13.1k across 45 tools). This was hardcoded at 3,500 — off by more than
+  // 7x — which is why the meter read comfortable right up until a run died of
+  // context exhaustion. Both halves are measured from the real artifacts rather
+  // than pinned to a number, so growing the prompt or adding a tool shows up here
+  // instead of silently eating the user's headroom.
+  //
+  // It gets its own memo because it depends on nothing that changes during a run.
+  // Folded into contextUsage below it was re-stringifying all ~45 tool schemas on
+  // every streamed delta, since that memo has to depend on `messages`.
+  const staticPromptTokens = React.useMemo(() => (
+    estimateTokens(WIZARD_SYSTEM_PROMPT)
+    + (wizardTools.length > 0 ? estimateObjectTokens(wizardTools) : TOOL_SCHEMA_FALLBACK_TOKENS)
+  ), [wizardTools]);
+
   const contextUsage = React.useMemo(() => {
     // Known context windows by model pattern (tokens)
     const getContextWindow = (model) => {
@@ -730,9 +754,7 @@ const LeftAIView = ({ compact = false,
     // context exhaustion. Both halves are measured from the real artifacts rather
     // than pinned to a number, so growing the prompt or adding a tool shows up here
     // instead of silently eating the user's headroom.
-    const systemPromptTokens =
-      estimateTokens(WIZARD_SYSTEM_PROMPT)
-      + (wizardTools.length > 0 ? estimateObjectTokens(wizardTools) : TOOL_SCHEMA_FALLBACK_TOKENS);
+    const systemPromptTokens = staticPromptTokens;
 
     // Estimate conversation history tokens
     let conversationTokens = 0;
@@ -795,7 +817,7 @@ const LeftAIView = ({ compact = false,
       systemPromptTokens,
       graphContextTokens
     };
-  }, [messages, apiKeyInfo?.model, contextItems, pendingAttachments, wizardTools, measuredContextTokens]);
+  }, [messages, apiKeyInfo?.model, contextItems, pendingAttachments, staticPromptTokens, measuredContextTokens]);
 
   // "How full is the context" is only half the question — the other half is
   // "with what". A percentage that can only be watched climbing is not
@@ -973,11 +995,11 @@ const LeftAIView = ({ compact = false,
         // whole history from top to bottom.
         jumpToBottomRef.current = true;
         isPinnedToBottomRef.current = true;
-        // Nothing loaded from storage can still be streaming — a live run's
-        // message is held in component state, not read back from here. Clearing
-        // the flag on load lets a conversation poisoned by an earlier crashed
-        // stream recover instead of showing thinking-dots forever.
-        setMessages(clearStuckStreamingFlags(activeConv.messages));
+        // Anything read back here that claims to be streaming is stale — a
+        // conversation poisoned by a crashed stream would otherwise show
+        // thinking-dots forever — EXCEPT the message a run is filling right now,
+        // which lives in this same array and must keep its flag.
+        setMessages(clearStuckStreamingFlags(activeConv.messages, liveStreamingMessageIdRef.current));
       }
     }
     lastActiveIdRef.current = activeConversationId;
@@ -2342,7 +2364,13 @@ const LeftAIView = ({ compact = false,
 
     // Message ID for streaming updates — defined before try/catch so error handler can reference it
     const streamingMessageId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const _preCreatedConvId = activeConversationId;
+    // Read the ref, not the closure. A run started via the `rs-new-wizard-tab` +
+    // setTimeout(send, 0) path from NodeCanvas begins in a closure captured before
+    // the new tab became active, so `activeConversationId` here can name the OLD
+    // tab while every routing guard downstream reads the ref. That mismatch
+    // appended the bubble to a conversation the run then never updated — frozen
+    // and empty for the whole run.
+    const _preCreatedConvId = activeConversationIdRef.current;
     // _preCreated tracks whether we've added the AI bubble yet (set just before fetch)
     let _preCreated = false;
 
@@ -2382,12 +2410,18 @@ const LeftAIView = ({ compact = false,
         );
       };
 
-      setMessages(prev => [...settleStale(prev), _preCreatedMsg]);
+      // Guarded like every other setMessages in the run: the visible message list
+      // belongs to whatever tab is active NOW, and this bubble belongs to the run's
+      // tab. The conversations write below is what carries it either way.
+      if (activeConversationIdRef.current === _preCreatedConvId) {
+        setMessages(prev => [...settleStale(prev), _preCreatedMsg]);
+      }
       setConversations(prev => prev.map(c => c.id === _preCreatedConvId
         ? { ...c, messages: [...settleStale(c.messages || []), _preCreatedMsg], timestamp: new Date().toISOString() }
         : c
       ));
       _preCreated = true;
+      liveStreamingMessageIdRef.current = streamingMessageId;
       const abortController = new AbortController();
       setCurrentAgentRequest(abortController);
 
@@ -2649,7 +2683,9 @@ const LeftAIView = ({ compact = false,
       let lastTopLevelStepStatuses = null;
       let planCardCounter = 0;
 
-      const targetConversationId = activeConversationId;
+      // Same reason as _preCreatedConvId above: this must name the tab the run
+      // was started in, which is what the ref holds and the closure may not.
+      const targetConversationId = _preCreatedConvId;
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -2913,6 +2949,10 @@ const LeftAIView = ({ compact = false,
           }
         }
       } finally {
+        // Cancel before releasing: releaseLock alone leaves the underlying body
+        // stream open, so an abort or an early break kept the HTTP response (and
+        // the server's SSE handler) alive with nothing reading it.
+        try { await reader.cancel(); } catch { /* already closed or errored */ }
         reader.releaseLock();
         // Backstop: isStreaming is normally cleared by an explicit done/error
         // event. If the stream just ends without one — server closed the
@@ -3001,12 +3041,15 @@ const LeftAIView = ({ compact = false,
         ));
       }
     } finally {
+      // The run is over however it ended — the bubble is no longer exempt from
+      // the stale-streaming sweep.
+      liveStreamingMessageIdRef.current = null;
       setCurrentAgentRequest(null);
     }
   };
 
   const handleQuestion = async (question) => {
-    const targetConversationId = activeConversationId;
+    const targetConversationId = activeConversationIdRef.current;
     try {
       const apiConfig = await apiKeyManager.getAPIKeyInfo();
       if (!apiConfig) { addMessage('ai', 'Please set up your API key first by clicking the key icon in the header.', {}, targetConversationId); return; }
