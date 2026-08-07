@@ -48,7 +48,8 @@ const LAYERS_PARAM = {
                                 name: { type: 'string' },
                                 color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string' },
-                                type: { type: 'string' }
+                                type: { type: 'string' },
+                                size: SIZE_SCHEMA
                             },
                             required: ['name']
                         }
@@ -125,7 +126,7 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'setNodeSize',
-            description: 'Change the visual size of one existing node on the canvas. Size is per-instance — the same Thing can be large in one Web and medium in another. Sizes are discrete: "extra-small", "small", "medium" (the default), "large", "extra-large". Only deviate from "medium" to convey real physical scale (a Galaxy vs. a Grain of Sand) or relative importance within the graph; a graph where everything is resized reads as noise. To size nodes as you create them, pass `size` inline in createNode / createPopulatedGraph / expandGraph / populateDefinitionGraph instead of calling this afterwards.',
+            description: 'Change the visual size of one existing node on the canvas. Size is per-instance — the same Thing can be large in one Web and medium in another. Sizes are discrete: "extra-small", "small", "medium" (the default), "large", "extra-large". Size by real scale when the subject has one (a Galaxy vs. a Grain of Sand), otherwise by importance within the graph. Use this to rebalance a graph that came out uniformly medium, or to correct one node. When you are CREATING nodes, pass `size` inline in sketchGraph / createNode / createPopulatedGraph / expandGraph / populateDefinitionGraph / buildComposition instead — that is one call rather than one per node.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -434,7 +435,7 @@ export function getToolDefinitions(options = {}) {
                                 color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string' },
                                 type: { type: 'string', description: 'Optional type/category name for this node' },
-                                size: { type: 'string', description: 'Visual size: small, medium (default), large, huge' }
+                                size: SIZE_SCHEMA
                             },
                             required: ['name']
                         }
@@ -494,7 +495,7 @@ export function getToolDefinitions(options = {}) {
                                                     color: { type: 'string', description: COLOR_DESC },
                                                     description: { type: 'string' },
                                                     type: { type: 'string' },
-                                                    size: { type: 'string' }
+                                                    size: SIZE_SCHEMA
                                                 },
                                                 required: ['name']
                                             }
@@ -547,7 +548,8 @@ export function getToolDefinitions(options = {}) {
                                                                         name: { type: 'string' },
                                                                         color: { type: 'string' },
                                                                         description: { type: 'string' },
-                                                                        type: { type: 'string' }
+                                                                        type: { type: 'string' },
+                                                                        size: SIZE_SCHEMA
                                                                     },
                                                                     required: ['name']
                                                                 }
@@ -1034,7 +1036,7 @@ export function getToolDefinitions(options = {}) {
                     palette: { type: 'string', description: PALETTE_DESC },
                     nodes: {
                         type: 'array',
-                        description: 'Node names. Optionally add [Type] suffix: ["Engine Block", "Pistons [Component]"]',
+                        description: 'Node names. Optionally add a [Type] suffix and/or a {size} marker, in either order: ["Engine Block {large}", "Pistons [Component]", "Oil Pump [System] {small}"]. Sizes are "extra-small", "small", "medium" (the default — omit it), "large", "extra-large". Decide sizes HERE, in the sketch, alongside the layers: size by real scale when the subject has one, otherwise by importance within this web. The expandedSpec carries them straight into the build.',
                         items: { type: 'string' }
                     },
                     edges: {
@@ -1060,7 +1062,7 @@ export function getToolDefinitions(options = {}) {
                                     type: 'object',
                                     description: 'The web inside this layer — its nodes ARE the layer\'s members.',
                                     properties: {
-                                        nodes: { type: 'array', items: { type: 'string' }, description: 'Node names, same shorthand as the top level' },
+                                        nodes: { type: 'array', items: { type: 'string' }, description: 'Node names, same shorthand as the top level — [Type] and {size} markers both work here' },
                                         edges: { type: 'array', items: { type: 'string' }, description: '"Source -> Relation -> Target" strings' },
                                         groups: { type: 'array', items: { type: 'string' }, description: 'Plain groups inside this web' },
                                         layers: { type: 'array', items: { type: 'object' }, description: 'Deeper layers nested inside this web (same shape)' }
@@ -1216,18 +1218,17 @@ const TOOL_TIERS = {
     manageDefinitions: 'hasDefinitions', decomposeNode: 'hasDefinitions',
     condenseToNode: 'has3PlusNodes', themeGraph: 'has3PlusNodes',
     setNodeType: 'hasNodes', abstractionChain: 'hasNodes',
+    // Sizing is a normal part of composing a web, so it has to be reachable
+    // without the user naming it. Gating it on the word "size" (the old Tier 3
+    // placement) meant the wizard could never rebalance an existing graph's
+    // sizes on its own — it only ever saw the tool after being asked.
+    setNodeSize: 'hasNodes',
     inspectPrototype: 'hasNodes',
     getNodeContext: 'hasNodes', enrichFromWikipedia: 'hasNodes',
     findDuplicates: 'has5PlusNodes', mergeNodes: 'has5PlusNodes',
     mergeGraphs: 'multipleGraphs',
 
-    // Tier 3: Keyword-triggered (semantic web, tabular data, sizing)
-    // setNodeSize is deliberately NOT default: sizing is a deviation from the
-    // medium baseline, so it should surface when the user actually asks about
-    // size (or after listTools unlocks everything), not sit in every turn's
-    // tool list inviting the model to resize things nobody asked about.
-    setNodeSize: ['size', 'sized', 'resize', 'bigger', 'biggest', 'smaller', 'smallest', 'larger', 'largest', 'shrink', 'enlarge', 'scale'],
-
+    // Tier 3: Keyword-triggered (semantic web, tabular data)
     discoverOrbit: ['semantic', 'wikidata', 'dbpedia', 'discover', 'orbit'],
     semanticSearch: ['semantic', 'wikidata', 'dbpedia', 'linked data'],
     materializeSemanticEntities: ['semantic', 'materialize', 'wikidata'],

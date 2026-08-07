@@ -308,7 +308,13 @@ const PINCH_GLIDE_STRENGTH_FRICTION_RANGE = 0.08; // friction offset sweep for t
 // touch pinch keeps its own momentum glide in startZoomMomentum; its gesture
 // applies zoom directly from finger distance and has a real release event.)
 const TRACKPAD_ZOOM_MAX_STEP_DELTA = 40;        // |deltaY| above this in pixel mode is a mouse wheel detent, not a trackpad
-const TRACKPAD_ZOOM_SMOOTHING = 0.35;           // per-frame fraction of the remaining gap to close (log space)
+// Per-frame fraction of the remaining gap to close (log space). This is the
+// latency dial: the view trails the target by about (1 − s)/s frames, so 0.35
+// costs ~1.9 frames (~31ms) and 0.6 costs ~0.67 (~11ms) — low enough to read as
+// direct while still absorbing the frame-to-frame bunching that made raw
+// application choppy. Below ~0.3 the lag becomes felt as sluggishness; at 1.0
+// there is no smoothing left at all.
+const TRACKPAD_ZOOM_SMOOTHING = 0.6;
 const TRACKPAD_ZOOM_SETTLE_EPSILON = 0.0004;    // |ln(target/current)| below which the ease snaps and stops
 // The gesture-end idle gap is measured against the gesture's OWN event rate
 // rather than fixed. Pinch/scroll events are frame-locked, so a stream running
@@ -2053,6 +2059,10 @@ function NodeCanvas() {
   // Settled values used where React re-renders are acceptable (child props, culling, view persistence)
   const panOffset = transform.settledPan;
   const zoomLevel = transform.settledZoom;
+  // True from the first mutation of a pan/zoom gesture until it settles. Lets
+  // render-time budgets pick a cheaper form while the view is in motion — see
+  // labelAngleQuantum.
+  const isViewMoving = transform.isMoving;
 
   // Apply DOM transform after mount and whenever canvasSize changes.
   // This is the ONLY place the SVG transform is written — JSX style omits `transform`
@@ -2653,7 +2663,11 @@ function NodeCanvas() {
   // the "gesture in flight" flag handleWheel routes continuation events on.
   // `sensitivity` latches the zoom rate the gesture started with so continuation
   // events (modifier released mid-stream) don't change speed. `endTimerId` is
-  // the idle timer standing in for the missing "fingers lifted" event.
+  // the idle timer standing in for the missing "fingers lifted" event. `rect` is
+  // the container's bounding rect, read ONCE per gesture: reading it per event or
+  // per frame forces a synchronous layout of a content group the transform write
+  // just dirtied, which on a Lombardi graph with labels is the single most
+  // expensive thing this path can do.
   const trackpadZoomRef = useRef({
     animationId: null,
     targetZoom: null,
@@ -2663,7 +2677,13 @@ function NodeCanvas() {
     hist: [],
     endTimerId: null,
     sensitivity: null,
+    rect: null,
   });
+
+  // Diagnostic accumulator for `window.__zoomPerf`. Off by default and never
+  // read unless the flag is set; exists to answer "is the frame time going into
+  // our JS or into the browser's repaint?" without a profiler session.
+  const zoomPerfRef = useRef({ frames: 0, totalMs: 0, worstMs: 0, longFrames: 0, cullingRuns: 0, cullingMs: 0, cullingWorstMs: 0 });
 
   // Halts the ease wherever it currently is, abandoning the remaining target.
   // For foreign input taking over the view (a press, a touch, an animated zoom)
@@ -2679,6 +2699,7 @@ function NodeCanvas() {
     ref.anchorWorld = null;
     ref.hist = [];
     ref.sensitivity = null;
+    ref.rect = null;
   }, []);
 
   // Points the ease at `targetZoom`, anchored on the world point under the
@@ -2686,7 +2707,7 @@ function NodeCanvas() {
   // zoom step — wheel or Safari GestureEvent — goes through here rather than
   // writing zoom directly, so the view moves on the compositor's clock instead
   // of the input device's.
-  const setTrackpadZoomTarget = useCallback((targetZoom, clientX, clientY, minZoomBound, maxZoomBound) => {
+  const setTrackpadZoomTarget = useCallback((targetZoom, clientX, clientY, minZoomBound, maxZoomBound, knownRect = null) => {
     const container = containerRef.current;
     const canvas = canvasSizeRef.current;
     if (!container || !canvas || !Number.isFinite(targetZoom) || targetZoom <= 0) return;
@@ -2696,10 +2717,14 @@ function NodeCanvas() {
     const effMaxZoom = Number.isFinite(maxZoomBound) ? maxZoomBound : MAX_ZOOM;
     ref.targetZoom = Math.max(effMinZoom, Math.min(effMaxZoom, targetZoom));
 
+    // One layout read per gesture — the caller usually has the rect already, and
+    // it's held for the gesture's duration (a panel can't resize mid-zoom).
+    if (!ref.rect) ref.rect = knownRect || container.getBoundingClientRect();
+    const rect = ref.rect;
+
     // Re-derive the anchor from the LIVE transform every step. Mid-ease the
     // anchoring invariant holds the same world point under the cursor, so this
     // is stable while the cursor is still and correctly follows it when it moves.
-    const rect = container.getBoundingClientRect();
     const pan = panOffsetRef.current;
     const zoom = zoomLevelRef.current;
     ref.anchorClient = { x: clientX, y: clientY };
@@ -2727,24 +2752,51 @@ function NodeCanvas() {
         return;
       }
 
-      const dt = Math.min(32, Math.max(1, time - (s.lastTime || time)));
+      const rawDt = time - (s.lastTime || time);
+      const dt = Math.min(32, Math.max(1, rawDt));
       s.lastTime = time;
       isPanningOrZooming.current = true;
+
+      // Frame-time probe. `window.__zoomPerf = true` in the console, zoom, and
+      // read the summary logged when the gesture settles. rawDt is the achieved
+      // frame interval: if it is far above 16ms while the work this loop does
+      // itself is trivial, the cost is downstream (culling, React commit, or the
+      // browser repainting the label-bearing SVG), not in the easing.
+      if (typeof window !== 'undefined' && window.__zoomPerf) {
+        const p = zoomPerfRef.current;
+        p.frames++;
+        p.totalMs += rawDt;
+        if (rawDt > p.worstMs) p.worstMs = rawDt;
+        if (rawDt > 24) p.longFrames++;
+      }
 
       // Ease in log space so a step feels the same at any magnification, and
       // compensate for frame time so a dropped frame closes proportionally more
       // of the gap instead of stretching the ease.
+      // `window.__trackpadZoomSmoothing = 1` disables smoothing entirely (target
+      // applied on the frame it arrives) — the A/B for whether this loop is
+      // responsible for a perf complaint at all.
+      const smoothing = (typeof window !== 'undefined' && Number(window.__trackpadZoomSmoothing) > 0)
+        ? Math.min(1, Number(window.__trackpadZoomSmoothing))
+        : TRACKPAD_ZOOM_SMOOTHING;
       const curZoom = zoomLevelRef.current;
       const lnCur = Math.log(curZoom);
       const lnTarget = Math.log(s.targetZoom);
       const gap = lnTarget - lnCur;
-      const t = 1 - Math.pow(1 - TRACKPAD_ZOOM_SMOOTHING, dt / PAN_MOMENTUM_FRAME);
+      const t = 1 - Math.pow(1 - smoothing, dt / PAN_MOMENTUM_FRAME);
       const settled = Math.abs(gap) < TRACKPAD_ZOOM_SETTLE_EPSILON;
       const nextZoom = settled ? s.targetZoom : Math.exp(lnCur + gap * t);
 
-      const rect2 = cont.getBoundingClientRect();
+      // Cached rect — never read layout inside the loop. See trackpadZoomRef.
+      const rect2 = s.rect;
       const world = s.anchorWorld;
       const client = s.anchorClient;
+      if (!rect2 || !world || !client) {
+        s.animationId = null;
+        s.targetZoom = null;
+        isPanningOrZooming.current = false;
+        return;
+      }
       const nextPan = {
         x: client.x - rect2.left - (world.x - cvs.offsetX) * nextZoom,
         y: client.y - rect2.top - (world.y - cvs.offsetY) * nextZoom,
@@ -2759,7 +2811,23 @@ function NodeCanvas() {
       if (settled) {
         s.animationId = null;
         s.targetZoom = null;
+        s.rect = null;
         isPanningOrZooming.current = false;
+        if (typeof window !== 'undefined' && window.__zoomPerf) {
+          const p = zoomPerfRef.current;
+          console.log('[zoomPerf]', {
+            frames: p.frames,
+            avgFrameMs: +(p.totalMs / Math.max(1, p.frames)).toFixed(1),
+            worstFrameMs: +p.worstMs.toFixed(1),
+            framesOver24ms: p.longFrames,
+            cullingRuns: p.cullingRuns,
+            cullingAvgMs: +(p.cullingMs / Math.max(1, p.cullingRuns)).toFixed(2),
+            cullingWorstMs: +p.cullingWorstMs.toFixed(2),
+            visibleNodes: visibleNodeIdsRef.current?.size ?? 0,
+            visibleEdges: visibleEdgesRef.current?.length ?? 0,
+          });
+          zoomPerfRef.current = { frames: 0, totalMs: 0, worstMs: 0, longFrames: 0, cullingRuns: 0, cullingMs: 0, cullingWorstMs: 0 };
+        }
         return;
       }
       s.animationId = requestAnimationFrame(step);
@@ -2867,12 +2935,23 @@ function NodeCanvas() {
 
     cullingRafIdRef.current = requestAnimationFrame(() => {
       cullingRafIdRef.current = null;
+      const perfOn = typeof window !== 'undefined' && window.__zoomPerf;
+      const perfStart = perfOn ? performance.now() : 0;
+      const perfDone = () => {
+        if (!perfOn) return;
+        const ms = performance.now() - perfStart;
+        const p = zoomPerfRef.current;
+        p.cullingRuns++;
+        p.cullingMs += ms;
+        if (ms > p.cullingWorstMs) p.cullingWorstMs = ms;
+      };
 
       // Notify EdgeGlowIndicator (and any other transform-driven subscribers)
       // BEFORE the culling guards, so the glow still tracks transform updates
       // during node drag / pinch animation where culling itself is skipped.
       glowUpdateRef.current?.();
 
+      try {
       if (!ENABLE_CULLING) {
         // CULLING DISABLED - Show all nodes and edges.
         //
@@ -3082,6 +3161,7 @@ function NodeCanvas() {
         }
         return nextVisibleEdges;
       });
+      } finally { perfDone(); }
     });
   }, []); // Empty deps — everything is read from refs; identity stays stable forever.
 
@@ -3467,8 +3547,24 @@ function NodeCanvas() {
   // worst-case error stays inside LABEL_ANGLE_ERROR_PX on screen. Zoomed out,
   // where the labels are small and numerous, that permits a coarse bucket;
   // zoomed in, where a tilt would show, it tightens automatically.
+  //
+  // That tightening is correct at rest and ruinous in motion, which is why
+  // zooming a label-bearing Lombardi graph fell apart while panning it didn't.
+  // Panning holds the zoom fixed, so the bucket it started with is the bucket it
+  // keeps. Zooming walks the quantum down its curve — past zoom ~2 it asks for
+  // 4°, past ~4 for 2°, and the budget table above prices 200 labels at 1.5° at
+  // 24ms/frame and at exact angles 41ms. The atlas thrashes for a tilt precision
+  // nobody can resolve on a moving view.
+  //
+  // So while the view is moving, take the coarsest bucket outright and restore
+  // the zoom-derived one when it settles. The error this trades away is angular
+  // precision on labels that are sliding across the screen; what it buys is the
+  // difference between a repaint that fits in a frame and one that doesn't.
+  // `isViewMoving` flips twice per gesture, so this costs two re-renders, not
+  // sixty (see useCanvasTransform).
   const labelAngleQuantum = useMemo(() => {
     if (visibleEdges.length <= LABEL_ANGLE_QUANTUM_MIN_COUNT) return 0;
+    if (isViewMoving) return MAX_LABEL_ANGLE_QUANTUM;
     const halfWidthOnScreen = LABEL_HALF_WIDTH_CANVAS * zoomLevel;
     const wanted = halfWidthOnScreen > LABEL_ANGLE_ERROR_PX
       ? Math.min(
@@ -3484,7 +3580,7 @@ function NodeCanvas() {
     // already fast. Ceil on the division keeps the result at or under `wanted`,
     // so the error budget above still holds.
     return 90 / Math.max(1, Math.ceil(90 / wanted));
-  }, [visibleEdges.length, zoomLevel]);
+  }, [visibleEdges.length, zoomLevel, isViewMoving]);
 
   const quantizeLabelAngle = useCallback(
     (degrees) => quantizeAngle(degrees, labelAngleQuantum),
@@ -8413,9 +8509,16 @@ function NodeCanvas() {
     // relaunches from the idle timer once this new gesture stops.
     stopZoomMomentum();
 
-    const rect = containerRef.current.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    // getBoundingClientRect forces a synchronous layout, and the transform write
+    // from the previous event has already dirtied the content group — so on a
+    // heavy graph (Lombardi routing with labels) each call reflows the whole SVG
+    // subtree. Read it lazily, and prefer the rect the running zoom gesture
+    // already cached, so a gesture costs one reflow instead of one per event.
+    let rectCache = trackpadZoomRef.current.rect || null;
+    const getRect = () => {
+      if (!rectCache) rectCache = containerRef.current.getBoundingClientRect();
+      return rectCache;
+    };
 
     let deltaY = e.deltaY;
     if (e.deltaMode === 1) deltaY *= 33;
@@ -8480,16 +8583,17 @@ function NodeCanvas() {
           return;
         }
         const base = zoomGesture.targetZoom ?? zoomLevelRef.current;
+        const r = getRect();
         // calculateZoom owns the delta→factor curve; only its zoom is wanted
         // here, since the ease derives pan from its own anchor.
         const target = calculateZoom({
           deltaY: zoomDelta,
           currentZoom: base,
-          mousePos: { x: mouseX, y: mouseY },
+          mousePos: { x: e.clientX - r.left, y: e.clientY - r.top },
           panOffset: panOffsetRef.current,
           viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM,
         }).zoomLevel;
-        setTrackpadZoomTarget(target, e.clientX, e.clientY, MIN_ZOOM, MAX_ZOOM);
+        setTrackpadZoomTarget(target, e.clientX, e.clientY, MIN_ZOOM, MAX_ZOOM, r);
         recordTrackpadZoomSample(target, sensitivity);
         setTimeout(() => {
           if (opId !== zoomOpIdRef.current) return;
@@ -8524,10 +8628,11 @@ function NodeCanvas() {
       // Computing inline removes both by construction: no snapshot to go
       // stale, no responses to mismatch, and it composes with the keyboard loop
       // for free because both now read and write the same refs in the same tick.
+      const detentRect = getRect();
       const result = calculateZoom({
         deltaY: zoomDelta,
         currentZoom: zoomLevelRef.current,
-        mousePos: { x: mouseX, y: mouseY },
+        mousePos: { x: e.clientX - detentRect.left, y: e.clientY - detentRect.top },
         panOffset: panOffsetRef.current,
         viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM,
       });

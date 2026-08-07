@@ -36,9 +36,40 @@ const SIZE_ALIASES = {
 /** Shared description for the optional `size` field on node specs. */
 export const NODE_SIZE_FIELD_DESC =
   'Optional visual size: "extra-small", "small", "medium", "large", or "extra-large". ' +
-  'Defaults to "medium" — OMIT it for almost every node. Only deviate when the node ' +
-  'genuinely warrants it: to convey real physical scale (a Galaxy vs. a Grain of Sand) ' +
-  'or to convey relative importance within this graph. Never size every node.';
+  'Defaults to "medium". Size is a regular part of composing a web, not a rare exception — ' +
+  'reach for it in most graphs. Two frames, in order: size by REAL SCALE when the subject has ' +
+  'one (a Galaxy is "extra-large", a Grain of Sand "extra-small"); otherwise size by IMPORTANCE ' +
+  'within this web (the one or two anchor concepts "large", peripheral detail "small"). ' +
+  'Leave the middle of the distribution at "medium" and omit the field there — a graph where ' +
+  'every node is the same size says nothing, and one where every node differs is noise. ' +
+  'A typical web of 8-12 nodes uses two or three of the steps.';
+
+/**
+ * Strip an inline `{size}` marker out of a shorthand string.
+ *
+ * sketchGraph's node shorthand is a bare string, so size rides along in braces the
+ * same way a type rides along in brackets: "Sun {large}", "Ceres [Dwarf Planet] {small}".
+ * Braces are used rather than another bracket pair so the two markers can coexist in
+ * either order without the type regex swallowing the size.
+ *
+ * @param {string} str
+ * @returns {{ text: string, size: string|null, unknown: string|null }}
+ *   `size` is the canonical name; `unknown` carries an unrecognized token so the
+ *   caller can warn rather than silently dropping what the model asked for.
+ */
+export function parseSizeShorthand(str) {
+  const text = String(str ?? '');
+  const match = text.match(/\{\s*([^{}]+?)\s*\}/);
+  if (!match) return { text: text.trim(), size: null, unknown: null };
+
+  const stripped = (text.slice(0, match.index) + text.slice(match.index + match[0].length))
+    .replace(/\s+/g, ' ')
+    .trim();
+  const resolved = resolveNodeSize(match[1]);
+  return resolved
+    ? { text: stripped, size: resolved.name, unknown: null }
+    : { text: stripped, size: null, unknown: match[1] };
+}
 
 /**
  * Resolve a user/model-supplied size word to its canonical name and multiplier.

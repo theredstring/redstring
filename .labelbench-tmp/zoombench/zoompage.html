@@ -1,0 +1,130 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><style>html,body{margin:0;overflow:hidden;background:#bdb5b5}</style></head>
+<body>
+<svg id="svg" width="1400" height="900"><g id="content"></g></svg>
+<script>
+// Variant of page.html that isolates ONE variable: does the motion change the
+// SCALE or only the TRANSLATION? Everything else — label count, angle bucket,
+// geometry, halo — is held identical between the two runs.
+const NS = 'http://www.w3.org/2000/svg';
+const content = document.getElementById('content');
+const NAMES = ['contains','is a kind of','depends upon','refers to','was derived from'];
+
+let seed = 7;
+const rnd = () => ((seed = (seed*1103515245+12345)&0x7fffffff)/0x7fffffff);
+
+function clear(){ while(content.firstChild) content.removeChild(content.firstChild); }
+
+function build(n, mode, quantum){
+  clear();
+  seed = 7;
+  for (let i=0;i<n;i++){
+    const name = NAMES[i % NAMES.length];
+    const x = 200 + rnd()*4000;
+    const y = 200 + rnd()*3000;
+    const rawAngle = rnd()*360 - 180;
+    const fontSize = 59.4;
+
+    const g = document.createElementNS(NS,'g');
+    const line = document.createElementNS(NS,'path');
+    const R = 400 + rnd()*1600;
+    line.setAttribute('d', `M ${x-300},${y} A ${R},${R} 0 0 1 ${x+300},${y-40}`);
+    line.setAttribute('fill','none');
+    line.setAttribute('stroke','#8B0000');
+    line.setAttribute('stroke-width','27');
+    g.appendChild(line);
+
+    const text = document.createElementNS(NS,'text');
+    text.setAttribute('fill','#260000');
+    text.setAttribute('font-size', fontSize);
+    text.setAttribute('font-weight','bold');
+    text.setAttribute('dominant-baseline','middle');
+    text.setAttribute('stroke','#EFE8E5');
+    text.setAttribute('stroke-width', String(8*(fontSize/54)));
+    text.setAttribute('stroke-linecap','round');
+    text.setAttribute('stroke-linejoin','round');
+    text.setAttribute('paint-order','stroke fill');
+    text.style.fontFamily = 'sans-serif';
+
+    if (mode === 'textpath'){
+      const span = name.length * fontSize * 0.55 * 1.4;
+      const sweep = span / R;
+      const half = sweep/2;
+      const mid = (rawAngle*Math.PI)/180;
+      const at = a => ({x: x + R*Math.cos(a), y: y + R*Math.sin(a)});
+      const p0 = at(mid-half), p1 = at(mid+half);
+      const path = document.createElementNS(NS,'path');
+      path.setAttribute('id','lp'+i);
+      path.setAttribute('d', `M ${p0.x},${p0.y} A ${R},${R} 0 0 1 ${p1.x},${p1.y}`);
+      path.setAttribute('fill','none'); path.setAttribute('stroke','none');
+      g.appendChild(path);
+      const tp = document.createElementNS(NS,'textPath');
+      tp.setAttribute('href','#lp'+i);
+      tp.setAttribute('startOffset','50%');
+      tp.setAttribute('text-anchor','middle');
+      tp.textContent = name;
+      text.appendChild(tp);
+    } else if (mode === 'nolabel') {
+      // lines only — the Lombardi geometry without any text
+    } else {
+      const a = quantum > 0 ? Math.round(rawAngle/quantum)*quantum : rawAngle;
+      text.setAttribute('x', x); text.setAttribute('y', y);
+      text.setAttribute('text-anchor','middle');
+      text.setAttribute('transform', `rotate(${a}, ${x}, ${y})`);
+      text.textContent = name;
+    }
+    if (mode !== 'nolabel') g.appendChild(text);
+    content.appendChild(g);
+  }
+}
+
+// motion:
+//   'pan'      translation only, scale pinned  (what the original harness did)
+//   'zoom'     scale swept continuously, translation pinned
+//   'zoomq'    scale swept but SNAPPED to multiplicative steps (quantized zoom)
+// Both cover the same on-screen distance per frame so the repaint area is comparable.
+function run(frames, motion, step){
+  return new Promise(resolve => {
+    const times = [];
+    let i = 0, last = performance.now();
+    function tick(){
+      const t = performance.now();
+      times.push(t - last);
+      last = t;
+      if (motion === 'pan') {
+        const k = i * 3;
+        content.setAttribute('transform', `translate(${-k}, ${-k*0.4}) scale(0.35)`);
+      } else {
+        // 0.35 -> ~0.9 over 45 frames: about 2.2% per frame, a real zoom rate
+        const z = 0.35 * Math.pow(1.021, i);
+        const applied = motion === 'zoomq'
+          ? Math.exp(Math.round(Math.log(z) / step) * step)
+          : z;
+        content.setAttribute('transform', `translate(0, 0) scale(${applied})`);
+      }
+      i++;
+      if (i < frames) requestAnimationFrame(tick);
+      else {
+        const s = times.slice(5).sort((a,b)=>a-b);
+        resolve(s[Math.floor(s.length/2)]);
+      }
+    }
+    requestAnimationFrame(tick);
+  });
+}
+
+window.bench = async function(cases){
+  const out = [];
+  for (const c of cases){
+    build(c.n, c.mode, c.quantum ?? 0);
+    await new Promise(r => requestAnimationFrame(()=>requestAnimationFrame(r)));
+    const ms = await run(45, c.motion, c.step ?? 0.06);
+    out.push({...c, ms: +ms.toFixed(2)});
+  }
+  clear();
+  return out;
+};
+</script>
+</body>
+</html>

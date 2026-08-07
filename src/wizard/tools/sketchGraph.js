@@ -7,9 +7,14 @@
  * at low token cost before committing to expensive tool calls.
  *
  * Input format:
- *   nodes: ["Engine Block", "Pistons [Component]", "Oil Pump [System]"]
+ *   nodes: ["Engine Block {large}", "Pistons [Component]", "Oil Pump [System] {small}"]
  *   edges: ["Pistons -> Housed In -> Engine Block", "Oil Pump -> Lubricates -> Engine Block"]
  *   groups: ["Core: Engine Block, Pistons, Crankshaft"]
+ *
+ * Node size belongs in the sketch, not after it. The prompt tells the model to pass
+ * expandedSpec through to the build tool without re-authoring it, so anything the
+ * shorthand cannot express is something the wizard can never produce — which is
+ * exactly why sizes never appeared before the {size} marker existed.
  *
  * Returns: expanded spec ready for populateDefinitionGraph/createPopulatedGraph,
  *          plus quality analysis (orphans, connectivity, etc.)
@@ -17,6 +22,7 @@
 
 import { resolvePaletteColor, getRandomPalette, PALETTES } from '../../ai/palettes.js';
 import { analyzeGraphQuality } from './graphQuality.js';
+import { parseSizeShorthand, NODE_SIZE_NAMES } from './utils/nodeSize.js';
 
 /**
  * Coerce an LLM-provided value to a string.
@@ -36,15 +42,50 @@ function coerceToString(val) {
 }
 
 /**
- * Parse a node string like "Pistons [Component]" into { name, type }
+ * Parse a node string into { name, type, size, unknownSize }.
+ *
+ * Both markers are optional and order-independent:
+ *   "Pistons"                      → { name: 'Pistons' }
+ *   "Pistons [Component]"          → { type: 'Component' }
+ *   "Sun {large}"                  → { size: 'large' }
+ *   "Ceres [Dwarf Planet] {small}" → both
+ *
+ * The size marker is stripped BEFORE the type regex runs, so a trailing {size}
+ * can't stop `[Type]` from matching at the end of the string.
  */
 function parseNodeString(str) {
-  const trimmed = coerceToString(str).trim();
-  const typeMatch = trimmed.match(/^(.+?)\s*\[([^\]]+)\]\s*$/);
+  const { text, size, unknown } = parseSizeShorthand(coerceToString(str));
+  const typeMatch = text.match(/^(.+?)\s*\[([^\]]+)\]\s*$/);
   if (typeMatch) {
-    return { name: typeMatch[1].trim(), type: typeMatch[2].trim() };
+    return { name: typeMatch[1].trim(), type: typeMatch[2].trim(), size, unknownSize: unknown };
   }
-  return { name: trimmed, type: null };
+  return { name: text, type: null, size, unknownSize: unknown };
+}
+
+/**
+ * Warn about size tokens we couldn't resolve. An unrecognized size silently
+ * falls back to medium (nodeSizeMul never throws), so without this the model
+ * gets no signal that its word was dropped.
+ */
+function warnUnknownSizes(parsed, warnings, path) {
+  const bad = parsed.filter(n => n.unknownSize).map(n => `"${n.unknownSize}" on ${n.name}`);
+  if (bad.length > 0) {
+    warnings.push(
+      `${path}: unrecognized size ${bad.join(', ')} — using medium. Valid sizes: ${NODE_SIZE_NAMES.join(', ')}.`
+    );
+  }
+}
+
+/**
+ * A name with any {size} marker stripped off.
+ *
+ * Sizes are declared where a node is DEFINED, but models repeat the decorated
+ * string when they later REFER to that node (in an edge or a group member). Every
+ * reference site compares names case-insensitively, so an un-stripped "{large}"
+ * would silently turn a valid edge into a dropped one.
+ */
+function bareName(str) {
+  return parseSizeShorthand(coerceToString(str)).text;
 }
 
 /**
@@ -55,10 +96,10 @@ function parseEdgeString(str) {
   const parts = trimmed.split('->').map(p => p.trim());
 
   if (parts.length === 3) {
-    return { source: parts[0], relation: parts[1], target: parts[2] };
+    return { source: bareName(parts[0]), relation: parts[1], target: bareName(parts[2]) };
   } else if (parts.length === 2) {
     // "A -> B" with no relation
-    return { source: parts[0], relation: 'Connected To', target: parts[1] };
+    return { source: bareName(parts[0]), relation: 'Connected To', target: bareName(parts[1]) };
   }
   return null;
 }
@@ -102,7 +143,10 @@ function parseGroupString(str) {
   if (colonIdx < 0) return null;
 
   const name = trimmed.slice(0, colonIdx).trim();
-  const members = trimmed.slice(colonIdx + 1).split(',').map(m => m.trim()).filter(Boolean);
+  // A plain group only ever REFERENCES nodes defined elsewhere, so a size marker
+  // here is decoration on a reference — strip it. (Layer members above stay raw:
+  // those strings go on to define the nodes inside the layer's web.)
+  const members = trimmed.slice(colonIdx + 1).split(',').map(m => bareName(m)).filter(Boolean);
 
   return { kind: 'group', name, memberNames: members };
 }
@@ -173,6 +217,7 @@ function expandLayerSpecs(layers, ctx, depth, path) {
 
     const def = raw.definition || {};
     const defNodes = (def.nodes || []).map(parseNodeString).filter(n => n.name);
+    warnUnknownSizes(defNodes, ctx.warnings, lPath);
     const defNodeNames = new Set(defNodes.map(n => n.name.toLowerCase()));
     const defLayers = expandLayerSpecs(def.layers, ctx, depth + 1, lPath);
     for (const dl of defLayers) defNodeNames.add(dl.name.toLowerCase());
@@ -209,6 +254,9 @@ function expandLayerSpecs(layers, ctx, depth, path) {
         name: n.name,
         color: ctx.colorFor(i + depth),
         description: '',
+        // The size WORD, not a multiplier: expandedSpec is fed back into the build
+        // tools, which each run nodeSizeMul(n.size) themselves. Omitted at medium.
+        ...(n.size ? { size: n.size } : {}),
         type: n.type || null,
         typeColor: n.type ? resolvePaletteColor(ctx.palette, '#A0A0A0') : null,
         typeDescription: ''
@@ -275,6 +323,8 @@ export async function sketchGraph(args, graphState) {
     layerCount: 0
   };
 
+  warnUnknownSizes(parsedNodes, ctx.warnings, name);
+
   // "Name:: a, b" shorthand becomes a layer whose definition holds those members.
   // Members named here are MOVED off the top level: a layer's members live inside
   // its web, and decomposing the layer materializes them in the parent.
@@ -290,7 +340,8 @@ export async function sketchGraph(args, graphState) {
 
   const movedIntoLayers = new Set();
   for (const l of shorthandLayers) {
-    for (const m of l.memberNames) movedIntoLayers.add(m.toLowerCase());
+    // Layer members keep their {size} marker (they define nodes) — compare bare.
+    for (const m of l.memberNames) movedIntoLayers.add(bareName(m).toLowerCase());
   }
   const movedNames = parsedNodes.filter(n => movedIntoLayers.has(n.name.toLowerCase())).map(n => n.name);
   const topLevelNodes = parsedNodes.filter(n => !movedIntoLayers.has(n.name.toLowerCase()));
@@ -346,6 +397,8 @@ export async function sketchGraph(args, graphState) {
     name: node.name,
     color: colorFor(i),
     description: '',
+    // See the note in expandLayerSpecs: the word travels, not the multiplier.
+    ...(node.size ? { size: node.size } : {}),
     type: node.type || null,
     typeColor: node.type ? resolvePaletteColor(activePalette, '#A0A0A0') : null,
     typeDescription: ''
