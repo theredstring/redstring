@@ -6,7 +6,7 @@ import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
-import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcPath, straightLabelPath, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX } from '../utils/canvas/edgeRouting.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle } from '../utils/canvas/edgeLabelPlacement.js';
 import {
   computeGroupLayout,
@@ -16,7 +16,7 @@ import {
   buildShellCutoutPath,
   collectAffectedGroupIds as collectAffectedGroupIdsPure,
 } from '../services/groupLayout.js';
-import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
+import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances } from '../services/textMeasurement.js';
 import saveCoordinator from '../services/SaveCoordinator.js';
 
 // Movement Zoom-Out constants
@@ -290,6 +290,28 @@ export const useNodeDrag = ({
     const container = containerRef.current;
     if (!container) return;
 
+    // Two pieces of label state survive a re-cache, keyed by the element itself.
+    //
+    // A mid-drag re-cache (a settle — see the effect below) runs against a DOM
+    // this hook has been writing to every frame, so re-reading the attributes
+    // there would capture the DRAG's values, not React's, and drag end would
+    // then "restore" the label to a pose React never rendered. The first
+    // snapshot is the only one taken before any mutation, so it is the one to
+    // keep. `labelTouched` rides along with it so the drag-end restore still
+    // knows this label has been written to, even if a re-cache was the last
+    // thing to happen before the drop.
+    //
+    // `labelForm` deliberately does NOT survive: it records which form this
+    // hook last put the DOM in, and the render that prompted the re-cache may
+    // have put it in the other one. Carrying it over would let the next frame
+    // skip clearing the attributes of a form React had just re-applied.
+    const priorLabelState = new Map();
+    dragEdgeElsRef.current.forEach(els => {
+      els.forEach(({ labelText, labelSnapshot, labelTouched }) => {
+        if (labelText && labelSnapshot) priorLabelState.set(labelText, { labelSnapshot, labelTouched });
+      });
+    });
+
     dragNodeElsRef.current.clear();
     dragEdgeElsRef.current.clear();
     dragEdgeDataRef.current.clear();
@@ -384,29 +406,38 @@ export const useNodeDrag = ({
     }
     dragEdgeDataRef.current = edgeDataIndex;
 
-    // Measuring the label path costs a layout flush, so it happens exactly once
-    // per edge here rather than per frame.
+    // A connection label is ONE <text> in either form — glyphs placed
+    // individually along the arc, or a single rotated run — so a drag can move
+    // it between the two by rewriting attributes, with no element to swap and
+    // no React fiber to desync. (It could not always: the curved form used to be
+    // a <path>+<textPath>, a different element type at the same position, so an
+    // edge crossing the bow threshold mid-drag was stuck in whichever form it
+    // started with, and an attempt to promote one into the other by mutating
+    // children left React patching a stale reference and the label frozen.)
     //
-    // NOTE: a Lombardi label's DOM shape — <path data-label-arc> + <textPath>,
-    // or a plain positioned <text> — is whatever the settled render picked
-    // based on the bow just before the drag started, and stays that shape for
-    // the whole drag (nothing re-renders through React mid-drag to re-decide).
-    // An edge that crosses the curve threshold mid-drag is stuck rendering
-    // with whichever shape it started with. A previous attempt at fixing this
-    // promoted a plain <text> into <path>+<textPath> by mutating its children
-    // directly — that desynced React's fiber from the real DOM (React still
-    // believed the <text> had a single text-node child; a later settled render
-    // that landed back on the "straight" branch tried to patch that stale
-    // reference instead of replacing it, and the label froze until something
-    // else forced a remount). Reverted. Living with the wrong render shape for
-    // a handful of frames near the threshold is a much smaller defect than a
-    // label that stops moving entirely.
-    const labelArcOf = (el) => {
-      const labelArc = el.querySelector('[data-label-arc]');
-      if (!labelArc) return { labelArc: null, labelArcSpan: 0 };
-      let labelArcSpan = 0;
-      try { labelArcSpan = labelArc.getTotalLength(); } catch (_) { labelArcSpan = 0; }
-      return { labelArc, labelArcSpan };
+    // The advances are read off the DOM once per drag. They cannot change while
+    // dragging — the text and font size are fixed — and computing them from the
+    // same helper the settled render uses is what keeps the two in step.
+    const labelTextOf = (el) => {
+      const labelText = el.querySelector('text[data-connection-label]');
+      if (!labelText) return { labelText: null, labelAdvances: null, labelSnapshot: null, labelTouched: null };
+      const fontSize = parseFloat(labelText.getAttribute('font-size'));
+      const prior = priorLabelState.get(labelText);
+      return {
+        labelText,
+        labelAdvances: edgeLabelGlyphAdvances(labelText.textContent, fontSize),
+        // What React believes this element looks like. Restored in
+        // clearDOMTransforms — see there for why that is not optional.
+        labelSnapshot: prior?.labelSnapshot ?? {
+          x: labelText.getAttribute('x'),
+          y: labelText.getAttribute('y'),
+          rotate: labelText.getAttribute('rotate'),
+          transform: labelText.getAttribute('transform'),
+          textAnchor: labelText.getAttribute('text-anchor'),
+        },
+        labelForm: { current: null },
+        labelTouched: prior?.labelTouched ?? { current: false },
+      };
     };
 
     affectedEdgeIds.forEach(edgeId => {
@@ -415,18 +446,17 @@ export const useNodeDrag = ({
       if (els.length > 0) {
         const cachedEls = Array.from(els).map(el => ({
           el,
-          // A Lombardi label rides its own <path>, and the shell-cutout clip is a
-          // <path> too. Exclude both here or the loop below would stamp the EDGE's
-          // geometry onto them — the label would slide off along the connection,
-          // and the clip region would collapse to the shape of the line itself,
-          // erasing the connection entirely.
-          paths: Array.from(el.querySelectorAll('path:not([data-label-arc]):not([data-shell-clip])')),
+          // The shell-cutout clip is a <path> too. Exclude it here or the loop
+          // below would stamp the EDGE's geometry onto it — the clip region
+          // would collapse to the shape of the line itself, erasing the
+          // connection entirely.
+          paths: Array.from(el.querySelectorAll('path:not([data-shell-clip])')),
           shellClip: el.querySelector('path[data-shell-clip]'),
           lines: Array.from(el.querySelectorAll('line')),
           arrows: Array.from(el.querySelectorAll('[data-arrow]')),
           selfArrow: el.querySelector('[data-arrow="self"]'),
           texts: Array.from(el.querySelectorAll('text')),
-          ...labelArcOf(el),
+          ...labelTextOf(el),
         }));
         dragEdgeElsRef.current.set(edgeId, cachedEls);
       }
@@ -499,16 +529,17 @@ export const useNodeDrag = ({
   // see useCanvasTransform) that a drag routinely nudges mid-gesture: the
   // default-on drag-zoom-out ramp settles a few hundred ms after grabbing a
   // node, and edge-auto-pan settles whenever the cursor leaves the pan
-  // margin. Either fires a real NodeCanvas re-render while still dragging.
-  // For a Lombardi label that's normally a no-op (same DOM, new attribute
-  // values) — but if that render's live bow crosses the curved/straight
-  // threshold, the label's <path data-label-arc>+<textPath> vs plain <text>
-  // JSX is a different element type at that position, so React unmounts and
-  // remounts it. Nothing else told this hook that happened, so it kept
-  // writing every subsequent frame into the now-detached old node: the label
-  // visibly froze until the drag ended and a real render reconciled it.
-  // Re-running the cache here re-points dragEdgeElsRef at whatever DOM the
-  // settle-triggered render actually produced.
+  // margin. Either fires a real NodeCanvas re-render while still dragging, and
+  // re-running the cache here re-points dragEdgeElsRef at whatever DOM that
+  // render produced.
+  //
+  // Labels used to be the sharp edge of this: curved and straight were
+  // different ELEMENT TYPES at the same position, so a settle whose bow crossed
+  // the threshold remounted the label, and this hook went on writing into the
+  // detached old node until the drag ended. They are one element in two forms
+  // now, so a settle mid-drag is an attribute update either way. The re-cache
+  // still earns its place for the node elements, and it refreshes the label
+  // snapshots this hook restores on drag end.
   useLayoutEffect(() => {
     if (!draggingNodeInfo) return;
     const ids = [];
@@ -881,17 +912,17 @@ export const useNodeDrag = ({
           labelAngleQuantumRef?.current ?? 0
         );
 
-        // A curved Lombardi label is positioned entirely by its path, so the
-        // drag has to move the PATH, not the <text>. Recomputed from the same
-        // helper the settled render uses, so the label keeps following the arc
-        // for the whole drag instead of straightening the moment you grab a node.
-        // The span comes from the path the render already produced, measured
-        // once at drag start — exact, and it costs nothing per frame. Re-deriving
-        // it would mean re-estimating text width against the font settings from
-        // in here, for a number that cannot change during a drag.
-        edgeEls.forEach(({ paths, lines, arrows: arrowGs, texts, labelArc, labelArcSpan }) => {
-          const dragLabelArc = (routing.arc && labelArc && labelArcSpan > 0)
-            ? labelArcPath(routing.arc, labelPos, 0, { span: labelArcSpan, minBow: labelArcMinBow })
+        // A curved Lombardi label is re-solved from the same helper the settled
+        // render uses, so it keeps following the arc for the whole drag instead
+        // of straightening the moment you grab a node. The advances come from
+        // the cache — they can't change during a drag.
+        edgeEls.forEach((entry) => {
+          const { paths, lines, arrows: arrowGs, texts, labelText, labelAdvances, labelForm, labelTouched } = entry;
+          const dragLabelGlyphs = (routing.arc && labelText && labelAdvances)
+            ? labelArcGlyphFrames(routing.arc, labelPos, labelAdvances, {
+              minBow: labelArcMinBow,
+              rotationQuantum: labelAngleQuantumRef?.current ?? 0,
+            })
             : null;
           // Glow, visible stroke and click target all share the routed geometry.
           paths.forEach(p => p.setAttribute('d', routing.pathD));
@@ -912,22 +943,32 @@ export const useNodeDrag = ({
               `translate(${placement.x}, ${placement.y}) rotate(${placement.angle + 90}) scale(${dragConnWidth})`);
           });
 
-          // The element was rendered either as a curved label (a <textPath> on
-          // labelArc) or a straight one (x/y/transform on the <text>). Those are
-          // mutually exclusive: setting a transform on a textPath-bearing <text>
-          // would rotate the already-correctly-placed curve.
-          if (labelArc) {
-            // This <text> holds a <textPath>, so x/y are ignored and a transform
-            // would rotate an already-correctly-placed curve — the label can only
-            // be moved by moving its path. labelArcPath declines whenever the arc
-            // is too tight or too flat to be worth curving, which a Lombardi drag
-            // hits constantly (the tangent fan re-solves each frame and swings
-            // arcs through straight), so fall back to a straight baseline through
-            // the same anchor. Leaving the old `d` in place is what stranded the
-            // label behind its connection until the drag ended.
-            const d = dragLabelArc?.d
-              ?? straightLabelPath(labelPos, labelAdj, labelArcSpan)?.d;
-            if (d) labelArc.setAttribute('d', d);
+          // Curved and straight are the same element in two forms, and a
+          // Lombardi drag crosses between them constantly (the tangent fan
+          // re-solves each frame and swings arcs through straight). Each form
+          // clears the other's attributes on the way in — a leftover `rotate`
+          // list would scatter a straight label's glyphs, and a leftover
+          // `transform` would spin a curved one about its first glyph.
+          if (labelText && dragLabelGlyphs) {
+            labelTouched.current = true;
+            labelText.setAttribute('x', dragLabelGlyphs.x.map(v => v.toFixed(2)).join(' '));
+            labelText.setAttribute('y', dragLabelGlyphs.y.map(v => v.toFixed(2)).join(' '));
+            labelText.setAttribute('rotate', dragLabelGlyphs.rotate.map(v => v.toFixed(2)).join(' '));
+            if (labelForm.current !== 'glyphs') {
+              labelText.setAttribute('text-anchor', 'start');
+              labelText.removeAttribute('transform');
+              labelForm.current = 'glyphs';
+            }
+          } else if (labelText) {
+            labelTouched.current = true;
+            labelText.setAttribute('x', labelPos.x);
+            labelText.setAttribute('y', labelPos.y);
+            labelText.setAttribute('transform', `rotate(${labelAdj}, ${labelPos.x}, ${labelPos.y})`);
+            if (labelForm.current !== 'straight') {
+              labelText.setAttribute('text-anchor', 'middle');
+              labelText.removeAttribute('rotate');
+              labelForm.current = 'straight';
+            }
           } else {
             texts.forEach(t => {
               t.setAttribute('x', labelPos.x);
@@ -1746,6 +1787,33 @@ export const useNodeDrag = ({
         if (sub.labelText) sub.labelText.removeAttribute('transform');
       });
     });
+    // Put every connection label back the way React last rendered it.
+    //
+    // Not cosmetic — load-bearing. React only writes attributes whose props
+    // changed between ITS renders, and it has no idea this hook has been
+    // rewriting them every frame. Drop a node back where it started (or anywhere
+    // its label re-solves to the same place) and the settled render diffs
+    // identical props, skips every write, and leaves whatever form the last drag
+    // frame happened to leave behind — a `rotate` list scattering a straight
+    // label's glyphs, or a stale `transform` spinning a curved one. Restoring
+    // the snapshot first means React is always diffing against a DOM that
+    // matches its own picture of it.
+    dragEdgeElsRef.current.forEach(els => {
+      els.forEach(({ labelText, labelSnapshot, labelTouched }) => {
+        if (!labelText || !labelSnapshot || !labelTouched?.current) return;
+        for (const [attr, value] of [
+          ['x', labelSnapshot.x],
+          ['y', labelSnapshot.y],
+          ['rotate', labelSnapshot.rotate],
+          ['transform', labelSnapshot.transform],
+          ['text-anchor', labelSnapshot.textAnchor],
+        ]) {
+          if (value == null) labelText.removeAttribute(attr);
+          else labelText.setAttribute(attr, value);
+        }
+      });
+    });
+
     dragPositionsRef.current.clear();
     appliedPositionsRef.current.clear();
     dragNodeElsRef.current.clear();

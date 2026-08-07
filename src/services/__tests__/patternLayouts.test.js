@@ -19,9 +19,11 @@ import {
   layoutPlanFor,
   solveRingRadius,
   describeLayoutPlan,
+  resolvePatternConfig,
   PATTERN_LAYOUT_DEFAULTS as D
 } from '../patternLayouts.js';
 import { applyLayout, estimateEdgeLabelWidth } from '../graphLayoutService.js';
+import { requiredEdgeLength } from '../layoutGeometry.js';
 import {
   lombardiRefine,
   lombardiResidual,
@@ -447,16 +449,46 @@ describe('pattern layouts produce usable geometry', () => {
     expect(positions.get('d').y).toBeGreaterThan(positions.get('b').y);
   });
 
+  const starCenters = (positions) => (id) => ({
+    x: positions.get(id).x + 150,
+    y: positions.get(id).y + 50
+  });
+
   it('puts the hub at the centre of a star', () => {
-    const nodes = ['hub', 'a', 'b', 'c', 'd'].map(id => node(id));
-    const positions = starLayout(nodes, ['a', 'b', 'c', 'd'].map(id => edge('hub', id, 'relates to')));
-    const center = (id) => ({
-      x: positions.get(id).x + 150,
-      y: positions.get(id).y + 50
-    });
+    const leaves = ['a', 'b', 'c', 'd'];
+    const nodes = ['hub', ...leaves].map(id => node(id));
+    const positions = starLayout(nodes, leaves.map(id => edge('hub', id, 'relates to')));
+    const center = starCenters(positions);
     const hub = center('hub');
-    const radii = ['a', 'b', 'c', 'd'].map(id => Math.hypot(center(id).x - hub.x, center(id).y - hub.y));
-    radii.forEach(r => expect(Math.abs(r - radii[0])).toBeLessThan(1));
+
+    // Centre means the satellites' centroid, not one fixed radius. Spokes are
+    // NOT all the same length even when the labels are: a 300x100 node needs
+    // 150 of radial clearance on a horizontal spoke and 50 on a vertical one,
+    // so equal-length labels sit on an ellipse. That is the arrangement where
+    // the visible gap between the boxes is uniform, which is the thing being
+    // looked at — equal centre-to-centre radii would make it lopsided.
+    const centroid = leaves.reduce((acc, id) => ({
+      x: acc.x + center(id).x / leaves.length,
+      y: acc.y + center(id).y / leaves.length
+    }), { x: 0, y: 0 });
+    expect(Math.hypot(centroid.x - hub.x, centroid.y - hub.y)).toBeLessThan(1);
+  });
+
+  it('does not drag every spoke out to the longest label', () => {
+    const leaves = ['a', 'b', 'c', 'd'];
+    const nodes = ['hub', ...leaves].map(id => node(id));
+    const edges = leaves.map((id, i) =>
+      edge('hub', id, i === 0 ? 'has been formally superseded by' : 'is a'));
+    const positions = starLayout(nodes, edges, { width: 2000, height: 1500 });
+    const center = starCenters(positions);
+    const hub = center('hub');
+    const radiusOf = (id) => Math.hypot(center(id).x - hub.x, center(id).y - hub.y);
+
+    expectLabelsFit(positions, nodes, edges);
+    // One verbose relation used to set a single radius for the whole ring.
+    leaves.slice(1).forEach(id => {
+      expect(radiusOf(id)).toBeLessThan(radiusOf('a') * 0.6);
+    });
   });
 });
 
@@ -995,5 +1027,145 @@ describe('large irregular trees (sentence-diagram shape)', () => {
     expect(Date.now() - started).toBeLessThan(500);
     expect(positions.size).toBe(200);
     expect(countOverlaps(positions, nodes)).toBe(0);
+  });
+});
+
+// ============================================================================
+// EDGE LENGTH vs REQUIREMENT
+// ============================================================================
+
+/**
+ * The property the layouts exist to deliver, stated as a number.
+ *
+ * `slack` is an edge's drawn length divided by the length that edge actually
+ * needs — the two nodes' extents along it, plus the label, plus padding. 1.0
+ * is exactly right. Below 1.0 the label overflows the edge it is drawn along.
+ * Well above 1.0 is the failure this suite was extended to catch: nodes flung
+ * apart far enough that the connection stops reading as a connection.
+ *
+ * This is measured with layoutGeometry's own primitives, unlike the assertions
+ * in layoutHelpers. That is deliberate and it is a weaker guarantee: it pins
+ * the layouts to the spacing model rather than to an independent ruler. The
+ * hand-rolled checks (countOverlaps, expectLabelsFit, countLabelCollisions)
+ * remain the ones that would catch the model itself being wrong.
+ */
+const slackOf = (positions, nodes, edges, cfg = {}) => {
+  // Resolved, not the raw defaults: labelPadding is derived from the label font
+  // size, so `PATTERN_LAYOUT_DEFAULTS.labelPadding` is not what got applied.
+  const c = resolvePatternConfig(cfg);
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  return edges.map(e => {
+    const a = positions.get(e.sourceId);
+    const b = positions.get(e.destinationId);
+    const na = byId.get(e.sourceId);
+    const nb = byId.get(e.destinationId);
+    const dx = (b.x + nb.width / 2) - (a.x + na.width / 2);
+    const dy = (b.y + nb.height / 2) - (a.y + na.height / 2);
+    return Math.hypot(dx, dy) / requiredEdgeLength(na, nb, e, c, dx, dy);
+  });
+};
+
+describe('edges are as long as their labels need, and not much longer', () => {
+  it('does not stretch a short-label edge to match a long-label sibling', () => {
+    // The reported symptom: one edge at its true minimum and every other edge
+    // at that same length, because a shared per-depth gap took the maximum.
+    const nodes = ['Animal', 'Mammal', 'Bird', 'Dog', 'Cat', 'Eagle', 'Sparrow']
+      .map(id => node(id, 60 + id.length * 24, 100));
+    const edges = [
+      edge('Animal', 'Mammal', 'is a'),
+      edge('Animal', 'Bird', 'is a'),
+      edge('Mammal', 'Dog', 'is a'),
+      edge('Mammal', 'Cat', 'has been domesticated as'),
+      edge('Bird', 'Eagle', 'is a'),
+      edge('Bird', 'Sparrow', 'is a')
+    ];
+    const positions = treeLayout(nodes, edges, { width: 2000, height: 1500 });
+    const slack = slackOf(positions, nodes, edges);
+
+    slack.forEach(s => expect(s).toBeGreaterThanOrEqual(1));
+    // The long sibling is "Cat"; the three "is a" edges beside and below it
+    // must not have been dragged out to its length.
+    expect(Math.max(...slack)).toBeLessThan(1.6);
+  });
+
+  it('keeps every edge near its requirement on a mixed-label tree', () => {
+    const { nodes, edges } = buildParseGraph();
+    const positions = treeLayout(nodes, edges, { width: 2000, height: 1500 });
+    const slack = slackOf(positions, nodes, edges);
+    slack.forEach(s => expect(s).toBeGreaterThanOrEqual(1));
+    const mean = slack.reduce((a, b) => a + b, 0) / slack.length;
+    expect(mean).toBeLessThan(1.4);
+  });
+});
+
+describe('tree orientation is a convention, not a function of the window', () => {
+  it('lays the same tree out identically at every canvas aspect', () => {
+    const { nodes, edges } = buildParseGraph();
+    const shapes = [[2000, 1500], [1500, 2000], [3000, 1000], [900, 3000]].map(([width, height]) => {
+      const p = treeLayout(nodes, edges, { width, height });
+      // Compare shape, not absolute placement.
+      const origin = p.get(nodes[0].id);
+      return nodes.map(n => {
+        const q = p.get(n.id);
+        return `${Math.round(q.x - origin.x)},${Math.round(q.y - origin.y)}`;
+      }).join(' ');
+    });
+    shapes.forEach(s => expect(s).toBe(shapes[0]));
+  });
+
+  it('runs depth downward', () => {
+    const nodes = ['root', 'a', 'b'].map(id => node(id));
+    const edges = [edge('root', 'a', 'has'), edge('root', 'b', 'has')];
+    const p = treeLayout(nodes, edges, { rootId: 'root', width: 3000, height: 600 });
+    // Even on a canvas whose shape argues loudly for a sideways tree.
+    expect(p.get('a').y).toBeGreaterThan(p.get('root').y);
+    expect(p.get('b').y).toBeGreaterThan(p.get('root').y);
+  });
+});
+
+describe('hierarchies are oriented by the arrow, not by authoring order', () => {
+  const taxonomy = (arrowed) => {
+    const ids = ['Animal', 'Mammal', 'Bird', 'Dog', 'Cat'];
+    const pairs = [['Animal', 'Mammal'], ['Animal', 'Bird'], ['Mammal', 'Dog'], ['Mammal', 'Cat']];
+    return {
+      nodes: ids.map(id => node(id)),
+      // Authored general→specific throughout. When `arrowed`, every arrowhead
+      // points the OTHER way — "Mammal is a kind of Animal" — which is an
+      // ordinary way to build a taxonomy and used to be read upside down.
+      edges: pairs.map(([general, specific]) => ({
+        ...edge(general, specific, 'is a kind of'),
+        directionality: { arrowsToward: arrowed ? [general] : [specific] }
+      }))
+    };
+  };
+
+  it('roots an outward taxonomy at the general term', () => {
+    const { nodes, edges } = taxonomy(false);
+    const { topology } = detectTopology(nodes, edges).components[0];
+    expect(topology.kind).toBe(TOPOLOGY.TREE);
+    expect(topology.meta.rootId).toBe('Animal');
+    expect(topology.meta.inverted).toBe(false);
+  });
+
+  it('sees an inward taxonomy when only the arrows say so', () => {
+    const { nodes, edges } = taxonomy(true);
+    const { topology } = detectTopology(nodes, edges).components[0];
+    expect(topology.kind).toBe(TOPOLOGY.TREE);
+    expect(topology.meta.rootId).toBe('Animal');
+    // Endpoint order alone would report inverted:false here.
+    expect(topology.meta.inverted).toBe(true);
+  });
+
+  it('falls back to endpoint order when nothing carries an arrow', () => {
+    const ids = ['Animal', 'Mammal', 'Bird', 'Dog'];
+    const nodes = ids.map(id => node(id));
+    const edges = [
+      edge('Animal', 'Mammal', 'contains'),
+      edge('Animal', 'Bird', 'contains'),
+      edge('Mammal', 'Dog', 'contains')
+    ];
+    const { topology } = detectTopology(nodes, edges).components[0];
+    expect(topology.kind).toBe(TOPOLOGY.TREE);
+    expect(topology.meta.rootId).toBe('Animal');
   });
 });

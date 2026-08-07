@@ -702,27 +702,26 @@ function capTangentChord(delta) {
 // with a quarter-degree bow wants a radius in the millions. That arc is
 // pixel-identical to a straight line, but it is not free: SVG arc rendering
 // derives the circle centre from the endpoints and the radius, which is
-// numerically ill-conditioned when the radius dwarfs the chord, and anything
-// that has to arc-length parameterise the path (a <textPath> label, most
-// of all) pays dearly for it.
+// numerically ill-conditioned when the radius dwarfs the chord.
 //
 // Below this, emit a line. Whatever survives has a bow you can actually see,
 // and a radius bounded by roughly L²/(8·MIN_VISIBLE_BOW).
 export const MIN_VISIBLE_BOW = 0.4;
 
-// A Lombardi label only earns a <textPath> if its baseline bends at all on
-// screen. Shared by the settled render (NodeCanvas) and the live drag updater
-// (useNodeDrag) so the two agree on when a label should curve — see
-// labelArcMinBow at each call site.
+// A Lombardi label only curves if its baseline bends at all on screen. Shared
+// by the settled render (NodeCanvas) and the live drag updater (useNodeDrag) so
+// the two agree on when a label should curve — see labelArcMinBow at each call
+// site.
 //
-// Set LOW on purpose. <textPath> is genuinely expensive (see CONNECTION LABEL
-// RENDERING BUDGETS in NodeCanvas.jsx), and raising this is the obvious-looking
-// way to spend less of it — but it is the wrong lever. What actually costs the
-// frames in Lombardi is the number of DISTINCT label rotations, which the angle
-// quantum governs and which applies to straight labels too; shedding curves
-// buys comparatively little and takes the mode's whole point with it. Labels
-// following their arcs IS Lombardi. So curve early, and let CURVED_LABEL_BUDGET
-// bound the count instead — a ceiling on how many, not a tax on how curved.
+// Set LOW on purpose. A curved label costs one glyph matrix per character where
+// a straight one costs a single matrix for the whole run, and raising this is
+// the obvious-looking way to spend less of that — but it is the wrong lever.
+// What actually costs the frames in Lombardi is the number of DISTINCT label
+// rotations, which the angle quantum governs and which applies to straight
+// labels too; shedding curves buys comparatively little and takes the mode's
+// whole point with it. Labels following their arcs IS Lombardi. So curve early,
+// and let CURVED_LABEL_BUDGET bound the count instead — a ceiling on how many,
+// not a tax on how curved.
 //
 // The effective floor bottoms out at MIN_VISIBLE_BOW once you are zoomed past
 // about 1.5x, and anything flatter than that was already emitted as a straight
@@ -1092,27 +1091,40 @@ export const MAX_LABEL_SWEEP = Math.PI * 1.8;
 export const LABEL_PATH_SLACK = 1.4;
 
 /**
- * A path for a label to ride along its own arc, or null if it shouldn't.
+ * The path a label used to ride, as a <textPath>. NOTHING RENDERS THIS ANY MORE
+ * — `labelArcGlyphFrames` places the glyphs directly, for the reasons in its own
+ * comment. What this is still for is saying, executably, WHICH labels curve:
+ * both functions decide that through the same `solveLabelArcFrame`, and the
+ * parity test in labelGlyphFrames.test.js holds them to it. If you delete this,
+ * delete that test with it and the guards lose their reference.
  *
  * The label follows a circle CONCENTRIC with the edge's arc, at whatever radius
  * the placement chose — so a label nudged off the line to dodge something still
  * curves the same way the line does, just at a slightly different radius.
  *
- * Returns null only when there is no arc to ride, no text to place, or the
- * label would have to wrap most of the way round the circle (see
- * MAX_LABEL_SWEEP). The caller's fallback is a straight rotated label.
- *
  * @param {object} arc - from solveLombardiArc
  * @param {{x:number,y:number}} anchor - the chosen label position
  * @param {number} textWidth - estimated rendered width
- * @param {object} [options] - `span` supplies the path length directly, for
- *   callers that already measured the rendered path (the drag updater does,
- *   once, at drag start) and shouldn't re-estimate it every frame.
+ * @param {object} [options] - `span` supplies the path length directly, bypassing
+ *   the slack multiplier below.
  * @returns {{d: string, sweep: number, radius: number}|null}
  */
-export function labelArcPath(arc, anchor, textWidth, options = {}) {
-  const span = options.span ?? (textWidth > 0 ? textWidth * (options.slack ?? LABEL_PATH_SLACK) : 0);
-  if (!arc || !(span > 0)) return null;
+/**
+ * The circle a label rides and the direction it reads along it — everything
+ * both label renderers need before they diverge into a path or into glyphs.
+ *
+ * @param {object} arc - from solveLombardiArc; only its CENTRE is used, since
+ *   the label sits on a concentric circle through `anchor`, not on the edge's
+ *   own arc.
+ * @param {{x:number,y:number}} anchor - the chosen label position
+ * @param {number} span - length of the text along the circle
+ * @returns {{radius:number, mid:number, sweep:number, dir:number}|null} `mid` is
+ *   the anchor's bearing from the centre, `dir` +1/-1 is the direction the text
+ *   advances in, and null means "don't curve this label" (the caller's fallback
+ *   is a straight one).
+ */
+function solveLabelArcFrame(arc, anchor, span, options = {}) {
+  if (!arc || !anchor || !(span > 0)) return null;
   const maxSweep = options.maxSweep ?? MAX_LABEL_SWEEP;
 
   const dx = anchor.x - arc.cx;
@@ -1124,14 +1136,15 @@ export function labelArcPath(arc, anchor, textWidth, options = {}) {
   if (!(sweep > 0) || sweep > maxSweep) return null;
   // How far the text's baseline actually departs from a straight one over its
   // own length. Below a pixel the two are the same picture — and this is the
-  // case where the radius is enormous, which is precisely when <textPath> is
-  // most expensive. Straight label, identical result, a fraction of the cost.
+  // case where the radius is enormous. A straight label is then the identical
+  // result for less: one glyph matrix shared by the whole label instead of one
+  // per character, and no per-glyph trig.
   //
   // `options.minBow` lets the caller raise this floor. The renderer sets it from
   // the zoom level, so the test becomes "is this bend visible ON SCREEN" rather
   // than "is it visible in canvas coordinates" — at low zoom a 3px canvas bow is
-  // sub-pixel to the viewer, and <textPath> is far too expensive to spend on a
-  // curve nobody can see. See CONNECTION LABEL RENDERING BUDGETS in NodeCanvas.
+  // sub-pixel to the viewer, and not worth spending distinct glyph rotations on.
+  // See CONNECTION LABEL RENDERING BUDGETS in NodeCanvas.
   if ((span * sweep) / 8 < (options.minBow ?? MIN_VISIBLE_BOW)) return null;
 
   const mid = Math.atan2(dy, dx);
@@ -1142,19 +1155,31 @@ export function labelArcPath(arc, anchor, textWidth, options = {}) {
   // upright or upside down. Pick the one heading rightward — and for a
   // near-vertical label, downward — which is the same rule the straight labels
   // use when they flip to stay readable.
-  const forward = { a0: mid - half, a1: mid + half };
-  const backward = { a0: mid + half, a1: mid - half };
-  const readsUpright = (o) => {
-    const p0 = at(o.a0);
-    const p1 = at(o.a1);
+  const readsUpright = (a0, a1) => {
+    const p0 = at(a0);
+    const p1 = at(a1);
     const runX = p1.x - p0.x;
     return Math.abs(runX) > 1e-6 ? runX > 0 : p1.y - p0.y > 0;
   };
-  const chosen = readsUpright(forward) ? forward : backward;
+  const dir = readsUpright(mid - half, mid + half) ? 1 : -1;
 
-  const p0 = at(chosen.a0);
-  const p1 = at(chosen.a1);
-  const sweepFlag = chosen.a1 > chosen.a0 ? 1 : 0;
+  return { radius, mid, sweep, dir };
+}
+
+export function labelArcPath(arc, anchor, textWidth, options = {}) {
+  const span = options.span ?? (textWidth > 0 ? textWidth * (options.slack ?? LABEL_PATH_SLACK) : 0);
+  const frame = solveLabelArcFrame(arc, anchor, span, options);
+  if (!frame) return null;
+
+  const { radius, mid, sweep, dir } = frame;
+  const half = sweep / 2;
+  const at = (a) => ({ x: arc.cx + radius * Math.cos(a), y: arc.cy + radius * Math.sin(a) });
+  const a0 = mid - dir * half;
+  const a1 = mid + dir * half;
+
+  const p0 = at(a0);
+  const p1 = at(a1);
+  const sweepFlag = a1 > a0 ? 1 : 0;
   // Past a half turn the two endpoints stop identifying the arc on their own and
   // SVG needs telling which way round to go. Omitting this drew long labels
   // backwards along the short side of the circle.
@@ -1167,27 +1192,85 @@ export function labelArcPath(arc, anchor, textWidth, options = {}) {
 }
 
 /**
- * The straight counterpart of {@link labelArcPath}: a segment of `span` length
- * centred on `anchor` and tilted to `angleDeg`. A <textPath> riding this reads
- * exactly like a rotated <text>.
+ * Where each glyph of a curved label goes, so the renderer can place them
+ * itself with SVG's per-character x/y/rotate lists.
  *
- * That equivalence is what makes it useful mid-drag. An element React rendered
- * as a CURVED label cannot be repositioned the straight way — its <text> holds
- * a <textPath>, so x/y and transform are both ignored — and labelArcPath
- * returns null the moment the arc flattens past MIN_VISIBLE_BOW, which is
- * exactly what a Lombardi drag does every time the tangent fan re-solves and
- * swings an arc through straight on its way to the other side. With nothing to
- * fall back on the label froze where it was while its connection moved out from
- * under it, and only caught up on drop when React re-rendered it as straight.
+ * WHY NOT <textPath>
+ * ──────────────────
+ * A <textPath> is re-solved on every paint: the browser re-parameterises the
+ * path by arc length and re-places every glyph along it, and none of that is
+ * cached across frames. It is the single most expensive thing on this canvas
+ * (500 labels measured at 1145ms/frame — see CONNECTION LABEL RENDERING BUDGETS
+ * in NodeCanvas), and it is worst exactly when the view is being zoomed, because
+ * scaling invalidates the text layout the parameterisation depends on.
  *
- * @returns {{d: string}|null}
+ * A circle needs none of that machinery. The positions are closed-form, so we
+ * compute them once per render and hand the browser ordinary positioned glyphs.
+ * That also makes the rotations quantizable (the same trick that made rotated
+ * labels affordable in the first place) and lets curved and straight labels be
+ * the SAME element, so crossing the bow threshold is an attribute change rather
+ * than an unmount.
+ *
+ * The glyphs' CENTRES sit on the circle; `x`/`y` are the baseline origins SVG
+ * wants, which is the centre walked back half an advance along the glyph's own
+ * rotated direction. Rotations are quantized BEFORE that offset is computed, so
+ * a quantized glyph still lands exactly on the circle.
+ *
+ * @param {object} arc - from solveLombardiArc (centre only, as above)
+ * @param {{x:number,y:number}} anchor - the chosen label position
+ * @param {number[]} advances - per-glyph advance widths in px, in render order
+ * @param {object} [options] - `minBow`/`maxSweep` as for labelArcPath, plus
+ *   `rotationQuantum` in degrees (0 = exact angles)
+ * @returns {{x:number[], y:number[], rotate:number[], span:number,
+ *            sweep:number, radius:number}|null}
  */
-export function straightLabelPath(anchor, angleDeg, span) {
-  if (!anchor || !(span > 0)) return null;
-  const rad = (angleDeg * Math.PI) / 180;
-  const hx = (Math.cos(rad) * span) / 2;
-  const hy = (Math.sin(rad) * span) / 2;
-  return { d: `M ${anchor.x - hx},${anchor.y - hy} L ${anchor.x + hx},${anchor.y + hy}` };
+export function labelArcGlyphFrames(arc, anchor, advances, options = {}) {
+  if (!Array.isArray(advances) || advances.length === 0) return null;
+  let span = 0;
+  for (let i = 0; i < advances.length; i++) {
+    const w = advances[i];
+    if (!(w >= 0) || !Number.isFinite(w)) return null;
+    span += w;
+  }
+
+  const frame = solveLabelArcFrame(arc, anchor, span, options);
+  if (!frame) return null;
+  const { radius, mid, dir, sweep } = frame;
+
+  const quantum = options.rotationQuantum ?? 0;
+  const DEG = 180 / Math.PI;
+  const RAD = Math.PI / 180;
+
+  const x = new Array(advances.length);
+  const y = new Array(advances.length);
+  const rotate = new Array(advances.length);
+
+  // Distance from the label's midpoint to the centre of the glyph being placed.
+  // Starts half a span behind and walks forward one advance at a time.
+  let cursor = -span / 2;
+  for (let i = 0; i < advances.length; i++) {
+    const w = advances[i];
+    const angle = mid + (dir * (cursor + w / 2)) / radius;
+    const cx = arc.cx + radius * Math.cos(angle);
+    const cy = arc.cy + radius * Math.sin(angle);
+
+    // Reading direction is the tangent, which is the radius turned a quarter
+    // turn the way the text advances.
+    let deg = angle * DEG + dir * 90;
+    // Wrap into (-180, 180] before snapping, so the buckets are the same ones
+    // the straight labels use and don't drift with winding.
+    deg = ((((deg + 180) % 360) + 360) % 360) - 180;
+    if (quantum > 0) deg = Math.round(deg / quantum) * quantum;
+
+    const rad = deg * RAD;
+    x[i] = cx - (w / 2) * Math.cos(rad);
+    y[i] = cy - (w / 2) * Math.sin(rad);
+    rotate[i] = deg;
+
+    cursor += w;
+  }
+
+  return { x, y, rotate, span, sweep, radius };
 }
 
 /**

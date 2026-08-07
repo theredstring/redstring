@@ -445,10 +445,11 @@ export async function runExecutorOnce() {
 
       // Build edge list for layout algorithm
       // Start with edges from the graphSpec (new edges being added)
-      let tempEdges = edges.map(edge => ({
-        sourceId: instanceIdByName.get(edge.source),
-        destinationId: instanceIdByName.get(edge.target)
-      })).filter(e => e.sourceId && e.destinationId);
+      let tempEdges = edges.map(edge => specLayoutEdge(
+        edge,
+        instanceIdByName.get(edge.source),
+        instanceIdByName.get(edge.target)
+      )).filter(e => e.sourceId && e.destinationId);
 
       // Determine layout nodes + options
       // FULL layout: include ALL nodes (existing + new) for complete re-layout
@@ -917,10 +918,11 @@ export async function runExecutorOnce() {
         });
       });
 
-      const tempEdges = edges.map(edge => ({
-        sourceId: instanceIdByName.get(edge.source),
-        destinationId: instanceIdByName.get(edge.target)
-      })).filter(e => e.sourceId && e.destinationId);
+      const tempEdges = edges.map(edge => specLayoutEdge(
+        edge,
+        instanceIdByName.get(edge.source),
+        instanceIdByName.get(edge.target)
+      )).filter(e => e.sourceId && e.destinationId);
 
       // Prepare groups for layout (resolve member names to instance IDs)
       const groupsForLayout = [];
@@ -1243,10 +1245,11 @@ export async function runExecutorOnce() {
       });
 
       // Build edge list for layout algorithm
-      const tempEdges = edges.map(edge => ({
-        sourceId: instanceIdByName.get(edge.source),
-        destinationId: instanceIdByName.get(edge.target)
-      })).filter(e => e.sourceId && e.destinationId);
+      const tempEdges = edges.map(edge => specLayoutEdge(
+        edge,
+        instanceIdByName.get(edge.source),
+        instanceIdByName.get(edge.target)
+      )).filter(e => e.sourceId && e.destinationId);
 
       // DETERMINISTIC LAYOUT: Use same parameters as Edit menu's Auto-Layout button
       const { getAutoLayoutSettings } = await import('../bridgeStoreAccessor.js');

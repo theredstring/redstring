@@ -157,6 +157,62 @@ export function estimateEdgeLabelWidth(text, fontSize = EDGE_LABEL_BASE_FONT_SIZ
 
 export const labelSpanOf = (edge, fontSize) => estimateEdgeLabelWidth(edge?.name || '', fontSize);
 
+// Text this renderer must not take apart into per-glyph chunks.
+//
+// Placing glyphs individually means each one becomes its own text chunk, and a
+// chunk boundary is exactly where the shaping engine stops being able to do its
+// job. For plain Latin that costs kerning (recoverable — see
+// `edgeLabelGlyphAdvances`, which pins the total back to the shaped width). For
+// anything below it costs correctness, so those labels fall back to a straight
+// label, where the browser shapes the whole run as one piece:
+//
+//   - combining marks: the mark and its base must stay one cluster or the accent
+//     lands on its own somewhere down the arc
+//   - ZWJ/ZWNJ and variation selectors: joiner sequences are one glyph, and
+//     splitting them renders the parts
+//   - RTL scripts and bidi controls: visual order ≠ logical order, and SVG
+//     positioning lists index the logical string
+//   - surrogates: SVG's x/y/rotate lists index UTF-16 code UNITS, so an astral
+//     character consumes two list slots and desynchronises everything after it.
+//     Excluding them here also keeps `Array.from` (code points) in agreement
+//     with the list indices.
+//   - leading/trailing/double spaces: xml:space collapses them in the rendered
+//     text but not in our advances array, which is the same desync one step
+//     removed.
+const GLYPH_SPLIT_HAZARD = new RegExp(
+  '[' +
+  '\\u0300-\\u036F' +   // combining diacritical marks
+  '\\u1AB0-\\u1AFF' +   // combining diacritical marks extended
+  '\\u20D0-\\u20FF' +   // combining diacritical marks for symbols
+  '\\uFE00-\\uFE0F' +   // variation selectors
+  '\\u200C\\u200D' +    // ZWNJ, ZWJ
+  '\\u200E\\u200F' +    // LTR/RTL marks
+  '\\u202A-\\u202E' +   // bidi embedding/override controls
+  '\\u0590-\\u08FF' +   // Hebrew through Arabic Extended-A (RTL scripts)
+  '\\uD800-\\uDFFF' +   // surrogates (astral code points)
+  ']'
+);
+
+/**
+ * Per-character advance widths, in em, for a label the canvas will place glyph
+ * by glyph along a curve. Same bucket table `estimateEdgeLabelWidth` uses.
+ *
+ * Returns null when the text must not be split (see GLYPH_SPLIT_HAZARD) — the
+ * caller's fallback is a straight label. No stroke buffer: that term in
+ * `estimateEdgeLabelWidth` reserves LAYOUT space around the label, and adding it
+ * to a glyph advance would just space the letters out.
+ *
+ * @returns {number[]|null} one advance per code point, in em
+ */
+export function edgeLabelGlyphAdvancesEm(text) {
+  if (!text || typeof text !== 'string') return null;
+  if (GLYPH_SPLIT_HAZARD.test(text)) return null;
+  if (/^\s|\s\s|\s$/.test(text)) return null;
+  const chars = Array.from(text);
+  if (chars.length === 0) return null;
+  return chars.map(charWidthEm);
+}
+
 /**
  * The core constraint: minimum center-to-center distance for this edge.
  * `dx, dy` is the direction the edge will run; pass (1,0)/(0,1) when the axis

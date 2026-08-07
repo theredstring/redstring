@@ -6,6 +6,7 @@ import {
   halfExtentTowards,
   circumRadius,
   estimateEdgeLabelWidth,
+  edgeLabelGlyphAdvancesEm,
   requiredEdgeLength,
   getPointSegmentDistSq,
   densify,
@@ -100,6 +101,47 @@ describe('estimateEdgeLabelWidth', () => {
 
   it('grows with text length', () => {
     expect(estimateEdgeLabelWidth('abcd')).toBeGreaterThan(estimateEdgeLabelWidth('ab'));
+  });
+});
+
+describe('edgeLabelGlyphAdvancesEm', () => {
+  it('returns one advance per character', () => {
+    expect(edgeLabelGlyphAdvancesEm('is a')).toHaveLength(4);
+    expect(edgeLabelGlyphAdvancesEm('W')).toHaveLength(1);
+  });
+
+  it('measures the same text the width estimate does, minus its layout padding', () => {
+    // The width estimate adds a stroke buffer for layout clearance; the glyph
+    // advances are the glyphs alone. Everything else must agree, or a label
+    // would reserve one width and render at another.
+    const text = 'compound modifier';
+    const fontSize = 59.4;
+    const advanceTotal = edgeLabelGlyphAdvancesEm(text).reduce((s, e) => s + e, 0) * fontSize;
+    const strokeBuffer = Math.max(2, fontSize * 0.25) * 2;
+    expect(advanceTotal).toBeCloseTo(estimateEdgeLabelWidth(text, fontSize) - strokeBuffer, 6);
+  });
+
+  it('tracks the buckets: wide characters advance further than narrow ones', () => {
+    const [w, i] = [edgeLabelGlyphAdvancesEm('W')[0], edgeLabelGlyphAdvancesEm('i')[0]];
+    expect(w).toBeGreaterThan(i);
+  });
+
+  it('refuses text it cannot safely split into glyphs', () => {
+    expect(edgeLabelGlyphAdvancesEm('')).toBeNull();
+    expect(edgeLabelGlyphAdvancesEm(null)).toBeNull();
+    expect(edgeLabelGlyphAdvancesEm('cafe\u0301')).toBeNull();     // combining acute
+    expect(edgeLabelGlyphAdvancesEm('a\u200Db')).toBeNull();        // ZWJ sequence
+    expect(edgeLabelGlyphAdvancesEm('\u2764\uFE0F')).toBeNull();   // variation selector
+    expect(edgeLabelGlyphAdvancesEm('\u{1F600}')).toBeNull();       // astral (surrogates)
+    expect(edgeLabelGlyphAdvancesEm('\u05E9\u05DC\u05D5\u05DD')).toBeNull(); // Hebrew (RTL)
+    expect(edgeLabelGlyphAdvancesEm('a  b')).toBeNull();         // collapsing double space
+    expect(edgeLabelGlyphAdvancesEm(' x')).toBeNull();           // collapsing leading space
+    expect(edgeLabelGlyphAdvancesEm('x ')).toBeNull();           // collapsing trailing space
+  });
+
+  it('accepts precomposed accents and ordinary single-spaced text', () => {
+    expect(edgeLabelGlyphAdvancesEm('caf\u00E9')).toHaveLength(4);  // precomposed e-acute
+    expect(edgeLabelGlyphAdvancesEm('is a kind of')).not.toBeNull();
   });
 });
 

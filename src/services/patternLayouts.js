@@ -68,7 +68,12 @@ export const PATTERN_LAYOUT_DEFAULTS = {
 
   // Minimum clear space between two node boxes that aren't connected.
   nodeGap: 140,
-  // Extra clearance added around an edge label, along the edge.
+  // Extra clearance around an edge label, along the edge. At ideal spacing this
+  // IS the visible gap between the end of the label and the node box, so it is
+  // the knob for how much the text breathes. Left here as the value for the
+  // base font; resolveConfig scales it to whatever size labels are actually
+  // drawn at, so shrinking the connection-label setting tightens the diagram
+  // instead of leaving 90px holes around 30px text. See LABEL_PADDING_EM.
   labelPadding: 90,
   // No edge is ever shorter than this, even between two tiny unlabeled nodes.
   minEdgeLength: 260,
@@ -845,12 +850,20 @@ function starLayoutCentered(nodes, edges, cfg, meta = {}) {
       ? halfExtentTowards(node, -Math.sin(priorAngles[i]), Math.cos(priorAngles[i]))
       : circumRadius(node));
 
-    let radius = cfg.minEdgeLength;
-    satellites.forEach((id, i) => {
+    // Each spoke gets its OWN length. A single radius taken as the max over
+    // every satellite means one verbose relation name drags the entire ring
+    // outward — the hub ends up with one spoke at its true minimum and all the
+    // rest visibly adrift, which is the same complaint the tree's shared level
+    // gap produced. The ring-collision solve below is still a floor, so the
+    // satellites cannot crowd each other however short their labels are.
+    const spoke = satellites.map((id, i) => {
       const edge = lookupEdge(edgeIndex, hubId, id);
       const label = labelSpanOf(edge, cfg.edgeLabelFontSize);
       const gap = label > 0 ? cfg.labelPadding : cfg.nodeGap;
-      radius = Math.max(radius, radial(hub, i) + radial(nodeById.get(id), i) + label + gap);
+      return Math.max(
+        cfg.minEdgeLength,
+        radial(hub, i) + radial(nodeById.get(id), i) + label + gap
+      );
     });
 
     const chords = satellites.map((id, i) => {
@@ -859,8 +872,13 @@ function starLayoutCentered(nodes, edges, cfg, meta = {}) {
         + tangential(nodeById.get(satellites[nextIndex]), nextIndex)
         + cfg.nodeGap;
     });
-    radius = Math.max(radius, solveRingRadius(chords));
-    return { radius, angles: ringAngles(chords, radius) };
+    // Angles are shared, so they have to come from one radius — use the ring's
+    // own requirement, which is what the angular spacing actually depends on.
+    const ringRadius = Math.max(solveRingRadius(chords), Math.min(...spoke));
+    return {
+      radii: spoke.map(s => Math.max(s, ringRadius)),
+      angles: ringAngles(chords, ringRadius)
+    };
   };
 
   const coarse = solve(null);
@@ -869,8 +887,8 @@ function starLayoutCentered(nodes, edges, cfg, meta = {}) {
   const positions = new Map([[hubId, { x: 0, y: 0 }]]);
   satellites.forEach((id, i) => {
     positions.set(id, {
-      x: Math.cos(directional.angles[i]) * directional.radius,
-      y: Math.sin(directional.angles[i]) * directional.radius
+      x: Math.cos(directional.angles[i]) * directional.radii[i],
+      y: Math.sin(directional.angles[i]) * directional.radii[i]
     });
   });
   return positions;
@@ -1454,7 +1472,35 @@ function packComponents(blocks, cfg) {
 // ENTRY POINTS
 // ============================================================================
 
-const resolveConfig = (options) => ({ ...PATTERN_LAYOUT_DEFAULTS, ...options });
+/**
+ * Label breathing room, as a multiple of the label's own font size.
+ *
+ * A flat pixel value cannot be right at two text sizes at once: 90px is
+ * reasonable either side of 59.4px text and absurd either side of 30px text,
+ * and the connection-label size is a user setting. Expressing it in ems makes
+ * "comfortable" mean the same thing at every setting.
+ */
+const LABEL_PADDING_EM = 0.6;
+
+/**
+ * Defaults merged with a caller's options, plus the values that are DERIVED
+ * from other values rather than fixed.
+ *
+ * Exported because `PATTERN_LAYOUT_DEFAULTS.labelPadding` on its own is no
+ * longer the number the layouts use — anything that wants to reason about the
+ * spacing a layout actually applied has to resolve it the same way.
+ */
+export const resolvePatternConfig = (options = {}) => {
+  const cfg = { ...PATTERN_LAYOUT_DEFAULTS, ...options };
+  // Only derive it when the caller hasn't asked for a specific value — the
+  // force solver passes its own `edgeLabelGap` through as an explicit one.
+  if (options.labelPadding === undefined) {
+    cfg.labelPadding = Math.round(cfg.edgeLabelFontSize * LABEL_PADDING_EM);
+  }
+  return cfg;
+};
+
+const resolveConfig = resolvePatternConfig;
 
 /** Wrap a centered layout function as an applyLayout-compatible layout. */
 function asTopLeftLayout(fn) {

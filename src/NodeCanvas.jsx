@@ -18,7 +18,7 @@ import EdgeGlowIndicator from './components/EdgeGlowIndicator.jsx'; // Import th
 import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToCivilization component
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
-import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeasurement.js';
+import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances } from './services/textMeasurement.js';
 import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
@@ -118,7 +118,7 @@ import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath, MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcGlyphFrames, MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
 import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
@@ -156,7 +156,12 @@ const SPAWNABLE_NODE = 'spawnable_node';
 //     500 labels, angles snapped to 3° buckets ............     4.7 ms
 //     500 labels, angles snapped to 1° buckets ............    18.6 ms
 //     500 labels, each at its own exact angle .............    50.0 ms
-//     500 labels drawn on <textPath> ......................  1145.1 ms
+//     500 labels drawn on <textPath> ......................  1145.1 ms  [1]
+//
+// [1] HISTORICAL. Curved labels no longer use <textPath> — the glyphs are
+//     positioned individually from the arc instead (see labelArcGlyphFrames in
+//     edgeRouting.js), which puts them in the rows above rather than this one.
+//     The number is kept because it is the reason that changed.
 //
 // Rotation is free. DISTINCT rotations are not. Each distinct rotation matrix
 // is its own glyph-atlas key, so a few hundred labels at a few hundred angles
@@ -166,10 +171,14 @@ const SPAWNABLE_NODE = 'spawnable_node';
 // instant next to straight despite doing more routing work: manhattan labels
 // only ever sit at 0° or 90° — two buckets, permanently cached.
 //
-// Two fixes follow, and both apply to every routing style:
+// Three fixes follow, and all apply to every routing style:
 //   1. Snap label angles into buckets (see `labelAngleQuantum`).
-//   2. Only spend a <textPath> on a curve the viewer can actually see
-//      (see `labelArcMinBow`), with a hard count budget behind it.
+//   2. Curve a label only where the viewer can see the bend (see
+//      `labelArcMinBow`), with a hard count budget behind it — a curved label
+//      spends a matrix per glyph where a straight one spends one for the run.
+//   3. Place curved glyphs ourselves rather than handing the browser a
+//      <textPath>, whose per-paint re-parameterisation is the row below that
+//      dwarfs every other (see labelArcGlyphFrames in edgeRouting.js).
 // ---------------------------------------------------------------------------
 
 // A second sweep, on the label counts that actually occur rather than 500.
@@ -184,9 +193,11 @@ const SPAWNABLE_NODE = 'spawnable_node';
 //
 // Two things to read off it. First, the bucket size has to reach 6-9° before it
 // buys anything at all on a real label count — at 4° a 200-label graph still
-// costs two full frames. Second, <textPath> is not linear in count, as the 500
-// row above already hinted: 40→8.4ms but 200→83ms. Any budget derived from a
-// fixed per-label cost is therefore wrong in the direction that hurts.
+// costs two full frames. Second, the textPath column is not linear in count, as
+// the 500 row above already hinted: 40→8.4ms but 200→83ms. Any budget derived
+// from a fixed per-label cost is therefore wrong in the direction that hurts.
+// (That column is now historical — curved labels are placed glyph by glyph and
+// land in the angle columns instead. The rest of the table still governs.)
 
 // On-screen displacement, in CSS pixels, we're willing to accept at the far end
 // of a label from snapping its angle. Snapping by a quantum q tilts a label by
@@ -234,18 +245,24 @@ const LABEL_ANGLE_QUANTUM_MIN_COUNT = 48;
 // EdgeGlowIndicator.
 // ---------------------------------------------------------------------------
 
-// A hard ceiling on how many labels may ride a <textPath> at once.
+// A hard ceiling on how many labels may curve at once.
 //
-// The old justification for 40 — "~0.14ms per label, scales linearly" — was
-// wrong in both halves: the 500-label row above works out at 2.3ms each, and
-// the sweep shows the cost climbing with count rather than tracking it. But 40
-// happens to be about the right number anyway, for a reason the old comment
-// didn't give: the 40 row IS the frame floor (8.4ms), and the blow-up is at
-// 200, which this budget already prevents. So it stands — as the real bound on
-// curved labels, deliberately in preference to raising
-// LABEL_CURVE_MIN_SCREEN_PX. See that constant for why: a ceiling on how many
-// labels curve keeps Lombardi looking like Lombardi, where a bow threshold high
-// enough to matter just straightens everything.
+// What it bounds has changed. It used to cap <textPath> instances, whose cost
+// climbs with count (40→8.4ms, 200→83ms) — that cliff is gone, and this is no
+// longer what stands between the canvas and a stall. What it bounds now is
+// distinct glyph matrices: a curved label rotates every character separately,
+// so N curved labels cost roughly N×(characters) atlas keys where N straight
+// ones cost N. That is a gentler curve, and 40 is now a conservative number on
+// it rather than a cliff-edge one.
+//
+// Kept at 40 regardless, for two reasons. It is still the right SHAPE of budget
+// — a ceiling on how many labels curve, deliberately in preference to raising
+// LABEL_CURVE_MIN_SCREEN_PX, because that keeps Lombardi looking like Lombardi
+// where a bow threshold high enough to matter just straightens everything. And
+// it is currently fed the WHOLE graph's edge count rather than the visible one,
+// because viewport culling is disabled (see ENABLE_CULLING) — so on any real
+// universe this budget is what decides that nothing curves at all. Re-tune it
+// when culling comes back and it is measuring what its name says.
 const CURVED_LABEL_BUDGET = 40;
 
 // Shared empty obstacle list, so the memo below can skip the work without
@@ -3637,16 +3654,15 @@ function NodeCanvas() {
   // be a temporal dead zone. Only the sync lives here, next to the memo.
   useEffect(() => { labelAngleQuantumRef.current = labelAngleQuantum; }, [labelAngleQuantum]);
 
-  // Curved Lombardi labels are drawn with SVG <textPath>, which is in a
-  // different cost class from a rotated <text> — the browser arc-length
-  // parameterises the path and places every glyph individually, and none of it
-  // is cached across paints. Measured at ~0.14ms per label per frame, linear in
-  // count: forty of them is a budget, five hundred is 1.1 seconds.
+  // A curved Lombardi label costs more than a straight one even now that the
+  // glyphs are placed by hand rather than by a <textPath>: every character gets
+  // its own rotation, so it is a glyph-atlas key per character against one for
+  // the whole run.
   //
-  // So spend them only where the curve is actually visible. A bend of a few
-  // canvas pixels is sub-pixel on screen once you're zoomed out, and there the
-  // curved and straight labels are literally the same picture — so require the
-  // bow to clear LABEL_CURVE_MIN_SCREEN_PX *on screen*, which converts back to a
+  // So curve only where the curve is actually visible. A bend of a few canvas
+  // pixels is sub-pixel on screen once you're zoomed out, and there the curved
+  // and straight labels are literally the same picture — so require the bow to
+  // clear LABEL_CURVE_MIN_SCREEN_PX *on screen*, which converts back to a
   // canvas-space floor by dividing out the zoom. The count budget is a backstop
   // for the dense-and-zoomed-in case this doesn't catch.
   const curveLabels = visibleEdges.length <= CURVED_LABEL_BUDGET;
@@ -15468,24 +15484,27 @@ function NodeCanvas() {
 
                                 // Lombardi labels ride the arc itself rather than sitting on a
                                 // chord of it — whenever the bend is visible on screen and the
-                                // curved-label budget allows. labelArcPath returns null otherwise
-                                // (degenerate arc, no text, a label that would wrap the circle, or
-                                // a bow under labelArcMinBow), and a null falls through to the
-                                // straight rotated label below, which at that point is the same
-                                // picture for a fraction of the cost.
+                                // curved-label budget allows. Each glyph is positioned and rotated
+                                // individually, computed closed-form from the circle; see
+                                // labelArcGlyphFrames for why this is not a <textPath>.
                                 //
-                                // Skipped mid-drag: the DOM-bypass updater rewrites the path each
-                                // frame (see useNodeDrag), but the <text> element's own transform
-                                // would fight it, so the drag path keeps the straight form.
-                                const labelArc = (orthoRouting?.arc && curveLabels)
-                                  ? labelArcPath(
+                                // Returns null for a degenerate arc, a label that would wrap the
+                                // circle, or a bow under labelArcMinBow. Text that must not be
+                                // split into per-glyph chunks (combining marks, joiners, RTL) makes
+                                // the advances null one step earlier. Either way it falls through to
+                                // the straight rotated label below, which at that point is the same
+                                // picture for less — one glyph matrix instead of one per character.
+                                const labelGlyphAdvances = (orthoRouting?.arc && curveLabels)
+                                  ? edgeLabelGlyphAdvances(connectionName, connectionFontSize)
+                                  : null;
+                                const labelGlyphs = labelGlyphAdvances
+                                  ? labelArcGlyphFrames(
                                     orthoRouting.arc,
                                     { x: labelRenderX, y: labelRenderY },
-                                    estimateTextWidth(connectionName, connectionFontSize),
-                                    { minBow: labelArcMinBow }
+                                    labelGlyphAdvances,
+                                    { minBow: labelArcMinBow, rotationQuantum: labelAngleQuantum }
                                   )
                                   : null;
-                                const labelArcId = `lombardi-label-${edge.id}`;
 
                                 // Generous hitbox around the label text so the name is as
                                 // clickable as the line itself (labels often sit off the line).
@@ -15508,30 +15527,35 @@ function NodeCanvas() {
                                       {...getEdgeHitboxHandlers(edge.id)}
                                     />
                                     {/* Canvas-colored text creating a "hole" effect in the connection */}
-                                    {labelArc ? (
-                                      <>
-                                        {/* data-label-arc keeps the drag updater from mistaking
-                                            this for the edge's own path — see useNodeDrag. */}
-                                        <path id={labelArcId} d={labelArc.d} fill="none" stroke="none" data-label-arc="1" />
-                                        <text
-                                          fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
-                                          fontSize={connectionFontSize}
-                                          fontWeight="bold"
-                                          dominantBaseline="middle"
-                                          stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
-                                          strokeWidth={8 * (connectionFontSize / 54)}
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          paintOrder="stroke fill"
-                                          style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
-                                        >
-                                          <textPath href={`#${labelArcId}`} startOffset="50%" textAnchor="middle">
-                                            {connectionName}
-                                          </textPath>
-                                        </text>
-                                      </>
+                                    {labelGlyphs ? (
+                                      /* Curved: one <text>, every glyph placed and rotated
+                                         individually. textAnchor is `start` because x/y are
+                                         baseline ORIGINS — labelArcGlyphFrames already walked each
+                                         one back half an advance so the glyph's centre lands on the
+                                         circle. data-connection-label marks it for the drag
+                                         updater, which rewrites these same three lists per frame. */
+                                      <text
+                                        data-connection-label="1"
+                                        x={labelGlyphs.x.map((v) => v.toFixed(2)).join(' ')}
+                                        y={labelGlyphs.y.map((v) => v.toFixed(2)).join(' ')}
+                                        rotate={labelGlyphs.rotate.map((v) => v.toFixed(2)).join(' ')}
+                                        fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
+                                        fontSize={connectionFontSize}
+                                        fontWeight="bold"
+                                        textAnchor="start"
+                                        dominantBaseline="middle"
+                                        stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
+                                        strokeWidth={8 * (connectionFontSize / 54)}
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        paintOrder="stroke fill"
+                                        style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+                                      >
+                                        {connectionName}
+                                      </text>
                                     ) : (
                                       <text
+                                        data-connection-label="1"
                                         x={labelRenderX}
                                         y={labelRenderY}
                                         fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}

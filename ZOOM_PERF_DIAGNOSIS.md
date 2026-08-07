@@ -6,6 +6,15 @@ enabled. Line numbers refer to the working tree as of this date (including the u
 
 ---
 
+> **Status update (same day):** the `<textPath>` cost described throughout this
+> document is **fixed** — curved Lombardi labels are now placed glyph by glyph
+> from the analytic arc (`labelArcGlyphFrames` in `edgeRouting.js`), so nothing
+> re-parameterises a path per paint and curved/straight labels are one element
+> in two forms. That removes the amplifier under mechanisms 1 and 2 and the
+> `getTotalLength()` flush at drag start. **Mechanisms 1–4 below are otherwise
+> untouched and still live** — culling is still off, the detent-zoom forced
+> layout is still there, and the glow update is still uncoalesced.
+
 ## TL;DR
 
 The collapse is not one bug. It is **four live mechanisms layered on top of each other**, all

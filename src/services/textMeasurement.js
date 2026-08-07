@@ -6,6 +6,7 @@
  * eliminating synchronous layout reflows.
  */
 import { prepare, prepareWithSegments, layout, layoutWithLines, measureNaturalWidth, clearCache } from '@chenglou/pretext';
+import { edgeLabelGlyphAdvancesEm } from './layoutGeometry.js';
 
 // --- Prepared-text cache (keyed by text + fontString) ---
 const preparedCache = new Map();
@@ -116,6 +117,59 @@ export function wrapTextToLines(text, maxWidth, fontString) {
   // lineHeight only affects the returned `height`, which we don't use here.
   const result = layoutWithLines(prepared, maxWidth, 1);
   return result.lines.map((l) => l.text);
+}
+
+/** The exact font connection labels are drawn with — see NodeCanvas's label JSX. */
+export const edgeLabelFontString = (fontSize) => buildFontString(fontSize, "'EmOne', sans-serif", 'bold');
+
+/**
+ * Per-glyph advances, in px, for a connection label placed glyph by glyph along
+ * a curve. Null when the text must not be split — see
+ * `edgeLabelGlyphAdvancesEm`, whose fallback rules this inherits.
+ *
+ * The em buckets alone are not accurate enough to place glyphs with. They are
+ * deliberately rounded UP (they exist to reserve layout space, where
+ * under-reserving is the harmful direction), so using them raw tracks the text
+ * 5-16% wide — visible as letters drifting apart along the arc. They also can't
+ * know that the app asks for `bold` from a family that ships only a 600 weight,
+ * so every glyph the browser draws is synthetically emboldened and slightly
+ * wider than its own hmtx entry.
+ *
+ * Both are corrected the same way: measure the whole string ONCE through the
+ * same engine and the same font string the SVG renders with, and scale the
+ * buckets to that total. The buckets then only have to get the RATIOS between
+ * characters right, which is what they are good at. What's left is per-pair kern
+ * deltas, which the measured total absorbs across the label rather than letting
+ * them accumulate.
+ *
+ * One function, used by both the renderer and the drag updater, so a label can
+ * never be measured one way at rest and another mid-drag.
+ *
+ * @returns {number[]|null} one advance per code point, in px
+ */
+export function edgeLabelGlyphAdvances(text, fontSize) {
+  if (!(fontSize > 0)) return null;
+  const em = edgeLabelGlyphAdvancesEm(text);
+  if (!em) return null;
+
+  const raw = em.map((e) => e * fontSize);
+  const rawTotal = raw.reduce((sum, w) => sum + w, 0);
+  if (!(rawTotal > 0)) return null;
+
+  // No measurement available — the buckets on their own are still a usable
+  // label, a few percent wide. Guarded rather than trusted: the measurement
+  // engine needs a canvas, and throws rather than declining without one, which
+  // is a poor reason for a connection label to take the canvas down with it.
+  let measured = 0;
+  try {
+    measured = measureTextWidth(text, edgeLabelFontString(fontSize));
+  } catch (_) {
+    return raw;
+  }
+  if (!(measured > 0)) return raw;
+
+  const scale = measured / rawTotal;
+  return raw.map((w) => w * scale);
 }
 
 /**
