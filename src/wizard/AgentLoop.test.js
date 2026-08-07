@@ -463,6 +463,136 @@ describe('AgentLoop', () => {
     });
   });
 
+  // A repeated plan used to be structurally free of every guard: the churn lock is
+  // evaluated at the END of an iteration (so the duplicate has already executed),
+  // the exact-repeat detector needs three consecutive matches, and two is under the
+  // per-turn cap. Each repeat cost a full conversation re-upload for a plan the
+  // model already had.
+  describe('planTask idempotence', () => {
+    const DONE_STEPS = [
+      { description: 'Sketch the graph', status: 'done' },
+      { description: 'Populate the nodes', status: 'done' }
+    ];
+    const PLAN_TEXT = 'Plan (2/2 complete):\n  1. [DONE] Sketch the graph\n  2. [DONE] Populate the nodes';
+
+    const planResult = (steps, planText, allComplete) => ({
+      action: 'planTask',
+      steps,
+      planText,
+      allComplete,
+      done: steps.filter(s => s.status === 'done').length,
+      skipped: 0,
+      inProgress: 0,
+      total: steps.length
+    });
+
+    it('returns unchanged for a re-submitted identical plan, without re-steering', async () => {
+      let iter = 0;
+      streamLLM.mockImplementation(async function* () {
+        if (iter < 2) {
+          yield { type: 'tool_call', name: 'planTask', args: { steps: DONE_STEPS }, id: `plan-${iter++}` };
+        } else {
+          yield { type: 'text', content: 'Built it.' };
+        }
+      });
+      executeTool.mockImplementation(async (name) => (
+        name === 'planTask' ? planResult(DONE_STEPS, PLAN_TEXT, true) : {}
+      ));
+
+      const events = [];
+      for await (const e of runAgent('Build', { ...mockGraphState }, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(e);
+        if (events.length > 60) break;
+      }
+
+      const results = events.filter(e => e.type === 'tool_result' && e.name === 'planTask');
+      expect(results).toHaveLength(2);
+      expect(results[0].result.unchanged).toBeUndefined();
+      expect(results[1].result.unchanged).toBe(true);
+      // The no-op still tells the model what to do instead — it just does it in
+      // the tool result rather than costing a second injected message.
+      expect(results[1].result.message).toContain('Respond to the user');
+
+      // The completion push belongs to the call that completed the plan, not to
+      // every restatement of it afterwards.
+      const completions = events.filter(e => e.type === 'steering' && e.kind === 'plan_complete');
+      expect(completions).toHaveLength(1);
+    });
+
+    it('applies a plan that genuinely changed', async () => {
+      const FIRST = [
+        { description: 'Sketch the graph', status: 'done' },
+        { description: 'Populate the nodes', status: 'pending' }
+      ];
+      let iter = 0;
+      streamLLM.mockImplementation(async function* () {
+        if (iter === 0) {
+          iter++;
+          yield { type: 'tool_call', name: 'planTask', args: { steps: FIRST }, id: 'plan-0' };
+        } else if (iter === 1) {
+          iter++;
+          yield { type: 'tool_call', name: 'planTask', args: { steps: DONE_STEPS }, id: 'plan-1' };
+        } else {
+          yield { type: 'text', content: 'Built it.' };
+        }
+      });
+      executeTool.mockImplementation(async (name, args) => {
+        if (name !== 'planTask') return {};
+        const allDone = args.steps.every(s => s.status === 'done');
+        return planResult(args.steps, allDone ? PLAN_TEXT : 'Plan (1/2 complete):\n  1. [DONE] Sketch the graph\n  2. [ ] Populate the nodes', allDone);
+      });
+
+      const state = { ...mockGraphState };
+      const events = [];
+      for await (const e of runAgent('Build', state, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(e);
+        if (events.length > 60) break;
+      }
+
+      const results = events.filter(e => e.type === 'tool_result' && e.name === 'planTask');
+      expect(results).toHaveLength(2);
+      expect(results.every(r => r.result.unchanged === undefined)).toBe(true);
+      expect(state._currentPlan).toEqual(DONE_STEPS);
+    });
+
+    it('does not spend the per-turn planTask cap on no-op repeats', async () => {
+      // Every iteration also runs a mutating tool, so the churn lock never fires
+      // and the cap is the only thing under test. Four identical plans, then a
+      // real change — under the old counter that fifth call would be blocked.
+      let iter = 0;
+      streamLLM.mockImplementation(async function* () {
+        const i = iter++;
+        if (i >= 5) {
+          yield { type: 'text', content: 'Built it.' };
+          return;
+        }
+        const steps = i === 4
+          ? [...DONE_STEPS, { description: 'Enrich the nodes', status: 'done' }]
+          : DONE_STEPS;
+        yield { type: 'tool_call', name: 'planTask', args: { steps }, id: `plan-${i}` };
+        yield { type: 'tool_call', name: 'createNode', args: { name: `Node ${i}` }, id: `node-${i}` };
+      });
+      executeTool.mockImplementation(async (name, args) => {
+        if (name !== 'planTask') return { nodeId: 'n1' };
+        const text = args.steps.length === 3 ? `${PLAN_TEXT}\n  3. [DONE] Enrich the nodes` : PLAN_TEXT;
+        return planResult(args.steps, text, true);
+      });
+
+      const events = [];
+      for await (const e of runAgent('Build', { ...mockGraphState }, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(e);
+        if (events.length > 120) break;
+      }
+
+      const results = events.filter(e => e.type === 'tool_result' && e.name === 'planTask');
+      expect(results).toHaveLength(5);
+      expect(results.slice(1, 4).every(r => r.result.unchanged === true)).toBe(true);
+      // The change lands: it was never charged for the three restatements.
+      expect(results[4].result.unchanged).toBeUndefined();
+      expect(results[4].result.locked).toBeUndefined();
+    });
+  });
+
   describe('conversation history trimming', () => {
     it('drops oversized history by token size, not just message count', async () => {
       let captured = null;

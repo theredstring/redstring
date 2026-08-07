@@ -30,6 +30,49 @@ export function isSettled(step) {
   return step?.status === 'done' || step?.status === 'skipped';
 }
 
+const statusIcon = (status) => {
+  if (status === 'done') return '[DONE]';
+  if (status === 'in_progress') return '[IN PROGRESS]';
+  if (status === 'skipped') return '[SKIPPED]';
+  return '[ ]';
+};
+
+/**
+ * Render the human/LLM-readable plan text for a set of steps.
+ *
+ * Exported because it doubles as the plan's identity: it encodes every
+ * description, status and substep and nothing else, so two plans render
+ * identically exactly when they are the same plan. AgentLoop compares this
+ * string to decide whether a `planTask` call actually changed anything, which
+ * also lets it recognise a re-submitted *carried-over* plan — one that was
+ * never rendered in this turn.
+ *
+ * Read-only: it never mutates the steps it is given.
+ */
+export function renderPlanText(steps) {
+  const list = Array.isArray(steps) ? steps : [];
+  const lines = list.map((step, i) => {
+    let line = `  ${i + 1}. ${statusIcon(step?.status)} ${step?.description}`;
+
+    // Add substep lines
+    if (step?.substeps && step.substeps.length > 0) {
+      const subSettled = step.substeps.filter(isSettled).length;
+      line += ` (${subSettled}/${step.substeps.length} substeps)`;
+      for (let j = 0; j < step.substeps.length; j++) {
+        const sub = step.substeps[j];
+        const letter = String.fromCharCode(97 + j); // a, b, c...
+        line += `\n    ${letter}. ${statusIcon(sub?.status)} ${sub?.description}`;
+      }
+    }
+    return line;
+  });
+
+  const done = list.filter(s => s?.status === 'done').length;
+  const skipped = list.filter(s => s?.status === 'skipped').length;
+  const skippedNote = skipped > 0 ? `, ${skipped} skipped` : '';
+  return `Plan (${done}/${list.length} complete${skippedNote}):\n${lines.join('\n')}`;
+}
+
 export async function planTask(args) {
   const { steps } = args;
 
@@ -86,33 +129,10 @@ export async function planTask(args) {
   const inProgress = steps.filter(s => s.status === 'in_progress').length;
   const total = steps.length;
 
-  const statusIcon = (status) => {
-    if (status === 'done') return '[DONE]';
-    if (status === 'in_progress') return '[IN PROGRESS]';
-    if (status === 'skipped') return '[SKIPPED]';
-    return '[ ]';
-  };
-
-  // Build formatted plan text for LLM conversation history
-  const lines = steps.map((step, i) => {
-    let line = `  ${i + 1}. ${statusIcon(step.status)} ${step.description}`;
-
-    // Add substep lines
-    if (step.substeps && step.substeps.length > 0) {
-      const subSettled = step.substeps.filter(isSettled).length;
-      line += ` (${subSettled}/${step.substeps.length} substeps)`;
-      for (let j = 0; j < step.substeps.length; j++) {
-        const sub = step.substeps[j];
-        const letter = String.fromCharCode(97 + j); // a, b, c...
-        line += `\n    ${letter}. ${statusIcon(sub.status)} ${sub.description}`;
-      }
-    }
-    return line;
-  });
-
   const settled = done + skipped;
-  const skippedNote = skipped > 0 ? `, ${skipped} skipped` : '';
-  const planText = `Plan (${done}/${total} complete${skippedNote}):\n${lines.join('\n')}`;
+  // Built by the shared renderer so the string AgentLoop compares for
+  // "did this plan actually change?" is the same string the model reads.
+  const planText = renderPlanText(steps);
 
   return {
     action: 'planTask',

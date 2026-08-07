@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
 import { buildContext, buildPersistentContextHeader, buildPlanContext, truncateContext } from './ContextBuilder.js';
 import { MAX_TOOL_RESULT_CHARS, estimateObjectTokens, estimateTokens } from './tokenEstimate.js';
-import { isSettled } from './tools/planTask.js';
+import { isSettled, renderPlanText } from './tools/planTask.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
 import { selectToolsForTurn } from './tools/schemas.js';
 import { buildRequestMessages } from './requestMessages.js';
@@ -1264,6 +1264,19 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   let consecutivePlanOnlyIterations = 0;
   let planTaskLocked = false;
   let planTaskCallCount = 0;
+  // Rendered text of the plan currently in effect. `planTask` is idempotent
+  // against this: re-submitting a byte-identical plan is a no-op that neither
+  // consumes one of the MAX_PLANTASK_CALLS nor replaces the stored plan.
+  //
+  // Without it a 2x repeat was structurally free of every guard — the churn lock
+  // only evaluates at the END of an iteration (so the duplicate has already run),
+  // the exact-repeat detector needs three consecutive matches, and two is under
+  // the cap. Each repeat costs a full conversation re-upload for a plan the model
+  // already had. Seeded from a carried-over plan so resuming and re-stating it
+  // counts as unchanged too.
+  let lastAppliedPlanText = Array.isArray(graphState._currentPlan) && graphState._currentPlan.length > 0
+    ? renderPlanText(graphState._currentPlan)
+    : null;
   // Track consecutive text-only nudges to prevent infinite nudge loops
   let consecutiveNudges = 0;
   const MAX_CONSECUTIVE_NUDGES = 3;
@@ -1838,6 +1851,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
       // Track sparse definition graphs for a post-loop nudge
       const sparseDefinitionGraphs = [];
+      // Did a planTask call this iteration actually change the plan? A repeat of
+      // the plan already in effect must not read as progress downstream.
+      let planTaskChangedThisIter = false;
 
       // Execute tools sequentially
       for (const toolCall of iterationToolCalls) {
@@ -1858,7 +1874,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             });
             continue;
           }
-          planTaskCallCount++;
+          // The counter is incremented AFTER the call is known to have changed the
+          // plan — a no-op repeat shouldn't burn one of three allowed updates.
         }
 
         try {
@@ -1880,6 +1897,37 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             ),
             toolCall.name
           );
+
+          // planTask is idempotent. A plan that renders identically to the one
+          // already in effect is returned as a no-op: the stored plan is left
+          // alone, no plan card is re-emitted, the per-turn cap is untouched, and
+          // the completion steering below won't fire for it. The result still
+          // carries the directive that steering would have — the model needs to be
+          // told what to do instead of re-planning, just not at the cost of a
+          // second injected message.
+          if (toolCall.name === 'planTask') {
+            if (result?.planText && result.planText === lastAppliedPlanText) {
+              console.error('[AgentLoop] planTask re-submitted an identical plan — returning unchanged (no iteration consumed).');
+              const unchangedResult = {
+                unchanged: true,
+                planText: result.planText,
+                message: result.allComplete
+                  ? 'Plan unchanged — every step is already settled. Respond to the user now with one sentence summarizing what you built. Do NOT call any more tools.'
+                  : 'Plan unchanged — this is identical to the plan already in effect. Stop re-planning and execute the next incomplete step with an action tool.'
+              };
+              resolvedToolCallIds.add(toolCall.id);
+              yield { type: 'tool_result', name: toolCall.name, result: unchangedResult, id: toolCall.id };
+              messages.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: JSON.stringify(unchangedResult)
+              });
+              continue;
+            }
+            lastAppliedPlanText = result?.planText || lastAppliedPlanText;
+            planTaskCallCount++;
+            planTaskChangedThisIter = true;
+          }
 
           // Update graphState so subsequent tool calls see the latest state
           updateGraphState(graphState, toolCall.name, toolCall.args, result);
@@ -1965,8 +2013,10 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       {
         const plan = graphState._currentPlan;
         const planAllDone = plan && plan.length > 0 && plan.every(isSettled);
-        const calledPlanTask = iterationToolCalls.some(tc => tc.name === 'planTask');
-        if (planAllDone && calledPlanTask && sparseDefinitionGraphs.length === 0) {
+        // Only a planTask that actually CHANGED the plan earns this push. A repeat
+        // of an already-complete plan carries the same directive in its own result,
+        // so injecting it again would just be a second copy of the same sentence.
+        if (planAllDone && planTaskChangedThisIter && sparseDefinitionGraphs.length === 0) {
           console.error('[AgentLoop] ✓ Plan is 100% complete. Injecting stop message.');
           yield steer('plan_complete', 'All plan steps are done. Respond to the user now with one sentence summarizing what you built. Do NOT call any more tools.');
         }
@@ -1976,6 +2026,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // mutating did. Two such iterations in a row = the model is re-planning instead
       // of acting — lock planTask for the rest of the turn and tell it to execute.
       {
+        // Deliberately counts no-op repeats too: re-stating the plan you already
+        // have and building nothing is the purest form of the churn this locks.
         const calledPlanTaskThisIter = iterationToolCalls.some(tc => tc.name === 'planTask');
         const ranMutatingThisIter = iterationToolCalls.some(tc => !NON_MUTATING_TOOLS.has(tc.name));
         // Once the model has touched the plan itself, it is no longer inheriting

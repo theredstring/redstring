@@ -701,9 +701,21 @@ const completedActions = new Map(); // id -> { result, completedAt }
 let telemetry = [];
 let chatLog = [];
 
+// Telemetry is append-only from nine call sites and is polled by every connected
+// client every 500ms–5s. Left unbounded it made both processes do O(n) work per
+// poll — O(n²) over a session — and eventually crashed the client, which spread
+// the array into Math.max(). Trim it exactly as chatLog beside it already is.
+const TELEMETRY_MAX = 1000;
+const TELEMETRY_KEEP = 800;
+function pushTelemetry(entry) {
+  telemetry.push(entry);
+  if (telemetry.length > TELEMETRY_MAX) telemetry = telemetry.slice(-TELEMETRY_KEEP);
+}
+
 // Telemetry endpoint
 app.get('/api/bridge/telemetry', (req, res) => {
-  res.json({ telemetry, chat: chatLog.slice(-200) });
+  // Sliced like `chat` beside it: clients only ever read the recent tail.
+  res.json({ telemetry: telemetry.slice(-500), chat: chatLog.slice(-200) });
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -720,7 +732,7 @@ app.get('/api/bridge/pending-actions', (req, res) => {
     available.forEach(a => {
       inflightActionIds.add(a.id);
       inflightMeta.set(a.id, { ts: Date.now(), action: a.action, params: a.params });
-      telemetry.push({ ts: Date.now(), type: 'tool_call', name: a.action, args: a.params, leased: true, id: a.id });
+      pushTelemetry({ ts: Date.now(), type: 'tool_call', name: a.action, args: a.params, leased: true, id: a.id });
     });
     res.json({ pendingActions: available });
   } catch (err) {
@@ -770,14 +782,14 @@ app.post('/api/bridge/pending-actions/enqueue', (req, res) => {
       // Fire-and-forget sequential execution; the MCP client polls action-status.
       (async () => {
         for (const { actionId, action, params } of ordered) {
-          telemetry.push({ ts: Date.now(), type: 'tool_call', name: action, args: params, status: 'running', id: actionId });
+          pushTelemetry({ ts: Date.now(), type: 'tool_call', name: action, args: params, status: 'running', id: actionId });
           try {
             const result = await runtime.executeAction(action, params);
             completedActions.set(actionId, { result: result ?? { success: true }, completedAt: Date.now() });
-            telemetry.push({ ts: Date.now(), type: 'tool_call', name: action, args: params, status: 'completed', id: actionId });
+            pushTelemetry({ ts: Date.now(), type: 'tool_call', name: action, args: params, status: 'completed', id: actionId });
           } catch (err) {
             completedActions.set(actionId, { result: { success: false, error: String(err?.message || err) }, completedAt: Date.now() });
-            telemetry.push({ ts: Date.now(), type: 'tool_call', name: action, args: params, status: 'error', error: String(err?.message || err), id: actionId });
+            pushTelemetry({ ts: Date.now(), type: 'tool_call', name: action, args: params, status: 'error', error: String(err?.message || err), id: actionId });
           } finally {
             pendingActions = pendingActions.filter((p) => p.id !== actionId);
             setTimeout(() => completedActions.delete(actionId), 300000); // 5 min TTL
@@ -791,7 +803,7 @@ app.post('/api/bridge/pending-actions/enqueue', (req, res) => {
       const actionId = id(a.action || 'act');
       generatedIds.push(actionId);
       pendingActions.push({ id: actionId, action: a.action, params: a.params, timestamp: Date.now() });
-      telemetry.push({ ts: Date.now(), type: 'tool_call', name: a.action, args: a.params, status: 'queued' });
+      pushTelemetry({ ts: Date.now(), type: 'tool_call', name: a.action, args: a.params, status: 'queued' });
     }
     res.json({ ok: true, enqueued: actions.length, actionIds: generatedIds });
   } catch (err) {
@@ -809,7 +821,7 @@ app.post('/api/bridge/action-completed', (req, res) => {
       inflightActionIds.delete(actionId);
       const meta = inflightMeta.get(actionId);
       if (meta) {
-        telemetry.push({ ts: Date.now(), type: 'tool_call', name: meta.action, args: meta.params, status: 'completed', id: actionId });
+        pushTelemetry({ ts: Date.now(), type: 'tool_call', name: meta.action, args: meta.params, status: 'completed', id: actionId });
         inflightMeta.delete(actionId);
       }
       // Store completion for MCP server polling
@@ -842,7 +854,7 @@ app.get('/api/bridge/action-status/:actionId', (req, res) => {
 app.post('/api/bridge/action-feedback', (req, res) => {
   try {
     const { action, status, error, params } = req.body || {};
-    telemetry.push({ ts: Date.now(), type: 'action_feedback', action, status, error, params });
+    pushTelemetry({ ts: Date.now(), type: 'action_feedback', action, status, error, params });
     console.log(`[Wizard] Action feedback: ${action} - ${status}`);
     res.json({ acknowledged: true });
   } catch (err) {
@@ -859,7 +871,7 @@ app.post('/api/bridge/tool-status', (req, res) => {
       return res.status(400).json({ error: 'toolCalls array required' });
     }
     for (const tool of toolCalls) {
-      telemetry.push({
+      pushTelemetry({
         ts: tool.timestamp || Date.now(),
         type: 'tool_call',
         name: tool.name,
@@ -886,7 +898,7 @@ app.post('/api/bridge/chat/append', (req, res) => {
     const entry = { ts: Date.now(), role: role || 'system', text: String(text), cid, channel: channel || 'agent' };
     chatLog.push(entry);
     if (chatLog.length > 1000) chatLog = chatLog.slice(-800);
-    telemetry.push({ ts: entry.ts, type: 'chat', role: entry.role, text: entry.text, cid, channel });
+    pushTelemetry({ ts: entry.ts, type: 'chat', role: entry.role, text: entry.text, cid, channel });
     res.json({ ok: true });
   } catch (err) {
     console.error('[Wizard] Chat append error:', err);

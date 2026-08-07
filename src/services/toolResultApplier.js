@@ -71,6 +71,73 @@ function layoutAfterWizardMutation(graphId) {
 }
 
 /**
+ * Ask for a graph to be laid out after a wizard mutation, coalesced per graph.
+ *
+ * Every call site used to pair `layoutAfterWizardMutation` with its own 600ms
+ * `rs-trigger-auto-layout` timer, and the recursive ones scheduled a timer per
+ * layer (materializeCompositionLevel) or per member (applyUnfoldPlan). None was
+ * captured, so they all survived abort, tab switch and unmount, and they all
+ * landed in the same queue drain — N synchronous layout passes back to back over
+ * the same graphs.
+ *
+ * Keyed by graph, the burst collapses: a later request for a graph replaces its
+ * pending timer instead of adding one, and only the FIRST request in a burst does
+ * the immediate offscreen pass. Subsequent ones ride the dispatch already
+ * scheduled, which NodeCanvas turns into exactly one layout (debounced tween for
+ * the active graph, one offscreen pass for a background one).
+ */
+const LAYOUT_DISPATCH_DELAY_MS = 600;
+const __pendingLayoutTimers = new Map(); // graphId -> timer id
+
+function scheduleGraphLayout(graphId, delay = LAYOUT_DISPATCH_DELAY_MS) {
+  if (!graphId) return;
+  const pending = __pendingLayoutTimers.get(graphId);
+  if (pending) {
+    clearTimeout(pending);
+  } else {
+    // Nothing scheduled yet for this graph — do the immediate pass so a headless
+    // host (no canvas listening) still gets positions.
+    layoutAfterWizardMutation(graphId);
+  }
+  __pendingLayoutTimers.set(graphId, setTimeout(() => {
+    __pendingLayoutTimers.delete(graphId);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
+    }
+  }, delay));
+}
+
+/**
+ * Auto-enrichment for a graph, coalesced the same way and for the same reason:
+ * one recursive build used to fire a 1000ms enrichment timer per level, each
+ * cloning the whole prototype Map. Names accumulate across the burst so the graph
+ * is enriched once with everything that landed in it.
+ */
+const ENRICH_DELAY_MS = 1000;
+const __pendingEnrich = new Map(); // graphId -> { timer, names:Set, overwriteDescription }
+
+function scheduleEnrichment(names, graphId, { overwriteDescription = false } = {}) {
+  const list = (Array.isArray(names) ? names : []).filter(Boolean);
+  if (list.length === 0) return;
+
+  let entry = __pendingEnrich.get(graphId);
+  if (!entry) {
+    entry = { timer: null, names: new Set(), overwriteDescription };
+    __pendingEnrich.set(graphId, entry);
+  }
+  list.forEach(n => entry.names.add(n));
+  // Any request in the burst asking to overwrite wins — it's the stronger intent.
+  entry.overwriteDescription = entry.overwriteDescription || overwriteDescription;
+
+  if (entry.timer) clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => {
+    __pendingEnrich.delete(graphId);
+    _enrichMultiple([...entry.names], graphId, { overwriteDescription: entry.overwriteDescription })
+      .catch(err => console.warn('[Auto-Enrich] Enrichment failed:', err));
+  }, ENRICH_DELAY_MS);
+}
+
+/**
  * Execute an A3 unfold plan (from createPopulatedGraph's spec.unfoldPlan): for
  * each member, create a definition graph and populate it with the member's
  * contents. The tool decided the plan (all one-off calls, correlated by buildId);
@@ -138,13 +205,8 @@ function applyUnfoldPlan(unfoldPlan, { enrich = true, overwriteDescription = fal
 
       // Non-active graphs need offscreen layout AND the DOM-based event (project
       // convention — rs-trigger-auto-layout only fires for the active graph).
-      layoutAfterWizardMutation(defGraphId);
+      scheduleGraphLayout(defGraphId);
       const gid = defGraphId;
-      setTimeout(() => {
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gid } }));
-        }
-      }, 600);
 
       if (enrich) {
         const insideNames = member.nodes.map(n => n.name);
@@ -355,13 +417,7 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
       layer._defGraphId = defGraphId;
       if (hasContent) {
         materializeCompositionLevel(defGraphId, def, options, depth + 1, warnings);
-        layoutAfterWizardMutation(defGraphId);
-        const gid = defGraphId;
-        setTimeout(() => {
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gid } }));
-          }
-        }, 600);
+        scheduleGraphLayout(defGraphId);
       }
     }
     // Empty + decomposed layers get no definition graph here on purpose:
@@ -564,12 +620,7 @@ export function applyCompositionSpec(graphId, spec, options = {}, label = 'compo
 
   // Layout runs AFTER decomposition on purpose: the layout engine is group-aware,
   // so it can only place members sensibly once the groups exist.
-  layoutAfterWizardMutation(graphId);
-  setTimeout(() => {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
-    }
-  }, 600);
+  scheduleGraphLayout(graphId);
 
   // Verify the layers actually opened. Decomposition happens browser-side, after
   // the tool has already returned "success" to the model — so when it silently
@@ -1535,12 +1586,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     // Layout runs AFTER decomposition on purpose: the layout engine is
     // group-aware (offscreenLayout passes graph.groups through), so it can only
     // place members sensibly once the groups exist.
-    layoutAfterWizardMutation(graphId);
-    setTimeout(() => {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
-      }
-    }, 600);
+    scheduleGraphLayout(graphId);
 
     if (warnings.length > 0) console.warn('[Wizard] buildComposition warnings:', warnings);
     console.log('[Wizard] buildComposition complete for graph:', graphId);
@@ -1733,12 +1779,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       overwriteDescription: result.overwriteDescription || false
     }, 'populateDefinitionGraph');
 
-    layoutAfterWizardMutation(graphId);
-    setTimeout(() => {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
-      }
-    }, 600);
+    scheduleGraphLayout(graphId);
 
     if (result.enrich !== false) {
       const newNodeNames = result.spec.nodes.map(n => n.name);
@@ -1918,14 +1959,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     }
 
     // 4. Auto-layout: offscreen layout immediately, then event for DOM-based override
-    layoutAfterWizardMutation(graphId);
-    setTimeout(() => {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
-          detail: { graphId }
-        }));
-      }
-    }, 600);
+    scheduleGraphLayout(graphId);
 
     // 5. Launch batch Wikipedia enrichment asynchronously (if enrich is not explicitly false)
     if (result.enrich !== false) {
@@ -2038,12 +2072,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
     // 4. Auto-layout
-    layoutAfterWizardMutation(graphId);
-    setTimeout(() => {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
-      }
-    }, 600);
+    scheduleGraphLayout(graphId);
 
     // 5. Enrichment only if explicitly requested (default false for tabular imports)
     if (result.enrich === true) {
@@ -2165,14 +2194,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     }
 
     // Auto-layout: offscreen layout immediately, then event for DOM-based override
-    layoutAfterWizardMutation(activeGraphId);
-    setTimeout(() => {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
-          detail: { graphId: activeGraphId }
-        }));
-      }
-    }, 600);
+    scheduleGraphLayout(activeGraphId);
 
     // Launch batch Wikipedia enrichment asynchronously (if enrich is not explicitly false)
     if (result.enrich !== false) {

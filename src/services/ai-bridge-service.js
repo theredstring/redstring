@@ -38,6 +38,16 @@ let telemetry = [];
 let chatLog = [];
 let actionSequence = 0;
 
+// Same unbounded-growth bug as wizard-server's telemetry, and worse here: the
+// `/api/bridge/state` handler pushes one entry per state write, which is roughly
+// 8,600 a day with the app merely open. Trimmed on the same bounds as chatLog.
+const TELEMETRY_MAX = 1000;
+const TELEMETRY_KEEP = 800;
+function pushTelemetry(...entries) {
+    telemetry.push(...entries);
+    if (telemetry.length > TELEMETRY_MAX) telemetry = telemetry.slice(-TELEMETRY_KEEP);
+}
+
 /**
  * Append a chat message to the log
  */
@@ -46,7 +56,7 @@ export function appendChat(role, text, extra = {}) {
         const entry = { ts: Date.now(), role, text: String(text || ''), ...extra };
         chatLog.push(entry);
         if (chatLog.length > 1000) chatLog = chatLog.slice(-800);
-        telemetry.push({ ts: entry.ts, type: 'chat', role, text: entry.text, ...extra });
+        pushTelemetry({ ts: entry.ts, type: 'chat', role, text: entry.text, ...extra });
         try { eventLog.append({ type: 'chat', role, text: entry.text, ...extra }); } catch { }
     } catch { }
 }
@@ -121,7 +131,7 @@ export function initializeBridgeService(app, options = {}) {
         const past = eventLog.replaySince(since).filter(e => e && e.type === 'chat');
         if (past.length) {
             chatLog = past.map(e => ({ ts: e.ts, role: e.role, text: e.text, cid: e.cid, channel: e.channel })).slice(-1000);
-            telemetry.push(...chatLog.map(e => ({ ts: e.ts, type: 'chat', role: e.role, text: e.text, cid: e.cid })));
+            pushTelemetry(...chatLog.map(e => ({ ts: e.ts, type: 'chat', role: e.role, text: e.text, cid: e.cid })));
             logger.info(`[AI Bridge] Restored ${chatLog.length} chat messages from event log`);
         }
     } catch (err) {
@@ -252,7 +262,7 @@ export function initializeBridgeService(app, options = {}) {
                 const aId = bridgeStoreData.activeGraphId;
                 const aName = bridgeStoreData.activeGraphName || null;
                 const file = bridgeStoreData.fileStatus || null;
-                telemetry.push({ ts: Date.now(), type: 'bridge_state', graphs: gCount, activeGraphId: aId, activeGraphName: aName, fileStatus: file });
+                pushTelemetry({ ts: Date.now(), type: 'bridge_state', graphs: gCount, activeGraphId: aId, activeGraphName: aName, fileStatus: file });
             } catch { }
 
             if (bridgeStoreData.summary) bridgeStoreData.summary.lastUpdate = Date.now();
@@ -332,7 +342,7 @@ export function initializeBridgeService(app, options = {}) {
             available.forEach(a => {
                 inflightActionIds.add(a.id);
                 inflightMeta.set(a.id, { ts: Date.now(), action: a.action, params: a.params });
-                telemetry.push({ ts: Date.now(), type: 'tool_call', name: a.action, args: a.params, leased: true, id: a.id });
+                pushTelemetry({ ts: Date.now(), type: 'tool_call', name: a.action, args: a.params, leased: true, id: a.id });
             });
             res.json({ pendingActions: available });
         } catch (err) {
@@ -349,7 +359,7 @@ export function initializeBridgeService(app, options = {}) {
                 inflightActionIds.delete(actionId);
                 const meta = inflightMeta.get(actionId);
                 if (meta) {
-                    telemetry.push({ ts: Date.now(), type: 'tool_call', name: meta.action, args: meta.params, status: 'completed', id: actionId, seq: ++actionSequence });
+                    pushTelemetry({ ts: Date.now(), type: 'tool_call', name: meta.action, args: meta.params, status: 'completed', id: actionId, seq: ++actionSequence });
                     inflightMeta.delete(actionId);
                 }
                 logger.debug(`[AI Bridge] Action completed: ${actionId}`);
@@ -364,7 +374,7 @@ export function initializeBridgeService(app, options = {}) {
     app.post('/api/bridge/action-feedback', (req, res) => {
         try {
             const { action, status, error, params } = req.body || {};
-            telemetry.push({ ts: Date.now(), type: 'action_feedback', action, status, error, params, seq: ++actionSequence });
+            pushTelemetry({ ts: Date.now(), type: 'action_feedback', action, status, error, params, seq: ++actionSequence });
             logger.debug(`[AI Bridge] Action feedback: ${action} - ${status}`);
             res.json({ acknowledged: true });
         } catch (err) {
@@ -377,7 +387,7 @@ export function initializeBridgeService(app, options = {}) {
         try {
             const { actionId, action, params } = req.body || {};
             if (actionId) {
-                telemetry.push({ ts: Date.now(), type: 'tool_call', name: action || 'action', args: params, status: 'started', id: actionId });
+                pushTelemetry({ ts: Date.now(), type: 'tool_call', name: action || 'action', args: params, status: 'started', id: actionId });
                 logger.debug(`[AI Bridge] Action started: ${actionId}`);
             }
             res.json({ ok: true });
@@ -396,7 +406,7 @@ export function initializeBridgeService(app, options = {}) {
             }
 
             for (const tool of toolCalls) {
-                telemetry.push({
+                pushTelemetry({
                     ts: tool.timestamp || Date.now(),
                     type: 'tool_call',
                     name: tool.name,
@@ -430,7 +440,8 @@ export function initializeBridgeService(app, options = {}) {
     });
 
     app.get('/api/bridge/telemetry', (_req, res) => {
-        res.json({ telemetry, chat: chatLog.slice(-200) });
+        // Sliced like `chat` beside it: clients only ever read the recent tail.
+        res.json({ telemetry: telemetry.slice(-500), chat: chatLog.slice(-200) });
     });
 
     // Debug endpoints for execution tracing

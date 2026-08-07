@@ -983,54 +983,109 @@ const LeftAIView = ({ compact = false,
     lastActiveIdRef.current = activeConversationId;
   }, [activeConversationId, isHydrated, conversations]); // conversations added to catch hydration updates
 
+  // Persisting the conversation is throttled rather than done per change.
+  //
+  // `messages` changes on every streamed delta, and it carries UNCAPPED tool
+  // results (only the copy sent to the LLM is capped) — so one readGraph on a
+  // large universe parks hundreds of KB that was then re-serialized into
+  // localStorage synchronously on every subsequent token, with an Electron disk
+  // write alongside it. Throttle-with-trailing bounds that to once per window
+  // while never losing the final state: a crash costs at most one window's worth
+  // of streamed output.
+  const PERSIST_THROTTLE_MS = 750;
+  const persistTimerRef = React.useRef(null);
+  const pendingPersistRef = React.useRef(null);
+  const lastPersistAtRef = React.useRef(0);
+  const lastManifestJsonRef = React.useRef(null);
+  const lastManifestShapeRef = React.useRef(null);
+
+  const flushConversationPersist = React.useCallback(() => {
+    persistTimerRef.current = null;
+    const pending = pendingPersistRef.current;
+    if (!pending) return;
+    pendingPersistRef.current = null;
+    lastPersistAtRef.current = Date.now();
+
+    if (pending.messages.length > 0) {
+      try {
+        localStorage.setItem(`rs.aiChat.messages.${pending.conversationId}`, JSON.stringify({
+          id: pending.conversationId,
+          messages: pending.messages,
+          timestamp: pending.timestamp
+        }));
+      } catch (err) {
+        console.error('[AI Collaboration] Failed to back up conversation to localStorage:', err);
+      }
+    }
+
+    const convs = conversationsRef.current || [];
+    const manifest = {
+      conversations: convs.map(c => ({ id: c.id, title: c.title, timestamp: c.timestamp, graphId: c.graphId || null })),
+      activeConversationId: activeConversationIdRef.current
+    };
+    const manifestJson = JSON.stringify(manifest);
+    if (manifestJson !== lastManifestJsonRef.current) {
+      lastManifestJsonRef.current = manifestJson;
+      try {
+        localStorage.setItem('rs.aiChat.manifest', manifestJson);
+      } catch (err) {
+        console.error('[AI Collaboration] Failed to save manifest to localStorage:', err);
+      }
+    }
+
+    // The workspace copy is a recovery index for tab identity — nothing reads its
+    // timestamps back for ordering — so it only needs rewriting when the set of
+    // tabs actually changes, not every time one of them gains a token.
+    const shape = JSON.stringify([convs.map(c => [c.id, c.title, c.graphId || null]), activeConversationIdRef.current]);
+    if (shape === lastManifestShapeRef.current) return;
+    lastManifestShapeRef.current = shape;
+
+    // Electron only — the web build is fully covered by the localStorage write above.
+    (async () => {
+      if (!fileStorage.isElectron()) return;
+      try {
+        const projectDir = await fileStorage.getProjectDirectory();
+        if (!projectDir) return;
+        const convDir = `${projectDir}/conversations`;
+        const exists = await window.electron.fileSystem.folderExists(convDir);
+        if (!exists) await fileStorage.mkdir(convDir);
+        const manifestPath = `${convDir}/manifest.json`;
+        console.log('[AI Collaboration] Saving manifest to:', manifestPath);
+        await fileStorage.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+      } catch (err) {
+        console.error('[AI Collaboration] Failed to save manifest to workspace:', err);
+      }
+    })();
+  }, []);
+
   // Sync active conversation with messages and save
   const lastMessagesRef = React.useRef(messages);
   React.useEffect(() => {
     if (lastMessagesRef.current === messages) return;
     lastMessagesRef.current = messages;
 
-    // IMMEDIATE localStorage backup for the active conversation's messages
-    if (messages.length > 0) {
-      localStorage.setItem(`rs.aiChat.messages.${activeConversationId}`, JSON.stringify({
-        id: activeConversationId,
-        messages,
-        timestamp: new Date().toISOString()
-      }));
+    const timestamp = new Date().toISOString();
+    setConversations(prev => prev.map(c =>
+      c.id === activeConversationId ? { ...c, messages, timestamp } : c
+    ));
+
+    pendingPersistRef.current = { conversationId: activeConversationId, messages, timestamp };
+    if (persistTimerRef.current) return;
+    const elapsed = Date.now() - lastPersistAtRef.current;
+    persistTimerRef.current = setTimeout(
+      flushConversationPersist,
+      elapsed >= PERSIST_THROTTLE_MS ? 0 : PERSIST_THROTTLE_MS - elapsed
+    );
+  }, [messages, activeConversationId, flushConversationPersist]);
+
+  // Never leave the last streamed messages unpersisted because the window closed
+  // inside a throttle interval.
+  React.useEffect(() => () => {
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current);
+      flushConversationPersist();
     }
-
-    setConversations(prev => {
-      const updated = prev.map(c =>
-        c.id === activeConversationId ? { ...c, messages, timestamp: new Date().toISOString() } : c
-      );
-
-      // Save manifest to localStorage
-      const manifest = {
-        conversations: updated.map(c => ({ id: c.id, title: c.title, timestamp: c.timestamp, graphId: c.graphId || null })),
-        activeConversationId
-      };
-      localStorage.setItem('rs.aiChat.manifest', JSON.stringify(manifest));
-
-      // Also save manifest to workspace if possible (Electron only — web uses localStorage above)
-      const saveManifestToWorkspace = async () => {
-        if (!fileStorage.isElectron()) return;
-        try {
-          const projectDir = await fileStorage.getProjectDirectory();
-          if (!projectDir) return;
-          const convDir = `${projectDir}/conversations`;
-          const exists = await window.electron.fileSystem.folderExists(convDir);
-          if (!exists) await fileStorage.mkdir(convDir);
-          const manifestPath = `${convDir}/manifest.json`;
-          console.log('[AI Collaboration] Saving manifest to:', manifestPath);
-          await fileStorage.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
-        } catch (err) {
-          console.error('[AI Collaboration] Failed to save manifest to workspace:', err);
-        }
-      };
-      saveManifestToWorkspace();
-
-      return updated;
-    });
-  }, [messages, activeConversationId]);
+  }, [flushConversationPersist]);
 
   const messagesEndRef = React.useRef(null);
   const messagesContainerRef = React.useRef(null);

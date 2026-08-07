@@ -811,7 +811,13 @@ const BridgeClient = () => {
                 const newItems = tel.telemetry.filter(t => typeof t?.ts === 'number' && t.ts > lastTs);
                 if (newItems.length > 0) {
                   window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: newItems }));
-                  const maxTs = Math.max(...tel.telemetry.map(t => typeof t?.ts === 'number' ? t.ts : 0));
+                  // Reduce, not Math.max(...spread): the argument list is the
+                  // telemetry array, and spreading a long one overflows the call
+                  // stack with a RangeError.
+                  const maxTs = tel.telemetry.reduce(
+                    (max, t) => (typeof t?.ts === 'number' && t.ts > max ? t.ts : max),
+                    0
+                  );
                   lastTelemetryTsRef.current = Math.max(lastTs, maxTs);
                 }
               }
@@ -882,6 +888,24 @@ const BridgeClient = () => {
       if (reconnectIntervalRef.current) {
         clearInterval(reconnectIntervalRef.current);
         reconnectIntervalRef.current = null;
+      }
+
+      // The quick-retry loop only clears itself on success or after 5 tries — an
+      // unmount inside that window used to leave it running against a dead effect.
+      clearInterval(quickRetryTimer);
+
+      // Everything below outlived the effect entirely. The reconnect listener is
+      // the worst of them: it installs a NEW 10s interval over dataIntervalRef, so
+      // a leaked listener leaks an interval on every reconnect signal after it.
+      window.removeEventListener('rs-bridge-reconnect', handleReconnectEvent);
+
+      if (eventSourceRef.current) {
+        try { eventSourceRef.current.close(); } catch { }
+        eventSourceRef.current = null;
+      }
+
+      if (window.rsBridgeManualReconnect) {
+        try { delete window.rsBridgeManualReconnect; } catch { }
       }
     };
   }, []);
