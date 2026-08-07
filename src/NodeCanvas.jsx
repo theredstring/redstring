@@ -210,6 +210,50 @@ const MAX_LABEL_ANGLE_QUANTUM = 9;
 // atlas, so don't snap at all — exact angles, zero visual change.
 const LABEL_ANGLE_QUANTUM_MIN_COUNT = 48;
 
+// ---------------------------------------------------------------------------
+// ZOOM SCALE QUANTUM
+//
+// Snapping label ANGLES only helps while the scale is pinned. A glyph raster is
+// keyed on its device-space matrix, and scale is part of that matrix — so a zoom
+// hands every glyph a new key on every frame and the atlas is useless no matter
+// how coarse the angles are. Same harness as the table above, one variable
+// changed (does the motion sweep the scale, or only translate?):
+//
+//                                      pan     zoom
+//   200 labels, lines only .........   8.3      8.3   <- geometry is free either way
+//   200 labels, rotate 9° ..........   8.4     41.7   <- 5x, purely from sweeping scale
+//   200 labels, rotate 9° + 6% snap    8.4      8.4   <- fully recovered
+//   200 labels, rotate 9° + 2% snap     —      41.7   <- too fine to help
+//   200 labels, rotate exact .......     —     48.8   <- angle bucket barely matters here
+//
+// So quantize the SCALE during motion the same way angles are quantized: snap it
+// to multiplicative steps, so consecutive frames share a scale and the rasters
+// survive. The last row is the control — the bench zooms 2.1% per frame, so a 2%
+// step advances almost every frame and buys nothing. The step must be
+// comfortably coarser than the per-frame zoom rate, which is what 6% is.
+//
+// The visible cost is that a zoom advances in ~6% increments while in motion. It
+// lands on the exact zoom the moment it settles, and it only engages where the
+// atlas is actually under pressure (many labels, labels on), so an ordinary
+// graph still zooms perfectly smoothly.
+const MOTION_ZOOM_QUANTUM_RATIO = 1.06;
+const MOTION_ZOOM_QUANTUM_STEP = Math.log(MOTION_ZOOM_QUANTUM_RATIO);
+
+/**
+ * Snap a zoom to multiplicative steps so a moving view reuses glyph rasters.
+ * Multiplicative because zoom is perceived multiplicatively — a fixed ratio is
+ * the same visual increment at every magnification.
+ *
+ * `window.__zoomQuantum` overrides the ratio at runtime (1 or 0 disables it) for
+ * A/B-ing the tradeoff without a rebuild.
+ */
+const quantizeMotionZoom = (zoom) => {
+  const override = (typeof window !== 'undefined') ? Number(window.__zoomQuantum) : NaN;
+  if (override === 0 || override === 1) return zoom;
+  const step = Number.isFinite(override) && override > 1 ? Math.log(override) : MOTION_ZOOM_QUANTUM_STEP;
+  return Math.exp(Math.round(Math.log(zoom) / step) * step);
+};
+
 // A hard ceiling on how many labels may ride a <textPath> at once.
 //
 // The old justification for 40 — "~0.14ms per label, scales linearly" — was
@@ -864,6 +908,9 @@ function NodeCanvas() {
   const loadingImagesMap = useImageCache(state => state.loading);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
+  // Read from the per-frame zoom loop, which can't depend on render scope.
+  const showConnectionNamesRef = useRef(showConnectionNames);
+  useEffect(() => { showConnectionNamesRef.current = showConnectionNames; }, [showConnectionNames]);
   const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
   const showNodeControlPanel = useGraphStore(state => state.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore(state => state.showMultipleNodesControlPanel ?? true);
@@ -2667,7 +2714,9 @@ function NodeCanvas() {
   // the container's bounding rect, read ONCE per gesture: reading it per event or
   // per frame forces a synchronous layout of a content group the transform write
   // just dirtied, which on a Lombardi graph with labels is the single most
-  // expensive thing this path can do.
+  // expensive thing this path can do. `easeZoom` is the ease's own continuous
+  // position, kept separate because the APPLIED zoom is snapped during motion
+  // (see ZOOM SCALE QUANTUM) and easing from a snapped value would stall.
   const trackpadZoomRef = useRef({
     animationId: null,
     targetZoom: null,
@@ -2678,6 +2727,7 @@ function NodeCanvas() {
     endTimerId: null,
     sensitivity: null,
     rect: null,
+    easeZoom: null,
   });
 
   // Diagnostic accumulator for `window.__zoomPerf`. Off by default and never
@@ -2700,6 +2750,7 @@ function NodeCanvas() {
     ref.hist = [];
     ref.sensitivity = null;
     ref.rect = null;
+    ref.easeZoom = null;
   }, []);
 
   // Points the ease at `targetZoom`, anchored on the world point under the
@@ -2735,6 +2786,9 @@ function NodeCanvas() {
 
     if (ref.animationId) return;
     ref.lastTime = performance.now();
+    // Seed the continuous position from what is on screen — a fresh gesture
+    // starts from the live zoom, a resumed one from where the last ease left off.
+    ref.easeZoom = zoomLevelRef.current;
     isPanningOrZooming.current = true;
 
     const step = (time) => {
@@ -2779,13 +2833,27 @@ function NodeCanvas() {
       const smoothing = (typeof window !== 'undefined' && Number(window.__trackpadZoomSmoothing) > 0)
         ? Math.min(1, Number(window.__trackpadZoomSmoothing))
         : TRACKPAD_ZOOM_SMOOTHING;
-      const curZoom = zoomLevelRef.current;
+      // The ease tracks its own CONTINUOUS zoom rather than reading back what
+      // was applied: the applied value is snapped (see below), and easing from a
+      // snapped value would either stall on the step it is sitting on or chase
+      // its own rounding.
+      const curZoom = s.easeZoom ?? zoomLevelRef.current;
       const lnCur = Math.log(curZoom);
       const lnTarget = Math.log(s.targetZoom);
       const gap = lnTarget - lnCur;
       const t = 1 - Math.pow(1 - smoothing, dt / PAN_MOMENTUM_FRAME);
       const settled = Math.abs(gap) < TRACKPAD_ZOOM_SETTLE_EPSILON;
-      const nextZoom = settled ? s.targetZoom : Math.exp(lnCur + gap * t);
+      const easedZoom = settled ? s.targetZoom : Math.exp(lnCur + gap * t);
+      s.easeZoom = easedZoom;
+
+      // Snap the APPLIED scale while in motion so glyph rasters survive between
+      // frames — see ZOOM SCALE QUANTUM. Only where the atlas is actually under
+      // pressure: labels on, and enough of them to matter. The final frame
+      // always lands on the exact eased value, so a gesture ends where it aimed.
+      const quantizeThisFrame = !settled
+        && showConnectionNamesRef.current
+        && (visibleEdgesRef.current?.length ?? 0) > LABEL_ANGLE_QUANTUM_MIN_COUNT;
+      const nextZoom = quantizeThisFrame ? quantizeMotionZoom(easedZoom) : easedZoom;
 
       // Cached rect — never read layout inside the loop. See trackpadZoomRef.
       const rect2 = s.rect;
@@ -2812,6 +2880,7 @@ function NodeCanvas() {
         s.animationId = null;
         s.targetZoom = null;
         s.rect = null;
+        s.easeZoom = null;
         isPanningOrZooming.current = false;
         if (typeof window !== 'undefined' && window.__zoomPerf) {
           const p = zoomPerfRef.current;
