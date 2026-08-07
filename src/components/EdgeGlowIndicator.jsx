@@ -1,8 +1,61 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useViewportBounds } from '../hooks/useViewportBounds';
 import { getNodeDimensions } from '../utils';
 import { HEADER_HEIGHT, NODE_HEIGHT } from '../constants';
 import useGraphStore from '../store/graphStore.js';
+
+// How many distinct flare appearances exist. Every off-screen node draws a
+// blurred, gradient-filled, box-shadowed flare, and all of that geometry is
+// derived from `intensity`. Left continuous, each flare gets five freshly-built
+// style strings on every pan/zoom frame, which React must diff and write, and
+// which the compositor must re-rasterise. Quantised, the whole population
+// collapses onto this many cached appearances.
+const GLOW_INTENSITY_STEPS = 8;
+
+// Cache of the inner flare's style object, keyed by everything it depends on.
+// Returning the SAME object reference between frames is the point: React's
+// style diff then finds nothing to update, so a flare that only moved costs one
+// transform write instead of a full restyle.
+const glowStyleCache = new Map();
+const getFlareStyle = (color, intensity, isExclusiveMode) => {
+  const key = `${color}|${intensity}|${isExclusiveMode ? 1 : 0}`;
+  const hit = glowStyleCache.get(key);
+  if (hit) return hit;
+
+  // A flare is a soft glow, and it used to be drawn as THREE soft glows stacked
+  // on top of each other: a radial-gradient fading out to transparent, a blur()
+  // filter over the top of it, and a blurred box-shadow around the border box
+  // which the filter then blurred a second time. Each one costs a full repaint
+  // for every flare on every frame it moves, and with a graph's worth of
+  // off-screen nodes there are a lot of flares. Measured on the live app, 150
+  // flares, median / p90 frame time against an 8.3ms floor:
+  //
+  //   gradient + blur + shadow ....  9.3 / 30.4    55 of 126 frames over 16ms
+  //   gradient + shadow ...........  8.4 / 15.8    14 of 142
+  //   gradient + blur .............  8.8 / 17.2    51 of 135
+  //   gradient alone ..............  8.3 /  9.3     3 of 142   <- at the floor
+  //
+  // A gradient that already runs to `transparent` IS the soft edge; the other
+  // two were re-softening something soft. So the gradient does the whole job
+  // now, grown to cover the area the blur used to bleed into and with its stops
+  // pulled inward to keep the same falloff.
+  const BLEED = 1.4; // what blur() used to add beyond the box
+  const flareLength = (isExclusiveMode ? 10 + intensity * 4 : 14 + intensity * 6) * BLEED;
+  const flareThickness = (isExclusiveMode ? 20 + intensity * 6 : 28 + intensity * 8) * BLEED;
+  const glowAlpha = Math.round(intensity * 255 * 0.6).toString(16).padStart(2, '0');
+
+  const style = {
+    position: 'absolute',
+    left: -flareLength / 2,
+    top: -flareThickness / 2,
+    width: flareLength,
+    height: flareThickness,
+    borderRadius: flareThickness,
+    background: `radial-gradient(ellipse, ${color}${glowAlpha} 0%, ${color}30 45%, transparent 100%)`,
+  };
+  glowStyleCache.set(key, style);
+  return style;
+};
 
 const EdgeGlowIndicator = ({
   nodes,
@@ -65,6 +118,50 @@ const EdgeGlowIndicator = ({
   // Use the fixed canvas viewport size for coordinate calculations
   const canvasSize = canvasViewportSize || { width: window.innerWidth, height: window.innerHeight };
 
+  // The container's own rect, measured OUT of band.
+  //
+  // allNodeData below re-runs on every pan/zoom tick (livePan/liveZoom are set
+  // from the transform callback), and it used to call getBoundingClientRect()
+  // on each one. That read lands immediately after the canvas has written its
+  // new SVG transform, so it forces a synchronous layout of a subtree that was
+  // just dirtied — and the cost of that flush is not symmetric between the two
+  // kinds of motion. A translate leaves SVG text layout intact; a SCALE change
+  // invalidates it, so every glyph, every rotation and every <textPath>
+  // arc-length parameterisation is resolved again before the rect can be
+  // returned. Measured on the label harness (median cost of the read alone):
+  //
+  //             labels     pan     zoom
+  //   lines only   600     0.1      0.3
+  //   rotated      600     0.1      1.3
+  //   textPath     600     0.1      4.9     <- 49x
+  //
+  // Flat under pan at any complexity, linear in label count under zoom. That is
+  // exactly the shape of the complaint: zooming a Lombardi graph with labels on,
+  // and nothing else.
+  //
+  // None of it was needed. This rect belongs to the canvas CONTAINER, a fixed
+  // viewport-sized element that pan and zoom never move — only a resize or a
+  // panel toggle changes it. So measure it on those, and let the per-frame path
+  // read a plain object.
+  const [containerRect, setContainerRect] = useState(null);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = containerRef?.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setContainerRect(prev =>
+        (prev && prev.left === r.left && prev.top === r.top
+          && prev.width === r.width && prev.height === r.height)
+          ? prev
+          : { left: r.left, top: r.top, width: r.width, height: r.height }
+      );
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+    // Panel/type-list toggles resize the container without firing `resize`.
+  }, [containerRef, leftPanelExpanded, rightPanelExpanded, typeListVisible, viewportBounds]);
+
   const nodeLookup = useMemo(() => {
     if (!nodes?.length) return new Map();
     const map = new Map();
@@ -77,9 +174,10 @@ const EdgeGlowIndicator = ({
   const allNodeData = useMemo(() => {
     if (!nodes?.length || !viewportBounds) return [];
 
-    // Get container bounds once for all nodes - use the EXACT same pattern as NodeCanvas
-    const rect = containerRef?.current?.getBoundingClientRect();
-    if (!rect) return []; // No container, no coordinate calculations possible
+    // Container bounds, from the out-of-band measurement above — never read
+    // layout here, this memo is on the per-frame path.
+    const rect = containerRect;
+    if (!rect) return []; // Not measured yet, no coordinate calculations possible
 
     // Calculate the actual visible viewport area in canvas coordinates
     // Use the fixed canvas size for consistent coordinate system
@@ -149,7 +247,7 @@ const EdgeGlowIndicator = ({
     });
 
     return nodeData;
-  }, [nodes, livePan, liveZoom, viewportBounds, previewingNodeId, containerRef, canvasSize, baseDimensionsById]);
+  }, [nodes, livePan, liveZoom, viewportBounds, previewingNodeId, containerRect, canvasSize, baseDimensionsById]);
 
   const offScreenGlows = useMemo(() => {
     const glows = [];
@@ -228,7 +326,14 @@ const EdgeGlowIndicator = ({
       const viewportCenterPxX = containerW / 2;
       const viewportCenterPxY = containerH / 2;
       const distance = Math.sqrt((nodePxX - viewportCenterPxX) ** 2 + (nodePxY - viewportCenterPxY) ** 2);
-      const intensity = Math.max(0.4, Math.min(1, 2000 / (distance + 200)));
+      // Snapped into buckets. Intensity feeds the flare's size, alpha, blur
+      // radius, gradient stops and box-shadow — so a continuously-varying value
+      // rebuilds five style strings per flare per frame, and React then diffs
+      // and writes every one of them. Nobody can see a 1% change in a blur
+      // radius; bucketing makes the appearance identical between frames so the
+      // style objects below can be reused outright. See GLOW_INTENSITY_STEPS.
+      const rawIntensity = Math.max(0.4, Math.min(1, 2000 / (distance + 200)));
+      const intensity = Math.round(rawIntensity * GLOW_INTENSITY_STEPS) / GLOW_INTENSITY_STEPS;
 
       // Get node color (fallback to default if not specified)
       const node = nodeLookup.get(nodeInfo.id);
@@ -396,18 +501,14 @@ const EdgeGlowIndicator = ({
         </>
       )}
 
-      {/* Render individual glow dots */}
+      {/* Render individual glow dots.
+          Split deliberately in two: the OUTER div carries the only thing that
+          genuinely changes as the view moves (a transform), and the INNER div
+          carries the expensive appearance — gradient, blur, shadow — from a
+          cached, quantised style object. React then has one property to diff
+          per flare per frame instead of a dozen freshly-built strings. */}
       {offScreenGlows.map(glow => {
         const { id, screenX, screenY, color, intensity, edge } = glow;
-
-        // Flare sizing: extend further out while staying anchored at same spot.
-        // Slightly smaller on narrow (mobile-style) viewports.
-        const flareLength = viewportBounds.isExclusiveMode
-          ? 10 + intensity * 4
-          : 14 + intensity * 6;
-        const flareThickness = viewportBounds.isExclusiveMode
-          ? 20 + intensity * 6
-          : 28 + intensity * 8;
 
         // Orientation by edge
         const rotation = edge === 'left' ? 0
@@ -427,9 +528,6 @@ const EdgeGlowIndicator = ({
         else if (edge === 'top') translateY = -3; // 3px above top edge
         else if (edge === 'bottom') translateY = viewportBounds.height + 3; // 3px below bottom edge
 
-        // Single optimized glow layer with combined effects - higher opacity
-        const glowAlpha = Math.round(intensity * 255 * 0.6).toString(16).padStart(2, '0'); // increased from 0.4 to 0.6
-
         return (
           <div
             key={id}
@@ -446,19 +544,7 @@ const EdgeGlowIndicator = ({
             }}
           >
             {/* Single optimized glow layer */}
-            <div
-              style={{
-                position: 'absolute',
-                left: -flareLength / 2,
-                top: -flareThickness / 2,
-                width: flareLength,
-                height: flareThickness,
-                borderRadius: flareThickness,
-                background: `radial-gradient(ellipse, ${color}${glowAlpha} 0%, ${color}30 60%, transparent 100%)`, // increased opacity from 20 to 30
-                filter: `blur(${Math.max(3, flareThickness * 0.25)}px)`, // increased blur from 0.15 to 0.25 for more spread
-                boxShadow: `0 0 ${Math.max(6, flareThickness * 0.3)}px ${color}${glowAlpha}`, // increased box shadow from 0.2 to 0.3 for more spread
-              }}
-            />
+            <div style={getFlareStyle(color, intensity, viewportBounds.isExclusiveMode)} />
           </div>
         );
       })}

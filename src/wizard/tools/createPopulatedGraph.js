@@ -14,7 +14,7 @@ import { runStructureReview } from './utils/structureReview.js';
 import { conformNames } from './utils/conformNames.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
 import { newBuildId } from '../../services/oneShot.js';
-import { normalizeLayersOnly } from './utils/graphSpec.js';
+import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning } from './utils/graphSpec.js';
 
 /** Existing node names in a graph from the serialized graphState (for C7 style). */
 function existingGraphNodeNames(graphState, graphId) {
@@ -86,7 +86,7 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   const activePalette = palette || getRandomPalette();
 
   // Build unified spec for both queue and UI
-  const nodeSpecs = nodes.map(n => ({
+  let nodeSpecs = nodes.map(n => ({
     name: n.name,
     color: resolvePaletteColor(activePalette, n.color),
     description: n.description || '',
@@ -265,9 +265,17 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   const layerSpecs = layerResult ? layerResult.layers : [];
   const layerWarnings = layerResult ? layerResult.warnings : [];
 
+  // A layer already lands as a Thing here; the same name in `nodes` would beat
+  // its shell into the graph and stop the layer decomposing. Keep the layer.
+  const layerCollision = dropLayerNameCollisions(nodeSpecs, layerSpecs);
+  if (layerCollision.dropped.length > 0) {
+    nodeSpecs = layerCollision.nodes;
+    layerWarnings.push(layerCollisionWarning(layerCollision.dropped));
+  }
+
   // Analyze graph quality for LLM feedback. Layers count as nodes so an edge to
   // one is a real connection, not a dropped edge with an orphan at the far end.
-  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs });
+  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs, groups: groupSpecs });
 
   // Part B — Structure review. Deterministic cluster detection is free; the model
   // pass runs only on dense candidates and is strongly biased to suggest nothing.

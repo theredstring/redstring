@@ -211,48 +211,27 @@ const MAX_LABEL_ANGLE_QUANTUM = 9;
 const LABEL_ANGLE_QUANTUM_MIN_COUNT = 48;
 
 // ---------------------------------------------------------------------------
-// ZOOM SCALE QUANTUM
+// ZOOM SCALE QUANTUM — tried, measured, removed. Don't re-add it without
+// re-measuring on the real canvas.
 //
-// Snapping label ANGLES only helps while the scale is pinned. A glyph raster is
-// keyed on its device-space matrix, and scale is part of that matrix — so a zoom
-// hands every glyph a new key on every frame and the atlas is useless no matter
-// how coarse the angles are. Same harness as the table above, one variable
-// changed (does the motion sweep the scale, or only translate?):
+// The reasoning was that a glyph raster is keyed on its device-space matrix,
+// scale included, so sweeping the scale hands every glyph a new key each frame
+// and the angle buckets stop helping. In an isolated harness that reproduced
+// hard — 200 labels cost 8.4ms panning and 41.7ms zooming, and snapping the
+// applied scale to 6% steps recovered all of it.
 //
-//                                      pan     zoom
-//   200 labels, lines only .........   8.3      8.3   <- geometry is free either way
-//   200 labels, rotate 9° ..........   8.4     41.7   <- 5x, purely from sweeping scale
-//   200 labels, rotate 9° + 6% snap    8.4      8.4   <- fully recovered
-//   200 labels, rotate 9° + 2% snap     —      41.7   <- too fine to help
-//   200 labels, rotate exact .......     —     48.8   <- angle bucket barely matters here
+// It does not reproduce in the app. Sweeping the scale on the real content
+// group, 260 labels and 3300 SVG elements, costs 8.4ms/frame — the same as
+// panning it and the same as leaving it alone. The harness packed every label
+// into one screen; a real graph does not, and the labels that would thrash the
+// atlas are off-viewport and never painted.
 //
-// So quantize the SCALE during motion the same way angles are quantized: snap it
-// to multiplicative steps, so consecutive frames share a scale and the rasters
-// survive. The last row is the control — the bench zooms 2.1% per frame, so a 2%
-// step advances almost every frame and buys nothing. The step must be
-// comfortably coarser than the per-frame zoom rate, which is what 6% is.
-//
-// The visible cost is that a zoom advances in ~6% increments while in motion. It
-// lands on the exact zoom the moment it settles, and it only engages where the
-// atlas is actually under pressure (many labels, labels on), so an ordinary
-// graph still zooms perfectly smoothly.
-const MOTION_ZOOM_QUANTUM_RATIO = 1.06;
-const MOTION_ZOOM_QUANTUM_STEP = Math.log(MOTION_ZOOM_QUANTUM_RATIO);
-
-/**
- * Snap a zoom to multiplicative steps so a moving view reuses glyph rasters.
- * Multiplicative because zoom is perceived multiplicatively — a fixed ratio is
- * the same visual increment at every magnification.
- *
- * `window.__zoomQuantum` overrides the ratio at runtime (1 or 0 disables it) for
- * A/B-ing the tradeoff without a rebuild.
- */
-const quantizeMotionZoom = (zoom) => {
-  const override = (typeof window !== 'undefined') ? Number(window.__zoomQuantum) : NaN;
-  if (override === 0 || override === 1) return zoom;
-  const step = Number.isFinite(override) && override > 1 ? Math.log(override) : MOTION_ZOOM_QUANTUM_STEP;
-  return Math.exp(Math.round(Math.log(zoom) / step) * step);
-};
+// So the snap bought nothing here and cost something visible: zoom advancing in
+// 6% jumps, which reads as exactly the choppiness it was meant to cure. What
+// actually made zooming stutter was the edge-glow overlay repainting a blurred
+// box-shadow per off-screen node per frame — see getFlareStyle in
+// EdgeGlowIndicator.
+// ---------------------------------------------------------------------------
 
 // A hard ceiling on how many labels may ride a <textPath> at once.
 //
@@ -908,9 +887,6 @@ function NodeCanvas() {
   const loadingImagesMap = useImageCache(state => state.loading);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
-  // Read from the per-frame zoom loop, which can't depend on render scope.
-  const showConnectionNamesRef = useRef(showConnectionNames);
-  useEffect(() => { showConnectionNamesRef.current = showConnectionNames; }, [showConnectionNames]);
   const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
   const showNodeControlPanel = useGraphStore(state => state.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore(state => state.showMultipleNodesControlPanel ?? true);
@@ -2645,6 +2621,15 @@ function NodeCanvas() {
     // GLIDE_STRENGTH_FRICTION_RANGE treatment. Clamped well below 1.
     friction = Math.max(0.78, Math.min(0.95, friction + (strength - 0.5) * PINCH_GLIDE_STRENGTH_FRICTION_RANGE));
 
+    // Measured once, here, before the coast starts writing transforms. Reading
+    // it inside the loop forces a synchronous layout of an SVG subtree the
+    // previous frame just dirtied, and a SCALE change (which is all this loop
+    // does) invalidates text layout — so the flush re-resolves every label.
+    // Same reflow the trackpad ease caches away; see trackpadZoomRef.rect. The
+    // container is viewport-fixed, so one read per gesture is all it can need.
+    const coastRect = containerRef.current?.getBoundingClientRect();
+    if (!coastRect) return false;
+
     zoomMomentumRef.current.vel = vel;
     zoomMomentumRef.current.anchorClient = { x: anchorClient.x, y: anchorClient.y };
     zoomMomentumRef.current.anchorWorld = { x: anchorWorld.x, y: anchorWorld.y };
@@ -2676,7 +2661,7 @@ function NodeCanvas() {
       let newZoom = prevZoom * Math.exp(ref.vel * dt);
       const clampedZoom = Math.max(effMinZoom, Math.min(effMaxZoom, newZoom));
 
-      const rect = container.getBoundingClientRect();
+      const rect = coastRect;
       const world = ref.anchorWorld;
       const client = ref.anchorClient;
       const newPan = {
@@ -2843,17 +2828,10 @@ function NodeCanvas() {
       const gap = lnTarget - lnCur;
       const t = 1 - Math.pow(1 - smoothing, dt / PAN_MOMENTUM_FRAME);
       const settled = Math.abs(gap) < TRACKPAD_ZOOM_SETTLE_EPSILON;
-      const easedZoom = settled ? s.targetZoom : Math.exp(lnCur + gap * t);
-      s.easeZoom = easedZoom;
-
-      // Snap the APPLIED scale while in motion so glyph rasters survive between
-      // frames — see ZOOM SCALE QUANTUM. Only where the atlas is actually under
-      // pressure: labels on, and enough of them to matter. The final frame
-      // always lands on the exact eased value, so a gesture ends where it aimed.
-      const quantizeThisFrame = !settled
-        && showConnectionNamesRef.current
-        && (visibleEdgesRef.current?.length ?? 0) > LABEL_ANGLE_QUANTUM_MIN_COUNT;
-      const nextZoom = quantizeThisFrame ? quantizeMotionZoom(easedZoom) : easedZoom;
+      // Applied exactly as eased — the scale is NOT snapped. See ZOOM SCALE
+      // QUANTUM for the measurements that took the snap back out.
+      const nextZoom = settled ? s.targetZoom : Math.exp(lnCur + gap * t);
+      s.easeZoom = nextZoom;
 
       // Cached rect — never read layout inside the loop. See trackpadZoomRef.
       const rect2 = s.rect;

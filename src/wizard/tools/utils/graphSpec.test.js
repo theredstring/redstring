@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeGraphSpec, normalizeLayersOnly, createSpecContext } from './graphSpec.js';
+import { normalizeGraphSpec, normalizeLayersOnly, createSpecContext, dropLayerNameCollisions } from './graphSpec.js';
 
 const state = (protoNames = []) => ({
   nodePrototypes: protoNames.map((name, i) => ({ id: `p${i}`, name }))
@@ -165,5 +165,107 @@ describe('normalizeGraphSpec — endpoints and depth', () => {
       ]
     }, ctx);
     expect(ctx.warnings.some(w => w.includes('duplicate layer name'))).toBe(true);
+  });
+});
+
+describe('layer / node name collision', () => {
+  // The grocery-conglomerates failure. The model listed each conglomerate as a
+  // top-level node AND as a layer (natural — it wanted edges between them). The
+  // plain node won the race into the graph, the layer's shell was then swallowed
+  // by name de-duplication, and with no shell to decompose the layer never opened
+  // into a node-group. The concept ended up "defined but flat", which reads as
+  // success to the model because the definition web really does exist.
+  it('drops a top-level node that duplicates a layer name', () => {
+    const ctx = createSpecContext('rainbow', state());
+    const spec = normalizeGraphSpec({
+      nodes: [{ name: 'Kroger' }, { name: 'Albertsons' }, { name: 'Walmart' }],
+      layers: [
+        { name: 'Kroger', definition: { nodes: [{ name: 'Ralphs' }, { name: 'Fred Meyer' }] } },
+        { name: 'Albertsons', definition: { nodes: [{ name: 'Safeway' }, { name: 'Vons' }] } }
+      ]
+    }, ctx);
+
+    expect(spec.nodes.map(n => n.name)).toEqual(['Walmart']);
+    expect(spec.layers.map(l => l.name)).toEqual(['Kroger', 'Albertsons']);
+    expect(ctx.warnings.some(w => w.includes('both a plain node and a layer'))).toBe(true);
+  });
+
+  it('keeps edges between colliding names working — they resolve to the layer', () => {
+    const ctx = createSpecContext('rainbow', state());
+    const spec = normalizeGraphSpec({
+      nodes: [{ name: 'Kroger' }],
+      edges: [{ source: 'Kroger', target: 'Albertsons', type: 'Proposed Merger With' }],
+      layers: [
+        { name: 'Kroger', definition: { nodes: [{ name: 'Ralphs' }, { name: 'Fred Meyer' }] } },
+        { name: 'Albertsons', definition: { nodes: [{ name: 'Safeway' }, { name: 'Vons' }] } }
+      ]
+    }, ctx);
+
+    expect(spec.edges).toHaveLength(1);
+    expect(spec.edges[0].source).toBe('Kroger');
+    expect(spec.edges[0].target).toBe('Albertsons');
+  });
+
+  it('is case-insensitive about the collision', () => {
+    const ctx = createSpecContext('rainbow', state());
+    const spec = normalizeGraphSpec({
+      nodes: [{ name: 'kroger' }],
+      layers: [{ name: 'Kroger', definition: { nodes: [{ name: 'A' }, { name: 'B' }] } }]
+    }, ctx);
+    expect(spec.nodes).toHaveLength(0);
+  });
+});
+
+describe('dropLayerNameCollisions', () => {
+  it('filters node specs against layer names', () => {
+    const { nodes, dropped } = dropLayerNameCollisions(
+      [{ name: 'Kroger' }, { name: 'Walmart' }],
+      [{ name: 'Kroger' }]
+    );
+    expect(nodes.map(n => n.name)).toEqual(['Walmart']);
+    expect(dropped).toEqual(['Kroger']);
+  });
+
+  it('is a no-op when there are no layers', () => {
+    const nodes = [{ name: 'Kroger' }];
+    expect(dropLayerNameCollisions(nodes, []).nodes).toBe(nodes);
+    expect(dropLayerNameCollisions(nodes, []).dropped).toEqual([]);
+  });
+});
+
+describe('layer collision — folding, not discarding', () => {
+  it('carries the duplicate node\'s description onto a layer that lacks one', () => {
+    const layers = [{ name: 'Kroger', definition: { nodes: [{ name: 'Ralphs' }, { name: 'Vons' }] } }];
+    dropLayerNameCollisions(
+      [{ name: 'Kroger', description: 'Largest US supermarket operator', color: '#123456' }],
+      layers
+    );
+    expect(layers[0].description).toBe('Largest US supermarket operator');
+    expect(layers[0].color).toBe('#123456');
+  });
+
+  it('does not overwrite a description the layer already has', () => {
+    const layers = [{ name: 'Kroger', description: 'Kroger and its banners', definition: { nodes: [] } }];
+    dropLayerNameCollisions([{ name: 'Kroger', description: 'Something else' }], layers);
+    expect(layers[0].description).toBe('Kroger and its banners');
+  });
+
+  // A `use:` layer's identity belongs to the web it already has — an incidental
+  // duplicate in this graph must not rewrite a Thing shared across the universe.
+  it('never rewrites a reused (`use:`) layer', () => {
+    const layers = [{ name: 'Engine', use: 'Engine' }];
+    dropLayerNameCollisions([{ name: 'Engine', description: 'clobber', color: '#ff0000' }], layers);
+    expect(layers[0].description).toBeUndefined();
+    expect(layers[0].color).toBeUndefined();
+  });
+
+  it('folds through normalizeGraphSpec too', () => {
+    const ctx = createSpecContext('rainbow', state());
+    const spec = normalizeGraphSpec({
+      nodes: [{ name: 'Kroger', description: 'Largest US supermarket operator' }],
+      layers: [{ name: 'Kroger', definition: { nodes: [{ name: 'Ralphs' }, { name: 'Vons' }] } }]
+    }, ctx);
+    expect(spec.nodes).toHaveLength(0);
+    expect(spec.layers[0].description).toBe('Largest US supermarket operator');
   });
 });

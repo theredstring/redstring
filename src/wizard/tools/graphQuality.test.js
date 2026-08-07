@@ -166,10 +166,10 @@ describe('analyzeGraphQuality — layers', () => {
 });
 
 describe('analyzeGraphQuality — flatness', () => {
-  it('notes a large single level with no layers at all', () => {
+  it('notes a large single level whose clusters were left as plain groups', () => {
     const names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
     const edges = names.slice(1).map((n, i) => ({ source: names[i], target: n, type: `Rel${i}` }));
-    const report = analyzeGraphQuality(names.map(node), edges);
+    const report = analyzeGraphQuality(names.map(node), edges, { groups: [{ name: 'Cluster One' }] });
     expect(report.feedback).toMatch(/FLAT/);
   });
 
@@ -204,5 +204,77 @@ describe('analyzeGraphQuality — existing behaviour preserved', () => {
     const report = analyzeGraphQuality([], []);
     expect(report.feedback).toBe('No nodes to analyze.');
     expect(report.layerCount).toBe(0);
+  });
+});
+
+describe('analyzeGraphQuality — collapsed layers', () => {
+  // A collapsed layer renders identically to a plain node. Collapse them all and
+  // the user sees a flat graph however much structure sits behind it — which is
+  // exactly what "it's trying to make node groups but they're just nodes" was.
+  it('flags a build where every layer is collapsed', () => {
+    const report = analyzeGraphQuality(
+      [node('Carmy'), node('Sydney')],
+      [{ source: 'Carmy', target: 'Sydney', type: 'Mentors' }],
+      {
+        layers: [
+          { name: 'The Bear Restaurant', display: 'collapsed' },
+          { name: 'The Beef', display: 'collapsed' }
+        ]
+      }
+    );
+    expect(report.feedback).toMatch(/ALL COLLAPSED/);
+    expect(report.decomposedLayerCount).toBe(0);
+  });
+
+  it('stays quiet when at least one layer opens', () => {
+    const report = analyzeGraphQuality(
+      [node('Carmy')],
+      [],
+      {
+        layers: [
+          { name: 'The Bear Restaurant', display: 'decomposed' },
+          { name: 'The Beef', display: 'collapsed' }
+        ]
+      }
+    );
+    expect(report.feedback).not.toMatch(/ALL COLLAPSED/);
+    expect(report.decomposedLayerCount).toBe(1);
+  });
+
+  it('treats an unset display as decomposed', () => {
+    const report = analyzeGraphQuality([node('A')], [], { layers: [{ name: 'L' }] });
+    expect(report.feedback).not.toMatch(/ALL COLLAPSED/);
+  });
+});
+
+describe('analyzeGraphQuality — flatness is evidence-based', () => {
+  // A cast of characters with varied relationships is a genuinely flat graph and
+  // correctly modelled as one. Complaining sent the model back to re-sketch a
+  // structure that was right, three times, burning the token budget.
+  it('does not call a relational graph flat just for having many nodes', () => {
+    const names = ['Carmy', 'Sydney', 'Richie', 'Marcus', 'Tina', 'Natalie', 'Uncle Jimmy', 'Fak', 'Claire'];
+    const edges = [
+      { source: 'Carmy', target: 'Sydney', type: 'Mentors' },
+      { source: 'Richie', target: 'Carmy', type: 'Resents' },
+      { source: 'Marcus', target: 'Carmy', type: 'Learns From' },
+      { source: 'Tina', target: 'Sydney', type: 'Warms To' },
+      { source: 'Natalie', target: 'Carmy', type: 'Sister Of' },
+      { source: 'Uncle Jimmy', target: 'Natalie', type: 'Funds' },
+      { source: 'Fak', target: 'Richie', type: 'Befriends' },
+      { source: 'Claire', target: 'Carmy', type: 'Dates' }
+    ];
+    const report = analyzeGraphQuality(names.map(node), edges);
+    expect(report.feedback).not.toMatch(/FLAT/);
+  });
+
+  // But if it already found the clusters and made them merely visual, say so.
+  it('flags plain groups that should have been layers', () => {
+    const names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+    const edges = names.slice(1).map((n, i) => ({ source: names[i], target: n, type: `Rel${i}` }));
+    const report = analyzeGraphQuality(names.map(node), edges, {
+      groups: [{ name: 'Kitchen Brigade' }, { name: 'Front of House' }]
+    });
+    expect(report.feedback).toMatch(/FLAT/);
+    expect(report.feedback).toMatch(/Kitchen Brigade/);
   });
 });

@@ -40,6 +40,16 @@ const MONOTONE_MIN_EDGES = 4;
 /** At or above this many nodes, a graph with no layers is suspiciously flat. */
 const FLATNESS_NODE_THRESHOLD = 8;
 
+/**
+ * A layer marked `collapsed` renders on the canvas as an ordinary node — its web
+ * is defined but not spread open. That is a legitimate choice for supporting
+ * detail, but if EVERY layer in a build is collapsed the user sees no nesting at
+ * all, which is almost never what they asked for when they asked for depth.
+ */
+function allLayersCollapsed(layers) {
+  return layers.length > 0 && layers.every(l => l.display === 'collapsed');
+}
+
 function median(values) {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -243,11 +253,31 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
   if (avgConnectionsPerNode < 1.5 && allNodes.length > 2 && !hub) {
     issues.push(`Low connectivity (avg ${avgConnectionsPerNode} connections/node). Aim for 2-3 connections per node — between peers, not all through one node.`);
   }
-  if (layers.length === 0 && allNodes.length >= FLATNESS_NODE_THRESHOLD) {
+  // Flatness fires only when the model has ALREADY found clusters and made them
+  // plain visual groups. "Many nodes, no layers" on its own is not a defect — a
+  // cast of characters with rich, varied relationships between them is a
+  // genuinely flat graph and correctly modelled as one. Complaining there just
+  // sends the model back to re-sketch a structure that was right the first time.
+  const plainGroups = Array.isArray(opts.groups) ? opts.groups.filter(g => g && g.name) : [];
+  if (layers.length === 0 && plainGroups.length > 0 && allNodes.length >= FLATNESS_NODE_THRESHOLD) {
     issues.push(
-      `FLAT: ${allNodes.length} nodes at one level with no layers. `
-      + 'Look for a cluster whose members define what it is, and make that cluster a layer — '
-      + 'depth is what makes a graph navigable rather than a list.'
+      `FLAT: ${plainGroups.length} plain group(s) (${plainGroups.map(g => `"${g.name}"`).join(', ')}) `
+      + 'but no layers. You already found the clusters — if any of those names is a concept in its '
+      + 'own right (something you could point at, or draw an edge to), make it a layer instead so '
+      + 'its members live inside it.'
+    );
+  }
+
+  // Every layer collapsed means nothing is actually spread open on the canvas:
+  // the user sees plain nodes and no nesting, however much structure exists
+  // behind them. This is the single most common way a composed build still
+  // *looks* flat, and nothing else in the report catches it.
+  if (allLayersCollapsed(layers)) {
+    issues.push(
+      `ALL COLLAPSED: all ${layers.length} layer(s) are "collapsed", so none of them open on the `
+      + 'canvas — they render exactly like plain nodes and the nesting stays invisible. Set '
+      + '`display: "decomposed"` on the ones whose contents are part of the point. Reserve '
+      + '"collapsed" for supporting detail the user would have to go looking for anyway.'
     );
   }
 
@@ -274,6 +304,7 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
     noDescriptionNodes,
     densityScore,
     layerCount: layers.length,
+    decomposedLayerCount: layers.filter(l => l.display !== 'collapsed').length,
     hub,
     dominantRelation,
     feedback

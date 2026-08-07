@@ -10,7 +10,7 @@ import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 import { validateEdgesSmart } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
-import { normalizeLayersOnly } from './utils/graphSpec.js';
+import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning } from './utils/graphSpec.js';
 
 /**
  * Convert string to Title Case
@@ -131,7 +131,7 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
     const activePalette = palette || getRandomPalette();
 
     // Build node specs
-    const nodeSpecs = nodes.map(n => ({
+    let nodeSpecs = nodes.map(n => ({
         name: n.name,
         color: resolvePaletteColor(activePalette, n.color),
         description: n.description || '',
@@ -196,7 +196,15 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
     const layerSpecs = layerResult ? layerResult.layers : [];
     const layerWarnings = layerResult ? layerResult.warnings : [];
 
-    const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs });
+    // A layer already lands as a Thing here; the same name in `nodes` would beat
+    // its shell into the graph and stop the layer decomposing. Keep the layer.
+    const layerCollision = dropLayerNameCollisions(nodeSpecs, layerSpecs);
+    if (layerCollision.dropped.length > 0) {
+        nodeSpecs = layerCollision.nodes;
+        layerWarnings.push(layerCollisionWarning(layerCollision.dropped));
+    }
+
+    const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs, groups: groupSpecs });
 
     // Warn when the definition graph is sparse — a good definition should have 5-8 nodes
     const sparseWarning = nodeSpecs.length < 5

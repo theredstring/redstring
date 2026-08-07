@@ -92,8 +92,30 @@ export function normalizeGraphSpec(spec, ctx, depth = 0, path = 'graph') {
 
   stats.maxDepth = Math.max(stats.maxDepth, depth);
 
+  // A layer already materializes as a Thing at this level, so the same name in
+  // `nodes` is the same Thing described twice — and keeping both breaks the
+  // build: the plain node wins the race into the graph, the layer's shell is
+  // swallowed by name de-duplication, and with no shell to decompose the layer
+  // never opens into a node-group. See dropLayerNameCollisions for why the
+  // duplicate is folded in rather than simply discarded.
+  const rawLayers = coerceArray(spec?.layers).filter(l => l && l.name);
+  const layersByKey = new Map(rawLayers.map(l => [String(l.name).toLowerCase().trim(), l]));
+
+  const collidingNodeNames = [];
   const nodeSpecs = nodes
     .filter(n => n && n.name)
+    .filter(n => {
+      const layer = layersByKey.get(String(n.name).toLowerCase().trim());
+      if (!layer) return true;
+      // Carry the duplicate's prose over rather than losing it; never touch a
+      // `use:` layer, whose identity belongs to the web it already has.
+      if (!layer.use) {
+        if (!layer.description && n.description) layer.description = n.description;
+        if (!layer.color && n.color) layer.color = n.color;
+      }
+      collidingNodeNames.push(n.name);
+      return false;
+    })
     .map(n => ({
       name: n.name,
       color: resolvePaletteColor(palette, n.color),
@@ -103,6 +125,9 @@ export function normalizeGraphSpec(spec, ctx, depth = 0, path = 'graph') {
       typeColor: resolvePaletteColor(palette, n.typeColor || '#A0A0A0'),
       typeDescription: n.typeDescription || ''
     }));
+  if (collidingNodeNames.length > 0) {
+    warnings.push(`${path}: ${layerCollisionWarning(collidingNodeNames)}`);
+  }
   stats.nodeCount += nodeSpecs.length;
 
   if (nodeSpecs.length > SOFT_NODE_CAP) {
@@ -232,6 +257,54 @@ export function normalizeGraphSpec(spec, ctx, depth = 0, path = 'graph') {
   }
 
   return { nodes: nodeSpecs, edges: edgeSpecs, groups: groupSpecs, layers: layerSpecs };
+}
+
+/**
+ * Fold nodes that duplicate a layer name into that layer.
+ *
+ * A layer already materializes as a Thing at this level, so the same name in
+ * `nodes` is the same Thing described twice. Keeping both is not an option: the
+ * plain node beats the layer's shell into the graph, the shell is de-duplicated
+ * away, and the layer silently never decomposes — the concept ends up defined but
+ * flat, which reads to the model as success.
+ *
+ * But the duplicate is not worthless. The model usually writes a real description
+ * on the plain node (that is the form it is used to), and discarding it loses
+ * work for no reason. So the node's description and colour are merged onto the
+ * layer wherever the layer left them blank, and only the redundant *structure*
+ * goes away. A `use:` layer is left strictly alone — its identity belongs to the
+ * web it already has, and an incidental duplicate here must not rewrite it.
+ *
+ * @returns {{nodes: Array, dropped: string[]}}
+ */
+export function dropLayerNameCollisions(nodeSpecs, layerSpecs) {
+  const layersByKey = new Map();
+  for (const l of (layerSpecs || [])) {
+    if (l && l.name) layersByKey.set(String(l.name).toLowerCase().trim(), l);
+  }
+  if (layersByKey.size === 0) return { nodes: nodeSpecs || [], dropped: [] };
+
+  const dropped = [];
+  const nodes = (nodeSpecs || []).filter(n => {
+    const layer = n && layersByKey.get(String(n.name || '').toLowerCase().trim());
+    if (!layer) return true;
+
+    if (!layer.use) {
+      if (!layer.description && n.description) layer.description = n.description;
+      if (!layer.color && n.color) layer.color = n.color;
+    }
+    dropped.push(n.name);
+    return false;
+  });
+  return { nodes, dropped };
+}
+
+/** The warning text for a collision fold, so every tool words it identically. */
+export function layerCollisionWarning(dropped) {
+  return `${dropped.map(n => `"${n}"`).join(', ')} listed as both a plain node and a layer — `
+    + 'folded into the layer (its description and colour were carried over). A layer already '
+    + 'appears at this level as a Thing, so you never need to list it in `nodes` too; '
+    + 'edges can name it directly.';
 }
 
 /**

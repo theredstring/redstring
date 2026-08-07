@@ -99,11 +99,20 @@ That is the single most common mistake. The definition web IS the membership; sp
 layer open materializes those members in the parent graph automatically.
 
 **\`display\` controls how much depth is visible right now:**
-- \`"decomposed"\` (default) — the web is spread open in the parent as a nested group you can see through
-- \`"collapsed"\` — the Thing sits on the canvas with its web defined behind it; the user navigates in
+- \`"decomposed"\` (the default, and what you almost always want) — the web is spread open in the
+  parent as a nested group you can see through. **This is the only setting that produces a visible
+  node-group.**
+- \`"collapsed"\` — the Thing sits on the canvas with its web defined behind it; the user has to
+  navigate in to find it.
 
-Choose per layer, based on what the finished picture should show. Depth that matters is decomposed;
-depth that's supporting detail is collapsed. Both are fully defined either way.
+**A collapsed layer looks exactly like a plain node.** Nothing about it reads as composed on the
+canvas — same shape, same size, no visible members. So if you collapse every layer in a build, the
+user sees a flat graph and has no way to tell you did anything at all. That is the single most
+common way a correctly-composed build still looks wrong.
+
+Default to \`"decomposed"\`. Reach for \`"collapsed"\` only for detail the user would have to go
+looking for anyway — a fourth level down, or a layer that exists to be referenced rather than read.
+If the user asked for nesting, depth, or "in a nested way", decompose.
 
 **Layers nest.** A layer's \`definition\` can contain its own \`layers\`, and each level is a real web:
 \`\`\`json

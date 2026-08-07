@@ -434,7 +434,7 @@ export async function sketchGraph(args, graphState) {
   // Run quality analysis on the expanded spec. Layers go through the dedicated
   // `layers` option rather than being folded into the node list, so the analyzer
   // can also judge whether this level is composed or flat.
-  const quality = analyzeGraphQuality(expandedNodes, expandedEdges, { layers: expandedLayers });
+  const quality = analyzeGraphQuality(expandedNodes, expandedEdges, { layers: expandedLayers, groups: expandedGroups });
 
   // Build validation warnings
   const warnings = [...ctx.warnings];

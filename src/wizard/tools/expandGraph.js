@@ -13,7 +13,7 @@ import { resolveGraphId } from './resolveGraphId.js';
 import { runStructureReview } from './utils/structureReview.js';
 import { newBuildId } from '../../services/oneShot.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
-import { normalizeLayersOnly } from './utils/graphSpec.js';
+import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning } from './utils/graphSpec.js';
 
 /**
  * Convert string to Title Case
@@ -73,7 +73,7 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   const activePalette = palette || getRandomPalette();
 
   // Build node specs
-  const nodeSpecs = nodes.map(n => ({
+  let nodeSpecs = nodes.map(n => ({
     name: n.name,
     color: resolvePaletteColor(activePalette, n.color),
     description: n.description || '',
@@ -92,6 +92,13 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState });
   const layerSpecs = layerResult ? layerResult.layers : [];
   const layerWarnings = layerResult ? layerResult.warnings : [];
+
+  // A layer already lands as a Thing here, so the same name in `nodes` is a
+  // duplicate that would beat the layer's shell into the graph and stop it
+  // decomposing. Keep the layer.
+  const collision = dropLayerNameCollisions(nodeSpecs, layerSpecs);
+  nodeSpecs = collision.nodes;
+  if (collision.dropped.length > 0) layerWarnings.push(layerCollisionWarning(collision.dropped));
 
   // Validate edges: strip any that reference nodes not in the nodes array or existing graph
   const existingNodeNames = (graphState.nodePrototypes || []).map(p => p.name).filter(Boolean);
@@ -160,7 +167,7 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   // Analyze graph quality for LLM feedback. Layers are passed through so an edge
   // pointing at one counts as a real connection rather than leaving its other
   // endpoint looking orphaned.
-  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs });
+  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs, groups: groupSpecs });
 
   // Part B — Structure review over the newly-added nodes/edges (free detection;
   // model pass only on dense candidates, biased to suggest nothing). Surfaced in

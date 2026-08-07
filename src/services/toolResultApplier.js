@@ -343,36 +343,47 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
     // decomposeEmptyNodeToGroup creates and links one itself in Phase B.
   }
 
-  // Bulk-apply this level: authored nodes plus one shell instance per layer.
   const specNodes = Array.isArray(graphSpec?.nodes) ? graphSpec.nodes : [];
   const typeMap = resolveCompositionTypeMap(specNodes);
   const liveLayers = layers.filter(l => l && l._protoId && !l._skip);
+
+  // Shells go in FIRST, and through addNodeInstance rather than the bulk path.
+  //
+  // applyBulkGraphUpdates de-duplicates by name and returns early — so whenever a
+  // node of the same name already existed in this graph (the model listing
+  // "Kroger" both as a top-level node and as a layer is the common case), the
+  // layer's shell was silently swallowed. Its prototype and definition web were
+  // still created, so the concept LOOKED defined, but with no shell to decompose
+  // the layer never opened into a node-group. That is precisely the "it defined
+  // them but didn't open them" failure. addNodeInstance takes the prototype id
+  // directly and cannot be de-duplicated away.
+  //
+  // Going first also means edges naming a layer resolve: applyBulkGraphUpdates
+  // pre-populates its name lookup from instances already in the graph.
+  const st = useGraphStore.getState();
+  for (const l of liveLayers) {
+    l._shellInstanceId = `inst-shell-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    st.addNodeInstance(
+      graphId,
+      l._protoId,
+      { x: Math.random() * 600 + 200, y: Math.random() * 500 + 200 },
+      l._shellInstanceId
+    );
+  }
+
   const bulkData = {
-    nodes: [
-      ...specNodes.map((n, idx) => ({
-        name: n.name,
-        color: n.color,
-        description: n.description,
-        typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
-        sizeMul: n.sizeMul,
-        prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
-        instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
-        x: Math.random() * 600 + 200,
-        y: Math.random() * 500 + 200,
-        semanticMetadata: wizardSemanticMetadata()
-      })),
-      // Shells: applyBulkGraphUpdates reuses a caller-supplied prototypeId, so
-      // the instance lands on the layer's prototype. No color/description for
-      // reused (`use:`) prototypes — never clobber an existing web's identity.
-      ...liveLayers.map((l, idx) => ({
-        name: l.name,
-        ...(l._reused ? {} : { color: l.color, description: l.description }),
-        prototypeId: l._protoId,
-        instanceId: `inst-shell-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
-        x: Math.random() * 600 + 200,
-        y: Math.random() * 500 + 200
-      }))
-    ],
+    nodes: specNodes.map((n, idx) => ({
+      name: n.name,
+      color: n.color,
+      description: n.description,
+      typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
+      sizeMul: n.sizeMul,
+      prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+      instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+      x: Math.random() * 600 + 200,
+      y: Math.random() * 500 + 200,
+      semanticMetadata: wizardSemanticMetadata()
+    })),
     edges: (Array.isArray(graphSpec?.edges) ? graphSpec.edges : []).map(e => ({
       source: e.source,
       target: e.target,
@@ -426,16 +437,24 @@ function decomposeCompositionLayers(graphId, layers, warnings) {
     }
     if (alreadyGrouped) continue;
 
-    // The shell to decompose: LAST non-anchor instance of the layer's prototype.
-    // Missing shell means the bulk name-dedup swallowed it (a same-named node
-    // with a different prototype already lived in this graph) — warn, don't crash.
-    let shellInstanceId = null;
-    for (const [instId, inst] of graph.instances) {
-      if (inst.prototypeId === protoId && !inst.isGroupAnchor) shellInstanceId = instId;
-    }
+    // The shell to decompose. Prefer the one materialization just created; fall
+    // back to the LAST non-anchor instance of this prototype.
+    let shellInstanceId = (layer._shellInstanceId && graph.instances.has(layer._shellInstanceId))
+      ? layer._shellInstanceId
+      : null;
     if (!shellInstanceId) {
-      warnings.push(`Layer "${layer.name}": no shell instance found in the target graph (a same-named node may already exist) — not decomposed.`);
-      continue;
+      for (const [instId, inst] of graph.instances) {
+        if (inst.prototypeId === protoId && !inst.isGroupAnchor) shellInstanceId = instId;
+      }
+    }
+    // Still nothing: place one rather than skipping. A layer that silently fails
+    // to decompose leaves the concept defined but never opened — which reads to
+    // the user as the composition simply not having happened, and to the model as
+    // success, because the definition web really is there.
+    if (!shellInstanceId) {
+      shellInstanceId = `inst-shell-recover-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      st.addNodeInstance(graphId, protoId, { x: Math.random() * 600 + 200, y: Math.random() * 500 + 200 }, shellInstanceId);
+      warnings.push(`Layer "${layer.name}": shell instance was missing and had to be recreated before decomposing.`);
     }
 
     const proto = st.nodePrototypes.get(protoId);
@@ -509,6 +528,29 @@ export function applyCompositionSpec(graphId, spec, options = {}, label = 'compo
       window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
     }
   }, 600);
+
+  // Verify the layers actually opened. Decomposition happens browser-side, after
+  // the tool has already returned "success" to the model — so when it silently
+  // failed, the model saw a populated definition web, called the build done, and
+  // the user got a handful of unopened nodes. Anything that goes wrong here has
+  // to be loud, because nothing downstream will notice it.
+  const after = useGraphStore.getState().graphs.get(graphId);
+  const decomposedCount = layers.filter(l => {
+    if (!l?._protoId || l._skip || l.display === 'collapsed') return false;
+    for (const g of (after?.groups?.values?.() || [])) {
+      if (g.linkedNodePrototypeId === l._protoId) return true;
+    }
+    return false;
+  }).length;
+  const expected = layers.filter(l => l?._protoId && !l._skip && l.display !== 'collapsed').length;
+
+  if (decomposedCount < expected) {
+    const msg = `${label}: only ${decomposedCount} of ${expected} layer(s) opened into node-groups. `
+      + 'The concepts are defined but not spread open.';
+    warnings.push(msg);
+    console.error(`[Wizard] ${msg}`, warnings);
+    dispatchWizardToolFailed(label, 'layers-not-decomposed', { layerCount: expected, decomposedCount });
+  }
 
   if (warnings.length > 0) console.warn(`[Wizard] ${label} layer warnings:`, warnings);
   return warnings;

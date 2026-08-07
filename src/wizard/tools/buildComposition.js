@@ -81,7 +81,7 @@ export async function buildComposition(args, graphState) {
   // omitting them dropped every node-to-layer edge from the adjacency and
   // reported perfectly well-connected nodes as orphans — which is what drove the
   // model to "fix" a composed graph by flattening it with hub edges.
-  const qualityReport = analyzeGraphQuality(spec.nodes, spec.edges, { layers: spec.layers });
+  const qualityReport = analyzeGraphQuality(spec.nodes, spec.edges, { layers: spec.layers, groups: spec.groups });
 
   console.error('[buildComposition] graph:', graphId, 'layers:', ctx.stats.layerCount, 'maxDepth:', ctx.stats.maxDepth);
 
