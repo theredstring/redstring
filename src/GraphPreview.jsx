@@ -246,8 +246,12 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
           const destNodeWidth = edge.destNode.width;
           const destNodeHeight = edge.destNode.height;
           const avgNodeSize = (sourceNodeWidth + sourceNodeHeight + destNodeWidth + destNodeHeight) / 4;
-          const baseStrokeMultiplier = Math.max(0.006, Math.min(0.018, avgNodeSize / 1000)); // Scales with node size (slightly thicker)
+          const baseStrokeMultiplier = Math.max(0.006, Math.min(0.018, avgNodeSize / 1000)); // Scales with node size
+          // Arrowheads keep sizing off the original adaptive width.
           const adaptiveStrokeWidth = Math.max(0.4, avgNodeSize * baseStrokeMultiplier);
+          // The line itself needs an absolute floor — the adaptive value lands under 1px
+          // in typical previews, where any relative bump is lost to antialiasing.
+          const lineStrokeWidth = Math.max(1.2, adaptiveStrokeWidth * 1.6);
 
           return (
             <g key={edge.key}>
@@ -258,7 +262,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                 x2={shouldShortenDest ? (destIntersection?.x || edge.x2) : edge.x2}
                 y2={shouldShortenDest ? (destIntersection?.y || edge.y2) : edge.y2}
                 stroke={edgeColor}
-                strokeWidth={adaptiveStrokeWidth}
+                strokeWidth={lineStrokeWidth}
               />
 
               {/* Source Arrow - scales with adaptive stroke */}
