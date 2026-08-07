@@ -41,6 +41,7 @@ import LayoutProgressIndicator from './components/LayoutProgressIndicator.jsx';
 import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
+import { resolveEdgeLabelFontSize } from './services/layoutGeometry.js';
 import { applyOffscreenLayout } from './services/offscreenLayout.js';
 import { oneShotLabel, attachOneShotOutcome, isOneShotAvailable } from './services/oneShot.js';
 import { suggestAbstractionName, suggestArrowDirection } from './wizard/tools/utils/suggestionCalls.js';
@@ -2526,7 +2527,7 @@ function NodeCanvas() {
     routingDrivesAlgorithm,
     layoutSolver,
     forceTunerSettings,
-    connectionFontSize: 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize,
+    connectionFontSize: resolveEdgeLabelFontSize(textSettings, connectionLabelSize),
     setZoomLevel,
     setPanOffset,
     canvasTransform: transform,
@@ -14032,7 +14033,7 @@ function NodeCanvas() {
                                 }
                               }
                             }
-                            const selfFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
+                            const selfFontSize = resolveEdgeLabelFontSize(textSettings, connectionLabelSize);
                             return (
                               <SelfLoopEdge
                                 key={`edge-${edge.id}`}
@@ -15307,7 +15308,7 @@ function NodeCanvas() {
 
                               {/* Connection name text — rendered after arrows so labels appear on top */}
                               {showConnectionNames && (() => {
-                                const connectionFontSize = 59.4 * (textSettings?.fontSize || 1) * connectionLabelSize;
+                                const connectionFontSize = resolveEdgeLabelFontSize(textSettings, connectionLabelSize);
                                 let midX;
                                 let midY;
                                 let angle;
@@ -17286,7 +17287,7 @@ function NodeCanvas() {
         // (usually ~1-1.5s with substepped auto-layout speed)
         autoLayoutDuration={6000}
         // Resolved label font so labeled edges reserve real rendered width
-        connectionFontSize={59.4 * (textSettings?.fontSize || 1) * connectionLabelSize}
+        connectionFontSize={resolveEdgeLabelFontSize(textSettings, connectionLabelSize)}
         graphId={activeGraphId}
         storeActions={storeActions}
         layoutScalePreset={forceLayoutScalePreset}

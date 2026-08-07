@@ -42,14 +42,31 @@ export function settleToolCallBlocksInPlace(blocks, reason) {
   }
 }
 
+/**
+ * Settle a finished run's messages: cancel any tool chip still marked running AND
+ * clear `isStreaming`.
+ *
+ * Clearing the flag belongs here rather than at each call site. This function is
+ * the shared "this run is over, repair its messages" routine, and every caller
+ * that used it was left with a message still claiming to stream — so the bubble
+ * kept its animated ellipsis forever, and the persisted copy carried the stale
+ * flag into the next session. Settling the chips but not the bubble is never the
+ * intent.
+ */
 export function settleToolCallsInMessages(messages, reason) {
   if (!Array.isArray(messages)) return messages;
   let changed = false;
   const settled = messages.map(m => {
     const blocks = settleToolCallBlocks(m?.contentBlocks, reason);
-    if (blocks === m?.contentBlocks) return m;
+    const blocksChanged = blocks !== m?.contentBlocks;
+    const streamingChanged = m?.isStreaming === true;
+    if (!blocksChanged && !streamingChanged) return m;
     changed = true;
-    return { ...m, contentBlocks: blocks };
+    return {
+      ...m,
+      ...(blocksChanged ? { contentBlocks: blocks } : {}),
+      ...(streamingChanged ? { isStreaming: false } : {})
+    };
   });
   return changed ? settled : messages;
 }

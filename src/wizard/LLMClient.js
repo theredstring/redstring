@@ -156,17 +156,25 @@ function normalizeOpenAIUsage(usage) {
   const promptTokens = usage.prompt_tokens || 0;
   const completionTokens = usage.completion_tokens || 0;
   const totalTokens = usage.total_tokens || (promptTokens + completionTokens);
-  // OpenAI and OpenRouter report cache hits under prompt_tokens_details when the
-  // upstream model supports it; it is automatic rather than opt-in, so there is
-  // nothing to declare on the request side — only a discount to credit here.
-  const cacheReadTokens = usage.prompt_tokens_details?.cached_tokens || 0;
+  // OpenAI and OpenRouter report cache hits under prompt_tokens_details.
+  //
+  // Caching is automatic for OpenAI-family models, but NOT for Anthropic models
+  // reached through OpenRouter — those need the same explicit `cache_control`
+  // breakpoints the native API wants (see withOpenRouterCaching). Assuming it was
+  // automatic for everything is why the default configuration paid full price for
+  // a ~28k-token prefix on every iteration.
+  const details = usage.prompt_tokens_details || {};
+  const cacheReadTokens = details.cached_tokens || 0;
+  // Writes bill at 1.25x. Folding them into `uncachedPromptTokens` under-reports
+  // real cost by ~25% on every iteration that populates the cache.
+  const cacheCreationTokens = details.cache_write_tokens || details.cache_creation_tokens || 0;
   return {
     promptTokens,
     completionTokens,
     totalTokens,
-    uncachedPromptTokens: Math.max(0, promptTokens - cacheReadTokens),
+    uncachedPromptTokens: Math.max(0, promptTokens - cacheReadTokens - cacheCreationTokens),
     cacheReadTokens,
-    cacheCreationTokens: 0
+    cacheCreationTokens
   };
 }
 
@@ -394,12 +402,58 @@ export function stripInternalFields(messages) {
 }
 
 /**
+ * Models that need EXPLICIT cache breakpoints when reached through OpenRouter.
+ *
+ * OpenRouter caches automatically for OpenAI, Grok, Groq, DeepSeek and Gemini
+ * 2.5 — but NOT for Anthropic, which requires the same `cache_control` markers
+ * the native API does. Since the default model here is an Anthropic one
+ * (`anthropic/claude-3.5-sonnet`), "OpenRouter handles caching for us" was
+ * exactly wrong for the configured default, and every request paid full price
+ * for a ~28k-token prefix that never changed.
+ */
+function needsExplicitCacheBreakpoints(model) {
+  return /anthropic|claude/i.test(String(model || ''));
+}
+
+/**
+ * Mark the system message so its content — and, by prefix, the tool schemas
+ * ahead of it — is cached.
+ *
+ * `cache_control` cannot be attached to the `tools` array itself. It does not
+ * need to be: caching covers the request PREFIX in the order tools → system →
+ * messages, so a breakpoint on the system block already includes every tool
+ * definition before it. That one marker is what recovers the whole fixed floor.
+ *
+ * A 1-hour TTL rather than the 5-minute default: agent iterations can be minutes
+ * apart when a slow tool or a user prompt sits between them, and an expired entry
+ * costs 1.25x to rebuild.
+ */
+function withOpenRouterCaching(messages, model) {
+  const stripped = stripInternalFields(messages);
+  if (!needsExplicitCacheBreakpoints(model)) return stripped;
+
+  return stripped.map((msg, i) => {
+    if (msg.role !== 'system' || typeof msg.content !== 'string' || !msg.content) return msg;
+    // Only the leading system message is stable enough to be worth an entry.
+    if (i !== 0) return msg;
+    return {
+      ...msg,
+      content: [{
+        type: 'text',
+        text: msg.content,
+        cache_control: { type: 'ephemeral', ttl: '1h' }
+      }]
+    };
+  });
+}
+
+/**
  * Stream from OpenRouter API
  */
 async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }, signal = null) {
   const payload = {
     model,
-    messages: stripInternalFields(messages),
+    messages: withOpenRouterCaching(messages, model),
     ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
     max_tokens: maxTokens,
     temperature,
@@ -759,7 +813,7 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
   // Nothing is anchored to the volatile tail block: it differs by construction on
   // the next request, so a breakpoint there would write an entry that can never
   // be read — at 1.25x, strictly worse than not caching it.
-  const cachePrefix = systemMessage?.cachePrefix;
+  const cachePrefix = systemMessage?._cachePrefix;
   const systemContent = systemMessage?.content || '';
   let systemField;
   if (cachePrefix && systemContent.startsWith(cachePrefix)) {
@@ -1376,7 +1430,28 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
             const completionTokens = totalTokens
               ? Math.max(0, totalTokens - promptTokens)
               : ((u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0));
-            yield { type: 'usage', usage: { promptTokens, completionTokens, totalTokens } };
+            // Cached input. Gemini 2.5 caches implicitly — no request-side markers,
+            // but it only hits when the leading part of the request is byte-stable,
+            // which is why the tool set is frozen per ask, the system instruction is
+            // static, and the volatile graph snapshot rides at the tail.
+            //
+            // Not reading this field meant `promptTokenCount` was charged in full
+            // every iteration even when Google had already discounted most of it —
+            // the budget saw ~35k/iteration for input the model was billing a
+            // fraction of, and tripped a cost ceiling that had not been reached.
+            const cacheReadTokens = u.cachedContentTokenCount || 0;
+            yield {
+              type: 'usage',
+              usage: {
+                promptTokens,
+                completionTokens,
+                totalTokens,
+                uncachedPromptTokens: Math.max(0, promptTokens - cacheReadTokens),
+                cacheReadTokens,
+                // Implicit caching is populated by Google, never billed as a write.
+                cacheCreationTokens: 0
+              }
+            };
           }
 
           const candidate = chunk.candidates?.[0];

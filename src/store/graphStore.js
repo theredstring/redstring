@@ -3351,6 +3351,39 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     },
 
     /**
+     * Point an existing instance at a different prototype, in place.
+     *
+     * Used when a composition layer finds a node of its own name already on the
+     * canvas: the layer's prototype carries the definition web, but the instance
+     * the user can already see (and whose edges already attach to it) is the one
+     * that should become the layer's anchor. Re-pointing keeps every edge intact
+     * — they reference the instance, not the prototype — where deleting and
+     * re-adding would silently drop them.
+     *
+     * Position and size are preserved; only identity moves.
+     *
+     * @param {string} graphId
+     * @param {string} instanceId - Instance to re-point
+     * @param {string} prototypeId - Prototype it should now represent
+     */
+    retargetNodeInstance: (graphId, instanceId, prototypeId) => {
+      api.setChangeContext({ type: 'node_retarget', target: 'instance', finalize: true });
+      return set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        const prototype = draft.nodePrototypes.get(prototypeId);
+        const instance = graph?.instances?.get(instanceId);
+
+        if (!graph || !prototype || !instance) {
+          console.error(`[retargetNodeInstance] Invalid graphId (${graphId}), instanceId (${instanceId}) or prototypeId (${prototypeId})`);
+          return;
+        }
+        if (instance.prototypeId === prototypeId) return;
+
+        instance.prototypeId = prototypeId;
+      }));
+    },
+
+    /**
      * Hard-deletes a node instance and all of its connected edges in a single transaction.
      *
      * If the instance is a group anchor, its associated group is also deleted.

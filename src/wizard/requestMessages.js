@@ -36,14 +36,18 @@ export const ENVIRONMENT_BLOCK_HEADER = '## Current Environment (refreshed every
 export const VOLATILE_CONTEXT_FLAG = '_volatileContext';
 
 /**
- * Return a copy of `messages` with the volatile context block appended at the
- * end. `messages` is never mutated.
+ * Return a copy of `messages` with the volatile context appended as its own
+ * trailing message. `messages` is never mutated.
  *
- * When the conversation already ends with a plain-text user turn the block is
- * folded into it, which keeps the request one message shorter and avoids two
- * consecutive user turns. After a tool result — the common case mid-loop — it
- * has to be a message of its own, since a tool-result turn carries structured
- * blocks that text cannot simply be concatenated onto.
+ * It is always a separate message, never folded into a preceding user turn, and
+ * that matters more than it looks. Folding would rewrite the bytes of an existing
+ * message — so on iteration 0 the user's turn would read "make a web for X" plus
+ * the snapshot, and on iteration 1, once a tool result had arrived and the block
+ * moved to its own message, that same user turn would read "make a web for X"
+ * alone. A message near the front of the conversation changing content between
+ * requests invalidates the cached prefix covering everything after it, which is
+ * the entire history. Keeping the block in a message of its own leaves every
+ * earlier message byte-stable for the whole ask.
  *
  * @param {Array} messages - Canonical conversation (system first)
  * @param {string} contextText - Rendered graph context + plan directive
@@ -54,20 +58,7 @@ export function buildRequestMessages(messages, contextText) {
   if (!contextText || !String(contextText).trim()) return list.slice();
 
   const block = `${ENVIRONMENT_BLOCK_HEADER}\n${contextText}`;
-  const out = list.slice();
-  const last = out[out.length - 1];
-
-  if (last && last.role === 'user' && typeof last.content === 'string') {
-    out[out.length - 1] = {
-      ...last,
-      content: `${last.content}\n\n${block}`,
-      [VOLATILE_CONTEXT_FLAG]: true
-    };
-    return out;
-  }
-
-  out.push({ role: 'user', content: block, [VOLATILE_CONTEXT_FLAG]: true });
-  return out;
+  return [...list, { role: 'user', content: block, [VOLATILE_CONTEXT_FLAG]: true }];
 }
 
 /**

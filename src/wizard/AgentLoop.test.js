@@ -485,8 +485,8 @@ describe('AgentLoop', () => {
         events.push(event);
       }
 
-      // messages = [system, ...history, user]
-      const history = captured.slice(1, -1);
+      // messages = [system, ...history, user, volatile-context]
+      const history = captured.slice(1, -2);
       expect(history.length).toBeGreaterThan(0);
       expect(history.length).toBeLessThan(conversationHistory.length);
       // Trimming keeps the NEWEST turns — the last history entry must be the
@@ -510,7 +510,7 @@ describe('AgentLoop', () => {
         events.push(event);
       }
 
-      expect(captured.slice(1, -1).length).toBe(1);
+      expect(captured.slice(1, -2).length).toBe(1);
     });
   });
 

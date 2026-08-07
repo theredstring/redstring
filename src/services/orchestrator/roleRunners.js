@@ -532,6 +532,8 @@ export async function runExecutorOnce() {
         layoutScale: autoSettings.layoutScale,
         layoutScaleMultiplier: autoSettings.layoutScaleMultiplier,
         iterationPreset: autoSettings.iterationPreset,
+        // Reserve edge-label room at the size the canvas actually draws it.
+        edgeLabelFontSize: autoSettings.edgeLabelFontSize,
         useExistingPositions: false,  // Full re-layout by default
         // Pass full force tuner parameters
         repulsionStrength: autoSettings.repulsionStrength,
@@ -938,6 +940,8 @@ export async function runExecutorOnce() {
         layoutScale: autoSettings.layoutScale,
         layoutScaleMultiplier: autoSettings.layoutScaleMultiplier,
         iterationPreset: autoSettings.iterationPreset,
+        // Reserve edge-label room at the size the canvas actually draws it.
+        edgeLabelFontSize: autoSettings.edgeLabelFontSize,
         width: layoutWidth,
         height: layoutHeight,
         padding: layoutPadding,
@@ -1268,6 +1272,8 @@ export async function runExecutorOnce() {
         layoutScale: autoSettings.layoutScale,
         layoutScaleMultiplier: autoSettings.layoutScaleMultiplier,
         iterationPreset: autoSettings.iterationPreset,
+        // Reserve edge-label room at the size the canvas actually draws it.
+        edgeLabelFontSize: autoSettings.edgeLabelFontSize,
         useExistingPositions: false,  // Full re-layout by default
         // Pass full force tuner parameters
         repulsionStrength: autoSettings.repulsionStrength,

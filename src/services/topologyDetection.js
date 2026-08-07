@@ -344,6 +344,32 @@ export function classifyComponent(component, options = {}) {
     // but both are hierarchies and both must be drawn as trees.
     const hierarchy = findHierarchy(nodes, edges);
     if (hierarchy) {
+      // ...with one exception, and only past a measured size. A hub whose
+      // children are ALL leaves gets drawn as one wide row, which forces every
+      // one of those labels through the same shared level gap. Spokes don't.
+      //
+      // The crossover is sharp and it is at SIX leaves. Below six the row is
+      // the more compact drawing despite the looser edges (at three leaves it
+      // occupies half the area of the equivalent star), so a small fan stays a
+      // tree and keeps everything direction buys it — notably `rootPlacement:
+      // 'flow'`, which a star has no way to express. At six and above the row
+      // loses on both counts at once and keeps getting worse:
+      //
+      //   leaves   row slack   spoke slack   row area / spoke area
+      //        3        0.92          1.11                   0.48x
+      //        5        1.93          1.32                   0.77x
+      //        6        2.28          1.13                   1.44x
+      //        9        3.02          1.39                   1.93x
+      //       12        3.65          1.27                   2.96x
+      const rootKids = hierarchy.children.get(hierarchy.rootId) || [];
+      if (rootKids.length >= 6 && rootKids.length === n - 1) {
+        return {
+          kind: TOPOLOGY.STAR,
+          confidence: 1,
+          meta: { hubId: hierarchy.rootId, rootId: hierarchy.rootId, inverted: hierarchy.inverted }
+        };
+      }
+
       const branches = Array.from(hierarchy.children.values()).some(kids => kids.length >= 2);
       if (branches) {
         return {

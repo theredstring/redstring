@@ -226,29 +226,21 @@ export function compassCentered(nodes, edges, cfg, meta = {}) {
   // then a single bend, and the leaf sitting on the hub's own axis is zero-bend.
   // Stacking them along the ray instead would put the far ones directly behind
   // the near ones' edges, which is the shape this layout exists to avoid.
-  const out = new Map([[hubId, { x: 0, y: 0 }]]);
-  rays.forEach((leavesOnRay, axis) => {
-    if (leavesOnRay.length === 0) return;
+  //
+  // Lane offsets perpendicular to the ray put the FIRST leaf exactly ON the
+  // hub's axis and alternate the rest outward from it.
+  //
+  // Centring the lanes instead would look tidier and be strictly worse: the
+  // router picks opposite sides of the SAME axis for every edge, so initOrient
+  // always equals finalOrient and a Manhattan route is two bends unless its
+  // endpoints are exactly collinear. Putting one leaf per ray on the axis is
+  // therefore the only way to buy a zero-bend spoke at all.
+  const lanes = rays.map((leavesOnRay, axis) => {
     const [dx, dy] = AXES[axis];
-
-    // Distance out: the largest requirement on this ray, so no spoke is short.
-    let distance = 0;
-    leavesOnRay.forEach(leaf => {
-      const e = edgeBetween.get(pairKey(hubId, leaf.id));
-      distance = Math.max(distance, requiredEdgeLength(hub, leaf, e, cfg, dx, dy));
-    });
-
-    // Lane offsets perpendicular to the ray, with the FIRST leaf exactly ON the
-    // hub's axis and the rest alternating outward from it.
-    //
-    // Centring the lanes instead would look tidier and be strictly worse: the
-    // router picks opposite sides of the SAME axis for every edge, so
-    // initOrient always equals finalOrient and a Manhattan route is two bends
-    // unless its endpoints are exactly collinear. Putting one leaf per ray on
-    // the axis is therefore the only way to buy a zero-bend spoke at all.
     const perp = [dy, dx]; // (0,±1) → (±1,0) and vice versa
     const extents = leavesOnRay.map(leaf => halfExtentTowards(leaf, perp[0], perp[1]));
 
+    const offsets = [];
     let positive = 0;
     let negative = 0;
     leavesOnRay.forEach((leaf, i) => {
@@ -264,9 +256,58 @@ export function compassCentered(nodes, edges, cfg, meta = {}) {
         offset = -(negative + cfg.nodeGap + extents[i]);
         negative = -offset + extents[i];
       }
+      offsets.push(offset);
+    });
+
+    // Distance out: the largest requirement on this ray, so no spoke is short.
+    let distance = 0;
+    leavesOnRay.forEach(leaf => {
+      const e = edgeBetween.get(pairKey(hubId, leaf.id));
+      distance = Math.max(distance, requiredEdgeLength(hub, leaf, e, cfg, dx, dy));
+    });
+
+    return {
+      leaves: leavesOnRay,
+      perp,
+      offsets,
+      distance,
+      // How far this ray's row/column reaches SIDEWAYS from the hub's axis...
+      lateralReach: Math.max(0, ...offsets.map((o, i) => Math.abs(o) + extents[i])),
+      // ...and how thick it is along its own ray.
+      halfThickness: Math.max(0, ...leavesOnRay.map(leaf => halfExtentTowards(leaf, dx, dy)))
+    };
+  });
+
+  // Corner clearance. Each ray is a row (N, S) or a column (E, W), and a row's
+  // sideways reach is measured on the same axis a column's distance is. With
+  // two or more leaves per ray those two grow independently, and past about
+  // seven leaves the end of the north row lands on top of the east column —
+  // node overlaps that no amount of routing can fix. Pushing each ray out past
+  // the perpendicular rays' reach separates them on that axis outright.
+  //
+  // One pass suffices: lateralReach does not depend on distance, so nothing
+  // here feeds back into the numbers it is computed from.
+  const reachOf = (a, b) => Math.max(lanes[a].lateralReach, lanes[b].lateralReach);
+  [0, 2].forEach(axis => {  // N, S — rows; cleared against the E/W columns
+    lanes[axis].distance = Math.max(
+      lanes[axis].distance,
+      reachOf(1, 3) + cfg.nodeGap + lanes[axis].halfThickness
+    );
+  });
+  [1, 3].forEach(axis => {  // E, W — columns; cleared against the N/S rows
+    lanes[axis].distance = Math.max(
+      lanes[axis].distance,
+      reachOf(0, 2) + cfg.nodeGap + lanes[axis].halfThickness
+    );
+  });
+
+  const out = new Map([[hubId, { x: 0, y: 0 }]]);
+  lanes.forEach(({ leaves: leavesOnRay, perp, offsets, distance }, axis) => {
+    const [dx, dy] = AXES[axis];
+    leavesOnRay.forEach((leaf, i) => {
       out.set(leaf.id, {
-        x: dx * distance + perp[0] * offset,
-        y: dy * distance + perp[1] * offset
+        x: dx * distance + perp[0] * offsets[i],
+        y: dy * distance + perp[1] * offsets[i]
       });
     });
   });

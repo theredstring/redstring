@@ -89,16 +89,70 @@ export const circumRadius = (node) => {
 // ============================================================================
 
 /**
- * Width of an edge label at a given font size. MUST track how NodeCanvas draws
- * them — bold weight and a stroke outline both add visual width.
+ * Base font size NodeCanvas draws connection labels at, before user settings.
+ * Every layout entry point should pass the RESOLVED size (see
+ * `resolveEdgeLabelFontSize`) rather than relying on this default — reserving
+ * space at 59.4 for labels the canvas draws at 32 is how a diagram ends up
+ * three times wider than the text in it.
  */
-export function estimateEdgeLabelWidth(text, fontSize = 59.4) {
+export const EDGE_LABEL_BASE_FONT_SIZE = 59.4;
+
+/**
+ * The size connection labels are actually drawn at, from the two store settings
+ * that scale them. Mirrors NodeCanvas's `connectionFontSize`.
+ */
+export const resolveEdgeLabelFontSize = (textSettings, connectionLabelSize) =>
+  EDGE_LABEL_BASE_FONT_SIZE
+  * (textSettings?.fontSize || 1)
+  * (connectionLabelSize ?? 1);
+
+// Per-character advance widths, in em, for the font edge labels are drawn in
+// (EmOne-SemiBold). Taken from the font's own `hmtx` table and bucketed: the
+// real advances cluster tightly enough that seven buckets track any real
+// relation name to within 16%, where a single average character width cannot.
+//
+// A flat 0.7 em/char — what this used to assume — overestimates real relation
+// names by 1.27x to 1.97x ("is a" measures 0.42 em/char, "compound modifier"
+// 0.58). Since `requiredEdgeLength` below is the one constraint every layout in
+// this codebase solves, that error set the scale of every diagram.
+//
+// These are deliberately rounded UP from the measured values: over-reserving
+// stretches an edge slightly, while under-reserving lets the label overflow the
+// edge it is drawn along. Verified against the font to never under-reserve.
+const CHAR_EM = {
+  space: 0.24,      // ' '                      measured 0.215
+  narrow: 0.34,     // ' i ` j , . : ; | I ! l ( )   0.251 - 0.362
+  semi: 0.46,       // J f " [ ] 1 { } r t * / \    0.388 - 0.497
+  other: 0.64,      // lowercase and digits         0.434 - 0.683
+  upper: 0.77,      // A-Z, $ & #                   0.580 - 0.789
+  wideLower: 0.92,  // w m                          0.878 - 0.932
+  wideUpper: 1.13   // M W % @                      0.963 - 1.129
+};
+
+const NARROW_CHARS = "'i`j,.:;|I!l()";
+const SEMI_CHARS = 'Jf"[]1{}rt*/\\';
+
+const charWidthEm = (ch) => {
+  if (ch === ' ') return CHAR_EM.space;
+  if (NARROW_CHARS.includes(ch)) return CHAR_EM.narrow;
+  if (SEMI_CHARS.includes(ch)) return CHAR_EM.semi;
+  if (ch === 'w' || ch === 'm') return CHAR_EM.wideLower;
+  if ('MW%@'.includes(ch)) return CHAR_EM.wideUpper;
+  if ((ch >= 'A' && ch <= 'Z') || '$&#'.includes(ch)) return CHAR_EM.upper;
+  return CHAR_EM.other;
+};
+
+/**
+ * Width of an edge label at a given font size. MUST track how NodeCanvas draws
+ * them — the stroke outline adds visual width beyond the glyphs themselves.
+ */
+export function estimateEdgeLabelWidth(text, fontSize = EDGE_LABEL_BASE_FONT_SIZE) {
   if (!text) return 0;
-  // 0.7 accounts for fontWeight="bold" on edge labels
-  const avgCharWidth = fontSize * 0.7;
+  let em = 0;
+  for (const ch of text) em += charWidthEm(ch);
   // stroke outline (strokeWidth = max(2, fontSize*0.25)) adds visual width
   const strokeBuffer = Math.max(2, fontSize * 0.25) * 2;
-  return text.length * avgCharWidth + strokeBuffer;
+  return em * fontSize + strokeBuffer;
 }
 
 export const labelSpanOf = (edge, fontSize) => estimateEdgeLabelWidth(edge?.name || '', fontSize);

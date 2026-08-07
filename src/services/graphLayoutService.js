@@ -2466,12 +2466,23 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     // a bigger pass budget and an uncapped shift. The cap exists to stop
     // ping-pong while resolveOverlaps is still interleaved; nothing runs after
     // this, so there is nothing left to ping-pong against.
-    const final = clearPathsOfNodes(positions, clearNodes, uniqueEdges, pathsFor, {
-      ...clearOpts,
-      passes: 8,
-      maxShiftPerPass: Infinity
-    });
-    final.centers.forEach((p, id) => positions.set(id, p));
+    //
+    // Run it to a FIXED POINT rather than for a fixed number of passes. Moving
+    // a node off one arc changes the arcs of that node's own edges, so a single
+    // budgeted call can stop while a violation it created is still live —
+    // whether it does depends on how tightly the graph happens to be packed,
+    // which is exactly the kind of dependency that makes this look intermittent.
+    // `moved === false` is the real termination condition; the bound is only a
+    // backstop against a pathological cycle.
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const final = clearPathsOfNodes(positions, clearNodes, uniqueEdges, pathsFor, {
+        ...clearOpts,
+        passes: 8,
+        maxShiftPerPass: Infinity
+      });
+      final.centers.forEach((p, id) => positions.set(id, p));
+      if (!final.moved) break;
+    }
   }
 
   // The bar used to freeze at 0.98: the loop's last emission is

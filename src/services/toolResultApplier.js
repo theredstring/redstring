@@ -254,6 +254,31 @@ function resolveCompositionTypeMap(specNodes) {
   return typeMap;
 }
 
+/**
+ * An instance already on this graph that a layer of the given name should take
+ * over rather than duplicate.
+ *
+ * Group anchors are excluded — an anchor is already the visible head of a
+ * decomposed layer, so adopting it would mean decomposing something twice.
+ */
+function findAdoptableInstance(graphId, name) {
+  const st = useGraphStore.getState();
+  const graph = st.graphs.get(graphId);
+  if (!graph?.instances) return null;
+  const wanted = String(name || '').toLowerCase().trim();
+  if (!wanted) return null;
+
+  let found = null;
+  for (const [instanceId, inst] of graph.instances) {
+    if (inst.isGroupAnchor) continue;
+    const proto = st.nodePrototypes.get(inst.prototypeId);
+    if (proto && String(proto.name || '').toLowerCase().trim() === wanted) {
+      found = { instanceId, prototypeId: inst.prototypeId }; // LAST match
+    }
+  }
+  return found;
+}
+
 function groupExistsForPrototypeName(graphId, name) {
   const st = useGraphStore.getState();
   const graph = st.graphs.get(graphId);
@@ -349,19 +374,36 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
 
   // Shells go in FIRST, and through addNodeInstance rather than the bulk path.
   //
-  // applyBulkGraphUpdates de-duplicates by name and returns early — so whenever a
-  // node of the same name already existed in this graph (the model listing
-  // "Kroger" both as a top-level node and as a layer is the common case), the
-  // layer's shell was silently swallowed. Its prototype and definition web were
-  // still created, so the concept LOOKED defined, but with no shell to decompose
-  // the layer never opened into a node-group. That is precisely the "it defined
-  // them but didn't open them" failure. addNodeInstance takes the prototype id
-  // directly and cannot be de-duplicated away.
+  // applyBulkGraphUpdates de-duplicates by name and returns early, so whenever a
+  // node of that name already existed the layer's shell was silently swallowed —
+  // its prototype and definition web were still created, so the concept LOOKED
+  // defined, but with no shell to decompose the layer never opened into a
+  // node-group. addNodeInstance takes the prototype id directly and cannot be
+  // de-duplicated away.
+  //
+  // But bypassing the de-dup also removes the protection it was providing, and a
+  // blind create produces a SECOND "The Island" next to the one already on the
+  // canvas. So: adopt an existing same-named instance where there is one, and
+  // only create a shell when there genuinely isn't. Adoption means re-pointing
+  // that instance at the layer's prototype — which is the correct reading, since
+  // a layer named "The Island" in a graph that already shows The Island is
+  // describing that same Thing, not a second one.
   //
   // Going first also means edges naming a layer resolve: applyBulkGraphUpdates
   // pre-populates its name lookup from instances already in the graph.
   const st = useGraphStore.getState();
   for (const l of liveLayers) {
+    const existing = findAdoptableInstance(graphId, l.name);
+    if (existing) {
+      l._shellInstanceId = existing.instanceId;
+      l._adopted = true;
+      st.retargetNodeInstance(graphId, existing.instanceId, l._protoId);
+      warnings.push(
+        `Layer "${l.name}": a node with that name was already on the canvas — used it as the layer's `
+        + 'anchor instead of adding a second one.'
+      );
+      continue;
+    }
     l._shellInstanceId = `inst-shell-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     st.addNodeInstance(
       graphId,

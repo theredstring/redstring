@@ -1078,6 +1078,15 @@ const LeftAIView = ({ compact = false,
   }, []);
 
   const handleChatUndo = (targetMessageId) => {
+    // Refuse while a run is live. Undo rewrites `messages` wholesale, which
+    // deletes the streaming bubble the run is still writing into — the next SSE
+    // event then re-creates it from scratch, and the run's own state no longer
+    // matches what is on screen. The revert button has no processing gate of its
+    // own, so this is the guard.
+    if (isProcessingRef.current) {
+      console.warn('[AI Collaboration] Undo ignored: a run is in progress. Stop it first.');
+      return;
+    }
     const messageIndex = messages.findIndex(m => m.id === targetMessageId);
     if (messageIndex === -1) return;
 
@@ -1131,6 +1140,13 @@ const LeftAIView = ({ compact = false,
   // handleClearConversation updated for the new tab system
   const handleClearConversation = () => {
     if (messages.length === 0) return;
+    // Same reasoning as handleChatUndo: clearing mid-run deletes the bubble the
+    // run is streaming into, and the next event re-creates it — leaving a
+    // "cleared" conversation that immediately grows a message back.
+    if (isProcessingRef.current) {
+      console.warn('[AI Collaboration] Clear ignored: a run is in progress. Stop it first.');
+      return;
+    }
     if (window.confirm('Clear entire conversation? This cannot be undone.')) {
       setMessages([]);
       lastMessagesRef.current = []; // Prevent potential race conditions
@@ -1390,6 +1406,15 @@ const LeftAIView = ({ compact = false,
   // consecutive renders. Reading it directly to toggle the row's display made the
   // dots blink off/on each frame (and restart their CSS animation), which is the
   // flicker. We stabilize it with hysteresis just below.
+  // True when ANY message is currently drawing its own inline ellipsis. The
+  // external row must never be visible at the same time as one of these, so this
+  // is deliberately independent of `isProcessing` — during a queue drain the
+  // incoming bubble exists before the next run has been marked as processing.
+  const someMessageHasInlineDots = React.useMemo(
+    () => messages.some(m => m.isStreaming && !(m.contentBlocks?.length > 0) && !m.content),
+    [messages]
+  );
+
   const wizardDotsWanted = React.useMemo(() => {
     if (viewMode !== 'wizard' || !isProcessing) return false;
     // Take the LAST streaming message, not the first: the inline dots render for
@@ -1416,15 +1441,26 @@ const LeftAIView = ({ compact = false,
   // Hysteresis: show immediately, but defer hiding by a beat. A one-render dip to
   // false during streaming chatter is cancelled by the next render flipping it back
   // true, so the row settles to a steady "on" instead of strobing frame-to-frame.
+  //
+  // EXCEPT when a bubble is drawing its own inline dots. Deferring the hide there
+  // is not smoothing over a flicker, it is showing two ellipses at once: on a
+  // queue drain the finished run flips `wanted` false and starts the 250ms timer,
+  // then the next ask pre-creates an empty bubble within the same tick — which
+  // draws inline dots while this row is still fading. Hide immediately in that
+  // case; the inline dots take over with no gap, so there is nothing to smooth.
   const [wizardDotsVisible, setWizardDotsVisible] = React.useState(false);
   React.useEffect(() => {
     if (wizardDotsWanted) {
       setWizardDotsVisible(true);
       return;
     }
+    if (someMessageHasInlineDots) {
+      setWizardDotsVisible(false);
+      return;
+    }
     const t = setTimeout(() => setWizardDotsVisible(false), 250);
     return () => clearTimeout(t);
-  }, [wizardDotsWanted]);
+  }, [wizardDotsWanted, someMessageHasInlineDots]);
 
   // Drain the wizard send queue: when the active run finishes, start the next
   // queued ask in the tab it was issued from. Runs strictly one at a time, so no
@@ -2633,13 +2669,19 @@ const LeftAIView = ({ compact = false,
                   const updated = [...currMessages];
                   let idx = updated.findIndex(m => m.id === streamingMessageId);
                   if (idx < 0) {
+                    // Recovery path: the run's bubble is missing from this array
+                    // (undo, clear, or a conversation-sync overwrite removed it).
+                    // Re-created WITHOUT isStreaming — this is a repair artifact,
+                    // not a live bubble, and it is the one creation site that never
+                    // went through settleStale. Born streaming, it could sit next to
+                    // the genuine bubble with nothing able to settle it.
                     updated.push({
                       id: streamingMessageId,
                       sender: 'ai',
                       content: '',
                       timestamp: new Date().toISOString(),
                       contentBlocks: [],
-                      isStreaming: true
+                      isStreaming: false
                     });
                     idx = updated.length - 1;
                   }
@@ -2891,6 +2933,17 @@ const LeftAIView = ({ compact = false,
           }
           return [...prev, { id: streamingMessageId, sender: 'ai', content: `Error: ${error.message}`, timestamp: new Date().toISOString(), contentBlocks: [errorBlock], isStreaming: false }];
         });
+
+        // The persisted copy needs the same repair. Without this the abort branch
+        // above cleared `isStreaming` on both copies while a plain failure (a 5xx,
+        // a dropped connection) cleared it only in `messages` — so the stored
+        // conversation kept a message marked streaming, and reopening the tab
+        // restored a bubble that would pulse forever with nothing to settle it.
+        setConversations(prev => prev.map(c =>
+          c.id === _preCreatedConvId
+            ? { ...c, messages: settleToolCallsInMessages(c.messages || [], `The run failed: ${error.message}`) }
+            : c
+        ));
       }
     } finally {
       setCurrentAgentRequest(null);
@@ -4138,9 +4191,14 @@ const LeftAIView = ({ compact = false,
               fontSize: '11px', fontFamily: "'EmOne', sans-serif",
               color: 'var(--canvas-text-muted)', opacity: 0.85
             }}>
-              <span className="ai-thinking-dots" style={{ display: 'inline-flex', gap: '2px' }}>
-                <span>•</span><span>•</span><span>•</span>
-              </span>
+              {/*
+                A static glyph, deliberately NOT `.ai-thinking-dots`.
+                That class is the streaming bubble's animated ellipsis, and reusing
+                it here put a second identical animation on screen for as long as
+                anything was queued — which read as "the wizard is running twice".
+                A queue is waiting, not thinking; it should not pulse.
+              */}
+              <span aria-hidden="true">⋯</span>
               {queuedSendCount === 1 ? '1 ask queued — starts when the current run finishes' : `${queuedSendCount} asks queued — start when the current run finishes`}
             </div>
           )}

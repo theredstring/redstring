@@ -387,28 +387,29 @@ describe('pattern layouts produce usable geometry', () => {
   });
 
   it('packs components side by side rather than wrapping on a slight overshoot', () => {
-    // Chain + cycle together are a little wider than the canvas. Wrapping
-    // strictly at the canvas width would stack them into a tall ribbon; the
-    // packer should accept the mild horizontal overshoot instead, because
-    // that is the arrangement you can actually see at once.
-    const nodes = [
-      ...['Aaa', 'Bbb', 'Ccc'].map(id => node(id)),
-      ...['Xxx', 'Yyy', 'Zzz'].map(id => node(id))
-    ];
-    const edges = [
-      edge('Aaa', 'Bbb', 'causes'), edge('Bbb', 'Ccc', 'causes'), edge('Ccc', 'Aaa', 'reinforces'),
-      edge('Xxx', 'Yyy', 'causes'), edge('Yyy', 'Zzz', 'causes'), edge('Zzz', 'Xxx', 'reinforces')
-    ];
-    const positions = patternLayout(nodes, edges, { width: 2000, height: 1500 });
+    // Two cycles side by side are a little wider than the canvas (~1.26x).
+    // Wrapping strictly at the canvas width would stack them into a tall
+    // ribbon that is WORSE to look at (~1.40x the canvas height); the packer
+    // should accept the mild horizontal overshoot instead, because that is
+    // the arrangement you can actually see at once.
+    const first = ['Aaa', 'Bbb', 'Ccc', 'Ddd'];
+    const second = ['Www', 'Xxx', 'Yyy', 'Zzz'];
+    const ring = (ids) => ids.map((id, i) => edge(
+      id, ids[(i + 1) % ids.length], i === 2 ? 'reinforces' : 'causes'
+    ));
+    const nodes = [...first, ...second].map(id => node(id));
+    const positions = patternLayout(nodes, [...ring(first), ...ring(second)], {
+      width: 2000, height: 1500
+    });
 
     const band = (ids) => {
       const ys = ids.map(id => positions.get(id).y);
       return { min: Math.min(...ys), max: Math.max(...ys) + 100 };
     };
-    const first = band(['Aaa', 'Bbb', 'Ccc']);
-    const second = band(['Xxx', 'Yyy', 'Zzz']);
+    const a = band(first);
+    const b = band(second);
     // Overlapping vertical bands ⟹ they sit beside each other, not stacked.
-    expect(Math.min(first.max, second.max)).toBeGreaterThan(Math.max(first.min, second.min));
+    expect(Math.min(a.max, b.max)).toBeGreaterThan(Math.max(a.min, b.min));
   });
 
   it('survives degenerate input', () => {

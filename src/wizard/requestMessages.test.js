@@ -23,16 +23,39 @@ describe('buildRequestMessages', () => {
     expect(isVolatileContextMessage(last)).toBe(true);
   });
 
-  it('folds into a trailing plain-text user turn rather than adding a message', () => {
+  // Never folded into a preceding turn: rewriting an existing message's bytes
+  // between iterations invalidates the cached prefix covering everything after
+  // it, which is the whole conversation history.
+  it('leaves earlier messages byte-identical across iterations', () => {
+    const turn0 = [
+      { role: 'system', content: 'SYSTEM' },
+      { role: 'user', content: 'build a cell' }
+    ];
+    const turn1 = [
+      ...turn0,
+      { role: 'assistant', content: '', tool_calls: [{ id: 't1', function: { name: 'readGraph', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 't1', content: '{"ok":true}' }
+    ];
+
+    const a = buildRequestMessages(turn0, 'SNAPSHOT A');
+    const b = buildRequestMessages(turn1, 'SNAPSHOT B');
+
+    // The user's own turn must be identical in both requests.
+    expect(a[1]).toEqual(turn0[1]);
+    expect(b[1]).toEqual(turn0[1]);
+    expect(a[1].content).not.toContain('SNAPSHOT');
+  });
+
+  it('always appends the context as its own message', () => {
     const msgs = [
       { role: 'system', content: 'SYSTEM' },
       { role: 'user', content: 'build a cell' }
     ];
     const out = buildRequestMessages(msgs, 'GRAPH STATE');
-    expect(out).toHaveLength(2);
-    expect(out[1].content).toContain('build a cell');
-    expect(out[1].content).toContain('GRAPH STATE');
-    expect(isVolatileContextMessage(out[1])).toBe(true);
+    expect(out).toHaveLength(3);
+    expect(out[2].role).toBe('user');
+    expect(out[2].content).toContain('GRAPH STATE');
+    expect(isVolatileContextMessage(out[2])).toBe(true);
   });
 
   // The whole point of injecting at send time: if the block were written into the

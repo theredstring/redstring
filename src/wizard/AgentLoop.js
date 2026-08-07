@@ -28,11 +28,25 @@ const __dirname = __filename ? path.dirname(__filename) : process.cwd();
 let SYSTEM_PROMPT = WIZARD_SYSTEM_PROMPT;
 
 // Cost weights for the per-ask budget, expressed as multiples of one uncached
-// input token. These are Anthropic's published prompt-caching ratios and are
-// close enough to other providers' to serve as a cross-provider proxy — the
-// budget needs the right order of magnitude, not a billing-grade invoice.
-const CACHE_READ_COST_RATIO = 0.1;
+// input token. The budget needs the right order of magnitude, not a
+// billing-grade invoice — but the providers differ enough that one number was
+// misleading: Anthropic discounts cache reads by 90%, Google by 75%.
+const CACHE_READ_COST_RATIO = 0.1;   // Anthropic default
 const CACHE_WRITE_COST_RATIO = 1.25;
+
+/** Cache-read discount per provider, as a multiple of an uncached input token. */
+const CACHE_READ_RATIO_BY_PROVIDER = {
+  anthropic: 0.1,
+  openrouter: 0.1,  // predominantly proxying Anthropic models here
+  openai: 0.5,      // OpenAI's cached input is half price
+  google: 0.25,     // Gemini implicit/explicit caching is 75% off
+  local: 0
+};
+
+function cacheReadRatioFor(provider) {
+  const ratio = CACHE_READ_RATIO_BY_PROVIDER[String(provider || '').toLowerCase()];
+  return typeof ratio === 'number' ? ratio : CACHE_READ_COST_RATIO;
+}
 // Fraction of the budget at which the run warns the user it is running out.
 const BUDGET_WARN_RATIO = 0.8;
 
@@ -1181,7 +1195,10 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const systemMessage = {
     role: 'system',
     content: staticSystemContent,
-    cachePrefix: staticSystemContent
+    // Underscore-prefixed so stripInternalFields drops it before any provider
+    // sees it. Without that it rode along as an unrecognised message property —
+    // a full duplicate of the ~54KB system prompt on every OpenRouter request.
+    _cachePrefix: staticSystemContent
   };
 
   // Build messages array with conversation history (sliding window)
@@ -1336,6 +1353,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   // Rebuilt each iteration and injected at the tail of the request only.
   let volatileContext = '';
+
+  // How much a cached input token costs on THIS provider (see the table above).
+  const cacheReadRatio = cacheReadRatioFor(config?.provider);
 
   // The fixed cost every request carries before a word of conversation: the
   // static system prompt plus the (now frozen) tool schemas. Measured from the
@@ -1547,7 +1567,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         askChargedTokens += Math.round(
           uncachedPromptTokens
           + (cacheCreationTokens * CACHE_WRITE_COST_RATIO)
-          + (cacheReadTokens * CACHE_READ_COST_RATIO)
+          + (cacheReadTokens * cacheReadRatio)
           + completionTokens
         );
 

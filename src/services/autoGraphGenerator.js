@@ -7,6 +7,8 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { applyLayout } from './graphLayoutService.js';
+import { resolveEdgeLabelFontSize } from './layoutGeometry.js';
+import { getNodeDimensions } from '../utils.js';
 
 /**
  * Parse simple JSON format
@@ -311,10 +313,24 @@ export function generateGraph(parsedData, targetGraphId, storeState, storeAction
         
         // Create instance with temporary position (no initial position - let layout decide)
         const instanceId = uuidv4();
+        // Size matters to every layout: without it each node is treated as a
+        // `nodeSpacing` square, so wide nodes get packed as if they were small
+        // and the solver has to undo the overlap afterwards.
+        let width = 0;
+        let height = 0;
+        try {
+          const dims = getNodeDimensions({ name: nodeData.name }, false, null);
+          width = dims?.currentWidth ?? 0;
+          height = dims?.currentHeight ?? 0;
+        } catch { /* canvas unavailable (Node.js) — layout falls back to nodeSpacing */ }
         tempInstances.push({
           id: instanceId,
           prototypeId,
           // Don't set x, y here - let layout algorithm initialize positions
+          width,
+          height,
+          labelWidth: width,
+          labelHeight: height,
           name: nodeData.name // For edge matching
         });
         
@@ -334,10 +350,18 @@ export function generateGraph(parsedData, targetGraphId, storeState, storeAction
     // Step 2: Apply layout algorithm to calculate positions
     const tempEdges = parsedData.edges.map(edge => ({
       sourceId: nodeMap.get(edge.source)?.instanceId,
-      destinationId: nodeMap.get(edge.target)?.instanceId
+      destinationId: nodeMap.get(edge.target)?.instanceId,
+      // The relation IS the label the canvas draws along this edge, and every
+      // layout sizes the edge to fit it. Dropping it here made every generated
+      // edge the same length regardless of how much text sat on it.
+      name: edge.relation || ''
     })).filter(e => e.sourceId && e.destinationId);
-    
-    const positionUpdates = applyLayout(tempInstances, tempEdges, layoutAlgorithm, layoutOptions);
+
+    const positionUpdates = applyLayout(tempInstances, tempEdges, layoutAlgorithm, {
+      // Reserve label room at the size the canvas actually draws it.
+      edgeLabelFontSize: resolveEdgeLabelFontSize(storeState.textSettings, storeState.connectionLabelSize),
+      ...layoutOptions
+    });
     
     // Create a map of instanceId -> position for quick lookup
     const positionMap = new Map();

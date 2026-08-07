@@ -2,6 +2,7 @@
  * Bridge Store Accessor
  * Provides read-only access to the mirrored bridge store data from orchestrator components
  */
+import { resolveEdgeLabelFontSize } from './layoutGeometry.js';
 
 let storeRef = null;
 
@@ -80,6 +81,12 @@ export function getAutoLayoutSettings() {
   };
 
   return {
+    // The size connection labels are actually DRAWN at. Layout reserves room
+    // along each edge for its label, so if this is missing the solver falls
+    // back to the 59.4 base and reserves space for text twice the size of what
+    // the canvas renders — which is how generated graphs came out several times
+    // more spread out than the interactive Auto-Layout button produces.
+    edgeLabelFontSize: resolveEdgeLabelFontSize(store.textSettings, store.connectionLabelSize),
     // Scale/iteration presets: prefer autoLayoutSettings (these are synced)
     layoutScale: autoSettings.layoutScale || tunerSettings.layoutScale || defaults.layoutScale,
     layoutScaleMultiplier: autoSettings.layoutScaleMultiplier ?? tunerSettings.layoutScaleMultiplier ?? defaults.layoutScaleMultiplier,

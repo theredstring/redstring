@@ -1,5 +1,6 @@
 import useGraphStore from '../store/graphStore.js';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from './graphLayoutService.js';
+import { resolveEdgeLabelFontSize } from './layoutGeometry.js';
 import { getNodeDimensions } from '../utils.js';
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 
@@ -69,9 +70,7 @@ export function applyOffscreenLayout(graphId) {
 
   // Resolve the real rendered label font so labeled edges reserve the space
   // the canvas actually draws (NodeCanvas base 59.4 × user text settings)
-  const edgeLabelFontSize = 59.4
-    * (st.textSettings?.fontSize || 1)
-    * (st.connectionLabelSize ?? 1.0);
+  const edgeLabelFontSize = resolveEdgeLabelFontSize(st.textSettings, st.connectionLabelSize);
 
   // Honor the user's chosen layout algorithm here too — otherwise definition
   // graphs built offscreen (AI generation, auto-created definitions) would

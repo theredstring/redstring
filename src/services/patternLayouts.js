@@ -919,43 +919,76 @@ function radialLayoutCentered(nodes, edges, cfg, meta = {}) {
     byDepth[d].push(id);
   });
 
-  // Ring radii: each ring clears both the parent→child label constraint (radial)
-  // and the room every node on it needs side by side (circumferential).
-  const radii = [0];
-  for (let d = 1; d < byDepth.length; d++) {
-    let step = cfg.minEdgeLength;
-    byDepth[d].forEach(id => {
-      const parentNode = nodeById.get(parent.get(id));
-      const node = nodeById.get(id);
-      const edge = lookupEdge(edgeIndex, parent.get(id), id);
-      const label = labelSpanOf(edge, cfg.edgeLabelFontSize);
-      const gap = label > 0 ? cfg.labelPadding : cfg.nodeGap;
-      step = Math.max(step, circumRadius(parentNode) + circumRadius(node) + label + gap);
-    });
-    const chords = byDepth[d].map(id => 2 * circumRadius(nodeById.get(id)) + cfg.nodeGap);
-    radii[d] = Math.max(radii[d - 1] + step, solveRingRadius(chords));
-  }
+  // Two passes, the same shape the cycle and star layouts use. The first has no
+  // bearings to measure against and has to fall back to each node's
+  // circumscribed radius; the second re-measures against the directions pass 1
+  // produced. That matters more here than anywhere else in this file, because
+  // the ring step is a MAX over a whole depth: with the circumscribed radius, a
+  // single 660x100 node reserves 333 where its spoke actually needs ~50, and
+  // every other node on its ring pays for it.
+  const solve = (prior) => {
+    // How far the node's box reaches along the edge running `from` → `to`.
+    const extentToward = (node, from, to) => {
+      if (!from || !to) return circumRadius(node);
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return circumRadius(node);
+      return halfExtentTowards(node, dx, dy);
+    };
+    // How far it reaches ACROSS its own spoke — what its ring neighbours see.
+    const tangential = (node, id) => {
+      const p = prior?.get(id);
+      if (!p || (Math.abs(p.x) < 1e-6 && Math.abs(p.y) < 1e-6)) return circumRadius(node);
+      return halfExtentTowards(node, -p.y, p.x);
+    };
 
-  // Wedge subdivision, top-down.
-  const positions = new Map([[rootId, { x: 0, y: 0 }]]);
-  const wedges = new Map([[rootId, { start: -Math.PI / 2, span: 2 * Math.PI }]]);
-  order.forEach(id => {
-    const kids = children.get(id);
-    if (kids.length === 0) return;
-    const wedge = wedges.get(id);
-    const total = kids.reduce((sum, k) => sum + weight.get(k), 0) || kids.length;
-    let cursor = wedge.start;
-    kids.forEach(kidId => {
-      const span = wedge.span * (weight.get(kidId) / total);
-      wedges.set(kidId, { start: cursor, span });
-      const angle = cursor + span / 2;
-      const radius = radii[depth.get(kidId)];
-      positions.set(kidId, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
-      cursor += span;
-    });
-  });
+    // Ring radii: each ring clears both the parent→child label constraint
+    // (radial) and the room every node on it needs side by side
+    // (circumferential).
+    const radii = [0];
+    for (let d = 1; d < byDepth.length; d++) {
+      let step = cfg.minEdgeLength;
+      byDepth[d].forEach(id => {
+        const parentId = parent.get(id);
+        const parentNode = nodeById.get(parentId);
+        const node = nodeById.get(id);
+        const edge = lookupEdge(edgeIndex, parentId, id);
+        const label = labelSpanOf(edge, cfg.edgeLabelFontSize);
+        const gap = label > 0 ? cfg.labelPadding : cfg.nodeGap;
+        const from = prior?.get(parentId);
+        const to = prior?.get(id);
+        step = Math.max(
+          step,
+          extentToward(parentNode, from, to) + extentToward(node, from, to) + label + gap
+        );
+      });
+      const chords = byDepth[d].map(id => 2 * tangential(nodeById.get(id), id) + cfg.nodeGap);
+      radii[d] = Math.max(radii[d - 1] + step, solveRingRadius(chords));
+    }
 
-  return positions;
+    // Wedge subdivision, top-down.
+    const positions = new Map([[rootId, { x: 0, y: 0 }]]);
+    const wedges = new Map([[rootId, { start: -Math.PI / 2, span: 2 * Math.PI }]]);
+    order.forEach(id => {
+      const kids = children.get(id);
+      if (kids.length === 0) return;
+      const wedge = wedges.get(id);
+      const total = kids.reduce((sum, k) => sum + weight.get(k), 0) || kids.length;
+      let cursor = wedge.start;
+      kids.forEach(kidId => {
+        const span = wedge.span * (weight.get(kidId) / total);
+        wedges.set(kidId, { start: cursor, span });
+        const angle = cursor + span / 2;
+        const radius = radii[depth.get(kidId)];
+        positions.set(kidId, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
+        cursor += span;
+      });
+    });
+
+    return positions;
+  };
+
+  return solve(solve(null));
 }
 
 /**
@@ -1113,68 +1146,102 @@ function layeredLayoutCentered(nodes, edges, cfg) {
     const siblingGap = Math.max(cfg.nodeGap, cfg.edgeLabelFontSize * 1.4);
 
     const cross = new Map();
-    layers.forEach((ids, index) => {
-      let cursor = 0;
-      ids.forEach((id, i) => {
-        if (i > 0) cursor += siblingGap;
-        cross.set(id, cursor + crossExtent(id) / 2);
-        cursor += crossExtent(id);
-      });
 
-      if (index === 0) return;
-      // Align to predecessors' average position.
-      let want = 0;
-      let counted = 0;
-      ids.forEach(id => {
-        const preds = (incoming.get(id) || []).filter(p => cross.has(p));
-        if (preds.length === 0) return;
-        want += preds.reduce((s, p) => s + cross.get(p), 0) / preds.length - cross.get(id);
-        counted += 1;
+    // `pairGap` supplies an extra centre-to-centre separation for one specific
+    // adjacent pair within a layer. Pass 1 has none; pass 2 fills it in from
+    // measured label sweeps. Same contract as the tree's packer.
+    const packLayers = (pairGap) => {
+      cross.clear();
+      layers.forEach((ids, index) => {
+        let cursor = 0;
+        ids.forEach((id, i) => {
+          if (i > 0) {
+            const prevId = ids[i - 1];
+            // pairGap is centre-to-centre; the cursor walks box edges.
+            const wanted = pairGap(prevId, id) - (crossExtent(prevId) + crossExtent(id)) / 2;
+            cursor += Math.max(siblingGap, wanted);
+          }
+          cross.set(id, cursor + crossExtent(id) / 2);
+          cursor += crossExtent(id);
+        });
+
+        if (index === 0) return;
+        // Align to predecessors' average position.
+        let want = 0;
+        let counted = 0;
+        ids.forEach(id => {
+          const preds = (incoming.get(id) || []).filter(p => cross.has(p));
+          if (preds.length === 0) return;
+          want += preds.reduce((s, p) => s + cross.get(p), 0) / preds.length - cross.get(id);
+          counted += 1;
+        });
+        if (counted > 0) {
+          const shift = want / counted;
+          ids.forEach(id => cross.set(id, cross.get(id) + shift));
+        }
       });
-      if (counted > 0) {
-        const shift = want / counted;
-        ids.forEach(id => cross.set(id, cross.get(id) + shift));
-      }
-    });
+    };
 
     // Layer gaps: an edge spanning k layers divides its requirement across
     // them, so long-range dependencies don't blow the whole diagram apart.
-    const levelEdges = Array.from({ length: Math.max(0, layerCount - 1) }, () => []);
-    // Successors of one node in the next layer are siblings for the purposes
-    // of label collision, exactly as in a tree.
-    const fanOf = Array.from({ length: Math.max(0, layerCount - 1) }, () => new Map());
-    arcs.forEach(arc => {
-      const from = layer.get(arc.sourceId);
-      const to = layer.get(arc.destinationId);
-      if (from === undefined || to === undefined || to <= from) return;
-      const span = to - from;
-      const crossDelta = Math.abs((cross.get(arc.destinationId) ?? 0) - (cross.get(arc.sourceId) ?? 0)) / span;
-      const edge = lookupEdge(edgeIndex, arc.sourceId, arc.destinationId);
-      for (let d = from; d < to; d++) {
-        levelEdges[d].push({
-          a: nodeById.get(arc.sourceId),
-          b: nodeById.get(arc.destinationId),
-          edge,
-          crossDelta,
-          span
-        });
-      }
-      if (span === 1) {
-        if (!fanOf[from].has(arc.sourceId)) fanOf[from].set(arc.sourceId, []);
-        fanOf[from].get(arc.sourceId).push({
-          cross: cross.get(arc.destinationId) ?? 0,
-          labelWidth: labelSpanOf(edge, cfg.edgeLabelFontSize)
-        });
-      }
-    });
+    const collect = () => {
+      const levelEdges = Array.from({ length: Math.max(0, layerCount - 1) }, () => []);
+      // Successors of one node in the next layer are siblings for the purposes
+      // of label collision, exactly as in a tree.
+      const fanOf = Array.from({ length: Math.max(0, layerCount - 1) }, () => new Map());
+      arcs.forEach(arc => {
+        const from = layer.get(arc.sourceId);
+        const to = layer.get(arc.destinationId);
+        if (from === undefined || to === undefined || to <= from) return;
+        const span = to - from;
+        const crossDelta = Math.abs((cross.get(arc.destinationId) ?? 0) - (cross.get(arc.sourceId) ?? 0)) / span;
+        const edge = lookupEdge(edgeIndex, arc.sourceId, arc.destinationId);
+        for (let d = from; d < to; d++) {
+          levelEdges[d].push({
+            a: nodeById.get(arc.sourceId),
+            b: nodeById.get(arc.destinationId),
+            edge,
+            crossDelta,
+            span
+          });
+        }
+        if (span === 1) {
+          if (!fanOf[from].has(arc.sourceId)) fanOf[from].set(arc.sourceId, []);
+          fanOf[from].get(arc.sourceId).push({
+            id: arc.destinationId,
+            cross: cross.get(arc.destinationId) ?? 0,
+            labelWidth: labelSpanOf(edge, cfg.edgeLabelFontSize)
+          });
+        }
+      });
 
-    const levelSiblings = fanOf.map(byParent => Array.from(byParent.entries())
-      .map(([parentId, kids]) => ({
-        parentCross: cross.get(parentId) ?? 0,
-        kids: kids.sort((a, b) => a.cross - b.cross)
-      })));
+      const levelSiblings = fanOf.map(byParent => Array.from(byParent.entries())
+        .map(([parentId, kids]) => ({
+          parentId,
+          parentCross: cross.get(parentId) ?? 0,
+          kids: kids.sort((a, b) => a.cross - b.cross)
+        })));
+      return { levelEdges, levelSiblings };
+    };
 
-    const gaps = resolveLevelGaps(levelEdges, levelSiblings, cfg, vertical);
+    packLayers(() => 0);
+    let { levelEdges, levelSiblings } = collect();
+    let gaps = resolveLevelGaps(levelEdges, levelSiblings, cfg, vertical);
+
+    // ── Pass 2: buy label clearance on the cheap axis ────────────────────
+    // Without this, a fan whose labels collide could only be fixed by widening
+    // the LAYER gap — which every node at that depth pays for. Measured on a
+    // six-way fan of short labels, that put every edge at 2.5x the length its
+    // own label needed. Spreading the siblings instead costs only that fan.
+    // This is the same two-pass structure treeLayoutCentered uses; layered was
+    // simply never given it.
+    const required = computeSiblingSeparations(levelSiblings, gaps, cfg);
+    if (required.size > 0) {
+      packLayers((aId, bId) => required.get(`${aId}|${bId}`) || required.get(`${bId}|${aId}`) || 0);
+      ({ levelEdges, levelSiblings } = collect());
+      gaps = resolveLevelGaps(levelEdges, levelSiblings, cfg, vertical);
+    }
+
     const mainAt = [0];
     for (let d = 0; d < layerCount - 1; d++) mainAt.push(mainAt[d] + gaps[d]);
 

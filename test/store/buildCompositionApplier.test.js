@@ -281,3 +281,125 @@ describe('buildComposition applier', () => {
     assert.ok(touchesAnchor, 'the edge terminates on the node-group\'s anchor instance');
   });
 });
+
+describe('buildComposition applier — no duplicate nodes', () => {
+  const st = () => useGraphStore.getState();
+
+  const resetStore = () => {
+    useGraphStore.setState({
+      graphs: new Map(), nodePrototypes: new Map(), edges: new Map(),
+      openGraphIds: [], activeGraphId: null, activeDefinitionNodeId: null,
+      rightPanelTabs: [{ type: 'home', isActive: true }],
+      expandedGraphIds: new Set(), savedNodeIds: new Set(), savedGraphIds: new Set(),
+      isUniverseLoaded: true, isUniverseLoading: false,
+      universeLoadingError: null, hasUniverseFile: true,
+    }, false, 'test_reset');
+  };
+
+  const makeGraph = (name) => {
+    st().createNewGraph({ name, typeNodeId: null, color: '#333' });
+    return st().activeGraphId;
+  };
+
+  const instanceNames = (graphId) => Array.from(st().graphs.get(graphId).instances.values())
+    .map(i => st().nodePrototypes.get(i.prototypeId)?.name)
+    .filter(Boolean);
+
+  const build = async (graphId, args) => {
+    const graphState = {
+      activeGraphId: graphId,
+      graphs: Array.from(st().graphs.values()).map(g => ({ id: g.id, name: g.name, instances: [], definingNodeIds: g.definingNodeIds || [] })),
+      nodePrototypes: Array.from(st().nodePrototypes.values())
+    };
+    const result = await buildComposition({ targetGraphId: graphId, enrich: false, ...args }, graphState);
+    applyToolResultToStore('buildComposition', result);
+    return result;
+  };
+
+  // Regression: layer shells bypass applyBulkGraphUpdates' name de-duplication so
+  // they can't be swallowed. That bypass also removed the protection the de-dup
+  // was providing, and a blind create put a SECOND "The Island" beside the one
+  // already on the canvas — which is how a build ended up spending its whole
+  // budget merging and deleting its own duplicates.
+  it('adopts an existing same-named node instead of adding a second one', async () => {
+    resetStore();
+    const mainId = makeGraph('Lost');
+
+    // A plain node lands first, the way an earlier createPopulatedGraph would.
+    st().applyBulkGraphUpdates(mainId, {
+      nodes: [{ name: 'The Island', color: '#333', description: 'Mysterious place' }],
+      edges: [], groups: []
+    });
+    expect(instanceNames(mainId).filter(n => n === 'The Island')).toHaveLength(1);
+
+    await build(mainId, {
+      layers: [{
+        name: 'The Island',
+        definition: { nodes: [{ name: 'The Hatch' }, { name: 'The Temple' }] }
+      }]
+    });
+
+    const islands = instanceNames(mainId).filter(n => n === 'The Island');
+    expect(islands).toHaveLength(1);
+  });
+
+  it('still decomposes the adopted node into a real node-group', async () => {
+    resetStore();
+    const mainId = makeGraph('Lost');
+    st().applyBulkGraphUpdates(mainId, {
+      nodes: [{ name: 'The Island', color: '#333' }], edges: [], groups: []
+    });
+
+    await build(mainId, {
+      layers: [{
+        name: 'The Island',
+        definition: { nodes: [{ name: 'The Hatch' }, { name: 'The Temple' }] }
+      }]
+    });
+
+    const groups = Array.from(st().graphs.get(mainId).groups.values());
+    const island = groups.find(g => {
+      const proto = st().nodePrototypes.get(g.linkedNodePrototypeId);
+      return proto?.name === 'The Island';
+    });
+    expect(island).toBeDefined();
+    expect(island.memberInstanceIds.length).toBeGreaterThan(0);
+  });
+
+  // Edges reference the INSTANCE, so re-pointing it must not disturb them.
+  it('preserves edges attached to the node it adopts', async () => {
+    resetStore();
+    const mainId = makeGraph('Lost');
+    st().applyBulkGraphUpdates(mainId, {
+      nodes: [{ name: 'The Island', color: '#333' }, { name: 'Jacob', color: '#333' }],
+      edges: [{ source: 'Jacob', target: 'The Island', type: 'Protects', definitionNode: { name: 'Protects' } }],
+      groups: []
+    });
+    const edgeCountBefore = st().graphs.get(mainId).edgeIds.length;
+    expect(edgeCountBefore).toBe(1);
+
+    await build(mainId, {
+      layers: [{
+        name: 'The Island',
+        definition: { nodes: [{ name: 'The Hatch' }, { name: 'The Temple' }] }
+      }]
+    });
+
+    expect(st().graphs.get(mainId).edgeIds.length).toBe(edgeCountBefore);
+  });
+
+  it('does not duplicate when the same composition is applied twice', async () => {
+    resetStore();
+    const mainId = makeGraph('Lost');
+    const spec = {
+      layers: [{
+        name: 'Dharma Initiative',
+        definition: { nodes: [{ name: 'The Swan' }, { name: 'The Pearl' }] }
+      }]
+    };
+    await build(mainId, spec);
+    await build(mainId, spec);
+
+    expect(instanceNames(mainId).filter(n => n === 'Dharma Initiative')).toHaveLength(1);
+  });
+});

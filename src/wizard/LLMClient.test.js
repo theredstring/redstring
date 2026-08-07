@@ -402,7 +402,18 @@ describe('LLMClient', () => {
 
       const usage = chunks.find(c => c.type === 'usage');
       // completion derived from total - prompt (thinking-model safe).
-      expect(usage).toEqual({ type: 'usage', usage: { promptTokens: 900, completionTokens: 40, totalTokens: 940 } });
+      expect(usage).toEqual({
+        type: 'usage',
+        usage: {
+          promptTokens: 900,
+          completionTokens: 40,
+          totalTokens: 940,
+          // No cachedContentTokenCount in this response — all input uncached.
+          uncachedPromptTokens: 900,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0
+        }
+      });
     });
 
     it('emits a usage chunk from Anthropic message_start + message_delta', async () => {
@@ -468,7 +479,7 @@ describe('LLMClient', () => {
         { name: 'beta', description: 'b', input_schema: { type: 'object', properties: {} } }
       ];
       const messages = [
-        { role: 'system', content: 'STATIC PROMPT\nVOLATILE CONTEXT', cachePrefix: 'STATIC PROMPT\n' },
+        { role: 'system', content: 'STATIC PROMPT\nVOLATILE CONTEXT', _cachePrefix: 'STATIC PROMPT\n' },
         { role: 'user', content: 'Hi' }
       ];
 
@@ -1094,5 +1105,122 @@ describe('applyHistoryCacheBreakpoints', () => {
     const msgs = Array.from({ length: 40 }, (_, i) => (i % 2 ? assistant(`a${i}`) : user(`u${i}`)));
     const out = applyHistoryCacheBreakpoints(msgs, 4);
     expect(anchoredIndices(out).length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('OpenRouter prompt caching', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    global.fetch = vi.fn();
+  });
+
+  const run = async (model, messages) => {
+    global.fetch.mockResolvedValue(createMockFetchResponse(['data: [DONE]']));
+    for await (const _ of streamLLM(messages, [], { provider: 'openrouter', model, apiKey: 'k' })) { /* drain */ }
+    return JSON.parse(global.fetch.mock.calls[0][1].body);
+  };
+
+  // OpenRouter caches automatically for OpenAI-family models but NOT for
+  // Anthropic ones, which need the same explicit breakpoints the native API
+  // wants. The default model here is Anthropic, so "it's automatic" meant the
+  // whole ~28k fixed prefix was billed on every single iteration.
+  it('marks the system message for caching on Anthropic models', async () => {
+    const payload = await run('anthropic/claude-3.5-sonnet', [
+      { role: 'system', content: 'BIG STATIC PROMPT' },
+      { role: 'user', content: 'hi' }
+    ]);
+    expect(Array.isArray(payload.messages[0].content)).toBe(true);
+    expect(payload.messages[0].content[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
+    expect(payload.messages[0].content[0].text).toBe('BIG STATIC PROMPT');
+  });
+
+  it('leaves models that cache automatically untouched', async () => {
+    const payload = await run('openai/gpt-4o', [
+      { role: 'system', content: 'BIG STATIC PROMPT' },
+      { role: 'user', content: 'hi' }
+    ]);
+    expect(payload.messages[0].content).toBe('BIG STATIC PROMPT');
+  });
+
+  it('does not mark non-system messages', async () => {
+    const payload = await run('anthropic/claude-3.5-sonnet', [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: 'hi' }
+    ]);
+    expect(payload.messages[1].content).toBe('hi');
+  });
+
+  // cachePrefix had no underscore, so stripInternalFields kept it — shipping a
+  // full duplicate of the ~54KB system prompt as an unrecognised property on
+  // every OpenRouter and OpenAI request.
+  it('never leaks the internal cache-prefix field to the provider', async () => {
+    const payload = await run('anthropic/claude-3.5-sonnet', [
+      { role: 'system', content: 'S', _cachePrefix: 'S' },
+      { role: 'user', content: 'hi', _volatileContext: true }
+    ]);
+    expect(payload.messages[0]._cachePrefix).toBeUndefined();
+    expect(payload.messages[0].cachePrefix).toBeUndefined();
+    expect(payload.messages[1]._volatileContext).toBeUndefined();
+  });
+});
+
+describe('normalizeOpenAIUsage cache accounting', () => {
+  it('reads cache writes rather than assuming zero', async () => {
+    global.fetch = vi.fn().mockResolvedValue(createMockFetchResponse([
+      'data: {"choices":[],"usage":{"prompt_tokens":30000,"completion_tokens":100,"prompt_tokens_details":{"cached_tokens":25000,"cache_write_tokens":4000}}}',
+      'data: [DONE]'
+    ]));
+
+    const chunks = [];
+    for await (const c of streamLLM([{ role: 'user', content: 'hi' }], [], { provider: 'openrouter', apiKey: 'k' })) {
+      chunks.push(c);
+    }
+    const usage = chunks.find(c => c.type === 'usage')?.usage;
+    expect(usage.cacheReadTokens).toBe(25000);
+    expect(usage.cacheCreationTokens).toBe(4000);
+    // Writes must not be double-counted as uncached input.
+    expect(usage.uncachedPromptTokens).toBe(1000);
+  });
+});
+
+describe('Gemini cache accounting', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    global.fetch = vi.fn();
+  });
+
+  // Gemini 2.5 caches implicitly — nothing is sent on the request side, but the
+  // discount only shows up in usageMetadata.cachedContentTokenCount. Not reading
+  // it meant the full prompt was charged every iteration even when Google had
+  // already discounted most of it, tripping a cost ceiling never actually hit.
+  it('credits cachedContentTokenCount as a cache read', async () => {
+    global.fetch.mockResolvedValue(createMockFetchResponse([
+      'data: {"usageMetadata":{"promptTokenCount":30000,"totalTokenCount":30500,"cachedContentTokenCount":26000}}'
+    ]));
+
+    const chunks = [];
+    for await (const c of streamLLM([{ role: 'user', content: 'hi' }], [], { provider: 'google', model: 'gemini-2.5-pro', apiKey: 'k' })) {
+      chunks.push(c);
+    }
+
+    const usage = chunks.find(c => c.type === 'usage')?.usage;
+    expect(usage.promptTokens).toBe(30000);
+    expect(usage.cacheReadTokens).toBe(26000);
+    expect(usage.uncachedPromptTokens).toBe(4000);
+    expect(usage.cacheCreationTokens).toBe(0);
+  });
+
+  it('reports everything uncached when nothing was cached', async () => {
+    global.fetch.mockResolvedValue(createMockFetchResponse([
+      'data: {"usageMetadata":{"promptTokenCount":5000,"totalTokenCount":5200}}'
+    ]));
+
+    const chunks = [];
+    for await (const c of streamLLM([{ role: 'user', content: 'hi' }], [], { provider: 'google', model: 'gemini-2.5-pro', apiKey: 'k' })) {
+      chunks.push(c);
+    }
+    const usage = chunks.find(c => c.type === 'usage')?.usage;
+    expect(usage.cacheReadTokens).toBe(0);
+    expect(usage.uncachedPromptTokens).toBe(5000);
   });
 });
