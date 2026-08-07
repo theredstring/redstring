@@ -60,6 +60,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const touchGlideEnabled = useGraphStore(s => s.touchSettings?.glideEnabled ?? true);
   const trackpadZoomSensitivity = useGraphStore(s => s.touchSettings?.trackpadZoomSensitivity ?? 0.5);
   const trackpadPanSensitivity = useGraphStore(s => s.touchSettings?.trackpadPanSensitivity ?? 0.5);
+  const trackpadZoomGlideEnabled = useGraphStore(s => s.touchSettings?.trackpadZoomGlideEnabled ?? true);
+  const trackpadZoomGlideStrength = useGraphStore(s => s.touchSettings?.trackpadZoomGlideStrength ?? 0.5);
   const mouseGlideStrength = useGraphStore(s => s.mouseSettings?.glideStrength ?? 0.1);
   const nodeLiftDelay = useGraphStore(s => s.mouseSettings?.nodeLiftDelay ?? 250);
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
@@ -597,6 +599,27 @@ const SettingsModal = ({ isVisible, onClose }) => {
               max={1.0}
               step={0.05}
               onChange={(v) => useGraphStore.getState().setTrackpadPanSensitivity?.(v)}
+              suffix=""
+            />
+          </div>
+          <div className="settings-row settings-row--attached">
+            <div className="settings-row-label">
+              Zoom Glide
+              <div className="settings-row-description">Keep zooming with momentum after you stop a trackpad pinch</div>
+            </div>
+            <Toggle
+              checked={!!trackpadZoomGlideEnabled}
+              onChange={() => useGraphStore.getState().toggleTrackpadZoomGlide?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              value={trackpadZoomGlideStrength ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setTrackpadZoomGlideStrength?.(v)}
+              disabled={!trackpadZoomGlideEnabled}
               suffix=""
             />
           </div>

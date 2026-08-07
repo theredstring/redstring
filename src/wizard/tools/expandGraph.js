@@ -13,6 +13,7 @@ import { resolveGraphId } from './resolveGraphId.js';
 import { runStructureReview } from './utils/structureReview.js';
 import { newBuildId } from '../../services/oneShot.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
+import { normalizeLayersOnly } from './utils/graphSpec.js';
 
 /**
  * Convert string to Title Case
@@ -45,10 +46,11 @@ function generateConnectionColor(name) {
  * @returns {Promise<Object>} { action, nodesAdded, edgesAdded, spec }
  */
 export async function expandGraph(args, graphState, cid, ensureSchedulerStarted) {
-  const { nodes = [], edges = [], groups = [], targetGraphId, palette, enrich, overwriteDescription } = args;
+  const { nodes = [], edges = [], groups = [], layers = [], targetGraphId, palette, enrich, overwriteDescription } = args;
 
-  if ((!nodes || nodes.length === 0) && (!edges || edges.length === 0)) {
-    throw new Error('At least one node or edge is required. Example: expandGraph({"nodes": "[{\\"name\\": \\"Los Santos\\"}]"})');
+  const hasLayers = Array.isArray(layers) ? layers.length > 0 : !!layers;
+  if ((!nodes || nodes.length === 0) && (!edges || edges.length === 0) && !hasLayers) {
+    throw new Error('At least one node, edge or layer is required. Example: expandGraph({"nodes": "[{\\"name\\": \\"Los Santos\\"}]"})');
   }
 
   const { activeGraphId } = graphState;
@@ -145,8 +147,18 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     }
   }
 
-  // Analyze graph quality for LLM feedback
-  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs);
+  // Composition. Adding layers here is what stops this tool flattening its own
+  // work: expandGraph is what the quality-repair loop reaches for, and while it
+  // could only emit flat nodes and edges, every "fix orphaned nodes" pass
+  // dismantled whatever nesting a build had produced.
+  const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState });
+  const layerSpecs = layerResult ? layerResult.layers : [];
+  const layerWarnings = layerResult ? layerResult.warnings : [];
+
+  // Analyze graph quality for LLM feedback. Layers are passed through so an edge
+  // pointing at one counts as a real connection rather than leaving its other
+  // endpoint looking orphaned.
+  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs });
 
   // Part B — Structure review over the newly-added nodes/edges (free detection;
   // model pass only on dense candidates, biased to suggest nothing). Surfaced in
@@ -182,9 +194,12 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     nodesAdded: nodeSpecs.map(n => n.name),
     edgesAdded: edgeSpecs,
     groupsAdded: groupSpecs.map(g => g.name),
+    layersAdded: layerSpecs.map(l => l.name),
     nodeCount: nodeSpecs.length,
     edgeCount: edgeSpecs.length,
     groupCount: groupSpecs.length,
+    layerCount: layerSpecs.length,
+    ...(layerWarnings.length > 0 ? { layerWarnings } : {}),
     // Duplicate node warning (when adding nodes that already exist elsewhere in the universe)
     duplicateNodeWarning,
     // Edge validation feedback for LLM
@@ -201,7 +216,8 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     spec: {
       nodes: nodeSpecs,
       edges: edgeSpecs,
-      groups: groupSpecs
+      groups: groupSpecs,
+      layers: layerSpecs
     }
   };
 }

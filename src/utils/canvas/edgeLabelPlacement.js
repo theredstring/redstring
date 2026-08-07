@@ -496,15 +496,45 @@ export const anchorOnPolyline = (pathPoints, t, offset) => {
     };
 };
 
-// Label bounding box in canvas space. A vertical label occupies the transpose of
-// a horizontal one — the old code always reserved a horizontal box, which both
-// over-claimed space sideways and under-claimed it vertically.
+/**
+ * Label bounding box in canvas space: the true axis-aligned bounds of a
+ * textWidth x textHeight rectangle rotated to `angle` about (x, y).
+ *
+ * This used to snap the angle to "horizontal or vertical" and reserve one of two
+ * boxes. On the axes that is exact, which is why manhattan never showed the
+ * problem — but a Lombardi label follows its arc's tangent and is almost never
+ * on an axis, and there the approximation understates the box badly in the
+ * direction that matters. A 392x59 label tilted 12 degrees is really 139px tall;
+ * the old box claimed 59. Every consumer of this rect then believed a label
+ * three times thinner than the one being drawn.
+ *
+ * The visible consequence was on parallel connections. Their arcs are fanned a
+ * fixed lane apart (100px at the default spacing), so with the true height the
+ * placer can see they collide and will slide them apart along their arcs; with
+ * the understated one it saw 41px of clearance, left every label at its arc
+ * midpoint, and drew them overlapping.
+ *
+ * Reduces exactly to the old result at 0 and 90 degrees, so nothing that was
+ * already axis-aligned moves.
+ */
 const labelRectFor = (x, y, textWidth, textHeight, angle) => {
-    const vertical = Math.abs(((angle % 180) + 180) % 180 - 90) < 45;
-    const halfW = (vertical ? textHeight : textWidth) / 2;
-    const halfH = (vertical ? textWidth : textHeight) / 2;
+    const rad = (angle * Math.PI) / 180;
+    const c = Math.abs(Math.cos(rad));
+    const s = Math.abs(Math.sin(rad));
+    const halfW = (textWidth * c + textHeight * s) / 2;
+    const halfH = (textWidth * s + textHeight * c) / 2;
     return { minX: x - halfW, maxX: x + halfW, minY: y - halfH, maxY: y + halfH };
 };
+
+/**
+ * The same box, for callers outside this module that have to register the space
+ * a label they just drew now occupies (NodeCanvas does, per edge, per render).
+ * Exported so there is one definition of "how much room does this label take"
+ * rather than a second hand-rolled copy that can drift from this one — which is
+ * exactly how the render came to register an always-horizontal box for labels
+ * this module had already placed at a tilt.
+ */
+export const labelBoundsFor = labelRectFor;
 
 // ---------------------------------------------------------------------------
 // CONNECTIONS AS OBSTACLES

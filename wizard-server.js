@@ -299,6 +299,24 @@ app.post('/api/wizard', async (req, res) => {
             ? `${Math.round((1 - (lastUsage.askChargedTokens / lastUsage.askUploadedTokens)) * 100)}%`
             : 'n/a'
         });
+        // The follow-up question to "how much" is always "on what". This is the
+        // last iteration's split, which is the worst case — history is at its
+        // largest by then, so if anything is crowding out the conversation it
+        // shows up here.
+        if (lastUsage.costBreakdown) {
+          const b = lastUsage.costBreakdown;
+          console.log('[Wizard] Final-iteration input split:', {
+            tools: b.tools,
+            system: b.system,
+            graphContext: b.context,
+            history: b.history,
+            cachedFraction: `${b.cachedFraction}%`,
+            reclaimedByDedup: b.reclaimed,
+            ...(Object.keys(b.reclaimedByTool || {}).length > 0
+              ? { reclaimedByTool: b.reclaimedByTool }
+              : {})
+          });
+        }
       }
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     } catch (error) {

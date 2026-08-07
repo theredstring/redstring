@@ -772,12 +772,15 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'inspectWorkspace',
-            description: 'Structural overview WITH IDs (instance IDs, prototype IDs, group IDs) for a graph. Use it when you need identifiers a tool requires. Do NOT use it to find out what the active graph contains — names, types, descriptions and connections are already in your context header, refreshed every turn.',
+            description: 'Look at the workspace three ways. mode "map": the composition structure of the whole universe — which webs live inside which Things — with the current position marked; use this to orient before building. mode "graph" (default): structure and IDs (instance IDs, prototype IDs, group IDs) for one graph; use it when a tool needs identifiers. mode "reusable": Things that ALREADY have webs, so you can invoke one with buildComposition `use:` instead of authoring it again — check this before building a web whose name you recognise. Do NOT use this to find out what the active graph contains; its names, types, descriptions and connections are already in your context header, refreshed every turn.',
             parameters: {
                 type: 'object',
                 properties: {
-                    graphId: { type: 'string', description: 'Optional: ID of a specific graph to inspect, defaults to active graph' },
-                    includeAllGraphs: { type: 'boolean', description: 'If true, returns a COUNTS-ONLY census of every graph (no node or edge contents). Use it to discover which graphs exist, then inspect a specific graphId for detail.' }
+                    mode: { type: 'string', description: '"map" (universe composition tree), "graph" (one graph with IDs, default), or "reusable" (Things with existing webs).' },
+                    graphId: { type: 'string', description: 'For mode "graph": which graph to inspect. Defaults to the active graph.' },
+                    depth: { type: 'number', description: 'For mode "map": how many levels of nesting to expand (default 3, max 6). The path to the active graph is always fully expanded regardless.' },
+                    query: { type: 'string', description: 'For mode "reusable": filter Things by name substring.' },
+                    includeAllGraphs: { type: 'boolean', description: 'Deprecated alias for mode "map".' }
                 },
                 required: []
             }

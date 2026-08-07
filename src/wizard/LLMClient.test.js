@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { streamLLM, _makeAllRequired as makeAllRequired, _flattenDeepNesting as flattenDeepNesting, _stripNulls as stripNulls, _deepParseJsonStrings as deepParseJsonStrings, _condenseSchema as condenseSchema, _stripEmptyRequired as stripEmptyRequired, _normalizeTools as normalizeTools } from './LLMClient.js';
+import { streamLLM, applyHistoryCacheBreakpoints, _makeAllRequired as makeAllRequired, _flattenDeepNesting as flattenDeepNesting, _stripNulls as stripNulls, _deepParseJsonStrings as deepParseJsonStrings, _condenseSchema as condenseSchema, _stripEmptyRequired as stripEmptyRequired, _normalizeTools as normalizeTools } from './LLMClient.js';
 import { getToolDefinitions, selectToolsForTurn } from './tools/schemas.js';
 import { listTools } from './tools/listTools.js';
 
@@ -1023,5 +1023,76 @@ describe('listTools', () => {
     expect(afterNames).toContain('querySparql');
     expect(afterNames).toContain('createGroup');
     expect(after.length).toBe(getToolDefinitions().length);
+  });
+});
+
+describe('applyHistoryCacheBreakpoints', () => {
+  const user = (text) => ({ role: 'user', content: text });
+  const assistant = (text) => ({ role: 'assistant', content: [{ type: 'text', text }] });
+  const volatile = (text) => ({ role: 'user', content: text, _volatile: true });
+
+  const anchoredIndices = (msgs) =>
+    msgs.reduce((acc, m, i) => {
+      const blocks = Array.isArray(m.content) ? m.content : [];
+      if (blocks.some(b => b.cache_control)) acc.push(i);
+      return acc;
+    }, []);
+
+  it('places two rolling breakpoints on the cacheable history', () => {
+    const msgs = [user('a'), assistant('b'), user('c'), assistant('d'), user('e'), assistant('f')];
+    const out = applyHistoryCacheBreakpoints(msgs, 4);
+    // Newest cacheable message plus one `lookback` behind it — the older entry
+    // keeps the previous request's prefix readable while the newer extends it.
+    expect(anchoredIndices(out)).toEqual([1, 5]);
+  });
+
+  // An entry anchored to the volatile block could only ever be written, never
+  // read, and cache writes cost 1.25x — strictly worse than leaving it uncached.
+  it('never anchors a breakpoint at or after the volatile tail', () => {
+    const msgs = [user('a'), assistant('b'), user('c'), volatile('CURRENT STATE')];
+    const out = applyHistoryCacheBreakpoints(msgs, 4);
+    const anchors = anchoredIndices(out);
+    expect(anchors.every(i => i < 3)).toBe(true);
+    expect(anchors).toContain(2);
+  });
+
+  it('skips breakpoints entirely when there is no history worth caching', () => {
+    const out = applyHistoryCacheBreakpoints([volatile('CURRENT STATE')]);
+    expect(anchoredIndices(out)).toEqual([]);
+  });
+
+  it('collapses to a single breakpoint when history is shorter than the lookback', () => {
+    const msgs = [user('a'), assistant('b')];
+    const out = applyHistoryCacheBreakpoints(msgs, 4);
+    expect(anchoredIndices(out)).toEqual([1]);
+  });
+
+  it('anchors on the LAST content block so the whole message is covered', () => {
+    const msgs = [
+      user('a'),
+      { role: 'assistant', content: [{ type: 'text', text: 'x' }, { type: 'text', text: 'y' }] }
+    ];
+    const out = applyHistoryCacheBreakpoints(msgs, 4);
+    expect(out[1].content[0].cache_control).toBeUndefined();
+    expect(out[1].content[1].cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  it('strips internal bookkeeping fields the API would reject', () => {
+    const out = applyHistoryCacheBreakpoints([user('a'), assistant('b'), volatile('c')]);
+    expect(out.every(m => !('_volatile' in m))).toBe(true);
+  });
+
+  it('does not mutate the input messages', () => {
+    const msgs = [user('a'), assistant('b'), user('c')];
+    const snapshot = JSON.parse(JSON.stringify(msgs));
+    applyHistoryCacheBreakpoints(msgs, 4);
+    expect(msgs).toEqual(snapshot);
+  });
+
+  // Four is the hard provider limit: tools + system + these two.
+  it('uses no more than two message breakpoints however long the history', () => {
+    const msgs = Array.from({ length: 40 }, (_, i) => (i % 2 ? assistant(`a${i}`) : user(`u${i}`)));
+    const out = applyHistoryCacheBreakpoints(msgs, 4);
+    expect(anchoredIndices(out).length).toBeLessThanOrEqual(2);
   });
 });

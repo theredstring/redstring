@@ -710,19 +710,62 @@ function capTangentChord(delta) {
 // and a radius bounded by roughly L²/(8·MIN_VISIBLE_BOW).
 export const MIN_VISIBLE_BOW = 0.4;
 
-// A Lombardi label only earns a <textPath> if its baseline visibly bends on
-// screen. Below this the curved and straight versions are the same picture.
-// Shared by the settled render (NodeCanvas) and the live drag updater
+// A Lombardi label only earns a <textPath> if its baseline bends at all on
+// screen. Shared by the settled render (NodeCanvas) and the live drag updater
 // (useNodeDrag) so the two agree on when a label should curve — see
 // labelArcMinBow at each call site.
-export const LABEL_CURVE_MIN_SCREEN_PX = 1.2;
+//
+// Set LOW on purpose. <textPath> is genuinely expensive (see CONNECTION LABEL
+// RENDERING BUDGETS in NodeCanvas.jsx), and raising this is the obvious-looking
+// way to spend less of it — but it is the wrong lever. What actually costs the
+// frames in Lombardi is the number of DISTINCT label rotations, which the angle
+// quantum governs and which applies to straight labels too; shedding curves
+// buys comparatively little and takes the mode's whole point with it. Labels
+// following their arcs IS Lombardi. So curve early, and let CURVED_LABEL_BUDGET
+// bound the count instead — a ceiling on how many, not a tax on how curved.
+//
+// The effective floor bottoms out at MIN_VISIBLE_BOW once you are zoomed past
+// about 1.5x, and anything flatter than that was already emitted as a straight
+// line by solveLombardiArc — so below there is nothing left to curve anyway.
+export const LABEL_CURVE_MIN_SCREEN_PX = 0.6;
 
-// How far past the node border an arrowhead's origin sits, and (since the
-// line trims back by this same amount) how far the visible curve retreats
-// from the border too. The arrowhead polygon's tip reaches POLY_TIP (34, see
-// parallelEdgeUtils.js) back from its origin toward the node at connection
-// width 1 — this inset has to clear that or the tip pokes into the node.
-export const LOMBARDI_ARROW_INSET = 44;
+// Distance (local units) from the arrowhead polygon's origin to its tip.
+//
+// The polygon is "-26,34 26,34 0,-34", rendered as
+// translate(origin) rotate(angle+90) scale(cw): under rotate(+90) the local -Y
+// axis (the tip) maps to world direction `angle`, so the tip lands at
+//   origin + cw * POLY_TIP * (cos angle, sin angle)
+// and the back edge at the mirror of that, cw * POLY_TIP the other way.
+//
+// Lives here rather than in parallelEdgeUtils.js (which re-exports it) only
+// because that module imports from this one, so this is the end of the chain
+// both the straight/curved placement and the Lombardi placement can reach.
+// One definition: the JSX polygon and every back-off calculation have to agree.
+export const POLY_TIP = 34;
+
+// Half the connection stroke width (27px) — the radius of the round line-cap.
+// A line bulges this far past its geometric endpoint, so a trim has to stop
+// this much short of the arrowhead's back edge to stay hidden under it.
+export const ARROW_CAP_RADIUS = 13.5;
+
+/**
+ * How far back along its route a Lombardi connection's visible stroke stops,
+ * measured from the node border, so its round cap ends flush with the
+ * arrowhead's rear edge instead of poking out through the point.
+ *
+ * The arrowhead itself is NOT placed with this — see computeLombardiRouting,
+ * which anchors the tip on the border and backs the polygon's origin off along
+ * the tangent, exactly as getCurvedArrowPlacement does for curved edges.
+ *
+ * Both used to share one flat constant (44) with no connection-width term at
+ * all. The polygon scales with width and the constant did not, so the tip
+ * drifted by POLY_TIP px for every 1.0 on the Connection Width slider: 35px
+ * clear of the border at 0.25x, and 92px INSIDE the node at 4x, while every
+ * other routing style held its arrows on the border.
+ */
+export function lombardiLineTrim(connectionWidth = 1) {
+  return (2 * POLY_TIP - ARROW_CAP_RADIUS) * (connectionWidth || 1);
+}
 
 /**
  * Key an edge for the tangent map.
@@ -1211,32 +1254,75 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
     const dBox = destBox();
     const fullPoints = arc ? sampleArc(arc) : [p, q];
 
-    // Tangent-following arrowheads. The source arrow points back at the source,
-    // mirroring every other routing style.
-    const headingAt = (pt) => (arc ? arcPointAt(arc, arcParamOf(arc, pt)).angle : chord * (180 / Math.PI));
-    const arrowFor = (fromStart, box, reverse) => {
-      const { endpoint } = trimRouteEnd(fullPoints, box, fromStart, LOMBARDI_ARROW_INSET);
-      const angle = headingAt(endpoint);
-      return { x: endpoint.x, y: endpoint.y, angle: reverse ? angle + 180 : angle };
+    const cw = options.connectionWidth || 1;
+    const lineTrim = lombardiLineTrim(cw);
+
+    // Where an end sits after retreating `dist` from its node border.
+    //
+    // On an arc the retreat is measured as ARC LENGTH rather than as distance
+    // along the sampled chords, which always undershoot the curve. The error is
+    // invisible for a small back-off, but this one scales with connection width
+    // and at 4x it is most of a node wide. Stepping in arc parameter is exact,
+    // cheaper, and independent of how densely the arc happened to be sampled.
+    const retreatFrom = (fromStart, box, dist) => {
+      const border = trimRouteEnd(fullPoints, box, fromStart, 0).endpoint;
+      if (!arc || !(arc.radius > 0) || arc.sweep === 0) {
+        return trimRouteEnd(fullPoints, box, fromStart, dist).endpoint;
+      }
+      const step = dist / (arc.radius * Math.abs(arc.sweep));
+      const t0 = arcParamOf(arc, border);
+      return arcPointAt(arc, fromStart ? Math.min(1, t0 + step) : Math.max(0, t0 - step));
     };
 
-    // The line trims back by the SAME inset as the arrowhead anchor, so the
-    // visible curve ends under the arrowhead's body (its widest point) rather
-    // than at the bare node border. The arrowhead tapers to a point, and
-    // stopping the line at the border — where the taper is much narrower
-    // than the line's own stroke — let the stroke's round cap poke out past
-    // the triangle's sides.
+    // Tangent-following arrowheads, anchored by their TIP.
+    //
+    // The tip goes on the node border and the polygon's origin is backed off
+    // from it along the tangent — the same contract getCurvedArrowPlacement
+    // uses, and the only one that survives both the width slider and a tight
+    // bow. Retreating along the CURVE by the triangle's own length instead
+    // leaves the tip off the border by the arc's sagitta, because the triangle
+    // that then draws forward from there is straight: correct at low curvature,
+    // and several pixels adrift exactly where the curve is most pronounced.
+    const headingAt = (pt) => (arc ? arcPointAt(arc, arcParamOf(arc, pt)).angle : chord * (180 / Math.PI));
+    const arrowFor = (fromStart, box, reverse) => {
+      const tip = trimRouteEnd(fullPoints, box, fromStart, 0).endpoint;
+      const angle = (reverse ? headingAt(tip) + 180 : headingAt(tip));
+      const rad = angle * (Math.PI / 180);
+      return {
+        x: tip.x - cw * POLY_TIP * Math.cos(rad),
+        y: tip.y - cw * POLY_TIP * Math.sin(rad),
+        angle,
+      };
+    };
+
+    // The line retreats FURTHER than the arrowhead's origin — back to where the
+    // triangle's rear edge is — so the stroke's round cap ends flush under it.
+    // Trimming to the origin instead (which is what sharing one constant with
+    // the arrow amounted to) left the cap sitting at the polygon's centre,
+    // fine at width 1 and increasingly visible either side of it.
+    //
+    // The drawn endpoints come from the same exact arc-length retreat the
+    // arrowheads use — pathD is built from them — while `points` stays the
+    // chord-trimmed polyline, which is all its consumers (label placement,
+    // hit-testing) need and all they can use.
+    //
+    // The polyline is chord-trimmed but then has its own end REPLACED by the
+    // exact one, so `points` still starts and ends exactly where the drawn path
+    // does. Everything downstream depends on that agreeing — rebuildRoutedPath
+    // reconstructs the hover trim from points[0] and points[last], and would
+    // otherwise redraw the connection a fraction off its settled position the
+    // moment you hovered it.
     points = fullPoints;
     if (hasSourceArrow) {
-      const trimmed = trimRouteEnd(points, sBox, true, LOMBARDI_ARROW_INSET);
-      points = trimmed.points;
-      startPt = trimmed.endpoint;
+      points = trimRouteEnd(points, sBox, true, lineTrim).points;
+      startPt = retreatFrom(true, sBox, lineTrim);
+      points = [startPt, ...points.slice(1)];
       sourceArrow = arrowFor(true, sBox, true);
     }
     if (hasDestArrow) {
-      const trimmed = trimRouteEnd(points, dBox, false, LOMBARDI_ARROW_INSET);
-      points = trimmed.points;
-      endPt = trimmed.endpoint;
+      points = trimRouteEnd(points, dBox, false, lineTrim).points;
+      endPt = retreatFrom(false, dBox, lineTrim);
+      points = [...points.slice(0, -1), endPt];
       destArrow = arrowFor(false, dBox, false);
     }
   }

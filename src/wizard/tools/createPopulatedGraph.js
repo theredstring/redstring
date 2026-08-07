@@ -14,6 +14,7 @@ import { runStructureReview } from './utils/structureReview.js';
 import { conformNames } from './utils/conformNames.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
 import { newBuildId } from '../../services/oneShot.js';
+import { normalizeLayersOnly } from './utils/graphSpec.js';
 
 /** Existing node names in a graph from the serialized graphState (for C7 style). */
 function existingGraphNodeNames(graphState, graphId) {
@@ -42,7 +43,7 @@ function existingGraphNodeNames(graphState, graphId) {
  * @returns {Promise<Object>} { graphId, graphName, nodesAdded, edgesAdded, groupsAdded }
  */
 export async function createPopulatedGraph(args, graphState, cid, ensureSchedulerStarted) {
-  const { name, description = '', nodes = [], edges = [], groups = [], targetGraphId, palette, color, enrich, overwriteDescription } = args;
+  const { name, description = '', nodes = [], edges = [], groups = [], layers = [], targetGraphId, palette, color, enrich, overwriteDescription } = args;
 
   console.error('[createPopulatedGraph] Called with:');
   console.error('[createPopulatedGraph] - name:', name);
@@ -257,8 +258,16 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   // const goalId = queueManager.enqueue('goalQueue', { ... });
   // if (ensureSchedulerStarted) ensureSchedulerStarted();
 
-  // Analyze graph quality for LLM feedback
-  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs);
+  // Composition. A new graph is exactly where depth should be decided, so this
+  // tool accepts layers rather than forcing a second buildComposition call after
+  // the flat version has already been laid out.
+  const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState });
+  const layerSpecs = layerResult ? layerResult.layers : [];
+  const layerWarnings = layerResult ? layerResult.warnings : [];
+
+  // Analyze graph quality for LLM feedback. Layers count as nodes so an edge to
+  // one is a real connection, not a dropped edge with an orphan at the far end.
+  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs });
 
   // Part B — Structure review. Deterministic cluster detection is free; the model
   // pass runs only on dense candidates and is strongly biased to suggest nothing.
@@ -341,10 +350,14 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
       : null,
     // Include full spec for UI to apply. unfoldPlan / abstractionOrder ride here
     // (stripped from the model payload) so the applier can build them.
+    layersAdded: layerSpecs.map(l => l.name),
+    layerCount: layerSpecs.length,
+    ...(layerWarnings.length > 0 ? { layerWarnings } : {}),
     spec: {
       nodes: nodeSpecs,
       edges: edgeSpecs,
       groups: groupSpecs,
+      layers: layerSpecs,
       unfoldPlan,
       abstractionOrder: shapeRouting === 'abstraction-axis' ? abstractionOrder : null
     }

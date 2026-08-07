@@ -3,15 +3,13 @@
  * Ensures multiple edges between the same nodes curve in opposite directions
  */
 
-import { bundleFrameSign } from './edgeRouting.js';
+import { bundleFrameSign, POLY_TIP, ARROW_CAP_RADIUS } from './edgeRouting.js';
 
-// Distance (local units) from the arrowhead polygon origin to its tip.
-// The arrow polygon is "-26,34 26,34 0,-34" so the tip sits at local (0, -34).
-// Rendered as translate(origin) rotate(angle+90) scale(cw): under rotate(+90) the
-// local -Y axis (the tip) maps to world direction `angle`, so the tip lands at
-// origin + cw * POLY_TIP * (cos angle, sin angle). Kept here as the single source
-// of truth so the JSX polygon and the placement back-off math can't drift.
-export const POLY_TIP = 34;
+// Re-exported from edgeRouting.js, which is where the arrowhead's geometry now
+// lives so that the Lombardi placement can reach it too (this module imports
+// from that one, so the constants cannot sit here without a cycle). Existing
+// importers of POLY_TIP from this module are unaffected.
+export { POLY_TIP };
 
 // Default base spacing (px) between adjacent parallel-edge curves. Multiplied by
 // the user's "Multi Connection Curve" setting to produce the effective spacing.
@@ -363,7 +361,7 @@ export const DEFAULT_TIP_INSET = 20;
 // Half the connection stroke width (27px), i.e. the radius of the round line-cap.
 // The visible curve bulges this far past its geometric endpoint, so the trim must
 // stop this much SHORT of the arrowhead's back edge to stay hidden under the triangle.
-const CAP_RADIUS = 13.5;
+const CAP_RADIUS = ARROW_CAP_RADIUS;
 
 /**
  * Compute arrowhead placement for a curved parallel edge so the tip lands a FIXED

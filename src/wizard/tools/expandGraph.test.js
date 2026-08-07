@@ -89,7 +89,7 @@ describe('expandGraph', () => {
 
     await expect(
       expandGraph({ nodes: [], edges: [] }, graphState, mockCid, mockEnsureSchedulerStarted)
-    ).rejects.toThrow('At least one node or edge is required');
+    ).rejects.toThrow('At least one node, edge or layer is required');
   });
 
   it('throws error when neither nodes nor edges is provided', async () => {
@@ -101,7 +101,7 @@ describe('expandGraph', () => {
 
     await expect(
       expandGraph({}, graphState, mockCid, mockEnsureSchedulerStarted)
-    ).rejects.toThrow('At least one node or edge is required');
+    ).rejects.toThrow('At least one node, edge or layer is required');
   });
 
   it('throws error when no active graph', async () => {

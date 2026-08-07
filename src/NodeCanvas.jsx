@@ -117,14 +117,14 @@ import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath, MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, LOMBARDI_ARROW_INSET, sampleArc } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcPath, MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
 import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
-import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex } from './utils/canvas/edgeLabelPlacement.js';
+import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, labelBoundsFor } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -171,25 +171,62 @@ const SPAWNABLE_NODE = 'spawnable_node';
 //      (see `labelArcMinBow`), with a hard count budget behind it.
 // ---------------------------------------------------------------------------
 
+// A second sweep, on the label counts that actually occur rather than 500.
+// Chromium/Electron 39, animated pan, 120Hz display so 8.3ms is the floor (a
+// frame at 8.3 had headroom left; one above it did not). Median frame time:
+//
+//   labels   textPath   exact    1.5°     3°      4°      6°      9°     15°
+//       40        8.4     8.4     8.3    8.3     8.4     8.3     8.3    8.3
+//       80       16.7    17.0    16.7   16.4    16.6     8.8     8.4    8.3
+//      120       24.5    26.0    24.1   16.7    16.7     9.0     8.7    8.3
+//      200       83.2    41.7    33.6   24.4    16.7    16.6     8.4    8.3
+//
+// Two things to read off it. First, the bucket size has to reach 6-9° before it
+// buys anything at all on a real label count — at 4° a 200-label graph still
+// costs two full frames. Second, <textPath> is not linear in count, as the 500
+// row above already hinted: 40→8.4ms but 200→83ms. Any budget derived from a
+// fixed per-label cost is therefore wrong in the direction that hurts.
+
 // On-screen displacement, in CSS pixels, we're willing to accept at the far end
 // of a label from snapping its angle. Snapping by a quantum q tilts a label by
 // at most q/2, which moves the end of a label of half-width w by w·sin(q/2).
-const LABEL_ANGLE_ERROR_PX = 2;
+//
+// Sized so MAX_LABEL_ANGLE_QUANTUM is actually REACHABLE at the zooms where
+// labels are dense. At 2px it wasn't: the formula below returned ~4.3° at zoom
+// 0.35 and ~1.5° at zoom 1, so raising the ceiling alone changed nothing. The
+// zoom-adaptivity still does its job past zoom ~1, where a tilt would show and
+// there are few enough labels on screen to afford exact angles.
+const LABEL_ANGLE_ERROR_PX = 12;
 
 // Typical connection-label half-width in canvas px, for the estimate above.
 const LABEL_HALF_WIDTH_CANVAS = 150;
 
-// Never snap coarser than this, however far out the viewer is zoomed.
-const MAX_LABEL_ANGLE_QUANTUM = 4;
+// Never snap coarser than this, however far out the viewer is zoomed. 9° means
+// a label sits at most 4.5° off its true tangent. See the table above for why
+// 4° was too fine to be worth having.
+const MAX_LABEL_ANGLE_QUANTUM = 9;
 
 // Below this many labels there aren't enough distinct angles to trouble the
 // atlas, so don't snap at all — exact angles, zero visual change.
 const LABEL_ANGLE_QUANTUM_MIN_COUNT = 48;
 
-// <textPath> costs ~0.14ms per label per frame and scales linearly, so this is
-// a hard ceiling on how much of a frame curved labels may spend. It is a
-// backstop: `labelArcMinBow` normally sheds them long before this bites.
+// A hard ceiling on how many labels may ride a <textPath> at once.
+//
+// The old justification for 40 — "~0.14ms per label, scales linearly" — was
+// wrong in both halves: the 500-label row above works out at 2.3ms each, and
+// the sweep shows the cost climbing with count rather than tracking it. But 40
+// happens to be about the right number anyway, for a reason the old comment
+// didn't give: the 40 row IS the frame floor (8.4ms), and the blow-up is at
+// 200, which this budget already prevents. So it stands — as the real bound on
+// curved labels, deliberately in preference to raising
+// LABEL_CURVE_MIN_SCREEN_PX. See that constant for why: a ceiling on how many
+// labels curve keeps Lombardi looking like Lombardi, where a bow threshold high
+// enough to matter just straightens everything.
 const CURVED_LABEL_BUDGET = 40;
+
+// Shared empty obstacle list, so the memo below can skip the work without
+// handing out a fresh array identity on every pan tick.
+const EMPTY_OBSTACLES = Object.freeze([]);
 
 
 // Above this many visible connections, labels stop trying to dodge the ones
@@ -255,6 +292,22 @@ const ZOOM_MOMENTUM_MIN_SPEED = 0.0004;         // |d(ln zoom)/dt| threshold to 
 const ZOOM_MOMENTUM_MAX_SPEED = 0.009;          // cap on launch velocity so a fast pinch can't fling the zoom
 const PINCH_GLIDE_STRENGTH_VEL_RANGE = 0.8;     // velocity multiplier sweep for the strength slider: 0.6× at 0 → 1.4× at 1 (0.5 = 1×)
 const PINCH_GLIDE_STRENGTH_FRICTION_RANGE = 0.08; // friction offset sweep for the strength slider (±0.04 around default)
+
+// --- Trackpad zoom glide ---
+// Same coast as the touch pinch release, driven by trackpad pinch instead. A
+// trackpad pinch has no "release" event — Chrome/Electron deliver it as a
+// stream of ctrl+wheel events and macOS emits no inertia of its own for
+// magnification — so the gesture end is inferred from an idle gap. Safari's
+// GestureEvent path has a real `gestureend` and launches from there directly.
+const TRACKPAD_ZOOM_IDLE_END_MS = 70;           // no zoom wheel event for this long = fingers lifted
+const TRACKPAD_ZOOM_VELOCITY_WINDOW_MS = 90;    // how far back from the last zoom event to sample release velocity
+const TRACKPAD_ZOOM_MOMENTUM_BOOST = 0.75;      // launch gentler than the fingers were moving (trackpad pinch is a precision gesture)
+const TRACKPAD_ZOOM_MOMENTUM_FRICTION = 0.85;   // per-frame retention for the trackpad coast (shorter tail than touch)
+const TRACKPAD_ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY = 0.90; // retention for fast pinches, ramped in like the touch glide
+// Launch floor is deliberately well above ZOOM_MOMENTUM_MIN_SPEED (the stop
+// threshold): a slow, deliberate trackpad pinch still clears the stop
+// threshold, and coasting after one reads as overshoot rather than momentum.
+const TRACKPAD_ZOOM_MOMENTUM_LAUNCH_MIN_SPEED = 0.0015;
 
 
 /**
@@ -2469,16 +2522,26 @@ function NodeCanvas() {
     zoomMomentumRef.current.active = false;
   }, []);
 
-  // Launch a brief zoom coast after a pinch releases (touch only). `initialVel`
-  // is the release velocity in log-zoom space (per ms); the anchor pins the last
-  // pinch midpoint so the coasting zoom stays centered on the same world point.
-  const startZoomMomentum = useCallback((initialVel, anchorClient, anchorWorld, minZoomBound, maxZoomBound) => {
+  // Launch a brief zoom coast after a pinch stops. `initialVel` is the release
+  // velocity in log-zoom space (per ms); the anchor pins the last pinch midpoint
+  // (or trackpad cursor position) so the coasting zoom stays centered on the
+  // same world point. `source` selects which glide preferences and tuning apply:
+  // 'touch' for two-finger pinches, 'trackpad' for trackpad pinch-zoom.
+  const startZoomMomentum = useCallback((initialVel, anchorClient, anchorWorld, minZoomBound, maxZoomBound, source = 'touch') => {
     if (!Number.isFinite(initialVel) || !anchorClient || !anchorWorld) return false;
 
-    // Pinch glide is opt-out and strength-adjustable in Settings → Input → Touch.
+    // Both glides are opt-out and strength-adjustable in Settings → Input
+    // (Touch → Pinch Glide, Trackpad → Zoom Glide).
+    const isTrackpad = source === 'trackpad';
     const touchPrefs = useGraphStore.getState().touchSettings;
-    if (touchPrefs?.pinchGlideEnabled === false) return false;
-    const strength = Math.max(0, Math.min(1, touchPrefs?.pinchGlideStrength ?? 0.5));
+    if (isTrackpad) {
+      if (touchPrefs?.trackpadZoomGlideEnabled === false) return false;
+    } else if (touchPrefs?.pinchGlideEnabled === false) {
+      return false;
+    }
+    const strength = Math.max(0, Math.min(1, (isTrackpad
+      ? touchPrefs?.trackpadZoomGlideStrength
+      : touchPrefs?.pinchGlideStrength) ?? 0.5));
 
     // A new inertial gesture supersedes any in-flight pan/zoom glide.
     stopPanMomentum();
@@ -2494,17 +2557,20 @@ function NodeCanvas() {
 
     // Strength scales the launch kick around 1× at the 0.5 default.
     const strengthVelScale = 1 + (strength - 0.5) * PINCH_GLIDE_STRENGTH_VEL_RANGE;
-    let vel = initialVel * ZOOM_MOMENTUM_BOOST * strengthVelScale;
+    const boost = isTrackpad ? TRACKPAD_ZOOM_MOMENTUM_BOOST : ZOOM_MOMENTUM_BOOST;
+    let vel = initialVel * boost * strengthVelScale;
     vel = Math.max(-ZOOM_MOMENTUM_MAX_SPEED, Math.min(ZOOM_MOMENTUM_MAX_SPEED, vel));
     if (Math.abs(vel) < ZOOM_MOMENTUM_MIN_SPEED) return false;
 
     // Violent flicks coast farther: lerp friction toward the high-velocity
     // retention as launch speed rises (same shape as the touch pan glide).
-    let friction = ZOOM_MOMENTUM_FRICTION;
+    const frictionBase = isTrackpad ? TRACKPAD_ZOOM_MOMENTUM_FRICTION : ZOOM_MOMENTUM_FRICTION;
+    const frictionHigh = isTrackpad ? TRACKPAD_ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY : ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY;
+    let friction = frictionBase;
     const launchSpeed = Math.abs(vel);
     if (launchSpeed > ZOOM_HIGH_VELOCITY_THRESHOLD) {
       const overshoot = Math.min(1, (launchSpeed - ZOOM_HIGH_VELOCITY_THRESHOLD) / ZOOM_HIGH_VELOCITY_RAMP);
-      friction = ZOOM_MOMENTUM_FRICTION + (ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY - ZOOM_MOMENTUM_FRICTION) * overshoot;
+      friction = frictionBase + (frictionHigh - frictionBase) * overshoot;
     }
     // Strength also stretches/shrinks the coast, mirroring the pan glide's
     // GLIDE_STRENGTH_FRICTION_RANGE treatment. Clamped well below 1.
@@ -2548,6 +2614,16 @@ function NodeCanvas() {
         x: client.x - rect.left - (world.x - canvas.offsetX) * clampedZoom,
         y: client.y - rect.top - (world.y - canvas.offsetY) * clampedZoom,
       };
+      // The trackpad gesture itself clamps pan to the canvas edges (calculateZoom
+      // does it), so its coast must too or a zoom-out near an edge glides into
+      // the void. The touch pinch doesn't clamp, and its glide matches it.
+      if (isTrackpad) {
+        const viewport = viewportSizeRef.current;
+        const minPanX = viewport.width - canvas.width * clampedZoom;
+        const minPanY = viewport.height - canvas.height * clampedZoom;
+        newPan.x = Math.min(Math.max(newPan.x, minPanX), 0);
+        newPan.y = Math.min(Math.max(newPan.y, minPanY), 0);
+      }
       setPanAndZoom(newPan, clampedZoom);
 
       // Decay velocity, frame-time compensated like the pan glide.
@@ -2566,6 +2642,89 @@ function NodeCanvas() {
     zoomMomentumRef.current.animationId = requestAnimationFrame(step);
     return true;
   }, [stopPanMomentum, stopZoomMomentum, setPanAndZoom, MIN_ZOOM]);
+
+  // --- Trackpad zoom glide ---
+  // `hist` holds recent {t, lz} zoom samples in log space; `anchorClient` is the
+  // cursor position of the most recent zoom event (the point the coast pins).
+  // `endTimerId` is the idle timer that stands in for the missing "fingers
+  // lifted" event on the ctrl+wheel path.
+  const trackpadZoomGestureRef = useRef({ hist: [], anchorClient: null, endTimerId: null });
+
+  const clearTrackpadZoomGesture = useCallback(() => {
+    const ref = trackpadZoomGestureRef.current;
+    if (ref.endTimerId) clearTimeout(ref.endTimerId);
+    ref.endTimerId = null;
+    ref.hist = [];
+    ref.anchorClient = null;
+  }, []);
+
+  // Called when the trackpad pinch stops (idle gap on wheel, or `gestureend` in
+  // Safari). Measures the release velocity from the sample history and hands it
+  // to the shared zoom glide, anchored at the last cursor position.
+  const endTrackpadZoomGesture = useCallback(() => {
+    const ref = trackpadZoomGestureRef.current;
+    if (ref.endTimerId) clearTimeout(ref.endTimerId);
+    ref.endTimerId = null;
+    const hist = ref.hist;
+    const anchorClient = ref.anchorClient;
+    ref.hist = [];
+    ref.anchorClient = null;
+
+    if (!anchorClient || hist.length < 2) return;
+    const container = containerRef.current;
+    const canvas = canvasSizeRef.current;
+    if (!container || !canvas) return;
+
+    // Peak-biased velocity pick, mirroring the touch pinch release: a gesture
+    // still accelerating when it stops is undersold by the full window, so
+    // measure a short recent slice too and take the faster of the two — but
+    // only when both agree on direction (a late reversal must not launch in
+    // the stale direction).
+    const last = hist[hist.length - 1];
+    const velOverWindow = (windowMs) => {
+      let first = null;
+      for (let i = hist.length - 2; i >= 0; i--) {
+        if (last.t - hist[i].t <= windowMs) first = hist[i];
+        else break;
+      }
+      if (!first) return 0;
+      const span = last.t - first.t;
+      return span > 0 ? (last.lz - first.lz) / span : 0;
+    };
+    const fullVel = velOverWindow(TRACKPAD_ZOOM_VELOCITY_WINDOW_MS);
+    const recentVel = velOverWindow(TRACKPAD_ZOOM_VELOCITY_WINDOW_MS / 2.5);
+    const releaseVel = Math.abs(recentVel) > Math.abs(fullVel) && recentVel * fullVel >= 0
+      ? recentVel
+      : fullVel;
+    if (Math.abs(releaseVel) < TRACKPAD_ZOOM_MOMENTUM_LAUNCH_MIN_SPEED) return;
+
+    const rect = container.getBoundingClientRect();
+    const pan = panOffsetRef.current;
+    const zoom = zoomLevelRef.current;
+    const anchorWorld = {
+      x: (anchorClient.x - rect.left - pan.x) / zoom + canvas.offsetX,
+      y: (anchorClient.y - rect.top - pan.y) / zoom + canvas.offsetY,
+    };
+    startZoomMomentum(releaseVel, anchorClient, anchorWorld, MIN_ZOOM, MAX_ZOOM, 'trackpad');
+  }, [startZoomMomentum, MIN_ZOOM]);
+
+  // Record one zoom step of a trackpad pinch and (re)arm the idle end timer.
+  // `zoom` is the zoom this step targeted; sampling the target rather than the
+  // eased on-screen value keeps the measured velocity true to the fingers.
+  const recordTrackpadZoomSample = useCallback((zoom, clientX, clientY) => {
+    if (!Number.isFinite(zoom) || zoom <= 0) return;
+    const ref = trackpadZoomGestureRef.current;
+    const now = performance.now();
+    ref.hist.push({ t: now, lz: Math.log(zoom) });
+    while (ref.hist.length > 2 && now - ref.hist[0].t > TRACKPAD_ZOOM_VELOCITY_WINDOW_MS * 2) {
+      ref.hist.shift();
+    }
+    ref.anchorClient = { x: clientX, y: clientY };
+    if (ref.endTimerId) clearTimeout(ref.endTimerId);
+    ref.endTimerId = setTimeout(() => endTrackpadZoomGesture(), TRACKPAD_ZOOM_IDLE_END_MS);
+  }, [endTrackpadZoomGesture]);
+
+  useEffect(() => clearTrackpadZoomGesture, [clearTrackpadZoomGesture]);
 
   // Stable culling compute. Reads every input from refs so it can be invoked
   // imperatively from `transform.onTransformChangeRef` (which fires on every
@@ -3159,10 +3318,16 @@ function NodeCanvas() {
   // The obstacle set every label dodges. Identical for every edge, so build it
   // once — each placement call used to rebuild it from all visible nodes, which
   // was roughly half the cost of re-solving a large graph's labels.
+  //
+  // Nothing reads it when labels are off, and `visibleNodeIds` changes
+  // throughout a pan — so without the guard this rebuilt a rect per visible
+  // node on every culling commit for a result no one would look at.
   const labelObstacleOptions = useMemo(() => ({
-    obstacles: getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedInstanceIds),
+    obstacles: (showConnectionNames && isRoutedStyle)
+      ? getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedInstanceIds)
+      : EMPTY_OBSTACLES,
     segmentIndex: labelCrossingIndex,
-  }), [nodes, visibleNodeIds, baseDimsById, selectedInstanceIds, labelCrossingIndex]);
+  }), [showConnectionNames, isRoutedStyle, nodes, visibleNodeIds, baseDimsById, selectedInstanceIds, labelCrossingIndex]);
 
   // How coarsely to snap connection-label rotations. See CONNECTION LABEL
   // RENDERING BUDGETS above: the cost is the number of DISTINCT angles on
@@ -3309,6 +3474,7 @@ function NodeCanvas() {
           : computeLombardiRouting(edge, srcNode, dstNode, sDims, dDims, lombardiTangents, {
             curvature: lombardiCurvature, selectedInstanceIds,
             curveInfo: edgeCurveInfo.get(edgeId), laneSpacing: lombardiLaneSpacing,
+            connectionWidth,
           });
       const placement = placeLabelOnRoute(routing);
       x = placement.x;
@@ -3347,7 +3513,8 @@ function NodeCanvas() {
     };
   }, [selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById, selectedInstanceIds,
     enableAutoRouting, routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing,
-    lombardiTangents, lombardiCurvature, edgeCurveInfo, curveSpacing, orthogonalLaneSpacing, lombardiLaneSpacing]);
+    lombardiTangents, lombardiCurvature, edgeCurveInfo, curveSpacing, orthogonalLaneSpacing, lombardiLaneSpacing,
+    connectionWidth]);
 
   // Reverse-index: instanceId → Set<edgeId> for O(1) lookup of edges connected to a node.
   // NOTE: iterate ALL edges (not visibleEdges) so the index stays stable across culling
@@ -7985,6 +8152,11 @@ function NodeCanvas() {
       try { e.preventDefault(); } catch { }
       return;
     }
+    // Pressing a node halts a coasting trackpad zoom (see handleMouseDown).
+    if (!e?.touches) {
+      stopZoomMomentum();
+      clearTrackpadZoomGesture();
+    }
     // Middle-button on a node: arm the zoom-by-drag gesture when the user has enabled
     // "Hold middle click to zoom"; if released without moving, mouseup opens the panel tab
     // (treating it like a double-click on a node).
@@ -8096,6 +8268,8 @@ function NodeCanvas() {
    * Zoom path: Cmd+scroll (Mac) or Ctrl+scroll, delegates to the canvas worker for
    * the new viewport. Distinguishes trackpad pinch (`ctrlKey` + small delta <20px)
    * from a real modifier+wheel (large delta) and applies the appropriate sensitivity.
+   * Pinch steps also feed the trackpad zoom glide tracker, which coasts the zoom
+   * once the event stream goes idle (see `recordTrackpadZoomSample`).
    *
    * Pan path: unmodified scroll is passed through as canvas pan. Fractional deltas
    * from a precision trackpad cause smooth glide; integer multiples indicate a
@@ -8107,6 +8281,10 @@ function NodeCanvas() {
   const handleWheel = async (e) => {
     if (pinchRef.current.active) return;
     if (trackpadZoomEnabled && (e.ctrlKey || e.metaKey)) return;
+
+    // Any fresh wheel input supersedes a coasting trackpad zoom — the glide
+    // relaunches from the idle timer once this new gesture stops.
+    stopZoomMomentum();
 
     const rect = containerRef.current.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
@@ -8167,6 +8345,14 @@ function NodeCanvas() {
       });
       setPanAndZoom(result.panOffset, result.zoomLevel);
 
+      // Feed the glide tracker only for actual pinches — a ctrl+mouse-wheel
+      // detent is discrete input and coasting off it would feel unmoored.
+      if (isPinch) {
+        recordTrackpadZoomSample(result.zoomLevel, e.clientX, e.clientY);
+      } else {
+        clearTrackpadZoomGesture();
+      }
+
       setTimeout(() => {
         if (opId === zoomOpIdRef.current) {
           isPanningOrZooming.current = false;
@@ -8175,6 +8361,10 @@ function NodeCanvas() {
       }, 100);
       return;
     }
+
+    // Non-zoom wheel input ends any pinch in progress without a coast: the
+    // fingers moved on to scrolling rather than lifting.
+    clearTrackpadZoomGesture();
 
     // Shift is reserved for keyboard zoom (see useCanvasKeyboard.js).
     // Swallow shift+wheel so the browser's default shift→horizontal-pan
@@ -8254,6 +8444,9 @@ function NodeCanvas() {
       const fallbackY = rect.top + rect.height / 2;
       const clientX = (typeof e.clientX === 'number') ? e.clientX : (lastMousePosRef.current?.x ?? fallbackX);
       const clientY = (typeof e.clientY === 'number') ? e.clientY : (lastMousePosRef.current?.y ?? fallbackY);
+      // A new pinch supersedes any coast still running from the previous one.
+      stopZoomMomentum();
+      clearTrackpadZoomGesture();
       gestureAnchor = { x: clientX, y: clientY };
       gestureStartZoom = zoomLevelRef.current;
       pinchRef.current.active = true;
@@ -8292,6 +8485,9 @@ function NodeCanvas() {
         y: anchorY - rect.top - (anchorY - rect.top - prevPan.y) * zoomRatio,
       };
       setPanAndZoom(newPan, newZoom);
+      // Sample the raw finger-driven target (not the eased zoom) so the release
+      // glide launches at the speed the fingers were actually moving.
+      recordTrackpadZoomSample(targetZoom, anchorX, anchorY);
     };
 
     const onGestureEnd = (e) => {
@@ -8310,6 +8506,9 @@ function NodeCanvas() {
       ignoreCanvasClick.current = true;
       armGestureBlock();
       scheduleGestureBlockClear();
+      // Safari gives a real end event, so the coast launches immediately here
+      // rather than waiting out the ctrl+wheel path's idle timer.
+      endTrackpadZoomGesture();
     };
 
     container.addEventListener('gesturestart', onGestureStart, { passive: false });
@@ -8320,7 +8519,7 @@ function NodeCanvas() {
       container.removeEventListener('gesturechange', onGestureChange);
       container.removeEventListener('gestureend', onGestureEnd);
     };
-  }, [MIN_ZOOM, MAX_ZOOM, trackpadZoomEnabled, armGestureBlock, scheduleGestureBlockClear]);
+  }, [MIN_ZOOM, MAX_ZOOM, trackpadZoomEnabled, armGestureBlock, scheduleGestureBlockClear, stopZoomMomentum, clearTrackpadZoomGesture, recordTrackpadZoomSample, endTrackpadZoomGesture]);
 
   // --- Touch helpers for canvas interactions (moved here to ensure refs/state are initialized) ---
   const touch = useCanvasTouch({
@@ -8993,6 +9192,13 @@ function NodeCanvas() {
     if (e && e.button === 2) {
       try { e.preventDefault(); e.stopPropagation(); } catch { }
       return;
+    }
+    // Any press on the canvas halts a coasting trackpad zoom — stopPanMomentum
+    // deliberately leaves the zoom glide alone (see its comment), so stop it here.
+    // Touch presses are handled in useCanvasTouch's touchstart.
+    if (!e?.touches) {
+      stopZoomMomentum();
+      clearTrackpadZoomGesture();
     }
     // Middle-button: start the zoom-by-drag gesture when enabled, suppressing browser autoscroll.
     // When disabled, plain middle-button falls through to the regular pan path.
@@ -13824,6 +14030,9 @@ function NodeCanvas() {
                               edge, sourceNode, destNode, sNodeDims, eNodeDims, lombardiTangents,
                               { curvature: lombardiCurvature, selectedInstanceIds,
                                 curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing,
+                                // The arrowhead polygon is drawn at scale(connectionWidth), so
+                                // the routing has to back its ends off by the same factor.
+                                connectionWidth,
                                 sourceBounds: sAnchorInfo?.outerBounds ? {
                                   minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
                                   maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
@@ -13851,12 +14060,11 @@ function NodeCanvas() {
                           // on hover would desync the two (and make the retracted ends dead).
                           const orthoHitPathD = orthoPathD;
                           if (orthoRouting && isActive) {
-                            // Lombardi's arrow-bearing ends already retreat by LOMBARDI_ARROW_INSET
-                            // (see computeLombardiRouting); match that here so a hovered dot sits
-                            // as far back as an arrow would, instead of drifting closer to the node.
-                            const previewBack = orthoRouting.kind === 'lombardi'
-                              ? LOMBARDI_ARROW_INSET + 8
-                              : POLY_TIP * connectionWidth + 8;
+                            // A hovered dot sits as far back as an arrow would. Lombardi used
+                            // to need its own branch here because its arrows retreated by a
+                            // flat constant; now that they back off by POLY_TIP * width like
+                            // everything else, there is one expression for every style.
+                            const previewBack = POLY_TIP * connectionWidth + 8;
                             const sBox = sAnchorInfo?.outerBounds
                               ? { minX: sAnchorInfo.outerBounds.x, minY: sAnchorInfo.outerBounds.y,
                                   maxX: sAnchorInfo.outerBounds.x + sAnchorInfo.outerBounds.width,
@@ -14868,20 +15076,23 @@ function NodeCanvas() {
                                     midY = stabilized.y;
                                     angle = stabilized.angle || 0;
 
-                                    // Register the rect the label ACTUALLY occupies. The old code
-                                    // stored a pre-stabilization, always-horizontal box, so later
-                                    // labels dodged a phantom: wrong position for stabilized labels,
-                                    // and wrong axis entirely for vertical ones.
-                                    const halfW = estimateTextWidth(connectionName, connectionFontSize) / 2;
-                                    const halfH = connectionFontSize * 1.1 / 2;
-                                    const isVerticalLabel = Math.abs(((angle % 180) + 180) % 180 - 90) < 45;
+                                    // Register the rect the label ACTUALLY occupies, at the
+                                    // position and angle it actually ended up at — the labels
+                                    // placed after this one dodge whatever goes in here.
+                                    //
+                                    // Via the placer's own helper rather than a second copy of
+                                    // the geometry. The copy that used to live here snapped the
+                                    // angle to horizontal-or-vertical, so on a Lombardi label
+                                    // (which sits at neither) it registered a box far shorter
+                                    // than the text being drawn, and every later label happily
+                                    // placed itself inside it.
                                     placedLabelsRef.current.set(edge.id, {
-                                      rect: {
-                                        minX: midX - (isVerticalLabel ? halfH : halfW),
-                                        maxX: midX + (isVerticalLabel ? halfH : halfW),
-                                        minY: midY - (isVerticalLabel ? halfW : halfH),
-                                        maxY: midY + (isVerticalLabel ? halfW : halfH),
-                                      },
+                                      rect: labelBoundsFor(
+                                        midX, midY,
+                                        estimateTextWidth(connectionName, connectionFontSize),
+                                        connectionFontSize * 1.1,
+                                        angle
+                                      ),
                                       signature: labelSignature,
                                       position: { x: midX, y: midY, angle },
                                       // How far along the route this solve landed, so a drag can

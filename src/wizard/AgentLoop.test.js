@@ -608,7 +608,11 @@ describe('AgentLoop', () => {
   });
 
   describe('context building', () => {
-    it('includes context in system prompt', async () => {
+    // The graph snapshot deliberately does NOT live in the system prompt any
+    // more. Providers cache a request prefix, so a system block that changes
+    // every iteration makes the whole conversation behind it uncacheable — the
+    // snapshot rides at the tail of the request instead.
+    it('sends the context at the tail of the request, not in the system prompt', async () => {
       const { buildPersistentContextHeader } = await import('./ContextBuilder.js');
       buildPersistentContextHeader.mockReturnValue('Mock persistent context string');
 
@@ -616,23 +620,101 @@ describe('AgentLoop', () => {
         yield { type: 'text', content: 'Hello' };
       });
 
-      const events = [];
-      for await (const event of runAgent('Hello', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
-        events.push(event);
+      for await (const _event of runAgent('Hello', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
+        // drain
       }
 
       expect(buildPersistentContextHeader).toHaveBeenCalledWith(mockGraphState, []);
-      expect(streamLLM).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({
-            role: 'system',
-            content: expect.stringContaining('Mock persistent context string')
-          })
-        ]),
-        expect.any(Array),
-        mockConfig,
-        null // abortSignal defaults to null
+
+      const sent = streamLLM.mock.calls[0][0];
+      const system = sent.find(m => m.role === 'system');
+      expect(system.content).not.toContain('Mock persistent context string');
+
+      const last = sent[sent.length - 1];
+      expect(last.role).toBe('user');
+      expect(last.content).toContain('Mock persistent context string');
+    });
+
+    it('keeps the system prompt byte-identical across iterations', async () => {
+      const { buildPersistentContextHeader } = await import('./ContextBuilder.js');
+      let n = 0;
+      // A context header that changes every iteration, as it does during a build.
+      buildPersistentContextHeader.mockImplementation(() => `context revision ${n++}`);
+
+      let call = 0;
+      streamLLM.mockImplementation(async function* () {
+        call++;
+        if (call < 3) {
+          yield { type: 'tool_call', name: 'readGraph', args: {}, id: `t${call}` };
+        } else {
+          yield { type: 'text', content: 'Done' };
+        }
+      });
+
+      for await (const _event of runAgent('Build something', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
+        // drain
+      }
+
+      expect(streamLLM.mock.calls.length).toBeGreaterThan(1);
+      const systemContents = streamLLM.mock.calls.map(
+        ([msgs]) => msgs.find(m => m.role === 'system').content
       );
+      expect(new Set(systemContents).size).toBe(1);
+    });
+
+    it('does not accumulate context blocks in the stored conversation', async () => {
+      const { buildPersistentContextHeader } = await import('./ContextBuilder.js');
+      buildPersistentContextHeader.mockReturnValue('SNAPSHOT');
+
+      let call = 0;
+      streamLLM.mockImplementation(async function* () {
+        call++;
+        if (call < 3) {
+          yield { type: 'tool_call', name: 'readGraph', args: {}, id: `t${call}` };
+        } else {
+          yield { type: 'text', content: 'Done' };
+        }
+      });
+
+      for await (const _event of runAgent('Build something', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
+        // drain
+      }
+
+      // Exactly one snapshot per request — a second would mean a previous
+      // iteration's (now stale) block was written into the message array.
+      for (const [msgs] of streamLLM.mock.calls) {
+        const withSnapshot = msgs.filter(
+          m => typeof m.content === 'string' && m.content.includes('SNAPSHOT')
+        );
+        expect(withSnapshot).toHaveLength(1);
+      }
+    });
+  });
+
+  describe('tool set stability', () => {
+    // Tools are the first block of the request, so re-selecting them mid-ask
+    // invalidated the cache prefix for tools, system prompt AND history — at the
+    // 1.25x cache-write rate, which is worse than not caching at all.
+    it('freezes the tool set across iterations', async () => {
+      let call = 0;
+      streamLLM.mockImplementation(async function* () {
+        call++;
+        if (call < 4) {
+          yield { type: 'tool_call', name: 'readGraph', args: {}, id: `t${call}` };
+        } else {
+          yield { type: 'text', content: 'Done' };
+        }
+      });
+
+      for await (const _event of runAgent('Build something', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
+        // drain
+      }
+
+      expect(streamLLM.mock.calls.length).toBeGreaterThan(2);
+      const toolNames = streamLLM.mock.calls.map(
+        ([, tools]) => tools.map(t => t.name).join(',')
+      );
+      expect(new Set(toolNames).size).toBe(1);
     });
   });
 

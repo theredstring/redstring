@@ -378,12 +378,10 @@ export async function sketchGraph(args, graphState) {
     memberNames: group.memberNames
   }));
 
-  // Run quality analysis on the expanded spec. Layers count as nodes here — a
-  // layer occupies a spot on the canvas exactly like a Thing does.
-  const quality = analyzeGraphQuality(
-    [...expandedNodes, ...expandedLayers.map(l => ({ name: l.name, color: l.color, description: l.description }))],
-    expandedEdges
-  );
+  // Run quality analysis on the expanded spec. Layers go through the dedicated
+  // `layers` option rather than being folded into the node list, so the analyzer
+  // can also judge whether this level is composed or flat.
+  const quality = analyzeGraphQuality(expandedNodes, expandedEdges, { layers: expandedLayers });
 
   // Build validation warnings
   const warnings = [...ctx.warnings];

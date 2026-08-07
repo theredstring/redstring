@@ -16,7 +16,10 @@ import {
   MIN_VISIBLE_BOW,
   lombardiArcFor,
   MAX_TANGENT_CHORD,
+  POLY_TIP,
+  lombardiLineTrim,
 } from '../../src/utils/canvas/edgeRouting.js';
+import { getNodeHitbox } from '../../src/utils/canvas/nodeHitbox.js';
 import {
   placeLabelOnPath,
   chooseOrthogonalLabelPlacement,
@@ -462,12 +465,101 @@ describe('computeLombardiRouting', () => {
     expect(r.destArrow).toBeNull();
   });
 
-  it('pulls an arrow-bearing end back to the node border', () => {
+  it('pulls an arrow-bearing end back clear of the node', () => {
     const r = computeLombardiRouting(edge(['b']), node('a', 0, 0), node('b', 600, 0), d, d, tangents);
-    // Border of b is at x = 600 + 6 (visual inset), well short of its centre.
-    expect(r.endX).toBeLessThan(660);
-    expect(r.endX).toBeGreaterThan(600);
+    // Border of b is at x = 600 + 6 (visual inset), well short of its centre at
+    // 660. The drawn stroke stops short of even that: it has to end under the
+    // arrowhead's rear edge, which is a further lombardiLineTrim back.
+    expect(r.endX).toBeLessThan(606);
     expect(r.destArrow).not.toBeNull();
+  });
+
+  // The arrowhead is drawn as translate(origin) rotate(angle+90) scale(cw), so
+  // its tip lands here. Mirrors the formula in parallelEdgeUtils' placement.
+  const tipOf = (arrow, cw) => {
+    const rad = (arrow.angle * Math.PI) / 180;
+    return {
+      x: arrow.x + cw * POLY_TIP * Math.cos(rad),
+      y: arrow.y + cw * POLY_TIP * Math.sin(rad),
+    };
+  };
+  // How far a point misses the box's OUTLINE by, on whichever side it falls.
+  // Not "is it inside": a tip landing exactly on the border is the target, and
+  // a strict inside/outside test on that point is decided by the last ulp.
+  const borderMiss = (pt, box) => {
+    const outside = Math.hypot(
+      Math.max(box.minX - pt.x, 0, pt.x - box.maxX),
+      Math.max(box.minY - pt.y, 0, pt.y - box.maxY),
+    );
+    if (outside > 0) return outside;
+    return Math.min(pt.x - box.minX, box.maxX - pt.x, pt.y - box.minY, box.maxY - pt.y);
+  };
+
+  describe('arrowhead placement is independent of connection width', () => {
+    // The regression: origin and line trim shared one flat constant with no
+    // width term, while the polygon itself scales with width. The tip therefore
+    // moved POLY_TIP px for every 1.0 on the slider — clear of the border at the
+    // bottom of its range, deep inside the node at the top.
+    const WIDTHS = [0.25, 0.5, 1, 1.5, 2, 3, 4];
+    const SHAPES = {
+      'gentle bow': new Map([['e1', { sourceAngle: 0.15, destAngle: Math.PI - 0.15 }]]),
+      'medium bow': new Map([['e1', { sourceAngle: 0.6, destAngle: Math.PI - 0.6 }]]),
+      'tight bow': new Map([['e1', { sourceAngle: 1.15, destAngle: Math.PI - 1.15 }]]),
+      'straight (no tangents)': new Map(),
+    };
+
+    for (const [shape, tans] of Object.entries(SHAPES)) {
+      it(`lands the tip on the node border at every width — ${shape}`, () => {
+        const b = node('b', 600, 0);
+        const box = getNodeHitbox(b, d, false);
+        for (const cw of WIDTHS) {
+          const r = computeLombardiRouting(edge(['b']), node('a', 0, 0), b, d, d, tans, { connectionWidth: cw });
+          expect(borderMiss(tipOf(r.destArrow, cw), box)).toBeLessThan(0.5);
+        }
+      });
+    }
+
+    it('does the same for a source-side arrow', () => {
+      const a = node('a', 0, 0);
+      const box = getNodeHitbox(a, d, false);
+      for (const cw of WIDTHS) {
+        const r = computeLombardiRouting(edge(['a']), a, node('b', 600, 0), d, d, SHAPES['medium bow'], { connectionWidth: cw });
+        expect(borderMiss(tipOf(r.sourceArrow, cw), box)).toBeLessThan(0.5);
+      }
+    });
+
+    it('retreats the drawn stroke further as the width grows', () => {
+      // The stroke ends under the arrowhead's rear edge, which is 2*POLY_TIP*cw
+      // behind the tip — so unlike the tip, this one MUST move with the width.
+      const ends = WIDTHS.map(cw =>
+        computeLombardiRouting(edge(['b']), node('a', 0, 0), node('b', 600, 0), d, d, tangents, { connectionWidth: cw }).endX
+      );
+      for (let i = 1; i < ends.length; i++) expect(ends[i]).toBeLessThan(ends[i - 1]);
+    });
+
+    it('defaults to width 1 when the caller says nothing', () => {
+      const withDefault = computeLombardiRouting(edge(['b']), node('a', 0, 0), node('b', 600, 0), d, d, tangents);
+      const explicit = computeLombardiRouting(edge(['b']), node('a', 0, 0), node('b', 600, 0), d, d, tangents, { connectionWidth: 1 });
+      expect(withDefault.endX).toBeCloseTo(explicit.endX, 9);
+      expect(withDefault.destArrow.x).toBeCloseTo(explicit.destArrow.x, 9);
+    });
+  });
+
+  describe('lombardiLineTrim', () => {
+    it('scales linearly with connection width', () => {
+      expect(lombardiLineTrim(2)).toBeCloseTo(2 * lombardiLineTrim(1), 9);
+      expect(lombardiLineTrim(0.5)).toBeCloseTo(0.5 * lombardiLineTrim(1), 9);
+    });
+    it('treats a missing or zero width as 1', () => {
+      expect(lombardiLineTrim()).toBeCloseTo(lombardiLineTrim(1), 9);
+      expect(lombardiLineTrim(0)).toBeCloseTo(lombardiLineTrim(1), 9);
+    });
+    it('clears the whole arrowhead, so the stroke cap hides under it', () => {
+      // Rear edge is 2*POLY_TIP behind the tip; the cap bulges back by its own
+      // radius, so the trim sits between the tip and that rear edge.
+      expect(lombardiLineTrim(1)).toBeGreaterThan(POLY_TIP);
+      expect(lombardiLineTrim(1)).toBeLessThan(2 * POLY_TIP);
+    });
   });
 
   it('orients the source arrow back toward its own node', () => {

@@ -624,6 +624,11 @@ export const useNodeDrag = ({
     // instant the drag ended.
     const labelArcMinBow = Math.max(MIN_VISIBLE_BOW, LABEL_CURVE_MIN_SCREEN_PX / Math.max(zoomLevelRef?.current ?? 1, 0.01));
 
+    // Read once per frame, not once per edge — it cannot change mid-frame, and
+    // the routing below needs it as well as the arrowhead transform does (the
+    // Lombardi end back-offs scale with it; see lombardiArrowInsets).
+    const dragConnWidth = useGraphStore.getState().textSettings?.connectionWidth ?? 1;
+
     // Edge data index was built once at drag start; reuse it.
     const edgeDataMap = dragEdgeDataRef.current;
 
@@ -794,6 +799,7 @@ export const useNodeDrag = ({
               selectedInstanceIds: curSelectedIds,
               curveInfo: curCurveInfo.get(edgeId),
               laneSpacing: 200 * (multiConnectionCurveRef?.current ?? 1) * LOMBARDI_LANE_FRACTION,
+              connectionWidth: dragConnWidth,
               sourceBounds: boundsOf(sAnchor),
               destBounds: boundsOf(eAnchor),
             }
@@ -874,7 +880,6 @@ export const useNodeDrag = ({
           (labelPos.angle > 90 || labelPos.angle < -90) ? labelPos.angle + 180 : labelPos.angle,
           labelAngleQuantumRef?.current ?? 0
         );
-        const dragConnWidth = useGraphStore.getState().textSettings?.connectionWidth ?? 1;
 
         // A curved Lombardi label is positioned entirely by its path, so the
         // drag has to move the PATH, not the <text>. Recomputed from the same

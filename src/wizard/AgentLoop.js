@@ -10,10 +10,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
 import { buildContext, buildPersistentContextHeader, buildPlanContext, truncateContext } from './ContextBuilder.js';
-import { MAX_TOOL_RESULT_CHARS, estimateObjectTokens } from './tokenEstimate.js';
+import { MAX_TOOL_RESULT_CHARS, estimateObjectTokens, estimateTokens } from './tokenEstimate.js';
 import { isSettled } from './tools/planTask.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
 import { selectToolsForTurn } from './tools/schemas.js';
+import { buildRequestMessages } from './requestMessages.js';
+import { dedupeHistory, dedupKeyFor } from './historyDedup.js';
 import { WIZARD_SYSTEM_PROMPT, SMALL_MODEL_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 import { parseTextToolCalls } from './utils/parseTextToolCalls.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
@@ -1167,33 +1169,19 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     .replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
     .replace(/{maxIterations}/g, String(maxIterations));
 
-  // Split the template at the {context} placeholder. Everything before it is
-  // byte-identical on every iteration of this ask, which makes it the cacheable
-  // prefix providers can charge a tenth of the price for; everything from the
-  // placeholder on is rebuilt each iteration from mutated graph state.
+  // The system prompt is now STATIC for the whole ask. The {context} placeholder
+  // is dropped rather than filled: the graph snapshot it used to carry is
+  // injected at the tail of the request instead (see requestMessages.js), which
+  // is what allows the conversation history behind it to be cached at all.
   //
-  // In WizardPrompt.js the placeholder sits at the very end, so the prefix is
-  // essentially the whole ~12k-token prompt. buildSystemMessage() below keeps the
-  // two halves consistent, and providers that ignore `cachePrefix` still receive
-  // exactly the same concatenated string they got before.
-  const contextPlaceholderIdx = systemPromptTemplate.indexOf('{context}');
-  const systemStaticPrefix = contextPlaceholderIdx >= 0
-    ? systemPromptTemplate.slice(0, contextPlaceholderIdx)
-    : null;
-  const systemStaticSuffix = contextPlaceholderIdx >= 0
-    ? systemPromptTemplate.slice(contextPlaceholderIdx + '{context}'.length)
-    : '';
-
-  const buildSystemMessage = (contextText) => {
-    if (systemStaticPrefix === null) {
-      // No placeholder (custom systemPrompt from config) — nothing stable to cache.
-      return { role: 'system', content: systemPromptTemplate };
-    }
-    return {
-      role: 'system',
-      content: systemStaticPrefix + contextText + systemStaticSuffix,
-      cachePrefix: systemStaticPrefix
-    };
+  // Because nothing in here varies between iterations, the entire block is the
+  // cache prefix — no splitting, no volatile remainder riding along behind the
+  // breakpoint and invalidating it.
+  const staticSystemContent = systemPromptTemplate.replace('{context}', '');
+  const systemMessage = {
+    role: 'system',
+    content: staticSystemContent,
+    cachePrefix: staticSystemContent
   };
 
   // Build messages array with conversation history (sliding window)
@@ -1243,7 +1231,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const primingMessages = modelTier === 'small' ? [{ role: 'assistant', content: 'Understood.' }] : [];
 
   let messages = [
-    buildSystemMessage(initialContext),
+    systemMessage,
     ...primingMessages,
     ...historyMessages,
     { role: 'user', content: userMessage }
@@ -1304,6 +1292,15 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   // Whether we've already warned this ask, so the 80% notice fires once.
   let budgetWarned = false;
 
+  // Where the input tokens actually go. The question "why did this ask cost so
+  // much" was previously unanswerable — the totals said how much, never what for,
+  // so the only way to find bloat was to guess at it. These are estimates (the
+  // provider reports one undifferentiated input count), but they are measured
+  // from the exact strings sent, so the proportions are trustworthy even where
+  // the absolute numbers drift a little.
+  let askReclaimedTokens = 0;          // saved by superseding stale reads
+  const reclaimedByTool = {};          // ...attributed to the tool that caused it
+
   // A plan present before the first iteration was inherited from a previous turn
   // (the UI seeds _currentPlan from the durable store when the last run stopped
   // mid-plan). It stops being "resumed" the moment the model calls planTask
@@ -1315,8 +1312,43 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     console.error(`[AgentLoop] Resuming a carried-over plan: ${settledCount}/${graphState._currentPlan.length} settled.`);
   }
 
+  // Tool selection is FROZEN for the whole ask.
+  //
+  // It used to be recomputed every iteration, and selectToolsForTurn gates on
+  // hasNodes / has3PlusNodes / has5PlusNodes / hasEdges / hasGroups /
+  // multipleGraphs / hasDefinitions — every one of which flips during a build.
+  // Tools are the FIRST block of a provider request, so each flip invalidated the
+  // whole cache prefix: tools, system prompt and conversation history all had to
+  // be written again, at the 1.25x cache-write rate. Churning the tool block did
+  // not merely lose the discount, it cost more than sending no cache_control at
+  // all. Whatever a few kilobytes of skipped schemas saved, this dwarfed it.
+  //
+  // The gates are still applied — once, from the state at the start of the ask.
+  const userMessageText = typeof userMessage === 'string'
+    ? userMessage
+    : (Array.isArray(userMessage) ? userMessage.filter(b => b.type === 'text').map(b => b.text).join(' ') : '');
+  let tools = selectToolsForTurn({ graphState, userMessage: userMessageText, hasTabularData, modelTier });
+  // `listTools` sets _unlockAllTools to deliberately widen the toolset mid-ask.
+  // That is a real, intentional change, so it earns exactly one recomputation and
+  // the single cache write that comes with it — unlike the incidental churn above.
+  let toolsUnlocked = !!graphState?._unlockAllTools;
+  console.error(`[AgentLoop] Tool set frozen for this ask: ${tools.length} tools.`);
+
+  // Rebuilt each iteration and injected at the tail of the request only.
+  let volatileContext = '';
+
+  // The fixed cost every request carries before a word of conversation: the
+  // static system prompt plus the (now frozen) tool schemas. Measured from the
+  // real artifacts so growing the prompt or adding a tool shows up here rather
+  // than silently eating headroom.
+  const systemTokens = estimateTokens(staticSystemContent);
+  const toolSchemaTokens = estimateObjectTokens(tools);
+
   for (let iteration = 0; iteration < maxIterations; iteration++) {
-    // Rebuild context from (potentially mutated) graphState so LLM sees current state
+    // Rebuild context from (potentially mutated) graphState so the model sees
+    // current state. This is the ONLY volatile part of the request, and it is
+    // deliberately not written into `messages` — it rides at the tail of a
+    // throwaway copy so everything before it stays byte-stable and cacheable.
     {
       let freshContext = iteration > 0 ? buildPersistentContextHeader(graphState, contextItems) + attachmentContextSuffix : initialContext;
       if (modelTier === 'small') freshContext = truncateContext(freshContext, 2000);
@@ -1326,8 +1358,28 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       const planCtx = graphState._currentPlan
         ? buildPlanContext(graphState._currentPlan, iteration, maxIterations, { isResumed: planWasResumed })
         : '';
-      messages[0] = buildSystemMessage(freshContext + planCtx);
+      volatileContext = freshContext + planCtx;
     }
+    // Collapse read-only results that a later read of the same target has made
+    // obsolete. Rewriting history mid-array does cost one cache write, but a
+    // superseded readGraph snapshot is routinely thousands of tokens that would
+    // otherwise be re-read on every remaining iteration — and it describes a graph
+    // that has since changed, so carrying it is worse than paying to drop it.
+    {
+      const deduped = dedupeHistory(messages);
+      if (deduped.supersededCount > 0) {
+        messages = deduped.messages;
+        askReclaimedTokens += deduped.reclaimedTokens;
+        for (const [tool, saved] of Object.entries(deduped.byTool)) {
+          reclaimedByTool[tool] = (reclaimedByTool[tool] || 0) + saved;
+        }
+        console.error(
+          `[AgentLoop] Superseded ${deduped.supersededCount} stale read result(s), `
+          + `reclaiming ~${deduped.reclaimedTokens} tokens per iteration from here on.`
+        );
+      }
+    }
+
     // Small models have limited context windows — trim conversation history to prevent
     // the model from returning empty responses due to context overflow.
     // Keep: system [0], priming turn [1], last 8 messages.
@@ -1348,16 +1400,18 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       let iterationContent = '';
       let iterationUsage = null; // last usage chunk this call (providers report cumulative)
 
-      // Re-evaluate tool selection each iteration (graphState changes after tool execution)
-      const userMessageText = typeof userMessage === 'string'
-        ? userMessage
-        : (Array.isArray(userMessage) ? userMessage.filter(b => b.type === 'text').map(b => b.text).join(' ') : '');
-      let tools = selectToolsForTurn({ graphState, userMessage: userMessageText, hasTabularData, modelTier });
-      // Once plan-churn is detected, strip planTask for the rest of the turn so the model
-      // is forced to execute rather than re-plan.
-      if (planTaskLocked) {
-        tools = tools.filter(t => t.name !== 'planTask');
+      // The toolset is frozen (see above); the only permitted change is the
+      // one-time widening `listTools` requests.
+      if (!toolsUnlocked && graphState?._unlockAllTools) {
+        toolsUnlocked = true;
+        tools = selectToolsForTurn({ graphState, userMessage: userMessageText, hasTabularData, modelTier });
+        console.error(`[AgentLoop] listTools unlocked the full toolset: ${tools.length} tools (one cache write).`);
       }
+      // planTask churn used to be handled by filtering the schema out of `tools`,
+      // which mutated the cached block for the rest of the ask. The executor
+      // already refuses a locked planTask and returns a steering result (see the
+      // `planTaskLocked || planTaskCallCount >= MAX_PLANTASK_CALLS` branch below),
+      // so the schema can stay put and the cache stays intact.
 
       // Stream LLM response for this iteration
       // Track what we've yielded to prevent duplicates
@@ -1374,7 +1428,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // (Qwen, DeepSeek-R1 distills, etc. wrap their chain-of-thought in these tags)
       let inThinkTag = false;
       let tagBuf = ''; // partial tag detection buffer
-      for await (const chunk of streamLLM(messages, tools, config, abortSignal)) {
+      const requestMessages = buildRequestMessages(messages, volatileContext);
+      for await (const chunk of streamLLM(requestMessages, tools, config, abortSignal)) {
         if (chunk.type === 'thinking') {
           // Native thinking tokens (Anthropic extended thinking) — pass straight through
           yield { type: 'thinking', content: chunk.content };
@@ -1496,6 +1551,28 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           + completionTokens
         );
 
+        // Where this iteration's input went. The provider reports one input
+        // number, so the split is estimated from the exact strings that were
+        // sent — proportions are reliable even if the absolute figures drift a
+        // little from the tokenizer's. `history` is what remains after the parts
+        // we can measure directly, which is also the part that grows without
+        // bound and therefore the one worth watching.
+        const contextTokens = estimateTokens(volatileContext);
+        const measured = systemTokens + toolSchemaTokens + contextTokens;
+        const historyTokens = Math.max(0, promptTokens - measured);
+        const costBreakdown = {
+          tools: toolSchemaTokens,
+          system: systemTokens,
+          context: contextTokens,
+          history: historyTokens,
+          output: completionTokens,
+          // How much of the input was answered from cache. Low here on a long run
+          // means caching is broken, not that the ask is inherently expensive.
+          cachedFraction: promptTokens > 0 ? Math.round((cacheReadTokens / promptTokens) * 100) : 0,
+          reclaimed: askReclaimedTokens,
+          reclaimedByTool: { ...reclaimedByTool }
+        };
+
         yield {
           type: 'usage',
           iteration: iteration + 1,
@@ -1508,8 +1585,18 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           askCompletionTokens,
           askTotalTokens: askPromptTokens + askCompletionTokens,
           askUploadedTokens,
-          askChargedTokens
+          askChargedTokens,
+          // Consumed by the panel's context meter, which otherwise has to guess
+          // at the graph header's size (it used to hardcode 3,750).
+          contextHeaderTokens: contextTokens,
+          costBreakdown
         };
+
+        console.error(
+          `[AgentLoop] iter ${iteration + 1} input ${promptTokens} = `
+          + `tools ${toolSchemaTokens} + system ${systemTokens} + context ${contextTokens} + history ${historyTokens}`
+          + ` | cached ${costBreakdown.cachedFraction}% | charged ${askChargedTokens}`
+        );
 
         // Hard per-ask cost ceiling. Stop once cumulative spend crosses the budget,
         // regardless of how many iterations remain. This fires AFTER this iteration's
@@ -1790,11 +1877,16 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             id: toolCall.id
           };
 
-          // Add sanitized tool result to conversation (strip UI-only data to save tokens)
+          // Add sanitized tool result to conversation (strip UI-only data to save tokens).
+          // `_dedupKey`/`_toolName` are internal (stripped before any provider sees
+          // them) and let a later read of the same target supersede this one — the
+          // arguments and the resolved result are both in hand here and nowhere else.
           messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
-            content: JSON.stringify(sanitizeResultForLLM(result))
+            content: JSON.stringify(sanitizeResultForLLM(result)),
+            _toolName: toolCall.name,
+            _dedupKey: dedupKeyFor(toolCall.name, toolCall.args, result)
           });
 
           // Collect sparse definition graphs so we can nudge the model to expand them

@@ -157,7 +157,7 @@ import { generateDescription } from '../utils/actionDescriptions.js';
  * @property {Object} textSettings - `{ fontSize, lineSpacing, nodeScale, connectionWidth, plusSignScale, pieMenuScale }`.
  * @property {Object} keyboardSettings - `{ zoomSensitivity, panSensitivity }` in range [0, 1].
  * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
- * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength }`.
+ * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength }`.
  */
 
 // Enable Immer plugins
@@ -1365,9 +1365,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!Number.isFinite(pinchGlideStrength)) pinchGlideStrength = 0.5;
         pinchGlideStrength = Math.max(0.0, Math.min(1.0, pinchGlideStrength));
 
-        return { zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength };
+        const trackpadZoomGlideRaw = localStorage.getItem('redstring_trackpad_zoom_glide_enabled');
+        const trackpadZoomGlideEnabled = trackpadZoomGlideRaw === null ? true : trackpadZoomGlideRaw === 'true';
+
+        const trackpadZoomGlideStrengthRaw = localStorage.getItem('redstring_trackpad_zoom_glide_strength');
+        let trackpadZoomGlideStrength = trackpadZoomGlideStrengthRaw !== null ? parseFloat(trackpadZoomGlideStrengthRaw) : 0.5;
+        if (!Number.isFinite(trackpadZoomGlideStrength)) trackpadZoomGlideStrength = 0.5;
+        trackpadZoomGlideStrength = Math.max(0.0, Math.min(1.0, trackpadZoomGlideStrength));
+
+        return { zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength };
       } catch (_) {
-        return { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomSensitivity: 0.5, trackpadPanSensitivity: 0.5, pinchGlideEnabled: true, pinchGlideStrength: 0.5 };
+        return { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomSensitivity: 0.5, trackpadPanSensitivity: 0.5, pinchGlideEnabled: true, pinchGlideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideStrength: 0.5 };
       }
     })(),
 
@@ -5930,6 +5938,32 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.touchSettings.trackpadPanSensitivity = v;
       try {
         localStorage.setItem('redstring_trackpad_pan_sensitivity', String(v));
+      } catch (_) { }
+    })),
+
+    /** Toggles momentum/glide zoom after a trackpad pinch-zoom gesture stops. Persists to localStorage. */
+    toggleTrackpadZoomGlide: () => set(produce((draft) => {
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideStrength: 0.5 };
+      draft.touchSettings.trackpadZoomGlideEnabled = draft.touchSettings.trackpadZoomGlideEnabled === false;
+      try {
+        localStorage.setItem('redstring_trackpad_zoom_glide_enabled', String(draft.touchSettings.trackpadZoomGlideEnabled));
+      } catch (_) { }
+    })),
+
+    /**
+     * Sets how far trackpad zoom glide coasts after the gesture stops. Range [0, 1]. Persists to localStorage.
+     * @param {number} value
+     */
+    setTrackpadZoomGlideStrength: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
+        console.warn(`[setTrackpadZoomGlideStrength] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideStrength: 0.5 };
+      draft.touchSettings.trackpadZoomGlideStrength = v;
+      try {
+        localStorage.setItem('redstring_trackpad_zoom_glide_strength', String(v));
       } catch (_) { }
     })),
 

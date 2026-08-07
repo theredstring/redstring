@@ -10,6 +10,7 @@ import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 import { validateEdgesSmart } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
+import { normalizeLayersOnly } from './utils/graphSpec.js';
 
 /**
  * Convert string to Title Case
@@ -86,7 +87,7 @@ function findPrototypeByName(nodeName, nodePrototypes, graphState = null) {
  * @returns {Promise<Object>} Action spec with new graph ID and added spec
  */
 export async function populateDefinitionGraph(args, graphState, cid, ensureSchedulerStarted) {
-    const { nodeName, nodes = [], edges = [], groups = [], palette, enrich, overwriteDescription } = args;
+    const { nodeName, nodes = [], edges = [], groups = [], layers = [], palette, enrich, overwriteDescription } = args;
 
     if (!nodeName) {
         throw new Error('nodeName is required. Example: populateDefinitionGraph({"nodeName": "Los Santos", "nodes": "[{\\"name\\": \\"Grove Street\\"}]"})');
@@ -188,7 +189,14 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
     }));
 
     // Analyze graph quality for LLM feedback
-    const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs);
+    // Composition. Going inside a node is the moment depth matters most — a
+    // definition that is itself composed is what makes a universe navigable
+    // rather than a stack of flat lists.
+    const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState });
+    const layerSpecs = layerResult ? layerResult.layers : [];
+    const layerWarnings = layerResult ? layerResult.warnings : [];
+
+    const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs });
 
     // Warn when the definition graph is sparse — a good definition should have 5-8 nodes
     const sparseWarning = nodeSpecs.length < 5
@@ -230,10 +238,14 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
         enrich: enrich !== false,
         overwriteDescription: overwriteDescription || false,
         // Include full spec for UI to apply
+        layersAdded: layerSpecs.map(l => l.name),
+        layerCount: layerSpecs.length,
+        ...(layerWarnings.length > 0 ? { layerWarnings } : {}),
         spec: {
             nodes: nodeSpecs,
             edges: edgeSpecs,
-            groups: groupSpecs
+            groups: groupSpecs,
+            layers: layerSpecs
         }
     };
 }

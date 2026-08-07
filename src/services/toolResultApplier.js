@@ -465,6 +465,55 @@ function decomposeCompositionLayers(graphId, layers, warnings) {
   }
 }
 
+/**
+ * Materialize and decompose a set of layers into a graph.
+ *
+ * Extracted from the buildComposition handler so every build tool can produce
+ * depth, not just the one the model has to consciously choose. `expandGraph` in
+ * particular is what the quality-repair loop runs, and while it could only add
+ * flat nodes and edges, each repair pass dismantled whatever composition the
+ * original build had achieved.
+ *
+ * @param {string} graphId - Target graph
+ * @param {Object} spec - GraphSpec whose `layers` are applied. Only the layers
+ *   are read here; the caller has already applied its own flat nodes/edges.
+ * @param {Object} options - { enrich, overwriteDescription }
+ * @param {string} label - Tool name, for logging
+ * @returns {string[]} warnings
+ */
+export function applyCompositionSpec(graphId, spec, options = {}, label = 'composition') {
+  const warnings = [];
+  const layers = Array.isArray(spec?.layers) ? spec.layers : [];
+  if (layers.length === 0) return warnings;
+
+  const store = useGraphStore.getState();
+  if (!graphId || !store.graphs.has(graphId)) {
+    warnings.push(`${label}: target graph not found — layers not applied.`);
+    return warnings;
+  }
+
+  console.log(`[Wizard] Applying ${label} layers to graph:`, graphId, 'layers:', layers.length);
+
+  // Only the layers: the caller's own nodes/edges/groups have already landed, and
+  // re-applying them here would duplicate them.
+  materializeCompositionLevel(graphId, { layers }, options, 0, warnings);
+  try { useGraphStore.getState().cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
+
+  decomposeCompositionLayers(graphId, layers, warnings);
+
+  // Layout runs AFTER decomposition on purpose: the layout engine is group-aware,
+  // so it can only place members sensibly once the groups exist.
+  layoutAfterWizardMutation(graphId);
+  setTimeout(() => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
+    }
+  }, 600);
+
+  if (warnings.length > 0) console.warn(`[Wizard] ${label} layer warnings:`, warnings);
+  return warnings;
+}
+
 // Injectable enrichment hooks. Browser (LeftAIView) supplies the real
 // Wikipedia-backed implementations via configureToolResultApplier; a headless
 // Node host leaves these no-ops so the applier stays pure and non-blocking.
@@ -1592,6 +1641,14 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     console.log('[Wizard] Successfully populated definition graph:', graphId);
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
+    // Layers inside the definition. This is where depth compounds: a definition
+    // that is itself composed is what turns a universe into something navigable
+    // rather than a stack of flat lists one level down from each other.
+    applyCompositionSpec(graphId, result.spec, {
+      enrich: result.enrich !== false,
+      overwriteDescription: result.overwriteDescription || false
+    }, 'populateDefinitionGraph');
+
     layoutAfterWizardMutation(graphId);
     setTimeout(() => {
       if (typeof window !== 'undefined') {
@@ -1756,6 +1813,14 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
 
     console.log('[Wizard] Successfully populated graph:', graphId);
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
+
+    // Layers authored alongside the flat nodes. Applied after them so an edge
+    // from an authored node to a layer's shell resolves against a graph that
+    // already contains both endpoints.
+    applyCompositionSpec(graphId, result.spec, {
+      enrich: result.enrich !== false,
+      overwriteDescription: result.overwriteDescription || false
+    }, 'createPopulatedGraph');
 
     // 3b. Ladder → build the abstraction axis instead of a disconnected pile.
     // Falls back silently to the flat nodes if it can't resolve enough rungs.
@@ -1994,6 +2059,14 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     // Apply bulk updates to the ACTIVE graph (not creating a new one)
     store.applyBulkGraphUpdates(activeGraphId, bulkData);
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
+
+    // Layers, if the model authored any. Runs after the flat nodes land so edges
+    // between an authored node and a layer's shell resolve against a graph that
+    // already contains both.
+    applyCompositionSpec(activeGraphId, result.spec, {
+      enrich: result.enrich !== false,
+      overwriteDescription: result.overwriteDescription || false
+    }, 'expandGraph');
 
     // Verify the operation actually succeeded
     const updatedGraph = store.graphs.get(activeGraphId);

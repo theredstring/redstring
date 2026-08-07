@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { quantizeAngle, estimateTextWidth } from '../../src/utils/canvas/edgeLabelPlacement.js';
+import {
+  quantizeAngle,
+  estimateTextWidth,
+  labelBoundsFor,
+  chooseRoutedLabelPlacement,
+  getVisibleObstacleRects,
+} from '../../src/utils/canvas/edgeLabelPlacement.js';
+import {
+  computeLombardiTangents,
+  computeLombardiRouting,
+  LOMBARDI_LANE_FRACTION,
+} from '../../src/utils/canvas/edgeRouting.js';
 
 describe('quantizeAngle', () => {
   // The point of this function is a rendering-cost one: distinct rotation
@@ -54,9 +65,9 @@ describe('quantizeAngle', () => {
 describe('label angle quantum (the renderer\'s zoom-derived bucket size)', () => {
   // Mirrors NodeCanvas's `labelAngleQuantum`. Kept here so the error bound the
   // constants claim is actually checked rather than asserted in a comment.
-  const LABEL_ANGLE_ERROR_PX = 2;
+  const LABEL_ANGLE_ERROR_PX = 12;
   const LABEL_HALF_WIDTH_CANVAS = 150;
-  const MAX_LABEL_ANGLE_QUANTUM = 4;
+  const MAX_LABEL_ANGLE_QUANTUM = 9;
 
   const quantumFor = (zoom) => {
     const halfWidthOnScreen = LABEL_HALF_WIDTH_CANVAS * zoom;
@@ -107,12 +118,131 @@ describe('label angle quantum (the renderer\'s zoom-derived bucket size)', () =>
   it('is coarse enough at fit-the-graph zoom to matter', () => {
     // 0.15 is roughly where a 250-node graph fits on screen — the case that
     // was measured at 50ms/frame with unquantised angles.
-    expect(quantumFor(0.15)).toBeCloseTo(90 / 23, 6);
-    expect(quantumFor(0.15)).toBeLessThanOrEqual(MAX_LABEL_ANGLE_QUANTUM);
+    expect(quantumFor(0.15)).toBeCloseTo(9, 6);
     const buckets = new Set();
     for (let a = -90; a < 90; a += 0.05) buckets.add(quantizeAngle(a, quantumFor(0.15)));
-    // 23 divisions either side of zero, plus zero itself.
-    expect(buckets.size).toBe(47);
+    // 10 divisions either side of zero, plus zero itself.
+    expect(buckets.size).toBe(21);
+  });
+
+  it('reaches the cap across the whole zoom range where labels are dense', () => {
+    // The point of raising MAX_LABEL_ANGLE_QUANTUM: at the old 2px error budget
+    // the formula returned ~4.3° at zoom 0.35 and ~1.5° at zoom 1, so the cap
+    // was unreachable and lifting it would have changed nothing. Everything at
+    // or below zoom 1 must now actually get the coarse bucket.
+    for (const zoom of [0.1, 0.15, 0.35, 0.5, 1]) {
+      expect(quantumFor(zoom)).toBeCloseTo(MAX_LABEL_ANGLE_QUANTUM, 6);
+    }
+    // Past that, zoom-adaptivity takes over again — close enough to see a tilt,
+    // and few enough labels on screen to afford exact angles.
+    expect(quantumFor(2)).toBeLessThan(MAX_LABEL_ANGLE_QUANTUM);
+    expect(quantumFor(4)).toBeLessThan(quantumFor(2));
+  });
+});
+
+describe('labelBoundsFor (the box a rotated label actually occupies)', () => {
+  const W = 392;
+  const H = 59;
+  const extent = (angle) => {
+    const r = labelBoundsFor(0, 0, W, H, angle);
+    return { w: r.maxX - r.minX, h: r.maxY - r.minY };
+  };
+
+  it('is exact on the axes, where the old snap-to-axis box was already right', () => {
+    expect(extent(0).w).toBeCloseTo(W, 6);
+    expect(extent(0).h).toBeCloseTo(H, 6);
+    expect(extent(90).w).toBeCloseTo(H, 6);
+    expect(extent(90).h).toBeCloseTo(W, 6);
+    expect(extent(180).w).toBeCloseTo(W, 6);
+    expect(extent(-90).h).toBeCloseTo(W, 6);
+  });
+
+  it('accounts for the tilt off the axes, where it did not', () => {
+    // The regression, in one number: a Lombardi label on a shallow arc. The
+    // old box claimed the bare text height; the real one is over twice that,
+    // which is the difference between "these two lanes are clear of each
+    // other" and "these two labels are drawn on top of each other".
+    const { h } = extent(12);
+    expect(h).toBeCloseTo(W * Math.sin(12 * Math.PI / 180) + H * Math.cos(12 * Math.PI / 180), 6);
+    expect(h).toBeGreaterThan(2 * H);
+  });
+
+  it('never claims less room than the un-rotated text', () => {
+    for (let a = -180; a <= 180; a += 3.5) {
+      const { w, h } = extent(a);
+      expect(Math.max(w, h)).toBeGreaterThanOrEqual(Math.min(W, H) - 1e-9);
+      expect(w).toBeGreaterThanOrEqual(H - 1e-9);
+      expect(h).toBeGreaterThanOrEqual(H - 1e-9);
+    }
+  });
+
+  it('is symmetric under a half turn and under mirroring', () => {
+    for (const a of [7, 23.5, 61, 88]) {
+      expect(extent(a).h).toBeCloseTo(extent(a + 180).h, 9);
+      expect(extent(a).h).toBeCloseTo(extent(-a).h, 9);
+    }
+  });
+});
+
+describe('parallel connections between the same two nodes', () => {
+  // Their arcs are fanned a fixed lane apart, so they are the case where an
+  // understated label box shows up as labels drawn on top of one another.
+  const FONT = 59.4;
+  const laneSpacing = 200 * LOMBARDI_LANE_FRACTION;
+  const NAMES = ['contains', 'is a kind of', 'depends upon', 'refers to'];
+
+  const place = (k) => {
+    const nodes = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 1400, y: 300 }];
+    const dims = new Map([
+      ['a', { currentWidth: 340, currentHeight: 130 }],
+      ['b', { currentWidth: 340, currentHeight: 130 }],
+    ]);
+    const edges = Array.from({ length: k }, (_, i) => ({
+      id: `e${i}`, sourceId: 'a', destinationId: 'b',
+      directionality: { arrowsToward: new Set() },
+    }));
+    const tangents = computeLombardiTangents(nodes, edges, dims);
+    const visible = new Set(['a', 'b']);
+    const obstacles = getVisibleObstacleRects(nodes, visible, dims, 18, new Set());
+    const placed = new Map();
+
+    return edges.map((edge, i) => {
+      const routing = computeLombardiRouting(
+        edge, nodes[0], nodes[1], dims.get('a'), dims.get('b'), tangents,
+        { curvature: 1, selectedInstanceIds: new Set(), laneSpacing,
+          curveInfo: { pairIndex: i, totalInPair: k } }
+      );
+      const p = chooseRoutedLabelPlacement(routing, NAMES[i], nodes, visible, dims,
+        placed, FONT, edge.id, new Set(), { obstacles, segmentIndex: null });
+      const rect = labelBoundsFor(p.x, p.y, estimateTextWidth(NAMES[i], FONT), FONT * 1.1, p.angle);
+      placed.set(edge.id, { rect, position: { x: p.x, y: p.y, angle: p.angle } });
+      return { ...p, rect };
+    });
+  };
+
+  const overlaps = (a, b) => !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
+
+  for (const k of [2, 3, 4]) {
+    it(`keeps ${k} labels clear of each other`, () => {
+      const out = place(k);
+      for (let i = 0; i < out.length; i++) {
+        for (let j = i + 1; j < out.length; j++) {
+          expect(overlaps(out[i].rect, out[j].rect)).toBe(false);
+        }
+      }
+    });
+  }
+
+  it('spreads them instead of leaving every one at its arc midpoint', () => {
+    // The failure mode was that nothing ever registered a collision, so every
+    // label took the first candidate on the ladder — dead centre, no radial
+    // offset — and the bundle drew as one stack of text. Which axis the placer
+    // spreads them on is its business (along the arc when nothing is crossing,
+    // radially when something is); that they are no longer all at the same
+    // anchor is the invariant.
+    const out = place(4);
+    const anchors = out.map(p => `${p.anchor.t.toFixed(3)}@${p.anchor.offset}`);
+    expect(new Set(anchors).size).toBe(anchors.length);
   });
 });
 

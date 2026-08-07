@@ -41,6 +41,11 @@ const MAX_TOOL_RESULT_TOKENS = Math.ceil(MAX_TOOL_RESULT_CHARS / CHARS_PER_TOKEN
 // measured snapshot (45 tools ≈ 52.5k chars) so the meter isn't wildly optimistic
 // on first paint. Replaced by the live measurement as soon as the fetch returns.
 const TOOL_SCHEMA_FALLBACK_TOKENS = 13100;
+// Stand-in for the graph header until the agent loop reports what it actually
+// sent. ContextBuilder budgets the header at 6k and most universes land well
+// under it, so this is a middling guess — and it is only ever used before the
+// first response of a session.
+const CONTEXT_HEADER_FALLBACK_TOKENS = 2500;
 
 // Ask-queue safety bounds. MAX_WIZARD_QUEUE caps how many asks can pile up
 // behind a running one; MAX_CONSECUTIVE_ASK_ERRORS pauses auto-draining after
@@ -676,6 +681,14 @@ const LeftAIView = ({ compact = false,
   // Keyed by the block objects themselves, so entries disappear with the blocks.
   const objectTokenCacheRef = React.useRef(new WeakMap());
 
+  // The real size of the graph header, reported by the agent loop on its usage
+  // events. Rebuilding the header here to measure it would mean re-walking every
+  // graph on every render, so we use the server's measurement of the header it
+  // actually sent and fall back to an estimate only before the first response.
+  const [measuredContextTokens, setMeasuredContextTokens] = React.useState(null);
+  // Last iteration's input split — what the context is actually being spent on.
+  const [costBreakdown, setCostBreakdown] = React.useState(null);
+
   const contextUsage = React.useMemo(() => {
     // Known context windows by model pattern (tokens)
     const getContextWindow = (model) => {
@@ -762,14 +775,60 @@ const LeftAIView = ({ compact = false,
       }
     }
 
-    // Graph context estimate
-    const graphContextTokens = contextItems.some(i => i.type === 'activeGraph' && i.enabled) ? 3750 : 0;
+    // Graph context. Prefer what the agent loop measured on its last run over the
+    // flat 3,750 that used to stand in for it — that guess was independent of how
+    // much was actually open, so on a large universe it under-reported the header
+    // and on an empty one it invented usage that didn't exist.
+    const graphContextEnabled = contextItems.some(i => i.type === 'activeGraph' && i.enabled);
+    const graphContextTokens = graphContextEnabled
+      ? (measuredContextTokens ?? CONTEXT_HEADER_FALLBACK_TOKENS)
+      : 0;
 
     const totalUsed = systemPromptTokens + conversationTokens + pendingTokens + graphContextTokens;
     const percent = Math.min(Math.round((totalUsed / contextWindow) * 100), 100);
 
-    return { totalUsed, contextWindow, percent, conversationTokens, systemPromptTokens };
-  }, [messages, apiKeyInfo?.model, contextItems, pendingAttachments, wizardTools]);
+    return {
+      totalUsed,
+      contextWindow,
+      percent,
+      conversationTokens,
+      systemPromptTokens,
+      graphContextTokens
+    };
+  }, [messages, apiKeyInfo?.model, contextItems, pendingAttachments, wizardTools, measuredContextTokens]);
+
+  // "How full is the context" is only half the question — the other half is
+  // "with what". A percentage that can only be watched climbing is not
+  // actionable; a split that names the biggest consumer is.
+  const contextUsageTooltip = React.useMemo(() => {
+    const k = (n) => `${Math.round(n / 100) / 10}k`;
+    const lines = [
+      `~${contextUsage.totalUsed.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens used`,
+      '',
+      `System prompt + tool definitions: ${k(contextUsage.systemPromptTokens)}  (fixed, cached after the first call)`,
+      `Graph context: ${k(contextUsage.graphContextTokens)}  (rebuilt every step)`,
+      `Conversation: ${k(contextUsage.conversationTokens)}`
+    ];
+
+    if (costBreakdown) {
+      lines.push('', 'Last run, measured:');
+      lines.push(`  history ${k(costBreakdown.history)} · context ${k(costBreakdown.context)} · tools ${k(costBreakdown.tools)}`);
+      // The number that says whether caching is doing its job. Low on a long run
+      // means something is invalidating the prefix, not that the ask is big.
+      lines.push(`  ${costBreakdown.cachedFraction}% of input served from cache`);
+      if (costBreakdown.reclaimed > 0) {
+        const worst = Object.entries(costBreakdown.reclaimedByTool || {})
+          .sort((a, b) => b[1] - a[1])[0];
+        lines.push(
+          `  ${k(costBreakdown.reclaimed)} reclaimed from stale re-reads`
+          + (worst ? ` (mostly ${worst[0]})` : '')
+        );
+      }
+    }
+
+    lines.push('', 'Click to compact this conversation — your plan is preserved.');
+    return lines.join('\n');
+  }, [contextUsage, costBreakdown]);
 
   const [fileStatus, setFileStatus] = React.useState(null);
   React.useEffect(() => {
@@ -2686,6 +2745,15 @@ const LeftAIView = ({ compact = false,
                       completionTokens: event.askCompletionTokens || 0,
                       totalTokens: event.askTotalTokens || 0
                     };
+                    // The server measures the graph header it actually sent. The
+                    // meter previously guessed at a flat 3,750 for it, which was
+                    // wrong in both directions depending on the universe.
+                    if (typeof event.contextHeaderTokens === 'number') {
+                      setMeasuredContextTokens(event.contextHeaderTokens);
+                    }
+                    if (event.costBreakdown) {
+                      setCostBreakdown(event.costBreakdown);
+                    }
                   } else if (event.type === 'error') {
                     blocks.push({ type: 'text', content: `Error: ${event.message}` });
                     msg.content = `Error: ${event.message}`;
@@ -4050,11 +4118,7 @@ const LeftAIView = ({ compact = false,
                 className="ai-context-usage"
                 disabled={isProcessing}
                 onClick={() => runCompaction({ source: 'meter' })}
-                title={
-                  `~${contextUsage.totalUsed.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens used`
-                  + `\n(${contextUsage.systemPromptTokens.toLocaleString()} of that is the fixed system prompt + tool definitions)`
-                  + `\n\nClick to compact this conversation — your plan is preserved.`
-                }
+                title={contextUsageTooltip}
               >
                 <div className="ai-context-usage-bar">
                   <div

@@ -5,6 +5,7 @@
 
 import apiKeyManager from '../services/apiKeyManager.js';
 import { debugLogSync } from '../utils/debugLogger.js';
+import { isVolatileContextMessage } from './requestMessages.js';
 
 /**
  * Get default config if not provided
@@ -375,12 +376,30 @@ export async function* streamLLM(messages, tools = [], config = {}, signal = nul
 }
 
 /**
+ * Drop the loop's internal bookkeeping fields before a message reaches a
+ * provider. Anything prefixed with `_` (the volatile-context marker, dedup keys,
+ * tool names carried alongside tool results) is ours, not the API's — OpenAI-style
+ * endpoints pass messages through verbatim and reject unknown properties.
+ *
+ * The Anthropic path does its own stripping because it rebuilds messages wholesale.
+ */
+export function stripInternalFields(messages) {
+  return (messages || []).map(msg => {
+    const out = {};
+    for (const key of Object.keys(msg)) {
+      if (!key.startsWith('_')) out[key] = msg[key];
+    }
+    return out;
+  });
+}
+
+/**
  * Stream from OpenRouter API
  */
 async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }, signal = null) {
   const payload = {
     model,
-    messages,
+    messages: stripInternalFields(messages),
     ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
     max_tokens: maxTokens,
     temperature,
@@ -591,6 +610,65 @@ debugLogSync('LLMClient.js:MODULE_LOADED', 'LLMClient module loaded', {}, 'debug
 // #endregion
 
 /**
+ * How far back the older of the two rolling history breakpoints sits, measured in
+ * cacheable (non-volatile) messages. One assistant turn plus its tool results is
+ * typically 2-3 messages, so four covers roughly the last iteration and a half —
+ * far enough that the previous request's entry is still readable, near enough
+ * that the uncached remainder stays small.
+ */
+const HISTORY_CACHE_LOOKBACK = 4;
+
+/**
+ * Place the two rolling message breakpoints.
+ *
+ * Anchors go on the last content block of the chosen messages. The volatile tail
+ * — and anything after it — is deliberately excluded: it changes every request,
+ * so an entry anchored there could only ever be written, never read.
+ *
+ * Exported for tests; the placement is the whole mechanism and worth asserting on.
+ */
+export function applyHistoryCacheBreakpoints(messages, lookback = HISTORY_CACHE_LOOKBACK) {
+  const out = messages.map(m => ({ ...m }));
+  // Cacheable region = everything up to the first volatile message.
+  let cacheableEnd = out.length;
+  for (let i = 0; i < out.length; i++) {
+    if (out[i]._volatile) { cacheableEnd = i; break; }
+  }
+  // Fewer than two cacheable turns and there is no history worth an entry — the
+  // tools and system breakpoints already cover the whole stable prefix.
+  if (cacheableEnd < 2) return out.map(stripCacheMeta);
+
+  const newest = cacheableEnd - 1;
+  const older = Math.max(0, newest - lookback);
+  // The older anchor exists to keep the PREVIOUS request's entry readable. When
+  // the two would land almost on top of each other there is no earlier entry to
+  // preserve, and spending a second breakpoint on a near-identical prefix just
+  // buys another cache write. One is enough.
+  const anchors = newest - older >= 2 ? [older, newest] : [newest];
+
+  for (const idx of anchors) {
+    const msg = out[idx];
+    const blocks = Array.isArray(msg.content)
+      ? msg.content.map(b => ({ ...b }))
+      : [{ type: 'text', text: String(msg.content ?? '') }];
+    if (blocks.length === 0) continue;
+    blocks[blocks.length - 1] = {
+      ...blocks[blocks.length - 1],
+      cache_control: { type: 'ephemeral' }
+    };
+    msg.content = blocks;
+  }
+
+  return out.map(stripCacheMeta);
+}
+
+/** Drop internal bookkeeping fields the API would reject. */
+function stripCacheMeta(msg) {
+  const { _volatile, ...rest } = msg;
+  return rest;
+}
+
+/**
  * Stream from Anthropic API
  */
 async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }, signal = null) {
@@ -636,23 +714,51 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
         }]
       });
     } else {
-      // User message
-      conversationMessages.push({ role: 'user', content: msg.content });
+      // User message. The volatile-context flag rides along so the breakpoint
+      // logic below can avoid anchoring a cache entry to the one message that is
+      // guaranteed to differ on the next request.
+      conversationMessages.push({
+        role: 'user',
+        content: msg.content,
+        ...(isVolatileContextMessage(msg) ? { _volatile: true } : {})
+      });
     }
   }
 
-  // Prompt caching. Anthropic caches the request prefix up to each cache_control
-  // breakpoint, in the fixed order tools → system → messages. Both of ours are
-  // stable for the whole ask — the 45 tool definitions never change, and the
-  // system prompt is static except for the graph context appended at its very
-  // end — so from iteration 2 onward this turns a ~25k-token re-upload into a
-  // cache read at a tenth of the price. Without it every iteration of a long
-  // agentic run pays full freight for identical bytes.
+  // Merge adjacent same-role turns. A tool-result turn is emitted as a `user`
+  // message, so a trailing context block lands as a second consecutive `user`
+  // message; Anthropic tolerates that but the merged form is what its cache
+  // examples assume, and merging keeps the breakpoint indices below meaning what
+  // they look like they mean.
+  const mergedMessages = [];
+  for (const msg of conversationMessages) {
+    const prev = mergedMessages[mergedMessages.length - 1];
+    if (prev && prev.role === msg.role) {
+      const asBlocks = (c) => (Array.isArray(c) ? c : [{ type: 'text', text: String(c ?? '') }]);
+      prev.content = [...asBlocks(prev.content), ...asBlocks(msg.content)];
+      if (msg._volatile) prev._volatile = true;
+      continue;
+    }
+    mergedMessages.push({ ...msg });
+  }
+
+  // Prompt caching. Anthropic caches the request PREFIX up to each cache_control
+  // breakpoint, in the fixed order tools → system → messages, and allows four
+  // breakpoints. All four are used here, because caching only the front of the
+  // request leaves the part that actually grows — the conversation — paying full
+  // price on every iteration of an agentic run.
   //
-  // The breakpoint on the system block goes after `cachePrefix` only; the volatile
-  // context that follows it must stay OUTSIDE the cached span or every iteration
-  // invalidates the entry and caching costs more than it saves (cache writes are
-  // 1.25x). AgentLoop supplies cachePrefix already split at that boundary.
+  //   1. tools    — frozen for the whole ask (AgentLoop no longer re-selects
+  //                 per iteration; doing so invalidated everything downstream)
+  //   2. system   — fully static; the graph snapshot moved to the request tail
+  //   3/4. messages — two ROLLING breakpoints. The older one keeps the previous
+  //                 iteration's prefix warm while the newer one extends the entry
+  //                 to cover what was just added. With a single moving breakpoint
+  //                 each iteration would miss the entry it wrote a moment ago.
+  //
+  // Nothing is anchored to the volatile tail block: it differs by construction on
+  // the next request, so a breakpoint there would write an entry that can never
+  // be read — at 1.25x, strictly worse than not caching it.
   const cachePrefix = systemMessage?.cachePrefix;
   const systemContent = systemMessage?.content || '';
   let systemField;
@@ -674,11 +780,13 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
     );
   }
 
+  const finalMessages = applyHistoryCacheBreakpoints(mergedMessages);
+
   const payload = {
     model: model || 'claude-3-5-sonnet-20241022',
     max_tokens: maxTokens || 8192,
     system: systemField,
-    messages: conversationMessages,
+    messages: finalMessages,
     ...(cachedTools && cachedTools.length > 0 ? { tools: cachedTools } : {}),
     temperature: temperature ?? 0.7,
     stream: true
@@ -856,7 +964,7 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
 async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }, signal = null) {
   const payload = {
     model,
-    messages,
+    messages: stripInternalFields(messages),
     ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
     max_tokens: maxTokens,
     temperature,
