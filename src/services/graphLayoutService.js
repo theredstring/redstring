@@ -93,6 +93,26 @@ function coincidentAngle(idA, idB) {
   return ((mix(idA) ^ mix(idB)) % 62832) / 10000;
 }
 
+/**
+ * Deterministic replacement for `(Math.random() - 0.5)` — a stable value in
+ * [-0.5, 0.5) derived from a node id and an axis salt.
+ *
+ * Group placement used the dice for its scatter, which was harmless while every
+ * grouped graph went through the force solver (itself unreproducible). Pattern
+ * interiors are constructions, so a grouped Lombardi layout now has to land in
+ * the same place every time the button is pressed; a random nudge on the
+ * ungrouped nodes would be the one thing that still moved.
+ */
+function idJitter(id, salt) {
+  let h = 2166136261;
+  const str = `${id}#${salt}`;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 10000) / 10000 - 0.5;
+}
+
 /** Algorithm names handled by the pattern-layout dispatcher in applyLayout. */
 const PATTERN_ALGORITHMS = new Set([
   'pattern', 'auto', 'conditional',
@@ -104,6 +124,55 @@ const PATTERN_ALGORITHMS = new Set([
   'radial-tree', 'concentric',
   'arc-chain'
 ]);
+
+/**
+ * Lay out one group's interior with whichever solver the user's routing style
+ * asked for.
+ *
+ * Pattern layouts used to be unreachable the moment a graph had a single
+ * group: applyLayout sent every grouped graph to the force solver, so picking
+ * Lombardi routing on a grouped graph silently produced a force layout with
+ * arcs drawn over it — the one arrangement Lombardi's geometry is defined to
+ * avoid. A group's interior is just a subgraph, so it can be built by the same
+ * pipeline; what a pattern layout can't do is place groups relative to each
+ * other, and it doesn't have to — groupSeparatedLayout's meta phase does that.
+ *
+ * Returns positions in the store's TOP-LEFT frame, like every layout entry
+ * point here.
+ */
+function layoutSubgraph(nodes, edges, algorithm, options) {
+  switch (algorithm) {
+    case 'pattern':
+    case 'auto':
+    case 'conditional':
+      return patternLayout(nodes, edges, options);
+    case 'tree-tidy':
+    case 'taxonomy':
+      return treeLayout(nodes, edges, options);
+    case 'cycle':
+    case 'circuit':
+    case 'ring':
+      return cycleLayout(nodes, edges, options);
+    case 'chain':
+    case 'path':
+    case 'sequence':
+      return chainLayout(nodes, edges, options);
+    case 'star':
+    case 'hub':
+      return starLayout(nodes, edges, options);
+    case 'layered':
+    case 'dag':
+    case 'pipeline':
+      return layeredLayout(nodes, edges, options);
+    case 'radial-tree':
+    case 'concentric':
+      return radialTreeLayout(nodes, edges, options);
+    case 'arc-chain':
+      return arcChainLayout(nodes, edges, options);
+    default:
+      return forceDirectedLayout(nodes, edges, options);
+  }
+}
 
 /**
  * Which drawn geometry the terminal clearance pass must keep clear.
@@ -810,6 +879,13 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   const centerX = config.width / 2;
   const centerY = config.height / 2;
 
+  // Which solver builds each group's interior. Anything other than the force
+  // default is a deterministic construction (a ring, a tidy tree, a Lombardi
+  // spirograph) that a force refinement would only scramble, so it also
+  // switches off Phase 3 below in favour of a rigid finisher.
+  const intraGroupAlgorithm = options.intraGroupAlgorithm || 'force';
+  const patternIntra = PATTERN_ALGORITHMS.has(intraGroupAlgorithm);
+
   // Build node -> groups mapping (track ALL groups per node)
   const nodeToGroups = new Map(); // nodeId -> Set<groupId>
   groups.forEach(g => {
@@ -919,9 +995,10 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     const totalEntities = directMemberNodes.length + blockNodes.length;
     const subSize = Math.max(800, Math.sqrt(totalEntities) * 500);
 
-    const positions = forceDirectedLayout(
+    const positions = layoutSubgraph(
       [...directMemberNodes, ...blockNodes],
       intraEdges,
+      intraGroupAlgorithm,
       {
         width: subSize,
         height: subSize,
@@ -935,6 +1012,8 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
         stiffness: config.stiffness,
         edgeAvoidance: config.edgeAvoidance,
         edgeLabelFontSize: config.edgeLabelFontSize,
+        routingStyle: config.routingStyle,
+        lombardiCurvature: config.lombardiCurvature,
       }
     );
 
@@ -1185,8 +1264,8 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
         sumX += bp.x; sumY += bp.y;
       });
       finalPositions.set(nodeId, {
-        x: sumX / boxes.length + (Math.random() - 0.5) * 40,
-        y: sumY / boxes.length + (Math.random() - 0.5) * 40
+        x: sumX / boxes.length + idJitter(nodeId, 'x') * 40,
+        y: sumY / boxes.length + idJitter(nodeId, 'y') * 40
       });
     } else if (boxes.length === 1) {
       finalPositions.set(nodeId, { x: boxes[0].centerX, y: boxes[0].centerY });
@@ -1211,17 +1290,64 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     let anchor;
     if (connCount > 0) {
       anchor = {
-        x: sumX / connCount + (Math.random() - 0.5) * 80,
-        y: sumY / connCount + (Math.random() - 0.5) * 80
+        x: sumX / connCount + idJitter(node.id, 'x') * 80,
+        y: sumY / connCount + idJitter(node.id, 'y') * 80
       };
     } else {
       anchor = {
-        x: centerX + (Math.random() - 0.5) * 200,
-        y: centerY + (Math.random() - 0.5) * 200
+        x: centerX + idJitter(node.id, 'x') * 200,
+        y: centerY + idJitter(node.id, 'y') * 200
       };
     }
     finalPositions.set(node.id, ejectFromGroupBoxes(anchor.x, anchor.y, 120));
   });
+
+  // ---- Phase 3a: Rigid finish for pattern interiors ----
+  // A pattern interior is a construction, not an equilibrium: 20 iterations of
+  // springs would bend the ring or shear the tree that the pattern layout was
+  // chosen to produce. So instead of refining, hold each group's interior
+  // exactly as laid out and enforce only the constraints that operate BETWEEN
+  // groups — peer rects must not interleave, and no node may finish inside a
+  // rect it isn't a member of.
+  if (patternIntra) {
+    const nestedGroupPairs = new Set();
+    for (const [childId] of hierarchy.directParentOf) {
+      let cur = childId;
+      while (hierarchy.directParentOf.has(cur)) {
+        const parentId = hierarchy.directParentOf.get(cur);
+        nestedGroupPairs.add(childId < parentId ? `${childId}|${parentId}` : `${parentId}|${childId}`);
+        cur = parentId;
+      }
+    }
+
+    // The enforcement helpers work in the simulation's CENTRE frame; the
+    // composed pattern positions are top-left. Convert in, convert back.
+    const halfOf = (n) => ({ hw: (n?.width || 100) / 2, hh: (n?.height || 60) / 2 });
+    const centres = new Map();
+    finalPositions.forEach((pos, id) => {
+      const { hw, hh } = halfOf(nodeById.get(id));
+      centres.set(id, { x: pos.x + hw, y: pos.y + hh });
+    });
+
+    // Same shape resolveOverlaps expects from the force path's getNodeSize:
+    // half-extents plus a circumradius, not width/height.
+    const getNodeSize = (node) => {
+      const hw = (node?.width || 100) / 2;
+      const hh = (node?.height || 60) / 2;
+      return { hw, hh, r: Math.hypot(hw, hh) };
+    };
+    separateGroupBoxes(centres, groups, nodeToGroups, nodeById, nestedGroupPairs, config);
+    enforceGroupBoundsExclusion(centres, nodes, groups, nodeToGroups, nodeById,
+      getNodeSize, config, nestedGroupPairs);
+
+    const out = new Map();
+    centres.forEach((pos, id) => {
+      const { hw, hh } = halfOf(nodeById.get(id));
+      out.set(id, { x: pos.x - hw, y: pos.y - hh });
+    });
+    if (options.onProgress) options.onProgress(1);
+    return out;
+  }
 
   // ---- Phase 3: Cross-group edge refinement ----
   // Brief force simulation with ALL edges and strong group forces.
@@ -2486,6 +2612,45 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     }
   }
 
+  // ── GROUP MEMBERSHIP IS THE LAST WORD ───────────────────────────────────
+  // The clearance rounds above move nodes with no knowledge of groups, so
+  // they can — and on dense grouped graphs routinely do — push a node back
+  // inside a rect it isn't a member of. Membership outranks clearance: an
+  // edge grazing a node reads as a tight drawing, while a node sitting inside
+  // a group it doesn't belong to reads as a WRONG drawing, and it is the one
+  // thing about the layout a viewer can't correct by looking harder.
+  //
+  // The clearance loop is idempotent on already-clear graphs, so the small
+  // re-run afterwards only reworks what this pass actually disturbed.
+  if (groups.length > 0) {
+    const membershipNodes = [...nodes, ...isolatedNodes];
+    const membershipById = new Map(membershipNodes.map(n => [n.id, n]));
+    enforceGroupBoundsExclusion(positions, membershipNodes, groups, nodeGroupsMap,
+      membershipById, getNodeSize, config, nestedGroupPairs, 2);
+    if (config.clearanceRounds > 0) {
+      const pathsFor = pathProviderFor(config);
+      const settle = clearPathsOfNodes(positions, membershipNodes, uniqueEdges, pathsFor,
+        { padding: config.clearancePadding, passes: 3 });
+      // Only accept displacements that don't re-enter a foreign rect — the
+      // point of this block is that the previous line can't undo it.
+      const boxes = computeGroupWorldBoxes(groups, positions, membershipById,
+        config.groupBoundaryPadding || 100, config);
+      settle.centers.forEach((p, id) => {
+        const node = membershipById.get(id);
+        if (!node) return;
+        const own = nodeGroupsMap.get(id);
+        const hw = (node.width || 100) / 2;
+        const hh = (node.height || 60) / 2;
+        for (const [gid, box] of boxes) {
+          if (own && own.has(gid)) continue;
+          if (p.x + hw > box.minX && p.x - hw < box.maxX &&
+              p.y + hh > box.minY && p.y - hh < box.maxY) return;
+        }
+        positions.set(id, p);
+      });
+    }
+  }
+
   // The bar used to freeze at 0.98: the loop's last emission is
   // (iterations - progressInterval) / iterations, and the ~90 lines of
   // post-processing after it reported nothing at all.
@@ -2748,7 +2913,32 @@ function enforceEdgeConstraints(positions, edges, nodeById, getSize, targetDista
  * Compute each group's world-space bounding box from its members' laid-out
  * positions (the rect a renderer would derive), expanded by `pad`.
  */
-function computeGroupWorldBoxes(groups, positions, nodeById, pad) {
+/**
+ * Widen a member bbox to the rect a renderer will actually draw: the group's
+ * visual bounds (which for a node-group include the title bar hanging ABOVE
+ * the canvas) unioned with the requested exclusion padding.
+ *
+ * Enforcing bbox+padding alone leaves the title strip unprotected, so a
+ * non-member parked just above a node-group finishes underneath its title and
+ * reads as a member. Anything that asks "is this node inside that group?" has
+ * to ask it of the drawn rect.
+ */
+function inflateToRenderedRect(group, bbox, pad, config) {
+  const padded = {
+    minX: bbox.minX - pad, minY: bbox.minY - pad,
+    maxX: bbox.maxX + pad, maxY: bbox.maxY + pad
+  };
+  if (config?.groupVisualBounds === false) return padded;
+  const vb = deriveGroupVisualBounds(group, bbox, config?.gridSize, config?.measureLabelWidth);
+  return {
+    minX: Math.min(padded.minX, vb.x),
+    minY: Math.min(padded.minY, vb.y),
+    maxX: Math.max(padded.maxX, vb.x + vb.w),
+    maxY: Math.max(padded.maxY, vb.y + vb.h)
+  };
+}
+
+function computeGroupWorldBoxes(groups, positions, nodeById, pad, config = null) {
   const boxes = new Map();
   groups.forEach(group => {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -2765,10 +2955,10 @@ function computeGroupWorldBoxes(groups, positions, nodeById, pad) {
       if (pos.y + h > maxY) maxY = pos.y + h;
     });
     if (minX !== Infinity) {
-      boxes.set(group.id, {
-        minX: minX - pad, minY: minY - pad,
-        maxX: maxX + pad, maxY: maxY + pad
-      });
+      const box = inflateToRenderedRect(group, { minX, minY, maxX, maxY }, pad, config);
+      box.centerX = (box.minX + box.maxX) / 2;
+      box.centerY = (box.minY + box.maxY) / 2;
+      boxes.set(group.id, box);
     }
   });
   return boxes;
@@ -2861,7 +3051,12 @@ function separateGroupBoxes(positions, groups, nodeGroupsMap, nodeById, nestedGr
         if (pos.x + w > maxX) maxX = pos.x + w;
         if (pos.y + h > maxY) maxY = pos.y + h;
       });
-      if (minX !== Infinity) boxes.set(g.id, { minX, minY, maxX, maxY });
+      // Zero extra padding — the pairwise gap below supplies it — but still
+      // fold in the drawn rect so a node-group's title bar takes part in the
+      // separation instead of overhanging its neighbour.
+      if (minX !== Infinity) {
+        boxes.set(g.id, inflateToRenderedRect(g, { minX, minY, maxX, maxY }, 0, config));
+      }
     });
 
     let moved = false;
@@ -2917,7 +3112,25 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
     if (!gs || gs.size < 2) return false;
     return [...gs].some(gid => isPeerSharedWith(n.id, gid));
   });
-  if (ungrouped.length === 0 && peerShared.length === 0) return;
+
+  // FOREIGN MEMBERS. A node that belongs to group A is just as much an
+  // intruder inside group B's rect as an ungrouped node is — it renders as a
+  // member of B. Only the ungrouped case was ever ejected, so every polish
+  // stage that runs after the soft exclusion force was free to park A's
+  // members inside B. Membership is the whole test: a node is foreign to a
+  // group iff it isn't in that group's member set (members of a nested child
+  // are in the parent's set by construction, so nesting needs no special case).
+  const memberSets = new Map(groups.map(g => [g.id, new Set(g.memberInstanceIds || [])]));
+  const foreign = nodes.filter(n => {
+    const gs = nodeGroupsMap.get(n.id);
+    if (!gs || gs.size === 0) return false;           // ungrouped: handled above
+    for (const g of groups) {
+      if (!memberSets.get(g.id).has(n.id)) return true;
+    }
+    return false;
+  });
+
+  if (ungrouped.length === 0 && peerShared.length === 0 && foreign.length === 0) return;
 
   // Core boxes exclude peer-shared members so a shared node in the corridor
   // doesn't stretch the box it's being ejected from
@@ -2939,11 +3152,10 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
         if (pos.y + h > maxY) maxY = pos.y + h;
       });
       if (minX !== Infinity) {
-        boxes.set(group.id, {
-          minX: minX - pad, minY: minY - pad,
-          maxX: maxX + pad, maxY: maxY + pad,
-          centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2
-        });
+        const box = inflateToRenderedRect(group, { minX, minY, maxX, maxY }, pad, config);
+        box.centerX = (box.minX + box.maxX) / 2;
+        box.centerY = (box.minY + box.maxY) / 2;
+        boxes.set(group.id, box);
       }
     });
     return boxes;
@@ -2983,7 +3195,7 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
   };
 
   const ejectPass = () => {
-    const coreBoxes = peerShared.length > 0 ? computeCoreBoxes() : null;
+    const coreBoxes = (peerShared.length > 0 || foreign.length > 0) ? computeCoreBoxes() : null;
     let moved = false;
 
     // Peer-shared nodes first: their corridor position stretches the rendered
@@ -3010,7 +3222,37 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
       });
     });
 
-    const fullBoxes = computeGroupWorldBoxes(groups, positions, nodeById, pad);
+    // Foreign members next, for the same reason: a node of group A sitting in
+    // group B's rect stretches B, so the ungrouped test below has to run
+    // against boxes that have already shed their intruders.
+    //
+    // Exit is biased toward the centroid of the node's OWN groups, which is
+    // what makes this safe for nesting as well as for peers: a member of
+    // parent A that has drifted into nested child G leaves G through the side
+    // facing A's centre, so it stays inside A instead of being flung out of
+    // both. The cheapest-edge exit has no such guarantee.
+    foreign.forEach(node => {
+      const pos = positions.get(node.id);
+      if (!pos) return;
+      const own = nodeGroupsMap.get(node.id);
+      if (!own || own.size === 0) return;
+
+      let bx = 0, by = 0, bCount = 0;
+      own.forEach(gid => {
+        const ob = coreBoxes.get(gid);
+        if (ob) { bx += ob.centerX; by += ob.centerY; bCount++; }
+      });
+      const bias = bCount > 0 ? { x: bx / bCount, y: by / bCount } : null;
+
+      groups.forEach(group => {
+        if (memberSets.get(group.id).has(node.id)) return;   // a member — leave it be
+        const box = coreBoxes.get(group.id);
+        if (!box) return;
+        if (ejectNodeFromBox(node, pos, box, bias)) moved = true;
+      });
+    });
+
+    const fullBoxes = computeGroupWorldBoxes(groups, positions, nodeById, pad, config);
     ungrouped.forEach(node => {
       const pos = positions.get(node.id);
       if (!pos) return;
@@ -3925,10 +4167,20 @@ export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
   // 'pattern' detects per connected component and dispatches; the explicit
   // names below force one shape onto the whole graph.
   //
-  // Groups need the group-separation machinery in forceDirectedLayout /
-  // groupSeparatedLayout, which pattern layouts don't model — so a grouped
-  // graph always falls back to the force solver.
+  // Groups need the separation machinery in groupSeparatedLayout, which
+  // pattern layouts don't model. That used to mean a grouped graph fell back
+  // to the force solver wholesale — so choosing Lombardi (or manhattan, or
+  // clean) routing on a graph with even one group threw the matching layout
+  // away and drew arcs over a force layout. Now the two compose: the pattern
+  // pipeline lays out each group's interior, groupSeparatedLayout places the
+  // groups and enforces membership between them.
   const hasGroups = (options.groups || []).length > 0;
+  if (hasGroups && PATTERN_ALGORITHMS.has(algorithm)) {
+    return toUpdates(groupSeparatedLayout(nodes, edges, {
+      ...options,
+      intraGroupAlgorithm: algorithm
+    }));
+  }
   if (!hasGroups) {
     switch (algorithm) {
       case 'pattern':

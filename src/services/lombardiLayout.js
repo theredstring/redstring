@@ -87,6 +87,9 @@ export const LOMBARDI_REFINE_DEFAULTS = {
   // Max gap between arc samples when testing clearance. Half a node's minimum
   // dimension, so nothing can slip between two consecutive samples.
   clearanceStep: 30,
+  // How far a node may end up from where the seed put it. Unbounded by default;
+  // see the header of lombardiRefine for when a caller should set it.
+  maxDrift: Infinity,
 };
 
 /**
@@ -173,7 +176,46 @@ export function lombardiResidual(centers, nodes, edges, fan = null) {
  * average the displacements each node receives, damp, repeat. A node with many
  * edges is pulled in many directions at once and the average is what settles it,
  * which is also why hubs move less than leaves without any explicit weighting.
+ *
+ * WHAT ROTATION PRESERVES, AND WHAT IT DOESN'T
+ * Length, yes — and that is the whole basis for running this after the seed. But
+ * NOT shape, and on a sparse graph the difference is enormous. A chain is a
+ * kinematic chain: every rotation pivots the entire remainder of the path, and
+ * those rotations compound, so a node near the far end swings by a multiple of
+ * any single correction. Measured on a twenty-node coil, this pass moved a node
+ * 1496px — three windings — to buy 0.85° of residual, and the spiral it was
+ * seeded onto came out crossing itself.
+ *
+ * Hence `maxDrift`: a leash back to the seed. The seed does not just own
+ * distance, it owns every property that lives in more than one edge at a time
+ * — which winding a node is on, whether the drawing self-intersects — and this
+ * pass is blind to all of them. Callers that seeded a shape worth keeping pass
+ * the clearance it was built with; the default is unbounded, for seeds like the
+ * force solver's that have no structure to protect.
  */
+/**
+ * Pull anything that has wandered further than `limit` from the seed back to
+ * the edge of that radius, along the line it wandered off on.
+ *
+ * Applied BEFORE restoreLengths every iteration, not once at the end, so the
+ * relaxation keeps working from a legal position rather than sailing off and
+ * being reeled in afterwards. Lengths get the last word either way.
+ */
+function leash(next, seed, limit) {
+  if (!Number.isFinite(limit)) return next;
+  const out = new Map(next);
+  next.forEach((p, id) => {
+    const origin = seed.get(id);
+    if (!origin) return;
+    const dx = p.x - origin.x;
+    const dy = p.y - origin.y;
+    const d = Math.hypot(dx, dy);
+    if (d <= limit || d === 0) return;
+    out.set(id, { x: origin.x + (dx / d) * limit, y: origin.y + (dy / d) * limit });
+  });
+  return out;
+}
+
 export function lombardiRefine(centers, nodes, edges, options = {}) {
   const cfg = { ...LOMBARDI_REFINE_DEFAULTS, ...options };
   const real = (edges || []).filter(e => e
@@ -257,7 +299,7 @@ export function lombardiRefine(centers, nodes, edges, options = {}) {
       });
     });
 
-    current = restoreLengths(next, real, targetLength);
+    current = restoreLengths(leash(next, centers, cfg.maxDrift), real, targetLength);
 
     // Keep the best iterate rather than the last: the relaxation is damped, not
     // monotone, and on a frustrated graph (one with no exact drawing) it can

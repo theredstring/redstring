@@ -774,6 +774,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       }]
     });
     console.log('[Wizard] Successfully created node:', result.name);
+    scheduleGraphLayout(graphId);
 
     // Launch Wikipedia enrichment asynchronously (if enrich is not explicitly false)
     if (result.enrich !== false && (!result.description || result.description.trim() === '')) {
@@ -860,6 +861,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       { type: 'node_resize', finalize: true }
     );
     console.log('[Wizard] Successfully resized node:', lookupName, '→', result.size, `(${sizeMul}x)`);
+    scheduleGraphLayout(graphId);
     return;
   }
 
@@ -898,6 +900,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     }
     store.removeNodeInstance(graphId, realInstanceId);
     console.log('[Wizard] Successfully deleted node:', lookupName, realInstanceId);
+    scheduleGraphLayout(graphId);
     return;
   }
 
@@ -925,6 +928,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     });
     console.log('[Wizard] Successfully created edge:', result.sourceName, '→', result.targetName);
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
+    scheduleGraphLayout(graphId);
     return;
   }
 
@@ -1045,6 +1049,9 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       }
     });
     console.log('[Wizard] Successfully updated edge:', realEdgeId);
+    // Edge labels are laid out along the edge, and their measured width feeds
+    // node spacing — a retyped edge changes geometry, not just text.
+    scheduleGraphLayout(graphId);
     return;
   }
 
@@ -1080,6 +1087,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       if (edgeExists) {
         store.removeEdge(result.edgeId);
         console.log('[Wizard] Successfully deleted edge by verified ID:', result.edgeId);
+        scheduleGraphLayout(graphId);
         return;
       }
       console.warn('[Wizard] deleteEdge: edgeId did not match a real edge, falling back to name resolution:', result.edgeId);
@@ -1122,6 +1130,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         )) {
           store.removeEdge(edgeId);
           console.log('[Wizard] Successfully deleted edge between:', srcInstId, 'and', tgtInstId);
+          scheduleGraphLayout(graphId);
           return;
         }
       }
@@ -1281,6 +1290,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
 
     console.log('[Wizard] replaceEdges: Completed. Updated existing + created', newEdges.length, 'new edges');
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
+    scheduleGraphLayout(graphId);
 
     if (unresolvedPairs.length > 0) {
       dispatchWizardToolFailed(
@@ -1350,6 +1360,9 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       });
       console.log('[Wizard] Successfully created group:', result.name, '| members:', memberInstanceIds.length);
     }
+    // The layout solver is group-aware — membership changes the constraints it
+    // solves against, so a new/merged group has to be followed by a layout pass.
+    scheduleGraphLayout(graphId);
     noteStructureFollowThrough(result.name, result.memberNames);
     return;
   }
@@ -1384,6 +1397,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     if (realGroupId) {
       store.deleteGroup(graphId, realGroupId);
       console.log('[Wizard] Successfully deleted group:', realGroupId);
+      scheduleGraphLayout(graphId);
     } else {
       console.error('[Wizard] deleteGroup: Could not find group:', result.groupName);
     }
@@ -1446,6 +1460,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         removeMemberIds: resolveMemberIds(result.updates.removeMembers),
       });
       console.log('[Wizard] Successfully updated group:', realGroupId);
+      scheduleGraphLayout(graphId);
     } else {
       console.error('[Wizard] updateGroup: Could not find group:', result.groupName);
     }
@@ -1489,6 +1504,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         result.newThingColor // Let store fall back to group.color if not specified
       );
       console.log('[Wizard] Successfully converted group to thing-group:', realGroupId);
+      scheduleGraphLayout(graphId);
     } else {
       console.error('[Wizard] convertToThingGroup: Could not find group:', result.groupName);
     }
@@ -1525,6 +1541,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     if (realGroupId) {
       store.combineNodeGroup(graphId, realGroupId);
       console.log('[Wizard] Successfully combined thing-group:', realGroupId);
+      scheduleGraphLayout(graphId);
     } else {
       console.error('[Wizard] combineThingGroup: Could not find group:', result.groupName);
     }
@@ -1550,6 +1567,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
 
     const createdGroupId = store.decomposeNodeToGroup(graphId, realProtoId, result.definitionIndex ?? 0, result.instanceId ?? null);
     console.log('[Wizard] decomposeNode result: groupId=', createdGroupId);
+    scheduleGraphLayout(graphId);
     return;
   }
 
@@ -1641,6 +1659,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     } else {
       console.log('[Wizard] condenseToNode: Created thing-group:', result.nodeName);
     }
+    scheduleGraphLayout(graphId);
     noteStructureFollowThrough(result.nodeName, result.memberNames);
     return;
   }
@@ -2417,6 +2436,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     freshStore.deleteGraph(sourceGraphId);
 
     console.log('[Wizard] Successfully merged graphs. Source graph deleted.');
+    scheduleGraphLayout(targetGraphId);
     return;
 
   } else if (result.goalId || toolName === 'updateGroup' || toolName === 'deleteGroup') {

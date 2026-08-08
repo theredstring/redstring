@@ -392,6 +392,10 @@ export const useGraphLayout = ({
             useExistingPositions: groups.length === 0,
             groups,
             edgeLabelFontSize: connectionFontSize,
+            // Group rects are derived from gridSize (member padding scales with
+            // it). Without it the solver enforces exclusion against a rect that
+            // isn't the one on screen.
+            gridSize,
             routingStyle,
             lombardiCurvature,
             solver: layoutSolver,

@@ -704,10 +704,15 @@ describe('arcChainLayout', () => {
     };
   };
 
+  // Lengths that are still flat at the default settings. The switch is a width
+  // in graph units, not a node count, so it moves when labels reserve more room
+  // — at a 32px label it currently falls at eight. Anything below it is a bow.
+  const FLAT = [3, 5, 7];
+
   it('draws a short sequence flat, not as a circle', () => {
     // Five nodes bent round a ring is a circle nobody asked for. While staying
     // flat is affordable, the chain stays flat.
-    [3, 5, 8].forEach(n => {
+    FLAT.forEach(n => {
       const { width, height } = ringOf(n);
       expect(width).toBeGreaterThan(height * 2);
     });
@@ -731,7 +736,7 @@ describe('arcChainLayout', () => {
     // the bow-to-ring switch is deliberately a step change.
     const rings = [12, 20, 30].map(n => ringOf(n).width);
     rings.forEach((w, i) => { if (i > 0) expect(w).toBeGreaterThan(rings[i - 1]); });
-    const bows = [3, 5, 8].map(n => ringOf(n).width);
+    const bows = FLAT.map(n => ringOf(n).width);
     bows.forEach((w, i) => { if (i > 0) expect(w).toBeGreaterThan(bows[i - 1]); });
   });
 
@@ -744,6 +749,54 @@ describe('arcChainLayout', () => {
     // Roughly as tall as it is wide, which is what "circular" means here.
     expect(width / height).toBeGreaterThan(0.6);
     expect(width / height).toBeLessThan(1.7);
+  });
+
+  it('coils rather than closing, so the windings never touch', () => {
+    // The whole bet of a spiral: it buys room by winding again instead of by
+    // growing. That only pays if a winding clears the one outside it.
+    const { pos, nodes } = ringOf(20);
+    const box = (nd) => {
+      const p = pos.get(nd.id);
+      return { x0: p.x, y0: p.y, x1: p.x + 300, y1: p.y + 100 };
+    };
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 2; j < nodes.length; j++) {
+        const a = box(nodes[i]);
+        const b = box(nodes[j]);
+        const overlaps = a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+        expect(overlaps, `${nodes[i].id} overlaps ${nodes[j].id}`).toBe(false);
+      }
+    }
+  });
+
+  it('costs less to add nodes than a ring does', () => {
+    // A ring has one turn to spend, so length has to be paid for with radius and
+    // the area goes up with the square of it. A spiral pays a fixed radial cost
+    // per turn, so its area tracks the chain's length. The gap between the two
+    // widens with every node, which is the reason a path coils.
+    const spiral = [12, 50].map(n => ringOf(n));
+    const rings = [12, 50].map(n => ringOf(n, { arcChainCurl: 'ring' }));
+    const area = (m) => m.width * m.height;
+    const advantage = spiral.map((s, i) => area(rings[i]) / area(s));
+    expect(advantage[0]).toBeGreaterThan(1);
+    expect(advantage[1]).toBeGreaterThan(advantage[0] * 2);
+  });
+
+  it('cannot read as a circuit, because its ends sit at different radii', () => {
+    // A ring of a path has to be held open by an explicit gap or the eye reads a
+    // loop. A spiral gets that for free — the two ends are on different windings.
+    const { pos, nodes } = ringOf(20);
+    const centres = nodes.map(nd => {
+      const p = pos.get(nd.id);
+      return { x: p.x + 150, y: p.y + 50 };
+    });
+    const cx = centres.reduce((s, c) => s + c.x, 0) / centres.length;
+    const cy = centres.reduce((s, c) => s + c.y, 0) / centres.length;
+    const radius = (c) => Math.hypot(c.x - cx, c.y - cy);
+    const first = radius(centres[0]);
+    const last = radius(centres[centres.length - 1]);
+    // The sequence opens at the rim, where there is most room, and tightens.
+    expect(first).toBeGreaterThan(last * 1.5);
   });
 
   it('begins at the top, where the tangent is level', () => {
@@ -762,7 +815,100 @@ describe('arcChainLayout', () => {
       const deg = Math.abs(Math.atan2(centre(b).y - centre(a).y, centre(b).x - centre(a).x) * 180 / Math.PI);
       return deg > 90 ? 180 - deg : deg;
     };
-    expect(tiltOf('c0', 'c1')).toBeLessThan(15);
+    // Dead level, not merely near it. The coil is rotated to aim at the first
+    // CHORD rather than to park c0 at 12 o'clock — a chord sits half its own arc
+    // off the tangent, which is 17 degrees at the rim of a coil this size.
+    expect(tiltOf('c0', 'c1')).toBeLessThan(0.5);
+  });
+
+  it('gives each edge the length ITS OWN label needs', () => {
+    // The coil is walked from the middle out but read from the rim in, so the
+    // chords have to be consumed back to front. Getting that wrong hands every
+    // edge its mirror's length, and no fixture with uniform labels can see it.
+    const nodes = Array.from({ length: 12 }, (_, i) => node(`c${i}`, 300, 100));
+    const long = 'is the long winded precondition for';
+    const edges = Array.from({ length: 11 }, (_, i) =>
+      edge(`c${i}`, `c${i + 1}`, i === 2 ? long : 'to'));
+    const pos = arcChainLayout(nodes, edges, {
+      edgeLabelFontSize: 32,
+      topologyMeta: { startId: 'c0' }
+    });
+    const span = (i) => {
+      const a = pos.get(`c${i}`);
+      const b = pos.get(`c${i + 1}`);
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    };
+    const lengths = Array.from({ length: 11 }, (_, i) => span(i));
+    const longest = lengths.indexOf(Math.max(...lengths));
+    expect(longest).toBe(2);
+  });
+});
+
+describe('a coiled chain survives the Lombardi pipeline', () => {
+  // The seed being clean is not the claim worth testing. lombardiRefine runs
+  // after it, and rotation preserves each edge's LENGTH but not the drawing's
+  // shape — on a path the corrections compound, and unleashed this pass moved a
+  // node three windings (1496px) to buy 0.85 degrees of residual, dragging the
+  // coil through itself. These run the real entry point, end to end.
+  const LABELS = [
+    'Pioneered Untethered Human Flight', 'Proved Fixed-Wing Flight',
+    'Pushed Toward Rigid Airship Design', 'Achieved Sustained Powered Flight',
+    'Crossed The English Channel', 'Extended Air Combat Doctrine',
+    'Inspired Solo Transatlantic Flight', 'Catalyzed Commercial Aviation',
+  ];
+
+  const coil = (n) => {
+    const nodes = Array.from({ length: n }, (_, i) => node(`c${i}`, 300, 100));
+    const edges = Array.from({ length: n - 1 }, (_, i) =>
+      edge(`c${i}`, `c${i + 1}`, LABELS[i % LABELS.length]));
+    const pos = patternLayout(nodes, edges, {
+      width: 2000, height: 1500, edgeLabelFontSize: 32,
+      routingStyle: 'lombardi', lombardiCurvature: 1
+    });
+    const centre = (i) => {
+      const p = pos.get(`c${i}`);
+      return { x: p.x + 150, y: p.y + 50 };
+    };
+    return { nodes, edges, pos, centre, n };
+  };
+
+  const crosses = (p, q, r, s) => {
+    const side = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    return (side(r, s, p) > 0) !== (side(r, s, q) > 0)
+      && (side(p, q, r) > 0) !== (side(p, q, s) > 0);
+  };
+
+  it('never crosses its own windings', () => {
+    [12, 20, 30].forEach(n => {
+      const { centre } = coil(n);
+      for (let i = 0; i < n - 1; i++) {
+        for (let j = i + 2; j < n - 1; j++) {
+          expect(
+            crosses(centre(i), centre(i + 1), centre(j), centre(j + 1)),
+            `n=${n}: connection ${i} crosses connection ${j}`
+          ).toBe(false);
+        }
+      }
+    });
+  });
+
+  it('never runs a connection through a node it does not belong to', () => {
+    [12, 20, 30].forEach(n => {
+      const { centre, pos } = coil(n);
+      for (let i = 0; i < n - 1; i++) {
+        for (let j = 0; j < n; j++) {
+          if (j === i || j === i + 1) continue;
+          const b = pos.get(`c${j}`);
+          let hit = false;
+          for (let t = 0; t <= 1; t += 0.02) {
+            const x = centre(i).x + (centre(i + 1).x - centre(i).x) * t;
+            const y = centre(i).y + (centre(i + 1).y - centre(i).y) * t;
+            if (x > b.x && x < b.x + 300 && y > b.y && y < b.y + 100) { hit = true; break; }
+          }
+          expect(hit, `n=${n}: connection ${i} runs through c${j}`).toBe(false);
+        }
+      }
+    });
   });
 });
 

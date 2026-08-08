@@ -1097,6 +1097,8 @@ function radialLayoutCentered(nodes, edges, cfg, meta = {}) {
 
 /**
  * How wide an opening to leave in the ring, as a multiple of its longest chord.
+ * Only reached under `arcChainCurl: 'ring'` — a spiral needs no opening, since
+ * its ends are on different windings to begin with.
  *
  * A chain is a sequence, not a loop, so the ring must not close — the first and
  * last node have to be visibly further apart than any linked pair, or the eye
@@ -1125,24 +1127,40 @@ const ARC_CHAIN_OPENING = 1.25;
 const ARC_CHAIN_TARGET_WIDTH = 4000;
 
 /**
- * A path laid around an open circle — the paper's *circular Lombardi drawing*
- * of a chain, with all vertices on one circle and every edge an arc meeting it
- * at a constant angle, left open so a sequence never reads as a circuit.
+ * What a chain curls INTO once it is too long to stay flat: `'spiral'` or
+ * `'ring'`. A path has two free ends, so it can coil past itself; only a real
+ * cycle has to come back to where it started. See the spiral walk below for
+ * why that is worth taking advantage of.
+ */
+const ARC_CHAIN_CURL = 'spiral';
+
+/**
+ * A path laid along a curve of constant turning — the paper's *circular
+ * Lombardi drawing* of a chain, every edge an arc meeting the curve at the same
+ * angle. Short chains get a shallow bow; long ones coil into a spiral.
  *
- * WHY THE RING AND NOT A SHALLOW ARC
- * A circle is the COMPACT way to draw a long sequence, and dramatically so. Its
- * circumference is the chain's own length, so its width is that length over π —
- * about a third of what the same chain laid out in a gentle bow would need. A
- * 20-node sequence drawn as a shallow arc is ~13000px wide and runs off across
- * the canvas; the same sequence on a ring is ~4000px across.
+ * WHY IT CURVES AT ALL
+ * Curling is the COMPACT way to draw a long sequence, and dramatically so. A
+ * 20-node sequence laid out in a gentle bow is ~13000px wide and runs off across
+ * the canvas; coiled, the same sequence is ~2100px across.
  *
- * The cost is real and worth stating: on a ring the edges take every angle,
- * so the labels down the left and right sides are close to vertical. That is
- * inherent to the shape rather than a defect in the placement — there is no
- * rotation of a circle that makes all of its tangents level. What the rotation
- * DOES control is where the sequence begins, so it begins at the top, where the
- * tangent is horizontal, and runs clockwise: the reader meets the opening and
- * the first few connections at their most readable.
+ * WHY A SPIRAL AND NOT A CIRCLE
+ * A circle can only be drawn so tightly: it has one turn to spend, so a longer
+ * chain has to buy room by growing its radius, and its area goes up with the
+ * square of the chain's length. A path has two loose ends and can therefore
+ * coil PAST itself — spend another turn instead of another radius — so its area
+ * tracks the length instead. At 50 nodes the spiral is a quarter of the ring's
+ * area. It also settles openness for free: a ring of a path has to be held open
+ * by a deliberate gap or the eye reads a circuit, whereas a spiral's two ends
+ * are on different windings and can never meet.
+ *
+ * The cost is real and worth stating: on a coil the edges take every angle, so
+ * the labels down the left and right sides are close to vertical. That is
+ * inherent to the shape rather than a defect in the placement — no rotation of
+ * a coil levels all of its tangents. What the rotation DOES control is where
+ * the sequence begins, so it begins at the top of the outermost winding, where
+ * the tangent is horizontal and there is most room, and winds inward: the
+ * reader meets the first few connections at their most readable.
  */
 function arcChainLayoutCentered(nodes, edges, cfg, meta = {}) {
   const nodeById = new Map(nodes.map(n => [n.id, n]));
@@ -1233,10 +1251,99 @@ function arcChainLayoutCentered(nodes, edges, cfg, meta = {}) {
     Math.max(...chords) * (cfg.arcChainOpening ?? ARC_CHAIN_OPENING)
   ]));
 
-  // ── Bow, or ring? ────────────────────────────────────────────────────────
+  // Walk the chain round an Archimedean spiral, r = r0 + b·θ.
+  //
+  // WHY A SPIRAL AND NOT A RING, FOR A PATH
+  // A ring has one turn to spend, so a long sequence has to buy room by growing
+  // its radius, and the drawing gets big in both directions at once. A spiral
+  // has as many turns as it likes: it buys room by winding again, at a fixed
+  // radial cost per turn. Its area therefore grows with the chain's LENGTH
+  // rather than with the square of it, and a long sequence comes out markedly
+  // smaller than the same sequence bent round a circle.
+  //
+  // It also settles the openness problem outright. A ring of a path has to be
+  // held open by an explicit gap, or the eye reads a circuit; a spiral's two
+  // ends sit at different radii and can never meet, so the shape says
+  // "sequence" on its own.
+  //
+  // `pitch` is the radial distance between successive windings — one node deep
+  // plus the gap that keeps a winding clear of the one outside it. It is the
+  // only knob: a tighter pitch is more compact and more coiled.
+  const spiral = (chords) => {
+    // Two boxes offset purely radially clear each other only if the offset
+    // beats their width OR their height, and there is an angle — the box's own
+    // diagonal — where it has to beat both at once. That diagonal is the
+    // circumscribed diameter, so that is the honest floor for the pitch.
+    // Using the height alone looked right on the top and bottom of the coil and
+    // let the windings run straight through each other down the sides.
+    const pitch = 2 * Math.max(...nodes.map(n => circumRadius(n))) + cfg.nodeGap;
+    const b = pitch / (2 * Math.PI);
+    // Start wide enough that half a turn always spans the longest chord — that
+    // is what makes the step search below always terminate inside half a turn.
+    const r0 = Math.max(pitch, Math.max(...chords) / 2);
+    const at = (theta) => {
+      const r = r0 + b * theta;
+      return { x: Math.cos(theta) * r, y: Math.sin(theta) * r };
+    };
+
+    let theta = 0;
+    const pts = [at(0)];
+    // Walked from the inside out, but READ from the outside in (see below), so
+    // the chords have to be consumed back to front. Laying them out forwards
+    // and then reversing the points hands every edge its mirror's length — the
+    // one long label in a chain lands two-thirds of the way along it instead,
+    // which is invisible in any fixture where the labels are all the same.
+    [...chords].reverse().forEach(chord => {
+      const from = at(theta);
+      const reach = (d) => Math.hypot(at(theta + d).x - from.x, at(theta + d).y - from.y);
+      // Over half a turn the chord length grows monotonically with the angle,
+      // and half a turn spans at least 2·r0 ≥ this chord, so this bisection is
+      // always bracketed. Capping the step at half a turn also stops one long
+      // label from flinging its edge right round the coil.
+      let lo = 0;
+      let hi = Math.PI;
+      for (let i = 0; i < 40; i++) {
+        const mid = (lo + hi) / 2;
+        if (reach(mid) >= chord) hi = mid; else lo = mid;
+      }
+      theta += hi;
+      pts.push(at(theta));
+    });
+
+    // Read from the rim inward. The spiral is built from the middle out because
+    // that is the end whose radius is known in advance, but it is READ the other
+    // way: the sequence should open where the curve is flattest and the room is
+    // greatest, and tighten as it goes. Negating x flips the handedness back, so
+    // the reversed order still runs clockwise.
+    const path = pts.map(p => ({ x: -p.x, y: p.y })).reverse();
+
+    // Rotate the FIRST CONNECTION level, not the first node to 12 o'clock.
+    // Putting a node at the top levels the tangent AT that node, but the edge
+    // leaving it is a chord, and a chord sits half its own arc off the tangent —
+    // 17° at the rim of a twenty-node coil, which is plainly tilted. Aiming at
+    // the chord instead costs nothing and lands the opening connection dead
+    // level; c0 and c1 straddle the top rather than one of them sitting on it.
+    const lead = Math.atan2(path[1].y - path[0].y, path[1].x - path[0].x);
+    // Two rotations level it; take the one that puts the coil BELOW its opening,
+    // so the sequence still starts at the top and winds down into the drawing.
+    // The coil's centre is the origin, so that is just the sign of the first
+    // node's y once rotated.
+    const heightAfter = (r) => path[0].x * Math.sin(r) + path[0].y * Math.cos(r);
+    const rot = heightAfter(-lead) <= 0 ? -lead : -lead + Math.PI;
+    const cos = Math.cos(rot);
+    const sin = Math.sin(rot);
+    const out = new Map();
+    order.forEach((id, i) => {
+      const p = path[i] || path[path.length - 1];
+      out.set(id, { x: p.x * cos - p.y * sin, y: p.x * sin + p.y * cos });
+    });
+    return out;
+  };
+
+  // ── Bow, or coil? ────────────────────────────────────────────────────────
   // Only those two are worth drawing. Curled all the way the chain is a compact
-  // ring; flat, it is a horizontal bow. Everything in between is a big open C,
-  // WIDER than the ring and TALLER than the bow at once, because opening a ring
+  // coil; flat, it is a horizontal bow. Everything in between is a big open C,
+  // WIDER than the coil and TALLER than the bow at once, because opening a coil
   // up pushes its ends apart faster than it flattens them.
   //
   // The choice is made ONCE, and from the bow's own geometry — a candidate flat
@@ -1251,11 +1358,12 @@ function arcChainLayoutCentered(nodes, edges, cfg, meta = {}) {
     return bow;
   }
 
-  // Committed to a ring, refine it the way cycleLayoutCentered and
+  // Committed to curling, refine it the way cycleLayoutCentered and
   // starLayoutCentered do: solve once blind to get bearings, then re-solve
   // measuring each node along the direction its chord actually runs.
-  const coarse = ring(chordsWith(worstCase));
-  return ring(chordsWith(along(coarse)));
+  const curl = (cfg.arcChainCurl ?? ARC_CHAIN_CURL) === 'ring' ? ring : spiral;
+  const coarse = curl(chordsWith(worstCase));
+  return curl(chordsWith(along(coarse)));
 }
 
 // ============================================================================
@@ -1590,8 +1698,19 @@ function packComponents(blocks, cfg) {
  * reasonable either side of 70px text and absurd either side of 30px text,
  * and the connection-label size is a user setting. Expressing it in ems makes
  * "comfortable" mean the same thing at every setting.
+ *
+ * This is the TOTAL along the edge, so the visible gap either side of the text
+ * is half of it. Read at that scale it is generous rather than extravagant, and
+ * it is deliberately so: an edge whose label runs nearly wall to wall between
+ * two nodes is legible in isolation and a smear once the diagram is busy.
+ *
+ * It is affordable because of the coil. Under the old ring, room bought here was
+ * paid for with radius squared; on a spiral it is paid for linearly, so more
+ * than doubling this — 40px a side to 88px at a 32px label — grows a twenty-node
+ * chain by 11%, and the result is still a fifth smaller than the ring was at the
+ * OLD padding. Trees pay for it in height only, stars barely at all.
  */
-const LABEL_PADDING_EM = 2.5;
+const LABEL_PADDING_EM = 5.5;
 
 /**
  * Defaults merged with a caller's options, plus the values that are DERIVED
@@ -1740,6 +1859,43 @@ function circleSeedCentered(nodes, edges, cfg, order) {
  *
  * Components are packed exactly as patternLayout packs them.
  */
+/**
+ * The narrowest clear space between any two node boxes in a seed.
+ *
+ * Read as: how much room does this drawing have to give away before something
+ * that was separate stops being separate. On a coil it comes out as the gap
+ * between windings; on a tree, the gap between neighbouring subtrees. It is a
+ * property of the seed rather than of any config value, which is the point —
+ * whatever the seed was careful about, this measures.
+ *
+ * Falls back to the largest node's own size when there is only one box, so a
+ * trivial component doesn't end up leashed to zero.
+ */
+function seedClearance(positions, nodes) {
+  const boxes = nodes
+    .map(n => ({ p: positions.get(n.id), box: boxOf(n) }))
+    .filter(entry => entry.p);
+  const fallback = Math.max(...nodes.map(n => circumRadius(n)), 1) * 2;
+  if (boxes.length < 2) return fallback;
+
+  let min = Infinity;
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i];
+      const b = boxes[j];
+      const dx = Math.max(0, Math.abs(a.p.x - b.p.x) - (a.box.w + b.box.w) / 2);
+      const dy = Math.max(0, Math.abs(a.p.y - b.p.y) - (a.box.h + b.box.h) / 2);
+      min = Math.min(min, Math.hypot(dx, dy));
+    }
+  }
+  // Adjacent nodes on a tight edge can sit almost touching, which would leash
+  // the whole component to nothing. The floor keeps the pass useful.
+  return Math.max(min, cfgFloorClearance);
+}
+
+// Smallest leash worth applying — below this the refinement may as well not run.
+const cfgFloorClearance = 60;
+
 export function lombardiPatternLayout(nodes, edges, cfg, options = {}) {
   const nodeById = new Map(nodes.map(n => [n.id, n]));
   const { components } = detectTopology(nodes, edges || [], options);
@@ -1806,8 +1962,14 @@ export function lombardiPatternLayout(nodes, edges, cfg, options = {}) {
     }
 
     // ---- 2. REFINE (angle) ------------------------------------------------
+    // Leashed to the room the seed actually left. Rotation preserves each edge's
+    // length but not the drawing's shape, and the corrections COMPOUND along a
+    // path, so on a sparse component the far end swings by a large multiple of
+    // any single one. Half the seed's tightest non-adjacent clearance is the
+    // most a node can move before it starts eating a gap the seed solved for.
     positions = lombardiRefine(positions, component.nodes, component.edges, {
       ...componentCfg,
+      maxDrift: seedClearance(positions, component.nodes) / 2,
       ...(options.lombardiRefine || {})
     });
 
