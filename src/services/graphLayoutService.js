@@ -989,7 +989,21 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
         ? e.destinationId
         : memberToBlockId.get(e.destinationId);
       if (!srcEntity || !dstEntity || srcEntity === dstEntity) continue;
-      intraEdges.push({ sourceId: srcEntity, destinationId: dstEntity });
+      // Carry the connection itself across, not just its endpoints. A layout
+      // sizes an edge from its LABEL, so an edge stripped to a pair of ids is
+      // an edge the solver believes is unlabelled: it reserves the bare node
+      // gap and the text is drawn over whatever happens to be there. That made
+      // grouped graphs look nothing like ungrouped ones under the same setting,
+      // because a group's interior is laid out by this call. `id` matters too —
+      // it keys Lombardi's per-edge tangent fan — and `directionality` is what
+      // orients a hierarchy by its arrows rather than by authoring order.
+      intraEdges.push({
+        id: e.id,
+        sourceId: srcEntity,
+        destinationId: dstEntity,
+        name: e.name,
+        directionality: e.directionality
+      });
     }
 
     const totalEntities = directMemberNodes.length + blockNodes.length;
@@ -1159,6 +1173,20 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     }
   });
 
+  // The widest label on any connection that crosses between groups. A group-to
+  // -group connection is drawn in the corridor between two group boxes, so that
+  // corridor has to be wide enough to hold its text — a flat allowance is right
+  // only for whatever label length it was picked for, and reads as far too
+  // tight the moment a real relation name shows up.
+  const crossGroupLabel = edges.reduce((widest, e) => {
+    const srcGroups = getNodeMetaGroups(e.sourceId);
+    const dstGroups = getNodeMetaGroups(e.destinationId);
+    const crosses = srcGroups.some(g => dstGroups.some(h => g !== h));
+    if (!crosses || !e.name) return widest;
+    return Math.max(widest, estimateEdgeLabelWidth(e.name, config.edgeLabelFontSize));
+  }, 0);
+  const corridor = Math.max(200, crossGroupLabel + config.nodeGap * 2);
+
   // Run force-directed on meta-nodes — same engine, group scale
   const avgDim = metaNodes.reduce((s, n) => s + Math.max(n.width, n.height), 0) / metaNodes.length;
   const metaPositions = forceDirectedLayout(metaNodes, metaEdges, {
@@ -1168,8 +1196,16 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     groups: [],  // No sub-groups at meta level
     iterations: 200,
     repulsionStrength: config.repulsionStrength,
-    targetLinkDistance: avgDim + 200,
+    // BOTH names, deliberately. forceDirectedLayout bridges the tuner's
+    // linkDistance/minLinkDistance onto targetLinkDistance/minNodeDistance, and
+    // because linkDistance carries a default the bridge fires unconditionally —
+    // so passing only the simulation names gets them overwritten by the scale
+    // preset before the first iteration. The group spacing computed here never
+    // reached the solver.
+    targetLinkDistance: avgDim + corridor,
+    linkDistance: avgDim + corridor,
     minNodeDistance: avgDim * 0.8,
+    minLinkDistance: avgDim * 0.8,
   });
 
   // Shift each group's internal layout to its meta-node position
@@ -1309,22 +1345,34 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   // exactly as laid out and enforce only the constraints that operate BETWEEN
   // groups — peer rects must not interleave, and no node may finish inside a
   // rect it isn't a member of.
-  if (patternIntra) {
-    const nestedGroupPairs = new Set();
-    for (const [childId] of hierarchy.directParentOf) {
-      let cur = childId;
-      while (hierarchy.directParentOf.has(cur)) {
-        const parentId = hierarchy.directParentOf.get(cur);
-        nestedGroupPairs.add(childId < parentId ? `${childId}|${parentId}` : `${parentId}|${childId}`);
-        cur = parentId;
-      }
+  const nestedGroupPairs = new Set();
+  for (const [childId] of hierarchy.directParentOf) {
+    let cur = childId;
+    while (hierarchy.directParentOf.has(cur)) {
+      const parentId = hierarchy.directParentOf.get(cur);
+      nestedGroupPairs.add(childId < parentId ? `${childId}|${parentId}` : `${parentId}|${childId}`);
+      cur = parentId;
     }
+  }
 
-    // The enforcement helpers work in the simulation's CENTRE frame; the
-    // composed pattern positions are top-left. Convert in, convert back.
+  /**
+   * Peer rects must not interleave, and no node may finish inside a rect it
+   * isn't a member of.
+   *
+   * Applied as a FINISH to both paths below rather than only the pattern one.
+   * Containment is read straight off the drawing — there is no other channel —
+   * so a non-member inside a rect is the layout asserting something false, and
+   * that is not something a soft force running for twenty iterations can be
+   * relied on to prevent. Phase 3's springs get to shape the drawing; this gets
+   * the last word on what it claims.
+   *
+   * The helpers work in the simulation's CENTRE frame while positions here are
+   * top-left, so convert in and back out.
+   */
+  const enforceGroupClaims = (topLeft) => {
     const halfOf = (n) => ({ hw: (n?.width || 100) / 2, hh: (n?.height || 60) / 2 });
     const centres = new Map();
-    finalPositions.forEach((pos, id) => {
+    topLeft.forEach((pos, id) => {
       const { hw, hh } = halfOf(nodeById.get(id));
       centres.set(id, { x: pos.x + hw, y: pos.y + hh });
     });
@@ -1345,6 +1393,11 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       const { hw, hh } = halfOf(nodeById.get(id));
       out.set(id, { x: pos.x - hw, y: pos.y - hh });
     });
+    return out;
+  };
+
+  if (patternIntra) {
+    const out = enforceGroupClaims(finalPositions);
     if (options.onProgress) options.onProgress(1);
     return out;
   }
@@ -1360,7 +1413,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
 
   // ── Fix 3b: Weaker Phase 3 refinement to preserve group separation ───
   // Fewer iterations + stronger group forces + weaker cross-group springs
-  return forceDirectedLayout(nodesWithPositions, edges, {
+  const refined = forceDirectedLayout(nodesWithPositions, edges, {
     ...options,
     onProgress: progressScope(options, 0.85, 0.15),
     useExistingPositions: true,  // Prevents re-entering groupSeparatedLayout
@@ -1372,6 +1425,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     minGroupDistance: config.minGroupDistance,
     centerStrength: 0.005,
   });
+  return enforceGroupClaims(refined);
 }
 
 // ============================================================================
@@ -3260,27 +3314,50 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
       const h = node.height || 60;
       const hw = w / 2 + clearance;
       const hh = h / 2 + clearance;
-      // Iterate until clear of ALL boxes. When the node overlaps several
-      // boxes at once (two rects joined by a shared node's Venn lens),
-      // eject from their UNION — per-box ejection just ping-pongs between
-      // the overlapping boxes.
-      for (let round = 0; round < 4; round++) {
-        // `pos` IS the centre — forceDirectedLayout's frame.
-        const cx = pos.x;
-        const cy = pos.y;
-        const hits = [];
-        fullBoxes.forEach(box => {
-          if (cx + hw > box.minX && cx - hw < box.maxX &&
-              cy + hh > box.minY && cy - hh < box.maxY) hits.push(box);
+      // Land somewhere clear of EVERY box in one move, rather than stepping out
+      // of whichever box the node is in right now.
+      //
+      // Iterating the cheapest single-box exit does not converge when the boxes
+      // are close together: the node leaves A into B, leaves B back into A, and
+      // repeats. The union-eject above it only fires when a node overlaps two
+      // rects AT ONCE, and a node sitting in the gap between two rects overlaps
+      // exactly one at a time — so it ping-pongs and which rect it finishes in
+      // is decided by the parity of the loop bound. That is the intermittent
+      // "non-member inside a group" that survives every other pass.
+      //
+      // So: propose the four exits from every box AND from the union of all of
+      // them, keep only the proposals that are clear of everything, and take the
+      // nearest. The union's exits are always clear, so a candidate always
+      // exists and this terminates by construction.
+      const boxes = [...fullBoxes.values()];
+      const overlaps = (x, y, box) => x + hw > box.minX && x - hw < box.maxX
+        && y + hh > box.minY && y - hh < box.maxY;
+      const isClear = (x, y) => !boxes.some(box => overlaps(x, y, box));
+      if (isClear(pos.x, pos.y)) return;
+
+      const union = {
+        minX: Math.min(...boxes.map(b => b.minX)),
+        minY: Math.min(...boxes.map(b => b.minY)),
+        maxX: Math.max(...boxes.map(b => b.maxX)),
+        maxY: Math.max(...boxes.map(b => b.maxY))
+      };
+      let best = null;
+      [...boxes, union].forEach(box => {
+        [
+          { x: box.minX - hw, y: pos.y },
+          { x: box.maxX + hw, y: pos.y },
+          { x: pos.x, y: box.minY - hh },
+          { x: pos.x, y: box.maxY + hh }
+        ].forEach(candidate => {
+          if (!isClear(candidate.x, candidate.y)) return;
+          const cost = Math.hypot(candidate.x - pos.x, candidate.y - pos.y);
+          if (!best || cost < best.cost) best = { ...candidate, cost };
         });
-        if (hits.length === 0) break;
-        const target = hits.length === 1 ? hits[0] : {
-          minX: Math.min(...hits.map(b => b.minX)),
-          minY: Math.min(...hits.map(b => b.minY)),
-          maxX: Math.max(...hits.map(b => b.maxX)),
-          maxY: Math.max(...hits.map(b => b.maxY))
-        };
-        if (ejectNodeFromBox(node, pos, target)) moved = true;
+      });
+      if (best) {
+        pos.x = best.x;
+        pos.y = best.y;
+        moved = true;
       }
     });
 

@@ -131,6 +131,23 @@ describe('non-members finish outside every group rect', () => {
     expect(intruders(positions, nodes, groups)).toEqual([]);
   });
 
+  it('does not leave a node ping-ponging between two rects', () => {
+    // The eject used to step out of whichever rect the node was in RIGHT NOW.
+    // Between two close rects that never converges — out of A into B, out of B
+    // into A — and which one it finishes inside comes down to the parity of the
+    // loop bound. The union-eject beside it only fires on a node overlapping
+    // two rects AT ONCE, which is exactly what a node in the gap never does.
+    //
+    // Squeezing the canvas is what forces the two rects close enough to trip it.
+    const { nodes, edges, groups } = twoGroupGraph();
+    [1600, 2000, 2600, 3000].forEach(width => {
+      const positions = positionsOf(applyLayout(nodes, edges, 'force', {
+        ...OPTS, width, height: width * 0.75, groups
+      }));
+      expect(intruders(positions, nodes, groups), `at width ${width}`).toEqual([]);
+    });
+  });
+
   it('holds for a nested group: the parent\'s own members stay out of the child', () => {
     // Containment is derived from member subsets, so C ⊂ A. A member of A that
     // is not a member of C must finish outside C's rect while remaining inside
@@ -178,6 +195,45 @@ describe('grouped graphs keep their routing-native layout', () => {
       });
       expect(intruders(positionsOf(updates), nodes, groups)).toEqual([]);
     });
+  });
+
+  // A group's interior is laid out by the same pipeline an ungrouped graph
+  // uses, so it has to reserve the same room. It didn't: the edges handed to
+  // that pipeline were rebuilt as bare {sourceId, destinationId} pairs, which a
+  // layout reads as UNLABELLED — it reserves the plain node gap and the text is
+  // drawn across whatever is there. Grouping a graph silently halved its
+  // connection spacing.
+  const spacingGraph = () => {
+    const LONG = 'is the long winded precondition for';
+    const nodes = ['a1', 'a2', 'a3', 'a4'].map(id => node(id, 240, 100));
+    const edges = [
+      edge('a1', 'a2', LONG), edge('a2', 'a3', LONG), edge('a3', 'a4', LONG)
+    ];
+    return { nodes, edges, groups: [{ id: 'A', name: 'A', memberInstanceIds: ['a1', 'a2', 'a3', 'a4'] }] };
+  };
+
+  const shortestEdge = (updates, nodes, edges) => {
+    const p = new Map(updates.map(u => [u.instanceId, u]));
+    const centre = (id) => {
+      const n = nodes.find(x => x.id === id);
+      return { x: p.get(id).x + n.width / 2, y: p.get(id).y + n.height / 2 };
+    };
+    return Math.min(...edges.map(e => {
+      const a = centre(e.sourceId);
+      const b = centre(e.destinationId);
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }));
+  };
+
+  it('reserves the same room for a labelled connection inside a group as outside one', () => {
+    const { nodes, edges, groups } = spacingGraph();
+    const opts = { ...OPTS, edgeLabelFontSize: 32, routingStyle: 'lombardi' };
+    const ungrouped = shortestEdge(applyLayout(nodes, edges, 'pattern', opts), nodes, edges);
+    const grouped = shortestEdge(applyLayout(nodes, edges, 'pattern', { ...opts, groups }), nodes, edges);
+    // Not "roughly similar" — the grouped interior runs the identical solver on
+    // the identical subgraph, so anything materially shorter means the label
+    // went missing on the way in.
+    expect(grouped).toBeGreaterThan(ungrouped * 0.9);
   });
 
   it('is deterministic for a grouped Lombardi layout, ungrouped nodes included', () => {
