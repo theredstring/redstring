@@ -6114,10 +6114,10 @@ function NodeCanvas() {
   // Connection (edge) menu framing. Deliberately gentler than the node numbers above:
   // the edge menu's box is a short wide strip, so filling the region with it magnifies
   // far harder than the node's roughly-square cluster does at the same fill fraction.
-  const FOCUS_EDGE_FILL_WIDE = 0.78;   // desktop: box fills ~78% of the usable region
-  const FOCUS_EDGE_FILL_NARROW = 0.90; // mobile: closer to the full width, space is scarce
-  const FOCUS_EDGE_PADDING_RATIO = 0.5; // extra margin around the box, in bubble diameters
-  const FOCUS_EDGE_MAX_ZOOM = 1.0;      // never magnify past native scale just to frame a menu
+  const FOCUS_EDGE_FILL_WIDE = 0.62;   // desktop: box fills ~62% of the usable region
+  const FOCUS_EDGE_FILL_NARROW = 0.78; // mobile: closer to the full width, space is scarce
+  const FOCUS_EDGE_PADDING_RATIO = 1.0; // extra margin around the box, in bubble diameters
+  const FOCUS_EDGE_MAX_ZOOM = 0.85;     // hard ceiling: framing a connection never magnifies
   const FOCUS_EDGE_LABEL_MAX_GROWTH = 1.6; // stop honoring the label past 1.6x box growth
 
   // Frame a single node with the pie-menu-aware zoom. Shared by focus-on-select and
@@ -8924,10 +8924,11 @@ function NodeCanvas() {
     onPointerMove: moveEdgeTouch,
     onPointerUp: commitEdgeTouch,
     onPointerCancel: cancelEdgeTouch,
+    // Deliberately NOT stopping propagation here: the canvas's own touch pipeline
+    // (handleTouchStartCanvas) has to see this touch, or a gesture that begins on a
+    // connection can't pan at all. It owns preventDefault and ignoreCanvasClick; we
+    // only record the selection candidate and let the pan machinery run.
     onTouchStart: (e) => {
-      e.preventDefault?.();
-      e.stopPropagation?.();
-      ignoreCanvasClick.current = true;
       setLongPressingInstanceId(null);
       setDrawingConnectionFrom(null);
       beginEdgeTouch(edgeId, e);
@@ -14587,9 +14588,7 @@ function NodeCanvas() {
                                 selectedEdgeIds={selectedEdgeIds}
                                 storeActions={storeActions}
                                 ignoreCanvasClick={ignoreCanvasClick}
-                                setLongPressingInstanceId={setLongPressingInstanceId}
-                                setDrawingConnectionFrom={setDrawingConnectionFrom}
-                                handleEdgePointerDownTouch={handleEdgePointerDownTouch}
+                                edgeTouchHandlers={edgeTouchHandlers}
                                 connectionName={selfConnectionName}
                                 connectionFontSize={selfFontSize}
                                 connectionWidth={connectionWidth}

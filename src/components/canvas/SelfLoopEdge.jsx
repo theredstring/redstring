@@ -16,9 +16,7 @@ const SelfLoopEdge = ({
   selectedEdgeIds,
   storeActions,
   ignoreCanvasClick,
-  setLongPressingInstanceId,
-  setDrawingConnectionFrom,
-  handleEdgePointerDownTouch,
+  edgeTouchHandlers,
   connectionName,
   connectionFontSize,
   connectionWidth = 1,
@@ -45,27 +43,10 @@ const SelfLoopEdge = ({
     }
   };
 
-  const handlePointerDown = (e) => {
-    if (e.pointerType && e.pointerType !== 'mouse') {
-      e.preventDefault?.();
-      e.stopPropagation?.();
-      ignoreCanvasClick.current = true;
-      setLongPressingInstanceId(null);
-      setDrawingConnectionFrom(null);
-      selectEdge(e.ctrlKey || e.metaKey);
-    }
-    handleEdgePointerDownTouch(edge.id, e);
-  };
-
-  const handleTouchStart = (e) => {
-    e.preventDefault?.();
-    e.stopPropagation?.();
-    ignoreCanvasClick.current = true;
-    setLongPressingInstanceId(null);
-    setDrawingConnectionFrom(null);
-    storeActions.clearSelectedEdgeIds();
-    storeActions.setSelectedEdgeId(edge.id);
-  };
+  // Touch selection is committed on release, not on touchdown — see
+  // edgeTouchHandlers in NodeCanvas. A pan that merely starts on this loop must
+  // not leave it selected when the finger lifts elsewhere.
+  const touchHandlers = edgeTouchHandlers(edge.id);
 
   const handleClick = (e) => {
     e.stopPropagation();
@@ -156,8 +137,7 @@ const SelfLoopEdge = ({
         stroke="transparent"
         strokeWidth={hitStrokeWidth}
         style={{ cursor: 'pointer' }}
-        onPointerDown={handlePointerDown}
-        onTouchStart={handleTouchStart}
+        {...touchHandlers}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
       />
