@@ -4,35 +4,13 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-// The wizard's tools import this queue, and the wizard now runs in the browser
-// as well as in Node. There is no filesystem there, so the journal is optional:
-// in Node the queue is file-backed and survives a restart exactly as before, in
-// the browser it is purely in-memory.
-//
-// Every `fs`/`os`/`path` use below is gated on IS_NODE. The bundler resolves
-// those imports to a stub whose properties throw on access, so touching one in
-// the browser is a runtime error — the gate is what keeps them untouched.
-const IS_NODE = typeof process !== 'undefined'
-  && !!process.versions?.node
-  && typeof window === 'undefined';
-
-// `fileURLToPath` cannot be imported here — it is a named export, and the
-// browser stub has none, which fails the build outright rather than at runtime.
-// This is the same conversion for the platforms this server runs on.
-function moduleDir() {
-  try {
-    const p = decodeURIComponent(new URL('.', import.meta.url).pathname);
-    return /^\/[A-Za-z]:/.test(p) ? p.slice(1) : p; // Windows: /C:/… → C:/…
-  } catch {
-    return '';
-  }
-}
-
-const __dirname = IS_NODE ? moduleDir() : '';
+// Safe for both ESM and CJS (esbuild bundle) contexts
+const __filename = import.meta.url ? fileURLToPath(import.meta.url) : '';
+const __dirname = __filename ? path.dirname(__filename) : '';
 
 function ensureDir(dirPath) {
-  if (!IS_NODE || !dirPath) return;
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
@@ -46,15 +24,10 @@ function randomId(prefix = 'q') {
   return `${prefix}-${nowTs()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function defaultJournalRoot() {
-  if (!IS_NODE) return null;
-  return __dirname
-    ? path.resolve(__dirname, '../../../data/queues')
-    : path.join(os.tmpdir(), 'redstring-queues');
-}
-
 class QueueManager {
-  constructor(journalRoot = defaultJournalRoot()) {
+  constructor(journalRoot = __dirname
+    ? path.resolve(__dirname, '../../../data/queues')
+    : path.join(os.tmpdir(), 'redstring-queues')) {
     this.journalRoot = journalRoot;
     ensureDir(this.journalRoot);
     // Map<string, { items: Array, inflight: Map<leaseId,itemId>, byId: Map, metrics: {} }>
@@ -67,7 +40,7 @@ class QueueManager {
       this.queues.set(name, q);
       // Load journal if exists
       const journalPath = this._journalPath(name);
-      if (journalPath && fs.existsSync(journalPath)) {
+      if (fs.existsSync(journalPath)) {
         try {
           const lines = fs.readFileSync(journalPath, 'utf8').split('\n').filter(Boolean);
           for (const line of lines) {
@@ -95,13 +68,11 @@ class QueueManager {
   }
 
   _journalPath(name) {
-    if (!IS_NODE || !this.journalRoot) return null;
     return path.join(this.journalRoot, `${name}.jsonl`);
   }
 
   _appendJournal(name, record) {
     const journalPath = this._journalPath(name);
-    if (!journalPath) return; // in-memory only (browser)
     fs.appendFileSync(journalPath, JSON.stringify(record) + '\n');
   }
 
