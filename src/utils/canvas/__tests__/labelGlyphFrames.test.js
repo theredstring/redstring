@@ -43,22 +43,25 @@ const radiusOf = (arc, pt) => Math.hypot(pt.x - arc.cx, pt.y - arc.cy);
 describe('labelCurveMinBow', () => {
   afterEach(() => { delete window.__labelCurveMinPx; });
 
-  it('does not move with the zoom, so no label changes form as you zoom', () => {
-    // THE point of the default being 0. Any positive screen-pixel threshold
-    // makes the canvas-space floor grow as you zoom out, which makes the
-    // curved/straight decision a function of the viewport — so zooming out far
-    // enough pops the flattest labels from curved to straight and back. Whether
-    // the bow it sheds is sub-pixel is beside the point: the POP is not, and it
-    // lands in the middle of the one gesture this all exists to keep smooth.
-    expect(LABEL_CURVE_MIN_SCREEN_PX).toBe(0);
-    const bows = [0.01, 0.25, 0.5, 1, 2, 1000].map(labelCurveMinBow);
-    for (const bow of bows) expect(bow).toBe(MIN_VISIBLE_BOW);
+  it('sheds curves by what the viewer can SEE — the floor grows as you zoom out', () => {
+    // The default was 0 ("never shed") while CURVED_LABEL_BUDGET was 40 and
+    // large graphs curved nothing anyway. With the budget real, fit-the-graph
+    // zoom on a big network put every label on screen as per-glyph paint items
+    // for bends compressed below a pixel — the measured slowdown. The screen
+    // threshold is the fix: 2px of on-screen bow buys a curve, less renders as
+    // the straight label it visually is. Evaluated at SETTLED zoom, so a form
+    // change can only land at gesture-settle, on a bend at the threshold.
+    expect(LABEL_CURVE_MIN_SCREEN_PX).toBe(2);
+    for (const zoom of [0.25, 0.5, 1, 2]) {
+      const bow = labelCurveMinBow(zoom);
+      if (bow > MIN_VISIBLE_BOW) expect(bow * zoom).toBeCloseTo(LABEL_CURVE_MIN_SCREEN_PX, 6);
+    }
+    expect(labelCurveMinBow(0.25)).toBeGreaterThan(labelCurveMinBow(1));
   });
 
-  it('still converts SCREEN pixels to canvas units when a threshold is set', () => {
-    // The zoom term is inert at the default but has to stay correct, because
-    // the override below is the lever for shedding curves — and it should shed
-    // by what the viewer can see, not by canvas units.
+  it('still converts SCREEN pixels to canvas units when a threshold is overridden', () => {
+    // The override is the lever for shedding more (or fewer) curves — and it
+    // should shed by what the viewer can see, not by canvas units.
     window.__labelCurveMinPx = 8;
     for (const zoom of [0.25, 0.5, 1, 2]) {
       const bow = labelCurveMinBow(zoom);
@@ -81,24 +84,26 @@ describe('labelCurveMinBow', () => {
     expect(labelCurveMinBow(1)).toBe(MIN_VISIBLE_BOW);
   });
 
-  it('ignores a nonsense override rather than straightening everything', () => {
-    // Falls back to the default threshold, which the floor then takes over.
+  it('ignores a nonsense override rather than changing the threshold', () => {
+    // Falls back to the default screen threshold.
     window.__labelCurveMinPx = 'wide';
-    expect(labelCurveMinBow(1)).toBe(MIN_VISIBLE_BOW);
+    expect(labelCurveMinBow(1)).toBe(LABEL_CURVE_MIN_SCREEN_PX);
 
     window.__labelCurveMinPx = -5;
-    expect(labelCurveMinBow(1)).toBe(MIN_VISIBLE_BOW);
+    expect(labelCurveMinBow(1)).toBe(LABEL_CURVE_MIN_SCREEN_PX);
   });
 
-  it('is the lever that sheds shallow curves when a graph needs it', () => {
-    // 200px of text on a 4000px-radius circle bows ~1.25px — a curve at the
-    // default floor, straightened once the threshold is raised past it. The
-    // default is 0 because bucketing rotations made curves cheap (see
-    // CURVED_GLYPH_ANGLE_QUANTUM); this checks the escape hatch still works.
+  it('is the lever that sheds shallow curves — and 0 restores curve-everything', () => {
+    // 200px of text on a 4000px-radius circle bows ~1.25px: under the default
+    // 2px screen threshold at zoom 1 (straight), over it with the override at
+    // 0 (curved), under again when the override raises the bar to 8.
     const arc = arcAt();
     const anchor = { x: 4000, y: 0 };
     const advances = evenAdvances(10, 20);
 
+    expect(labelArcGlyphFrames(arc, anchor, advances, { minBow: labelCurveMinBow(1) })).toBeNull();
+
+    window.__labelCurveMinPx = 0;
     expect(labelArcGlyphFrames(arc, anchor, advances, { minBow: labelCurveMinBow(1) })).not.toBeNull();
 
     window.__labelCurveMinPx = 8;
@@ -116,8 +121,12 @@ describe('curvedGlyphQuantum', () => {
     expect(curvedGlyphQuantum(0)).toBe(CURVED_GLYPH_ANGLE_QUANTUM);
   });
 
-  it('defers to a coarser canvas-wide quantum rather than undercutting it', () => {
-    expect(curvedGlyphQuantum(9)).toBe(9);
+  it('ignores the canvas-wide quantum — a dense canvas must not make curved text wobbly', () => {
+    // It used to take max(base, canvasQuantum) for aesthetic consistency, but a
+    // curved label at 9° is per-glyph wobble, not a clean tilt — the one thing
+    // the coupling guaranteed on dense graphs. Curved atlas keys are bounded by
+    // (characters × buckets) regardless of label count, so independence is safe.
+    expect(curvedGlyphQuantum(9)).toBe(CURVED_GLYPH_ANGLE_QUANTUM);
     expect(curvedGlyphQuantum(2)).toBe(CURVED_GLYPH_ANGLE_QUANTUM);
   });
 
@@ -152,7 +161,10 @@ describe('curvedGlyphQuantum', () => {
     }
 
     expect(bucketed.size).toBeLessThanOrEqual(Math.ceil(360 / q) + 1);
-    expect(bucketed.size).toBeLessThan(exact.size / 4);
+    // The hard cap above is the invariant that matters. This ratio just checks
+    // bucketing still collapses a real spread; at the finer 2° quantum the
+    // collapse on this small sample is ~3x rather than the old 4x.
+    expect(bucketed.size).toBeLessThan(exact.size / 2);
   });
 });
 

@@ -24,6 +24,7 @@ import universeBackendBridge from '../services/universeBackendBridge.js';
 import RepositoryDropdown from './repositories/RepositoryDropdown.jsx';
 import { persistentAuth } from '../services/persistentAuth.js';
 import { formatUniverseNameFromRepo, buildUniqueUniverseName } from '../utils/universeNaming.js';
+import { isCapacitor } from '../utils/capacitorAdapter.js';
 
 // Simple device detection
 const getDeviceInfo = () => {
@@ -38,8 +39,8 @@ const getDeviceInfo = () => {
     isTablet,
     isTouchDevice: isTouch,
     screenWidth,
-    supportsFileSystemAPI: 'showSaveFilePicker' in window,
-    gitOnlyMode: !('showSaveFilePicker' in window)
+    supportsFileSystemAPI: isCapacitor() || 'showSaveFilePicker' in window,
+    gitOnlyMode: !isCapacitor() && !('showSaveFilePicker' in window)
   };
 };
 

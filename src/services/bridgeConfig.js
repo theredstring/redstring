@@ -1,5 +1,55 @@
 // Bridge configuration helpers for building URLs and cross-device access
 
+// Capacitor serves the bundle from capacitor://localhost, which matches none of
+// the hostname heuristics below and would otherwise resolve to the nonsense
+// origin capacitor://localhost:3001.
+//
+// The native app deliberately has NO default remote origin: it is not a client
+// of redstring.io or of any other host. Server-backed features are opt-in, via
+// an endpoint the user configures themselves (getConfiguredRemoteOrigin below).
+// When nothing is configured, these resolvers return null and callers degrade —
+// bridgeFetch rejects instead of hitting a stranger's server.
+const REMOTE_ORIGIN_STORAGE_KEY = 'redstring_remote_origin';
+
+function isCapacitorOrigin() {
+  try {
+    if (typeof window === 'undefined') return false;
+    if (window.Capacitor?.isNativePlatform?.() === true) return true;
+    const protocol = window.location?.protocol || '';
+    return protocol === 'capacitor:' || protocol === 'ionic:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A remote origin the user explicitly pointed this install at (their own
+ * self-hosted instance, a machine on their LAN, or a public deployment they
+ * chose). Empty by default — nothing is assumed.
+ */
+export function getConfiguredRemoteOrigin() {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const stored = localStorage.getItem(REMOTE_ORIGIN_STORAGE_KEY);
+    const trimmed = typeof stored === 'string' ? stored.trim().replace(/\/+$/, '') : '';
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setConfiguredRemoteOrigin(origin) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const trimmed = typeof origin === 'string' ? origin.trim().replace(/\/+$/, '') : '';
+    if (trimmed) {
+      localStorage.setItem(REMOTE_ORIGIN_STORAGE_KEY, trimmed);
+    } else {
+      localStorage.removeItem(REMOTE_ORIGIN_STORAGE_KEY);
+    }
+  } catch { /* storage unavailable — setting simply doesn't persist */ }
+}
+
 function readEnvValue(...keys) {
   for (const key of keys) {
     try {
@@ -36,6 +86,11 @@ export function getBridgeBaseUrl() {
   );
   if (envUrl) {
     return envUrl.replace(/\/+$/, '');
+  }
+
+  // Native app: only ever an origin the user configured. No default.
+  if (isCapacitorOrigin()) {
+    return getConfiguredRemoteOrigin();
   }
 
   if (typeof window !== 'undefined' && window.location) {
@@ -85,6 +140,12 @@ export function getOAuthBaseUrl() {
     return envUrl.replace(/\/+$/, '');
   }
 
+  // Native app: GitHub auth uses the device flow (no OAuth server), so this is
+  // only ever an origin the user configured. No default.
+  if (isCapacitorOrigin()) {
+    return getConfiguredRemoteOrigin();
+  }
+
   if (typeof window !== 'undefined' && window.location) {
     const { protocol, hostname, port } = window.location;
 
@@ -119,14 +180,25 @@ export function getOAuthBaseUrl() {
   return (fallback || 'http://localhost:3002').replace(/\/+$/, '');
 }
 
+/** Thrown when a server-backed feature is used with no endpoint configured. */
+export class NoRemoteOriginError extends Error {
+  constructor(what = 'This feature') {
+    super(`${what} needs a Redstring server endpoint. None is configured — set one in AI settings, or run one locally.`);
+    this.name = 'NoRemoteOriginError';
+    this.isNoRemoteOrigin = true;
+  }
+}
+
 export function bridgeUrl(path = '') {
   const base = getBridgeBaseUrl();
+  if (!base) throw new NoRemoteOriginError('The AI wizard');
   const normalized = String(path || '');
   return normalized.startsWith('/') ? `${base}${normalized}` : `${base}/${normalized}`;
 }
 
 export function oauthUrl(path = '') {
   const base = getOAuthBaseUrl();
+  if (!base) throw new NoRemoteOriginError('GitHub web sign-in');
   const normalized = String(path || '');
   return normalized.startsWith('/') ? `${base}${normalized}` : `${base}/${normalized}`;
 }
@@ -155,8 +227,17 @@ function isLikelyNetworkRefusal(err) {
 }
 
 export function bridgeFetch(path, options) {
+  // Resolve the URL inside the promise chain so a missing endpoint surfaces as
+  // a rejection like any other failure, rather than a synchronous throw that
+  // callers using .catch() would miss.
+  let url;
+  try {
+    url = bridgeUrl(path);
+  } catch (err) {
+    return Promise.reject(err);
+  }
   // Cooldown removed to prevent development friction
-  return fetch(bridgeUrl(path), options)
+  return fetch(url, options)
     .then((res) => {
       // Any response means the listener exists; reset failures
       __bridgeHealth.consecutiveFailures = 0;
@@ -276,6 +357,10 @@ export async function oauthFetch(path, options = {}) {
     }
   }
 
+  // Resolve the URL before arming the timeout — with no endpoint configured
+  // this throws, and a timer set first would never be cleared.
+  const url = oauthUrl(path);
+
   // Make the request with a timeout to fail fast
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timeoutId = controller ? setTimeout(() => controller.abort(), 2000) : null; // 2 second timeout
@@ -285,7 +370,7 @@ export async function oauthFetch(path, options = {}) {
     ...(controller ? { signal: controller.signal } : {})
   };
 
-  return fetch(oauthUrl(path), fetchOptions)
+  return fetch(url, fetchOptions)
     .then((res) => {
       if (timeoutId) clearTimeout(timeoutId);
       // Reset failures on any response (even errors) so background polling resumes immediately

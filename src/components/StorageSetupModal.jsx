@@ -4,6 +4,7 @@ import AuthSection from './universe-manager/AuthSection.jsx';
 import GitHubDeviceFlowPanel from './modals/GitHubDeviceFlowPanel.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isElectron } from '../utils/fileAccessAdapter.js';
+import { isCapacitor, usesPathHandles, usesDeviceFlowAuth } from '../utils/capacitorAdapter.js';
 import {
   FolderOpen, Folder, ArrowRight, ArrowLeft, Github, Lock, Globe,
   Loader2, CheckCircle, AlertCircle, Circle, RefreshCw, Save, X, Star, Upload, Key
@@ -178,12 +179,14 @@ const StorageSetupModal = ({
 
   // No File System Access API (mobile browsers): folder/local-file storage
   // can't work, so git becomes the only storage path.
-  const gitFirst = !isElectron() &&
+  const gitFirst = !isElectron() && !isCapacitor() &&
     typeof window !== 'undefined' && !('showSaveFilePicker' in window);
-  const canLinkLocalFile = isElectron() ||
+  const canLinkLocalFile = isElectron() || isCapacitor() ||
     (typeof window !== 'undefined' && 'showSaveFilePicker' in window);
-  const showLocalSlot = canLinkLocalFile;
-  const showWorkspaceRow = canLinkLocalFile;
+  // On iOS local storage is automatic (app-managed Universes folder) — there is
+  // no file to pick and no workspace folder to choose.
+  const showLocalSlot = canLinkLocalFile && !isCapacitor();
+  const showWorkspaceRow = canLinkLocalFile && !isCapacitor();
   const showGitOption = !!onUniverseReady;
   // Once a slot exists, the universe is created with its name — lock the input.
   const nameLocked = anySlotFilled;
@@ -364,7 +367,7 @@ const StorageSetupModal = ({
       setLocalError('No file location chosen.');
       return;
     }
-    const fileName = isElectron() && typeof handle === 'string'
+    const fileName = usesPathHandles() && typeof handle === 'string'
       ? handle.split(/[/\\]/).pop()
       : (handle?.name || `${finalName}.redstring`);
     try {
@@ -877,17 +880,17 @@ const StorageSetupModal = ({
   const renderGitConnectStep = () => (
     <>
       {backButton(leaveGitFlow)}
-      <div style={{ textAlign: 'center', marginBottom: (isElectron() && deviceFlowState) ? '10px' : '16px', flexShrink: 0 }}>
+      <div style={{ textAlign: 'center', marginBottom: (usesDeviceFlowAuth() && deviceFlowState) ? '10px' : '16px', flexShrink: 0 }}>
         <h2 style={{
-          margin: (isElectron() && deviceFlowState) ? 0 : '0 0 8px 0',
+          margin: (usesDeviceFlowAuth() && deviceFlowState) ? 0 : '0 0 8px 0',
           color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '1.2rem' : '1.5rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
-          {(isElectron() && deviceFlowState) ? (deviceFlowState.title || 'Connect GitHub') : 'Connect GitHub'}
+          {(usesDeviceFlowAuth() && deviceFlowState) ? (deviceFlowState.title || 'Connect GitHub') : 'Connect GitHub'}
         </h2>
-        {!(isElectron() && deviceFlowState) && (
+        {!(usesDeviceFlowAuth() && deviceFlowState) && (
           <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: isCompactLayout ? '0.8rem' : '0.9rem' }}>
             Redstring uses GitHub OAuth to browse your repositories and the GitHub App to sync your universes.
           </p>
@@ -896,7 +899,7 @@ const StorageSetupModal = ({
 
       {/* Electron device flow embeds inline here rather than as a stacked
           modal (which would render behind this wizard's overlay). */}
-      {isElectron() && deviceFlowState ? (
+      {usesDeviceFlowAuth() && deviceFlowState ? (
         <GitHubDeviceFlowPanel
           compact
           onCancel={cancelDeviceFlow}
@@ -930,7 +933,7 @@ const StorageSetupModal = ({
 
       {noticeBanner}
 
-      {!(isElectron() && deviceFlowState) && (
+      {!(usesDeviceFlowAuth() && deviceFlowState) && (
       <div style={{ marginTop: '16px' }}>
         {primaryCta({ label: 'Continue', onClick: () => setStep('git-repo'), disabled: !(hasOAuth && hasApp) })}
         {!(hasOAuth && hasApp) && (

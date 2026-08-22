@@ -49,6 +49,15 @@ import {
   getFileIdentifier,
   getFileName
 } from '../utils/fileAccessAdapter.js';
+import {
+  isCapacitor,
+  isCapacitorHandle,
+  usesPathHandles,
+  usesDeviceFlowAuth,
+  universeFileHandle,
+  ensureUniversesFolder,
+  UNIVERSES_FOLDER_HANDLE
+} from '../utils/capacitorAdapter.js';
 
 const { log: __umNativeLog, warn: __umNativeWarn, error: __umNativeError } = console;
 const umLog = (...args) => __umNativeLog.call(console, '[UniverseBackend]', ...args);
@@ -553,7 +562,9 @@ class UniverseBackend {
     // slashes and other path separators, corrupting "/Users/..." → "Users-..."
     const isAbsolutePath = typeof rawLocalPath === 'string' &&
       (rawLocalPath.startsWith('/') || /^[A-Z]:[\\\/]/i.test(rawLocalPath));
-    const sanitizedLocalPath = (isElectron() && isAbsolutePath)
+    // Capacitor handles ('capacitor://Documents/...') are equally path-like and
+    // must survive sanitizeFileName untouched.
+    const sanitizedLocalPath = ((isElectron() && isAbsolutePath) || isCapacitorHandle(rawLocalPath))
       ? rawLocalPath
       : this.sanitizeFileName(rawLocalPath);
 
@@ -875,8 +886,13 @@ class UniverseBackend {
       const isSmallScreen = screenWidth <= 768;
       const isMediumScreen = screenWidth <= 1024;
 
-      const hasFileAccess = isElectron() || hasFileSystemAccess();
-      const shouldUseGitOnly = isMobile || isTablet || !hasFileAccess || (isTouch && isMediumScreen);
+      // Capacitor/iOS looks like a phone to every heuristic below, but it has
+      // real native file access via the app's Documents container — it must
+      // keep the touch UI while staying on local-file storage.
+      const nativeShell = isCapacitor();
+      const hasFileAccess = isElectron() || nativeShell || hasFileSystemAccess();
+      const shouldUseGitOnly = !nativeShell &&
+        (isMobile || isTablet || !hasFileAccess || (isTouch && isMediumScreen));
 
       this.deviceConfig = {
         gitOnlyMode: shouldUseGitOnly,
@@ -892,7 +908,8 @@ class UniverseBackend {
           isTouchDevice: isTouch,
           screenWidth,
           supportsFileSystemAPI: hasFileAccess,
-          isElectron: isElectron()
+          isElectron: isElectron(),
+          isCapacitor: nativeShell
         }
       };
 
@@ -1116,6 +1133,38 @@ class UniverseBackend {
         handle: restore.handle,
         metadata: restore.metadata || null
       };
+    }
+
+    // 2a. Capacitor: universe files are app-managed at a deterministic location,
+    // so a lost link (e.g. WKWebView evicted IndexedDB) is always recoverable —
+    // and if the file doesn't exist yet, the next save creates it there.
+    if (isCapacitor() && !this.fileHandles.get(slug)) {
+      try {
+        await ensureUniversesFolder();
+        const derived = universeFileHandle(
+          universe.localFile?.fileName ||
+          universe.localFile?.displayPath?.split('/').pop() ||
+          slug
+        );
+        this.fileHandles.set(slug, derived);
+        await this.updateLocalFileState(universe, {
+          fileHandleStatus: 'connected',
+          hadFileHandle: true,
+          reconnectMessage: null,
+          unavailableReason: null,
+          displayPath: derived,
+          lastAccessed: Date.now()
+        });
+        try {
+          await storeFileHandleMetadata(slug, derived, { lastAccessed: Date.now() });
+        } catch (metaError) {
+          umWarn(`[UniverseBackend] Failed to persist derived Capacitor handle for ${slug}:`, metaError);
+        }
+        umLog(`[UniverseBackend] Capacitor: resolved managed file handle for ${slug}: ${derived}`);
+        return { success: true, handle: derived, source: 'capacitor-managed' };
+      } catch (error) {
+        umWarn(`[UniverseBackend] Capacitor handle resolution failed for ${slug}:`, error);
+      }
     }
 
     // 2. If restore failed, try workspace folder as fallback
@@ -1926,7 +1975,8 @@ class UniverseBackend {
       return;
     }
 
-    if (isElectron()) return;
+    // Native shells (Electron, Capacitor) hold self-managed device-flow tokens
+    if (usesDeviceFlowAuth()) return;
 
     const tokenResp = await oauthFetch('/api/github/app/installation-token', {
       method: 'POST',
@@ -3213,7 +3263,7 @@ class UniverseBackend {
 
     if (!fileHandle) {
       // If no file handle but local storage is enabled, auto-prompt to set one up
-      if (universe.localFile.enabled && (isElectron() || hasFileSystemAccess())) {
+      if (universe.localFile.enabled && (isElectron() || isCapacitor() || hasFileSystemAccess())) {
         try {
           umLog('[UniverseBackend] No file handle for local save, prompting user to select file location');
 
@@ -3233,7 +3283,9 @@ class UniverseBackend {
           // Store the file handle
           this.setFileHandle(universe.slug, fileHandle);
 
-          const fileName = isElectron() ? fileHandle.split(/[/\\]/).pop() : (await getFileName(fileHandle));
+          const fileName = (usesPathHandles() && typeof fileHandle === 'string')
+            ? fileHandle.split(/[/\\]/).pop()
+            : (await getFileName(fileHandle));
           this.notifyStatus('success', `Local file ${hadPreviousHandle ? 're-' : ''}connected: ${fileName}`);
 
         } catch (error) {
@@ -3252,8 +3304,8 @@ class UniverseBackend {
 
     // Electron: fileHandle is a string path, Browser: fileHandle is a FileHandle object
     const ensurePermission = async () => {
-      if (isElectron()) {
-        // Electron doesn't need permission checks - file path is already granted
+      if (usesPathHandles()) {
+        // Electron/Capacitor: path handles are already granted
         return;
       }
       const permission = await checkFileHandlePermission(fileHandle);
@@ -3280,8 +3332,9 @@ class UniverseBackend {
       await writeFile(fileHandle, jsonString);
 
       try {
-        // Only touch metadata for browser FileHandles, Electron uses path-based tracking
-        if (!isElectron()) {
+        // Only touch metadata for browser FileHandles; path-handle platforms
+        // (Electron, Capacitor) use path-based tracking
+        if (!usesPathHandles()) {
           await touchFileHandle(universe.slug, fileHandle);
         }
       } catch (error) {
@@ -3491,7 +3544,7 @@ class UniverseBackend {
 
       const slug = universe?.slug || 'unknown';
 
-      if (isElectron() && typeof fileHandle === 'string') {
+      if (usesPathHandles() && typeof fileHandle === 'string') {
         await this.backupToSiblingFile(fileHandle, detectedVersion, rawText);
       } else {
         await this.backupToIndexedDB(slug, detectedVersion, rawText);
@@ -3573,12 +3626,12 @@ class UniverseBackend {
     let displayPath = options.displayPath || options.originalPath || null;
     let fileName = options.fileName || null;
 
-    // Handle Electron file paths (strings) vs browser FileHandles
-    if (isElectron() && typeof fileHandle === 'string') {
-      // Electron: fileHandle is a full path string
+    // Handle path-string handles (Electron absolute paths, Capacitor
+    // capacitor:// handles) vs browser FileHandles
+    if (usesPathHandles() && typeof fileHandle === 'string') {
       displayPath = displayPath || fileHandle;
       fileName = fileName || fileHandle.split(/[/\\]/).pop();
-      umLog(`[UniverseBackend] Setting Electron file handle for ${slug}: ${displayPath}`);
+      umLog(`[UniverseBackend] Setting ${isCapacitor() ? 'Capacitor' : 'Electron'} file handle for ${slug}: ${displayPath}`);
     } else if (fileHandle?.name) {
       // Browser: fileHandle is a FileSystemFileHandle
       fileName = fileName || fileHandle.name;
@@ -3641,10 +3694,10 @@ class UniverseBackend {
         localFile: {
           ...universe.localFile,
           enabled: true,
-          path: isElectron() ? displayPath : this.sanitizeFileName(fileName || universe.localFile.path || slug),
+          path: usesPathHandles() ? displayPath : this.sanitizeFileName(fileName || universe.localFile.path || slug),
           displayPath: displayPath || universe.localFile.displayPath || fileName || universe.localFile.path,
           hadFileHandle: true,
-          lastFilePath: isElectron() ? displayPath : (fileName || universe.localFile.path),
+          lastFilePath: usesPathHandles() ? displayPath : (fileName || universe.localFile.path),
           fileHandleStatus: 'connected',
           unavailableReason: null
         },
@@ -3683,7 +3736,7 @@ class UniverseBackend {
       await this.setFileHandle(slug, fileHandle);
 
       // Get filename for display
-      const fileName = isElectron() ?
+      const fileName = usesPathHandles() ?
         (typeof fileHandle === 'string' ? fileHandle.split(/[/\\]/).pop() : suggestedName) :
         fileHandle?.name || suggestedName;
 
@@ -4615,8 +4668,8 @@ class UniverseBackend {
       try {
         const app = persistentAuth.getAppInstallation?.();
         if (app?.installationId) {
-          if (isElectron()) {
-            // Electron: use the stored user-to-server token directly.
+          if (usesDeviceFlowAuth()) {
+            // Native shell: use the stored user-to-server token directly.
             if (app.accessToken) {
               token = app.accessToken;
               authMethod = 'github-app';
@@ -4928,8 +4981,8 @@ class UniverseBackend {
       throw createLocalFileError(code, message);
     }
 
-    // Electron doesn't need permission checks - file paths are already granted
-    if (ensureResult?.needsPermission && !isElectron()) {
+    // Path-handle platforms (Electron, Capacitor) don't need permission checks
+    if (ensureResult?.needsPermission && !usesPathHandles()) {
       const message = ensureResult?.message || 'Grant file access permission to resume saving.';
 
       if (!allowPermissionPrompt) {
@@ -4974,10 +5027,10 @@ class UniverseBackend {
       }
     }
 
-    // Electron: fileHandle is a string path, Browser: fileHandle is a FileHandle object
+    // Electron/Capacitor: fileHandle is a path string, Browser: FileHandle object
     let text;
     try {
-      if (isElectron()) {
+      if (usesPathHandles()) {
         // Check if file exists first
         const exists = await fileExists(fileHandle);
         if (!exists) {
@@ -5135,6 +5188,20 @@ class UniverseBackend {
 
     this.universes.set(slug, universe);
     this.saveToStorage();
+
+    // Capacitor: universe storage is fully app-managed — link the file inside
+    // the Universes folder immediately so the user never sees a picker and the
+    // first autosave lands in the right place.
+    if (isCapacitor() && universe.localFile?.enabled) {
+      try {
+        await ensureUniversesFolder();
+        const handle = universeFileHandle(slug);
+        await this.setFileHandle(slug, handle, { suppressNotification: true });
+        umLog(`[UniverseBackend] Capacitor: auto-linked managed file for ${slug}: ${handle}`);
+      } catch (error) {
+        umWarn(`[UniverseBackend] Capacitor: failed to auto-link managed file for ${slug}:`, error);
+      }
+    }
 
     umLog('[UniverseBackend] Universe created:', universe.slug);
 
@@ -6046,6 +6113,25 @@ class UniverseBackend {
       umLog(`[FileHandles] 🔍 No file handle in registry for ${universeSlug}, attempting to locate/create...`);
     }
 
+    // Capacitor fallback: the managed Universes folder holds one file per
+    // universe at a deterministic path, so there is nothing to search for and
+    // no ambiguity to guard against — resolve it (creating on first write).
+    if (!handle && isCapacitor()) {
+      try {
+        await ensureUniversesFolder();
+        const universe = this.getUniverse(universeSlug);
+        handle = universeFileHandle(
+          universe?.localFile?.fileName ||
+          universe?.localFile?.displayPath?.split('/').pop() ||
+          universeSlug
+        );
+        this.fileHandles.set(universeSlug, handle);
+        umLog(`[FileHandles] ✓ Capacitor managed handle for ${universeSlug}: ${handle}`);
+      } catch (capError) {
+        umWarn(`[FileHandles] ⚠ Capacitor handle resolution failed: ${capError.message}`);
+      }
+    }
+
     // Fallback: try workspace folder if no individual handle
     if (!handle) {
       const universe = this.getUniverse(universeSlug);
@@ -6130,7 +6216,7 @@ class UniverseBackend {
     }
 
     // Get filename for display/storage
-    const fileName = isElectron() ?
+    const fileName = usesPathHandles() ?
       (typeof handle === 'string' ? handle.split(/[/\\]/).pop() : 'unknown') :
       (handle?.name || 'unknown');
 
@@ -6181,7 +6267,7 @@ class UniverseBackend {
         localFile: {
           ...universe.localFile,
           hadFileHandle: true,
-          lastFilePath: isElectron() ? handle : fileName,
+          lastFilePath: usesPathHandles() ? handle : fileName,
           lastSaved: new Date().toISOString(),
           fileHandleStatus: 'connected',
           unavailableReason: null

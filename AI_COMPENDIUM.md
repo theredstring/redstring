@@ -36,6 +36,7 @@ Find your task below and read only the listed files — in order. This is the fa
 | **Modify the layout algorithm** | `AUTO_LAYOUT_GUIDE.md`, `REDESIGNED_LAYOUT_SUMMARY.md` (historical — explains why it was rebuilt), `FORCE_SIMULATION_TUNER.md` |
 | **Investigate a drag or performance regression** | `DRAG_PERFORMANCE_COMPLETE.md` (historical — contains exact NodeCanvas/utils.js line references from the three-bottleneck analysis) |
 | **Deploy or configure infrastructure** | `DEPLOYMENT.md`, `GITHUB_APP_SETUP.md`, `cloudflare/README.md` (if targeting Cloudflare Pages) |
+| **Build or debug the iOS app** | `CAPACITOR_IOS_SETUP.md` (current — Capacitor build, app-managed universe files, device-flow auth), `ELECTRON_SETUP.md` (the desktop analogue this was modeled on) |
 | **Work with SPARQL / semantic web / Wikidata** | `SEMANTIC_WEB_INTEGRATION.md`, `RDF_INTEGRATION_README.md`, `SEMANTIC_DISCOVERY_GUIDE.md` |
 | **Set up the save / sync system** | `SAVE_COORDINATOR_README.md`, `GIT_FEDERATION.md` |
 | **Understand the v4.0.0 format roadmap** | `FORMAT_REFACTOR_PLAN.md` (future-intent — SKOS/PROV/RDF-star alignment; **no code exists yet**) |

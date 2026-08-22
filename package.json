@@ -36,6 +36,9 @@
     "electron:build:linux": "npm run build && npm run bundle:agent && electron-builder --linux",
     "free:4000": "node scripts/free-port-4000.js",
     "build": "vite build",
+    "build:cap": "vite build --mode capacitor",
+    "cap:sync": "npm run build:cap && npx cap sync ios",
+    "cap:ios": "npm run cap:sync && npx cap open ios",
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "node deployment/app-semantic-server.js",
@@ -86,6 +89,11 @@
     "cf:tail:staging": "wrangler pages deployment tail --project-name=redstring-staging"
   },
   "dependencies": {
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/browser": "^7.0.5",
+    "@capacitor/core": "^7.6.8",
+    "@capacitor/filesystem": "^7.1.8",
+    "@capacitor/ios": "^7.6.8",
     "@chenglou/pretext": "^0.0.5",
     "@inrupt/solid-client": "^1.23.1",
     "@inrupt/solid-client-authn-browser": "^3.1.0",
@@ -129,6 +137,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.6.8",
     "@cloudflare/workers-types": "^4.20241218.0",
     "@eslint/js": "^9.9.0",
     "@testing-library/jest-dom": "^6.6.3",

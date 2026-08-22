@@ -1,9 +1,37 @@
 /**
  * File Access Adapter
- * 
- * Provides a unified interface for file system access that works in both
- * browser (File System Access API) and Electron (Node.js fs via IPC) environments.
+ *
+ * Provides a unified interface for file system access across browser (File
+ * System Access API), Electron (Node.js fs via IPC), and Capacitor/iOS
+ * (@capacitor/filesystem against the app's Documents container).
+ *
+ * Handle shapes by platform:
+ *   Browser   — FileSystemFileHandle / FileSystemDirectoryHandle objects
+ *   Electron  — absolute POSIX path strings
+ *   Capacitor — 'capacitor://Documents/Universes/<name>.redstring' strings
+ *
+ * On Capacitor there are no pickers: universe files live in an app-managed
+ * Universes folder, so pick* functions resolve deterministically instead of
+ * prompting. See src/utils/capacitorAdapter.js.
  */
+
+import {
+  isCapacitor,
+  isCapacitorHandle,
+  makeCapacitorHandle,
+  parseCapacitorHandle,
+  universeFileHandle,
+  sanitizeFileBaseName,
+  ensureUniversesFolder,
+  capReadTextFile,
+  capWriteTextFile,
+  capFileExists,
+  capListFiles,
+  UNIVERSES_FOLDER_HANDLE,
+  UNIVERSES_FOLDER
+} from './capacitorAdapter.js';
+
+export { isCapacitor, isCapacitorHandle, usesPathHandles } from './capacitorAdapter.js';
 
 /**
  * Check if we're running in Electron
@@ -44,6 +72,12 @@ export const hasFileSystemAccess = () => {
  * @returns {Promise<FileHandle|string>} - Browser: FileHandle, Electron: file path string
  */
 export const pickFile = async (options = {}) => {
+  if (isCapacitor()) {
+    // iOS has no open-picker in this flow: universes live in the app-managed
+    // Universes folder, and external files come in via the <input type="file">
+    // upload path (universeBackend.uploadLocalFile).
+    throw new Error('File picking is not used on iOS — universes are managed automatically. Use import to bring in an external .redstring file.');
+  }
   if (isElectron()) {
     const filePath = await window.electron.fileSystem.pickFile(options);
     if (!filePath || typeof filePath !== 'string') {
@@ -73,6 +107,12 @@ export const pickFile = async (options = {}) => {
  * @returns {Promise<FileHandle|string>} - Browser: FileHandle, Electron: file path string
  */
 export const pickSaveLocation = async (options = {}) => {
+  if (isCapacitor()) {
+    // No save dialog on iOS — resolve deterministically inside the managed
+    // Universes folder so universe creation never prompts.
+    await ensureUniversesFolder();
+    return universeFileHandle(sanitizeFileBaseName(options.suggestedName || 'universe'));
+  }
   if (isElectron()) {
     const filePath = await window.electron.fileSystem.saveAs({
       suggestedName: options.suggestedName,
@@ -105,6 +145,9 @@ export const readFile = async (fileHandleOrPath) => {
   if (!fileHandleOrPath) {
     throw new Error('readFile: no file handle or path provided');
   }
+  if (isCapacitorHandle(fileHandleOrPath)) {
+    return await capReadTextFile(fileHandleOrPath);
+  }
   if (isElectron() && typeof fileHandleOrPath === 'string') {
     // Electron string path
     const result = await window.electron.fileSystem.readFile(fileHandleOrPath);
@@ -116,6 +159,19 @@ export const readFile = async (fileHandleOrPath) => {
     return await file.text();
   }
   throw new Error(`readFile: unsupported handle/path (got ${typeof fileHandleOrPath})`);
+};
+
+// Capacitor handles are strings, so they can't key a WeakMap — chain them by
+// value instead. Same ordering guarantee as serializeHandleWrite below.
+const stringWriteChains = new Map();
+const serializeStringWrite = (key, operation) => {
+  const prior = stringWriteChains.get(key) || Promise.resolve();
+  const chained = prior.catch(() => { /* prior failure doesn't block this write */ }).then(operation);
+  stringWriteChains.set(key, chained);
+  chained.catch(() => { }).finally(() => {
+    if (stringWriteChains.get(key) === chained) stringWriteChains.delete(key);
+  });
+  return chained;
 };
 
 // Per-handle write chains. FSA writables commit atomically on close() with
@@ -150,6 +206,10 @@ export const writeFile = async (fileHandleOrPath, content) => {
   if (!fileHandleOrPath) {
     throw new Error('writeFile: no file handle or path provided');
   }
+  if (isCapacitorHandle(fileHandleOrPath)) {
+    await serializeStringWrite(fileHandleOrPath, () => capWriteTextFile(fileHandleOrPath, content));
+    return;
+  }
   if (isElectron() && typeof fileHandleOrPath === 'string') {
     // Electron string path
     await window.electron.fileSystem.writeFile(fileHandleOrPath, content);
@@ -174,6 +234,9 @@ export const writeFile = async (fileHandleOrPath, content) => {
  */
 export const fileExists = async (fileHandleOrPath) => {
   if (!fileHandleOrPath) return false;
+  if (isCapacitorHandle(fileHandleOrPath)) {
+    return await capFileExists(fileHandleOrPath);
+  }
   if (isElectron() && typeof fileHandleOrPath === 'string') {
     try {
       const result = await window.electron.fileSystem.fileExists(fileHandleOrPath);
@@ -199,8 +262,8 @@ export const getFileIdentifier = async (fileHandleOrPath) => {
   if (!fileHandleOrPath) {
     throw new Error('getFileIdentifier: no file handle or path provided');
   }
-  if (isElectron() && typeof fileHandleOrPath === 'string') {
-    // Electron: use the path as identifier
+  if (isCapacitorHandle(fileHandleOrPath) || (isElectron() && typeof fileHandleOrPath === 'string')) {
+    // Path-string platforms: the path itself is the stable identifier
     return fileHandleOrPath;
   }
   if (fileHandleOrPath && typeof fileHandleOrPath.getFile === 'function') {
@@ -220,8 +283,8 @@ export const getFileName = async (fileHandleOrPath) => {
   if (!fileHandleOrPath) {
     throw new Error('getFileName: no file handle or path provided');
   }
-  if (isElectron() && typeof fileHandleOrPath === 'string') {
-    // Electron: extract filename from path
+  if (isCapacitorHandle(fileHandleOrPath) || (isElectron() && typeof fileHandleOrPath === 'string')) {
+    // Path-string platforms: extract filename from the path
     const parts = fileHandleOrPath.split(/[/\\]/);
     return parts[parts.length - 1];
   }
@@ -244,6 +307,10 @@ export const getFileName = async (fileHandleOrPath) => {
  * @returns {Promise<DirectoryHandle|string>} - Browser: DirectoryHandle, Electron: folder path string
  */
 export const pickFolder = async (options = {}) => {
+  if (isCapacitor()) {
+    // The Universes folder inside the app container IS the workspace — no dialog.
+    return await ensureUniversesFolder();
+  }
   if (isElectron()) {
     const folderPath = await window.electron.fileSystem.pickFolder(options);
     return folderPath;
@@ -265,7 +332,13 @@ export const pickFolder = async (options = {}) => {
  * @returns {Promise<Array<{name: string, handle: FileHandle|string}>>} - List of files
  */
 export const listFilesInFolder = async (folderHandleOrPath, pattern = '*') => {
+  if (isCapacitorHandle(folderHandleOrPath)) {
+    const extension = pattern === '*' ? '' : pattern.replace('*', '');
+    return await capListFiles(folderHandleOrPath, extension);
+  }
   if (isElectron()) {
+    // NOTE: window.electron.fileSystem.listFiles is not exposed in
+    // electron/preload.cjs — this Electron branch currently throws.
     // Electron: use fs to list files
     const files = await window.electron.fileSystem.listFiles(folderHandleOrPath, pattern);
     return files.map(fileName => ({
@@ -298,6 +371,14 @@ export const listFilesInFolder = async (folderHandleOrPath, pattern = '*') => {
  * @returns {Promise<FileHandle|string>} - Browser: FileHandle, Electron: file path string
  */
 export const getFileInFolder = async (folderHandleOrPath, filename, create = true) => {
+  if (isCapacitorHandle(folderHandleOrPath)) {
+    const { directory, path } = parseCapacitorHandle(folderHandleOrPath);
+    const handle = makeCapacitorHandle(directory, path ? `${path}/${filename}` : filename);
+    if (create && !(await capFileExists(handle))) {
+      await capWriteTextFile(handle, '');
+    }
+    return handle;
+  }
   if (isElectron()) {
     // Electron: construct full path
     const filePath = `${folderHandleOrPath}/${filename}`;
@@ -325,6 +406,17 @@ export const getFileInFolder = async (folderHandleOrPath, filename, create = tru
  * @returns {Promise<boolean>} - True if folder is accessible
  */
 export const validateFolderAccess = async (folderHandleOrPath) => {
+  if (isCapacitorHandle(folderHandleOrPath)) {
+    // Inside our own app container there is no permission model — just make
+    // sure the folder exists.
+    try {
+      await ensureUniversesFolder();
+      return true;
+    } catch (error) {
+      console.error('[FileAccessAdapter] Capacitor folder validation failed:', error);
+      return false;
+    }
+  }
   if (isElectron()) {
     // Electron: check if folder exists and is accessible
     try {
@@ -353,6 +445,9 @@ export const validateFolderAccess = async (folderHandleOrPath) => {
  * @returns {Promise<boolean>} - True if permission granted
  */
 export const requestFolderPermission = async (folderHandleOrPath) => {
+  if (isCapacitorHandle(folderHandleOrPath)) {
+    return await validateFolderAccess(folderHandleOrPath);
+  }
   if (isElectron()) {
     // Electron: no permission needed, just validate folder exists
     return await validateFolderAccess(folderHandleOrPath);
@@ -374,6 +469,9 @@ export const requestFolderPermission = async (folderHandleOrPath) => {
  * @returns {Promise<string>} - Folder name
  */
 export const getFolderName = async (folderHandleOrPath) => {
+  if (isCapacitorHandle(folderHandleOrPath)) {
+    return UNIVERSES_FOLDER;
+  }
   if (isElectron()) {
     // Electron: extract folder name from path
     const parts = folderHandleOrPath.split(/[/\\]/);

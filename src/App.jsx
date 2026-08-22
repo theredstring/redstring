@@ -7,6 +7,7 @@ import UniverseManagerBootstrap from './components/UniverseManagerBootstrap.jsx'
 import UpdateToast from './components/UpdateToast.jsx';
 import useGraphStore from './store/graphStore.js';
 import { isElectron } from './utils/fileAccessAdapter.js';
+import { isCapacitor, registerCapacitorLifecycle } from './utils/capacitorAdapter.js';
 import { saveCoordinator } from './services/SaveCoordinator.js';
 import { DARK_THEME, LIGHT_THEME } from './utils/themeColors.js';
 import './App.css';
@@ -62,7 +63,27 @@ function App() {
   //
   // Electron: the main process intercepts window close and asks us to flush
   // via the lifecycle IPC channel before it destroys the window.
+  //
+  // Capacitor/iOS: appStateChange fires before the system suspends the
+  // WKWebView, which is the last chance to beat the 3s save debounce.
   useEffect(() => {
+    if (isCapacitor()) {
+      const cleanupLifecycle = registerCapacitorLifecycle(() => {
+        saveCoordinator.flush('ios-background').catch(() => { /* logged inside */ });
+      });
+      // visibilitychange also fires in WKWebView — keep it as a second signal.
+      const handleVisibility = () => {
+        if (document.visibilityState === 'hidden') {
+          saveCoordinator.flush('tab-hidden').catch(() => { /* logged inside */ });
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibility);
+      return () => {
+        cleanupLifecycle();
+        document.removeEventListener('visibilitychange', handleVisibility);
+      };
+    }
+
     if (isElectron()) {
       const lifecycle = window.electron?.lifecycle;
       if (!lifecycle?.onFlushBeforeQuit) return;

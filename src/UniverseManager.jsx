@@ -23,6 +23,7 @@ import {
 
 import universeManagerService, { STORAGE_TYPES } from './services/universeManagerService.js';
 import { isElectron, pickFile, pickSaveLocation, readFile, writeFile } from './utils/fileAccessAdapter.js';
+import { isCapacitor, usesPathHandles, usesDeviceFlowAuth } from './utils/capacitorAdapter.js';
 import { startOAuthFlow } from './utils/oauthAdapter.js';
 import { HEADER_HEIGHT } from './constants.js';
 import useGraphStore from './store/graphStore.js';
@@ -102,8 +103,8 @@ function detectDeviceInfo() {
   return {
     isMobile,
     isTablet,
-    supportsFileSystemAPI: 'showSaveFilePicker' in window,
-    gitOnlyMode: !('showSaveFilePicker' in window)
+    supportsFileSystemAPI: isCapacitor() || 'showSaveFilePicker' in window,
+    gitOnlyMode: !isCapacitor() && !('showSaveFilePicker' in window)
   };
 }
 
@@ -1029,11 +1030,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             }
 
             // Get filename for display (use actual handle name since it may have been deduplicated)
-            const fileName = isElectron() && typeof fileHandle === 'string'
+            const fileName = usesPathHandles() && typeof fileHandle === 'string'
               ? fileHandle.split(/[/\\]/).pop()
               : (fileHandle?.name || suggestedName);
 
-            const displayPath = isElectron() && typeof fileHandle === 'string' ? fileHandle : fileName;
+            const displayPath = usesPathHandles() && typeof fileHandle === 'string' ? fileHandle : fileName;
 
             // Use renderer-side setFileHandle instead of bridge's setupLocalFileHandle
             // This ensures we register the handle we just obtained/created
@@ -2939,7 +2940,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       // Use absolute path (fileHandle) in Electron so localFile.path is not
       // overwritten with just the filename, which safeNormalizeUniverse would
       // garble. In browser, fileHandle is null so fall back to fileName.
-      const linkPath = (isElectron() && fileHandle) ? fileHandle : fileName;
+      const linkPath = (usesPathHandles() && fileHandle) ? fileHandle : fileName;
       await universeBackend.linkLocalFileToUniverse(slug, linkPath, { displayPath });
 
       try {
@@ -3036,7 +3037,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
       // Get file name for display
       let fileName;
-      if (isElectron() && typeof fileHandle === 'string') {
+      if (usesPathHandles() && typeof fileHandle === 'string') {
         fileName = fileHandle.split(/[/\\]/).pop();
       } else {
         fileName = fileHandle?.name || 'unknown';
@@ -3044,8 +3045,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
       umLog('[UniverseManager] File handle obtained:', fileName);
 
-      // In Electron, we don't need permission checks
-      if (!isElectron()) {
+      // Path-handle platforms (Electron, Capacitor) don't need permission checks
+      if (!usesPathHandles()) {
         let permissionStatus = 'granted';
         if (typeof fileHandle.queryPermission === 'function') {
           permissionStatus = await fileHandle.queryPermission({ mode: 'read' });
@@ -3126,7 +3127,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       });
 
       // In Electron, displayPath is the full path; in browser, derive from FileHandle
-      const displayPath = isElectron() && typeof fileHandle === 'string'
+      const displayPath = usesPathHandles() && typeof fileHandle === 'string'
         ? fileHandle
         : (typeof fileHandle?.name === 'string' ? fileHandle.name : fileName);
 
@@ -3236,12 +3237,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       }
 
       // Get filename for display
-      const fileName = isElectron() && typeof fileHandle === 'string'
+      const fileName = usesPathHandles() && typeof fileHandle === 'string'
         ? fileHandle.split(/[/\\]/).pop()
         : (fileHandle?.name || suggestedName);
 
       // Store the file handle and link to universe
-      let displayPath = isElectron() && typeof fileHandle === 'string' ? fileHandle : fileName;
+      let displayPath = usesPathHandles() && typeof fileHandle === 'string' ? fileHandle : fileName;
 
       umLog('[UniverseManager] About to call setFileHandle:', {
         slug,
@@ -4621,7 +4622,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           const redstringData = exportToRedstring(storeState);
           await writeFile(handle, JSON.stringify(redstringData, null, 2));
 
-          const displayPath = (isElectron && isElectron() && typeof handle === 'string')
+          const displayPath = (usesPathHandles() && typeof handle === 'string')
             ? handle
             : (handle?.name || `${suggestedName}.redstring`);
           const fileName = displayPath.split(/[\\/]/).pop();

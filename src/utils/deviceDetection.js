@@ -5,6 +5,7 @@
  */
 
 import { debugConfig, isLocalStorageDisabled, isGitOnlyForced } from './debugConfig.js';
+import { isCapacitor } from './capacitorAdapter.js';
 
 /**
  * Comprehensive device detection that identifies mobile/tablet browsers
@@ -49,8 +50,13 @@ export const getDeviceInfo = () => {
     deviceType = 'touch-desktop';
   }
   
+  // Capacitor/iOS reports a mobile UA but has real native file access through
+  // the app's Documents container, so it must not be pushed into Git-Only mode.
+  const nativeShell = isCapacitor();
+
   return {
     type: deviceType,
+    isCapacitor: nativeShell,
     isMobile: deviceType === 'mobile',
     isTablet: deviceType === 'tablet',
     isTouchDesktop: deviceType === 'touch-desktop',
@@ -61,9 +67,9 @@ export const getDeviceInfo = () => {
     userAgent,
     
     // Convenience properties
-    requiresGitOnly: deviceType === 'mobile' || deviceType === 'tablet',
-    supportsFileSystemAPI: 'showSaveFilePicker' in window && 'showOpenFilePicker' in window,
-    recommendedMode: (deviceType === 'mobile' || deviceType === 'tablet') ? 'git-only' : 'hybrid'
+    requiresGitOnly: !nativeShell && (deviceType === 'mobile' || deviceType === 'tablet'),
+    supportsFileSystemAPI: nativeShell || ('showSaveFilePicker' in window && 'showOpenFilePicker' in window),
+    recommendedMode: (!nativeShell && (deviceType === 'mobile' || deviceType === 'tablet')) ? 'git-only' : 'hybrid'
   };
 };
 
@@ -92,7 +98,10 @@ export const shouldUseGitOnlyMode = () => {
   }
   
   const deviceInfo = getDeviceInfo();
-  
+
+  // Capacitor has native file access despite the mobile UA and small screen.
+  if (deviceInfo.isCapacitor) return false;
+
   // Force Git-Only mode only for mobile/tablet or constrained touch devices.
   // Desktop browsers without File System Access API (e.g., Safari) can use browser storage fallback.
   return deviceInfo.requiresGitOnly || (deviceInfo.isTouchDevice && deviceInfo.screenWidth <= 1024);
@@ -113,7 +122,7 @@ export const getOptimalDeviceConfig = () => {
     sourceOfTruth: gitOnlyMode ? 'git' : 'local',
     
     // Storage preferences (respect debug settings)
-    preferBrowserStorage: !deviceInfo.supportsFileSystemAPI || localStorageDisabled,
+    preferBrowserStorage: !deviceInfo.isCapacitor && (!deviceInfo.supportsFileSystemAPI || localStorageDisabled),
     enableLocalFileStorage: deviceInfo.supportsFileSystemAPI && !gitOnlyMode && !localStorageDisabled,
     
     // UI optimizations

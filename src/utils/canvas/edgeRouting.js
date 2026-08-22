@@ -712,32 +712,31 @@ export const MIN_VISIBLE_BOW = 0.4;
 // before it is worth curving. Shared by the settled render (NodeCanvas) and the
 // live drag updater (useNodeDrag) so the two agree — see `labelCurveMinBow`.
 //
-// ZERO on purpose: curve every label whose connection curves, at every zoom.
-// This briefly went to 8 to buy frames back by shedding curves, and that worked
-// — but it was treating the symptom. The reason curved labels were expensive was
-// that every character carried an exact, unique rotation matrix, and bucketing
-// those (see CURVED_GLYPH_ANGLE_QUANTUM) takes 40 curved labels from 15.2ms to
-// 8.4ms — the frame floor. With the cost gone there is no reason left to
-// straighten anything, so this went back down.
+// This has been 8, then 0.6, then 0, and is now 2 — each move tracking where
+// the cost actually was at the time. The case for 0 ("curve everything, the
+// quantum makes matrices cheap") was made when CURVED_LABEL_BUDGET was 40 and
+// large graphs curved nothing anyway. Raising the budget to 250 exposed what 0
+// really costs: a curved label is one individually-rotated glyph per character
+// where a straight label is a single text run, and at fit-the-graph zoom on a
+// large network EVERY label is on screen — thousands of per-glyph paint items
+// for bends the zoom has compressed to under a pixel. That is the measured
+// "way slower on large networks", and no rotation bucket fixes it, because it
+// is paint-item count, not atlas keys.
 //
-// It stopped at 0.6 first, and 0.6 was still wrong for a reason worth recording:
-// ANY positive value here makes the threshold zoom-dependent (see
-// labelCurveMinBow), which makes the CURVED/STRAIGHT DECISION zoom-dependent —
-// so zooming out far enough popped the flattest label or two from curved to
-// straight mid-gesture. Sub-pixel or not, that is a visible discontinuity in the
-// one interaction this whole rewrite exists to make smooth, and it is also a
-// form change landing mid-drag, which the drag updater then has to chase. At 0
-// the floor is a constant MIN_VISIBLE_BOW and the decision depends only on the
-// geometry, so nothing about a label changes because the viewer moved.
+// So the threshold is back, sized at 2px: the point where curved and straight
+// are the same picture on screen. At working zooms a real Lombardi label bows
+// far more than this and keeps its curve; zoomed out to fit a big graph, the
+// flat majority render as the straight labels they visually are.
 //
-// Which restores the original argument, now with a measurement behind it rather
-// than an assumption: labels following their arcs IS Lombardi, and the count of
-// curves is the wrong thing to economise on. What actually costs frames is
-// distinct glyph matrices, and that is the quantum's job.
+// The old objection to any positive value — the curved/straight decision goes
+// zoom-dependent and pops labels mid-gesture — described a canvas that
+// re-rendered during gestures. It doesn't any more: this is evaluated at
+// SETTLED zoom (pan/zoom is a DOM transform between renders), so a form change
+// can only land at gesture-settle, and only on labels whose bend is at the
+// 2px threshold — a transition invisible at the zoom that triggers it.
 //
-// `window.__labelCurveMinPx` overrides at runtime if a graph ever does want
-// curves shed — the lever still works, it is just no longer the first resort.
-export const LABEL_CURVE_MIN_SCREEN_PX = 0;
+// `window.__labelCurveMinPx` overrides at runtime: 0 restores curve-everything.
+export const LABEL_CURVE_MIN_SCREEN_PX = 2;
 
 /**
  * The bow, in canvas units, a label must clear at this zoom before it curves.
@@ -774,28 +773,35 @@ export function labelCurveMinBow(zoom) {
 //     40 curved labels, 4° buckets .....    8.4 ms   <- frame floor
 //     40 curved labels, 9° buckets .....    8.3 ms
 //
-// 4° rather than 9° deliberately. A straight label snapped by q tilts as a
-// whole and nobody notices; a curved one snaps each character independently, so
-// neighbouring glyphs can land in different buckets and the text reads slightly
-// wobbly along the arc instead of flowing. 4° halves the worst-case tilt to 2°
-// and still collapses several hundred distinct matrices into a few dozen — the
-// table above shows it already at the frame floor, so the extra precision is
-// free. Raise toward 9 only if a measurement says the buckets are still the
-// bottleneck; the win is nearly all in the first step away from exact.
+// Small deliberately. A straight label snapped by q tilts as a whole and
+// nobody notices; a curved one snaps each character independently, so
+// neighbouring glyphs land in different buckets and the text reads wobbly
+// along the arc instead of flowing. The wobble is the quantum: at 4° adjacent
+// glyphs could disagree by a visible 4° step, which read as "overquantized" on
+// every gently-bent label. 2° halves that to the edge of perception while the
+// atlas keys stay bounded (180 buckets × distinct characters, shared across
+// every curved label on the canvas). The table above shows the win over exact
+// angles is nearly all in the first step away from them, so the finer bucket
+// costs nothing measurable.
 //
 // `window.__curvedGlyphQuantum` overrides at runtime (0 = exact angles).
-export const CURVED_GLYPH_ANGLE_QUANTUM = 4;
+export const CURVED_GLYPH_ANGLE_QUANTUM = 2;
 
 /**
- * The rotation bucket a curved label's glyphs should snap to, given whatever
- * the canvas-wide quantum currently is. Takes the coarser of the two: a dense
- * canvas that has already decided on 9° shouldn't have curved labels quietly
- * rendering finer than everything around them.
+ * The rotation bucket a curved label's glyphs snap to.
+ *
+ * `canvasQuantum` is accepted for call-site compatibility but deliberately NOT
+ * folded in any more. It used to be `max(base, canvasQuantum)` — "a dense
+ * canvas that decided on 9° shouldn't render curved labels finer than
+ * everything around them" — but that aesthetic-consistency rule had it exactly
+ * backwards: a straight label at 9° is a clean label tilted 4.5° at worst,
+ * while a CURVED label at 9° is per-glyph wobble, and dense graphs were the
+ * one place it applied. The atlas argument doesn't need it either — curved
+ * keys are bounded by (characters × buckets) independent of label count.
  */
 export function curvedGlyphQuantum(canvasQuantum = 0) {
   const override = (typeof window !== 'undefined') ? Number(window.__curvedGlyphQuantum) : NaN;
-  const base = (Number.isFinite(override) && override >= 0) ? override : CURVED_GLYPH_ANGLE_QUANTUM;
-  return Math.max(base, canvasQuantum || 0);
+  return (Number.isFinite(override) && override >= 0) ? override : CURVED_GLYPH_ANGLE_QUANTUM;
 }
 
 // Distance (local units) from the arrowhead polygon's origin to its tip.

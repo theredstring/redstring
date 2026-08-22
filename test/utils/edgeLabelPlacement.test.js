@@ -65,7 +65,10 @@ describe('quantizeAngle', () => {
 describe('label angle quantum (the renderer\'s zoom-derived bucket size)', () => {
   // Mirrors NodeCanvas's `labelAngleQuantum`. Kept here so the error bound the
   // constants claim is actually checked rather than asserted in a comment.
-  const LABEL_ANGLE_ERROR_PX = 12;
+  // 3px, not the old 12: at 12 the formula sat at the 9-degree ceiling for every
+  // zoom up to ~1, a visible tilt on every label of a dense graph. See the
+  // constant's comment in NodeCanvas.
+  const LABEL_ANGLE_ERROR_PX = 3;
   const LABEL_HALF_WIDTH_CANVAS = 150;
   const MAX_LABEL_ANGLE_QUANTUM = 9;
 
@@ -125,17 +128,20 @@ describe('label angle quantum (the renderer\'s zoom-derived bucket size)', () =>
     expect(buckets.size).toBe(21);
   });
 
-  it('reaches the cap across the whole zoom range where labels are dense', () => {
-    // The point of raising MAX_LABEL_ANGLE_QUANTUM: at the old 2px error budget
-    // the formula returned ~4.3° at zoom 0.35 and ~1.5° at zoom 1, so the cap
-    // was unreachable and lifting it would have changed nothing. Everything at
-    // or below zoom 1 must now actually get the coarse bucket.
-    for (const zoom of [0.1, 0.15, 0.35, 0.5, 1]) {
-      expect(quantumFor(zoom)).toBeCloseTo(MAX_LABEL_ANGLE_QUANTUM, 6);
-    }
-    // Past that, zoom-adaptivity takes over again — close enough to see a tilt,
-    // and few enough labels on screen to afford exact angles.
-    expect(quantumFor(2)).toBeLessThan(MAX_LABEL_ANGLE_QUANTUM);
+  it('stays fine at working zooms and only reaches the cap when the tilt is sub-budget', () => {
+    // The old assertion here was the inverse — cap at every zoom up to 1 —
+    // encoded when the 12px error budget existed to make the coarse bucket
+    // reachable for the glyph atlas. That read as every label visibly tilted at
+    // ordinary zooms. At the 3px budget the bucket is gentle where the viewer
+    // can see and coarsens smoothly on the way out, hitting the cap only below
+    // zoom ~0.26 where 3px on screen still bounds the displacement.
+    expect(quantumFor(1)).toBeLessThanOrEqual(2.5);
+    expect(quantumFor(0.5)).toBeLessThanOrEqual(5);
+    expect(quantumFor(0.5)).toBeGreaterThan(quantumFor(1));
+    expect(quantumFor(0.15)).toBeCloseTo(MAX_LABEL_ANGLE_QUANTUM, 6);
+    expect(quantumFor(0.1)).toBeCloseTo(MAX_LABEL_ANGLE_QUANTUM, 6);
+    // Zooming in keeps tightening toward exact.
+    expect(quantumFor(2)).toBeLessThan(quantumFor(1));
     expect(quantumFor(4)).toBeLessThan(quantumFor(2));
   });
 });

@@ -6,14 +6,15 @@ import { readFileSync } from 'fs';
 const packageJson = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(packageJson.version)
   },
   plugins: [react()],
   base: './', // Required for Electron to load assets correctly
   build: {
-    sourcemap: true,
+    // Sourcemaps double the shipped asset size; skip them in the iOS app bundle
+    sourcemap: mode !== 'capacitor',
     rollupOptions: {
       output: {
         // Temporarily disable custom manualChunks to avoid TDZ from circular imports
@@ -61,4 +62,4 @@ export default defineConfig({
     // Include both test/ and src/ directories
     include: ['test/**/*.{test,spec}.{js,jsx}', 'src/**/*.{test,spec}.{js,jsx}'],
   },
-});
+}));

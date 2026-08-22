@@ -93,6 +93,9 @@ const wizardAllowedOrigins = new Set(
     .map((s) => s.trim())
     .filter(Boolean)
 );
+// Capacitor/iOS app bundle origins (custom scheme, not a third-party site).
+wizardAllowedOrigins.add('capacitor://localhost');
+wizardAllowedOrigins.add('ionic://localhost');
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);

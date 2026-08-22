@@ -936,23 +936,42 @@ const REPRESENTATIVE_DELTA = Math.PI / 6;
 const MAX_LAYOUT_DELTA = 1.32;
 
 /**
- * Inflate the spacing constraints to account for arcs rather than chords.
+ * Adjust the spacing constraints for arcs rather than chords.
  *
  * An arc subtending 2δ is δ/sin δ times as long as its chord, and bulges
- * (L/2)·tan(δ/2) away from it. The first matters because labels are laid along
- * the edge, so the edge has to be longer to fit the same text; the second
- * because the bow can swing into a neighbour that a straight line would clear.
+ * (L/2)·tan(δ/2) away from it.
+ *
+ * The length factor used to INFLATE the label terms — "the edge has to be
+ * longer to fit the same text" — which was right when labels sat on the chord.
+ * They don't any more: connection labels ride the arc glyph by glyph (see
+ * labelArcGlyphFrames in utils/canvas/edgeRouting.js), so a chord of length L
+ * offers L·(δ/sin δ) of text room, and the label terms DIVIDE by the factor
+ * instead. Same geometry, opposite sign, because the drawing changed.
+ *
+ * On top of that, label breathing gets a Lombardi-specific trim. The 5.5em in
+ * LABEL_PADDING_EM was priced against straight rows, where padding is paid
+ * linearly ("trees pay for it in height only"); the Lombardi constructions are
+ * rings and radial wedges, which pay every unit of padding in RADIUS — area
+ * grows with its square, and the whole drawing reads as inflated. An
+ * arc-riding label is also visually tied to its curve in a way a chord label
+ * isn't, so it needs less empty runway around it to read as attached.
+ *
+ * The bow term stays but at half strength: the bulge is real, yet dedicating
+ * full clearance to it everywhere double-pays — clearArcsOfNodes runs as the
+ * pipeline's own stage 3 and clears the actual drawn arcs off nodes.
  */
+const LOMBARDI_LABEL_BREATHING = 0.65;
+
 function arcAwareConfig(cfg) {
   if (cfg.routingStyle !== 'lombardi') return cfg;
   const delta = Math.min(MAX_LAYOUT_DELTA, REPRESENTATIVE_DELTA * (cfg.lombardiCurvature ?? 1));
   if (delta < 1e-3) return cfg;
   const alongFactor = delta / Math.sin(delta);
-  const bowFactor = 1 + Math.tan(delta / 2);
+  const bowFactor = 1 + Math.tan(delta / 2) / 2;
   return {
     ...cfg,
-    minEdgeLength: cfg.minEdgeLength * alongFactor,
-    labelPadding: cfg.labelPadding * alongFactor,
+    minEdgeLength: cfg.minEdgeLength / alongFactor,
+    labelPadding: (cfg.labelPadding * LOMBARDI_LABEL_BREATHING) / alongFactor,
     nodeGap: cfg.nodeGap * bowFactor
   };
 }
@@ -1726,6 +1745,25 @@ export const resolvePatternConfig = (options = {}) => {
   // force solver passes its own `edgeLabelGap` through as an explicit one.
   if (options.labelPadding === undefined) {
     cfg.labelPadding = Math.round(cfg.edgeLabelFontSize * LABEL_PADDING_EM);
+  }
+
+  // The user's spacing controls. The force solver reads layoutScale through
+  // LAYOUT_SCALE_PRESETS (compact 280 / balanced 400 / spacious 550 link
+  // distance → ratios below) and the slider through layoutScaleMultiplier;
+  // pattern layouts measure distance with their own knobs, so before this
+  // NEITHER control did anything once a pattern (or Lombardi / orthogonal)
+  // pipeline handled the graph — Compact on a Lombardi tree changed nothing,
+  // which read as "the tree is still too spread out no matter what I set".
+  // Node boxes and label text keep their real sizes; only the breathing room
+  // between them scales, so Compact can never make labels overlap.
+  const presetRatio = ({ compact: 0.7, balanced: 1.0, spacious: 1.375 })[cfg.layoutScale] ?? 1.0;
+  const multiplier = Math.min(1.6, Math.max(0.5, cfg.layoutScaleMultiplier ?? 1));
+  const scale = presetRatio * multiplier;
+  if (scale !== 1) {
+    cfg.nodeGap = cfg.nodeGap * scale;
+    cfg.minEdgeLength = cfg.minEdgeLength * scale;
+    cfg.labelPadding = cfg.labelPadding * scale;
+    cfg.componentGap = cfg.componentGap * scale;
   }
   return cfg;
 };

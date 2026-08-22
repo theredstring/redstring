@@ -75,6 +75,10 @@ const allowedOrigins = new Set(
     .map((s) => s.trim())
     .filter(Boolean)
 );
+// The Capacitor/iOS app serves its bundle from a fixed custom-scheme origin.
+// It is an app we ship, not a third-party site, so it is always allowed.
+allowedOrigins.add('capacitor://localhost');
+allowedOrigins.add('ionic://localhost');
 const corsOptions = {
   origin: (origin, callback) => {
     // Allow same-origin / non-browser requests (no Origin header) — these are

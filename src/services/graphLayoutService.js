@@ -946,17 +946,21 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     if (!group) continue;
     const childIds = hierarchy.childrenOf.get(gId) || [];
 
-    // Direct members: members of this group whose innermost group IS this group.
-    // Excludes members whose innermost is a child (they're inside a rigid block).
-    const directMemberIds = (group.memberInstanceIds || []).filter(id => {
-      if (peerConflictNodes.has(id)) return false;
-      return innermostGroupOf.get(id) === gId;
-    });
-    const directMemberNodes = directMemberIds.map(id => nodeById.get(id)).filter(Boolean);
-
-    // Synthetic block nodes for each direct child group.
+    // Synthetic block nodes for each direct child group. Built before the
+    // direct-member scan so it can recognise child anchors.
     const blockNodes = [];
     const blockToChildId = new Map();
+    // A child node-group's ANCHOR instance is its title tab on this group's
+    // canvas — but the child's shell (title included) is already represented
+    // by the rigid block. Laying the anchor out as a free node wastes a node's
+    // worth of interior space AND leaves it edge-less-looking: connections to
+    // a nested group attach at its anchor, so with the anchor loose the block
+    // itself had no edges, was classified as an isolated floater, and was
+    // scattered by placeIsolatedNodes at a spacing scaled off the largest
+    // block's diameter. That is what blew nested groups apart. Route the
+    // anchor's edges to the block and pin the anchor to the composed shell's
+    // title spot instead.
+    const childAnchorToBlockId = new Map();
     for (const cid of childIds) {
       const cl = groupLayouts.get(cid);
       if (!cl) continue;
@@ -967,7 +971,21 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
         height: cl.visualBounds.h,
       });
       blockToChildId.set(blockId, cid);
+      const childGroup = hierarchy.groupsById.get(cid);
+      if (childGroup?.anchorInstanceId) {
+        childAnchorToBlockId.set(childGroup.anchorInstanceId, blockId);
+      }
     }
+
+    // Direct members: members of this group whose innermost group IS this group.
+    // Excludes members whose innermost is a child (they're inside a rigid block)
+    // and child anchors (represented by their child's block, see above).
+    const directMemberIds = (group.memberInstanceIds || []).filter(id => {
+      if (peerConflictNodes.has(id)) return false;
+      if (childAnchorToBlockId.has(id)) return false;
+      return innermostGroupOf.get(id) === gId;
+    });
+    const directMemberNodes = directMemberIds.map(id => nodeById.get(id)).filter(Boolean);
 
     if (directMemberNodes.length + blockNodes.length === 0) continue;
 
@@ -978,6 +996,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       if (!cMembers) continue;
       cMembers.forEach(m => memberToBlockId.set(m, `__block__${cid}`));
     }
+    childAnchorToBlockId.forEach((blockId, anchorId) => memberToBlockId.set(anchorId, blockId));
 
     const directMemberSet = new Set(directMemberIds);
     const intraEdges = [];
@@ -1041,11 +1060,31 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       const blockPos = positions.get(`__block__${cid}`);
       const cl = groupLayouts.get(cid);
       if (!blockPos || !cl) return;
-      const dx = blockPos.x - cl.centerX;
-      const dy = blockPos.y - cl.centerY;
+      // layoutSubgraph returns TOP-LEFT positions and the block is sized by
+      // the child's visualBounds, so aligning vb's top-left to the block's
+      // top-left drops the child exactly into the space the solver reserved.
+      // (This used to align the child's member-bbox CENTRE to the block's
+      // top-left corner — every nested group rendered half a shell up-left of
+      // its reserved slot, overlapping whatever sat there.)
+      const dx = blockPos.x - cl.visualBounds.x;
+      const dy = blockPos.y - cl.visualBounds.y;
       cl.positions.forEach((pos, mid) => {
         composedPositions.set(mid, { x: pos.x + dx, y: pos.y + dy });
       });
+      // Pin the child's anchor to the top-centre of its composed shell — the
+      // renderer syncs it to the title tab there anyway, and a pinned anchor
+      // keeps edge endpoints and the zoom-to-fit bbox honest instead of
+      // reflecting a phantom free-floating node.
+      const childGroup = hierarchy.groupsById.get(cid);
+      const anchorId = childGroup?.anchorInstanceId;
+      if (anchorId && childAnchorToBlockId.has(anchorId)) {
+        const anchorNode = nodeById.get(anchorId);
+        const vb = cl.visualBounds;
+        composedPositions.set(anchorId, {
+          x: vb.x + vb.w / 2 - ((anchorNode?.width || 150) / 2) + dx,
+          y: vb.y + dy,
+        });
+      }
     });
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -1099,12 +1138,13 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   // Build meta-nodes sized by each top-level group's *visual* bounds (which
   // include the title-bar overhang for node-groups), plus padding. This
   // prevents node-group titles from intruding into a neighbor's region.
+  const META_NODE_PAD = 200;
   const metaNodes = [];
   topLevelLayoutEntries.forEach(([gId, layout]) => {
     metaNodes.push({
       id: gId,
-      width: layout.visualBounds.w + 200,
-      height: layout.visualBounds.h + 200,
+      width: layout.visualBounds.w + META_NODE_PAD,
+      height: layout.visualBounds.h + META_NODE_PAD,
       x: 0, y: 0
     });
   });
@@ -1208,15 +1248,25 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     minLinkDistance: avgDim * 0.8,
   });
 
-  // Shift each group's internal layout to its meta-node position
+  // Shift each group's internal layout to its meta-node position.
+  //
+  // metaPositions come back TOP-LEFT (like every layout entry point) and the
+  // meta node is the group's visualBounds plus META_NODE_PAD, so the group's
+  // vb top-left belongs at metaPos + half the padding. It used to align the
+  // member-bbox CENTRE to the meta node's top-left corner, which shifted each
+  // group up-left of its reserved slot by half its own size — large groups
+  // bled into the neighbour that direction while empty margin was left behind.
+  const metaOffsetFor = (layout, metaPos) => ({
+    dx: metaPos.x + META_NODE_PAD / 2 - layout.visualBounds.x,
+    dy: metaPos.y + META_NODE_PAD / 2 - layout.visualBounds.y,
+  });
   const finalPositions = new Map();
-  groupLayouts.forEach((layout, gId) => {
+  topLevelLayoutEntries.forEach(([gId, layout]) => {
     const metaPos = metaPositions.get(gId);
     if (!metaPos) return;
-    const offsetX = metaPos.x - layout.centerX;
-    const offsetY = metaPos.y - layout.centerY;
+    const { dx, dy } = metaOffsetFor(layout, metaPos);
     layout.positions.forEach((pos, nodeId) => {
-      finalPositions.set(nodeId, { x: pos.x + offsetX, y: pos.y + offsetY });
+      finalPositions.set(nodeId, { x: pos.x + dx, y: pos.y + dy });
     });
   });
 
@@ -1228,8 +1278,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   topLevelLayoutEntries.forEach(([gId, layout]) => {
     const metaPos = metaPositions.get(gId);
     if (!metaPos) return;
-    const dx = metaPos.x - layout.centerX;
-    const dy = metaPos.y - layout.centerY;
+    const { dx, dy } = metaOffsetFor(layout, metaPos);
     const vb = layout.visualBounds;
     worldGroupBoxes.set(gId, {
       minX: vb.x + dx, minY: vb.y + dy,
@@ -1392,6 +1441,36 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     centres.forEach((pos, id) => {
       const { hw, hh } = halfOf(nodeById.get(id));
       out.set(id, { x: pos.x - hw, y: pos.y - hh });
+    });
+
+    // Re-pin every laid-out group's anchor to its shell's title spot. Anchors
+    // carry no edges, so Phase-3 refinement and the ejection passes treat them
+    // as free bodies: they drift, get ejected out of sibling boxes to the same
+    // corridor exit, and stack there — stretching bboxes and piling on top of
+    // real nodes. The renderer syncs anchors to the title tab regardless, so
+    // the title spot is their one honest layout position.
+    groups.forEach(group => {
+      const anchorId = group.anchorInstanceId;
+      if (!anchorId || !out.has(anchorId)) return;
+      if ((group.memberInstanceIds || []).length === 0) return;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      group.memberInstanceIds.forEach(id => {
+        const pos = out.get(id);
+        const node = nodeById.get(id);
+        if (!pos || !node) return;
+        minX = Math.min(minX, pos.x);
+        minY = Math.min(minY, pos.y);
+        maxX = Math.max(maxX, pos.x + (node.width || 100));
+        maxY = Math.max(maxY, pos.y + (node.height || 60));
+      });
+      if (!Number.isFinite(minX)) return;
+      const vb = deriveGroupVisualBounds(group, { minX, minY, maxX, maxY },
+        options.gridSize, options.measureLabelWidth);
+      const anchorNode = nodeById.get(anchorId);
+      out.set(anchorId, {
+        x: vb.x + vb.w / 2 - ((anchorNode?.width || 150) / 2),
+        y: vb.y,
+      });
     });
     return out;
   };
@@ -2271,6 +2350,9 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
         groups.forEach(group => {
           // Skip if node belongs to this group
           if (nodeGroups.has(group.id)) return;
+          // A node-group's own anchor is its title tab — it lives at the
+          // group's rim by design, so the exclusion force must not expel it.
+          if (group.anchorInstanceId === node.id) return;
 
           const bounds = groupBounds.get(group.id);
           if (!bounds) return;
@@ -2740,39 +2822,68 @@ function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius
   const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
   const sorted = [...isolatedNodes].sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
-  let maxDiameter = 0;
-  isolatedNodes.forEach(n => {
-    maxDiameter = Math.max(maxDiameter, getRadius(n) * 2);
-  });
-  // The overall spread scales directly with `spacing`, and for an all-isolated
-  // graph the collision floor (maxDiameter × gapFactor) is what binds — not
-  // minSpacing. gapFactor is the edge-to-edge breathing room as a fraction of
-  // the largest node's diameter (1.0 = largest nodes just touch); lower it to
-  // pack unconnected nodes tighter. isolatedSpacingFactor still trims the
-  // minSpacing term for the rare small-node case where it binds instead.
+  // Spacing is PER NODE / PER PAIR, not one global figure. It used to be
+  // `max(minSpacing·factor, largestDiameter·gapFactor)` for every pair — fine
+  // when all floaters are ordinary nodes, catastrophic once one of them is a
+  // nested group's rigid block: a single 2000px block set a ~2100px centre
+  // spacing between EVERYTHING isolated, which is what scattered nested groups
+  // (and every small floater with them) across acres of empty canvas.
+  // isolatedSpacingFactor still trims the minSpacing floor; gapFactor is the
+  // breathing room as a fraction of the pair's combined radii (1.0 = touching).
   const isolatedSpacingFactor = config.isolatedSpacingFactor
     ?? FORCE_LAYOUT_DEFAULTS.isolatedSpacingFactor ?? 1;
   const gapFactor = config.isolatedGapFactor
     ?? FORCE_LAYOUT_DEFAULTS.isolatedGapFactor ?? 1.15;
-  const spacing = Math.max(minSpacing * isolatedSpacingFactor, maxDiameter * gapFactor);
+  const spacingFloor = minSpacing * isolatedSpacingFactor;
+  const spacingOf = (n) => Math.max(spacingFloor, getRadius(n) * 2 * gapFactor);
+  // Grid resolution follows the TYPICAL floater (median), so one oversized
+  // block neither coarsens the candidate grid nor spreads the small ones.
+  const allSpacings = sorted.map(spacingOf).sort((a, b) => a - b);
+  const spacing = allSpacings.length
+    ? allSpacings[Math.floor(allSpacings.length / 2)]
+    : spacingFloor;
+  const maxSpacing = allSpacings.length ? allSpacings[allSpacings.length - 1] : spacingFloor;
+
+  // Boxes, not circles. The floaters this places include group META-NODES and
+  // nested-group rigid blocks — wide, flat rectangles whose circumradius is
+  // their half-DIAGONAL. Measuring clearance with that circle over-reserves by
+  // the difference between a diagonal and a side, which for a 1600×580 group
+  // is the difference between "tucked beside it" and "flung to the corner of
+  // the canvas" — the massive outliers unconnected groups used to become.
+  const halfsOf = (n) => {
+    const w = n?.width, h = n?.height;
+    if (w > 0 && h > 0) return { hw: w / 2, hh: h / 2 };
+    const r = getRadius(n);
+    return { hw: r, hh: r };
+  };
+  // Edge-to-edge breathing room between a floater's box and anything solid.
+  const boxGap = Math.max(40, config.nodeGap ?? 140);
+  const boxesClear = (ax, ay, a, bx, by, b, gap) =>
+    Math.abs(ax - bx) >= a.hw + b.hw + gap || Math.abs(ay - by) >= a.hh + b.hh + gap;
 
   // Occupied bodies + layout bounds
   const occupied = [];
   let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
   positions.forEach((p, id) => {
-    occupied.push({ x: p.x, y: p.y, r: getRadius(nodeById.get(id)) });
+    const { hw, hh } = halfsOf(nodeById.get(id));
+    occupied.push({ x: p.x, y: p.y, hw, hh });
     if (p.x < bMinX) bMinX = p.x;
     if (p.y < bMinY) bMinY = p.y;
     if (p.x > bMaxX) bMaxX = p.x;
     if (p.y > bMaxY) bMaxY = p.y;
   });
 
-  // Graph is nothing but isolated nodes: sunflower out from the box center
+  // Graph is nothing but isolated nodes: sunflower out from the box center.
+  // Radius grows with the AREA each node actually claims, so mixed sizes pack
+  // at uniform density instead of the largest node's density.
   if (occupied.length === 0) {
     const cX = config.width / 2;
     const cY = config.height / 2;
+    let area = 0;
     sorted.forEach((node, i) => {
-      const r = Math.sqrt(((i + 0.5) * spacing * spacing) / Math.PI);
+      const s = spacingOf(node);
+      const r = Math.sqrt((area + 0.5 * s * s) / Math.PI);
+      area += s * s;
       positions.set(node.id, {
         x: cX + Math.cos(i * GOLDEN_ANGLE) * r,
         y: cY + Math.sin(i * GOLDEN_ANGLE) * r
@@ -2793,9 +2904,25 @@ function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius
     if (p1 && p2) edgeSegs.push({ x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
   });
 
-  // Candidate grid: layout bbox plus a periphery band
-  const margin = spacing * 2;
-  const step = spacing * 0.75;
+  // Candidate grid: layout bbox plus a periphery band wide enough for the
+  // largest floater's box. The pitch is a fixed FINE resolution with a count
+  // cap, not a function of floater size — sizing it off the floaters (median
+  // circumradius, then smallest short side) meant group-sized floaters got a
+  // 500-1200px grid, so every placement overshot its nearest legal spot by up
+  // to a full step. That overshoot was indistinguishable from deliberate
+  // spacing, and it is where hundreds of pixels of unexplained gap around
+  // unconnected groups came from. The box tests below are what keep things
+  // apart; the grid's only job is to offer candidates near the optimum.
+  const maxHalfExtent = sorted.reduce(
+    (m, n) => { const { hw, hh } = halfsOf(n); return Math.max(m, hw, hh); }, 0);
+  const margin = maxHalfExtent * 2 + boxGap * 2;
+  const spanX = (bMaxX - bMinX) + margin * 2;
+  const spanY = (bMaxY - bMinY) + margin * 2;
+  let step = Math.max(60, boxGap / 2);
+  const MAX_GRID_CANDIDATES = 40000;
+  if ((spanX / step + 1) * (spanY / step + 1) > MAX_GRID_CANDIDATES) {
+    step = Math.sqrt((spanX * spanY) / MAX_GRID_CANDIDATES);
+  }
   const candidates = [];
   const inForbiddenRect = (px, py, buffer) => {
     for (const r of forbiddenRects) {
@@ -2811,7 +2938,11 @@ function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius
 
       let nodeClearance = Infinity;
       for (const o of occupied) {
-        const d = Math.hypot(gx - o.x, gy - o.y) - o.r;
+        // Euclidean distance from the point to the occupied BOX.
+        const d = Math.hypot(
+          Math.max(0, Math.abs(gx - o.x) - o.hw),
+          Math.max(0, Math.abs(gy - o.y) - o.hh)
+        );
         if (d < nodeClearance) nodeClearance = d;
         if (nodeClearance <= 0) break;
       }
@@ -2839,31 +2970,50 @@ function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius
 
   const placedIso = [];
   let overflowIndex = 0;
+  let overflowArea = 0;
+  let eastX = bMaxX;
   sorted.forEach(node => {
     const nodeR = getRadius(node);
+    const nodeSpacing = spacingOf(node);
+    const nodeBox = halfsOf(node);
     let placed = null;
     for (const c of candidates) {
       if (c.used) continue;
-      if (c.nodeClearance < nodeR * 1.1) continue;
-      if (c.edgeClearance < nodeR) continue;
-      let clearOfSiblings = true;
-      for (const p of placedIso) {
-        if (Math.hypot(c.x - p.x, c.y - p.y) < spacing) { clearOfSiblings = false; break; }
+      // Cheap prefilter on the precomputed point-to-box distance, then the
+      // exact box-vs-box test with the real breathing room.
+      if (c.nodeClearance < Math.min(nodeBox.hw, nodeBox.hh) * 0.9) continue;
+      // Clearance from connection lines, by the box's SHORT side. Demanding the
+      // long side (or the circumradius) rejected the entire region between any
+      // two connected clusters for a group-sized floater — a wide box only
+      // needs its short side of clearance from a segment in the common case,
+      // and a line grazing a long flank is a tolerable read, not an overlap.
+      if (c.edgeClearance < Math.min(nodeBox.hw, nodeBox.hh)) continue;
+      let clear = true;
+      for (const o of occupied) {
+        if (!boxesClear(c.x, c.y, nodeBox, o.x, o.y, o, boxGap)) { clear = false; break; }
       }
-      if (!clearOfSiblings) continue;
+      if (clear) {
+        for (const p of placedIso) {
+          if (!boxesClear(c.x, c.y, nodeBox, p.x, p.y, p, boxGap)
+            || Math.hypot(c.x - p.x, c.y - p.y) < spacingFloor) { clear = false; break; }
+        }
+      }
+      if (!clear) continue;
       c.used = true;
       placed = { x: c.x, y: c.y };
       break;
     }
     if (!placed) {
-      // Overflow: sunflower annulus outside everything. Spiral points that
-      // land inside a group rect are skipped (a wide group can poke past
-      // coreRadius on one axis).
-      const startR = coreRadius + spacing;
+      // Overflow: sunflower annulus outside everything, dense in AREA so a
+      // large node advances the spiral by its own footprint and small ones by
+      // theirs. Spiral points that land inside a group rect are skipped (a
+      // wide group can poke past coreRadius on one axis).
+      const startR = coreRadius + nodeSpacing;
       for (let attempts = 0; attempts < 200; attempts++) {
-        const r = Math.sqrt(startR * startR + ((overflowIndex + 0.5) * spacing * spacing) / Math.PI);
+        const r = Math.sqrt(startR * startR + (overflowArea + 0.5 * nodeSpacing * nodeSpacing) / Math.PI);
         const theta = overflowIndex * GOLDEN_ANGLE;
         overflowIndex++;
+        overflowArea += nodeSpacing * nodeSpacing;
         const px = coreX + Math.cos(theta) * r;
         const py = coreY + Math.sin(theta) * r;
         if (inForbiddenRect(px, py, nodeR)) continue;
@@ -2872,10 +3022,11 @@ function placeIsolatedNodes(positions, isolatedNodes, edges, nodeById, getRadius
       }
       if (!placed) {
         // Every attempt landed in a group rect — fall back to due east of it all
-        placed = { x: bMaxX + spacing * 2 + overflowIndex * spacing, y: coreY };
+        eastX += nodeSpacing;
+        placed = { x: eastX + nodeSpacing, y: coreY };
       }
     }
-    placedIso.push(placed);
+    placedIso.push({ ...placed, hw: nodeBox.hw, hh: nodeBox.hh });
     positions.set(node.id, placed);
   });
 }
@@ -3084,13 +3235,36 @@ function separateGroupBoxes(positions, groups, nodeGroupsMap, nodeById, nestedGr
     for (const m of im) { if (!om.has(m)) return false; }
     return true;
   };
-  const topLevel = groups.filter(g =>
-    !groups.some(o => o.id !== g.id && isContained(g.id, o.id)));
-  if (topLevel.length < 2) return;
+
+  // Families of siblings: groups sharing the same direct parent (their
+  // smallest strict container), plus the top-level family. Peer separation
+  // applies within EVERY family — two nested siblings interleaving inside
+  // their parent is the same defect as two top-level groups interleaving on
+  // the canvas, and this pass used to skip them entirely, which is where the
+  // overlapping nested shells after Phase-3 refinement came from. Translating
+  // a nested sibling moves members the parent also owns, so the parent's box
+  // (recomputed each pass) grows to follow — that is the correct behaviour.
+  const directParentOf = new Map();
+  groups.forEach(g => {
+    let best = null;
+    groups.forEach(o => {
+      if (o.id === g.id || !isContained(g.id, o.id)) return;
+      if (!best || memberSet.get(o.id).size < memberSet.get(best.id).size) best = o;
+    });
+    if (best) directParentOf.set(g.id, best.id);
+  });
+  const families = new Map(); // direct parent id ('' = top level) -> siblings
+  groups.forEach(g => {
+    const key = directParentOf.get(g.id) || '';
+    if (!families.has(key)) families.set(key, []);
+    families.get(key).push(g);
+  });
+  const separableFamilies = [...families.values()].filter(f => f.length >= 2);
+  if (separableFamilies.length === 0) return;
 
   for (let pass = 0; pass < passes; pass++) {
     const boxes = new Map();
-    topLevel.forEach(g => {
+    groups.forEach(g => {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       (g.memberInstanceIds || []).forEach(id => {
         if (isPeerSharedWith(id, g.id)) return;
@@ -3114,37 +3288,39 @@ function separateGroupBoxes(positions, groups, nodeGroupsMap, nodeById, nestedGr
     });
 
     let moved = false;
-    for (let i = 0; i < topLevel.length; i++) {
-      for (let j = i + 1; j < topLevel.length; j++) {
-        const b1 = boxes.get(topLevel[i].id);
-        const b2 = boxes.get(topLevel[j].id);
-        if (!b1 || !b2) continue;
-        const gap = gapForPair(topLevel[i], topLevel[j]);
-        const overlapX = Math.min(b1.maxX, b2.maxX) - Math.max(b1.minX, b2.minX) + gap;
-        const overlapY = Math.min(b1.maxY, b2.maxY) - Math.max(b1.minY, b2.minY) + gap;
-        if (overlapX <= 0 || overlapY <= 0) continue;
+    for (const family of separableFamilies) {
+      for (let i = 0; i < family.length; i++) {
+        for (let j = i + 1; j < family.length; j++) {
+          const b1 = boxes.get(family[i].id);
+          const b2 = boxes.get(family[j].id);
+          if (!b1 || !b2) continue;
+          const gap = gapForPair(family[i], family[j]);
+          const overlapX = Math.min(b1.maxX, b2.maxX) - Math.max(b1.minX, b2.minX) + gap;
+          const overlapY = Math.min(b1.maxY, b2.maxY) - Math.max(b1.minY, b2.minY) + gap;
+          if (overlapX <= 0 || overlapY <= 0) continue;
 
-        let dx = 0, dy = 0;
-        if (overlapX < overlapY) {
-          const dir = (b1.minX + b1.maxX) <= (b2.minX + b2.maxX) ? 1 : -1;
-          dx = dir * overlapX / 2;
-        } else {
-          const dir = (b1.minY + b1.maxY) <= (b2.minY + b2.maxY) ? 1 : -1;
-          dy = dir * overlapY / 2;
+          let dx = 0, dy = 0;
+          if (overlapX < overlapY) {
+            const dir = (b1.minX + b1.maxX) <= (b2.minX + b2.maxX) ? 1 : -1;
+            dx = dir * overlapX / 2;
+          } else {
+            const dir = (b1.minY + b1.maxY) <= (b2.minY + b2.maxY) ? 1 : -1;
+            dy = dir * overlapY / 2;
+          }
+
+          const translate = (g, sx, sy, box) => {
+            (g.memberInstanceIds || []).forEach(id => {
+              if (isPeerSharedWith(id, g.id)) return;
+              const p = positions.get(id);
+              if (p) { p.x += sx; p.y += sy; }
+            });
+            box.minX += sx; box.maxX += sx;
+            box.minY += sy; box.maxY += sy;
+          };
+          translate(family[i], -dx, -dy, b1);
+          translate(family[j], dx, dy, b2);
+          moved = true;
         }
-
-        const translate = (g, sx, sy, box) => {
-          (g.memberInstanceIds || []).forEach(id => {
-            if (isPeerSharedWith(id, g.id)) return;
-            const p = positions.get(id);
-            if (p) { p.x += sx; p.y += sy; }
-          });
-          box.minX += sx; box.maxX += sx;
-          box.minY += sy; box.maxY += sy;
-        };
-        translate(topLevel[i], -dx, -dy, b1);
-        translate(topLevel[j], dx, dy, b2);
-        moved = true;
       }
     }
     if (!moved) return;
@@ -3300,6 +3476,10 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
 
       groups.forEach(group => {
         if (memberSets.get(group.id).has(node.id)) return;   // a member — leave it be
+        // A node-group's own anchor belongs AT the group (its title tab) —
+        // groupSeparatedLayout pins nested anchors to the composed shell's
+        // title spot, and ejecting them here would undo that pin every pass.
+        if (group.anchorInstanceId === node.id) return;
         const box = coreBoxes.get(group.id);
         if (!box) return;
         if (ejectNodeFromBox(node, pos, box, bias)) moved = true;
@@ -3364,10 +3544,28 @@ function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, no
     return moved;
   };
 
+  // The interleaved overlap resolution must clamp to the CONTENT's frame, not
+  // the requested canvas box: composed group layouts run through here at
+  // coordinates far outside (or negative of) config.width/height, and the
+  // default clamp slammed every node it separated onto that box's wall —
+  // which is what stacked ejected nodes into a single pile at the frame edge.
+  const contentClampBounds = () => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    positions.forEach(p => {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    });
+    if (!Number.isFinite(minX)) return null;
+    const slack = Math.max(config.padding || 200, pad * 2);
+    return { minX: minX - slack, minY: minY - slack, maxX: maxX + slack, maxY: maxY + slack };
+  };
+
   for (let pass = 0; pass < passes; pass++) {
     if (!ejectPass()) return;
     resolveOverlaps(positions, nodes, getSize, config.padding, config.width, config.height, 2,
-      { aabb: config.aabbCollision !== false, gap: config.nodeGap });
+      { aabb: config.aabbCollision !== false, gap: config.nodeGap, clampBounds: contentClampBounds() });
   }
   ejectPass();
 }
@@ -3428,6 +3626,18 @@ function enforceGroupSeparation(positions, nodes, nodeGroupsMap, getRadius, minG
 function resolveOverlaps(positions, nodes, getSize, padding, width, height, passes, opts = {}) {
   const aabb = opts.aabb === true;
   const gap = opts.gap ?? 0;
+  // Where separated nodes may land. The default [padding, width−padding] range
+  // assumes an origin-anchored frame the size of the requested canvas — true
+  // inside forceDirectedLayout, whose config grows to fit its content. Callers
+  // working in a frame that ISN'T origin-anchored (composed group layouts can
+  // sit thousands of px away, or at negative coordinates) pass explicit
+  // clampBounds, because clamping their content into the default range slams
+  // every touched node onto the range's wall.
+  const cb = opts.clampBounds;
+  const loX = cb ? cb.minX : padding;
+  const hiX = cb ? cb.maxX : width - padding;
+  const loY = cb ? cb.minY : padding;
+  const hiY = cb ? cb.maxY : height - padding;
 
   for (let pass = 0; pass < passes; pass++) {
     for (let i = 0; i < nodes.length; i++) {
@@ -3468,10 +3678,10 @@ function resolveOverlaps(positions, nodes, getSize, padding, width, height, pass
             p1.y -= mtv.dy * half;
             p2.x += mtv.dx * half;
             p2.y += mtv.dy * half;
-            p1.x = clamp(p1.x, padding, width - padding);
-            p1.y = clamp(p1.y, padding, height - padding);
-            p2.x = clamp(p2.x, padding, width - padding);
-            p2.y = clamp(p2.y, padding, height - padding);
+            p1.x = clamp(p1.x, loX, hiX);
+            p1.y = clamp(p1.y, loY, hiY);
+            p2.x = clamp(p2.x, loX, hiX);
+            p2.y = clamp(p2.y, loY, hiY);
           }
           continue;
         }
@@ -3493,10 +3703,10 @@ function resolveOverlaps(positions, nodes, getSize, padding, width, height, pass
           p2.y += uy * totalSeparation;
 
           // Keep in bounds
-          p1.x = clamp(p1.x, padding, width - padding);
-          p1.y = clamp(p1.y, padding, height - padding);
-          p2.x = clamp(p2.x, padding, width - padding);
-          p2.y = clamp(p2.y, padding, height - padding);
+          p1.x = clamp(p1.x, loX, hiX);
+          p1.y = clamp(p1.y, loY, hiY);
+          p2.x = clamp(p2.x, loX, hiX);
+          p2.y = clamp(p2.y, loY, hiY);
         }
       }
     }

@@ -12,6 +12,7 @@
  *   api.github.com installation lookup.
  */
 import { isElectron } from '../utils/fileAccessAdapter.js';
+import { usesDeviceFlowAuth } from '../utils/capacitorAdapter.js';
 import { persistentAuth } from './persistentAuth.js';
 import { oauthFetch } from './bridgeConfig.js';
 import universeManagerService from './universeManagerService.js';
@@ -101,15 +102,16 @@ export async function connectOAuth({ runDeviceFlow } = {}) {
     // ignore
   }
 
-  if (isElectron()) {
-    // Electron: no oauth-server, no redstring.io. Use GitHub Device Flow
+  if (usesDeviceFlowAuth()) {
+    // Native shell (Electron/iOS): no oauth-server, no redstring.io redirect.
+    // Use GitHub Device Flow
     // directly against github.com with the embedded OAuth App client_id.
     if (typeof runDeviceFlow !== 'function') {
-      throw new Error('Device flow runner required for Electron OAuth');
+      throw new Error('Device flow runner required for native OAuth');
     }
     const clientId = getOAuthClientId();
     if (!clientId) {
-      throw new Error('Missing VITE_GITHUB_CLIENT_ID. Set it at build time before packaging Electron.');
+      throw new Error('Missing VITE_GITHUB_CLIENT_ID. Set it at build time before packaging the native app.');
     }
     gaLog('Starting GitHub OAuth device flow');
     const tokenData = await runDeviceFlow({
@@ -174,8 +176,8 @@ export async function connectApp({ runDeviceFlow } = {}) {
     ? persistentAuth.githubAppCache?.installationId
     : null;
 
-  if (isElectron()) {
-    // Electron path — fully local, no oauth-server.
+  if (usesDeviceFlowAuth()) {
+    // Native shell path — fully local, no oauth-server.
     if (existingInstallationId) {
       const url = `https://github.com/settings/installations/${existingInstallationId}`;
       gaLog('App already installed, opening management page', url);
@@ -188,11 +190,11 @@ export async function connectApp({ runDeviceFlow } = {}) {
     // If yes, store it as the install. If no, open the install URL and
     // park the token so Detect can find the install afterward.
     if (typeof runDeviceFlow !== 'function') {
-      throw new Error('Device flow runner required for Electron App install');
+      throw new Error('Device flow runner required for native App install');
     }
     const appClientId = getAppClientId();
     if (!appClientId) {
-      throw new Error('Missing VITE_GITHUB_APP_CLIENT_ID. Set it at build time before packaging Electron.');
+      throw new Error('Missing VITE_GITHUB_APP_CLIENT_ID. Set it at build time before packaging the native app.');
     }
     const appSlug = getAppSlug();
 
@@ -285,8 +287,8 @@ export async function connectApp({ runDeviceFlow } = {}) {
 export async function detectAppInstall({ runDeviceFlow } = {}) {
   gaLog('User-triggered App install detection');
 
-  if (isElectron()) {
-    // Electron: skip oauth-server entirely. If we already have a stored
+  if (usesDeviceFlowAuth()) {
+    // Native shell: skip oauth-server entirely. If we already have a stored
     // user-to-server token (from a prior Install click), re-query
     // installations with it. Otherwise kick off the device flow first.
     let token =
@@ -295,11 +297,11 @@ export async function detectAppInstall({ runDeviceFlow } = {}) {
       || null;
     if (!token) {
       if (typeof runDeviceFlow !== 'function') {
-        throw new Error('Device flow runner required for Electron App detection');
+        throw new Error('Device flow runner required for native App detection');
       }
       const appClientId = getAppClientId();
       if (!appClientId) {
-        throw new Error('Missing VITE_GITHUB_APP_CLIENT_ID. Set it at build time before packaging Electron.');
+        throw new Error('Missing VITE_GITHUB_APP_CLIENT_ID. Set it at build time before packaging the native app.');
       }
       const tokenData = await runDeviceFlow({
         clientId: appClientId,

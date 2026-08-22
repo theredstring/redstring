@@ -203,19 +203,24 @@ const SPAWNABLE_NODE = 'spawnable_node';
 // of a label from snapping its angle. Snapping by a quantum q tilts a label by
 // at most q/2, which moves the end of a label of half-width w by w·sin(q/2).
 //
-// Sized so MAX_LABEL_ANGLE_QUANTUM is actually REACHABLE at the zooms where
-// labels are dense. At 2px it wasn't: the formula below returned ~4.3° at zoom
-// 0.35 and ~1.5° at zoom 1, so raising the ceiling alone changed nothing. The
-// zoom-adaptivity still does its job past zoom ~1, where a tilt would show and
-// there are few enough labels on screen to afford exact angles.
-const LABEL_ANGLE_ERROR_PX = 12;
+// Back down from 12. At 12px the formula below returned the full 9° ceiling at
+// every zoom up to ~1.0, so on any graph past the min-count EVERY label sat up
+// to 4.5° off its true angle at ordinary working zooms — a visible tilt, chosen
+// deliberately in the atlas-thrash era so the ceiling was reachable. The
+// per-glyph placement work removed that bottleneck, so the budget goes back to
+// what the name says: a displacement nobody can see. At 3px the quantum is
+// ~2.3° at zoom 1, ~4.6° at zoom 0.5, and only reaches the 9° cap below zoom
+// ~0.26 — where 3px is still the on-screen error and the tilt is invisible by
+// construction.
+const LABEL_ANGLE_ERROR_PX = 3;
 
 // Typical connection-label half-width in canvas px, for the estimate above.
 const LABEL_HALF_WIDTH_CANVAS = 150;
 
 // Never snap coarser than this, however far out the viewer is zoomed. 9° means
-// a label sits at most 4.5° off its true tangent. See the table above for why
-// 4° was too fine to be worth having.
+// a label sits at most 4.5° off its true tangent. With the 3px error budget
+// this now only binds below zoom ~0.26, where the displacement it permits is
+// still under the pixel budget on screen.
 const MAX_LABEL_ANGLE_QUANTUM = 9;
 
 // Below this many labels there aren't enough distinct angles to trouble the
@@ -255,18 +260,20 @@ const LABEL_ANGLE_QUANTUM_MIN_COUNT = 48;
 // ones cost N. That is a gentler curve, and 40 is now a conservative number on
 // it rather than a cliff-edge one.
 //
-// Kept at 40, and it is now the ONLY bound. LABEL_CURVE_MIN_SCREEN_PX was the
-// other one — shed the curves nobody can see — and it has since gone to 0,
-// because any positive value makes the curved/straight decision depend on the
-// zoom and pops labels between forms mid-gesture. So this count is what stands
-// between a dense graph and a lot of glyph matrices.
+// Raised from 40. At 40 it was the thing deciding that NOTHING curves on any
+// real graph: it is fed the WHOLE graph's edge count (culling is disabled, see
+// ENABLE_CULLING), so a 41-edge Lombardi graph rendered every label as a
+// straight chord — and a straight chord additionally angle-snapped by the
+// canvas-wide quantum, which is the "quantized and never bent" look.
 //
-// Note it is currently fed the WHOLE graph's edge count rather than the visible
-// one, because viewport culling is disabled (see ENABLE_CULLING). On a graph
-// past 40 edges that makes it, not the bow threshold, the thing deciding
-// nothing curves. Re-tune when culling returns and it measures what its name
-// says.
-const CURVED_LABEL_BUDGET = 40;
+// The cost model that justified 40 is gone. Curved glyphs snap into
+// CURVED_GLYPH_ANGLE_QUANTUM buckets, so the atlas keys they can mint are
+// bounded by (distinct characters × buckets) REGARDLESS of how many labels
+// curve — N labels re-use the same keys, they don't multiply them. What scales
+// with N is the closed-form per-glyph placement, and that is arithmetic, not
+// rasterisation. This bound is kept only as a backstop against pathological
+// counts; it should not be the reason an ordinary graph's labels stop bending.
+const CURVED_LABEL_BUDGET = 250;
 
 // Shared empty obstacle list, so the memo below can skip the work without
 // handing out a fresh array identity on every pan tick.
@@ -3659,13 +3666,14 @@ function NodeCanvas() {
 
   // A curved Lombardi label costs more than a straight one even now that the
   // glyphs are placed by hand rather than by a <textPath>: every character gets
-  // its own rotation, so ONE curved label is worth roughly its character count
-  // in straight ones to the glyph atlas. That multiple, applied to every label,
-  // is what the glyph fix alone left on the table.
+  // its own rotation and paints as its own item, so ONE curved label is worth
+  // roughly its character count in straight ones.
   //
-  // The count budget is what bounds that. The bow threshold no longer helps:
-  // labelCurveMinBow defaults to a constant floor now, deliberately, so that
-  // nothing about a label changes because the viewer zoomed.
+  // Two bounds share that load. The bow threshold (labelCurveMinBow, reading
+  // SETTLED zoom) sheds the curves the current zoom has compressed below
+  // visibility — which at fit-the-graph zoom on a large network is most of
+  // them, and is what keeps that view affordable. The count budget below is
+  // the backstop for pathological graphs where visible bends alone are legion.
   const curveLabels = visibleEdges.length <= CURVED_LABEL_BUDGET;
   const labelArcMinBow = labelCurveMinBow(zoomLevel);
   // Curved labels get their OWN rotation bucket rather than the canvas-wide

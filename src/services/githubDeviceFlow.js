@@ -1,5 +1,5 @@
 /**
- * GitHub Device Flow (Electron-only).
+ * GitHub Device Flow (native shells: Electron and Capacitor/iOS).
  *
  * Fully local OAuth: requests a device code from github.com, has the user
  * approve it in their browser, polls until GitHub returns a token. No
@@ -9,9 +9,14 @@
  * (live sync). The only difference between the two flows is the client_id
  * — the App's device flow returns a user-to-server token (`ghu_*`) which
  * acts with the App's permissions on installations the user has access to.
+ *
+ * Transport differs by shell because github.com's device endpoints send no
+ * CORS headers: Electron proxies them through the main process, Capacitor
+ * uses CapacitorHttp (native requests aren't subject to CORS).
  */
 
 import { isElectron } from '../utils/fileAccessAdapter.js';
+import { isCapacitor, capHttpJSON } from '../utils/capacitorAdapter.js';
 import {
   DEFAULT_OAUTH_CLIENT_ID,
   DEFAULT_APP_CLIENT_ID,
@@ -19,11 +24,45 @@ import {
 } from '../config/githubClientIds.js';
 
 const DEVICE_CODE_VERIFICATION_FALLBACK = 'https://github.com/login/device';
+const DEVICE_CODE_URL = 'https://github.com/login/device/code';
+const ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
 
-function assertElectron() {
-  if (!isElectron() || !window.electron?.github) {
-    throw new Error('GitHub device flow is only available in Electron');
+function assertNativeShell() {
+  const hasElectronBridge = isElectron() && !!window.electron?.github;
+  if (!hasElectronBridge && !isCapacitor()) {
+    throw new Error('GitHub device flow is only available in the desktop or iOS app');
   }
+}
+
+/** Request a device code through whichever native transport is available. */
+async function requestDeviceCodeNative(clientId, scope) {
+  if (isCapacitor()) {
+    const params = new URLSearchParams({ client_id: clientId });
+    if (scope) params.set('scope', scope);
+    return await capHttpJSON(DEVICE_CODE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      data: params.toString()
+    });
+  }
+  return await window.electron.github.requestDeviceCode(clientId, scope || undefined);
+}
+
+/** Poll for the access token through whichever native transport is available. */
+async function pollDeviceTokenNative(clientId, deviceCode) {
+  if (isCapacitor()) {
+    const params = new URLSearchParams({
+      client_id: clientId,
+      device_code: deviceCode,
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+    });
+    return await capHttpJSON(ACCESS_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      data: params.toString()
+    });
+  }
+  return await window.electron.github.pollDeviceToken(clientId, deviceCode);
 }
 
 /**
@@ -42,11 +81,11 @@ function assertElectron() {
  * }>}
  */
 export async function requestDeviceCode({ clientId, scope } = {}) {
-  assertElectron();
+  assertNativeShell();
   if (!clientId) {
     throw new Error('Missing GitHub client_id. Set VITE_GITHUB_CLIENT_ID (OAuth App) or VITE_GITHUB_APP_CLIENT_ID (GitHub App) at build time.');
   }
-  const result = await window.electron.github.requestDeviceCode(clientId, scope || undefined);
+  const result = await requestDeviceCodeNative(clientId, scope);
   if (!result?.ok || !result.body) {
     const errMsg = result?.body?.error_description || result?.body?.error || `HTTP ${result?.status || '?'}`;
     throw new Error(`Device code request failed: ${errMsg}`);
@@ -69,6 +108,12 @@ export async function requestDeviceCode({ clientId, scope } = {}) {
 export async function openVerificationUrl(url) {
   if (!url) return false;
   try {
+    if (isCapacitor()) {
+      // SFSafariViewController — the user enters the code and swipes back.
+      const { Browser } = await import('@capacitor/browser');
+      await Browser.open({ url });
+      return true;
+    }
     if (isElectron() && window.electron?.github?.openExternal) {
       return await window.electron.github.openExternal(url);
     }
@@ -108,7 +153,7 @@ export async function pollForToken({
   cancelSignal,
   onTick
 } = {}) {
-  assertElectron();
+  assertNativeShell();
   let currentInterval = Math.max(1000, intervalMs || 5000);
 
   while (true) {
@@ -127,7 +172,7 @@ export async function pollForToken({
 
     let result;
     try {
-      result = await window.electron.github.pollDeviceToken(clientId, deviceCode);
+      result = await pollDeviceTokenNative(clientId, deviceCode);
     } catch (err) {
       // Network blip — keep polling. Surface to UI via onTick.
       if (onTick) onTick('network-error');

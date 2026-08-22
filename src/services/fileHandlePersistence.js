@@ -7,9 +7,14 @@
  * 
  * In Electron: file handles are string paths stored in a local JSON file.
  * In Browser: file handles are FileSystemFileHandle objects stored in IndexedDB.
+ * In Capacitor: file handles are 'capacitor://Documents/...' strings stored in
+ * IndexedDB (plain strings serialize fine, and WKWebView has IndexedDB).
  */
 
 import { isElectron, fileExists } from '../utils/fileAccessAdapter.js';
+import { isCapacitor, isCapacitorHandle, capFileExists } from '../utils/capacitorAdapter.js';
+
+const platformTag = () => (isElectron() ? 'electron' : isCapacitor() ? 'capacitor' : 'browser');
 
 const DB_NAME = 'RedstringFileHandles';
 // Do NOT bump DB_VERSION unless you are writing an explicit migration in
@@ -126,7 +131,23 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
     let resolvedHandle = fileHandle;
     let isWorkspaceFile = false;
 
-    if (isElectron()) {
+    if (isCapacitor()) {
+      // Capacitor: handles are 'capacitor://Documents/...' strings. They are
+      // relative to a Directory enum by design (the iOS app-container UUID
+      // changes on reinstall), so the absolute-path rule below does not apply.
+      const candidate = [fileHandle, additionalMetadata.handle, additionalMetadata.displayPath, additionalMetadata.path]
+        .find((value) => isCapacitorHandle(value));
+      if (candidate) {
+        resolvedHandle = candidate;
+        const parts = candidate.split('/');
+        fileName = parts[parts.length - 1];
+      } else if (typeof fileHandle === 'string') {
+        console.warn(`[FileHandles] ✗ Refusing to persist non-Capacitor handle on iOS for ${universeSlug}:`, fileHandle);
+        const parts = fileHandle.split('/');
+        fileName = parts[parts.length - 1];
+        resolvedHandle = null; // needs reconnect — not a usable location
+      }
+    } else if (isElectron()) {
       // Electron: ensure handle is always a string path
       if (typeof fileHandle === 'string') {
         resolvedHandle = fileHandle;
@@ -180,11 +201,12 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
     const record = {
       universeSlug,
       fileName: fileName ?? additionalMetadata.fileName ?? null,
-      kind: isElectron() ? 'file' : (fileHandle?.kind ?? additionalMetadata.kind ?? 'file'),
+      kind: (isElectron() || isCapacitor()) ? 'file' : (fileHandle?.kind ?? additionalMetadata.kind ?? 'file'),
       handle: resolvedHandle,
       isElectron: isElectron(),
+      platform: platformTag(),
       lastAccessed: additionalMetadata.lastAccessed ?? Date.now(),
-      displayPath: isElectron() && typeof resolvedHandle === 'string' ? resolvedHandle : (additionalMetadata.displayPath ?? null),
+      displayPath: (isElectron() || isCapacitor()) && typeof resolvedHandle === 'string' ? resolvedHandle : (additionalMetadata.displayPath ?? null),
       isWorkspaceFile: isWorkspaceFile, // Mark workspace files for restoration from workspace folder
       ...safeAdditionalMetadata
     };
@@ -322,6 +344,10 @@ export const removeFileHandleMetadata = async (universeSlug) => {
  * @returns {Promise<'granted'|'denied'|'prompt'>} Permission state
  */
 export const checkFileHandlePermission = async (fileHandle) => {
+  // Capacitor: files inside our own app container have no permission model
+  if (isCapacitorHandle(fileHandle)) {
+    return (await capFileExists(fileHandle)) ? 'granted' : 'denied';
+  }
   // Electron: file paths don't need permission checks
   if (isElectron() && typeof fileHandle === 'string') {
     const exists = await fileExists(fileHandle);
@@ -348,6 +374,10 @@ export const checkFileHandlePermission = async (fileHandle) => {
  * @returns {Promise<'granted'|'denied'>} Permission state after request
  */
 export const requestFileHandlePermission = async (fileHandle) => {
+  // Capacitor: nothing to request inside our own app container
+  if (isCapacitorHandle(fileHandle)) {
+    return (await capFileExists(fileHandle)) ? 'granted' : 'denied';
+  }
   // Electron: file paths don't need permission requests
   if (isElectron() && typeof fileHandle === 'string') {
     const exists = await fileExists(fileHandle);
@@ -374,6 +404,16 @@ export const requestFileHandlePermission = async (fileHandle) => {
  * @returns {Promise<boolean>} True if handle is valid and accessible
  */
 export const verifyFileHandleAccess = async (fileHandle) => {
+  // Capacitor: a handle is valid iff the file exists in the app container
+  if (isCapacitorHandle(fileHandle)) {
+    const exists = await capFileExists(fileHandle);
+    return {
+      isValid: exists,
+      permission: exists ? 'granted' : 'denied',
+      needsPermissionPrompt: false,
+      reason: exists ? null : 'file_missing'
+    };
+  }
   // Electron: verify file path exists
   if (isElectron() && typeof fileHandle === 'string') {
     try {
@@ -515,7 +555,7 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
     });
 
     // Browser: Check if this is a workspace file first
-    if (!isElectron() && metadata.isWorkspaceFile && metadata.fileName) {
+    if (!isElectron() && !isCapacitor() && metadata.isWorkspaceFile && metadata.fileName) {
       console.log(`[FileHandles] Attempting workspace restoration for ${universeSlug}: ${metadata.fileName}`);
       try {
         const { getFileFromWorkspace } = await import('./workspaceFolderService.js');
@@ -541,6 +581,18 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
 
     // Extract the handle - in Electron it should be a string path
     let handle = metadata.handle;
+
+    // Capacitor: handles are deterministic from the slug, so a lost record
+    // (e.g. WKWebView evicted IndexedDB) can be rebuilt as long as the file
+    // still exists in the managed Universes folder.
+    if (isCapacitor() && !isCapacitorHandle(handle)) {
+      const { universeFileHandle } = await import('../utils/capacitorAdapter.js');
+      const rebuilt = universeFileHandle(metadata.fileName || universeSlug);
+      if (await capFileExists(rebuilt)) {
+        console.log(`[FileHandles] Capacitor: rebuilt handle for ${universeSlug}:`, rebuilt);
+        handle = rebuilt;
+      }
+    }
 
     // Electron: ensure we have a valid string path
     if (isElectron()) {
