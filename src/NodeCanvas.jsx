@@ -8841,6 +8841,102 @@ function NodeCanvas() {
     return findEdgeAtClientPoint(x, y, 'touch')?.edgeId || fallbackEdgeId;
   }, [findEdgeAtClientPoint]);
 
+  // --- Deferred touch selection for connections ------------------------------
+  //
+  // Touch used to select the connection on touchdown. That made a pan which merely
+  // STARTED on a line leave that line selected once your finger came up somewhere
+  // else entirely — the gesture was a pan, but the line had already claimed it.
+  // Mouse has never behaved this way (it selects on click, i.e. on release).
+  //
+  // So: touchdown only *records* a candidate, movement past the slop cancels it,
+  // and release commits it. The edge id is resolved at touchdown, where the finger
+  // position is known and nearest-wins can run — touchend carries no touches[] to
+  // re-resolve from.
+  const pendingEdgeTouchRef = useRef(null);
+  const EDGE_TAP_SLOP_PX = 10;
+
+  const beginEdgeTouch = useCallback((edgeId, e) => {
+    const x = e?.clientX ?? e?.touches?.[0]?.clientX;
+    const y = e?.clientY ?? e?.touches?.[0]?.clientY;
+    if (typeof x !== 'number' || typeof y !== 'number') { pendingEdgeTouchRef.current = null; return; }
+    pendingEdgeTouchRef.current = {
+      edgeId: resolveTouchEdgeTarget(edgeId, e),
+      x, y,
+      additive: Boolean(e?.ctrlKey || e?.metaKey),
+    };
+  }, [resolveTouchEdgeTarget]);
+
+  const moveEdgeTouch = useCallback((e) => {
+    const pending = pendingEdgeTouchRef.current;
+    if (!pending) return;
+    const x = e?.clientX ?? e?.touches?.[0]?.clientX;
+    const y = e?.clientY ?? e?.touches?.[0]?.clientY;
+    if (typeof x !== 'number' || typeof y !== 'number') return;
+    if (Math.hypot(x - pending.x, y - pending.y) > EDGE_TAP_SLOP_PX) {
+      pendingEdgeTouchRef.current = null; // it's a pan — this line never gets selected
+    }
+  }, []);
+
+  const cancelEdgeTouch = useCallback(() => {
+    pendingEdgeTouchRef.current = null;
+  }, []);
+
+  const commitEdgeTouch = useCallback((e) => {
+    const pending = pendingEdgeTouchRef.current;
+    pendingEdgeTouchRef.current = null;
+    if (!pending) return;
+    // Release position, when we have one — a gesture can outrun moveEdgeTouch
+    // (coalesced moves, a fast flick) and still land far from where it began.
+    const x = e?.clientX ?? e?.changedTouches?.[0]?.clientX;
+    const y = e?.clientY ?? e?.changedTouches?.[0]?.clientY;
+    if (typeof x === 'number' && typeof y === 'number'
+      && Math.hypot(x - pending.x, y - pending.y) > EDGE_TAP_SLOP_PX) return;
+
+    haptic('edgeSelect');
+    // Double-tap → open definition. Counted on release for the same reason
+    // selection is: a pan is not a tap and must not accumulate toward one.
+    handleEdgePointerDownTouch(pending.edgeId, { pointerType: 'touch', preventDefault: () => { }, stopPropagation: () => { } });
+    if (pending.additive) {
+      if (selectedEdgeIds.has(pending.edgeId)) {
+        storeActions.removeSelectedEdgeId(pending.edgeId);
+      } else {
+        storeActions.addSelectedEdgeId(pending.edgeId);
+      }
+    } else {
+      storeActions.clearSelectedEdgeIds();
+      storeActions.setSelectedEdgeId(pending.edgeId);
+    }
+  }, [selectedEdgeIds, storeActions, handleEdgePointerDownTouch]);
+
+  // The touch half of an edge hitbox's handlers, shared by every hitbox that draws
+  // one (the shared helper below and the per-routing-style inline strokes).
+  const edgeTouchHandlers = useCallback((edgeId) => ({
+    onPointerDown: (e) => {
+      if (!e.pointerType || e.pointerType === 'mouse') return false;
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      ignoreCanvasClick.current = true; // suppress canvas click -> plus sign
+      setLongPressingInstanceId(null);  // prevent connection drawing intent
+      setDrawingConnectionFrom(null);
+      beginEdgeTouch(edgeId, e);
+      return true;
+    },
+    onPointerMove: moveEdgeTouch,
+    onPointerUp: commitEdgeTouch,
+    onPointerCancel: cancelEdgeTouch,
+    onTouchStart: (e) => {
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      ignoreCanvasClick.current = true;
+      setLongPressingInstanceId(null);
+      setDrawingConnectionFrom(null);
+      beginEdgeTouch(edgeId, e);
+    },
+    onTouchMove: moveEdgeTouch,
+    onTouchEnd: commitEdgeTouch,
+    onTouchCancel: cancelEdgeTouch,
+  }), [beginEdgeTouch, moveEdgeTouch, commitEdgeTouch, cancelEdgeTouch]);
+
   // Select a connection from a bare-canvas tap — the touch counterpart of the
   // mouse hover→click path. The transparent SVG stroke is a narrow fast path;
   // this catches everything inside the (much larger) touch grab radius that
@@ -8867,40 +8963,7 @@ function NodeCanvas() {
   // Shared pointer handlers for edge hitboxes (line stroke + label rect) so the
   // connection label text is just as clickable as the line itself.
   const getEdgeHitboxHandlers = useCallback((edgeId) => ({
-    onPointerDown: (e) => {
-      if (e.pointerType && e.pointerType !== 'mouse') {
-        e.preventDefault?.();
-        e.stopPropagation?.();
-        ignoreCanvasClick.current = true;
-        setLongPressingInstanceId(null);
-        setDrawingConnectionFrom(null);
-        // One tap can reach both this and onTouchStart below; the rate limit
-        // collapses the pair into a single tick.
-        haptic('edgeSelect');
-        const targetEdgeId = resolveTouchEdgeTarget(edgeId, e);
-        if (e.ctrlKey || e.metaKey) {
-          if (selectedEdgeIds.has(targetEdgeId)) {
-            storeActions.removeSelectedEdgeId(targetEdgeId);
-          } else {
-            storeActions.addSelectedEdgeId(targetEdgeId);
-          }
-        } else {
-          storeActions.clearSelectedEdgeIds();
-          storeActions.setSelectedEdgeId(targetEdgeId);
-        }
-      }
-      handleEdgePointerDownTouch(edgeId, e);
-    },
-    onTouchStart: (e) => {
-      e.preventDefault?.();
-      e.stopPropagation?.();
-      ignoreCanvasClick.current = true;
-      setLongPressingInstanceId(null);
-      setDrawingConnectionFrom(null);
-      haptic('edgeSelect');
-      storeActions.clearSelectedEdgeIds();
-      storeActions.setSelectedEdgeId(resolveTouchEdgeTarget(edgeId, e));
-    },
+    ...edgeTouchHandlers(edgeId),
     onClick: (e) => {
       e.stopPropagation();
       ignoreCanvasClick.current = true;
@@ -8930,7 +8993,7 @@ function NodeCanvas() {
         storeActions.openRightPanelNodeTab(definingNodeId);
       }
     },
-  }), [selectedEdgeIds, storeActions, handleEdgePointerDownTouch, resolveTouchEdgeTarget]);
+  }), [selectedEdgeIds, storeActions, edgeTouchHandlers]);
 
   const handleNodeMouseDown = (nodeData, e) => { // nodeData is now a hydrated node (instance + prototype)
     e.stopPropagation();
@@ -15129,40 +15192,7 @@ function NodeCanvas() {
                                   stroke="transparent"
                                   strokeWidth={Math.max(50, 44 * connectionWidth)}
                                   style={{ cursor: 'pointer' }}
-                                  onPointerDown={(e) => {
-                                    // Immediate tap support for touch/pencil
-                                    if (e.pointerType && e.pointerType !== 'mouse') {
-                                      e.preventDefault?.();
-                                      e.stopPropagation?.();
-                                      ignoreCanvasClick.current = true; // suppress canvas click -> plus sign
-                                      setLongPressingInstanceId(null); // prevent connection drawing intent
-                                      setDrawingConnectionFrom(null);
-                                      // Nearest-wins: the topmost transparent stroke got the
-                                      // tap, which in a curved bundle is often not the line
-                                      // under the finger.
-                                      const tapEdgeId = resolveTouchEdgeTarget(edge.id, e);
-                                      if (e.ctrlKey || e.metaKey) {
-                                        if (selectedEdgeIds.has(tapEdgeId)) {
-                                          storeActions.removeSelectedEdgeId(tapEdgeId);
-                                        } else {
-                                          storeActions.addSelectedEdgeId(tapEdgeId);
-                                        }
-                                      } else {
-                                        storeActions.clearSelectedEdgeIds();
-                                        storeActions.setSelectedEdgeId(tapEdgeId);
-                                      }
-                                    }
-                                    handleEdgePointerDownTouch(edge.id, e);
-                                  }}
-                                  onTouchStart={(e) => {
-                                    e.preventDefault?.();
-                                    e.stopPropagation?.();
-                                    ignoreCanvasClick.current = true;
-                                    setLongPressingInstanceId(null);
-                                    setDrawingConnectionFrom(null);
-                                    storeActions.clearSelectedEdgeIds();
-                                    storeActions.setSelectedEdgeId(resolveTouchEdgeTarget(edge.id, e));
-                                  }}
+                                  {...edgeTouchHandlers(edge.id)}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     ignoreCanvasClick.current = true;
@@ -15196,39 +15226,7 @@ function NodeCanvas() {
                                   stroke="transparent"
                                   strokeWidth={Math.max(50, 44 * connectionWidth)}
                                   style={{ cursor: 'pointer' }}
-                                  onPointerDown={(e) => {
-                                    if (e.pointerType && e.pointerType !== 'mouse') {
-                                      e.preventDefault?.();
-                                      e.stopPropagation?.();
-                                      ignoreCanvasClick.current = true;
-                                      setLongPressingInstanceId(null);
-                                      setDrawingConnectionFrom(null);
-                                      // Nearest-wins: the topmost transparent stroke got the
-                                      // tap, which in a curved bundle is often not the line
-                                      // under the finger.
-                                      const tapEdgeId = resolveTouchEdgeTarget(edge.id, e);
-                                      if (e.ctrlKey || e.metaKey) {
-                                        if (selectedEdgeIds.has(tapEdgeId)) {
-                                          storeActions.removeSelectedEdgeId(tapEdgeId);
-                                        } else {
-                                          storeActions.addSelectedEdgeId(tapEdgeId);
-                                        }
-                                      } else {
-                                        storeActions.clearSelectedEdgeIds();
-                                        storeActions.setSelectedEdgeId(tapEdgeId);
-                                      }
-                                    }
-                                    handleEdgePointerDownTouch(edge.id, e);
-                                  }}
-                                  onTouchStart={(e) => {
-                                    e.preventDefault?.();
-                                    e.stopPropagation?.();
-                                    ignoreCanvasClick.current = true;
-                                    setLongPressingInstanceId(null);
-                                    setDrawingConnectionFrom(null);
-                                    storeActions.clearSelectedEdgeIds();
-                                    storeActions.setSelectedEdgeId(resolveTouchEdgeTarget(edge.id, e));
-                                  }}
+                                  {...edgeTouchHandlers(edge.id)}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     ignoreCanvasClick.current = true;
@@ -15264,39 +15262,7 @@ function NodeCanvas() {
                                   stroke="transparent"
                                   strokeWidth={Math.max(50, 44 * connectionWidth)}
                                   style={{ cursor: 'pointer' }}
-                                  onPointerDown={(e) => {
-                                    if (e.pointerType && e.pointerType !== 'mouse') {
-                                      e.preventDefault?.();
-                                      e.stopPropagation?.();
-                                      ignoreCanvasClick.current = true;
-                                      setLongPressingInstanceId(null);
-                                      setDrawingConnectionFrom(null);
-                                      // Nearest-wins: the topmost transparent stroke got the
-                                      // tap, which in a curved bundle is often not the line
-                                      // under the finger.
-                                      const tapEdgeId = resolveTouchEdgeTarget(edge.id, e);
-                                      if (e.ctrlKey || e.metaKey) {
-                                        if (selectedEdgeIds.has(tapEdgeId)) {
-                                          storeActions.removeSelectedEdgeId(tapEdgeId);
-                                        } else {
-                                          storeActions.addSelectedEdgeId(tapEdgeId);
-                                        }
-                                      } else {
-                                        storeActions.clearSelectedEdgeIds();
-                                        storeActions.setSelectedEdgeId(tapEdgeId);
-                                      }
-                                    }
-                                    handleEdgePointerDownTouch(edge.id, e);
-                                  }}
-                                  onTouchStart={(e) => {
-                                    e.preventDefault?.();
-                                    e.stopPropagation?.();
-                                    ignoreCanvasClick.current = true;
-                                    setLongPressingInstanceId(null);
-                                    setDrawingConnectionFrom(null);
-                                    storeActions.clearSelectedEdgeIds();
-                                    storeActions.setSelectedEdgeId(resolveTouchEdgeTarget(edge.id, e));
-                                  }}
+                                  {...edgeTouchHandlers(edge.id)}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     ignoreCanvasClick.current = true;
