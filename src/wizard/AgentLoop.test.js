@@ -84,6 +84,51 @@ describe('AgentLoop', () => {
     });
   });
 
+  describe('first-iteration nudge', () => {
+    const runWith = async (userMessage, replyText) => {
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: replyText };
+      });
+      const events = [];
+      for await (const event of runAgent(userMessage, mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    it('does not nudge when the reply hands control back with a question', async () => {
+      // Real case: the model gave commentary and asked which direction to take. The
+      // nudge made it answer itself and edit the graph the user never approved.
+      const events = await runWith(
+        'i\'ve been working on mapping tonsil stone components to create novel treatments. notice anything?',
+        'A few things stand out.\n\nWant me to make that coupling explicit in the graph?'
+      );
+
+      expect(events.filter(e => e.type === 'steering')).toEqual([]);
+      expect(events.at(-1)).toEqual({ type: 'done', iterations: 1, reason: 'model_done' });
+    });
+
+    it('does not nudge on a long message with no task verb', async () => {
+      const events = await runWith(
+        'that whole section still feels off to me, honestly, and I am not sure why.',
+        'Here is what I think is going on.'
+      );
+
+      expect(events.filter(e => e.type === 'steering')).toEqual([]);
+    });
+
+    it('still nudges a task request answered with a bare planning statement', async () => {
+      const events = await runWith(
+        'build me a graph of the water cycle',
+        'Sure — I will create the nodes for evaporation and condensation.'
+      );
+
+      const steering = events.filter(e => e.type === 'steering');
+      expect(steering).toHaveLength(1);
+      expect(steering[0].kind).toBe('first_iteration');
+    });
+  });
+
   describe('single tool call', () => {
     it('yields tool_call, executes tool, yields tool_result, then done', async () => {
       let iteration = 0;

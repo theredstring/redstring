@@ -1829,9 +1829,17 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         // as text on iteration 0 without calling tools (they can't mix text + tool calls
         // in one response). Give them one chance to follow through with tool calls.
         // Only fires for task-like messages (not greetings or short conversational inputs).
+        // Note the `&&`: length alone must never qualify a message as a task, or every
+        // message over a sentence long gets nudged — including pure "what do you think?"
+        // asks, where nudging pushes the model into unrequested edits.
         const userMsgIsTaskLike = userMessageText.trim().length > 15
-          || /build|create|map|graph|make|design|show|add|define|populate|explore|generate|construct|plan/i.test(userMessageText);
-        if (!hasNudgedFirstIteration && iteration === 0 && iterationContent.trim().length > 0 && userMsgIsTaskLike) {
+          && /\b(build|creat\w*|map|maps|mapping|graph|make|design|show|add|defin\w*|populate|explore|generate|construct|plan)\b/i.test(userMessageText);
+        // A reply that closes by asking the user something ("Want me to ...?", "Or should
+        // we ...?") is the model deliberately handing control back, not a stalled plan.
+        // Nudging there makes it answer its own question and act without consent.
+        const modelEndedWithQuestion = /\?["')\]*_]*$/.test(iterationContent.trim());
+        if (!hasNudgedFirstIteration && iteration === 0 && iterationContent.trim().length > 0
+            && userMsgIsTaskLike && !modelEndedWithQuestion) {
           hasNudgedFirstIteration = true;
           console.error(`[AgentLoop] ⚠️ Text-only response on first iteration — nudging model to call tools if applicable.`);
           const firstIterToolHint = modelTier === 'small'
