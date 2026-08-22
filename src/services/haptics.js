@@ -220,6 +220,27 @@ const RECIPES = {
   viewportJump: {
     [HapticTier.TAPTIC]: { impact: 'MEDIUM' },
     [HapticTier.BASIC]: { vibrate: 16 }
+  },
+  /**
+   * A connection gesture landed on something. A tick, not an impact: the edge
+   * appearing is its own loud visual event, and after a run of stretch detents
+   * an impact would read as a thud at the end of a texture.
+   */
+  connectionMade: {
+    [HapticTier.TAPTIC]: { tick: true },
+    [HapticTier.BASIC]: { vibrate: 12 }
+  },
+  /**
+   * One detent while the connection line stretches — see createDetentTrack.
+   *
+   * Taptic only, and deliberately so. This is the one event that fires in a
+   * stream rather than once, and a stream is exactly what a single vibration
+   * motor cannot render: ten 8ms buzzes a second is a continuous rattle, not a
+   * texture, and it costs real battery. The absent BASIC entry IS the routing —
+   * haptic() finds no recipe for the tier and returns.
+   */
+  connectionStretch: {
+    [HapticTier.TAPTIC]: { tick: true }
   }
 };
 
@@ -291,8 +312,13 @@ const deliverBasic = (recipe, channel) => {
 /**
  * Play a semantic haptic event. Unknown events, unsupported hardware, disabled
  * preference, and rate-limited repeats all resolve to doing nothing.
+ *
+ * `force` bypasses the rate limit for a one-shot that must land even if
+ * something fired moments ago — a gesture's terminal event arriving on the
+ * heels of its own detent stream. Never use it for anything repeating; the
+ * rate limit is what keeps a stream from smearing into one buzz.
  */
-export const haptic = (event) => {
+export const haptic = (event, { force = false } = {}) => {
   const { tier, channel } = route();
   if (tier === HapticTier.NONE || !areHapticsEnabled()) return;
 
@@ -303,12 +329,53 @@ export const haptic = (event) => {
   const isSilent = recipe.prepare && !recipe.tick && !recipe.impact && !recipe.vibrate;
   if (!isSilent) {
     const t = now();
-    if (t - lastFireTime < MIN_INTERVAL_MS) return;
+    if (!force && t - lastFireTime < MIN_INTERVAL_MS) return;
+    // Stamped even when forced, so a forced event still gates what follows it.
     lastFireTime = t;
   }
 
   if (tier === HapticTier.TAPTIC) deliverTaptic(recipe);
   else deliverBasic(recipe, channel);
+};
+
+/**
+ * A detent track: turns a continuously-varying number into a stream of ticks,
+ * one per lattice crossing. This is how iOS's own picker wheels and timers
+ * feel — UIPickerView emits one selection tick per row boundary crossed. There
+ * is no continuous waveform involved, and the illusion of texture comes
+ * entirely from the crossing rate tracking how fast you're moving.
+ *
+ * Ticks land on a fixed lattice anchored at zero rather than accumulating from
+ * wherever the last one fired, so the detents stay in the same places for a
+ * given value — reversing direction re-crosses the same boundaries, the way a
+ * wheel spun backwards clicks through the same stops.
+ *
+ * Taptic-tier only: the underlying event has no recipe on a vibration motor,
+ * so update() degrades to a cheap arithmetic no-op everywhere else.
+ *
+ *   const track = createDetentTrack('connectionStretch', 44);
+ *   track.reset(0);        // seed without ticking
+ *   track.update(length);  // call per input event; ticks on each crossing
+ */
+export const createDetentTrack = (event, quantum) => {
+  let lastIndex = null;
+  return {
+    /** Seed the lattice position without emitting — call at gesture start. */
+    reset(value = null) {
+      lastIndex = value === null ? null : Math.floor(value / quantum);
+    },
+    update(value) {
+      if (!Number.isFinite(value)) return;
+      const index = Math.floor(value / quantum);
+      if (lastIndex === null) { lastIndex = index; return; }
+      if (index === lastIndex) return;
+      lastIndex = index;
+      // A single tick per call even if the value jumped several detents: the
+      // engine can't render a burst inside one frame anyway, and haptic()'s
+      // rate limit would swallow the extras.
+      haptic(event);
+    }
+  };
 };
 
 /**

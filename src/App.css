@@ -26,6 +26,24 @@ body {
   padding-right: env(safe-area-inset-right, 0px);
 }
 
+/* Make #root the containing block for position: fixed descendants.
+ *
+ * The app leans on `position: fixed` for the panels, their toggle buttons, the
+ * edge-resize glow and the modals — and every one of those assumes "fixed"
+ * means "relative to the app", which was true while the web view stopped at the
+ * safe areas. Under viewport-fit=cover it stops being true: fixed resolves
+ * against the viewport, which is now the whole screen, so those elements
+ * measured from the physical edge while the header sat inside the padded body.
+ * The panels rendered up behind the Dynamic Island and out the bottom.
+ *
+ * A transform makes an element the containing block for fixed descendants, so
+ * this restores the old meaning in one place instead of adding an inset to
+ * every fixed element in the codebase. An identity 2D translate is enough — it
+ * paints nothing and moves nothing. */
+#root {
+  transform: translate(0);
+}
+
 /* Keyframe animations */
 @keyframes spin {
   from {

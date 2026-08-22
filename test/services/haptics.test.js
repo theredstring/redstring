@@ -173,6 +173,15 @@ describe('haptics recipes', () => {
     expect(window.navigator.vibrate).toHaveBeenCalledTimes(1);
   });
 
+  it('lets a forced one-shot through the rate limit', async () => {
+    setPlatform({ userAgent: ANDROID_UA, maxTouchPoints: 5, vibrate: true });
+    const { haptic } = await loadHaptics();
+    haptic('nodeLift');
+    haptic('nodeTap');                              // swallowed
+    haptic('nodeTap', { force: true });             // lands anyway
+    expect(window.navigator.vibrate).toHaveBeenCalledTimes(2);
+  });
+
   it('honours the user preference', async () => {
     setPlatform({ userAgent: ANDROID_UA, maxTouchPoints: 5, vibrate: true });
     const { haptic, setHapticsEnabled, areHapticsEnabled } = await loadHaptics();
@@ -184,5 +193,84 @@ describe('haptics recipes', () => {
     setHapticsEnabled(true);
     haptic('nodeLift');
     expect(window.navigator.vibrate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('detent tracks', () => {
+  beforeEach(() => {
+    Object.values(Haptics).forEach((fn) => fn.mockClear());
+    try { window.localStorage.clear(); } catch { /* not available */ }
+  });
+
+  afterEach(() => {
+    delete window.Capacitor;
+    delete window.navigator.vibrate;
+  });
+
+  /** Detents are rate-limited like everything else; step past the window. */
+  const advance = () => new Promise((resolve) => setTimeout(resolve, 45));
+
+  it('ticks once per lattice crossing, not per update', async () => {
+    setPlatform({ native: true, platform: 'ios', userAgent: IPHONE_UA, maxTouchPoints: 5 });
+    const { createDetentTrack } = await loadHaptics();
+    const track = createDetentTrack('connectionStretch', 40);
+
+    track.reset(0);
+    track.update(10);
+    track.update(25);
+    track.update(39);
+    await settle();
+    expect(Haptics.selectionChanged).not.toHaveBeenCalled();
+
+    track.update(41); // crosses into detent 1
+    await settle();
+    expect(Haptics.selectionChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-ticks the same boundaries when the value reverses', async () => {
+    setPlatform({ native: true, platform: 'ios', userAgent: IPHONE_UA, maxTouchPoints: 5 });
+    const { createDetentTrack } = await loadHaptics();
+    const track = createDetentTrack('connectionStretch', 40);
+
+    track.reset(0);
+    track.update(45);   // into detent 1
+    await settle();
+    await advance();
+    track.update(20);   // back into detent 0 — a wheel spun backwards still clicks
+    await settle();
+    expect(Haptics.selectionChanged).toHaveBeenCalledTimes(2);
+  });
+
+  it('seeds from reset() without emitting', async () => {
+    setPlatform({ native: true, platform: 'ios', userAgent: IPHONE_UA, maxTouchPoints: 5 });
+    const { createDetentTrack } = await loadHaptics();
+    const track = createDetentTrack('connectionStretch', 40);
+
+    track.reset(120);
+    track.update(125); // same detent as the seed
+    await settle();
+    expect(Haptics.selectionChanged).not.toHaveBeenCalled();
+  });
+
+  it('stays silent on a vibration motor — a stream would be a rattle', async () => {
+    setPlatform({ userAgent: ANDROID_UA, maxTouchPoints: 5, vibrate: true });
+    const { createDetentTrack } = await loadHaptics();
+    const track = createDetentTrack('connectionStretch', 40);
+
+    track.reset(0);
+    for (let v = 0; v <= 400; v += 20) track.update(v);
+    expect(window.navigator.vibrate).not.toHaveBeenCalled();
+  });
+
+  it('ignores non-finite values', async () => {
+    setPlatform({ native: true, platform: 'ios', userAgent: IPHONE_UA, maxTouchPoints: 5 });
+    const { createDetentTrack } = await loadHaptics();
+    const track = createDetentTrack('connectionStretch', 40);
+
+    track.reset(0);
+    track.update(NaN);
+    track.update(Infinity);
+    await settle();
+    expect(Haptics.selectionChanged).not.toHaveBeenCalled();
   });
 });

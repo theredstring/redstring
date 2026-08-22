@@ -35,6 +35,7 @@ import * as fileStorage from './store/fileStorage.js';
 import * as folderPersistence from './services/folderPersistence.js';
 import workspaceService from './services/WorkspaceService.js';
 import universeManagerService from './services/universeManagerService.js';
+import { haptic, createDetentTrack } from './services/haptics.js';
 import { pickFolder, getFileInFolder, listFilesInFolder, readFile, writeFile } from './utils/fileAccessAdapter.js';
 import AutoGraphModal from './components/AutoGraphModal';
 import LayoutProgressIndicator from './components/LayoutProgressIndicator.jsx';
@@ -322,6 +323,11 @@ const TOUCH_PAN_FRICTION = 0.92;                // per-frame retention for touch
 const TOUCH_PAN_FRICTION_HIGH_VELOCITY = 0.955; // higher retention for fast flicks — extends glide for "throws" without affecting low/mid precision
 const TOUCH_HIGH_VELOCITY_THRESHOLD = 1.2;      // px/ms — speed above which the high-velocity friction starts ramping in
 const TOUCH_HIGH_VELOCITY_RAMP = 1.5;           // px/ms — speed range over which friction lerps from base to high
+// Screen-pixel spacing between haptic detents along a connection line being
+// drawn. At a typical drag speed (~500px/s) this yields ~11 ticks/sec — a
+// texture rather than a rattle, and well under the ~25/sec ceiling the shared
+// rate limit imposes. Larger = sparser clicks; smaller = denser.
+const CONNECTION_DETENT_PX = 44;
 const TRACKPAD_PAN_FRICTION = 0.94;             // per-frame retention for trackpad glide
 const PAN_MOMENTUM_FRAME = 16.67;               // baseline frame duration (ms) for damping scaling
 const TOUCH_PAN_MOMENTUM_BOOST = 1.0;           // no amplification — launch momentum at the actual finger release velocity (boost made low/mid flicks feel jumpy)
@@ -1996,6 +2002,11 @@ function NodeCanvas() {
   // bounds during a connection draw. Used to gate the self-loop gesture: the user must
   // exit the source node and return to it before releasing.
   const connectionExitedSourceRef = useRef(false);
+  // Detent track for the connection line's length. Measured in SCREEN pixels,
+  // not canvas units, so the detent spacing is what the finger travels
+  // regardless of zoom — at 0.2x zoom a canvas-unit lattice would tick five
+  // times as often for the same hand movement.
+  const connectionStretchTrack = useRef(createDetentTrack('connectionStretch', CONNECTION_DETENT_PX));
   const [selfLoopDialog, setSelfLoopDialog] = useState(null);
 
   const [isPanning, _setIsPanningState] = useState(false);
@@ -9432,6 +9443,12 @@ function NodeCanvas() {
               const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
               setDrawingConnectionFrom({ sourceInstanceId: armedInstanceId, startX: startPt.x, startY: startPt.y, currentX, currentY });
               connectionExitedSourceRef.current = false;
+              // Seed the lattice at the gesture's actual starting length so the
+              // first detent is a real crossing, not an artifact of starting
+              // from zero.
+              connectionStretchTrack.current.reset(
+                Math.hypot(currentX - startPt.x, currentY - startPt.y) * zoomLevelRef.current
+              );
               setLongPressingInstanceId(null); // Clear ID
             }
           }
@@ -9478,6 +9495,14 @@ function NodeCanvas() {
             }
           }
         }
+        // Detents run off the raw pointer stream, not the RAF-throttled visual
+        // update: the lattice should be sampled at input rate so a fast flick
+        // crosses every boundary it actually crossed.
+        connectionStretchTrack.current.update(
+          Math.hypot(currentX - drawingConnectionFrom.startX, currentY - drawingConnectionFrom.startY)
+          * zoomLevelRef.current
+        );
+
         pendingConnectionUpdate.current = { currentX, currentY };
         if (!connectionUpdateScheduled.current) {
           connectionUpdateScheduled.current = true;
@@ -9735,11 +9760,16 @@ function NodeCanvas() {
 
         if (targetId && targetId === drawingConnectionFrom.sourceInstanceId && connectionExitedSourceRef.current) {
           // Self-loop gesture: exited source bounds then returned — ask to confirm.
+          haptic('connectionMade', { force: true });
           setSelfLoopDialog({
             sourceInstanceId: targetId,
             position: { x: e.clientX, y: e.clientY }
           });
         } else if (targetId && targetId !== drawingConnectionFrom.sourceInstanceId) {
+          // Only when the gesture landed on something. Releasing over empty
+          // canvas makes no edge, so the detent stream just stops — silence is
+          // the honest signal that nothing was connected.
+          haptic('connectionMade', { force: true });
           const sourceId = drawingConnectionFrom.sourceInstanceId;
 
           // Allow multiple parallel edges between the same nodes
