@@ -116,14 +116,94 @@ async function ensureSchedulerStarted(logger) {
 
 /**
  * Initialize AI bridge service routes on an Express app
+ *
+ * SINGLE-TENANT BY CONSTRUCTION. Every structure below (bridgeStoreData,
+ * pendingActions, inflightActionIds, chatLog, telemetry) is a bare module
+ * global with no user/session key, and none of these endpoints authenticate.
+ * That is fine when the only client is the local browser on the same machine —
+ * the model wizard-server states explicitly by binding to 127.0.0.1.
+ *
+ * It is NOT fine on a shared host. With multiple visitors, `GET
+ * /api/bridge/state` returns whichever user POSTed last, `GET
+ * /api/bridge/pending-actions` hands one user's queued mutations to another
+ * user's browser, and `/api/bridge/telemetry` exposes other people's wizard
+ * conversations. So on a multi-tenant deployment the stateful half is refused.
+ *
  * @param {Express.Application} app - Express app instance
  * @param {Object} options - Configuration options
  * @param {Object} options.logger - Logger instance with info/warn/error/debug methods
+ * @param {boolean} [options.multiTenant] - True when this app may serve more
+ *   than one user. **Defaults to true** — the stateful bridge is opt-in, not
+ *   opt-out, so an image that loses its env config fails closed rather than
+ *   serving one user's graph to the next. Set REDSTRING_SINGLE_TENANT=true
+ *   (or pass false) only where the sole client is the local browser.
  */
+/**
+ * Endpoints whose handlers read or write process-global, cross-user state.
+ * On a multi-tenant host these are refused rather than left unregistered —
+ * an unregistered /api/* GET falls through to the SPA catch-all and returns
+ * index.html with a 200, which clients then try to JSON.parse. An explicit
+ * 404 lets callers detect absence and stop retrying.
+ */
+const STATEFUL_BRIDGE_ROUTES = [
+    ['get', '/api/bridge/state'],
+    ['post', '/api/bridge/state'],
+    ['post', '/api/bridge/layout'],
+    ['post', '/api/bridge/register-store'],
+    ['get', '/api/bridge/pending-actions'],
+    ['post', '/api/bridge/action-completed'],
+    ['post', '/api/bridge/action-feedback'],
+    ['post', '/api/bridge/action-started'],
+    ['post', '/api/bridge/tool-status'],
+    ['post', '/api/bridge/chat/append'],
+    ['get', '/api/bridge/telemetry'],
+    ['get', '/api/bridge/debug/traces'],
+    ['get', '/api/bridge/debug/stats'],
+    ['get', '/api/bridge/debug/trace/:cid'],
+    ['get', '/api/bridge/debug/trace/:cid/stage/:stageName'],
+    // Executes an arbitrary named tool against caller-supplied graphState and
+    // shares this process's scheduler. Local/Electron only.
+    ['post', '/api/wizard/execute-tool']
+];
+
+function registerDisabledBridgeRoutes(app, logger) {
+    const body = {
+        error: 'Bridge endpoints are not available on this deployment',
+        reason: 'The AI bridge keeps per-session state in memory and is only served for local (desktop / localhost) use.',
+        bridgeAvailable: false
+    };
+    for (const [method, path] of STATEFUL_BRIDGE_ROUTES) {
+        app[method](path, (_req, res) => res.status(404).json(body));
+    }
+
+    // Health stays truthful so clients can detect the bridge is absent and stop
+    // retrying, instead of inferring "healthy" from a 200-with-HTML fallback.
+    app.get('/api/bridge/health', (_req, res) => {
+        res.status(404).json({ ...body, ok: false });
+    });
+
+    // Tool definitions are a static constant with no user data — safe to serve.
+    app.get('/api/wizard/tools', (_req, res) => {
+        try {
+            res.json({ tools: getToolDefinitions() });
+        } catch (error) {
+            logger.error('[AI Bridge] Failed to get tools:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+}
+
 export function initializeBridgeService(app, options = {}) {
     const logger = options.logger || console;
+    const multiTenant = options.multiTenant ?? (process.env.REDSTRING_SINGLE_TENANT !== 'true');
 
     logger.info('[AI Bridge] Initializing AI bridge service...');
+
+    if (multiTenant) {
+        logger.info('[AI Bridge] Multi-tenant mode: stateful bridge endpoints disabled (shared in-memory state is not per-user)');
+        registerDisabledBridgeRoutes(app, logger);
+        return;
+    }
 
     // Reload recent chat history from event log
     try {

@@ -139,8 +139,9 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
     // Find and update the node in the store
     const store = useGraphStore.getState();
     let targetNodeProtoId = null;
+    const wantedName = String(nodeName || '').toLowerCase().trim();
     for (const [protoId, proto] of store.nodePrototypes) {
-      if (proto.name.toLowerCase().trim() === nodeName.toLowerCase().trim()) {
+      if (String(proto?.name || '').toLowerCase().trim() === wantedName) {
         targetNodeProtoId = protoId;
       }
     }
@@ -259,13 +260,17 @@ async function runEnrichment(nodeNames, { overwriteDescription = false } = {}) {
   for (const { nodeName, searchResult, confidence } of matches) {
     const store = useGraphStore.getState();
     let targetProtoId = null;
+    const wanted = String(nodeName || '').toLowerCase().trim();
     for (const [protoId, proto] of store.nodePrototypes) {
-      if (proto.name.toLowerCase().trim() === nodeName.toLowerCase().trim()) {
+      // A prototype with no name used to throw here, and this loop is outside
+      // any try/catch — one nameless node aborted enrichment for the entire
+      // batch, silently, via a .catch() further up the chain.
+      if (String(proto?.name || '').toLowerCase().trim() === wanted) {
         targetProtoId = protoId;
       }
     }
 
-    if (!targetProtoId) {
+    if (!wanted || !targetProtoId) {
       console.warn(`[Auto-Enrich] "${nodeName}" not found in store, skipping`);
       continue;
     }

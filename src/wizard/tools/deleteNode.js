@@ -58,6 +58,28 @@ export async function deleteNode(args, graphState, cid, ensureSchedulerStarted) 
   const resolution = await resolveNodeByName(lookupName, nodePrototypes, graphs, graphId);
   const resolved = resolution.match;
 
+  // Several candidates were equally plausible. Deleting on a coin flip is the
+  // worst possible outcome here, and delegating to the client would just move
+  // the guess downstream — ask instead.
+  if (resolution.method === 'ambiguous') {
+    const names = (resolution.candidates || []).map((c) => c.name);
+    console.error(`[deleteNode] Ambiguous name "${lookupName}" — ${names.join(', ')}`);
+    return {
+      action: 'deleteNode',
+      graphId,
+      instanceId: null,
+      prototypeId: null,
+      name: lookupName,
+      deleted: false,
+      ambiguous: true,
+      requiresConfirmation: true,
+      candidates: resolution.candidates,
+      warning:
+        `"${lookupName}" matches several nodes (${names.join(', ')}) equally well. ` +
+        `Ask which one is meant, then delete it by its exact name.`
+    };
+  }
+
   if (resolved) {
     console.error('[deleteNode] Resolved:', lookupName, '→', resolved.instanceId, `(${resolution.method})`);
   } else {

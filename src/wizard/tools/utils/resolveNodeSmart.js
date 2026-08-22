@@ -11,9 +11,11 @@
  *      stale prototypes accumulate — project convention).
  *   2. No exact match + a model is configured → one constrained oneShotChoice
  *      picking among the candidates (with an explicit "None of these").
- *   3. No model / model returned nothing → the previous heuristic: LAST substring
- *      match, unchanged. With zero models configured the behavior is identical to
- *      before this resolver existed.
+ *   3. No model / model returned nothing → substring-eligible candidates ranked
+ *      by edit distance, best score wins. When the top candidates are within
+ *      AMBIGUITY_MARGIN of each other the result is 'ambiguous' with no match,
+ *      because guessing between equally plausible nodes silently rewires the
+ *      user's graph.
  *
  * MCP stdio rule: imported (transitively) by redstring-mcp-server.js — use
  * console.error only, never console.log. In that Node context there is no model,
@@ -28,12 +30,14 @@
  * @param {string} [opts.callSite='resolveNodeSmart']
  * @param {number} [opts.timeoutMs]
  * @param {number} [opts.maxOptions=20] - cap candidates shown to the model.
- * @returns {Promise<{ match: Object|null, method: string, exact: boolean, callId: string|null }>}
- *   method ∈ 'empty' | 'exact' | 'model' | 'model-none' | 'substring' | 'not-found'
+ * @returns {Promise<{ match: Object|null, method: string, exact: boolean, callId: string|null, candidates?: Array<Object> }>}
+ *   method ∈ 'empty' | 'exact' | 'model' | 'model-none' | 'substring' | 'ambiguous' | 'not-found'
  *   - 'exact'      : deterministic exact match (safe for destructive ops)
  *   - 'model'      : the model chose this candidate (NOT exact — confirm for destructive ops)
  *   - 'model-none' : the model explicitly said none of the candidates match → unresolvable
- *   - 'substring'  : heuristic fallback match (NOT exact)
+ *   - 'substring'  : best-scoring heuristic fallback match (NOT exact)
+ *   - 'ambiguous'  : several candidates were equally plausible; `match` is null and
+ *                    `candidates` lists them so the caller can ask which was meant
  *   - 'not-found'  : nothing matched
  */
 
@@ -59,26 +63,65 @@ function findExact(q, candidates) {
 }
 
 /**
- * Find the LAST substring match (legacy heuristic).
+ * Two candidates whose similarity to the query differs by less than this are
+ * treated as indistinguishable. Asking "Cell" against {Cell Wall, Cell
+ * Membrane, Stem Cell} scores the first and last identically — picking either
+ * is a coin flip, and a wrong bind silently rewires the user's graph, so we
+ * report ambiguity instead and let the caller ask.
+ */
+const AMBIGUITY_MARGIN = 0.05;
+
+/**
+ * Rank substring-eligible candidates and return the best one.
+ *
+ * Eligibility is unchanged from the legacy heuristic (same modes, same
+ * containment tests). What changed is the SELECTION among eligible
+ * candidates: this used to keep the last one encountered — Map insertion
+ * order, not relevance — so "Cell" resolved to whichever cell-ish node
+ * happened to be created most recently. Now the eligible set is scored by
+ * edit distance and the best scoring candidate wins, with near-ties reported
+ * as ambiguous rather than guessed.
+ *
  * mode 'loose'  : match either direction (n⊇q or q⊇n) — createEdge/updateNode/deleteNode.
  * mode 'strict' : only when the query CONTAINS the candidate name (query is more
  *                 specific), never equal — mirrors setNodeType's strict type match
  *                 so "membrane" does NOT match "outer membrane".
  * mode 'none'   : no substring fallback.
+ *
+ * @returns {{ match: Object|null, score: number, ambiguous: boolean, tied: Array<Object> }}
  */
 function findSubstring(q, candidates, mode) {
-  if (mode === 'none') return null;
-  let match = null;
+  if (mode === 'none') return { match: null, score: 0, ambiguous: false, tied: [] };
+
+  const eligible = [];
   for (const c of candidates) {
     const n = norm(nameOf(c));
     if (!n) continue;
-    if (mode === 'strict') {
-      if (q.includes(n) && q !== n) match = c;
-    } else if (n.includes(q) || q.includes(n)) {
-      match = c;
-    }
+    const isEligible = mode === 'strict'
+      ? (q.includes(n) && q !== n)
+      : (n.includes(q) || q.includes(n));
+    if (isEligible) eligible.push({ candidate: c, score: calculateStringSimilarity(q, n) });
   }
-  return match;
+
+  if (eligible.length === 0) return { match: null, score: 0, ambiguous: false, tied: [] };
+
+  // Highest score wins. Ties resolve to the LAST candidate, preserving the
+  // project convention that newer prototypes supersede stale same-named ones.
+  let best = eligible[0];
+  for (const entry of eligible) {
+    if (entry.score >= best.score) best = entry;
+  }
+
+  const tied = eligible.filter(
+    (e) => e.candidate !== best.candidate && Math.abs(e.score - best.score) < AMBIGUITY_MARGIN
+  );
+
+  return {
+    match: best.candidate,
+    score: best.score,
+    ambiguous: tied.length > 0,
+    tied: tied.map((e) => e.candidate)
+  };
 }
 
 export async function resolveNodeSmart(query, candidates, opts = {}) {
@@ -114,7 +157,7 @@ export async function resolveNodeSmart(query, candidates, opts = {}) {
   if (exact) return { match: exact, method: 'exact', exact: true, callId: null };
 
   // Heuristic fallback computed up front (used if the model is unavailable/unsure).
-  const substringMatch = findSubstring(q, list, substringMode);
+  const substringResult = findSubstring(q, list, substringMode);
 
   // 2. Ambiguous / fuzzy → one constrained model call, if a model is configured.
   if (useModel) {
@@ -162,10 +205,28 @@ export async function resolveNodeSmart(query, candidates, opts = {}) {
     }
   }
 
-  // 3. Heuristic fallback — unchanged legacy behavior.
-  if (substringMatch) {
-    console.error(`[resolveNodeSmart] Substring fallback for "${query}" → "${nameOf(substringMatch)}" (may be wrong).`);
-    return { match: substringMatch, method: 'substring', exact: false, callId: null };
+  // 3. Heuristic fallback — best-scoring substring match, or an explicit
+  //    refusal when several candidates are equally plausible.
+  if (substringResult.ambiguous) {
+    const names = [substringResult.match, ...substringResult.tied].map(nameOf);
+    console.error(
+      `[resolveNodeSmart] "${query}" is ambiguous between ${names.map((n) => `"${n}"`).join(', ')} — refusing to guess.`
+    );
+    return {
+      match: null,
+      method: 'ambiguous',
+      exact: false,
+      callId: null,
+      candidates: [substringResult.match, ...substringResult.tied]
+    };
+  }
+
+  if (substringResult.match) {
+    console.error(
+      `[resolveNodeSmart] Substring fallback for "${query}" → "${nameOf(substringResult.match)}" ` +
+      `(score ${substringResult.score.toFixed(2)}, not exact).`
+    );
+    return { match: substringResult.match, method: 'substring', exact: false, callId: null };
   }
 
   return withProposal({ match: null, method: 'not-found', exact: false, callId: null });

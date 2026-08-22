@@ -59,32 +59,34 @@ function calculateTextSimilarity(text1, text2) {
  * Calculate confidence score for a Wikipedia match (0.0 to 1.0).
  */
 function calculateWikipediaConfidence(nodeName, wikipediaResult) {
-  let confidence = 0;
+  // The base is what "Wikipedia returned a direct article" is worth on its
+  // own, and it must stay BELOW the rejection threshold. It used to be 0.40
+  // against a 0.40 threshold compared with a strict `<`, which meant the floor
+  // was already a pass: no direct hit could ever be rejected, however unrelated
+  // its title. Title agreement is what actually earns the score.
+  if (wikipediaResult.type !== 'direct') return 0.0;
 
-  if (wikipediaResult.type === 'direct') {
-    confidence += 0.40;
-  } else {
-    return 0.0;
-  }
+  const DIRECT_HIT_BASE = 0.15;
 
   const norm1 = normalizeLabel(nodeName);
   const norm2 = normalizeLabel(wikipediaResult.page.title);
   const compact1 = norm1.replace(/\s+/g, '');
   const compact2 = norm2.replace(/\s+/g, '');
 
+  let titleScore;
   if (norm1 === norm2 || compact1 === compact2) {
-    confidence += 0.50;
+    titleScore = 0.85;                     // exact title → 1.00
   } else if (norm2.includes(norm1) || norm1.includes(norm2)) {
-    confidence += 0.45;
+    titleScore = 0.60;                     // one contains the other → 0.75
   } else {
     const similarity = Math.max(
       calculateTextSimilarity(norm1, norm2),
       calculateTextSimilarity(compact1, compact2)
     );
-    confidence += similarity * 0.50;
+    titleScore = similarity * 0.70;        // fuzzy → 0.15 … 0.85
   }
 
-  return confidence;
+  return DIRECT_HIT_BASE + titleScore;
 }
 
 /**
@@ -175,14 +177,67 @@ async function fetchWikipediaSummary(query) {
  * Resolve a Wikipedia match with disambiguation + plural fallbacks.
  * Returns { searchResult, confidence } or null.
  */
+/** Titles that are themselves disambiguation/index pages, never a real article. */
+function isDisambiguationTitle(title) {
+  const t = String(title || '').toLowerCase();
+  return t.includes('(disambiguation)') || t.startsWith('list of ') || t.startsWith('index of ');
+}
+
+/**
+ * Given the search options behind a disambiguation page, fetch the most
+ * promising ones and return the best-scoring DIRECT article, or null.
+ *
+ * Bounded to a few lookups so an ambiguous name can't fan out into a burst of
+ * requests against Wikipedia.
+ */
+async function resolveFromDisambiguation(nodeName, options, maxTries = 3) {
+  const candidates = options
+    .map((o) => o?.title)
+    .filter((title) => title && !isDisambiguationTitle(title))
+    .slice(0, maxTries);
+
+  if (candidates.length === 0) {
+    console.error(`[Enrich Server] "${nodeName}" disambiguation had no usable options`);
+    return null;
+  }
+
+  let best = null;
+  let bestScore = -1;
+  for (const title of candidates) {
+    const candidate = await fetchWikipediaSummary(title);
+    if (candidate.type !== 'direct') continue;
+    const score = calculateWikipediaConfidence(nodeName, candidate);
+    if (score > bestScore) {
+      bestScore = score;
+      best = candidate;
+    }
+  }
+
+  if (best) {
+    console.error(`[Enrich Server] "${nodeName}" disambiguation → "${best.page.title}" (${bestScore.toFixed(2)})`);
+  } else {
+    console.error(`[Enrich Server] "${nodeName}" disambiguation → no direct article among ${candidates.length} options`);
+  }
+  return best;
+}
+
 async function resolveWikipediaMatch(nodeName, minConfidence = 0.40) {
   // Try 1: Direct lookup
   let result = await fetchWikipediaSummary(nodeName);
 
-  // Try 2: If disambiguation, use first search result
+  // Try 2: If disambiguation, work through the search options.
+  //
+  // This used to take options[0] and stop. For a genuinely ambiguous term
+  // ("Mercury", "Java", "Mars") the top hit of a search for that same term IS
+  // the disambiguation page, so the retry fetched the page it just rejected,
+  // failed the `type === 'direct'` check, and returned null — the whole node
+  // silently went un-enriched. Skip disambiguation pages explicitly and try
+  // several candidates, keeping the best-scoring one.
   if (result.type === 'disambiguation' && result.options?.length > 0) {
-    console.error(`[Enrich Server] "${nodeName}" is disambiguation, trying "${result.options[0].title}"`);
-    result = await fetchWikipediaSummary(result.options[0].title);
+    const best = await resolveFromDisambiguation(nodeName, result.options);
+    if (best) {
+      result = best;
+    }
   }
 
   // Try 3: Singular form — "Lungs" → "Lung", "Bones" → "Bone"
@@ -196,7 +251,8 @@ async function resolveWikipediaMatch(nodeName, minConfidence = 0.40) {
       console.error(`[Enrich Server] "${nodeName}" not found, trying singular: "${altName}"`);
       result = await fetchWikipediaSummary(altName);
       if (result.type === 'disambiguation' && result.options?.length > 0) {
-        result = await fetchWikipediaSummary(result.options[0].title);
+        const best = await resolveFromDisambiguation(altName, result.options);
+        if (best) result = best;
       }
     }
   }

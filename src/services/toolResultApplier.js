@@ -2297,8 +2297,11 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     const overwriteDescription = result.overwriteDescription || false;
     console.log('[Wizard] Applying enrichFromWikipedia for:', nodeName, overwriteDescription ? '(overwrite description)' : '(preserve description)');
 
-    // Run async enrichment (don't block — fire and forget)
-    _enrich(nodeName, graphId, { minConfidence: 0.0, overwriteDescription }).then(enrichResult => {
+    // Run async enrichment (don't block — fire and forget).
+    // No minConfidence override: this used to pass 0.0, which accepts ANY
+    // article Wikipedia returns for the query — the user-invoked path had the
+    // weakest matching of all. Use the same threshold as every other caller.
+    _enrich(nodeName, graphId, { overwriteDescription }).then(enrichResult => {
       if (enrichResult?.success) {
         console.log(`[Wizard] ✅ Wikipedia enrichment succeeded for "${nodeName}"`);
       } else {

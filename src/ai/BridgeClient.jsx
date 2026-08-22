@@ -32,6 +32,11 @@ const BridgeClient = () => {
     reconnectAttempts: 0,
     maxReconnectAttempts: 3
   });
+  // Latched once a deployment tells us it has no bridge at all (an explicit
+  // `bridgeAvailable: false`, or a 404 from a bridge path). Hosted and static
+  // deployments never grow one mid-session, so there is nothing to reconnect
+  // to — stop polling instead of retrying every few seconds forever.
+  const bridgeUnavailableRef = useRef(false);
   // Track last telemetry timestamp sent to UI to avoid spam
   const lastTelemetryTsRef = useRef(0);
   // Track last user activity to throttle polling when idle
@@ -48,13 +53,36 @@ const BridgeClient = () => {
    */
   const checkBridgeHealth = async () => {
     try {
-      const response = await bridgeFetch('/api/bridge/telemetry', {
+      const response = await bridgeFetch('/api/bridge/health', {
         method: 'GET',
         // Small timeout to fail fast
         signal: AbortSignal.timeout(2000)
       });
-      return response.ok;
+      if (response.status === 404) {
+        // Deployment has deliberately no bridge (hosted multi-tenant server).
+        bridgeUnavailableRef.current = true;
+        return false;
+      }
+      if (!response.ok) return false;
+      // Validate the PAYLOAD, not just the status. Deployments without a
+      // bridge (Cloudflare Pages, any static host) answer unknown /api/*
+      // paths with the SPA fallback: 200 + index.html. Trusting response.ok
+      // there makes the client believe the bridge is alive, so it reconnects
+      // forever and never trips its attempt cap.
+      const data = await response.json();
+      if (data?.bridgeAvailable === false) {
+        bridgeUnavailableRef.current = true;
+        return false;
+      }
+      // Two shapes in the wild: wizard-server (Electron / local dev) answers
+      // { status: 'ok', source: 'wizard-server' }, ai-bridge-service answers
+      // { ok: true }. Accept either — requiring only one silently disables the
+      // bridge on the platform that uses the other.
+      return data?.ok === true || data?.status === 'ok';
     } catch (e) {
+      // A non-JSON body means something that isn't a bridge answered (the SPA
+      // fallback). Treat it as permanently absent rather than transiently down.
+      if (e instanceof SyntaxError) bridgeUnavailableRef.current = true;
       return false;
     }
   };
@@ -62,6 +90,15 @@ const BridgeClient = () => {
   // Function to handle connection recovery
   const handleConnectionRecovery = async () => {
     const connectionState = connectionStateRef.current;
+
+    if (bridgeUnavailableRef.current) {
+      // Nothing to recover to — this deployment has no bridge.
+      if (reconnectIntervalRef.current) {
+        clearInterval(reconnectIntervalRef.current);
+        reconnectIntervalRef.current = null;
+      }
+      return;
+    }
 
     console.log(`🔄 MCP Bridge: Attempting reconnection (attempt ${connectionState.reconnectAttempts + 1}/${connectionState.maxReconnectAttempts})`);
 
@@ -320,6 +357,14 @@ const BridgeClient = () => {
         if (response.ok) {
           const result = await response.json();
           console.log('✅ MCP Bridge: Store actions registered with bridge server:', result);
+        } else if (response.status === 404 || response.status === 405) {
+          // 404: hosted deployment with the bridge deliberately disabled.
+          // 405: a static host answering a POST to what it thinks is an asset.
+          // Either way there is no bridge here and never will be this session.
+          bridgeUnavailableRef.current = true;
+          connectionStateRef.current.isConnected = false;
+          console.log('ℹ️ MCP Bridge: No bridge on this deployment — MCP features disabled for this session');
+          return;
         } else {
           const errorText = await response.text();
           throw new Error(`HTTP ${response.status}: ${errorText}`);
@@ -342,6 +387,15 @@ const BridgeClient = () => {
 
     // Function to send store state to server
     const sendStoreToServer = async () => {
+      // Never upload the user's whole store to a deployment that has told us
+      // it has no bridge — there is nothing there to receive it.
+      if (bridgeUnavailableRef.current) {
+        if (dataIntervalRef.current) {
+          clearInterval(dataIntervalRef.current);
+          dataIntervalRef.current = null;
+        }
+        return;
+      }
       try {
         const state = useGraphStore.getState();
         // Include file status for debugging/persistence visibility
@@ -366,6 +420,18 @@ const BridgeClient = () => {
           body: JSON.stringify(bridgeData)
         });
 
+        if (response.status === 404) {
+          // This deployment serves no bridge. Latch and stop — retrying would
+          // re-upload the entire store on a timer for the whole session.
+          bridgeUnavailableRef.current = true;
+          connectionStateRef.current.isConnected = false;
+          if (dataIntervalRef.current) {
+            clearInterval(dataIntervalRef.current);
+            dataIntervalRef.current = null;
+          }
+          console.log('ℹ️ MCP Bridge: No bridge on this deployment — bridge sync disabled for this session');
+          return;
+        }
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
@@ -846,6 +912,11 @@ const BridgeClient = () => {
     // Adaptive polling loop
     const pollingLoop = async () => {
       if (!mountedRef.current) return;
+      if (bridgeUnavailableRef.current) {
+        // No bridge on this deployment — stop the loop entirely rather than
+        // re-polling a 404 (or the SPA fallback) for the life of the session.
+        return;
+      }
 
       const now = Date.now();
       const timeSinceActivity = now - lastActivityRef.current;
