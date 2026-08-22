@@ -1376,7 +1376,10 @@ const LeftAIView = ({ compact = false,
       conversations,
       activeConversationId
     });
-    window.__rs_getWizardStatus = () => ({ hasAPIKey, isConnected, isProcessing, activeGraphId });
+    // `wizardReady` is what the status dot shows; `isConnected` is bridge-only.
+    window.__rs_getWizardStatus = () => ({
+      hasAPIKey, wizardReady: hasAPIKey, isConnected, isProcessing, activeGraphId
+    });
     // Lets dispatchers (e.g., NodeCanvas Ask The Wizard) check whether this conversation
     // already saw a wizard-action-chip of a given action so they can ship a shorter prompt
     // instead of repeating the full instructions block.
@@ -1882,7 +1885,7 @@ const LeftAIView = ({ compact = false,
   React.useEffect(() => {
     if (hasAPIKey && !isConnected && !isProcessing) {
       if (mcpClient && mcpClient.isConnected) { setIsConnected(true); return; }
-      initializeConnection();
+      initializeConnection({ silent: true });
     }
   }, [hasAPIKey]);
 
@@ -1919,15 +1922,22 @@ const LeftAIView = ({ compact = false,
     return () => { cancelled = true; clearInterval(interval); };
   }, [hasAPIKey, isProcessing]);
 
-  const initializeConnection = async () => {
+  /**
+   * Connect to the MCP bridge. Optional: the wizard does not need it, so the
+   * automatic attempt on mount stays silent. Without `silent`, a failure posted
+   * a red "Connection failed" message into the chat on every load on web and
+   * iOS, where there is no bridge to connect to. A user-clicked retry still
+   * reports, because there the user asked.
+   */
+  const initializeConnection = async ({ silent = false } = {}) => {
     try {
       setIsProcessing(true);
       await mcpClient.connect();
       setIsConnected(true);
     } catch (error) {
-      console.error('[AI Collaboration] Connection failed:', error);
+      console.warn('[AI Collaboration] MCP bridge unavailable:', error?.message || error);
       setIsConnected(false);
-      addMessage('system', `Connection failed: ${error.message}`);
+      if (!silent) addMessage('system', `Connection failed: ${error.message}`);
     } finally {
       setIsProcessing(false);
     }
@@ -3330,6 +3340,16 @@ const LeftAIView = ({ compact = false,
   // conversation only as metadata; it no longer gates visibility.)
   const visibleConversations = conversations;
 
+  // The status dot means "can the wizard run", which is now a question about the
+  // API key alone: the agent loop runs in this process. It used to mirror the
+  // bridge daemon, so it sat red on web and iOS — where there is no bridge and
+  // never will be — announcing the wizard as offline while it worked fine.
+  // Bridge reachability still has an indicator of its own: the refresh button.
+  const wizardReady = hasAPIKey;
+  const wizardStatusTitle = wizardReady
+    ? 'Wizard ready — the agent runs in-app'
+    : 'No API key configured — set one to use the Wizard';
+
   const headerActionsEl = (
     <div className="ai-header-actions">
       <PanelIconButton
@@ -3395,7 +3415,9 @@ const LeftAIView = ({ compact = false,
         size={18}
         className={isConnected ? 'ai-refresh-button' : 'ai-connect-button'}
         onClick={refreshBridgeConnection}
-        title={isConnected ? 'Bridge connected' : 'Reconnect bridge daemon'}
+        title={isConnected
+          ? 'MCP bridge connected'
+          : 'MCP bridge not connected — optional, the Wizard works without it. Click to retry.'}
         disabled={isProcessing}
       />
     </div>
@@ -3407,8 +3429,8 @@ const LeftAIView = ({ compact = false,
         {!compact ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gridColumn: '1 / -1' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div className="ai-status-indicator-wrapper">
-                <div className={`ai-status-indicator ${isConnected ? 'connected' : 'disconnected'}`} />
+              <div className="ai-status-indicator-wrapper" title={wizardStatusTitle}>
+                <div className={`ai-status-indicator ${wizardReady ? 'connected' : 'disconnected'}`} />
               </div>
               <div ref={modeMenuRef} style={{ position: 'relative' }}>
                 <button
@@ -3485,8 +3507,8 @@ const LeftAIView = ({ compact = false,
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', width: '100%', gridColumn: '1 / -1' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div className="ai-status-indicator-wrapper">
-                <div className={`ai-status-indicator ${isConnected ? 'connected' : 'disconnected'}`} />
+              <div className="ai-status-indicator-wrapper" title={wizardStatusTitle}>
+                <div className={`ai-status-indicator ${wizardReady ? 'connected' : 'disconnected'}`} />
               </div>
               <div ref={modeMenuRef} style={{ position: 'relative' }}>
                 <button
