@@ -210,6 +210,16 @@ const RECIPES = {
   menuPage: {
     [HapticTier.TAPTIC]: { tick: true },
     [HapticTier.BASIC]: { vibrate: 8 }
+  },
+  /**
+   * The viewport leaves for somewhere else entirely — Back to Civilization.
+   * The one place a medium impact is warranted: the whole canvas moves under
+   * you, and unlike a pie button this is a rare, deliberate press, so it can
+   * afford the extra weight without becoming background noise.
+   */
+  viewportJump: {
+    [HapticTier.TAPTIC]: { impact: 'MEDIUM' },
+    [HapticTier.BASIC]: { vibrate: 16 }
   }
 };
 

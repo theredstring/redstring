@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import './BackToCivilization.css';
 import { useViewportBounds } from './hooks/useViewportBounds';
 import useGraphStore from './store/graphStore.js';
+import { haptic } from './services/haptics.js';
 
 const BackToCivilization = ({
   isVisible,
@@ -99,8 +100,14 @@ const BackToCivilization = ({
         zIndex: 1000,
         pointerEvents: 'auto',
       }}
-      onClick={onClick}
-      title={clusteringEnabled 
+      onClick={(e) => {
+        // Kept in lockstep with onClick rather than gated on isVisible: the pill
+        // stays clickable while shrinking, and a haptic that disagreed with
+        // whether the jump happened would be worse than one that always matches.
+        haptic('viewportJump');
+        onClick?.(e);
+      }}
+      title={clusteringEnabled
         ? `Navigate to main cluster (${clusterInfo.mainClusterSize || 0} nodes, ${clusterInfo.outlierCount || 0} outliers)`
         : 'Navigate to all nodes'
       }
