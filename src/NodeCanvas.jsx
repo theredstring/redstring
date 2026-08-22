@@ -6111,6 +6111,15 @@ function NodeCanvas() {
   const FOCUS_SKIP_PAN_PX = 48;       // within 48px of target pan → close enough
   const prevFocusPieNodeIdRef = useRef(null);
 
+  // Connection (edge) menu framing. Deliberately gentler than the node numbers above:
+  // the edge menu's box is a short wide strip, so filling the region with it magnifies
+  // far harder than the node's roughly-square cluster does at the same fill fraction.
+  const FOCUS_EDGE_FILL_WIDE = 0.78;   // desktop: box fills ~78% of the usable region
+  const FOCUS_EDGE_FILL_NARROW = 0.90; // mobile: closer to the full width, space is scarce
+  const FOCUS_EDGE_PADDING_RATIO = 0.5; // extra margin around the box, in bubble diameters
+  const FOCUS_EDGE_MAX_ZOOM = 1.0;      // never magnify past native scale just to frame a menu
+  const FOCUS_EDGE_LABEL_MAX_GROWTH = 1.6; // stop honoring the label past 1.6x box growth
+
   // Frame a single node with the pie-menu-aware zoom. Shared by focus-on-select and
   // recompose (collapsing a decomposed node) so both land at the exact same view.
   const focusNodeInView = useCallback((nodeId) => {
@@ -6175,7 +6184,13 @@ function NodeCanvas() {
   // (PieMenu's line mode) — so its bounds are the row's extent, not a radial ring.
   // This replaces the old "..." compact fallback: rather than collapsing the row when
   // it would be clipped, we zoom out until the whole row fits.
-  const focusEdgePieMenuInView = useCallback((anchor, buttonCount) => {
+  //
+  // `labelRect` (optional, canvas-space {minX,maxX,minY,maxY}) is the connection's own
+  // name label — folded into the framed box so selecting a connection shows you what
+  // it says, not just its buttons. It's a want, not a requirement: a label longer than
+  // the button row would drag the zoom down, so it's only honored while it doesn't
+  // cost more than FOCUS_EDGE_LABEL_MAX_GROWTH of extra box.
+  const focusEdgePieMenuInView = useCallback((anchor, buttonCount, labelRect = null) => {
     if (!FOCUS_ON_SELECT_ENABLED || !anchor || !buttonCount) return;
 
     // Mirror PieMenu's line-mode geometry exactly (BUBBLE_SIZE / BUBBLE_PADDING,
@@ -6200,12 +6215,31 @@ function NodeCanvas() {
       });
     }
     const r = bSize / 2; // bubble radius around each center
-    const minX = Math.min(...pts.map(p => p.x)) - r;
-    const maxX = Math.max(...pts.map(p => p.x)) + r;
-    const minY = Math.min(...pts.map(p => p.y)) - r;
-    const maxY = Math.max(...pts.map(p => p.y)) + r;
-    const boundsW = Math.max(1, maxX - minX);
-    const boundsH = Math.max(1, maxY - minY);
+    let minX = Math.min(...pts.map(p => p.x)) - r;
+    let maxX = Math.max(...pts.map(p => p.x)) + r;
+    let minY = Math.min(...pts.map(p => p.y)) - r;
+    let maxY = Math.max(...pts.map(p => p.y)) + r;
+
+    // Fold in the label if it doesn't blow the frame out. A very long connection
+    // name would otherwise dominate the box and zoom the buttons down to nothing,
+    // so past the growth cap we keep the menu framing and let the label overflow.
+    if (labelRect && Number.isFinite(labelRect.minX)) {
+      const grownW = Math.max(maxX, labelRect.maxX) - Math.min(minX, labelRect.minX);
+      const grownH = Math.max(maxY, labelRect.maxY) - Math.min(minY, labelRect.minY);
+      const growth = Math.max(grownW / Math.max(1, maxX - minX), grownH / Math.max(1, maxY - minY));
+      if (growth <= FOCUS_EDGE_LABEL_MAX_GROWTH) {
+        minX = Math.min(minX, labelRect.minX);
+        maxX = Math.max(maxX, labelRect.maxX);
+        minY = Math.min(minY, labelRect.minY);
+        maxY = Math.max(maxY, labelRect.maxY);
+      }
+    }
+
+    // Breathing room so the outermost bubbles don't sit flush against the edges
+    // of the usable region.
+    const boundsPad = bSize * FOCUS_EDGE_PADDING_RATIO;
+    const boundsW = Math.max(1, maxX - minX + boundsPad * 2);
+    const boundsH = Math.max(1, maxY - minY + boundsPad * 2);
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
 
@@ -6215,12 +6249,16 @@ function NodeCanvas() {
     const narrowness = Math.max(0, Math.min(1,
       (FOCUS_WIDTH_WIDE - vb.width) / (FOCUS_WIDTH_WIDE - FOCUS_WIDTH_NARROW)
     ));
-    const fillFrac = FOCUS_FILL_WIDE + (FOCUS_FILL_NARROW - FOCUS_FILL_WIDE) * narrowness;
+    const fillFrac = FOCUS_EDGE_FILL_WIDE + (FOCUS_EDGE_FILL_NARROW - FOCUS_EDGE_FILL_WIDE) * narrowness;
     const referenceZoom = Math.min(
       (vb.width * fillFrac) / boundsW,
       (vb.height * fillFrac) / boundsH
     );
-    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
+    // A connection menu is a short, wide box — fitting it edge-to-edge lands at
+    // ~1.8x, which reads as being thrown at the connection. Cap the zoom-IN side:
+    // framing should never magnify past near-native scale, only pull back when the
+    // row genuinely doesn't fit.
+    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, FOCUS_EDGE_MAX_ZOOM, referenceZoom));
 
     // No vertical bias here — unlike a node's radial menu, the row already sits to
     // one side of the anchor, so its bounds centered in the region is the right frame.
@@ -11968,9 +12006,38 @@ function NodeCanvas() {
     if (abstractionCarouselVisible || draggingNodeInfoRef.current) return;
     if (!selectedEdgeMidpoint || edgePieMenuButtons.length === 0) return;
 
-    focusEdgePieMenuInView(selectedEdgeMidpoint, edgePieMenuButtons.length);
+    // The connection's own name label, so framing shows what the connection SAYS and
+    // not just its buttons. Prefer the rect the render actually registered (routed
+    // styles solve label placement and can slide it along the route); fall back to
+    // the box the label would occupy at the anchor, which is where straight/curved
+    // labels are drawn.
+    let labelRect = null;
+    if (showConnectionNames) {
+      const placed = placedLabelsRef.current.get(selectedEdgeId);
+      if (placed?.rect) {
+        labelRect = placed.rect;
+      } else {
+        const edge = edgesMap.get(selectedEdgeId);
+        const name = edge && (
+          (edge.definitionNodeIds?.length > 0 && nodePrototypesMap.get(edge.definitionNodeIds[0])?.name)
+          || (edge.typeNodeId && edgePrototypesMap.get(edge.typeNodeId)?.name)
+          || edge.connectionName
+        );
+        if (name) {
+          const fs = resolveEdgeLabelFontSize(textSettings, connectionLabelSize);
+          labelRect = labelBoundsFor(
+            selectedEdgeMidpoint.x, selectedEdgeMidpoint.y,
+            estimateTextWidth(name, fs), fs * 1.1,
+            (selectedEdgeMidpoint.angle ?? 0) * (180 / Math.PI)
+          );
+        }
+      }
+    }
+
+    focusEdgePieMenuInView(selectedEdgeMidpoint, edgePieMenuButtons.length, labelRect);
   }, [edgePieMenuVisible, selectedEdgeId, selectedEdgeMidpoint, edgePieMenuButtons,
-    abstractionCarouselVisible, focusEdgePieMenuInView, focusOnSelectEnabled]);
+    abstractionCarouselVisible, focusEdgePieMenuInView, focusOnSelectEnabled,
+    showConnectionNames, edgesMap, nodePrototypesMap, edgePrototypesMap, textSettings, connectionLabelSize]);
 
   // Callback for activating semantic orbit from control panel
   const activateSemanticOrbit = useCallback(() => {

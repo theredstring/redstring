@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import NodeCanvas from './NodeCanvas';
 import SpawningNodeDragLayer from './SpawningNodeDragLayer';
 import BridgeClient from './ai/BridgeClient.jsx';
@@ -163,6 +164,37 @@ function App() {
       <BridgeClient />
       <GlobalContextMenu />
       <UpdateToast />
+
+      {/* The notch band, drawn as a real element rather than left to <body>'s
+          background.
+
+          Reserving the band with padding on <body> only keeps content out of it
+          while `#root`'s identity transform actually captures the app's
+          position:fixed descendants (App.css) — and the panels, which are fixed
+          with `left: 0`, were still painting into the band. An opaque strip on
+          top makes the band black no matter how `fixed` resolves down there.
+
+          It is portalled to <body> on purpose: as a sibling of #root it escapes
+          that transform, so its own `left: 0` is the physical screen edge
+          rather than the inside edge of the band it is meant to cover. It sits
+          above every layer in the app (panels 10000, TypeList 20000) and takes
+          no pointer events, so it changes nothing but what you see. */}
+      {mobileLandscapeShell && createPortal(
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'fixed',
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: 'env(safe-area-inset-left, 0px)',
+            backgroundColor: '#000000',
+            pointerEvents: 'none',
+            zIndex: 2147483000,
+          }}
+        />,
+        document.body
+      )}
     </>
   );
 }
