@@ -3,10 +3,14 @@ import { useTheme } from './hooks/useTheme.js';
 
 import { ArrowLeftFromLine, ArrowRightFromLine } from 'lucide-react';
 import { HEADER_HEIGHT } from './constants'; // Assuming constants file is accessible
+import { useMobileLandscapeShell } from './hooks/useMobileLandscapeShell.js';
 
 const ToggleButton = ({ isExpanded, onClick, side = 'right' }) => {
   const theme = useTheme();
-  const buttonTop = HEADER_HEIGHT; // Position directly below header (remove +10 gap)
+  // The fullscreen landscape shell has no header to sit below, so the panel
+  // toggles — the only chrome that survives there — go flush to the top edge.
+  const mobileLandscapeShell = useMobileLandscapeShell();
+  const buttonTop = mobileLandscapeShell ? 0 : HEADER_HEIGHT; // Position directly below header (remove +10 gap)
   const buttonPosition = 0; // Position flush with the edge
 
   const positionStyle = side === 'left' 

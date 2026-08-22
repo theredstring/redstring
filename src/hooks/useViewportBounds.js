@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { HEADER_HEIGHT, EXCLUSIVE_PANEL_MODE_THRESHOLD } from '../constants';
 import { getAppViewportSize } from '../utils/appViewport.js';
+import { useMobileLandscapeShell } from './useMobileLandscapeShell.js';
 
 /**
  * Computes the central usable viewport bounds by subtracting left/right panel widths
@@ -29,6 +30,11 @@ export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typ
     return { w: width, h: height };
   });
   
+  // In the fullscreen landscape shell there is no header bar, so the canvas
+  // starts at the top of the app box rather than below one.
+  const mobileLandscapeShell = useMobileLandscapeShell();
+  const headerHeight = mobileLandscapeShell ? 0 : HEADER_HEIGHT;
+
   // TypeList height - only reserve space when it's actually visible
   const typeListHeight = typeListVisible ? HEADER_HEIGHT : 0;
   
@@ -69,9 +75,9 @@ export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typ
     // In flexbox layout, the canvas area starts immediately after the left panel
     // and extends to the right panel, with no additional margins
     const x = effectiveLeftWidth;
-    const y = HEADER_HEIGHT; // The header is at 0,0, so canvas starts at HEADER_HEIGHT
+    const y = headerHeight; // The header is at 0,0, so canvas starts at headerHeight
     const width = windowSize.w - effectiveLeftWidth - effectiveRightWidth;
-    const height = windowSize.h - HEADER_HEIGHT - (typeListVisible ? HEADER_HEIGHT : 0);
+    const height = windowSize.h - headerHeight - typeListHeight;
 
     return {
       x,
@@ -82,12 +88,12 @@ export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typ
       rightWidth: effectiveRightWidth,
       windowWidth: windowSize.w,
       windowHeight: windowSize.h,
-      bottomReserved: typeListVisible ? HEADER_HEIGHT : 0,
+      bottomReserved: typeListHeight,
       leftHandleSpace: 0, // No handle space needed in flexbox layout
       rightHandleSpace: 0,
       isExclusiveMode
     };
-  }, [leftWidth, rightWidth, windowSize, typeListHeight, leftExpanded, rightExpanded, typeListVisible]);
+  }, [leftWidth, rightWidth, windowSize, typeListHeight, headerHeight, leftExpanded, rightExpanded]);
 
   return bounds;
 };

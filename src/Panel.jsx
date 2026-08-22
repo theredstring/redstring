@@ -9,6 +9,7 @@ import './Panel.css'
 import { generateThumbnail, loadImageFileAsDataUrl } from './utils'; // Import thumbnail generator
 import useImageCache from './services/imageCache.js';
 import ToggleButton from './ToggleButton'; // Import the new component
+import { useMobileLandscapeShell } from './hooks/useMobileLandscapeShell.js';
 import PanelResizerHandle from './components/PanelResizerHandle.jsx';
 import ColorPicker from './ColorPicker'; // Import the new ColorPicker component
 import PanelColorPickerPortal from './components/PanelColorPickerPortal.jsx';
@@ -628,6 +629,7 @@ const Panel = memo(forwardRef(
 
     // Reserve bottom space for TypeList footer bar when visible
     const typeListMode = useGraphStore(state => state.typeListMode);
+    const mobileLandscapeShell = useMobileLandscapeShell();
 
     // Add loading state check to prevent accessing store before it's ready
     const isUniverseLoading = useGraphStore(state => state.isUniverseLoading);
@@ -684,7 +686,11 @@ const Panel = memo(forwardRef(
     const hasNodePrototypes = nodePrototypesMapRaw && typeof nodePrototypesMapRaw.get === 'function';
     const isStoreReady = (!isUniverseLoading && isUniverseLoaded && hasNodePrototypes);
 
-    const isTypeListVisible = typeListMode !== 'closed';
+    // The fullscreen landscape shell renders neither the header nor the
+    // TypeList, so the panel spans the whole app box and reserves nothing at
+    // the bottom for a footer that isn't there.
+    const isTypeListVisible = typeListMode !== 'closed' && !mobileLandscapeShell;
+    const panelTop = mobileLandscapeShell ? 0 : HEADER_HEIGHT;
     const bottomSafeArea = isTypeListVisible ? HEADER_HEIGHT + 10 : 0; // footer height + small gap
     let effectiveBottomPadding = isTypeListVisible ? bottomSafeArea : 0; // refined after leftViewActive initializes
 
@@ -1960,7 +1966,7 @@ const Panel = memo(forwardRef(
           data-panel-ready={isStoreReady ? 'ready' : 'loading'}
           style={{
             position: 'fixed',
-            top: HEADER_HEIGHT,
+            top: panelTop,
             ...positionStyle,
             bottom: 0,
             width: `${panelWidth}px`, // Use state variable for width

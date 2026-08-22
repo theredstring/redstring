@@ -271,6 +271,18 @@ const RECIPES = {
     [HapticTier.TAPTIC]: { impact: 'MEDIUM' },
     [HapticTier.BASIC]: { vibrate: 16 }
   },
+  /**
+   * One detent as the hurtle orb travels from a node up to the header.
+   *
+   * Taptic-only, on the same rule as connectionStretch: a stream is the one
+   * thing a single vibration motor can't render. Unlike the connection detents
+   * this track is driven by an animation rather than a finger, so it's played
+   * against the orb's EASED progress — the ticks bunch up where the orb is
+   * actually moving fastest instead of marching evenly through wall-clock time.
+   */
+  hurtleTravel: {
+    [HapticTier.TAPTIC]: { tick: true }
+  },
   /** An edge is selected. A tick — the same class of act as tapping a node. */
   edgeSelect: {
     [HapticTier.TAPTIC]: { tick: true },

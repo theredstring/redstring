@@ -103,6 +103,7 @@ export const useCanvasTouch = ({
     touchSettings,
     nodeLiftDelay,
     tryToggleConnectionOrbAtPoint,
+    trySelectConnectionAtPoint,
 }) => {
     // --- Refs moved to hook ---
     const lastTouchRef = useRef({ x: 0, y: 0 });
@@ -784,6 +785,24 @@ export const useCanvasTouch = ({
                 if (selectedNodeIdForPieMenu) setSelectedNodeIdForPieMenu(null);
             }
             return;
+        }
+
+        // A tap that reached bare canvas but landed inside a connection's grab
+        // radius selects that connection instead of deselecting. The transparent
+        // stroke around each path is a narrow fast path (and it claims taps on
+        // touchstart, which is why panning off a line still works); this catches
+        // everything inside the much larger finger-sized radius that missed it.
+        // Nodes still win — they paint on top and claim their own taps, and
+        // trySelectConnectionAtPoint bails on any point inside a node.
+        if (isTap && !isPaused && !draggingNodeInfo && !drawingConnectionFrom && !recentlyPanned
+            && !nodeNamePrompt.visible && activeGraphId && trySelectConnectionAtPoint) {
+            if (trySelectConnectionAtPoint(clientX, clientY)) {
+                // Suppress the synthesized click, which would otherwise reach
+                // handleCanvasClick and immediately clear what we just selected.
+                if (ignoreCanvasClick) ignoreCanvasClick.current = true;
+                touchMultiPanRef.current = false;
+                return;
+            }
         }
 
         // Ensure touch tap behaves like click-off: close UI overlays if present.

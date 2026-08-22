@@ -25,7 +25,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, MoreHorizontal, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -118,6 +118,7 @@ import { useCanvasKeyboard } from './hooks/useCanvasKeyboard';
 import { useCanvasTransform } from './hooks/useCanvasTransform';
 import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
+import { useMobileLandscapeShell } from './hooks/useMobileLandscapeShell.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
 import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
@@ -277,6 +278,15 @@ const LABEL_ANGLE_QUANTUM_MIN_COUNT = 48;
 // counts; it should not be the reason an ordinary graph's labels stop bending.
 const CURVED_LABEL_BUDGET = 250;
 
+// Connection grab radius floors, in SCREEN pixels — see getEdgeHitThreshold.
+// The base radius is expressed in canvas units, which shrink on screen as you
+// zoom out; these keep the real target usable at any zoom. 44px is Apple's HIG
+// minimum touch target, and touch also scales the base radius up because a
+// fingertip has nothing like a cursor's precision.
+const EDGE_HIT_FLOOR_PX_MOUSE = 24;
+const EDGE_HIT_FLOOR_PX_TOUCH = 44;
+const EDGE_HIT_TOUCH_BOOST = 1.4;
+
 // Shared empty obstacle list, so the memo below can skip the work without
 // handing out a fresh array identity on every pan tick.
 const EMPTY_OBSTACLES = Object.freeze([]);
@@ -328,6 +338,12 @@ const TOUCH_HIGH_VELOCITY_RAMP = 1.5;           // px/ms — speed range over wh
 // texture rather than a rattle, and well under the ~25/sec ceiling the shared
 // rate limit imposes. Larger = sparser clicks; smaller = denser.
 const CONNECTION_DETENT_PX = 44;
+// Detent spacing along the hurtle orb's eased progress (0→1), so 0.25 means
+// three ticks in flight. Sized against the shared 40ms haptic rate limit: the
+// orb's ease-in-out peaks at twice its average speed, and at this spacing even
+// the fastest pair of crossings lands ~58ms apart. Halving it to 1/6 would put
+// the middle crossings ~37ms apart and silently drop one.
+const HURTLE_DETENT_STEP = 0.25;
 // How long a tapped button's vision-aid label stays up on a no-hover device
 // before it starts retracting. See handlePieMenuHoverChange.
 const VISION_AID_TOUCH_HOLD_MS = 1000;
@@ -912,6 +928,13 @@ function NodeCanvas() {
   const selectedEdgeId = useGraphStore(state => state.selectedEdgeId);
   const selectedEdgeIds = useGraphStore(state => state.selectedEdgeIds);
   const typeListMode = useGraphStore(state => state.typeListMode);
+
+  // Fullscreen shell (phone in landscape, Capacitor): no header bar, no
+  // Redstring menu, no TypeList — just the canvas and the two panel toggles.
+  // See hooks/useMobileLandscapeShell.js.
+  const mobileLandscapeShell = useMobileLandscapeShell();
+  const headerHeight = mobileLandscapeShell ? 0 : HEADER_HEIGHT;
+  const typeListVisible = typeListMode !== 'closed' && !mobileLandscapeShell;
 
   // Clear label stabilization cache when switching graphs
   useEffect(() => {
@@ -2065,8 +2088,8 @@ function NodeCanvas() {
   const [leftPanelInitialView, setLeftPanelInitialView] = useState(null); // Control which view to open in left panel
 
   // Use proper viewport bounds hook for accurate, live viewport calculations
-  // We pass typeListMode !== 'closed' to ensure edge panning respects the TypeList visibility
-  const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListMode !== 'closed');
+  // We pass typeListVisible to ensure edge panning respects the TypeList visibility
+  const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListVisible);
 
   // Calculate viewport size - use fixed window dimensions for canvas coordinate system
   // This ensures canvas coordinates are independent of panel state
@@ -3874,6 +3897,7 @@ function NodeCanvas() {
     enableAutoRouting, routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing,
     lombardiTangents, lombardiCurvature, edgeCurveInfo, curveSpacing, orthogonalLaneSpacing, lombardiLaneSpacing,
     connectionWidth]);
+
 
   // Reverse-index: instanceId → Set<edgeId> for O(1) lookup of edges connected to a node.
   // NOTE: iterate ALL edges (not visibleEdges) so the index stays stable across culling
@@ -6144,6 +6168,81 @@ function NodeCanvas() {
 
     animateCanvasView(finalPan, tz);
   }, [nodes, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings]);
+
+  // Frame the connection (edge) pie menu the same way focusNodeInView frames a node:
+  // fit the menu's own bounds into the usable region. The edge menu is a single row
+  // of buttons laid out along the connection's slope and pushed to one side of it
+  // (PieMenu's line mode) — so its bounds are the row's extent, not a radial ring.
+  // This replaces the old "..." compact fallback: rather than collapsing the row when
+  // it would be clipped, we zoom out until the whole row fits.
+  const focusEdgePieMenuInView = useCallback((anchor, buttonCount) => {
+    if (!FOCUS_ON_SELECT_ENABLED || !anchor || !buttonCount) return;
+
+    // Mirror PieMenu's line-mode geometry exactly (BUBBLE_SIZE / BUBBLE_PADDING,
+    // scaled by the same node + pie menu scale settings).
+    const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
+    const bSize = 120 * pieScale;
+    const bPad = 32 * pieScale;
+    const step = bSize + bPad;
+    const perpOffset = bSize + bPad * 2;
+    const angle = anchor.angle ?? 0;
+    const alongX = Math.cos(angle), alongY = Math.sin(angle);
+    const perpX = Math.sin(angle), perpY = -Math.cos(angle);
+    const half = (buttonCount - 1) / 2;
+
+    // Extremes of the row (both ends) plus the anchor itself, so the connection the
+    // menu belongs to stays framed alongside its buttons.
+    const pts = [{ x: anchor.x, y: anchor.y }];
+    for (const t of [-half, half]) {
+      pts.push({
+        x: anchor.x + t * step * alongX + perpOffset * perpX,
+        y: anchor.y + t * step * alongY + perpOffset * perpY,
+      });
+    }
+    const r = bSize / 2; // bubble radius around each center
+    const minX = Math.min(...pts.map(p => p.x)) - r;
+    const maxX = Math.max(...pts.map(p => p.x)) + r;
+    const minY = Math.min(...pts.map(p => p.y)) - r;
+    const maxY = Math.max(...pts.map(p => p.y)) + r;
+    const boundsW = Math.max(1, maxX - minX);
+    const boundsH = Math.max(1, maxY - minY);
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    const vb = viewportBounds;
+    const regionCenterX = vb.x + vb.width / 2;
+    const regionCenterY = vb.y + vb.height / 2;
+    const narrowness = Math.max(0, Math.min(1,
+      (FOCUS_WIDTH_WIDE - vb.width) / (FOCUS_WIDTH_WIDE - FOCUS_WIDTH_NARROW)
+    ));
+    const fillFrac = FOCUS_FILL_WIDE + (FOCUS_FILL_NARROW - FOCUS_FILL_WIDE) * narrowness;
+    const referenceZoom = Math.min(
+      (vb.width * fillFrac) / boundsW,
+      (vb.height * fillFrac) / boundsH
+    );
+    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
+
+    // No vertical bias here — unlike a node's radial menu, the row already sits to
+    // one side of the anchor, so its bounds centered in the region is the right frame.
+    const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
+    const targetPanY = regionCenterY - (centerY - canvasSize.offsetY) * tz;
+    const minPanX = viewportSize.width - canvasSize.width * tz;
+    const minPanY = viewportSize.height - canvasSize.height * tz;
+    const finalPan = {
+      x: Math.min(Math.max(targetPanX, minPanX), 0),
+      y: Math.min(Math.max(targetPanY, minPanY), 0),
+    };
+
+    // Already essentially framed? Leave the view alone rather than yanking it.
+    const curZoom = zoomLevelRef.current;
+    const curPan = panOffsetRef.current;
+    const zoomClose = Math.abs(tz - curZoom) <= curZoom * FOCUS_SKIP_ZOOM_RATIO;
+    const panClose = Math.abs(finalPan.x - curPan.x) <= FOCUS_SKIP_PAN_PX
+      && Math.abs(finalPan.y - curPan.y) <= FOCUS_SKIP_PAN_PX;
+    if (zoomClose && panClose) return;
+
+    animateCanvasView(finalPan, tz);
+  }, [animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings]);
 
   useEffect(() => {
     const was = prevFocusPieNodeIdRef.current;
@@ -8456,6 +8555,211 @@ function NodeCanvas() {
     lastEdgeTapRef.current = { id: edgeId, ts: now };
   }, []);
 
+  // --- Connection hit-testing (shared by hover, click and touch) -------------
+  //
+  // One geometric test for every routing style, so hover and selection can never
+  // disagree about which connection is under the pointer. Hover used to own this
+  // math privately while selection leaned on the transparent SVG stroke drawn
+  // around each path — a narrower target (radius ~25 canvas units against
+  // hover's 40–50) that also resolves topmost-wins instead of nearest-wins.
+  // Curved styles suffered worst: a Lombardi arc or a parallel fan bows away
+  // from where the stroke sits, so the line you aimed at was not the line that
+  // got the tap.
+  //
+  // Returns { edgeId, distance, connection } for the NEAREST connection within
+  // `threshold` canvas units, or null.
+  const findNearestEdgeAtCanvasPoint = useCallback((cx, cy, threshold) => {
+    let foundEdgeId = null;
+    let foundConnectionPayload = null;
+    let closestDistance = Infinity;
+
+    for (let i = visibleEdges.length - 1; i >= 0; i--) {
+      const edge = visibleEdges[i];
+      const sourceInstance = nodeById.get(edge.sourceId);
+      const targetInstance = nodeById.get(edge.destinationId);
+      if (!sourceInstance || !targetInstance) continue;
+
+      const sourceDims = baseDimsById.get(sourceInstance.id);
+      const targetDims = baseDimsById.get(targetInstance.id);
+      if (!sourceDims || !targetDims) continue;
+
+      const isSourcePreviewing = previewingNodeId === sourceInstance.id;
+      const isTargetPreviewing = previewingNodeId === targetInstance.id;
+      const x1 = sourceInstance.x + sourceDims.currentWidth / 2;
+      const y1 = sourceInstance.y + (isSourcePreviewing ? NODE_HEIGHT / 2 : sourceDims.currentHeight / 2);
+      const x2 = targetInstance.x + targetDims.currentWidth / 2;
+      const y2 = targetInstance.y + (isTargetPreviewing ? NODE_HEIGHT / 2 : targetDims.currentHeight / 2);
+
+      let distance = Infinity;
+
+      if (edge.sourceId === edge.destinationId) {
+        distance = distanceToSelfLoop(
+          cx, cy,
+          sourceInstance.x, sourceInstance.y,
+          sourceDims.currentWidth, sourceDims.currentHeight,
+          edgeCurveInfo.get(edge.id)
+        );
+      } else if (enableAutoRouting && routingStyle === 'clean') {
+        const pathPoints = generateCleanRoutingPath(
+          edge, sourceInstance, targetInstance, sourceDims, targetDims,
+          cleanLaneOffsets, cleanLaneSpacing
+        );
+        distance = distanceToPolyline(cx, cy, pathPoints);
+      } else if (enableAutoRouting && routingStyle === 'lombardi') {
+        // Closed form, not sampling. This runs for every visible edge on every
+        // pointer move; building the full routing descriptor here (sampled
+        // polyline, path string, arrowhead trims) and then walking the polyline
+        // made hover cost ~2x what the orthogonal styles cost, on top of the
+        // garbage it generated.
+        const { p, q, arc } = lombardiArcFor(
+          edge, sourceInstance, targetInstance, sourceDims, targetDims,
+          lombardiTangents, lombardiCurvature,
+          // Same fan the renderer drew, so the hit-test picks the member of a
+          // bundle actually under the pointer.
+          { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing }
+        );
+        distance = arc
+          ? distanceToArc(cx, cy, arc)
+          : distanceToPolyline(cx, cy, [p, q]);
+      } else if (enableAutoRouting && routingStyle === 'manhattan') {
+        const pathPoints = generateManhattanRoutingPath(
+          edge, sourceInstance, targetInstance, sourceDims, targetDims,
+          manhattanBends,
+          // Same lane the renderer drew, or the hit-test picks the wrong member
+          // of a bundle — every one of them would test against the un-fanned
+          // centre route.
+          { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing }
+        );
+        distance = distanceToPolyline(cx, cy, pathPoints);
+      } else {
+        const curveInfo = edgeCurveInfo.get(edge.id);
+        if (curveInfo && curveInfo.totalInPair > 1) {
+          // Distance to the quadratic Bézier. Must use the SAME curveSpacing as
+          // the renderer (200 * multiConnectionCurve) — the default
+          // (BASE_CURVE_SPACING = 100) bunches the test curves at half the drawn
+          // fan-out, so with 3+ parallel edges the nearest computed curve is no
+          // longer the one under the pointer.
+          const ctrlPoint = calculateCurveControlPoint(x1, y1, x2, y2, curveInfo, curveSpacing);
+          if (ctrlPoint) {
+            distance = distanceToQuadraticBezier(
+              cx, cy,
+              x1, y1,
+              ctrlPoint.ctrlX, ctrlPoint.ctrlY,
+              x2, y2,
+              40 // finer sampling to disambiguate tightly packed curves
+            );
+          }
+        } else {
+          const A = cx - x1;
+          const B = cy - y1;
+          const C = x2 - x1;
+          const D = y2 - y1;
+          const dot = A * C + B * D;
+          const lenSq = C * C + D * D;
+          if (lenSq > 0) {
+            let param = dot / lenSq;
+            if (param < 0) param = 0;
+            else if (param > 1) param = 1;
+            const xx = x1 + param * C;
+            const yy = y1 + param * D;
+            const dx = cx - xx;
+            const dy = cy - yy;
+            distance = Math.sqrt(dx * dx + dy * dy);
+          }
+        }
+      }
+
+      if (distance > threshold || distance >= closestDistance) continue;
+      // Keep scanning: for overlapping connections the nearest edge wins, not
+      // the first one found within the threshold.
+      closestDistance = distance;
+      foundEdgeId = edge.id;
+
+      let connectionName = edge.connectionName || 'Connection';
+      let connectionColor = edge.color || '#000000';
+
+      if ((!connectionName || connectionName === 'Connection') && edge.definitionNodeIds?.length) {
+        const defNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+        if (defNode) {
+          connectionName = defNode.name || connectionName;
+          connectionColor = defNode.color || connectionColor;
+        }
+      } else if ((!edge.definitionNodeIds || edge.definitionNodeIds.length === 0) && edge.typeNodeId) {
+        const typeNode = nodePrototypesMap.get(edge.typeNodeId);
+        if (typeNode) {
+          connectionName = typeNode.name || connectionName;
+          connectionColor = typeNode.color || connectionColor;
+        }
+      }
+
+      const sourceEndpoint = {
+        id: sourceInstance.id,
+        name: sourceInstance.name,
+        color: sourceInstance.color,
+        width: sourceDims.currentWidth,
+        height: isSourcePreviewing ? NODE_HEIGHT : sourceDims.currentHeight,
+        prototypeId: sourceInstance.prototypeId
+      };
+      const targetEndpoint = {
+        id: targetInstance.id,
+        name: targetInstance.name,
+        color: targetInstance.color,
+        width: targetDims.currentWidth,
+        height: isTargetPreviewing ? NODE_HEIGHT : targetDims.currentHeight,
+        prototypeId: targetInstance.prototypeId
+      };
+      // Orient the preview to match the canvas: whichever endpoint sits further
+      // left on the canvas is shown on the left of the hover aid. Our brains
+      // can't easily re-map a connection whose on-canvas left→right order is
+      // reversed in the preview. Arrows are keyed by node id
+      // (directionality.arrowsToward), so swapping the display order of
+      // source/target is lossless.
+      const flipForCanvasOrder = targetInstance.x < sourceInstance.x;
+
+      foundConnectionPayload = {
+        id: edge.id,
+        name: connectionName,
+        color: connectionColor,
+        definitionNodeIds: edge.definitionNodeIds,
+        typeNodeId: edge.typeNodeId,
+        source: flipForCanvasOrder ? targetEndpoint : sourceEndpoint,
+        target: flipForCanvasOrder ? sourceEndpoint : targetEndpoint,
+        directionality: edge.directionality
+      };
+    }
+
+    return foundEdgeId
+      ? { edgeId: foundEdgeId, distance: closestDistance, connection: foundConnectionPayload }
+      : null;
+  }, [visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
+    enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
+    lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing]);
+
+  // Grab radius for the hit-test above, in canvas units.
+  //
+  // Routed styles get a wider base radius: their geometry doesn't run where a
+  // naive chord would, so the pointer is often further from the line than the
+  // user's aim suggests. On top of that both tiers take a screen-space FLOOR —
+  // the base radius is fixed in graph units, so zooming out used to shrink the
+  // real target to a handful of pixels. A finger is roughly 44px wide (Apple's
+  // HIG minimum) and can't aim anywhere near as precisely as a cursor, so touch
+  // gets both a bigger floor and a multiplier on the base.
+  const getEdgeHitThreshold = useCallback((pointerKind = 'mouse') => {
+    const base = (isRoutedStyle ? 50 : 40) * Math.max(1, connectionWidth);
+    const isTouch = pointerKind === 'touch';
+    const floorPx = isTouch ? EDGE_HIT_FLOOR_PX_TOUCH : EDGE_HIT_FLOOR_PX_MOUSE;
+    return Math.max(base * (isTouch ? EDGE_HIT_TOUCH_BOOST : 1), floorPx / (zoomLevelRef.current || 1));
+  }, [isRoutedStyle, connectionWidth]);
+
+  // Client-space wrapper around the two above.
+  const findEdgeAtClientPoint = useCallback((clientX, clientY, pointerKind = 'mouse') => {
+    if (!containerRef.current) return null;
+    const rect = containerRef.current.getBoundingClientRect();
+    const cx = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + (canvasSize?.offsetX || 0);
+    const cy = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + (canvasSize?.offsetY || 0);
+    return findNearestEdgeAtCanvasPoint(cx, cy, getEdgeHitThreshold(pointerKind));
+  }, [findNearestEdgeAtCanvasPoint, getEdgeHitThreshold, canvasSize]);
+
   const handleEdgeMouseEnter = useCallback((edgeId) => {
     setHoveredEdgeInfo({ edgeId });
   }, []);
@@ -8471,7 +8775,9 @@ function NodeCanvas() {
   // to the clicked edge when no hover has been computed (e.g. the pointer never
   // moved over the canvas first).
   const selectEdgeFromClick = useCallback((clickedEdgeId, e) => {
-    const targetEdgeId = hoveredEdgeInfoRef.current?.edgeId || clickedEdgeId;
+    const targetEdgeId = hoveredEdgeInfoRef.current?.edgeId
+      || findEdgeAtClientPoint(e.clientX, e.clientY, 'mouse')?.edgeId
+      || clickedEdgeId;
     haptic('edgeSelect');
     if (e.ctrlKey || e.metaKey) {
       if (selectedEdgeIds.has(targetEdgeId)) {
@@ -8483,7 +8789,42 @@ function NodeCanvas() {
       storeActions.clearSelectedEdgeIds();
       storeActions.setSelectedEdgeId(targetEdgeId);
     }
-  }, [selectedEdgeIds, storeActions]);
+  }, [selectedEdgeIds, storeActions, findEdgeAtClientPoint]);
+
+  // Nearest-wins resolution for a touch/pen tap that landed on a connection's
+  // transparent stroke. The topmost stroke receives the event, which in a curved
+  // bundle (Lombardi arcs, parallel fans) is routinely not the connection under
+  // the finger. Mouse clicks correct for this via the hover ref; touch has no
+  // hover to lean on, so it re-runs the geometry.
+  const resolveTouchEdgeTarget = useCallback((fallbackEdgeId, e) => {
+    const x = e?.clientX ?? e?.touches?.[0]?.clientX;
+    const y = e?.clientY ?? e?.touches?.[0]?.clientY;
+    if (typeof x !== 'number' || typeof y !== 'number') return fallbackEdgeId;
+    return findEdgeAtClientPoint(x, y, 'touch')?.edgeId || fallbackEdgeId;
+  }, [findEdgeAtClientPoint]);
+
+  // Select a connection from a bare-canvas tap — the touch counterpart of the
+  // mouse hover→click path. The transparent SVG stroke is a narrow fast path;
+  // this catches everything inside the (much larger) touch grab radius that
+  // missed it. Nodes keep priority: they paint above connections and claim
+  // their own taps, and a tap that lands inside one is never redirected here.
+  // Returns true if a connection was selected.
+  const trySelectConnectionAtPoint = useCallback((clientX, clientY) => {
+    if (!containerRef.current) return false;
+    const rect = containerRef.current.getBoundingClientRect();
+    for (const n of nodes) {
+      if (n.isGroupAnchor) continue;
+      if (GeometryUtils.isInsideNode(n, clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize, previewingNodeId)) {
+        return false;
+      }
+    }
+    const hit = findEdgeAtClientPoint(clientX, clientY, 'touch');
+    if (!hit) return false;
+    haptic('edgeSelect');
+    storeActions.clearSelectedEdgeIds();
+    storeActions.setSelectedEdgeId(hit.edgeId);
+    return true;
+  }, [nodes, canvasSize, previewingNodeId, findEdgeAtClientPoint, storeActions]);
 
   // Shared pointer handlers for edge hitboxes (line stroke + label rect) so the
   // connection label text is just as clickable as the line itself.
@@ -8498,15 +8839,16 @@ function NodeCanvas() {
         // One tap can reach both this and onTouchStart below; the rate limit
         // collapses the pair into a single tick.
         haptic('edgeSelect');
+        const targetEdgeId = resolveTouchEdgeTarget(edgeId, e);
         if (e.ctrlKey || e.metaKey) {
-          if (selectedEdgeIds.has(edgeId)) {
-            storeActions.removeSelectedEdgeId(edgeId);
+          if (selectedEdgeIds.has(targetEdgeId)) {
+            storeActions.removeSelectedEdgeId(targetEdgeId);
           } else {
-            storeActions.addSelectedEdgeId(edgeId);
+            storeActions.addSelectedEdgeId(targetEdgeId);
           }
         } else {
           storeActions.clearSelectedEdgeIds();
-          storeActions.setSelectedEdgeId(edgeId);
+          storeActions.setSelectedEdgeId(targetEdgeId);
         }
       }
       handleEdgePointerDownTouch(edgeId, e);
@@ -8519,7 +8861,7 @@ function NodeCanvas() {
       setDrawingConnectionFrom(null);
       haptic('edgeSelect');
       storeActions.clearSelectedEdgeIds();
-      storeActions.setSelectedEdgeId(edgeId);
+      storeActions.setSelectedEdgeId(resolveTouchEdgeTarget(edgeId, e));
     },
     onClick: (e) => {
       e.stopPropagation();
@@ -8550,7 +8892,7 @@ function NodeCanvas() {
         storeActions.openRightPanelNodeTab(definingNodeId);
       }
     },
-  }), [selectedEdgeIds, storeActions, handleEdgePointerDownTouch]);
+  }), [selectedEdgeIds, storeActions, handleEdgePointerDownTouch, resolveTouchEdgeTarget]);
 
   const handleNodeMouseDown = (nodeData, e) => { // nodeData is now a hydrated node (instance + prototype)
     e.stopPropagation();
@@ -9055,6 +9397,7 @@ function NodeCanvas() {
     touchSettings,
     nodeLiftDelay,
     tryToggleConnectionOrbAtPoint,
+    trySelectConnectionAtPoint,
   });
 
   // Prevent native long-press context menu on touch devices (iOS/Android)
@@ -9220,190 +9563,16 @@ function NodeCanvas() {
               }
             });
           } else {
-            let foundHoveredEdgeInfo = null;
-            let foundConnectionPayload = null;
-            let closestDistance = Infinity;
+            // Same geometric test the click / tap paths run, so the highlight
+            // and the selection can never pick different connections.
+            const edgeHit = findNearestEdgeAtCanvasPoint(currentX, currentY, getEdgeHitThreshold('mouse'));
 
-            for (let i = visibleEdges.length - 1; i >= 0; i--) {
-              const edge = visibleEdges[i];
-              const sourceInstance = nodeById.get(edge.sourceId);
-              const targetInstance = nodeById.get(edge.destinationId);
-              if (!sourceInstance || !targetInstance) continue;
-
-              const sourceDims = baseDimsById.get(sourceInstance.id);
-              const targetDims = baseDimsById.get(targetInstance.id);
-              if (!sourceDims || !targetDims) continue;
-
-              const isSourcePreviewing = previewingNodeId === sourceInstance.id;
-              const isTargetPreviewing = previewingNodeId === targetInstance.id;
-              const x1 = sourceInstance.x + sourceDims.currentWidth / 2;
-              const y1 = sourceInstance.y + (isSourcePreviewing ? NODE_HEIGHT / 2 : sourceDims.currentHeight / 2);
-              const x2 = targetInstance.x + targetDims.currentWidth / 2;
-              const y2 = targetInstance.y + (isTargetPreviewing ? NODE_HEIGHT / 2 : targetDims.currentHeight / 2);
-
-              let distance = Infinity;
-
-              if (edge.sourceId === edge.destinationId) {
-                distance = distanceToSelfLoop(
-                  currentX, currentY,
-                  sourceInstance.x, sourceInstance.y,
-                  sourceDims.currentWidth, sourceDims.currentHeight,
-                  edgeCurveInfo.get(edge.id)
-                );
-              } else if (enableAutoRouting && routingStyle === 'clean') {
-                const pathPoints = generateCleanRoutingPath(
-                  edge,
-                  sourceInstance,
-                  targetInstance,
-                  sourceDims,
-                  targetDims,
-                  cleanLaneOffsets,
-                  cleanLaneSpacing
-                );
-
-                distance = distanceToPolyline(currentX, currentY, pathPoints);
-              } else if (enableAutoRouting && routingStyle === 'lombardi') {
-                // Closed form, not sampling. This runs for every visible edge on
-                // every pointer move; building the full routing descriptor here
-                // (sampled polyline, path string, arrowhead trims) and then
-                // walking the polyline made hover cost ~2x what the orthogonal
-                // styles cost, on top of the garbage it generated.
-                const { p, q, arc } = lombardiArcFor(
-                  edge, sourceInstance, targetInstance, sourceDims, targetDims,
-                  lombardiTangents, lombardiCurvature,
-                  // Same fan the renderer drew, so hover picks the member of a
-                  // bundle actually under the pointer.
-                  { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing }
-                );
-                distance = arc
-                  ? distanceToArc(currentX, currentY, arc)
-                  : distanceToPolyline(currentX, currentY, [p, q]);
-              } else if (enableAutoRouting && routingStyle === 'manhattan') {
-                const pathPoints = generateManhattanRoutingPath(
-                  edge,
-                  sourceInstance,
-                  targetInstance,
-                  sourceDims,
-                  targetDims,
-                  manhattanBends,
-                  // Same lane the renderer drew, or hover picks the wrong member
-                  // of a bundle — every one of them would hit-test against the
-                  // un-fanned centre route.
-                  { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing }
-                );
-
-                distance = distanceToPolyline(currentX, currentY, pathPoints);
-              } else {
-                // Check if this edge is curved (parallel edge)
-                const curveInfo = edgeCurveInfo.get(edge.id);
-                if (curveInfo && curveInfo.totalInPair > 1) {
-                  // Calculate distance to quadratic Bézier curve. Must use the SAME
-                  // curveSpacing as the renderer (200 * multiConnectionCurve) — the
-                  // default (BASE_CURVE_SPACING = 100) bunches the hit-test curves at
-                  // half the drawn fan-out, so with 3+ parallel edges the nearest
-                  // computed curve no longer matches the one actually under the pointer.
-                  const ctrlPoint = calculateCurveControlPoint(x1, y1, x2, y2, curveInfo, curveSpacing);
-                  if (ctrlPoint) {
-                    distance = distanceToQuadraticBezier(
-                      currentX, currentY,
-                      x1, y1,           // P0 (start)
-                      ctrlPoint.ctrlX, ctrlPoint.ctrlY,  // P1 (control point)
-                      x2, y2,           // P2 (end)
-                      40                // finer sampling to disambiguate tightly packed curves
-                    );
-                  }
-                } else {
-                  // Straight line distance
-                  const A = currentX - x1;
-                  const B = currentY - y1;
-                  const C = x2 - x1;
-                  const D = y2 - y1;
-                  const dot = A * C + B * D;
-                  const lenSq = C * C + D * D;
-                  if (lenSq > 0) {
-                    let param = dot / lenSq;
-                    if (param < 0) param = 0;
-                    else if (param > 1) param = 1;
-                    const xx = x1 + param * C;
-                    const yy = y1 + param * D;
-                    const dx = currentX - xx;
-                    const dy = currentY - yy;
-                    distance = Math.sqrt(dx * dx + dy * dy);
-                  }
-                }
-              }
-
-              // Routed styles get a wider grab radius: their geometry doesn't run
-              // where a naive chord would, so the pointer is often further from the
-              // line than the user's aim suggests.
-              const hoverThreshold = isRoutedStyle ? 50 : 40;
-
-              if (distance <= hoverThreshold && distance < closestDistance) {
-                closestDistance = distance;
-                foundHoveredEdgeInfo = { edgeId: edge.id };
-
-                let connectionName = edge.connectionName || 'Connection';
-                let connectionColor = edge.color || '#000000';
-
-                if ((!connectionName || connectionName === 'Connection') && edge.definitionNodeIds?.length) {
-                  const defNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                  if (defNode) {
-                    connectionName = defNode.name || connectionName;
-                    connectionColor = defNode.color || connectionColor;
-                  }
-                } else if ((!edge.definitionNodeIds || edge.definitionNodeIds.length === 0) && edge.typeNodeId) {
-                  const typeNode = nodePrototypesMap.get(edge.typeNodeId);
-                  if (typeNode) {
-                    connectionName = typeNode.name || connectionName;
-                    connectionColor = typeNode.color || connectionColor;
-                  }
-                }
-
-                const sourceEndpoint = {
-                  id: sourceInstance.id,
-                  name: sourceInstance.name,
-                  color: sourceInstance.color,
-                  width: sourceDims.currentWidth,
-                  height: isSourcePreviewing ? NODE_HEIGHT : sourceDims.currentHeight,
-                  prototypeId: sourceInstance.prototypeId
-                };
-                const targetEndpoint = {
-                  id: targetInstance.id,
-                  name: targetInstance.name,
-                  color: targetInstance.color,
-                  width: targetDims.currentWidth,
-                  height: isTargetPreviewing ? NODE_HEIGHT : targetDims.currentHeight,
-                  prototypeId: targetInstance.prototypeId
-                };
-                // Orient the preview to match the canvas: whichever endpoint sits
-                // further left on the canvas is shown on the left of the hover aid.
-                // Our brains can't easily re-map a connection whose on-canvas
-                // left→right order is reversed in the preview. Arrows are keyed by
-                // node id (directionality.arrowsToward), so swapping the display
-                // order of source/target is lossless.
-                const flipForCanvasOrder = targetInstance.x < sourceInstance.x;
-
-                foundConnectionPayload = {
-                  id: edge.id,
-                  name: connectionName,
-                  color: connectionColor,
-                  definitionNodeIds: edge.definitionNodeIds,
-                  typeNodeId: edge.typeNodeId,
-                  source: flipForCanvasOrder ? targetEndpoint : sourceEndpoint,
-                  target: flipForCanvasOrder ? sourceEndpoint : targetEndpoint,
-                  directionality: edge.directionality
-                };
-                // Keep scanning: for overlapping connections we want the nearest
-                // edge to win, not the first one found within the threshold.
-              }
-            }
-
-            if (foundHoveredEdgeInfo) {
+            if (edgeHit) {
               commitHoverTarget({
                 kind: 'connection',
-                id: foundHoveredEdgeInfo.edgeId,
-                edgeInfo: foundHoveredEdgeInfo,
-                connection: foundConnectionPayload
+                id: edgeHit.edgeId,
+                edgeInfo: { edgeId: edgeHit.edgeId },
+                connection: edgeHit.connection
               });
             } else {
               commitHoverTarget({ kind: 'none' });
@@ -9727,17 +9896,12 @@ function NodeCanvas() {
       potentialClickNodeRef.current = null;
     }
 
-    // Explicitly close Connection Panel / Edge Pie Menu on any canvas interaction (click, pan start, etc.)
-    // This ensures that even if you drag slightly (panning), the panel/menu closes.
-    if ((connectionControlPanelVisible || connectionControlPanelShouldShow) && !isPaused) {
-      setConnectionControlPanelVisible(false);
-      storeActions.setSelectedEdgeId(null);
-      storeActions.clearSelectedEdgeIds();
-    }
-    if (edgePieMenuVisible && !isPaused) {
-      setEdgePieMenuVisible(false);
-      storeActions.setSelectedEdgeId(null);
-    }
+    // NOTE: the connection selection is deliberately NOT cleared here. Panning must
+    // preserve it — a pointer-down on bare canvas is the start of a gesture that may
+    // turn out to be a pan, and killing the selection on press made the pie menu
+    // vanish the instant you tried to drag the view around it. Click-off dismissal
+    // now lives in handleCanvasClick, which runs on release and can tell a pan from
+    // a click (recentlyPanned / ignoreCanvasClick).
 
     isMouseDown.current = true;
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
@@ -10141,9 +10305,39 @@ function NodeCanvas() {
       return;
     }
 
-    // Priority: Check related control panels FIRST before any other checks (like ignoreCanvasClick)
-    // This ensures clicking off always dismisses the panel even if a slight drag occurred
+    // A click that lands on bare canvas but inside a connection's grab radius
+    // selects that connection. The transparent SVG stroke is narrower than the
+    // radius the hover highlight already lights up at, so without this a click
+    // that visually lands "on" the line falls through to deselect / plus-sign —
+    // the line appears to ignore you. Prefer the hover ref (already nearest-wins)
+    // and fall back to the geometry for clicks that never dwelled.
+    // Clicking the already-selected connection still falls through, so a second
+    // click deselects.
+    const isBareCanvasTarget = (
+      (e.target.tagName === 'svg' && e.target.classList.contains('canvas')) ||
+      (e.target.tagName === 'DIV' && e.target.classList.contains('canvas-area'))
+    );
+    if (isBareCanvasTarget && !ignoreCanvasClick.current && !isPaused && !draggingNodeInfo
+      && !drawingConnectionFrom && !recentlyPanned && !nodeNamePrompt.visible && activeGraphId) {
+      const clickedEdgeId = hoveredEdgeInfoRef.current?.edgeId
+        || findEdgeAtClientPoint(e.clientX, e.clientY, 'mouse')?.edgeId;
+      const alreadySoleSelection = clickedEdgeId
+        && selectedEdgeIds.size <= 1
+        && (selectedEdgeId === clickedEdgeId || selectedEdgeIds.has(clickedEdgeId));
+      if (clickedEdgeId && !alreadySoleSelection) {
+        selectEdgeFromClick(clickedEdgeId, e);
+        return;
+      }
+    }
+
+    // Priority: check the connection panel/menu before the generic selection handling
+    // below, so clicking off always dismisses them. Not before the pan guards though —
+    // the synthetic click that ends a pan must leave the connection selected.
     if (connectionControlPanelShouldShow || connectionControlPanelVisible || edgePieMenuVisible || edgePieMenuRendered || selectedEdgeId || selectedEdgeIds.size > 0) {
+      if (recentlyPanned || ignoreCanvasClick.current) {
+        ignoreCanvasClick.current = false;
+        return;
+      }
       if (connectionControlPanelShouldShow || connectionControlPanelVisible) {
         setConnectionControlPanelVisible(false);
       }
@@ -11460,8 +11654,12 @@ function NodeCanvas() {
   // --- Hurtle Animation State & Logic ---
   const [hurtleAnimation, setHurtleAnimation] = useState(null);
   const hurtleAnimationRef = useRef(null);
+  // Detents for the orb's flight. One track reused across launches — every
+  // hurtle goes through runHurtleAnimation, which reseeds it.
+  const hurtleTrack = useRef(createDetentTrack('hurtleTravel', HURTLE_DETENT_STEP));
 
   const runHurtleAnimation = useCallback((animationData) => {
+    hurtleTrack.current.reset(0);
     const animate = (currentTime) => {
       const elapsed = currentTime - animationData.startTime;
       const progress = Math.min(elapsed / animationData.duration, 1);
@@ -11470,6 +11668,13 @@ function NodeCanvas() {
       const easedProgress = progress < 0.5
         ? 2 * progress * progress
         : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+      // Detents along the flight. Driven by easedProgress, not progress, so the
+      // ticks track how fast the orb is visibly moving — sparse at the ends
+      // where it's easing in and out, tight through the middle where it's
+      // actually hurtling. Stops short of 1: the landing gets its own, heavier
+      // event below rather than a fourth tick colliding with it.
+      if (progress < 1) hurtleTrack.current.update(easedProgress);
 
       // Calculate current position (screen coordinates)
       const currentX = Math.round(animationData.startPos.x + (animationData.targetPos.x - animationData.startPos.x) * easedProgress);
@@ -11503,7 +11708,10 @@ function NodeCanvas() {
       if (progress < 1) {
         hurtleAnimationRef.current = requestAnimationFrame(animate);
       } else {
-        // Animation complete - clean up and switch graph
+        // Animation complete - clean up and switch graph. The orb lands and the
+        // new graph takes over, which is the same event a tab tap produces —
+        // forced past the rate limit so the last detent can't swallow it.
+        haptic('graphSwitch', { force: true });
         storeActions.openGraphTabAndBringToTop(animationData.targetGraphId, animationData.definitionNodeId);
         setHurtleAnimation(null);
         if (hurtleAnimationRef.current) {
@@ -11743,6 +11951,26 @@ function NodeCanvas() {
       edgePieMenuButtonsRef.current = edgePieMenuButtons;
     }
   }, [edgePieMenuVisible, edgePieMenuButtons]);
+
+  // Focus-on-select for connections: when an edge's pie menu first appears, frame it
+  // the same way selecting a node frames its menu. Only on a fresh show (new edge),
+  // never on re-renders while the same menu is up — otherwise every button press or
+  // pan would re-yank the view. Mid-drag is skipped: the anchor is frozen then, and
+  // the menu is outroing anyway.
+  const prevFocusPieEdgeIdRef = useRef(null);
+  useEffect(() => {
+    const was = prevFocusPieEdgeIdRef.current;
+    const id = edgePieMenuVisible ? selectedEdgeId : null;
+    prevFocusPieEdgeIdRef.current = id;
+
+    if (!FOCUS_ON_SELECT_ENABLED || !focusOnSelectEnabled) return;
+    if (!id || id === was) return;
+    if (abstractionCarouselVisible || draggingNodeInfoRef.current) return;
+    if (!selectedEdgeMidpoint || edgePieMenuButtons.length === 0) return;
+
+    focusEdgePieMenuInView(selectedEdgeMidpoint, edgePieMenuButtons.length);
+  }, [edgePieMenuVisible, selectedEdgeId, selectedEdgeMidpoint, edgePieMenuButtons,
+    abstractionCarouselVisible, focusEdgePieMenuInView, focusOnSelectEnabled]);
 
   // Callback for activating semantic orbit from control panel
   const activateSemanticOrbit = useCallback(() => {
@@ -12702,6 +12930,9 @@ function NodeCanvas() {
     >
       {/* Main content uncommented */}
 
+      {/* Header (and with it the Redstring button and its menu) is dropped in
+          the fullscreen landscape shell — see useMobileLandscapeShell.js. */}
+      {!mobileLandscapeShell && (
       <Header
         onTitleChange={handleProjectTitleChange}
         onEditingStateChange={setIsHeaderEditing}
@@ -13056,6 +13287,7 @@ function NodeCanvas() {
           }
         }}
       />
+      )}
       <div style={{ display: 'flex', flexGrow: 1, position: 'relative', overflow: 'hidden' }}>
         <Panel
           key="left-panel"
@@ -14838,15 +15070,19 @@ function NodeCanvas() {
                                       ignoreCanvasClick.current = true; // suppress canvas click -> plus sign
                                       setLongPressingInstanceId(null); // prevent connection drawing intent
                                       setDrawingConnectionFrom(null);
+                                      // Nearest-wins: the topmost transparent stroke got the
+                                      // tap, which in a curved bundle is often not the line
+                                      // under the finger.
+                                      const tapEdgeId = resolveTouchEdgeTarget(edge.id, e);
                                       if (e.ctrlKey || e.metaKey) {
-                                        if (selectedEdgeIds.has(edge.id)) {
-                                          storeActions.removeSelectedEdgeId(edge.id);
+                                        if (selectedEdgeIds.has(tapEdgeId)) {
+                                          storeActions.removeSelectedEdgeId(tapEdgeId);
                                         } else {
-                                          storeActions.addSelectedEdgeId(edge.id);
+                                          storeActions.addSelectedEdgeId(tapEdgeId);
                                         }
                                       } else {
                                         storeActions.clearSelectedEdgeIds();
-                                        storeActions.setSelectedEdgeId(edge.id);
+                                        storeActions.setSelectedEdgeId(tapEdgeId);
                                       }
                                     }
                                     handleEdgePointerDownTouch(edge.id, e);
@@ -14858,7 +15094,7 @@ function NodeCanvas() {
                                     setLongPressingInstanceId(null);
                                     setDrawingConnectionFrom(null);
                                     storeActions.clearSelectedEdgeIds();
-                                    storeActions.setSelectedEdgeId(edge.id);
+                                    storeActions.setSelectedEdgeId(resolveTouchEdgeTarget(edge.id, e));
                                   }}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -14900,15 +15136,19 @@ function NodeCanvas() {
                                       ignoreCanvasClick.current = true;
                                       setLongPressingInstanceId(null);
                                       setDrawingConnectionFrom(null);
+                                      // Nearest-wins: the topmost transparent stroke got the
+                                      // tap, which in a curved bundle is often not the line
+                                      // under the finger.
+                                      const tapEdgeId = resolveTouchEdgeTarget(edge.id, e);
                                       if (e.ctrlKey || e.metaKey) {
-                                        if (selectedEdgeIds.has(edge.id)) {
-                                          storeActions.removeSelectedEdgeId(edge.id);
+                                        if (selectedEdgeIds.has(tapEdgeId)) {
+                                          storeActions.removeSelectedEdgeId(tapEdgeId);
                                         } else {
-                                          storeActions.addSelectedEdgeId(edge.id);
+                                          storeActions.addSelectedEdgeId(tapEdgeId);
                                         }
                                       } else {
                                         storeActions.clearSelectedEdgeIds();
-                                        storeActions.setSelectedEdgeId(edge.id);
+                                        storeActions.setSelectedEdgeId(tapEdgeId);
                                       }
                                     }
                                     handleEdgePointerDownTouch(edge.id, e);
@@ -14920,7 +15160,7 @@ function NodeCanvas() {
                                     setLongPressingInstanceId(null);
                                     setDrawingConnectionFrom(null);
                                     storeActions.clearSelectedEdgeIds();
-                                    storeActions.setSelectedEdgeId(edge.id);
+                                    storeActions.setSelectedEdgeId(resolveTouchEdgeTarget(edge.id, e));
                                   }}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -14964,15 +15204,19 @@ function NodeCanvas() {
                                       ignoreCanvasClick.current = true;
                                       setLongPressingInstanceId(null);
                                       setDrawingConnectionFrom(null);
+                                      // Nearest-wins: the topmost transparent stroke got the
+                                      // tap, which in a curved bundle is often not the line
+                                      // under the finger.
+                                      const tapEdgeId = resolveTouchEdgeTarget(edge.id, e);
                                       if (e.ctrlKey || e.metaKey) {
-                                        if (selectedEdgeIds.has(edge.id)) {
-                                          storeActions.removeSelectedEdgeId(edge.id);
+                                        if (selectedEdgeIds.has(tapEdgeId)) {
+                                          storeActions.removeSelectedEdgeId(tapEdgeId);
                                         } else {
-                                          storeActions.addSelectedEdgeId(edge.id);
+                                          storeActions.addSelectedEdgeId(tapEdgeId);
                                         }
                                       } else {
                                         storeActions.clearSelectedEdgeIds();
-                                        storeActions.setSelectedEdgeId(edge.id);
+                                        storeActions.setSelectedEdgeId(tapEdgeId);
                                       }
                                     }
                                     handleEdgePointerDownTouch(edge.id, e);
@@ -14984,7 +15228,7 @@ function NodeCanvas() {
                                     setLongPressingInstanceId(null);
                                     setDrawingConnectionFrom(null);
                                     storeActions.clearSelectedEdgeIds();
-                                    storeActions.setSelectedEdgeId(edge.id);
+                                    storeActions.setSelectedEdgeId(resolveTouchEdgeTarget(edge.id, e));
                                   }}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -16122,43 +16366,10 @@ function NodeCanvas() {
                             : null;
                           const edgeAttachedToDraggedNode = Boolean(draggedNodeIds && (draggedNodeIds.has(anchor.sourceId) || draggedNodeIds.has(anchor.destinationId)));
 
-                          // Space check: does the full button row fit on screen?
-                          // Use correct canvas→screen conversion: (canvasX - offsetX) * zoom + pan + rectLeft
-                          const ns = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
-                          const BUBBLE_STEP = (120 + 32) * ns; // BUBBLE_SIZE + BUBBLE_PADDING, scaled
-                          const zoom = zoomLevelRef.current;
-                          const pan = panOffsetRef.current;
-                          const rect = containerRef.current?.getBoundingClientRect();
-                          const screenX = rect
-                            ? (anchor.x - canvasSize.offsetX) * zoom + pan.x + rect.left
-                            : window.innerWidth / 2;
-                          const n = frozenButtons.length;
-                          // Full row extent: center ± half of ((n-1)*step + bubbleSize)
-                          const halfRowPx = ((n - 1) * BUBBLE_STEP / 2 + 60 * ns) * zoom;
-                          const isCompact = rect
-                            ? (screenX - halfRowPx < 16 || screenX + halfRowPx > rect.width - 16)
-                            : false;
-
-                          // In compact mode, swap to a single "..." button that opens context menu
-                          const displayButtons = isCompact
-                            ? [{
-                                id: 'edge-more',
-                                label: 'More',
-                                icon: MoreHorizontal,
-                                action: (_id, buttonPosition) => {
-                                  const menuOptions = frozenButtons.map(btn => ({
-                                    label: btn.label,
-                                    icon: btn.icon ? React.createElement(btn.icon, { size: 16, color: 'maroon' }) : null,
-                                    action: () => btn.action(null, null),
-                                  }));
-                                  showContextMenu(
-                                    buttonPosition?.x ?? screenX,
-                                    buttonPosition?.y ?? (rect ? (anchor.y - canvasSize.offsetY) * zoom + pan.y + rect.top : 100),
-                                    menuOptions
-                                  );
-                                },
-                              }]
-                            : frozenButtons;
+                          // No compact/"..." fallback: focusEdgePieMenuInView (see the
+                          // focus-on-select effect) zooms the view to the menu's own bounds
+                          // whenever the row wouldn't fit, so the full row is always reachable.
+                          const displayButtons = frozenButtons;
 
                           return (
                             <PieMenu
@@ -16501,7 +16712,7 @@ function NodeCanvas() {
                 </g>
               </svg>
               <HoverVisionAid
-                headerHeight={HEADER_HEIGHT}
+                headerHeight={headerHeight}
                 hoveredNode={hoveredNodeForVision}
                 hoveredConnection={hoveredConnectionForVision}
                 activePieMenuItem={activePieMenuItemForVision}
@@ -16860,12 +17071,15 @@ function NodeCanvas() {
         />
       </div>
 
-      {/* TypeList Component */}
-      <TypeList
-        nodes={nodes}
-        setSelectedNodes={setSelectedInstanceIds}
-        selectedNodes={selectedInstanceIds}
-      />
+      {/* TypeList Component — dropped in the fullscreen landscape shell, along
+          with its bottom-left toggle button (both live inside TypeList). */}
+      {!mobileLandscapeShell && (
+        <TypeList
+          nodes={nodes}
+          setSelectedNodes={setSelectedInstanceIds}
+          selectedNodes={selectedInstanceIds}
+        />
+      )}
 
       {/* SaveStatusDisplay Component */}
       <SaveStatusDisplay hidden={showStorageSetupModal} />
@@ -16877,7 +17091,7 @@ function NodeCanvas() {
             mode={decomposePanelInfo ? 'decompose' : 'nodes'}
             selectedNodePrototypes={decomposePanelInfo ? [decomposePanelInfo.prototype] : nodePrototypesForPanel}
             isVisible={nodeControlPanelVisible}
-            typeListOpen={typeListMode !== 'closed'}
+            typeListOpen={typeListVisible}
             onAnimationComplete={handleNodeControlPanelAnimationComplete}
             decompHasDefinitions={decomposePanelInfo ? decomposePanelInfo.hasDefs : false}
             onCompose={() => setPreviewingNodeId(null)}
@@ -16938,7 +17152,7 @@ function NodeCanvas() {
           <UnifiedBottomControlPanel
             mode={groupPanelMode}
             isVisible={groupControlPanelVisible}
-            typeListOpen={typeListMode !== 'closed'}
+            typeListOpen={typeListVisible}
             onAnimationComplete={handleGroupControlPanelAnimationComplete}
             selectedGroup={groupPanelTarget}
             onUngroup={handleGroupPanelUngroup}
@@ -16963,7 +17177,7 @@ function NodeCanvas() {
             selectedEdge={edgesMap.get(selectedEdgeId)}
             selectedEdges={Array.from(selectedEdgeIds).map(id => edgesMap.get(id)).filter(Boolean)}
             isVisible={connectionControlPanelVisible}
-            typeListOpen={typeListMode !== 'closed'}
+            typeListOpen={typeListVisible}
             onAnimationComplete={handleConnectionControlPanelAnimationComplete}
             onClose={() => {
               storeActions.setSelectedEdgeId(null);
@@ -17005,7 +17219,7 @@ function NodeCanvas() {
             onAddDimension={handleAddAbstractionDimension}
             onDeleteDimension={handleDeleteAbstractionDimension}
             onExpandDimension={handleExpandAbstractionDimension}
-            typeListOpen={typeListMode !== 'closed'}
+            typeListOpen={typeListVisible}
             isVisible={abstractionControlPanelVisible}
             onAnimationComplete={handleAbstractionControlPanelAnimationComplete}
             onActionHoverChange={handlePieMenuHoverChange}

@@ -11,6 +11,7 @@ import { isCapacitor, registerCapacitorLifecycle, logPlatformDiagnostics } from 
 import { warmHaptics } from './services/haptics.js';
 import { saveCoordinator } from './services/SaveCoordinator.js';
 import { DARK_THEME, LIGHT_THEME } from './utils/themeColors.js';
+import { useMobileLandscapeShell } from './hooks/useMobileLandscapeShell.js';
 import './App.css';
 
 // TEMP: manual test hook for empty node-group placeholder feature — remove before commit.
@@ -18,6 +19,7 @@ if (typeof window !== 'undefined') window.useGraphStore = useGraphStore;
 
 function App() {
   const darkMode = useGraphStore(s => s.darkMode);
+  const mobileLandscapeShell = useMobileLandscapeShell();
 
   // Prints one "[Platform] isCapacitor=..." line, visible in the Xcode console
   // because Capacitor forwards JS console output to the native log.
@@ -40,10 +42,21 @@ function App() {
     // colour, not just dark mode, so the bands re-colour as you navigate. The
     // canvas colour is only the fallback for the first paint, before a header
     // has mounted. The canvas paints its own background over this.
-    document.body.style.backgroundColor = `var(--rs-header-bg, ${theme.canvas.bg})`;
+    //
+    // The one exception is the fullscreen landscape shell, where the only band
+    // left is the notch strip on the left. There is no header to match there,
+    // and a coloured stripe beside a full-bleed canvas reads as a rendering
+    // fault — so it goes pitch black and reads as bezel.
+    const bandColor = mobileLandscapeShell
+      ? '#000000'
+      : `var(--rs-header-bg, ${theme.canvas.bg})`;
+    document.body.style.backgroundColor = bandColor;
     // html too: iOS rubber-band overscroll reveals the root background, not the
     // body's, and a mismatch there flashes the wrong colour at the edges.
-    root.style.backgroundColor = `var(--rs-header-bg, ${theme.canvas.bg})`;
+    root.style.backgroundColor = bandColor;
+    // (The body class that releases the top/bottom/right insets is owned by
+    // useMobileLandscapeShell.js — it has to be applied before anything
+    // re-measures #root, which a React effect here cannot guarantee.)
 
     // Add/remove dark-mode class on html element for CSS
     root.classList.toggle('dark-mode', darkMode);
@@ -73,7 +86,7 @@ function App() {
       root.style.setProperty('--bubble-user-text', '#260000');
       root.style.setProperty('--bubble-user-border', 'rgba(151, 144, 144, 0.8)');
     }
-  }, [darkMode]);
+  }, [darkMode, mobileLandscapeShell]);
 
   // Unsaved-changes protection on exit.
   //

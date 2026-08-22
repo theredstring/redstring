@@ -12,6 +12,7 @@ import { showContextMenu } from '../../GlobalContextMenu.jsx';
 import { bridgeFetch, bridgeEventSource, getBridgeBaseUrl } from '../../../services/bridgeConfig.js';
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from '../../../constants.js';
+import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
 import WizardActionChip from '../../wizard/WizardActionChip.jsx';
 import { resolveGraphId } from '../../../wizard/tools/resolveGraphId.js';
@@ -3106,7 +3107,10 @@ const LeftAIView = ({ compact = false,
   };
 
   const typeListMode = useGraphStore(state => state.typeListMode);
-  const toggleClearance = typeListMode === 'closed' ? HEADER_HEIGHT + 10 : 0;
+  // Clearance for the TypeList's bottom-left toggle button, which the
+  // fullscreen landscape shell doesn't render at all.
+  const mobileLandscapeShell = useMobileLandscapeShell();
+  const toggleClearance = (typeListMode === 'closed' && !mobileLandscapeShell) ? HEADER_HEIGHT + 10 : 0;
 
   // Save active conversation messages to file (Electron only — web uses localStorage via the messages sync effect above)
   React.useEffect(() => {
