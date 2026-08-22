@@ -18,6 +18,7 @@ import {
 } from '../services/groupLayout.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances } from '../services/textMeasurement.js';
 import saveCoordinator from '../services/SaveCoordinator.js';
+import { haptic } from '../services/haptics.js';
 
 // Movement Zoom-Out constants
 const DRAG_ZOOM_MIN = 0.1;
@@ -2029,6 +2030,10 @@ export const useNodeDrag = ({
         primaryId: instanceId
       };
       setDraggingNodeInfo(multiInfo);
+      // Fired here rather than at the top of the function: everything above can
+      // still bail out without a visual lift, and a tick with nothing lifting
+      // reads as a misfire.
+      haptic('nodeLift');
 
       dragHistoryRecordedRef.current = false;
       triggerDragZoomOut(clientX, clientY);
@@ -2058,6 +2063,7 @@ export const useNodeDrag = ({
     }
     const singleInfo = { instanceId, offset, initialPos: { x: nodeData.x, y: nodeData.y } };
     setDraggingNodeInfo(singleInfo);
+    haptic('nodeLift');
 
     dragHistoryRecordedRef.current = false;
     triggerDragZoomOut(clientX, clientY);
@@ -2087,6 +2093,7 @@ export const useNodeDrag = ({
     // before the first pointermove corrects it. Mirrors startDragForNode.
     mousePositionRef.current = { x: clientX, y: clientY };
     setDraggingNodeInfo({ groupId, memberOffsets });
+    haptic('nodeLift');
     dragHistoryRecordedRef.current = false;
     // Group members don't get a per-node lift scale — fall back to node.scale (1)
     // rather than a stale target left over from a prior single/multi-node drag.
@@ -2206,6 +2213,9 @@ export const useNodeDrag = ({
       return { draggedNodeIds: [], primaryNodeId: null, checkGroupDrop: false, wasGroupDrag: false };
     }
     dragPhaseRef.current = 'finalizing';
+    // Past the re-entry guard and the no-info bail, so this fires exactly once
+    // per real release, on the same tick the drop animation starts settling.
+    haptic('nodeDrop');
 
     // Snap drag state to the actual release position. The last pointermove can
     // fire a few px before touchend, so dragPositionsRef + pendingDragUpdate

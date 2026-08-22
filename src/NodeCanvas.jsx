@@ -13719,10 +13719,8 @@ function NodeCanvas() {
                                   });
                                 });
                               }
+                              // startGroupDrag fires the lift haptic itself.
                               nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
-                              if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                                try { navigator.vibrate(50); } catch { }
-                              }
                             }, nodeLiftDelay);
                           }}
                           onTouchEnd={(e) => {

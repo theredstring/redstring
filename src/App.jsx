@@ -8,6 +8,7 @@ import UpdateToast from './components/UpdateToast.jsx';
 import useGraphStore from './store/graphStore.js';
 import { isElectron } from './utils/fileAccessAdapter.js';
 import { isCapacitor, registerCapacitorLifecycle, logPlatformDiagnostics } from './utils/capacitorAdapter.js';
+import { warmHaptics } from './services/haptics.js';
 import { saveCoordinator } from './services/SaveCoordinator.js';
 import { DARK_THEME, LIGHT_THEME } from './utils/themeColors.js';
 import './App.css';
@@ -21,6 +22,10 @@ function App() {
   // Prints one "[Platform] isCapacitor=..." line, visible in the Xcode console
   // because Capacitor forwards JS console output to the native log.
   useEffect(() => { logPlatformDiagnostics(); }, []);
+
+  // Load the haptics plugin chunk at idle so the first node lift isn't the
+  // thing that pays for it.
+  useEffect(() => { warmHaptics(); }, []);
 
   useEffect(() => {
     const theme = darkMode ? DARK_THEME : LIGHT_THEME;

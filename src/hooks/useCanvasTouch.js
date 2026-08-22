@@ -1,6 +1,7 @@
 
 import { useRef, useEffect } from 'react';
 import { useWindowGestureEnd } from './useWindowGestureEnd';
+import { haptic } from '../services/haptics.js';
 
 // Constants locally defined or passed? 
 // Some constants seem global. I should duplicates them or export/import them.
@@ -917,12 +918,11 @@ export const useCanvasTouch = ({
         const nodeElement = e.currentTarget;
         nodeElement.classList.add('touch-active');
 
-        // Haptic feedback if available
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-            try {
-                navigator.vibrate(10); // Short vibration for touch start
-            } catch (e) { }
-        }
+        // On a vibration motor this is the short touch-start confirmation. On
+        // the Taptic tier it is silent and instead *arms* the selection
+        // generator, so the lift tick ~450ms from now lands without spin-up
+        // latency — see services/haptics.js.
+        haptic('nodeTouch');
 
         // Initialize touch state (drag can also start via long-press fallback)
         touchState.current = {
@@ -975,14 +975,11 @@ export const useCanvasTouch = ({
                     ts.isDragging = false;
                 }
 
-                // Visual/Haptic feedback
+                // Visual feedback. The lift haptic is fired by startDragForNode
+                // itself so it stays tied to the drag actually committing —
+                // and so the mouse and touch paths can't diverge.
                 if (ts.nodeElement) {
                     ts.nodeElement.classList.add('long-press-active');
-                }
-                if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                    try {
-                        navigator.vibrate(50);
-                    } catch (e) { }
                 }
             }
         // Scale the touch delay proportionally from the mouse delay (ratio 450/250 = 1.8),
@@ -1243,11 +1240,7 @@ export const useCanvasTouch = ({
         if (!touchState.current.hasMovedPastThreshold && !wasDragOrConnection && !multiTouchGestureRef.current && touchState.current.dragNodeId === nodeData.id) {
             // This was a tap, not a drag
             // Light haptic feedback for tap completion
-            if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                try {
-                    navigator.vibrate(5);
-                } catch (e) { }
-            }
+            haptic('nodeTap');
 
             // Double-tap detection (mirrors mouse e.detail===2 path in
             // handleNodeMouseDown): open the prototype's right-panel tab.
