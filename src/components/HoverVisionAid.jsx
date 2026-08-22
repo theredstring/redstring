@@ -4,6 +4,7 @@ import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
 import { getNodeDimensions } from '../utils.js';
 import { measureTextWidth } from '../services/textMeasurement.js';
 import useGraphStore from '../store/graphStore.js';
+import { hasNoHover } from '../utils/inputDeviceAnalysis.js';
 
 // Minecraft-toolbar-style timing: after the pointer leaves, hold the preview at
 // full opacity for PREFADE_MS, then fade it out over FADE_MS. The preview fades
@@ -59,9 +60,7 @@ const HoverVisionAid = ({
   // On no-mouse (touch) devices there is no real hover — a tap would otherwise pop this
   // preview up unexpectedly, so suppress the node/connection hover previews entirely.
   // (The pie-menu item label is kept; it's driven by the pie menu, not stray hovers.)
-  const noHoverDevice = typeof window !== 'undefined'
-    && typeof window.matchMedia === 'function'
-    && window.matchMedia('(hover: none)').matches;
+  const noHoverDevice = hasNoHover();
 
   // Normalize the current live hover into a single "subject" (or null). The
   // `key` uniquely identifies the subject so we can tell "same thing" from

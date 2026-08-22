@@ -222,12 +222,17 @@ const RECIPES = {
     [HapticTier.BASIC]: { vibrate: 16 }
   },
   /**
-   * A connection gesture landed on something. A tick, not an impact: the edge
-   * appearing is its own loud visual event, and after a run of stretch detents
-   * an impact would read as a thud at the end of a texture.
+   * A connection gesture landed on something. Medium specifically so it breaks
+   * out of the stretch detents it arrives on the heels of — a tick here would
+   * be indistinguishable from just another crossing, and the one moment the
+   * gesture must confirm is the moment it succeeds.
+   *
+   * The tiers diverge on purpose. There are no detents on a vibration motor
+   * (connectionStretch is Taptic-only), so there is nothing for the completion
+   * to stand out against and no reason to make it heavier there.
    */
   connectionMade: {
-    [HapticTier.TAPTIC]: { tick: true },
+    [HapticTier.TAPTIC]: { impact: 'MEDIUM' },
     [HapticTier.BASIC]: { vibrate: 12 }
   },
   /**
@@ -241,6 +246,35 @@ const RECIPES = {
    */
   connectionStretch: {
     [HapticTier.TAPTIC]: { tick: true }
+  },
+  /** An edge is selected. A tick — the same class of act as tapping a node. */
+  edgeSelect: {
+    [HapticTier.TAPTIC]: { tick: true },
+    [HapticTier.BASIC]: { vibrate: 5 }
+  },
+  /**
+   * A connection's direction flips — hover dot becoming an arrowhead, or back.
+   * Light impact rather than a tick: the arrowhead visibly pops into being, and
+   * an impact is the small weighted thump that matches a thing appearing. It
+   * also separates "I changed the edge" from "I selected the edge", which are
+   * two taps a few pixels apart on the same connection.
+   */
+  directionToggle: {
+    [HapticTier.TAPTIC]: { impact: 'LIGHT' },
+    [HapticTier.BASIC]: { vibrate: 10 }
+  },
+  /**
+   * A dragged-out node prototype lands and becomes a real instance.
+   *
+   * Medium, matching connectionMade rather than nodeDrop: the emerging rule in
+   * this table is that *creating* something gets the extra weight, while moving
+   * something that already exists stays light. The lift for this gesture reuses
+   * nodeLift — picking up a prototype and picking up a node are the same act,
+   * and they should not feel like two different things.
+   */
+  nodeSpawn: {
+    [HapticTier.TAPTIC]: { impact: 'MEDIUM' },
+    [HapticTier.BASIC]: { vibrate: 16 }
   }
 };
 

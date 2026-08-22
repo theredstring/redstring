@@ -128,7 +128,7 @@ import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveCon
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
 import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, labelBoundsFor, labelFrameToken, straightLabelTransform } from './utils/canvas/edgeLabelPlacement.js';
-import { likelyTouch, isTouchDevice } from './utils/inputDeviceAnalysis';
+import { likelyTouch, isTouchDevice, hasNoHover } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
 import NodeSelectionGrid from './NodeSelectionGrid'; // Import the new node selection grid
@@ -328,6 +328,9 @@ const TOUCH_HIGH_VELOCITY_RAMP = 1.5;           // px/ms — speed range over wh
 // texture rather than a rattle, and well under the ~25/sec ceiling the shared
 // rate limit imposes. Larger = sparser clicks; smaller = denser.
 const CONNECTION_DETENT_PX = 44;
+// How long a tapped button's vision-aid label stays up on a no-hover device
+// before it starts retracting. See handlePieMenuHoverChange.
+const VISION_AID_TOUCH_HOLD_MS = 1000;
 const TRACKPAD_PAN_FRICTION = 0.94;             // per-frame retention for trackpad glide
 const PAN_MOMENTUM_FRAME = 16.67;               // baseline frame duration (ms) for damping scaling
 const TOUCH_PAN_MOMENTUM_BOOST = 1.0;           // no amplification — launch momentum at the actual finger release velocity (boost made low/mid flicks feel jumpy)
@@ -5497,6 +5500,7 @@ function NodeCanvas() {
     }
     if (!best) return false;
     orbToggleEchoRef.current = performance.now();
+    haptic('directionToggle');
     storeActions.updateEdge(best.edgeId, (draft) => {
       if (!draft.directionality) draft.directionality = { arrowsToward: new Set() };
       if (!draft.directionality.arrowsToward) draft.directionality.arrowsToward = new Set();
@@ -5604,16 +5608,36 @@ function NodeCanvas() {
     activePieMenuItemRef.current = null;
   }, [clearHoverImmediate]);
 
+  // On a device that can't hover there is no pointer-leave to take the chip
+  // back down, so a label raised by a tap would sit there until something else
+  // happened to replace it. Instead, show it and retract it on a timer: the tap
+  // reveals what the button was, then it gets out of the way. HoverVisionAid's
+  // own hold-then-fade turns the clear into a graceful exit rather than a pop,
+  // so the visible life is this hold plus its ~250ms fade.
+  //
+  // Hover devices are untouched — the pointer still governs, which is the right
+  // model when there IS a pointer.
+  const visionAutoClearRef = useRef(null);
   const handlePieMenuHoverChange = useCallback((button) => {
+    clearTimeout(visionAutoClearRef.current);
+    visionAutoClearRef.current = null;
     if (button?.label) {
       const item = { id: button.id, label: button.label };
       setActivePieMenuItemForVision(item);
       activePieMenuItemRef.current = item;
+      if (hasNoHover()) {
+        visionAutoClearRef.current = setTimeout(() => {
+          visionAutoClearRef.current = null;
+          setActivePieMenuItemForVision(null);
+          activePieMenuItemRef.current = null;
+        }, VISION_AID_TOUCH_HOLD_MS);
+      }
     } else {
       setActivePieMenuItemForVision(null);
       activePieMenuItemRef.current = null;
     }
   }, []);
+  useEffect(() => () => clearTimeout(visionAutoClearRef.current), []);
 
   // Connection control panel animation state
 
@@ -6734,6 +6758,11 @@ function NodeCanvas() {
 
       const offset = monitor.getClientOffset();
       if (!offset || !containerRef.current) return;
+
+      // After the guards that can abort the drop, so a spawn that doesn't land
+      // stays silent. Forced past the rate limit: react-dnd can deliver this in
+      // the same tick as other release-time feedback.
+      haptic('nodeSpawn', { force: true });
 
       // Convert drop position to canvas coordinates
       const { x, y } = clientToCanvasCoordinates(offset.x, offset.y);
@@ -8357,6 +8386,7 @@ function NodeCanvas() {
   // Edge interaction handlers
   const handleEdgeClick = useCallback((edgeId, e) => {
     if (!activeGraphId) return;
+    haptic('edgeSelect');
 
     // Handle multi-selection with Ctrl/Cmd key
     if ((isMac && e.metaKey) || (!isMac && e.ctrlKey)) {
@@ -8416,6 +8446,7 @@ function NodeCanvas() {
   // moved over the canvas first).
   const selectEdgeFromClick = useCallback((clickedEdgeId, e) => {
     const targetEdgeId = hoveredEdgeInfoRef.current?.edgeId || clickedEdgeId;
+    haptic('edgeSelect');
     if (e.ctrlKey || e.metaKey) {
       if (selectedEdgeIds.has(targetEdgeId)) {
         storeActions.removeSelectedEdgeId(targetEdgeId);
@@ -8438,6 +8469,9 @@ function NodeCanvas() {
         ignoreCanvasClick.current = true;
         setLongPressingInstanceId(null);
         setDrawingConnectionFrom(null);
+        // One tap can reach both this and onTouchStart below; the rate limit
+        // collapses the pair into a single tick.
+        haptic('edgeSelect');
         if (e.ctrlKey || e.metaKey) {
           if (selectedEdgeIds.has(edgeId)) {
             storeActions.removeSelectedEdgeId(edgeId);
@@ -8457,12 +8491,14 @@ function NodeCanvas() {
       ignoreCanvasClick.current = true;
       setLongPressingInstanceId(null);
       setDrawingConnectionFrom(null);
+      haptic('edgeSelect');
       storeActions.clearSelectedEdgeIds();
       storeActions.setSelectedEdgeId(edgeId);
     },
     onClick: (e) => {
       e.stopPropagation();
       ignoreCanvasClick.current = true;
+      haptic('edgeSelect');
       if (e.ctrlKey || e.metaKey) {
         if (selectedEdgeIds.has(edgeId)) {
           storeActions.removeSelectedEdgeId(edgeId);
@@ -15256,6 +15292,10 @@ function NodeCanvas() {
                                     orbToggleEchoRef.current = 0;
                                     return;
                                   }
+
+                                  // Past the echo guard, so the touch path's own
+                                  // toggle (which already fired) isn't doubled.
+                                  haptic('directionToggle');
 
                                   // Toggle the arrow state for the specific node
                                   storeActions.updateEdge(edge.id, (draft) => {

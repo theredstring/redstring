@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useDragLayer }from 'react-dnd';
 import useGraphStore from './store/graphStore.js';
+import { haptic } from './services/haptics.js';
 import Node from './Node.jsx';
 import { getNodeDimensions } from './utils.js';
 
@@ -35,6 +36,21 @@ const SpawningNodeDragLayer = () => {
         isDragging: monitor.isDragging(),
         currentOffset: monitor.getClientOffset(),
     }));
+
+    // Lift haptic for spawn drags. This layer is the single point that observes
+    // every SPAWNABLE_NODE drag regardless of where it started — the panel list,
+    // a header tab, the orbit overlay — so one effect here covers all of them
+    // instead of four useDrag call sites drifting apart.
+    //
+    // Deliberately reuses nodeLift: dragging a prototype out and dragging a node
+    // across the canvas are the same act, and they shouldn't feel different.
+    const spawnLiftedRef = useRef(false);
+    useEffect(() => {
+        const active = isDragging && itemType === SPAWNABLE_NODE;
+        if (active === spawnLiftedRef.current) return;
+        spawnLiftedRef.current = active;
+        if (active) haptic('nodeLift');
+    }, [isDragging, itemType]);
 
     const node = useGraphStore(state => (item?.prototypeId ? state.nodePrototypes.get(item.prototypeId) : null));
 

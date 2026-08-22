@@ -6,6 +6,7 @@ import { useTheme } from './hooks/useTheme.js';
 import HeaderGraphTab from './HeaderGraphTab';
 import { showContextMenu } from './components/GlobalContextMenu';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
+import { haptic } from './services/haptics.js';
 
 // Import all logo states
 import logo1 from './assets/redstring_button/header_logo_1.svg';
@@ -775,6 +776,12 @@ const Header = ({
               }}
               onClick={(e) => {
                 e.stopPropagation();
+                haptic('menuSelect');
+                // Also raise the label chip here, not just on mouseenter. Touch
+                // only reaches mouseenter via a synthetic event, which is not
+                // something to depend on — and on a no-hover device this is the
+                // signal that gives the button a name before it retracts.
+                onActionHoverChange?.({ id: `header-${action.key}`, label: action.title });
                 action.onClick?.();
               }}
               onMouseEnter={(e) => {
@@ -943,6 +950,12 @@ const Header = ({
               }}
               onClick={(e) => {
                 e.stopPropagation();
+                haptic('menuSelect');
+                // Also raise the label chip here, not just on mouseenter. Touch
+                // only reaches mouseenter via a synthetic event, which is not
+                // something to depend on — and on a no-hover device this is the
+                // signal that gives the button a name before it retracts.
+                onActionHoverChange?.({ id: `header-${action.key}`, label: action.title });
                 action.onClick?.();
               }}
               onMouseEnter={(e) => {
@@ -1013,6 +1026,10 @@ const Header = ({
           }}
           onClick={(e) => {
             e.stopPropagation();
+            haptic('menuSelect');
+            // Label describes the state the tap produces, matching mouseenter's
+            // "what will this do" phrasing.
+            onActionHoverChange?.({ id: 'header-hamburger', label: !isHamburgerOpen ? 'Close menu' : 'Open menu' });
             setIsHamburgerOpen(prev => !prev);
           }}
           onMouseEnter={(e) => {
@@ -1115,6 +1132,11 @@ const Header = ({
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
+                  haptic('menuSelect');
+                  // The hamburger is the primary surface on mobile, so these are
+                  // exactly the buttons that need to say what they are. The chip
+                  // outlives the menu closing beneath it.
+                  onActionHoverChange?.({ id: `header-${action.key}`, label: action.title });
                   action.onClick?.();
                   setIsHamburgerOpen(false);
                 }}
@@ -1124,6 +1146,7 @@ const Header = ({
                     circle.style.transform = 'scale(1.06)';
                     circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
                   }
+                  onActionHoverChange?.({ id: `header-${action.key}`, label: action.title });
                 }}
                 onMouseLeave={(e) => {
                   const circle = e.currentTarget.querySelector('.header-btn-circle');
@@ -1131,6 +1154,7 @@ const Header = ({
                     circle.style.transform = 'scale(1)';
                     circle.style.boxShadow = 'none';
                   }
+                  onActionHoverChange?.(null);
                 }}
               >
                 <div
