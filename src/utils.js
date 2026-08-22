@@ -25,6 +25,52 @@ const DESCRIPTION_PADDING = 8; // Padding around description text
 const dimensionCache = new Map();
 const MAX_CACHE_SIZE = 1000; // Prevent unbounded growth
 
+// How far a text-only node may push past the max width to keep its name on one
+// line. The cap exists so nodes don't sprawl; this is the graceful zone around it.
+const TEXT_NODE_MAX_OVERSHOOT = 1.1;
+// Horizontal cushion applied when a name is granted that overshoot. Without it the
+// text box comes out the same width as the text to sub-pixel precision, and the
+// browser's own rounding can re-wrap the very line this exists to keep together.
+const OVERSHOOT_CUSHION = 1.01;
+
+/**
+ * Width of a text-only node in its unexpanded state.
+ *
+ * The 1.1x buffer keeps text off the padding edge — but `Math.min(..., sEW)` used
+ * to annihilate it for any name landing near the cap. A name measuring 504.9px
+ * against a 504px text box wrapped for want of 0.9px, and then got narrowed (see
+ * the multi-line branch below) to a box slimmer than its own longest word. So a
+ * name that overflows the cap by only a little is allowed to push past it, bounded
+ * by TEXT_NODE_MAX_OVERSHOOT; genuinely long names still clamp and wrap.
+ *
+ * Both the unexpanded and previewing branches call this. They previously
+ * open-coded two DIFFERENT buffers (`textWidth * 1.1` vs `textWidth + 20`) while
+ * the preview one claimed to wrap "EXACTLY as it did in the unexpanded node" —
+ * one function so that claim is true by construction.
+ */
+function unexpandedTextNodeWidth(textWidth, sW, sP, sEW) {
+  const buffered = Math.max(sW, Math.min(textWidth * 1.1 + 2 * sP, sEW));
+  if (buffered >= sEW) {
+    const needed = textWidth * OVERSHOOT_CUSHION + 2 * sP;
+    if (needed > sEW && needed <= sEW * TEXT_NODE_MAX_OVERSHOOT) return needed;
+  }
+  return buffered;
+}
+
+/**
+ * Width of the widest single word — the narrowest a text box can get before the
+ * browser starts breaking mid-word (`overflow-wrap: break-word` in Node.jsx).
+ */
+function longestWordWidth(text, fontString) {
+  let widest = 0;
+  for (const word of String(text).split(/\s+/)) {
+    if (!word) continue;
+    const w = measureTextWidth(word, fontString);
+    if (w > widest) widest = w;
+  }
+  return widest;
+}
+
 // --- getNodeDimensions Utility Function ---
 export const getNodeDimensions = (node, isPreviewing = false, descriptionContent = null, lineHeightBase = 39, textSettingsOverride = null) => {
   // --- ADDED: Handle undefined nodes gracefully ---
@@ -133,9 +179,9 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   if (isPreviewing) {
     baseWidth = sPW;
     baseHeight = sPMH;
-    // We want the text to wrap EXACTLY as it did in the unexpanded node.
-    const textWidthWithBuffer = textWidth + 20;
-    const unexpandedWidth = Math.max(sW, Math.min(textWidthWithBuffer + 2 * sP, sEW));
+    // We want the text to wrap EXACTLY as it did in the unexpanded node — so this
+    // uses the same helper that branch does, not a second hand-rolled buffer.
+    const unexpandedWidth = unexpandedTextNodeWidth(textWidth, sW, sP, sEW);
     textWidthTarget = unexpandedWidth - 2 * sP;
   } else if (hasImage) {
     baseWidth = sEW;
@@ -231,15 +277,16 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     const isSingleWord = !nodeName.includes(' ');
 
     // Determine width based on text length, clamped between sW and sEW
-    const textWidthWithBuffer = textWidth * 1.1;
-    currentWidth = Math.max(sW, Math.min(textWidthWithBuffer + 2 * sP, sEW));
+    currentWidth = unexpandedTextNodeWidth(textWidth, sW, sP, sEW);
 
     // Line height scales with both font size and nodeScale (augTs.fontSize already includes nodeScale)
     const fontSizeScaledLineHeight = 45 * augTs.fontSize * augTs.lineSpacing;
 
     let textBlockHeight;
-    // If it's a single word and not at max width, don't let it wrap.
-    if (isSingleWord && currentWidth < sEW) {
+    // If it's a single word that actually fits the box, don't let it wrap. Tested
+    // against the real text box rather than `currentWidth < sEW`, so a word granted
+    // the overshoot above still takes this path instead of being measured as wrapped.
+    if (isSingleWord && textWidth <= currentWidth - 2 * sP) {
       textBlockHeight = fontSizeScaledLineHeight;
     } else {
       const actualTextWidth = currentWidth - 2 * sP;
@@ -251,8 +298,19 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
         const effectiveLineHeight = 45 * augTs.fontSize * augTs.lineSpacing;
         const numLines = Math.round(textBlockHeight / effectiveLineHeight);
         if (numLines > 1) {
-          // Candidate: average line width * 1.3 buffer
-          const candidateTextWidth = Math.ceil((textWidth / numLines) * 1.3);
+          // Candidate: average line width * 1.3 buffer, floored at the widest word.
+          //
+          // The floor is load-bearing. Node.jsx renders the label with
+          // `overflow-wrap: break-word`, so a box narrower than the longest word
+          // doesn't reject the candidate — it breaks the word mid-glyph and still
+          // comes out at the same line count, which is exactly what the
+          // `candidateLines <= numLines` check below measures. "Bathymodiolin
+          // Mussel" narrowed to a 329px text box while "Bathymodiolin" needs
+          // 330.3px, and rendered as "Bathymodioli / n Mussel" in a node 175px
+          // narrower than the cap. Never propose a width the words can't survive.
+          const candidateTextWidth = Math.ceil(
+            Math.max((textWidth / numLines) * 1.3, longestWordWidth(nodeName, fontString))
+          );
           const candidateWidth = Math.max(sW, Math.min(candidateTextWidth + 2 * sP, currentWidth));
           if (candidateWidth < currentWidth) {
             const candidateHeight = measureTextBlockHeight(nodeName, candidateTextWidth, augTs, 45 * augTs.fontSize);
