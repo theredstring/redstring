@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { NODE_WIDTH, NODE_HEIGHT, PLUS_SIGN_SIZE, PLUS_SIGN_ANIMATION_DURATION } from './constants';
 import useGraphStore from './store/graphStore.js';
+import { haptic } from './services/haptics.js';
 
 const PlusSign = ({
   plusSign,
@@ -48,6 +49,10 @@ const PlusSign = ({
     const now = Date.now();
     if (now - lastClickTimeRef.current < 300) return;
     lastClickTimeRef.current = now;
+    // Every input path (click / pointerup / touchend) funnels through here,
+    // past the pan/zoom guards and the 300ms dedupe, so this is the one place
+    // that means "the plus was actually activated".
+    haptic('menuSelect');
     onClick?.();
   };
 

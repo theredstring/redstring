@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NODE_CORNER_RADIUS } from './constants'; // Import node corner radius
 import './PieMenu.css'; // Animation styles
 import useGraphStore from './store/graphStore.js';
+import { haptic } from './services/haptics.js';
 
 const BUBBLE_SIZE = 120; // Diameter of the bubble
 const BUBBLE_PADDING = 32; // Gap between node edge and bubble
@@ -350,6 +351,8 @@ const PieMenu = ({
       e.stopPropagation();
       if (e.cancelable) e.preventDefault();
       if (!available || animationState === 'shrinking' || !isVisible) return;
+      // After the guards, so a chevron tap that the menu ignores stays silent.
+      haptic('menuPage');
       onPageChange(nextPage);
     };
 
@@ -600,6 +603,7 @@ const PieMenu = ({
               const touch = e.changedTouches && e.changedTouches[0];
               const buttonPosition = touch ? { x: touch.clientX, y: touch.clientY } : null;
 
+              haptic('menuSelect');
               button.action(node?.id ?? null, buttonPosition);
             }}
             onClick={(e) => {
@@ -635,6 +639,10 @@ const PieMenu = ({
               }
 
               // Execute the button action - pass buttonPosition as second parameter for actions that need it
+              // Both this and the onTouchEnd path fire menuSelect; they can't
+              // double up, since onTouchStart preventDefault()s the synthetic
+              // click, and the rate limit backstops it regardless.
+              haptic('menuSelect');
               button.action(node?.id ?? null, buttonPosition);
             }}
           >

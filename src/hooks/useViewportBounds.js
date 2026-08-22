@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { HEADER_HEIGHT, EXCLUSIVE_PANEL_MODE_THRESHOLD } from '../constants';
+import { getAppViewportSize } from '../utils/appViewport.js';
 
 /**
  * Computes the central usable viewport bounds by subtracting left/right panel widths
@@ -22,7 +23,11 @@ export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typ
 
   const [leftWidth, setLeftWidth] = useState(() => readPersistedWidth('panelWidth_left', 280));
   const [rightWidth, setRightWidth] = useState(() => readPersistedWidth('panelWidth_right', 280));
-  const [windowSize, setWindowSize] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  // The padded app box, not the raw window — see utils/appViewport.js.
+  const [windowSize, setWindowSize] = useState(() => {
+    const { width, height } = getAppViewportSize();
+    return { w: width, h: height };
+  });
   
   // TypeList height - only reserve space when it's actually visible
   const typeListHeight = typeListVisible ? HEADER_HEIGHT : 0;
@@ -31,7 +36,10 @@ export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typ
   const resizerHandleSpace = 12;
 
   useEffect(() => {
-    const onResize = () => setWindowSize({ w: window.innerWidth, h: window.innerHeight });
+    const onResize = () => {
+      const { width, height } = getAppViewportSize();
+      setWindowSize({ w: width, h: height });
+    };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);

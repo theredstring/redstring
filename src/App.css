@@ -7,6 +7,25 @@ html, body, #root {
   font-family: sans-serif; /* Example font */
 }
 
+/* Safe-area insets live on <body>, not on the app itself.
+ *
+ * With viewport-fit=cover the page spans the whole screen, so these bands would
+ * otherwise sit under the Dynamic Island and the home indicator. Padding <body>
+ * keeps every descendant — header, canvas, panels — inside exactly the box they
+ * occupied before, which is what stops the canvas coordinate system (which
+ * measures from the top of the app box by a fixed HEADER_HEIGHT) from shifting.
+ *
+ * The padding band itself shows the <body> background, which App.jsx paints with
+ * the live header colour. On a display with no insets every env() is 0 and this
+ * rule is a no-op. */
+body {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
 /* Keyframe animations */
 @keyframes spin {
   from {
@@ -20,8 +39,11 @@ html, body, #root {
 /* Main application container using Flexbox */
 .app-container {
   display: flex;
-  height: 100vh; /* Full viewport height */
-  width: 100vw; /* Full viewport width */
+  /* 100% of the padded #root, not 100vh — under viewport-fit=cover the viewport
+     units include the safe areas, so vh/vw here would overflow the app box by
+     the inset on each side. */
+  height: 100%;
+  width: 100%;
   font-family: 'EmOne', sans-serif; /* Example font */
 }
 

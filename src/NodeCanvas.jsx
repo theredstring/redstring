@@ -75,6 +75,7 @@ import useGraphStore, {
 import useHistoryStore from './store/historyStore.js';
 import useImageCache, { queueThumbnailFetch } from './services/imageCache.js';
 
+import { getAppViewportSize } from './utils/appViewport.js';
 import {
   NODE_WIDTH,
   NODE_HEIGHT,
@@ -2051,10 +2052,11 @@ function NodeCanvas() {
 
   // Calculate viewport size - use fixed window dimensions for canvas coordinate system
   // This ensures canvas coordinates are independent of panel state
-  const [windowSize, setWindowSize] = useState(() => ({
-    width: window.innerWidth,
-    height: window.innerHeight
-  }));
+  // The safe-area-padded app box, not the raw window. Under viewport-fit=cover
+  // window.innerHeight includes the Dynamic Island / home-indicator bands, which
+  // the app never lays out in — using it here would offset the whole canvas
+  // coordinate system by the inset. See utils/appViewport.js.
+  const [windowSize, setWindowSize] = useState(() => getAppViewportSize());
 
   const viewportSize = useMemo(() => ({
     width: windowSize.width,
@@ -2069,7 +2071,7 @@ function NodeCanvas() {
   // Listen for window resize to update viewport size
   useEffect(() => {
     const handleResize = () => {
-      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+      setWindowSize(getAppViewportSize());
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -12577,7 +12579,9 @@ function NodeCanvas() {
     <div
       className="node-canvas-container"
       style={{
-        height: '100vh',
+        // 100% of the safe-area-padded #root. 100vh would include the insets
+        // under viewport-fit=cover and push the container past the app box.
+        height: '100%',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',

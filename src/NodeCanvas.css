@@ -20,9 +20,11 @@ body {
 .node-canvas-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  /* Ensure container takes full viewport height */
-  width: 100vw;
+  /* 100% of the safe-area-padded #root, not viewport units: under
+     viewport-fit=cover vh/vw include the Dynamic Island and home-indicator
+     bands, which would push this past the app box on every side. */
+  height: 100%;
+  width: 100%;
   overflow: hidden;
   /* Prevent content overflow */
   background-color: #f0f0f0;
@@ -30,8 +32,8 @@ body {
 }
 
 .canvas-container {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   position: relative;
   /* On touch devices, ensure the browser doesn't hijack touch gestures */

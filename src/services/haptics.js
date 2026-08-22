@@ -190,6 +190,26 @@ const RECIPES = {
   nodeTap: {
     [HapticTier.TAPTIC]: { tick: true },
     [HapticTier.BASIC]: { vibrate: 5 }
+  },
+  /**
+   * A discrete control commits and something happens — a pie menu button, the
+   * plus sign. An impact rather than a tick: this is the class of gesture where
+   * the finger causes an effect, and the light weight keeps it from announcing
+   * itself on a control you hit dozens of times a session.
+   */
+  menuSelect: {
+    [HapticTier.TAPTIC]: { impact: 'LIGHT' },
+    [HapticTier.BASIC]: { vibrate: 10 }
+  },
+  /**
+   * Stepping through a set — the pie menu's ◀/▶ page chevrons. A selection tick
+   * is exactly the case UISelectionFeedbackGenerator exists for, and it's the
+   * right call for a control that can be tapped repeatedly in quick succession:
+   * a run of impacts would read as pounding, a run of ticks as detents.
+   */
+  menuPage: {
+    [HapticTier.TAPTIC]: { tick: true },
+    [HapticTier.BASIC]: { vibrate: 8 }
   }
 };
 

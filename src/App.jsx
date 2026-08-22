@@ -31,17 +31,19 @@ function App() {
     const theme = darkMode ? DARK_THEME : LIGHT_THEME;
     const root = document.documentElement;
 
-    // Set background color on body.
+    // The page background is the app's background — everywhere that isn't the
+    // canvas. With viewport-fit=cover it is also what fills the safe-area bands
+    // held by <body>'s padding (the Dynamic Island strip and the home-indicator
+    // strip), so those follow the header instead of showing a flat native slab.
     //
-    // On iOS the body background is what shows through the safe-area gaps above
-    // and below the web view, where it read as a stray canvas-coloured band
-    // against the header. Follow the header colour there instead. `--rs-header-bg`
-    // is published by Header.jsx and tracks the active graph, so the gap
-    // re-colours on navigation; the canvas colour stays the fallback for the
-    // first paint before a header has mounted.
-    document.body.style.backgroundColor = isCapacitor()
-      ? `var(--rs-header-bg, ${theme.canvas.bg})`
-      : theme.canvas.bg;
+    // `--rs-header-bg` is published by Header.jsx and tracks the ACTIVE GRAPH's
+    // colour, not just dark mode, so the bands re-colour as you navigate. The
+    // canvas colour is only the fallback for the first paint, before a header
+    // has mounted. The canvas paints its own background over this.
+    document.body.style.backgroundColor = `var(--rs-header-bg, ${theme.canvas.bg})`;
+    // html too: iOS rubber-band overscroll reveals the root background, not the
+    // body's, and a mismatch there flashes the wrong colour at the edges.
+    root.style.backgroundColor = `var(--rs-header-bg, ${theme.canvas.bg})`;
 
     // Add/remove dark-mode class on html element for CSS
     root.classList.toggle('dark-mode', darkMode);
