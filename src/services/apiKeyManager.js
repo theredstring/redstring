@@ -31,8 +31,16 @@ class APIKeyManager {
   async storeAPIKey(apiKey, provider = 'anthropic', config = {}) {
     try {
       // Encrypt at rest with AES-GCM (non-extractable key in IndexedDB).
-      // Falls back to plaintext only if WebCrypto is unavailable.
-      const encryptedKey = await encryptSecret(apiKey);
+      //
+      // encryptSecret returns the value UNMARKED when WebCrypto is unavailable
+      // — which happens on any non-secure context, e.g. reaching the dev server
+      // over a LAN IP (http://192.168.x.x:4001) instead of localhost. The read
+      // path treats "unmarked" as "legacy obfuscated" and runs atob() on it, so
+      // storing raw plaintext here silently corrupted the key on the way back
+      // out. Obfuscate in that case to keep the invariant the reader relies on:
+      // unmarked always means obfuscated, never plaintext.
+      const stored = await encryptSecret(apiKey);
+      const encryptedKey = isEncrypted(stored) ? stored : this.obfuscate(apiKey);
 
       const keyData = {
         key: encryptedKey,
@@ -94,7 +102,7 @@ class APIKeyManager {
       // their key upgrades to ciphertext on the next storeAPIKey().
       const plainKey = isEncrypted(keyData.key)
         ? await decryptSecret(keyData.key)
-        : this.deobfuscate(keyData.key);
+        : this._deobfuscateOrPassThrough(keyData.key);
 
       console.log('[API Key Manager] API key retrieved successfully');
       return plainKey;
@@ -257,7 +265,7 @@ class APIKeyManager {
 
       return isEncrypted(match.key)
         ? await decryptSecret(match.key)
-        : this.deobfuscate(match.key);
+        : this._deobfuscateOrPassThrough(match.key);
     } catch (error) {
       console.warn('[API Key Manager] Failed to retrieve key for provider', provider, error);
       return null;
@@ -353,6 +361,30 @@ class APIKeyManager {
       console.error('Failed to deobfuscate:', error);
       return '';
     }
+  }
+
+  /**
+   * Read an unmarked stored key.
+   *
+   * "Unmarked" is supposed to mean obfuscated, but a key stored while WebCrypto
+   * was unavailable landed as raw plaintext, and atob() does not throw on it —
+   * an API key uses the base64 alphabet, so deobfuscation "succeeds" and hands
+   * back binary garbage. That reached the provider as an invalid key, with the
+   * mangling invisible: the stored value looked right when inspected.
+   *
+   * A real key is printable ASCII. If deobfuscation yields control characters,
+   * the value was never obfuscated — return it as stored.
+   */
+  _deobfuscateOrPassThrough(stored) {
+    if (!stored || typeof stored !== 'string') return '';
+    const candidate = this.deobfuscate(stored);
+    // eslint-disable-next-line no-control-regex
+    const looksBinary = !candidate || /[\x00-\x08\x0e-\x1f\x7f]/.test(candidate);
+    if (looksBinary) {
+      console.warn('[API Key Manager] Stored key was not obfuscated (WebCrypto likely unavailable at save time) — using it as-is');
+      return stored;
+    }
+    return candidate;
   }
 
   /**
