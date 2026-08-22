@@ -29,7 +29,9 @@ import {
   logOneShotCall,
   attachOneShotOutcome,
   getOneShotLog,
-  clearOneShotLog
+  clearOneShotLog,
+  configureOneShot,
+  isOneShotAvailable
 } from './oneShot.js';
 
 const withModel = () => {
@@ -156,6 +158,63 @@ describe('graceful fallback with no model', () => {
     expect(log.length).toBe(1);
     expect(log[0].rawResponse).toBeNull();
     expect(log[0].parsedResult).toBeNull();
+  });
+});
+
+describe('cloud providers are gated off by default', () => {
+  // ~13 tools call oneShot on paths the user never asked for a model call on,
+  // and each already has a heuristic fallback. Local: free and fast. Cloud: a
+  // charge per tool call on a 3s timeout tuned for local latency. Moving the
+  // agent loop in-process made localStorage reachable everywhere, which would
+  // otherwise have switched this on for cloud users as a side effect.
+  const withCloudModel = () => {
+    apiKeyManager.getAPIKeyInfo.mockResolvedValue({
+      hasKey: true, provider: 'anthropic', endpoint: '', model: 'claude-x'
+    });
+    apiKeyManager.getAPIKey.mockResolvedValue('sk-ant-test');
+  };
+
+  beforeEach(() => {
+    configureOneShot({ allowCloudProviders: false });
+    withCloudModel();
+  });
+
+  it('reports unavailable for a cloud provider', async () => {
+    expect(await isOneShotAvailable()).toBe(false);
+  });
+
+  it('falls back to null without calling the model', async () => {
+    expect(await oneShotChoice({ instruction: 'x', options: ['a', 'b'] })).toBeNull();
+    expect(callLLM).not.toHaveBeenCalled();
+  });
+
+  it('reports available for a local provider', async () => {
+    withModel();
+    expect(await isOneShotAvailable()).toBe(true);
+  });
+
+  it('opts back in when explicitly configured to allow cloud', async () => {
+    configureOneShot({ allowCloudProviders: true });
+    try {
+      expect(await isOneShotAvailable()).toBe(true);
+    } finally {
+      configureOneShot({ allowCloudProviders: false });
+    }
+  });
+
+  it('honours an injected resolver, and restores the default when cleared', async () => {
+    configureOneShot({
+      resolveModelConfig: async () => ({
+        apiKey: 'k', provider: 'custom', endpoint: 'http://x/v1', model: 'm'
+      })
+    });
+    try {
+      expect(await isOneShotAvailable()).toBe(true);
+    } finally {
+      configureOneShot({ resolveModelConfig: null });
+    }
+    // Back to the default resolver, which still refuses the cloud provider.
+    expect(await isOneShotAvailable()).toBe(false);
   });
 });
 

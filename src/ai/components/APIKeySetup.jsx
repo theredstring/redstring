@@ -275,39 +275,21 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
       }
       console.log('[APIKeySetup] API key found, testing connection...');
 
-      // Actually test the API connection with a simple request
-      const response = await bridgeFetch('/api/ai/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${storedKey}`
-        },
-        body: JSON.stringify({
-          message: 'test',
-          context: {
-            apiConfig: {
-              provider: existingKeyInfo?.provider || 'openrouter',
-              endpoint: existingKeyInfo?.endpoint || '',
-              model: existingKeyInfo?.model || ''
-            }
-          }
-        })
-      });
-
-      console.log('[APIKeySetup] Response status:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[APIKeySetup] Test failed:', errorText);
-        throw new Error(`API test failed: ${errorText}`);
-      }
-
-      const data = await response.json();
-      console.log('[APIKeySetup] Response data:', data);
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
+      // Test the provider directly. This used to go through the bridge's
+      // /api/ai/chat, so "test key" failed whenever no server was running —
+      // reporting a bad key when the key was fine.
+      const { callLLM } = await import('../../wizard/LLMClient.js');
+      await callLLM(
+        [{ role: 'user', content: 'test' }],
+        [],
+        {
+          apiKey: storedKey,
+          provider: existingKeyInfo?.provider || 'openrouter',
+          endpoint: existingKeyInfo?.endpoint || '',
+          model: existingKeyInfo?.model || '',
+          maxTokens: 16
+        }
+      );
 
       console.log('[APIKeySetup] Test successful!');
       setSuccess('API key works! Connection verified.');

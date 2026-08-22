@@ -31,6 +31,12 @@ import { getAllTabularData, clearTabularData } from '../../../services/tabularDa
 import { estimateTokens, estimateObjectTokens, MAX_TOOL_RESULT_CHARS, CHARS_PER_TOKEN } from '../../../wizard/tokenEstimate.js';
 import { compactConversation } from '../../../wizard/compactConversation.js';
 import { WIZARD_SYSTEM_PROMPT } from '../../../services/agent/WizardPrompt.js';
+// The agent loop, its tools, the LLM client and Wikipedia enrichment all run in
+// this process now. None of these reach a server.
+import { runWizardInProcess, isAbortError } from '../../../wizard/runWizardInProcess.js';
+import { getToolDefinitions, executeTool } from '../../../wizard/tools/index.js';
+import { callLLM } from '../../../wizard/LLMClient.js';
+import { enrichBatch, enrichSingle } from '../../../wizard/services/wikipediaEnrichment.js';
 
 // Shared Components
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
@@ -108,32 +114,25 @@ function buildEnrichmentUpdates(nodeProto, searchResult, confidence, { overwrite
 }
 
 /**
- * Enrich a single node with Wikipedia data via server endpoint.
+ * Enrich a single node with Wikipedia data.
  * Used for explicit wizard tool calls (not batch).
+ *
+ * Runs in-process: the Wikipedia API sends `origin=*`, so it is CORS-safe from
+ * the browser and never needed a server hop.
  */
 async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
   const { minConfidence = 0.40, overwriteDescription = false } = options;
 
   try {
-    console.log(`[Auto-Enrich] Starting Wikipedia enrichment for "${nodeName}" (via server, minConfidence=${minConfidence}, overwrite=${overwriteDescription})`);
+    console.log(`[Auto-Enrich] Starting Wikipedia enrichment for "${nodeName}" (minConfidence=${minConfidence}, overwrite=${overwriteDescription})`);
 
-    const resp = await bridgeFetch('/api/enrich', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nodeName, minConfidence })
-    });
-    if (!resp.ok) {
-      console.warn(`[Auto-Enrich] Server returned ${resp.status} for "${nodeName}"`);
+    const match = await enrichSingle(nodeName, { minConfidence });
+    if (!match) {
+      console.warn(`[Auto-Enrich] No Wikipedia match for "${nodeName}"`);
       return null;
     }
 
-    const data = await resp.json();
-    if (!data.ok || !data.matches || data.matches.length === 0) {
-      console.warn(`[Auto-Enrich] No Wikipedia match for "${nodeName}" (ok=${data.ok}, matches=${data.matches?.length || 0})`);
-      return null;
-    }
-
-    const { searchResult, confidence } = data.matches[0];
+    const { searchResult, confidence } = match;
     console.log(`[Auto-Enrich] ✅ Match for "${nodeName}": "${searchResult.page.title}" (${confidence.toFixed(2)}), thumb=${!!searchResult.page.thumbnail}, desc=${(searchResult.page.description || '').length}ch`);
 
     // Find and update the node in the store
@@ -195,17 +194,16 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
 // and stores it in the separate image cache store (never serialized/saved).
 
 /**
- * Enrich multiple nodes from Wikipedia via server endpoint.
+ * Enrich multiple nodes from Wikipedia.
  *
- * Phase 1: Single POST to /api/enrich — server handles all Wikipedia API calls.
+ * Phase 1: Batch Wikipedia lookup, in-process and concurrency-limited.
  * Phase 2: Apply metadata updates in a single batch setState.
  * Phase 3: Queue image fetches for background processing (trickle in one by one).
  *
- * This is near-instant: one HTTP call + a single store write.
  * Images appear progressively as they're fetched in the background.
  */
 // Names currently being enriched. A build fires enrichment per level, and each
-// call POSTs to /api/enrich and then rewrites the whole prototype Map — so two
+// call runs a batch lookup and then rewrites the whole prototype Map — so two
 // overlapping calls for the same nodes did the same lookup twice and applied the
 // same updates twice. Dropping already-in-flight names collapses them to one.
 const __enrichInFlight = new Set();
@@ -226,28 +224,18 @@ async function enrichMultipleNodes(nodeNames, _graphId, { overwriteDescription =
 }
 
 async function runEnrichment(nodeNames, { overwriteDescription = false } = {}) {
-  console.log(`[Auto-Enrich] 🚀 Starting enrichment for ${nodeNames.length} nodes (via server)`);
+  console.log(`[Auto-Enrich] 🚀 Starting enrichment for ${nodeNames.length} nodes`);
 
-  // ── Phase 1: Server-side batch Wikipedia lookup ──
+  // ── Phase 1: Batch Wikipedia lookup ──
   let matches = [];
   try {
-    const resp = await bridgeFetch('/api/enrich', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nodeNames, minConfidence: 0.40 })
-    });
-    if (!resp.ok) {
-      console.warn(`[Auto-Enrich] Server returned ${resp.status}`);
-      return [];
-    }
-    const data = await resp.json();
-    matches = data.matches || [];
+    matches = await enrichBatch(nodeNames, { minConfidence: 0.40 });
   } catch (err) {
-    console.warn(`[Auto-Enrich] Server enrichment failed:`, err.message);
+    console.warn(`[Auto-Enrich] Enrichment failed:`, err.message);
     return [];
   }
 
-  console.log(`[Auto-Enrich] 📊 ${matches.length}/${nodeNames.length} Wikipedia matches from server`);
+  console.log(`[Auto-Enrich] 📊 ${matches.length}/${nodeNames.length} Wikipedia matches`);
   if (matches.length === 0) return [];
 
   // Wait for nodes to be fully created in store
@@ -1460,19 +1448,14 @@ const LeftAIView = ({ compact = false,
   }, [conversations, activeConversationId, hasAPIKey, isConnected, isProcessing, activeGraphId]);
 
   React.useEffect(() => {
-    // Fetch wizard tools on load
-    const fetchWizardTools = async () => {
-      try {
-        const res = await bridgeFetch('/api/wizard/tools');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.tools) setWizardTools(data.tools);
-        }
-      } catch (err) {
-        console.warn('Failed to fetch wizard tools:', err);
-      }
-    };
-    fetchWizardTools();
+    // Tool definitions are a constant in this bundle — they were only ever
+    // fetched because the agent lived on the other side of an HTTP call.
+    try {
+      const tools = getToolDefinitions();
+      if (tools) setWizardTools(tools);
+    } catch (err) {
+      console.warn('Failed to load wizard tools:', err);
+    }
   }, []);
 
   React.useEffect(() => {
@@ -2305,8 +2288,12 @@ const LeftAIView = ({ compact = false,
         setIsProcessing(false);
         return;
       }
-      if (!mcpClient.isConnected) { await initializeConnection(); if (!mcpClient.isConnected) { setIsProcessing(false); return; } }
-
+      // No bridge check here. The agent runs in this process, so the bridge is
+      // not on the path of an ask — it only serves the MCP integration. This
+      // used to hard-return when the bridge was unreachable, which silently
+      // swallowed every send on web and iOS, where there is no bridge at all.
+      // The health-probe effect above keeps `isConnected` and the status dot
+      // honest on its own poll; it does not need to gate anything here.
       if (viewMode === 'wizard') {
         await handleAutonomousAgent(messagePayload);
       } else {
@@ -2641,7 +2628,7 @@ const LeftAIView = ({ compact = false,
         })()
       };
 
-      console.log('[Wizard] Starting request to /api/wizard', {
+      console.log('[Wizard] Starting agent run', {
         apiKey: apiKey ? 'present' : 'missing',
         apiConfig,
         historyLength: recentMessages.length
@@ -2665,51 +2652,41 @@ const LeftAIView = ({ compact = false,
         ? tabularEntries.map(e => ({ attachId: e.attachId, ...e.data, profile: e.data.profile }))
         : undefined;
 
-      // Use new Wizard endpoint with SSE streaming
-      const response = await bridgeFetch('/api/wizard', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          message: question,
-          graphState,
-          contextItems: contextItems.filter(item => item.enabled),
-          conversationHistory: recentMessages, // Include conversation history for context
-          tabularData, // Parsed tabular data for tool access
-          config: {
-            cid: `wizard-${Date.now()}`,
-            systemPrompt: persona === 'druid' ? DRUID_SYSTEM_PROMPT : undefined,
-            persona: persona,
-            apiConfig: apiConfig ? {
-              provider: effectiveProvider || apiConfig.provider,
-              endpoint: apiConfig.endpoint,
-              model: apiConfig.model,
-              settings: {
-                ...apiConfig.settings,
-                // Preserve an explicit 0 (= ∞ intent, clamped to the tier ceiling
-                // server-side) instead of coercing it back to the default via ||.
-                // Absent/empty/NaN → default. Number(null) is 0, so guard raw first.
-                maxIterationsLocal: readWizardIterations('rs.wizard.maxIterationsLocal', 177),
-                maxIterationsCloud: readWizardIterations('rs.wizard.maxIterationsCloud', 77),
-              },
-              modelTier: apiConfig.modelTier || 'large'
-            } : null
-          }
-        }),
+      // The agent loop runs in this process. It used to be a POST to
+      // /api/wizard whose SSE frames we parsed back into these same objects;
+      // the server wrote generator events to the wire verbatim, so dropping the
+      // transport changed nothing about the events below.
+      const wizardApiConfig = apiConfig ? {
+        provider: effectiveProvider || apiConfig.provider,
+        endpoint: apiConfig.endpoint,
+        model: apiConfig.model,
+        settings: {
+          ...apiConfig.settings,
+          // Preserve an explicit 0 (= ∞ intent, clamped to the tier ceiling in
+          // buildLlmConfig) instead of coercing it back to the default via ||.
+          // Absent/empty/NaN → default. Number(null) is 0, so guard raw first.
+          maxIterationsLocal: readWizardIterations('rs.wizard.maxIterationsLocal', 177),
+          maxIterationsCloud: readWizardIterations('rs.wizard.maxIterationsCloud', 77),
+        },
+        modelTier: apiConfig.modelTier || 'large'
+      } : null;
+
+      const agentEvents = runWizardInProcess({
+        message: question,
+        graphState,
+        contextItems: contextItems.filter(item => item.enabled),
+        conversationHistory: recentMessages,
+        tabularData,
+        apiKey,
+        apiConfig: wizardApiConfig,
+        cid: `wizard-${Date.now()}`,
+        systemPrompt: persona === 'druid' ? DRUID_SYSTEM_PROMPT : undefined,
         signal: abortController.signal
       });
 
-      if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`Wizard request failed (${response.status}): ${errorBody}`);
-      }
+      const callId = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      console.log('[Wizard] Starting in-process agent loop:', callId);
 
-      // Process SSE stream
-      const callId = `sse-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      console.log('[SSE Debug] Starting SSE reader loop:', callId);
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
       // Track processed event IDs to prevent duplicates (React StrictMode safety)
       const processedEvents = new Set();
       let eventCounter = 0;
@@ -2721,273 +2698,260 @@ const LeftAIView = ({ compact = false,
       // was started in, which is what the ref holds and the closure may not.
       const targetConversationId = _preCreatedConvId;
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        for await (const event of agentEvents) {
+          try {
+            // Generate unique event ID for deduplication
+            const eventId = `${event.type}-${event.id || eventCounter++}-${event.content?.length || 0}`;
+            console.log('[SSE Debug]', callId, 'Parsed:', event.type, event.id || event.name, 'eventId:', eventId, 'alreadyProcessed:', processedEvents.has(eventId));
+            if (processedEvents.has(eventId)) {
+              console.log('[SSE Debug]', callId, '⚠️ SKIPPING DUPLICATE:', event.type, eventId);
+              continue;
+            }
+            processedEvents.add(eventId);
 
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
+            // Apply tool results to store OUTSIDE the state updater
+            let applyError = null;
+            if (event.type === 'tool_result' && !event.result?.cancelled) {
+              // Stamp wizard-authored entities with PROV provenance (P2.6)
+              setWizardProvenanceContext({
+                model: apiConfig?.model || undefined,
+                conversationId: targetConversationId
+              });
               try {
-                const event = JSON.parse(data);
-
-                // Generate unique event ID for deduplication
-                const eventId = `${event.type}-${event.id || eventCounter++}-${event.content?.length || 0}`;
-                console.log('[SSE Debug]', callId, 'Parsed:', event.type, event.id || event.name, 'eventId:', eventId, 'alreadyProcessed:', processedEvents.has(eventId));
-                if (processedEvents.has(eventId)) {
-                  console.log('[SSE Debug]', callId, '⚠️ SKIPPING DUPLICATE:', event.type, eventId);
-                  continue;
-                }
-                processedEvents.add(eventId);
-
-                // Apply tool results to store OUTSIDE the state updater
-                let applyError = null;
-                if (event.type === 'tool_result' && !event.result?.cancelled) {
-                  // Stamp wizard-authored entities with PROV provenance (P2.6)
-                  setWizardProvenanceContext({
-                    model: apiConfig?.model || undefined,
-                    conversationId: targetConversationId
-                  });
-                  try {
-                    applyToolResultToStore(event.name, event.result, event.id || event.toolCallId, targetConversationId);
-                  } catch (applyErr) {
-                    // A throw here used to escape into the SSE catch below, which only
-                    // logs a parse warning — so the block's status update never ran and
-                    // the chip sat at "Running…" even though the tool had returned.
-                    console.error('[Wizard] Failed to apply tool result to store:', event.name, applyErr);
-                    applyError = applyErr;
-                  } finally {
-                    setWizardProvenanceContext(null);
-                  }
-                }
-
-                // Pre-compute plan card decision BEFORE updateMsgInArray so both
-                // setConversations and setMessages apply the same action
-                let planUpdate = null;
-                if (event.type === 'tool_result' && event.name === 'planTask' && event.result?.steps) {
-                  const incomingTopStatuses = event.result.steps.map(s => s.status);
-                  const frozenSteps = JSON.parse(JSON.stringify(event.result.steps));
-                  const planNow = Date.now();
-                  if (lastTopLevelStepStatuses === null) {
-                    planCardCounter++;
-                    planUpdate = { action: 'create', steps: frozenSteps, id: `plan-${planCardCounter}-${streamingMessageId}`, timestamp: planNow };
-                  } else {
-                    const topLevelChanged =
-                      incomingTopStatuses.length !== lastTopLevelStepStatuses.length ||
-                      incomingTopStatuses.some((s, i) => lastTopLevelStepStatuses[i] !== s);
-                    if (topLevelChanged) {
-                      planCardCounter++;
-                      planUpdate = { action: 'freeze_and_create', steps: frozenSteps, id: `plan-${planCardCounter}-${streamingMessageId}`, timestamp: planNow };
-                    } else {
-                      planUpdate = { action: 'update_in_place', steps: frozenSteps, timestamp: planNow };
-                    }
-                  }
-                  lastTopLevelStepStatuses = incomingTopStatuses;
-                }
-
-                // Internal updater function to apply changes to a message array
-                const updateMsgInArray = (currMessages) => {
-                  const updated = [...currMessages];
-                  let idx = updated.findIndex(m => m.id === streamingMessageId);
-                  if (idx < 0) {
-                    // Recovery path: the run's bubble is missing from this array
-                    // (undo, clear, or a conversation-sync overwrite removed it).
-                    // Re-created WITHOUT isStreaming — this is a repair artifact,
-                    // not a live bubble, and it is the one creation site that never
-                    // went through settleStale. Born streaming, it could sit next to
-                    // the genuine bubble with nothing able to settle it.
-                    updated.push({
-                      id: streamingMessageId,
-                      sender: 'ai',
-                      content: '',
-                      timestamp: new Date().toISOString(),
-                      contentBlocks: [],
-                      isStreaming: false
-                    });
-                    idx = updated.length - 1;
-                  }
-
-                  const msg = { ...updated[idx] };
-                  const blocks = Array.isArray(msg.contentBlocks) ? [...msg.contentBlocks] : [];
-
-                  if (event.type === 'tool_call_start') {
-                    const now = Date.now();
-                    console.log('[Wizard] tool_call_start received:', event.name, event.id, 'at', now);
-                    // Collapse any open thinking block when a tool call starts
-                    const openThinkIdx = blocks.findLastIndex(b => b.type === 'thinking' && !b.collapsed);
-                    if (openThinkIdx >= 0) blocks[openThinkIdx] = { ...blocks[openThinkIdx], collapsed: true };
-                    const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
-                    if (existingIndex >= 0) {
-                      if (event.name) blocks[existingIndex] = { ...blocks[existingIndex], name: event.name };
-                    } else {
-                      blocks.push({ type: 'tool_call', id: event.id, name: event.name || 'Resolving spell...', args: {}, status: 'running', expanded: false, timestamp: now });
-                      console.log('[Wizard] Created tool_call block:', event.name, 'status: running, timestamp:', now);
-                    }
-                  } else if (event.type === 'tool_call') {
-                    const now = Date.now();
-                    console.log('[Wizard] tool_call received:', event.name, event.id, 'args:', Object.keys(event.args || {}), 'at', now);
-                    const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
-                    if (existingIndex >= 0) {
-                      blocks[existingIndex] = { ...blocks[existingIndex], name: event.name, args: event.args, status: 'running' };
-                      const elapsed = now - (blocks[existingIndex].timestamp || now);
-                      console.log('[Wizard] Updated existing tool_call block, elapsed since start:', elapsed, 'ms');
-                    } else {
-                      blocks.push({ type: 'tool_call', id: event.id, name: event.name, args: event.args, status: 'running', expanded: false, timestamp: now });
-                      console.log('[Wizard] Created new tool_call block (no tool_call_start received)');
-                    }
-                  } else if (event.type === 'tool_result') {
-                    const now = Date.now();
-                    console.log('[Wizard] tool_result received:', event.id, 'error:', !!event.result?.error, 'at', now);
-                    const toolIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
-                    if (toolIndex >= 0) {
-                      // `cancelled` marks a call the loop announced but never ran (token
-                      // budget, stop, error) — that is not the tool failing, so it reads
-                      // as "Stopped" rather than "Failed".
-                      const newStatus = event.result?.cancelled ? 'cancelled'
-                        : (event.result?.error || applyError) ? 'failed'
-                        : 'completed';
-                      const elapsed = now - (blocks[toolIndex].timestamp || now);
-                      blocks[toolIndex] = {
-                        ...blocks[toolIndex],
-                        status: newStatus,
-                        result: event.result,
-                        error: event.result?.error || (applyError ? `Could not apply to the graph: ${applyError.message}` : undefined)
-                      };
-                      console.log('[Wizard] Updated tool_call to status:', newStatus, 'total elapsed:', elapsed, 'ms');
-                    } else {
-                      console.warn('[Wizard] tool_result received but no matching tool_call block found!', event.id);
-                    }
-                    // Apply pre-computed plan card decision (computed outside updateMsgInArray)
-                    if (planUpdate) {
-                      if (planUpdate.action === 'create') {
-                        blocks.push({ type: 'plan', id: planUpdate.id, steps: planUpdate.steps, timestamp: planUpdate.timestamp, frozen: false });
-                      } else if (planUpdate.action === 'freeze_and_create') {
-                        const latestPlanIdx = blocks.reduce((last, b, idx) => b.type === 'plan' && !b.frozen ? idx : last, -1);
-                        if (latestPlanIdx >= 0) blocks[latestPlanIdx] = { ...blocks[latestPlanIdx], frozen: true };
-                        blocks.push({ type: 'plan', id: planUpdate.id, steps: planUpdate.steps, timestamp: planUpdate.timestamp, frozen: false });
-                      } else if (planUpdate.action === 'update_in_place') {
-                        const latestPlanIdx = blocks.reduce((last, b, idx) => b.type === 'plan' && !b.frozen ? idx : last, -1);
-                        if (latestPlanIdx >= 0) {
-                          blocks[latestPlanIdx] = { ...blocks[latestPlanIdx], steps: planUpdate.steps, timestamp: planUpdate.timestamp };
-                        }
-                      }
-                    }
-                  } else if (event.type === 'thinking') {
-                    // Thinking tokens from reasoning models (Ollama: delta.thinking_content)
-                    // Accumulate into a single thinking block; collapse once response starts
-                    const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
-                    if (lastBlock && lastBlock.type === 'thinking') {
-                      blocks[blocks.length - 1] = { ...lastBlock, content: (lastBlock.content || '') + (event.content || '') };
-                    } else {
-                      blocks.push({ type: 'thinking', content: event.content || '' });
-                    }
-                  } else if (event.type === 'response') {
-                    // Collapse any open thinking block when the real response starts
-                    const thinkIdx = blocks.findIndex(b => b.type === 'thinking' && !b.collapsed);
-                    if (thinkIdx >= 0) blocks[thinkIdx] = { ...blocks[thinkIdx], collapsed: true };
-                    const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
-                    if (lastBlock && lastBlock.type === 'text') {
-                      blocks[blocks.length - 1] = { ...lastBlock, content: (lastBlock.content || '') + (event.content || '') };
-                    } else {
-                      blocks.push({ type: 'text', content: event.content || '' });
-                    }
-                    msg.content = (msg.content || '') + (event.content || '');
-                  } else if (event.type === 'steering') {
-                    // The loop injected a synthetic "user" message to steer the model —
-                    // the hidden second voice in the conversation. Collapse any open thinking
-                    // block, then record it as its own block so the UI can surface the
-                    // otherwise-invisible back-and-forth (gated by the "show steering" option).
-                    const openThinkIdx = blocks.findLastIndex(b => b.type === 'thinking' && !b.collapsed);
-                    if (openThinkIdx >= 0) blocks[openThinkIdx] = { ...blocks[openThinkIdx], collapsed: true };
-                    blocks.push({ type: 'steering', kind: event.kind || 'nudge', content: event.content || '' });
-                  } else if (event.type === 'usage') {
-                    // Running per-ask token totals from the agent loop. Each event
-                    // carries the cumulative ask totals, so last-write wins.
-                    msg.tokenUsage = {
-                      promptTokens: event.askPromptTokens || 0,
-                      completionTokens: event.askCompletionTokens || 0,
-                      totalTokens: event.askTotalTokens || 0
-                    };
-                    // The server measures the graph header it actually sent. The
-                    // meter previously guessed at a flat 3,750 for it, which was
-                    // wrong in both directions depending on the universe.
-                    if (typeof event.contextHeaderTokens === 'number') {
-                      setMeasuredContextTokens(event.contextHeaderTokens);
-                    }
-                    if (event.costBreakdown) {
-                      setCostBreakdown(event.costBreakdown);
-                    }
-                  } else if (event.type === 'error') {
-                    blocks.push({ type: 'text', content: `Error: ${event.message}` });
-                    msg.content = `Error: ${event.message}`;
-                    msg.isStreaming = false;
-                    settleToolCallBlocksInPlace(blocks, 'The run errored before this tool returned a result.');
-                  } else if (event.type === 'done') {
-                    msg.isStreaming = false;
-                    msg.iterations = event.iterations;
-                    // The run is over: nothing will ever settle a chip still marked
-                    // running, and the stop button disappears along with it.
-                    settleToolCallBlocksInPlace(blocks, 'The run ended before this tool returned a result.');
-                    // Collapse any thinking blocks still open when run ends
-                    blocks.forEach((b, i) => { if (b.type === 'thinking' && !b.collapsed) blocks[i] = { ...b, collapsed: true }; });
-                    const lastTextIdx = blocks.length - 1;
-                    if (lastTextIdx >= 0 && blocks[lastTextIdx].type === 'text' && blocks[lastTextIdx].content) {
-                      blocks[lastTextIdx] = { ...blocks[lastTextIdx], content: blocks[lastTextIdx].content.trimEnd() };
-                    }
-                    if (msg.content) msg.content = msg.content.trimEnd();
-                    // Show a subtle system note for incomplete plans, not as AI text
-                    if (event.reason === 'max_iterations' && event.planTotal > 0 && event.planDone < event.planTotal) {
-                      blocks.push({ type: 'system_note', content: `Reached iteration limit — plan ${event.planDone}/${event.planTotal} complete. Try "continue" to pick up where this left off.` });
-                    }
-
-                    if (persona === 'druid' && druidInstance) {
-                      druidInstance.processMessage(msg.content, [...updated, msg].map(m => ({
-                        role: m.sender === 'ai' ? 'assistant' : 'user', content: m.content
-                      })));
-                    }
-                  }
-
-                  msg.contentBlocks = blocks;
-                  updated[idx] = msg;
-                  return updated;
-                };
-
-                // Update the background conversations list ALWAYS
-                setConversations(prev => prev.map(c =>
-                  c.id === targetConversationId ? { ...c, messages: updateMsgInArray(c.messages || []), timestamp: new Date().toISOString() } : c
-                ));
-
-                // Update the active UI messages ONLY if we are still on that tab.
-                // Read the CURRENT tab from the ref — `activeConversationId` here
-                // is captured from the same closure as targetConversationId, so
-                // comparing them was always true. After a mid-run tab switch that
-                // applied this run's updates to the other tab's array, where the
-                // message id isn't found and updateMsgInArray appends a NEW
-                // message with isStreaming: true — leaving two streaming messages
-                // and two entries sharing one id.
-                setMessages(prev => {
-                  if (activeConversationIdRef.current === targetConversationId) {
-                    return updateMsgInArray(prev);
-                  }
-                  return prev;
-                });
-
-              } catch (e) {
-                console.warn('[Wizard] Failed to parse SSE event:', e, data);
+                applyToolResultToStore(event.name, event.result, event.id || event.toolCallId, targetConversationId);
+              } catch (applyErr) {
+                // A throw here used to escape into the SSE catch below, which only
+                // logs a parse warning — so the block's status update never ran and
+                // the chip sat at "Running…" even though the tool had returned.
+                console.error('[Wizard] Failed to apply tool result to store:', event.name, applyErr);
+                applyError = applyErr;
+              } finally {
+                setWizardProvenanceContext(null);
               }
             }
+
+            // Pre-compute plan card decision BEFORE updateMsgInArray so both
+            // setConversations and setMessages apply the same action
+            let planUpdate = null;
+            if (event.type === 'tool_result' && event.name === 'planTask' && event.result?.steps) {
+              const incomingTopStatuses = event.result.steps.map(s => s.status);
+              const frozenSteps = JSON.parse(JSON.stringify(event.result.steps));
+              const planNow = Date.now();
+              if (lastTopLevelStepStatuses === null) {
+                planCardCounter++;
+                planUpdate = { action: 'create', steps: frozenSteps, id: `plan-${planCardCounter}-${streamingMessageId}`, timestamp: planNow };
+              } else {
+                const topLevelChanged =
+                  incomingTopStatuses.length !== lastTopLevelStepStatuses.length ||
+                  incomingTopStatuses.some((s, i) => lastTopLevelStepStatuses[i] !== s);
+                if (topLevelChanged) {
+                  planCardCounter++;
+                  planUpdate = { action: 'freeze_and_create', steps: frozenSteps, id: `plan-${planCardCounter}-${streamingMessageId}`, timestamp: planNow };
+                } else {
+                  planUpdate = { action: 'update_in_place', steps: frozenSteps, timestamp: planNow };
+                }
+              }
+              lastTopLevelStepStatuses = incomingTopStatuses;
+            }
+
+            // Internal updater function to apply changes to a message array
+            const updateMsgInArray = (currMessages) => {
+              const updated = [...currMessages];
+              let idx = updated.findIndex(m => m.id === streamingMessageId);
+              if (idx < 0) {
+                // Recovery path: the run's bubble is missing from this array
+                // (undo, clear, or a conversation-sync overwrite removed it).
+                // Re-created WITHOUT isStreaming — this is a repair artifact,
+                // not a live bubble, and it is the one creation site that never
+                // went through settleStale. Born streaming, it could sit next to
+                // the genuine bubble with nothing able to settle it.
+                updated.push({
+                  id: streamingMessageId,
+                  sender: 'ai',
+                  content: '',
+                  timestamp: new Date().toISOString(),
+                  contentBlocks: [],
+                  isStreaming: false
+                });
+                idx = updated.length - 1;
+              }
+
+              const msg = { ...updated[idx] };
+              const blocks = Array.isArray(msg.contentBlocks) ? [...msg.contentBlocks] : [];
+
+              if (event.type === 'tool_call_start') {
+                const now = Date.now();
+                console.log('[Wizard] tool_call_start received:', event.name, event.id, 'at', now);
+                // Collapse any open thinking block when a tool call starts
+                const openThinkIdx = blocks.findLastIndex(b => b.type === 'thinking' && !b.collapsed);
+                if (openThinkIdx >= 0) blocks[openThinkIdx] = { ...blocks[openThinkIdx], collapsed: true };
+                const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
+                if (existingIndex >= 0) {
+                  if (event.name) blocks[existingIndex] = { ...blocks[existingIndex], name: event.name };
+                } else {
+                  blocks.push({ type: 'tool_call', id: event.id, name: event.name || 'Resolving spell...', args: {}, status: 'running', expanded: false, timestamp: now });
+                  console.log('[Wizard] Created tool_call block:', event.name, 'status: running, timestamp:', now);
+                }
+              } else if (event.type === 'tool_call') {
+                const now = Date.now();
+                console.log('[Wizard] tool_call received:', event.name, event.id, 'args:', Object.keys(event.args || {}), 'at', now);
+                const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
+                if (existingIndex >= 0) {
+                  blocks[existingIndex] = { ...blocks[existingIndex], name: event.name, args: event.args, status: 'running' };
+                  const elapsed = now - (blocks[existingIndex].timestamp || now);
+                  console.log('[Wizard] Updated existing tool_call block, elapsed since start:', elapsed, 'ms');
+                } else {
+                  blocks.push({ type: 'tool_call', id: event.id, name: event.name, args: event.args, status: 'running', expanded: false, timestamp: now });
+                  console.log('[Wizard] Created new tool_call block (no tool_call_start received)');
+                }
+              } else if (event.type === 'tool_result') {
+                const now = Date.now();
+                console.log('[Wizard] tool_result received:', event.id, 'error:', !!event.result?.error, 'at', now);
+                const toolIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
+                if (toolIndex >= 0) {
+                  // `cancelled` marks a call the loop announced but never ran (token
+                  // budget, stop, error) — that is not the tool failing, so it reads
+                  // as "Stopped" rather than "Failed".
+                  const newStatus = event.result?.cancelled ? 'cancelled'
+                    : (event.result?.error || applyError) ? 'failed'
+                    : 'completed';
+                  const elapsed = now - (blocks[toolIndex].timestamp || now);
+                  blocks[toolIndex] = {
+                    ...blocks[toolIndex],
+                    status: newStatus,
+                    result: event.result,
+                    error: event.result?.error || (applyError ? `Could not apply to the graph: ${applyError.message}` : undefined)
+                  };
+                  console.log('[Wizard] Updated tool_call to status:', newStatus, 'total elapsed:', elapsed, 'ms');
+                } else {
+                  console.warn('[Wizard] tool_result received but no matching tool_call block found!', event.id);
+                }
+                // Apply pre-computed plan card decision (computed outside updateMsgInArray)
+                if (planUpdate) {
+                  if (planUpdate.action === 'create') {
+                    blocks.push({ type: 'plan', id: planUpdate.id, steps: planUpdate.steps, timestamp: planUpdate.timestamp, frozen: false });
+                  } else if (planUpdate.action === 'freeze_and_create') {
+                    const latestPlanIdx = blocks.reduce((last, b, idx) => b.type === 'plan' && !b.frozen ? idx : last, -1);
+                    if (latestPlanIdx >= 0) blocks[latestPlanIdx] = { ...blocks[latestPlanIdx], frozen: true };
+                    blocks.push({ type: 'plan', id: planUpdate.id, steps: planUpdate.steps, timestamp: planUpdate.timestamp, frozen: false });
+                  } else if (planUpdate.action === 'update_in_place') {
+                    const latestPlanIdx = blocks.reduce((last, b, idx) => b.type === 'plan' && !b.frozen ? idx : last, -1);
+                    if (latestPlanIdx >= 0) {
+                      blocks[latestPlanIdx] = { ...blocks[latestPlanIdx], steps: planUpdate.steps, timestamp: planUpdate.timestamp };
+                    }
+                  }
+                }
+              } else if (event.type === 'thinking') {
+                // Thinking tokens from reasoning models (Ollama: delta.thinking_content)
+                // Accumulate into a single thinking block; collapse once response starts
+                const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
+                if (lastBlock && lastBlock.type === 'thinking') {
+                  blocks[blocks.length - 1] = { ...lastBlock, content: (lastBlock.content || '') + (event.content || '') };
+                } else {
+                  blocks.push({ type: 'thinking', content: event.content || '' });
+                }
+              } else if (event.type === 'response') {
+                // Collapse any open thinking block when the real response starts
+                const thinkIdx = blocks.findIndex(b => b.type === 'thinking' && !b.collapsed);
+                if (thinkIdx >= 0) blocks[thinkIdx] = { ...blocks[thinkIdx], collapsed: true };
+                const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
+                if (lastBlock && lastBlock.type === 'text') {
+                  blocks[blocks.length - 1] = { ...lastBlock, content: (lastBlock.content || '') + (event.content || '') };
+                } else {
+                  blocks.push({ type: 'text', content: event.content || '' });
+                }
+                msg.content = (msg.content || '') + (event.content || '');
+              } else if (event.type === 'steering') {
+                // The loop injected a synthetic "user" message to steer the model —
+                // the hidden second voice in the conversation. Collapse any open thinking
+                // block, then record it as its own block so the UI can surface the
+                // otherwise-invisible back-and-forth (gated by the "show steering" option).
+                const openThinkIdx = blocks.findLastIndex(b => b.type === 'thinking' && !b.collapsed);
+                if (openThinkIdx >= 0) blocks[openThinkIdx] = { ...blocks[openThinkIdx], collapsed: true };
+                blocks.push({ type: 'steering', kind: event.kind || 'nudge', content: event.content || '' });
+              } else if (event.type === 'usage') {
+                // Running per-ask token totals from the agent loop. Each event
+                // carries the cumulative ask totals, so last-write wins.
+                msg.tokenUsage = {
+                  promptTokens: event.askPromptTokens || 0,
+                  completionTokens: event.askCompletionTokens || 0,
+                  totalTokens: event.askTotalTokens || 0
+                };
+                // The server measures the graph header it actually sent. The
+                // meter previously guessed at a flat 3,750 for it, which was
+                // wrong in both directions depending on the universe.
+                if (typeof event.contextHeaderTokens === 'number') {
+                  setMeasuredContextTokens(event.contextHeaderTokens);
+                }
+                if (event.costBreakdown) {
+                  setCostBreakdown(event.costBreakdown);
+                }
+              } else if (event.type === 'error') {
+                blocks.push({ type: 'text', content: `Error: ${event.message}` });
+                msg.content = `Error: ${event.message}`;
+                msg.isStreaming = false;
+                settleToolCallBlocksInPlace(blocks, 'The run errored before this tool returned a result.');
+              } else if (event.type === 'done') {
+                msg.isStreaming = false;
+                msg.iterations = event.iterations;
+                // The run is over: nothing will ever settle a chip still marked
+                // running, and the stop button disappears along with it.
+                settleToolCallBlocksInPlace(blocks, 'The run ended before this tool returned a result.');
+                // Collapse any thinking blocks still open when run ends
+                blocks.forEach((b, i) => { if (b.type === 'thinking' && !b.collapsed) blocks[i] = { ...b, collapsed: true }; });
+                const lastTextIdx = blocks.length - 1;
+                if (lastTextIdx >= 0 && blocks[lastTextIdx].type === 'text' && blocks[lastTextIdx].content) {
+                  blocks[lastTextIdx] = { ...blocks[lastTextIdx], content: blocks[lastTextIdx].content.trimEnd() };
+                }
+                if (msg.content) msg.content = msg.content.trimEnd();
+                // Show a subtle system note for incomplete plans, not as AI text
+                if (event.reason === 'max_iterations' && event.planTotal > 0 && event.planDone < event.planTotal) {
+                  blocks.push({ type: 'system_note', content: `Reached iteration limit — plan ${event.planDone}/${event.planTotal} complete. Try "continue" to pick up where this left off.` });
+                }
+
+                if (persona === 'druid' && druidInstance) {
+                  druidInstance.processMessage(msg.content, [...updated, msg].map(m => ({
+                    role: m.sender === 'ai' ? 'assistant' : 'user', content: m.content
+                  })));
+                }
+              }
+
+              msg.contentBlocks = blocks;
+              updated[idx] = msg;
+              return updated;
+            };
+
+            // Update the background conversations list ALWAYS
+            setConversations(prev => prev.map(c =>
+              c.id === targetConversationId ? { ...c, messages: updateMsgInArray(c.messages || []), timestamp: new Date().toISOString() } : c
+            ));
+
+            // Update the active UI messages ONLY if we are still on that tab.
+            // Read the CURRENT tab from the ref — `activeConversationId` here
+            // is captured from the same closure as targetConversationId, so
+            // comparing them was always true. After a mid-run tab switch that
+            // applied this run's updates to the other tab's array, where the
+            // message id isn't found and updateMsgInArray appends a NEW
+            // message with isStreaming: true — leaving two streaming messages
+            // and two entries sharing one id.
+            setMessages(prev => {
+              if (activeConversationIdRef.current === targetConversationId) {
+                return updateMsgInArray(prev);
+              }
+              return prev;
+            });
+
+          } catch (e) {
+            // One bad event must not kill the run — same tolerance the SSE
+            // parser had, now covering handler faults rather than JSON faults.
+            console.warn('[Wizard] Failed to handle agent event:', e, event?.type);
           }
         }
       } finally {
-        // Cancel before releasing: releaseLock alone leaves the underlying body
-        // stream open, so an abort or an early break kept the HTTP response (and
-        // the server's SSE handler) alive with nothing reading it.
-        try { await reader.cancel(); } catch { /* already closed or errored */ }
-        reader.releaseLock();
+        // Release the generator. An abort or an early break leaves it suspended
+        // at a yield otherwise, so its `finally` — and the loop's own teardown —
+        // never runs.
+        try { await agentEvents.return?.(); } catch { /* already finished */ }
         // Backstop: isStreaming is normally cleared by an explicit done/error
         // event. If the stream just ends without one — server closed the
         // connection, process died, bridge restarted — the flag used to stay
@@ -3014,7 +2978,7 @@ const LeftAIView = ({ compact = false,
       }
       setIsConnected(true);
     } catch (error) {
-      if (error.name === 'AbortError') {
+      if (isAbortError(error)) {
         if (!_preCreated) return; // bailed before pre-creation (no API key) — nothing to clean up
         // On cancel: remove the pre-created message if still empty, otherwise mark done
         const stoppedReason = 'Stopped before this tool returned a result.';
@@ -3095,27 +3059,24 @@ const LeftAIView = ({ compact = false,
       else if (apiKey?.startsWith('sk-proj-') && (!chatProvider || chatProvider === 'openrouter')) chatProvider = 'openai';
       else if (apiKey?.startsWith('AIza') && (!chatProvider || chatProvider === 'openrouter')) chatProvider = 'google';
 
-      const response = await bridgeFetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          message: question,
-          systemPrompt: 'You are a concise Redstring copilot. Reference the active graph when possible and keep answers grounded.',
-          context: {
-            activeGraphId: activeGraphId || null,
-            graphInfo,
-            graphCount,
-            apiConfig: apiConfig ? { provider: chatProvider || apiConfig.provider, endpoint: apiConfig.endpoint, model: apiConfig.model, settings: apiConfig.settings } : null
-          },
-          model: apiConfig?.model || undefined
-        })
-      });
-      if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`Chat request failed (${response.status}): ${errorBody}`);
-      }
-      const data = await response.json();
-      addMessage('ai', data.response || 'No response received from the model.', {}, targetConversationId);
+      // One-shot chat, no tools and no agent loop — same call the server's
+      // /api/ai/chat made on our behalf, minus the round-trip.
+      const { content } = await callLLM(
+        [
+          { role: 'system', content: 'You are a concise Redstring copilot. Reference the active graph when possible and keep answers grounded.' },
+          { role: 'user', content: question }
+        ],
+        [],
+        {
+          apiKey,
+          provider: chatProvider || apiConfig?.provider || 'openrouter',
+          endpoint: apiConfig?.endpoint,
+          model: apiConfig?.model,
+          temperature: 0.7,
+          maxTokens: 1024
+        }
+      );
+      addMessage('ai', content || 'No response received from the model.', {}, targetConversationId);
       setIsConnected(true);
     } catch (error) {
       console.error('[AI Collaboration] Question handling failed:', error);
@@ -3812,23 +3773,19 @@ const LeftAIView = ({ compact = false,
                     })() : []
                   };
 
+                  // Some tools reach for a key off graphState; the server used to
+                  // splice it in from the Authorization header.
                   const apiKey = await apiKeyManager.getAPIKey();
-                  const headers = { 'Content-Type': 'application/json' };
-                  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+                  if (apiKey && !graphState.apiKey) graphState.apiKey = apiKey;
 
-                  const response = await bridgeFetch('/api/wizard/execute-tool', {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify({ name: toolName, args: parsedArgs, graphState }),
-                    signal: manualAbort.signal
-                  });
-
-                  if (!response.ok) {
-                    const errText = await response.text();
-                    throw new Error(`Tool execution failed (${response.status}): ${errText}`);
-                  }
-                  const result = await response.json();
-                  addMessage('system', `**Result for ${toolName}:**\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``);
+                  const result = await executeTool(
+                    toolName,
+                    parsedArgs,
+                    graphState,
+                    `tool-test-${Date.now()}`,
+                    () => {}
+                  );
+                  addMessage('system', `**Result for ${toolName}:**\n\`\`\`json\n${JSON.stringify({ success: true, result }, null, 2)}\n\`\`\``);
                 }
               } catch (e) {
                 if (e.name === 'AbortError') {
@@ -3863,7 +3820,9 @@ const LeftAIView = ({ compact = false,
         />
         <div className="ai-chat-mode">
           <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="ai-messages" style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: messages.length === 0 ? 'center' : 'flex-start' }}>
-            {isHydrated && isConnected && messages.length === 0 && (
+            {/* Not gated on the bridge: the wizard works without one, so the
+                empty state has to appear on web and iOS too. */}
+            {isHydrated && messages.length === 0 && (
               <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 0' }}>
                 <svg id="wizard-full-body" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58.23 81.25" style={{ width: '150px', marginBottom: '16px' }}>
                   <g>

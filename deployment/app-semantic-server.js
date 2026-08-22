@@ -323,142 +323,16 @@ logger.info('[App] AI bridge service ready');
 // We need to proxy AI agent requests from the public port (4000) to the internal bridge
 const BRIDGE_INTERNAL_URL = process.env.BRIDGE_INTERNAL_URL || 'http://localhost:3001';
 
-logger.info(`[App] Setting up AI agent proxy to ${BRIDGE_INTERNAL_URL}`);
+logger.info(`[App] Setting up MCP bridge proxy to ${BRIDGE_INTERNAL_URL}`);
 
-// Proxy The Wizard endpoint (SSE streaming) to bridge daemon
-app.post('/api/wizard', strictLimiter, async (req, res) => {
-  try {
-    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/wizard`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
-      },
-      body: JSON.stringify(req.body)
-    });
-
-    // Forward status and headers (SSE streams need to be piped, not buffered)
-    res.status(response.status);
-    for (const [key, value] of response.headers.entries()) {
-      // Forward content-type, cache-control, etc. but skip transfer-encoding
-      if (key.toLowerCase() !== 'transfer-encoding') {
-        res.setHeader(key, value);
-      }
-    }
-
-    // Pipe the SSE stream directly to the client
-    response.body.pipe(res);
-
-    // Clean up if client disconnects
-    req.on('close', () => {
-      if (response.body && typeof response.body.destroy === 'function') {
-        response.body.destroy();
-      }
-    });
-  } catch (error) {
-    logger.error('[Wizard Proxy] Error:', error);
-    res.status(503).json({ error: 'Wizard service unavailable', details: error.message });
-  }
-});
-
-// Proxy AI agent endpoints to bridge daemon
-app.post('/api/ai/agent', strictLimiter, async (req, res) => {
-  try {
-    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/ai/agent`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
-      },
-      body: JSON.stringify(req.body)
-    });
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (error) {
-    logger.error('[AI Agent Proxy] Error:', error);
-    res.status(503).json({ error: 'AI agent service unavailable', details: error.message });
-  }
-});
-
-app.post('/api/ai/agent/continue', strictLimiter, async (req, res) => {
-  try {
-    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/ai/agent/continue`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
-      },
-      body: JSON.stringify(req.body)
-    });
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (error) {
-    logger.error('[AI Agent Proxy] Error:', error);
-    res.status(503).json({ error: 'AI agent continuation service unavailable', details: error.message });
-  }
-});
-
-app.post('/api/ai/agent/audit', strictLimiter, async (req, res) => {
-  try {
-    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/ai/agent/audit`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
-      },
-      body: JSON.stringify(req.body)
-    });
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (error) {
-    logger.error('[AI Agent Proxy] Error:', error);
-    res.status(503).json({ error: 'AI agent audit service unavailable', details: error.message });
-  }
-});
-
-// Proxy Wikipedia enrichment endpoint to bridge daemon
-const ENRICH_MAX_BATCH = Number(process.env.ENRICH_MAX_BATCH) || 25;
-app.post('/api/enrich', strictLimiter, async (req, res) => {
-  try {
-    const body = req.body || {};
-    if (Array.isArray(body.nodeNames) && body.nodeNames.length > ENRICH_MAX_BATCH) {
-      return res.status(400).json({
-        error: `Batch too large: max ${ENRICH_MAX_BATCH} nodeNames per request`,
-        received: body.nodeNames.length,
-      });
-    }
-    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/enrich`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    });
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (error) {
-    logger.error('[Enrich Proxy] Error:', error);
-    res.status(503).json({ error: 'Enrichment service unavailable', details: error.message });
-  }
-});
-
-app.post('/api/ai/chat', strictLimiter, async (req, res) => {
-  try {
-    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/ai/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
-      },
-      body: JSON.stringify(req.body)
-    });
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (error) {
-    logger.error('[AI Chat Proxy] Error:', error);
-    res.status(503).json({ error: 'AI chat service unavailable', details: error.message });
-  }
-});
+// The wizard's agent loop, Wikipedia enrichment and one-shot chat all run in
+// the browser now (src/wizard/runWizardInProcess.js), so the proxies that used
+// to forward /api/wizard, /api/ai/agent{,/continue,/audit}, /api/enrich and
+// /api/ai/chat to the bridge daemon have no callers. The /api/ai/agent family
+// had none even before that: wizard-server never implemented those routes, so
+// the proxy answered every request with a 404 from upstream.
+//
+// What stays below is the MCP bridge, which remains a local/Electron feature.
 
 // MCP endpoint proxy (for Claude Desktop compatibility)
 app.post('/api/mcp/request', strictLimiter, async (req, res) => {

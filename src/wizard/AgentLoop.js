@@ -5,9 +5,6 @@
  * gates, churn locks); each is surfaced to the UI as a `steering` event.
  */
 
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
 import { buildContext, buildPersistentContextHeader, buildPlanContext, truncateContext } from './ContextBuilder.js';
 import { MAX_TOOL_RESULT_CHARS, estimateObjectTokens, estimateTokens } from './tokenEstimate.js';
@@ -19,10 +16,6 @@ import { dedupeHistory, dedupKeyFor } from './historyDedup.js';
 import { WIZARD_SYSTEM_PROMPT, SMALL_MODEL_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 import { parseTextToolCalls } from './utils/parseTextToolCalls.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
-
-// Safe for both ESM and CJS (esbuild bundle) contexts
-const __filename = import.meta.url ? fileURLToPath(import.meta.url) : '';
-const __dirname = __filename ? path.dirname(__filename) : process.cwd();
 
 // Load system prompt
 let SYSTEM_PROMPT = WIZARD_SYSTEM_PROMPT;

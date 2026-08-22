@@ -13,6 +13,7 @@ import cors from 'cors';
 import net from 'net';
 import { parseArgs } from 'node:util';
 import { runAgent } from './src/wizard/AgentLoop.js';
+import { buildLlmConfig } from './src/wizard/buildLlmConfig.js';
 import { getToolDefinitions, executeTool } from './src/wizard/tools/index.js';
 import { callLLM } from './src/wizard/LLMClient.js';
 import { debugLogSync } from './src/utils/debugLogger.js';
@@ -206,52 +207,16 @@ app.post('/api/wizard', async (req, res) => {
     res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
     res.flushHeaders(); // Send headers immediately so browser knows stream is open
 
-    const llmConfig = {
+    // Shared with the in-app runner so the two cannot drift on the iteration
+    // and token clamps. See src/wizard/buildLlmConfig.js.
+    const llmConfig = buildLlmConfig({
       apiKey,
-      provider: apiConfig.provider || 'openrouter',
-      endpoint: apiConfig.endpoint,
-      model: apiConfig.model,
-      temperature: apiConfig.settings?.temperature,
-      maxTokens: apiConfig.settings?.max_tokens,
-      modelTier: apiConfig.modelTier || 'large',
-      cid: config?.cid || `wizard-${Date.now()}`,
-      conversationHistory: conversationHistory || [],
+      apiConfig,
+      cid: config?.cid,
       systemPrompt: config?.systemPrompt,
-      // Use per-tier user-configured iteration limits, clamped to a HARD ceiling
-      // so no config (or bug) can produce a runaway cloud bill. 0 / negative / ∞
-      // intent maps to the tier ceiling — NOT the old 9999 footgun.
-      // Defaults: 177 local/small, 77 cloud/large. Ceilings: 300 local (cheap),
-      // 100 cloud (costs money; default 77 fits comfortably under it).
-      maxIterations: (() => {
-        const isSmall = apiConfig.modelTier === 'small';
-        const ceiling = isSmall ? 300 : 100;
-        const dflt = isSmall ? 177 : 77;
-        const configured = isSmall
-          ? apiConfig.settings?.maxIterationsLocal
-          : apiConfig.settings?.maxIterationsCloud;
-        let n = dflt;
-        if (configured != null && Number.isFinite(Number(configured))) {
-          n = Math.floor(Number(configured));
-        }
-        // 0 / negative / ∞ intent → tier ceiling; everything clamped to [1, ceiling].
-        if (n <= 0) n = ceiling;
-        return Math.min(Math.max(1, n), ceiling);
-      })(),
-      // Hard per-ask token budget — a cost ceiling independent of iteration count.
-      // The loop aborts once cumulative usage crosses this. Default 500k; any
-      // configured value is clamped to a code ceiling so no ask can run away.
-      maxAskTokens: (() => {
-        const HARD_CEILING = 2000000;
-        const DEFAULT = 500000;
-        const configured = apiConfig.settings?.maxAskTokens;
-        let n = DEFAULT;
-        if (configured != null && Number.isFinite(Number(configured)) && Number(configured) > 0) {
-          n = Math.floor(Number(configured));
-        }
-        return Math.min(n, HARD_CEILING);
-      })(),
-      contextItems: req.body.contextItems || []
-    };
+      contextItems: req.body.contextItems || [],
+      conversationHistory: conversationHistory || []
+    });
 
     const messagePreview = typeof message === 'string'
       ? message.substring(0, 50)

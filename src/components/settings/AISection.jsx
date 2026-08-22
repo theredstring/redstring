@@ -327,45 +327,32 @@ const AISection = () => {
     setError('');
     setSuccess('');
 
-    let bridgeFetch = null;
     try {
-      ({ bridgeFetch } = await import('../../services/bridgeConfig.js'));
       const storedKey = await apiKeyManager.getAPIKey();
       if (!storedKey) {
         throw new Error('No API key found');
       }
 
-      const response = await bridgeFetch('/api/ai/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${storedKey}`
-        },
-        body: JSON.stringify({
-          message: 'test',
-          context: {
-            apiConfig: {
-              provider: existingKeyInfo?.provider || 'openrouter',
-              endpoint: existingKeyInfo?.endpoint || '',
-              model: existingKeyInfo?.model || ''
-            }
-          }
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API test failed: ${errorText}`);
-      }
-
-      const data = await response.json();
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
+      // Calls the provider directly. This used to go through the bridge's
+      // /api/ai/chat, which meant "test key" failed whenever no server was
+      // running — reporting a bad key when the key was fine.
+      const { callLLM } = await import('../../wizard/LLMClient.js');
+      await callLLM(
+        [{ role: 'user', content: 'test' }],
+        [],
+        {
+          apiKey: storedKey,
+          provider: existingKeyInfo?.provider || 'openrouter',
+          endpoint: existingKeyInfo?.endpoint || '',
+          model: existingKeyInfo?.model || '',
+          maxTokens: 16
+        }
+      );
 
       setSuccess('API key works! Connection verified.');
 
+      // Best-effort mirror into the bridge chat log; absent on web/iOS.
+      const { bridgeFetch } = await import('../../services/bridgeConfig.js');
       await bridgeFetch('/api/bridge/chat/append', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -378,19 +365,18 @@ const AISection = () => {
     } catch (error) {
       setError(`API key test failed: ${error.message}`);
 
-      if (bridgeFetch) {
-        try {
-          await bridgeFetch('/api/bridge/chat/append', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              role: 'system',
-              text: `API Key Test Failed: ${error.message}`,
-              channel: 'agent'
-            })
-          }).catch(e => console.warn('Failed to send error to chat:', e));
-        } catch { }
-      }
+      try {
+        const { bridgeFetch } = await import('../../services/bridgeConfig.js');
+        await bridgeFetch('/api/bridge/chat/append', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            role: 'system',
+            text: `API Key Test Failed: ${error.message}`,
+            channel: 'agent'
+          })
+        }).catch(e => console.warn('Failed to send error to chat:', e));
+      } catch { }
     } finally {
       setIsValidating(false);
     }

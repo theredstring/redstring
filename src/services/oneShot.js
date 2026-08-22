@@ -163,13 +163,49 @@ export function clearOneShotLog() {
 // ---------------------------------------------------------------------------
 
 /**
+ * Local models only, by default.
+ *
+ * This gate exists because of where oneShot sits. Roughly a dozen tools call it
+ * on paths the user did not ask for a model call on — resolution, shape
+ * classification, duplicate checks — and every one of them already has a working
+ * heuristic fallback. Against a local model that is free and fast. Against a
+ * cloud model it is a per-tool-call charge on a 3s timeout (DEFAULT_TIMEOUT_MS,
+ * tuned for local latency) that a cloud round-trip will often blow — billing for
+ * answers that get thrown away.
+ *
+ * It matters more since the agent loop moved in-process: `localStorage` is now
+ * reachable wherever the loop runs, so without this gate oneShot would switch
+ * itself on for every cloud user as a side effect of that move.
+ *
+ * `configureOneShot({ allowCloudProviders: true })` opts back in.
+ */
+let _allowCloudProviders = false;
+
+/**
+ * Injection seam, matching the idiom in toolResultApplier.js: a module-level
+ * `let` plus a setter, so the Node/browser split and the tests can substitute
+ * behavior without this module importing either side's plumbing.
+ *
+ * @param {{ resolveModelConfig?: Function|null, allowCloudProviders?: boolean }} [opts]
+ */
+export function configureOneShot({ resolveModelConfig, allowCloudProviders } = {}) {
+  if (resolveModelConfig !== undefined) {
+    _resolveModelConfig = resolveModelConfig || defaultResolveModelConfig;
+  }
+  if (allowCloudProviders !== undefined) {
+    _allowCloudProviders = !!allowCloudProviders;
+  }
+}
+
+/**
  * Resolve the currently-configured model from apiKeyManager, or null if none.
  * Reuses existing key/profile plumbing — no new provider code.
  */
-async function getModelConfig() {
+async function defaultResolveModelConfig() {
   try {
     const info = await apiKeyManager.getAPIKeyInfo();
     if (!info || !info.hasKey) return null;
+    if (!_allowCloudProviders && info.provider !== 'local') return null;
     const apiKey = await apiKeyManager.getAPIKey();
     // Local providers use the 'local' placeholder / may need no key.
     if (!apiKey && info.provider !== 'local') return null;
@@ -183,6 +219,12 @@ async function getModelConfig() {
     console.error('[oneShot] Failed to load model config:', e?.message || e);
     return null;
   }
+}
+
+let _resolveModelConfig = defaultResolveModelConfig;
+
+async function getModelConfig() {
+  return _resolveModelConfig();
 }
 
 /** True if a model is configured that oneShot can call. */

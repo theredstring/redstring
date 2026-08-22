@@ -3,7 +3,6 @@
  * Supports OpenRouter (default), Anthropic, and local OpenAI-compatible APIs
  */
 
-import apiKeyManager from '../services/apiKeyManager.js';
 import { debugLogSync } from '../utils/debugLogger.js';
 import { isVolatileContextMessage } from './requestMessages.js';
 
@@ -854,7 +853,11 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
+      'anthropic-version': '2023-06-01',
+      // Required when this runs in the browser (the agent loop is in-app now).
+      // Redstring is BYOK: the key is the user's own and already lives in their
+      // browser, so this header withholds no protection it previously had.
+      'anthropic-dangerous-direct-browser-access': 'true'
     },
     body: JSON.stringify(payload),
     signal
