@@ -19,7 +19,13 @@ const TOUCH_MOVEMENT_THRESHOLD = 12; // Higher than mouse
 // Must be >= NODE_DOUBLE_TAP_MS so a deliberate double-tap can't trip the
 // drag-start during the first hold.
 const LONG_PRESS_DURATION = 450;
-const NODE_DOUBLE_TAP_MS = 400;
+// Doubles as the single-tap selection defer: a tap can't commit until this
+// window closes without a second tap. That made tap-to-select cost contact-time
+// + 400ms — roughly 2.7x the mouse path's 180ms CLICK_DELAY, which is armed on
+// press rather than release. 250ms matches the iOS system double-tap interval
+// and is the floor for how responsive selection can feel while a double-tap
+// gesture still has to be recognized.
+const NODE_DOUBLE_TAP_MS = 250;
 // Release-velocity sampling for the pinch glide (mirrors the pan glide's
 // window approach). Velocity is measured on the RAW finger-driven target zoom,
 // not the eased/applied zoom — the applied zoom lags the fingers and keeps
