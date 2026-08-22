@@ -6,7 +6,7 @@
  */
 
 import { oauthFetch } from './bridgeConfig.js';
-import { isElectron } from '../utils/fileAccessAdapter.js';
+import { usesDeviceFlowAuth } from '../utils/capacitorAdapter.js';
 import { encryptSecret, decryptSecret } from '../utils/secureStore.js';
 
 // Token refresh buffer - refresh 5 minutes before expiry
@@ -487,11 +487,12 @@ export class PersistentAuth {
     await this.ensureAuthStateLoaded().catch(() => {});
     let appInstallation = this.getAppInstallation();
 
-    // Electron: no oauth-server to mint installation tokens (it would need
-    // the App's private key, which can't ship in a desktop binary). The
-    // stored accessToken IS already a user-to-server token from device
-    // flow — trust it, validate via /user, and skip the refresh dance.
-    if (isElectron()) {
+    // Native shells (Electron, Capacitor/iOS): no oauth-server to mint
+    // installation tokens (it would need the App's private key, which can't
+    // ship in a client binary). The stored accessToken IS already a
+    // user-to-server token from device flow — trust it, validate via /user,
+    // and skip the refresh dance.
+    if (usesDeviceFlowAuth()) {
       if (!appInstallation || !appInstallation.installationId || !appInstallation.accessToken) {
         // Don't auto-discover; the user must explicitly run the device flow.
         return false;
@@ -506,7 +507,7 @@ export class PersistentAuth {
         }
         return true;
       } catch (err) {
-        console.warn('[PersistentAuth] Electron App validation failed:', err?.message || err);
+        console.warn('[PersistentAuth] Native-shell App validation failed:', err?.message || err);
         return false;
       }
     }
@@ -763,10 +764,10 @@ export class PersistentAuth {
   async testGitHubAppToken(token) {
     try {
       // /installation/repositories requires an installation access token
-      // (`ghs_*`) minted from the App's JWT. Electron's device-flow tokens
-      // are user-to-server (`ghu_*`) — they can't hit that endpoint. Use
-      // /user/installations which both kinds of token can call.
-      const url = isElectron()
+      // (`ghs_*`) minted from the App's JWT. Device-flow tokens (Electron,
+      // Capacitor/iOS) are user-to-server (`ghu_*`) — they can't hit that
+      // endpoint. Use /user/installations which both kinds can call.
+      const url = usesDeviceFlowAuth()
         ? 'https://api.github.com/user/installations'
         : 'https://api.github.com/installation/repositories';
       const response = await fetch(url, {
@@ -1096,10 +1097,10 @@ export class PersistentAuth {
 
     console.log('[PersistentAuth] Testing token validity, token length:', accessToken.length);
 
-    // Electron has no oauth-server to introspect against — go straight to
-    // api.github.com. The "server-side introspection" path below would
+    // Native shells have no oauth-server to introspect against — go straight
+    // to api.github.com. The "server-side introspection" path below would
     // throw and short-circuit the fallback.
-    if (isElectron()) {
+    if (usesDeviceFlowAuth()) {
       try {
         const response = await fetch('https://api.github.com/user', {
           headers: {
@@ -1112,7 +1113,7 @@ export class PersistentAuth {
         }
         return response.ok;
       } catch (err) {
-        console.error('[PersistentAuth] Electron token validation failed:', err);
+        console.error('[PersistentAuth] Native-shell token validation failed:', err);
         return false;
       }
     }

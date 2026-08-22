@@ -2408,10 +2408,13 @@ class UniverseBackend {
       // Try GitHub App first (preferred) unless caller forced OAuth.
       const app = options.forceOauth ? null : persistentAuth.getAppInstallation?.();
       if (app?.installationId) {
-        if (isElectron()) {
-          // Electron: stored accessToken is a long-lived user-to-server
-          // token from device flow. No oauth-server to mint installation
-          // tokens — and we don't need one. Use the stored token directly.
+        if (usesDeviceFlowAuth()) {
+          // Native shells (Electron, Capacitor/iOS): stored accessToken is a
+          // long-lived user-to-server token from device flow. No oauth-server
+          // to mint installation tokens — and we don't need one. Use the
+          // stored token directly. (Must match the branch in the direct-load
+          // provider path below, or loads work on iOS while sync never
+          // starts: "Awaiting sync engine".)
           if (app.accessToken) {
             token = app.accessToken;
             authMethod = 'github-app';
@@ -2565,10 +2568,10 @@ class UniverseBackend {
       return { token, installationId };
     }
 
-    // Electron: device-flow user-to-server tokens aren't refreshed via
+    // Native shells: device-flow user-to-server tokens aren't refreshed via
     // oauth-server. Trust the stored token; if it's been revoked,
     // downstream API calls will surface the failure.
-    if (isElectron()) {
+    if (usesDeviceFlowAuth()) {
       return token ? { token, installationId } : null;
     }
 

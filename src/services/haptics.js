@@ -222,6 +222,16 @@ const RECIPES = {
     [HapticTier.BASIC]: { vibrate: 16 }
   },
   /**
+   * The active graph changes — a header tab, or an entry in the left panel's
+   * open-graphs list. Medium, for the same reason as viewportJump: everything
+   * on the canvas is replaced. Only fired when the graph actually changes;
+   * re-tapping the one you're already in is silent.
+   */
+  graphSwitch: {
+    [HapticTier.TAPTIC]: { impact: 'MEDIUM' },
+    [HapticTier.BASIC]: { vibrate: 16 }
+  },
+  /**
    * A connection gesture landed on something. Medium specifically so it breaks
    * out of the stretch detents it arrives on the heels of — a tick here would
    * be indistinguishable from just another crossing, and the one moment the
@@ -246,6 +256,20 @@ const RECIPES = {
    */
   connectionStretch: {
     [HapticTier.TAPTIC]: { tick: true }
+  },
+  /**
+   * The dragged connection is now over a node it could actually attach to.
+   *
+   * Medium, and edge-triggered — fired once on entering a target, never
+   * repeatedly while sitting on it. It has to be heavy enough to read through
+   * the stretch detents surrounding it, which is also why its call site forces
+   * past the rate limit: a detent firing 20ms earlier must not swallow the one
+   * signal that says "let go here". Zoomed in, the finger covers the node it is
+   * aiming at, so this is often the only way to know you've arrived.
+   */
+  connectionTarget: {
+    [HapticTier.TAPTIC]: { impact: 'MEDIUM' },
+    [HapticTier.BASIC]: { vibrate: 16 }
   },
   /** An edge is selected. A tick — the same class of act as tapping a node. */
   edgeSelect: {

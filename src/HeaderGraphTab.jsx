@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useDrag } from 'react-dnd';
+import { haptic } from './services/haptics.js';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import useGraphStore from './store/graphStore.js';
 import { getTextColor } from './utils/colorUtils.js';
@@ -115,6 +116,9 @@ const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = f
 
   const handleClick = (e) => {
     if (!isActive && onSelect && canDrag) {
+      // Inside the !isActive guard: re-tapping the tab you're already on
+      // changes nothing, so it shouldn't feel like it did.
+      haptic('graphSwitch');
       onSelect(graph.id);
     }
   };

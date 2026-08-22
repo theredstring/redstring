@@ -2010,6 +2010,10 @@ function NodeCanvas() {
   // regardless of zoom — at 0.2x zoom a canvas-unit lattice would tick five
   // times as often for the same hand movement.
   const connectionStretchTrack = useRef(createDetentTrack('connectionStretch', CONNECTION_DETENT_PX));
+  // Instance id the in-flight connection is currently hovering as a valid drop
+  // target, or null. Edge-triggering the target haptic off this is what keeps it
+  // from repeating while the finger sits still on a node.
+  const connectionHoverTargetRef = useRef(null);
   const [selfLoopDialog, setSelfLoopDialog] = useState(null);
 
   const [isPanning, _setIsPanningState] = useState(false);
@@ -3306,7 +3310,10 @@ function NodeCanvas() {
   // static "black stub" line and an unintended edge-create on mouse-up.
   useEffect(() => {
     if (!draggingNodeInfo) return;
-    if (drawingConnectionFrom) setDrawingConnectionFrom(null);
+    if (drawingConnectionFrom) {
+      connectionHoverTargetRef.current = null;
+      setDrawingConnectionFrom(null);
+    }
   }, [draggingNodeInfo, drawingConnectionFrom, setDrawingConnectionFrom]);
 
   // Flush anchor position updates from group rendering to the store
@@ -8355,6 +8362,25 @@ function NodeCanvas() {
     return null;
   };
 
+  // What a connection release at this point would attach to — the same test
+  // handleMouseUp runs, factored out so the in-flight hover haptic can never
+  // promise a target the drop would then reject. Returns an instance id or null.
+  //
+  // Hoists the container rect out of the node loop: isInsideNode reads it on
+  // every call, which would be a forced layout per node per pointermove.
+  const findConnectionDropTarget = (clientX, clientY) => {
+    if (!containerRef.current) return null;
+    const rect = containerRef.current.getBoundingClientRect();
+    for (const n of nodes) {
+      if (n.isGroupAnchor) continue;
+      if (GeometryUtils.isInsideNode(n, clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize, previewingNodeId)) {
+        return n.id;
+      }
+    }
+    const hitGroup = findGroupTitleAtPoint(clientX, clientY);
+    return hitGroup ? hitGroup.anchorInstanceId : null;
+  };
+
   // Helper function to check if a point is near a line (for edge hover detection)
   const isNearEdge = (x1, y1, x2, y2, pointX, pointY, threshold = 20) => {
     // Calculate distance from point to line segment
@@ -9482,6 +9508,7 @@ function NodeCanvas() {
               // Seed the lattice at the gesture's actual starting length so the
               // first detent is a real crossing, not an artifact of starting
               // from zero.
+              connectionHoverTargetRef.current = null;
               connectionStretchTrack.current.reset(
                 Math.hypot(currentX - startPt.x, currentY - startPt.y) * zoomLevelRef.current
               );
@@ -9538,6 +9565,22 @@ function NodeCanvas() {
           Math.hypot(currentX - drawingConnectionFrom.startX, currentY - drawingConnectionFrom.startY)
           * zoomLevelRef.current
         );
+
+        // Edge-triggered "you're over something you can attach to". Fires once
+        // on arrival, again if you leave and return, and again when crossing
+        // straight from one node to another — but never repeatedly while the
+        // finger rests on a target.
+        const dropTargetId = findConnectionDropTarget(e.clientX, e.clientY);
+        // Mirrors handleMouseUp's acceptance: any node but the source, or the
+        // source itself once the gesture has left and come back (self-loop).
+        const armedTarget = dropTargetId
+          && (dropTargetId !== drawingConnectionFrom.sourceInstanceId || connectionExitedSourceRef.current)
+          ? dropTargetId
+          : null;
+        if (armedTarget !== connectionHoverTargetRef.current) {
+          connectionHoverTargetRef.current = armedTarget;
+          if (armedTarget) haptic('connectionTarget', { force: true });
+        }
 
         pendingConnectionUpdate.current = { currentX, currentY };
         if (!connectionUpdateScheduled.current) {
@@ -9816,6 +9859,7 @@ function NodeCanvas() {
         }
         setDrawingConnectionFrom(null);
         connectionExitedSourceRef.current = false;
+        connectionHoverTargetRef.current = null;
       }
 
       // Drag finalization (delegated to useNodeDrag hook).

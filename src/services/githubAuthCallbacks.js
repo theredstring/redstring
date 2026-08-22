@@ -14,7 +14,7 @@
 import { persistentAuth } from './persistentAuth.js';
 import { oauthFetch } from './bridgeConfig.js';
 import universeManagerService from './universeManagerService.js';
-import { isElectron } from '../utils/fileAccessAdapter.js';
+import { usesDeviceFlowAuth } from '../utils/capacitorAdapter.js';
 import { findAppInstallationDirect } from './githubAuthFlows.js';
 
 const { log: __nativeLog, warn: __nativeWarn, error: __nativeError } = console;
@@ -300,7 +300,7 @@ export async function recheckAppOnFocus() {
   if (pending) {
     try {
       gcLog('Tab regained focus with pending App install — re-running discovery');
-      if (isElectron()) {
+      if (usesDeviceFlowAuth()) {
         const parkedToken = persistentAuth.getAppUserToServerToken?.() || null;
         if (parkedToken) {
           try {
@@ -314,8 +314,8 @@ export async function recheckAppOnFocus() {
               });
               persistentAuth.clearAppUserToServerToken?.();
             }
-          } catch (electronErr) {
-            gcWarn('Electron focus App discovery failed:', electronErr?.message || electronErr);
+          } catch (nativeErr) {
+            gcWarn('Native-shell focus App discovery failed:', nativeErr?.message || nativeErr);
           }
         }
       } else {
@@ -332,7 +332,7 @@ export async function recheckAppOnFocus() {
     return { detected: false };
   }
 
-  if (isElectron()) return { detected: false };
+  if (usesDeviceFlowAuth()) return { detected: false };
   const canDiscover = persistentAuth.hasValidTokens?.() && !persistentAuth.hasAppInstallation?.();
   if (!canDiscover) return { detected: false };
   const now = Date.now();

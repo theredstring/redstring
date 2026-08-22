@@ -5,6 +5,7 @@ import { NODE_HEIGHT } from './constants'; // Assuming we use this height
 import GraphPreview from './GraphPreview'; // <<< Import GraphPreview
 import { XCircle } from 'lucide-react'; // <<< Import XCircle
 import { useDrag } from 'react-dnd';
+import { haptic } from './services/haptics.js';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import useGraphStore from './store/graphStore.js';
 import { getTextColor } from './utils/colorUtils';
@@ -73,8 +74,10 @@ const GraphListItem = forwardRef(({
   }, [graphData.id, onToggleExpand]); // <<< Add dependencies
 
   const handleClick = useCallback(() => {
+    // Matches HeaderGraphTab: only a real switch gets a haptic.
+    if (!isActive) haptic('graphSwitch');
     onClick?.(graphData.id);
-  }, [onClick, graphData.id]);
+  }, [onClick, graphData.id, isActive]);
 
   const handleMouseEnter = useCallback(() => setIsHovered(true), []);
   const handleMouseLeave = useCallback(() => setIsHovered(false), []);
