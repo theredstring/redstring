@@ -22,8 +22,17 @@ function App() {
     const theme = darkMode ? DARK_THEME : LIGHT_THEME;
     const root = document.documentElement;
 
-    // Set background color on body
-    document.body.style.backgroundColor = theme.canvas.bg;
+    // Set background color on body.
+    //
+    // On iOS the body background is what shows through the safe-area gaps above
+    // and below the web view, where it read as a stray canvas-coloured band
+    // against the header. Follow the header colour there instead. `--rs-header-bg`
+    // is published by Header.jsx and tracks the active graph, so the gap
+    // re-colours on navigation; the canvas colour stays the fallback for the
+    // first paint before a header has mounted.
+    document.body.style.backgroundColor = isCapacitor()
+      ? `var(--rs-header-bg, ${theme.canvas.bg})`
+      : theme.canvas.bg;
 
     // Add/remove dark-mode class on html element for CSS
     root.classList.toggle('dark-mode', darkMode);

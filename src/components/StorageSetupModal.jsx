@@ -183,9 +183,13 @@ const StorageSetupModal = ({
     typeof window !== 'undefined' && !('showSaveFilePicker' in window);
   const canLinkLocalFile = isElectron() || isCapacitor() ||
     (typeof window !== 'undefined' && 'showSaveFilePicker' in window);
-  // On iOS local storage is automatic (app-managed Universes folder) — there is
-  // no file to pick and no workspace folder to choose.
-  const showLocalSlot = canLinkLocalFile && !isCapacitor();
+  // On iOS there is no file to pick and no workspace folder to choose — storage
+  // lands in the app-managed Universes folder. That is a reason to drop the
+  // picker, NOT the slot: hiding the slot left `slotStatus.local` permanently
+  // false, and since "Get Connected" needs a filled slot, onboarding could not
+  // be completed at all without linking GitHub. The slot still requires an
+  // explicit tap, so nothing is created behind the user's back.
+  const showLocalSlot = canLinkLocalFile;
   const showWorkspaceRow = canLinkLocalFile && !isCapacitor();
   const showGitOption = !!onUniverseReady;
   // Once a slot exists, the universe is created with its name — lock the input.
@@ -817,12 +821,15 @@ const StorageSetupModal = ({
 
         {showLocalSlot && renderSlotCard({
           icon: <Save size={22} />,
-          title: 'Local File',
-          description: 'Save on this device',
+          // iOS has no file picker and no user-visible filesystem, so name the
+          // slot for what it does there rather than for a file the user will
+          // never see.
+          title: isCapacitor() ? 'On This Device' : 'Local File',
+          description: isCapacitor() ? "Kept in the app's Universes folder" : 'Save on this device',
           done: slotStatus.local.done,
           doneBadge: 'Saved ✓',
           doneDetail: slotStatus.local.label,
-          actionLabel: 'Add Local File',
+          actionLabel: isCapacitor() ? 'Save on This Device' : 'Add Local File',
           onAction: handleAddLocalFile,
           busy: localBusy,
           error: localError,
@@ -841,7 +848,7 @@ const StorageSetupModal = ({
               <div style={{ display: 'flex', gap: 6 }}>
                 {[
                   { key: 'git', label: 'GitHub' },
-                  { key: 'local', label: 'Local File' }
+                  { key: 'local', label: isCapacitor() ? 'On This Device' : 'Local File' }
                 ].map(({ key, label }) => {
                   const active = sourceOfTruth === key;
                   return (
@@ -860,7 +867,7 @@ const StorageSetupModal = ({
               </div>
             ) : (
               <span style={{ color: theme.accent.primary, fontWeight: 700 }}>
-                {sourceOfTruth === 'git' ? 'GitHub' : sourceOfTruth === 'local' ? 'Local File' : 'Browser'}
+                {sourceOfTruth === 'git' ? 'GitHub' : sourceOfTruth === 'local' ? (isCapacitor() ? 'On This Device' : 'Local File') : 'Browser'}
               </span>
             )}
           </div>
@@ -871,6 +878,34 @@ const StorageSetupModal = ({
       {/* Get Connected — always visible, greyed out until a slot is filled */}
       <div style={{ marginTop: isCompactLayout ? '6px' : '8px', flexShrink: 0 }}>
         {primaryCta({ label: 'Get Connected', onClick: () => onFinishOnboarding?.(), disabled: !anySlotFilled, large: true })}
+
+        {/* Escape hatch. Without it, onboarding is a dead end wherever no local
+            file can be linked — a browser with no File System Access API, or a
+            page served over a non-secure origin, where GitHub becomes the only
+            fillable slot. Browser storage is still an explicit choice here, not
+            a preloaded universe. */}
+        {!anySlotFilled && onBrowserStorageSelected && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
+            <button
+              type="button"
+              onClick={() => onBrowserStorageSelected()}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '4px 8px',
+                cursor: 'pointer',
+                color: theme.canvas.textSecondary || theme.canvas.textPrimary,
+                fontFamily: "'EmOne', sans-serif",
+                fontSize: '0.78rem',
+                textDecoration: 'underline',
+                opacity: 0.85
+              }}
+              title="Start now with storage in this browser. You can link GitHub or a local file later."
+            >
+              Continue without linking — save in this browser
+            </button>
+          </div>
+        )}
       </div>
     </>
   );

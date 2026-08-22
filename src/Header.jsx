@@ -321,6 +321,15 @@ const Header = ({
     };
   }, [activeGraph?.color]);
 
+  // Publish the header colour so chrome outside the React tree can match it —
+  // notably the iOS safe-area gaps above and below the web view, which paint
+  // the <body> background. This is dynamic in two ways: it follows dark mode
+  // AND the active graph's colour, so it has to be pushed on every change
+  // rather than read once.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--rs-header-bg', headerBg);
+  }, [headerBg]);
+
   // Keep consistent order - split the original array around the active graph
   const activeIndex = headerGraphs.findIndex(g => g.isActive);
   const leftGraphs = activeIndex > 0 ? headerGraphs.slice(0, activeIndex) : [];
