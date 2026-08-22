@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Prototype/Instance Model**: The system uses a dual-layer architecture:
 - **Node Prototypes** (`nodePrototypes` Map): Define the "type" of a node (name, color, description, definitions)
 - **Node Instances** (`graph.instances` Map): Position and scale data for prototype instances within specific graphs
-- **Edges** connect instance IDs, not prototype IDs
+- **Edges** connect Node instance IDs, not Node prototype IDs
 
 **Context-Aware Definitions**: Nodes can have multiple definition graphs, with context-specific active definitions tracked via `nodeDefinitionIndices` Map using `"nodeId-graphId"` composite keys.
 
