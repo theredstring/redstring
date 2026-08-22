@@ -95,6 +95,42 @@ describe('runWizardInProcess', () => {
     expect(runAgent).not.toHaveBeenCalled();
   });
 
+  it('unfreezes state so the agent can push onto store-owned arrays', async () => {
+    // The store is Immer-backed with auto-freeze on, and the graphState builder
+    // passes nested arrays through by reference. The agent's bookkeeping pushes
+    // onto exactly these, which threw "Cannot add property N, object is not
+    // extensible". The HTTP hop used to deep-copy this away as a side effect.
+    const frozenGraph = Object.freeze({
+      id: 'g1',
+      edgeIds: Object.freeze(['e1', 'e2', 'e3', 'e4', 'e5'])
+    });
+    const frozenProto = Object.freeze({
+      id: 'p1',
+      definitionGraphIds: Object.freeze(['d1', 'd2', 'd3'])
+    });
+    const graphState = Object.freeze({
+      activeGraphId: 'g1',
+      graphs: Object.freeze([frozenGraph]),
+      nodePrototypes: Object.freeze([frozenProto])
+    });
+
+    runAgent.mockImplementation(async function* (_msg, state) {
+      // Mirrors AgentLoop.updateGraphState.
+      state.graphs[0].edgeIds.push('e6');
+      state.nodePrototypes[0].definitionGraphIds.push('d4');
+      state.graphs.push({ id: 'g2', edgeIds: [] });
+      yield { type: 'response', content: 'ok' };
+    });
+
+    const events = await drain(runWizardInProcess({ ...baseArgs, graphState }));
+    expect(events).toEqual([{ type: 'response', content: 'ok' }, { type: 'done' }]);
+
+    // The caller's state — the real store's data — must be untouched.
+    expect(graphState.graphs).toHaveLength(1);
+    expect(frozenGraph.edgeIds).toHaveLength(5);
+    expect(frozenProto.definitionGraphIds).toHaveLength(3);
+  });
+
   it('lets errors propagate rather than converting them to events', async () => {
     // The caller's abort branch is what removes an empty bubble on stop;
     // swallowing the throw into a `done` event would strand it.

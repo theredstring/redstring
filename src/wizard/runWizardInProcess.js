@@ -25,6 +25,22 @@ import { buildLlmConfig } from './buildLlmConfig.js';
 const NOOP_SCHEDULER = () => {};
 
 /**
+ * Deep copy that yields unfrozen, plain objects.
+ *
+ * structuredClone is the fast path. It rejects functions and proxies, so fall
+ * back to a JSON round trip — which is exactly what the old HTTP body did, and
+ * therefore cannot be more lossy than the behavior this replaces.
+ */
+function deepClone(value) {
+  try {
+    if (typeof structuredClone === 'function') return structuredClone(value);
+  } catch {
+    // Not cloneable structurally — fall through.
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
+/**
  * @param {Object}   params
  * @param {string|Array} params.message          user message (string, or multimodal blocks)
  * @param {Object}   params.graphState
@@ -60,10 +76,25 @@ export async function* runWizardInProcess({
     throw new Error('API key required');
   }
 
-  const state = graphState || {};
+  // Deep-clone before the agent touches anything.
+  //
+  // The store is an Immer store with auto-freeze on, so everything reachable
+  // from it is deeply frozen, and the graphState builder passes nested arrays
+  // (edgeIds, definitionGraphIds, definingNodeIds) straight through by
+  // reference. The agent's own bookkeeping pushes onto exactly those arrays
+  // (AgentLoop.updateGraphState), which throws "Cannot add property N, object
+  // is not extensible" on a frozen one.
+  //
+  // This never surfaced while the agent ran on a server because the JSON round
+  // trip through the HTTP body deep-copied the state as a side effect. Removing
+  // the transport removed the copy with it, so it has to be explicit. This is
+  // still cheaper than what it replaces — the old path did this same clone plus
+  // a network hop.
+  const state = deepClone(graphState || {});
 
   // Tools reach uploaded files through graphState._tabularData; nothing else
-  // passes them down.
+  // passes them down. Attached after the clone: it is freshly built per ask and
+  // can be large, so there is nothing to gain from copying it again.
   if (Array.isArray(tabularData) && tabularData.length > 0) {
     state._tabularData = tabularData;
   }

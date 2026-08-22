@@ -9,7 +9,7 @@ import PlanCard from '../../../ai/components/PlanCard.jsx';
 import ThinkingBlock from '../../../ai/components/ThinkingBlock.jsx';
 import SteeringBlock from '../../../ai/components/SteeringBlock.jsx';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
-import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.js';
+import { bridgeFetch, bridgeEventSource, getBridgeBaseUrl } from '../../../services/bridgeConfig.js';
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from '../../../constants.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
@@ -1969,9 +1969,16 @@ const LeftAIView = ({ compact = false,
       setIsConnected(true);
       addMessage('system', `${summary}\nConnection refreshed.`);
     } catch (e) {
-      console.error('[AI Collaboration] Bridge refresh failed:', e);
+      console.warn('[AI Collaboration] Bridge refresh failed:', e);
       setIsConnected(false);
-      addMessage('system', `Bridge refresh failed: ${e.message}`);
+      // "Failed to fetch" on its own reads like the app is broken. It usually
+      // just means no bridge process exists: `npm run dev` starts Vite only,
+      // while Electron starts the bridge for you. The Wizard does not need it —
+      // the agent runs in-app — so say what is actually unavailable.
+      const isUnreachable = /failed to fetch|networkerror|unreachable/i.test(e?.message || '');
+      addMessage('system', isUnreachable
+        ? `No MCP bridge running at ${getBridgeBaseUrl()}.\nThis is optional — the Wizard works without it. It powers the Claude Desktop / MCP integration, and starts automatically in the Electron app. To run it alongside \`npm run dev\`, start it with \`npm run wizard:start\`.`
+        : `Bridge refresh failed: ${e.message}`);
     } finally {
       setIsProcessing(false);
     }
