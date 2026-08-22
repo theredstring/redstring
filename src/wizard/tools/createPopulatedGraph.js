@@ -2,7 +2,6 @@
  * createPopulatedGraph - Create a new graph with nodes, edges, and groups in one operation
  */
 
-import queueManager from '../../services/queue/Queue.js';
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 import { validateEdgesSmart } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
@@ -253,10 +252,11 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
 
   // UI-side creation + auto-layout handles graph population directly via
   // applyToolResultToStore in LeftAIView.jsx, which calls applyBulkGraphUpdates
-  // and dispatches rs-trigger-auto-layout. The executor pipeline is skipped
-  // to avoid creating duplicate nodes with different IDs.
-  // const goalId = queueManager.enqueue('goalQueue', { ... });
-  // if (ensureSchedulerStarted) ensureSchedulerStarted();
+  // and dispatches rs-trigger-auto-layout. The executor pipeline (goalQueue ->
+  // taskQueue -> ... , driven by the orchestrator) is skipped to avoid creating
+  // duplicate nodes with different IDs, so this tool no longer touches the
+  // queue at all. Its import went with it: that was the only thing pulling the
+  // Node-only queue journal into the browser bundle.
 
   // Composition. A new graph is exactly where depth should be decided, so this
   // tool accepts layers rather than forcing a second buildComposition call after
