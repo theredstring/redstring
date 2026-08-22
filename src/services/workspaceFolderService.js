@@ -1,9 +1,12 @@
 
 import { isElectron } from '../utils/fileAccessAdapter.js';
+import { isCapacitor, UNIVERSES_FOLDER_HANDLE, ensureUniversesFolder } from '../utils/capacitorAdapter.js';
 
 const WORKSPACE_DB_NAME = 'redstring-workspace';
 const WORKSPACE_STORE_NAME = 'folder-handles';
 const ELECTRON_STORE = 'workspace';
+// Capacitor: an explicitly chosen folder, overriding the app-managed default.
+const CAPACITOR_OVERRIDE_KEY = 'redstring_capacitor_workspace_folder';
 
 let _cachedHandle = null;
 
@@ -28,6 +31,19 @@ function openWorkspaceDB() {
  */
 export async function saveWorkspaceHandle(handleOrPath) {
     _cachedHandle = handleOrPath;
+
+    // Capacitor: handles are prefixed path strings, so an explicitly chosen
+    // folder just replaces the app-managed default.
+    if (isCapacitor()) {
+        try {
+            localStorage.setItem(CAPACITOR_OVERRIDE_KEY, handleOrPath);
+            const folderName = String(handleOrPath).replace(/\/+$/, '').split('/').pop() || 'Universes';
+            localStorage.setItem('redstring_workspace_folder_name', folderName);
+        } catch (error) {
+            console.warn('[WorkspaceFolderService] Failed to save workspace folder (Capacitor):', error);
+        }
+        return;
+    }
 
     if (isElectron()) {
         // Electron: store path string in persistent file-based storage
@@ -68,6 +84,30 @@ export async function saveWorkspaceHandle(handleOrPath) {
  */
 export async function getWorkspaceHandle() {
     if (_cachedHandle) return _cachedHandle;
+
+    // Capacitor: the app owns a Universes/ folder inside its own container, so a
+    // workspace folder ALWAYS exists — there is nothing for the user to pick and
+    // nothing to grant. Without this branch iOS fell through to the web path,
+    // found no IndexedDB handle, and reported "No valid folder found. Setup
+    // required." — which pushed the app into browser storage on every launch
+    // even though the managed folder was right there with universes in it.
+    if (isCapacitor()) {
+        try {
+            const override = localStorage.getItem(CAPACITOR_OVERRIDE_KEY);
+            if (override) {
+                _cachedHandle = override;
+                return override;
+            }
+        } catch { /* localStorage unavailable — fall through to the default */ }
+
+        try {
+            await ensureUniversesFolder();
+        } catch (error) {
+            console.warn('[WorkspaceFolderService] Could not ensure Universes folder:', error?.message || error);
+        }
+        _cachedHandle = UNIVERSES_FOLDER_HANDLE;
+        return _cachedHandle;
+    }
 
     if (isElectron()) {
         try {

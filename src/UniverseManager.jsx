@@ -3791,6 +3791,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     const hasLocalFile = localFile?.enabled && localFile?.path;
 
     if (!hasLocalFile) {
+      // This used to be text only, with no way to act on it — so a universe
+      // created git-first had exactly one slot and no route to a second one.
+      // "Create" works everywhere: it writes into the workspace folder, which on
+      // iOS is the app-managed Universes folder. "Link existing" is hidden on
+      // iOS, where pickFile() deliberately throws (there is no open-picker; an
+      // external file comes in through import instead).
       return (
         <div
           style={{
@@ -3799,10 +3805,34 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             borderRadius: 6,
             backgroundColor: theme.canvas.bg,
             color: '#555',
-            fontSize: '0.8rem'
+            fontSize: '0.8rem',
+            display: 'flex',
+            flexDirection: isSlim ? 'column' : 'row',
+            justifyContent: 'space-between',
+            alignItems: isSlim ? 'stretch' : 'center',
+            gap: 10
           }}
         >
-          No local file linked yet. Link or create one to enable local storage.
+          <span>
+            {isCapacitor()
+              ? 'No local file yet. Create one in this device’s Universes folder.'
+              : 'No local file linked yet. Link or create one to enable local storage.'}
+          </span>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <PanelIconButton
+              icon={Save}
+              label="Create Local File"
+              variant="solid"
+              onClick={() => handleCreateLocalFile(universe.slug)}
+            />
+            {!isCapacitor() && (
+              <PanelIconButton
+                label="Link Existing"
+                variant="outline"
+                onClick={() => handleLinkLocalFile(universe.slug)}
+              />
+            )}
+          </div>
         </div>
       );
     }
@@ -3845,18 +3875,24 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {/* On iOS pickFile() throws by design, so both of these route to
+                the managed-folder creation path instead of an open-picker. */}
             {needsReconnect ? (
               <PanelIconButton
                 icon={RotateCcw}
                 label="Reconnect"
                 variant="solid"
-                onClick={() => handleLinkLocalFile(universe.slug)}
+                onClick={() => (isCapacitor()
+                  ? handleCreateLocalFile(universe.slug)
+                  : handleLinkLocalFile(universe.slug))}
               />
             ) : (
               <PanelIconButton
-                label="Relink File"
+                label={isCapacitor() ? 'Recreate File' : 'Relink File'}
                 variant="outline"
-                onClick={() => handleLinkLocalFile(universe.slug)}
+                onClick={() => (isCapacitor()
+                  ? handleCreateLocalFile(universe.slug)
+                  : handleLinkLocalFile(universe.slug))}
               />
             )}
             <PanelIconButton

@@ -7,6 +7,8 @@
  */
 
 import { isElectron, validateFolderAccess } from '../utils/fileAccessAdapter.js';
+import { isCapacitor } from '../utils/capacitorAdapter.js';
+import { getWorkspaceHandle } from './workspaceFolderService.js';
 import { getStorageKey } from '../utils/storageUtils.js';
 
 
@@ -80,6 +82,15 @@ export const storeFolderHandle = async (folderHandleOrPath) => {
  * @returns {Promise<DirectoryHandle|string|null>} - Browser: DirectoryHandle, Electron: folder path string, or null if not found
  */
 export const getFolderHandle = async () => {
+  // Capacitor: there is always a folder — the app-managed Universes/ directory,
+  // or an explicit override. Delegated so the default and the override live in
+  // one place (workspaceFolderService). This is the handle WorkspaceService
+  // validates on startup; without it iOS reported NEEDS_ONBOARDING every launch
+  // and fell back to browser storage despite having universes on disk.
+  if (isCapacitor()) {
+    return await getWorkspaceHandle();
+  }
+
   if (isElectron()) {
     // Electron: Retrieve path from localStorage
     const folderPath = localStorage.getItem(LOCALSTORAGE_FOLDER_KEY());

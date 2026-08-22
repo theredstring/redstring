@@ -4,6 +4,7 @@ import { useTheme } from '../../hooks/useTheme.js';
 
 import PanelSegment from './shared/PanelSegment.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import { isCapacitor } from '../../utils/capacitorAdapter.js';
 
 
 function formatWhen(timestamp) {
@@ -910,8 +911,14 @@ const UniversesList = ({
                             </div>
                           )}
 
-                          {/* Local File Slot — hidden on mobile (FileSystemAccess API unavailable) */}
-                          {!isMobile && (universe.raw?.localFile?.enabled || universe.raw?.localFile?.pendingConnect ? (
+                          {/* Local File Slot — hidden on mobile BROWSERS, where the
+                              File System Access API genuinely doesn't exist. The
+                              iOS app is also deviceType "mobile" but has real
+                              native file access through its own Documents
+                              container, so hiding it there meant local files were
+                              written, tracked and autosaved while the slot they
+                              belong to never appeared in the UI. */}
+                          {(!isMobile || isCapacitor()) && (universe.raw?.localFile?.enabled || universe.raw?.localFile?.pendingConnect ? (
                             <div
                               style={{
                                 padding: 8,
@@ -1265,6 +1272,11 @@ const UniversesList = ({
                                   >
                                     <FileText size={12} /> Create New File
                                   </button>
+                                  {/* iOS has no open-picker: pickFile() throws
+                                      there by design, since universes live in the
+                                      app-managed folder and outside files arrive
+                                      through import instead. */}
+                                  {!isCapacitor() && (
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -1299,6 +1311,7 @@ const UniversesList = ({
                                   >
                                     <Link size={12} /> Link Existing File
                                   </button>
+                                  )}
                                 </div>
                               )}
                             </div>
