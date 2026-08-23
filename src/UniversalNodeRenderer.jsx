@@ -65,9 +65,17 @@ const ConnectionText = ({
   // stroke in these universal representations (hover preview, control panel, etc.).
   // The actual canvas edge/label is rendered in NodeCanvas.jsx and is unaffected.
   const LABEL_STROKE_SCALE = 0.6;
-  const strokeWidth = Math.max(1.5, (connection.strokeWidth || 6 * transform.scale) * fontScale * LABEL_STROKE_SCALE);
+  // Line height and halo track the *floored* font size, not the raw fit scale.
+  // fontSize stops shrinking at 8px; if the line height kept following the scale
+  // down, wrapped labels would stack on top of each other (and the halo would
+  // thin to a hairline) in narrow containers — which is exactly what happened in
+  // the right panel's connection list and on small screens.
+  const strokeWidth = Math.max(fontSize * 0.18, (connection.strokeWidth || 6 * transform.scale) * fontScale * LABEL_STROKE_SCALE);
   const baseLineHeight = 26; // Tighter line height for connections
-  const scaledLineHeight = baseLineHeight * transform.scale * fontScale * lineHeightScale;
+  const scaledLineHeight = Math.max(
+    fontSize * 1.1,
+    baseLineHeight * transform.scale * fontScale * lineHeightScale
+  );
 
   const displayName = connection.connectionName;
   const lines = [];
@@ -461,6 +469,15 @@ const UniversalNodeRenderer = ({
         spacing = Math.max(8, minHorizontalSpacing * 0.4); // Very compact for 7+ nodes
       }
 
+      // Spacing is a fixed pixel budget taken off the top, so in a narrow
+      // container it can starve the nodes: they shrink toward the 8px font floor
+      // while sitting far apart at the edges. Cap the total gap budget at 30% of
+      // the available width so the nodes stay large and simply move closer
+      // together instead.
+      if (gaps > 0) {
+        spacing = Math.min(spacing, (availableWidth * 0.3) / gaps);
+      }
+
       const widthForNodes = Math.max(1, availableWidth - gaps * spacing);
       const scaleByWidth = Math.min(1, widthForNodes / Math.max(1, sumWidths));
       const scaleByHeight = Math.min(1, availableHeight / Math.max(1, maxHeight));
@@ -665,6 +682,11 @@ const UniversalNodeRenderer = ({
       style={{
         width: containerWidth,
         height: containerHeight,
+        // The wrapper can be squeezed below containerWidth by a flex or
+        // max-width ancestor (the bottom control panel is max-width:100vw-16px).
+        // maxWidth + the svg's viewBox make that squeeze scale the drawing
+        // uniformly instead of clipping it mid-node against overflow:hidden.
+        maxWidth: '100%',
         backgroundColor,
         borderRadius: '8px',
         overflow: 'hidden',
@@ -674,7 +696,9 @@ const UniversalNodeRenderer = ({
       <svg
         width={containerWidth}
         height={containerHeight}
-        style={{ display: 'block' }}
+        viewBox={`0 0 ${containerWidth} ${containerHeight}`}
+        preserveAspectRatio="xMidYMid meet"
+        style={{ display: 'block', width: '100%', height: '100%' }}
       >
         {/* Grid background if enabled */}
         {showGrid && (

@@ -12,6 +12,7 @@ import {
 import useGraphStore from './store/graphStore.js';
 import useImageCache from './services/imageCache.js';
 import { useTheme } from './hooks/useTheme.js';
+import { canvasPointToClient } from './utils/appViewport.js';
 import './AbstractionCarousel.css';
 
 
@@ -535,10 +536,10 @@ const AbstractionCarousel = ({
   //
   // The math approach below (manually reconstructing the canvas transform) is
   // fragile on iOS Chrome — the URL bar's "morphing" behavior shifts the visual
-  // viewport in ways that desktop-style getBoundingClientRect() doesn't capture,
-  // leaving the carousel anchored above the node. Prefer using the SVG's own
-  // getScreenCTM(), which always reports the actual on-screen transform the
-  // browser is using right now, and fall back to math only if the CTM lookup
+  // viewport in ways that stale panOffset/zoomLevel props don't capture, leaving
+  // the carousel anchored above the node. Prefer reading the canvas SVG's own
+  // live transform via canvasPointToClient(), which reports where the node
+  // actually is on screen right now, and fall back to math only if that lookup
   // fails (e.g. SVG not yet mounted).
   const getCarouselPosition = useCallback(() => {
     if (!selectedNode || !containerRef.current || !canvasSize) return { x: 0, y: 0 };
@@ -554,16 +555,8 @@ const AbstractionCarousel = ({
       ? svgEl.firstElementChild
       : svgEl?.querySelector('g');
 
-    if (svgEl && contentGroup && typeof contentGroup.getScreenCTM === 'function') {
-      const ctm = contentGroup.getScreenCTM();
-      if (ctm && typeof svgEl.createSVGPoint === 'function') {
-        const pt = svgEl.createSVGPoint();
-        pt.x = nodeCenterX;
-        pt.y = nodeCenterY;
-        const screen = pt.matrixTransform(ctm);
-        return { x: screen.x, y: screen.y };
-      }
-    }
+    const client = canvasPointToClient(svgEl, contentGroup, nodeCenterX, nodeCenterY);
+    if (client) return client;
 
     // Fallback: original math (only hit if SVG/CTM unavailable).
     const containerRect = containerRef.current.getBoundingClientRect();
@@ -614,7 +607,7 @@ const AbstractionCarousel = ({
   // settles. Without this, the carousel's fixed wrapper would stay put and then
   // jump to the new position once panning ends, instead of tracking the canvas
   // live like the PieMenu (which rides the transformed content group) does.
-  // getCarouselPosition() reads the SVG's live getScreenCTM(), so updating the
+  // getCarouselPosition() reads the SVG's live client position, so updating the
   // wrapper's left/top imperatively here keeps it glued to the node every frame.
   const [, setViewportTick] = useState(0);
   useEffect(() => {

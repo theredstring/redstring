@@ -7,7 +7,7 @@
 .connection-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .no-connections {
@@ -88,7 +88,7 @@
 .connection-triplet {
   transition: all 0.2s ease;
   border-radius: 8px;
-  padding: 4px 8px;
+  padding: 8px;
   border: 1px solid transparent;
 }
 

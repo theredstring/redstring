@@ -7,7 +7,18 @@ import Dropdown from './Dropdown.jsx';
 import { useTheme } from '../hooks/useTheme.js';
 import UniversalNodeRenderer from '../UniversalNodeRenderer';
 import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
+import {
+  CONNECTION_PREVIEW_FLOORS,
+  buildConnectionPreviewNodes,
+  connectionPreviewRendererProps
+} from '../utils/connectionPreview.js';
+import { measureTextWidth } from '../services/textMeasurement.js';
 import './ConnectionBrowser.css';
+
+// Same sizing recipe as the canvas connection control panel and the hover aid, at
+// the smaller floor a ~280px-wide panel column can actually fit.
+const PANEL_FLOORS = CONNECTION_PREVIEW_FLOORS.panelList;
+const PANEL_RENDERER_PADDING = 10;
 
 /**
  * Connection Triplet Component
@@ -51,10 +62,13 @@ const ConnectionTriplet = ({
   const objectName = typeof object === 'string' ? object : JSON.stringify(object);
   const predicateName = typeof predicate === 'string' ? predicate : JSON.stringify(predicate);
 
-  const nodes = [
-    { id: 'subject', name: subjectName, color: subjectColor || defaultColor },
-    { id: 'object', name: objectName, color: objectColor || defaultColor }
-  ];
+  const nodes = buildConnectionPreviewNodes(
+    [
+      { id: 'subject', name: subjectName, color: subjectColor || defaultColor },
+      { id: 'object', name: objectName, color: objectColor || defaultColor }
+    ],
+    PANEL_FLOORS
+  );
 
   // Map directionality to arrowsToward Set with synthetic node IDs
   const arrowsToward = new Set();
@@ -91,7 +105,18 @@ const ConnectionTriplet = ({
     directionality: { arrowsToward }
   }];
 
-  const height = isUltraSlim ? 70 : 100;
+  // Height derives from the node floor rather than a magic number, so the box can
+  // never clip the node and force a vertical downscale (which is what shrank the
+  // text and collapsed the corners into pills).
+  const height = PANEL_FLOORS.height + PANEL_RENDERER_PADDING * 2 + (isUltraSlim ? 8 : 20);
+
+  // Room for the predicate label between the two nodes, measured like the control
+  // panel does — but on the panel's tighter budget, and clamped so the gap can
+  // never push the nodes out to the edges of a narrow column.
+  const labelWidth = measureTextWidth(predicateName, '22px "EmOne", sans-serif');
+  const minHorizontalSpacing = Math.round(
+    Math.max(48, Math.min(labelWidth * 0.6 + 40, containerWidth * 0.4))
+  );
 
   return (
     <div
@@ -151,11 +176,13 @@ const ConnectionTriplet = ({
 
       <UniversalNodeRenderer
         {...RENDERER_PRESETS.CONNECTION_BROWSER}
+        {...connectionPreviewRendererProps(PANEL_FLOORS)}
         nodes={nodes}
         connections={connections}
+        padding={PANEL_RENDERER_PADDING}
         containerWidth={containerWidth}
         containerHeight={height}
-        minHorizontalSpacing={Math.max(80, Math.min(containerWidth * 0.35, 200))}
+        minHorizontalSpacing={minHorizontalSpacing}
       />
     </div>
   );
@@ -692,7 +719,8 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
               onMaterialize={() => handleMaterializeConnection(connection)}
               connection={connection}
               isUltraSlim={isUltraSlim}
-              containerWidth={containerWidth}
+              // minus the triplet's own 8px padding + 1px border per side
+              containerWidth={Math.max(160, containerWidth - 18)}
             />
           ))
         )}

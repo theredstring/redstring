@@ -2,6 +2,13 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import UniversalNodeRenderer from '../UniversalNodeRenderer';
 import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
 import { getNodeDimensions } from '../utils.js';
+import {
+  STANDARD_TEXT_SETTINGS,
+  LEGACY_DIM_SCALE,
+  CONNECTION_PREVIEW_FLOORS,
+  buildConnectionPreviewNodes,
+  connectionPreviewRendererProps
+} from '../utils/connectionPreview.js';
 import { measureTextWidth } from '../services/textMeasurement.js';
 import useGraphStore from '../store/graphStore.js';
 import { hasNoHover } from '../utils/inputDeviceAnalysis.js';
@@ -24,9 +31,9 @@ const FADE_IN_MS = 120;
 const ZOOM_HIDE_THRESHOLD = 0.25;
 const ZOOM_FADE_MS = 200;
 
-// Neutral text settings so the hover preview renders a "standard" node/connection
-// regardless of the user's global font-size / node-size / connection-width sliders.
-const STANDARD_TEXT_SETTINGS = { fontSize: 1, lineSpacing: 1, nodeScale: 1, connectionWidth: 1 };
+// Node-box floors and the shared sizing recipe for preview representations
+// (control panel, hover aid, right-panel connection list).
+const HOVER_FLOORS = CONNECTION_PREVIEW_FLOORS.hover;
 
 // The "Hover Preview Size" slider is a relative multiplier around a sensible
 // baseline: 1x on the slider = HOVER_PREVIEW_BASE_SCALE actual scale. Keeping the
@@ -190,11 +197,6 @@ const HoverVisionAid = ({
   const CONNECTION_PREVIEW_HEIGHT = 180;
   const connectionLabelFont = '28px "EmOne", sans-serif';
 
-  // getNodeDimensions inflates node geometry by 1.4× globally (utils.js, for the
-  // bigger canvas nodes). The previews want the pre-resizable (0.8.2) box size, so
-  // divide that factor back out before feeding boxes to the renderer.
-  const LEGACY_DIM_SCALE = 1 / 1.4;
-
   let content = null;
 
   // Hover Preview Size setting scales node and connection previews: slider 1x maps
@@ -229,35 +231,11 @@ const HoverVisionAid = ({
   if (isConnection) {
     const hoveredConn = displayed.connection;
     const isSelfLoop = hoveredConn.source.id === hoveredConn.target.id;
-    const sourceDims = getNodeDimensions(hoveredConn.source, false, null, 39, STANDARD_TEXT_SETTINGS);
-    const targetDims = getNodeDimensions(hoveredConn.target, false, null, 39, STANDARD_TEXT_SETTINGS);
 
-    const nodes = isSelfLoop
-      ? [
-          {
-            ...hoveredConn.source,
-            x: 0,
-            y: 0,
-            width: Math.max(sourceDims.currentWidth * LEGACY_DIM_SCALE, 100),
-            height: Math.max(sourceDims.currentHeight * LEGACY_DIM_SCALE, 96)
-          }
-        ]
-      : [
-          {
-            ...hoveredConn.source,
-            x: 0,
-            y: 0,
-            width: Math.max(sourceDims.currentWidth * LEGACY_DIM_SCALE, 100),
-            height: Math.max(sourceDims.currentHeight * LEGACY_DIM_SCALE, 96)
-          },
-          {
-            ...hoveredConn.target,
-            x: 0,
-            y: 0,
-            width: Math.max(targetDims.currentWidth * LEGACY_DIM_SCALE, 100),
-            height: Math.max(targetDims.currentHeight * LEGACY_DIM_SCALE, 96)
-          }
-        ];
+    const nodes = buildConnectionPreviewNodes(
+      isSelfLoop ? [hoveredConn.source] : [hoveredConn.source, hoveredConn.target],
+      HOVER_FLOORS
+    );
 
     const connections = [
       {
@@ -308,16 +286,14 @@ const HoverVisionAid = ({
       <div style={{ display: 'inline-flex', padding: 0, borderRadius: '44px', background: 'transparent', overflow: 'visible' }}>
         <UniversalNodeRenderer
           {...RENDERER_PRESETS.CONNECTION_PANEL}
-          renderContext="full"
+          {...connectionPreviewRendererProps(HOVER_FLOORS)}
           nodes={nodes}
           connections={connections}
           containerWidth={calculatedWidth}
           containerHeight={CONNECTION_PREVIEW_HEIGHT}
           minHorizontalSpacing={dynamicMinHorizontalSpacing}
-          cornerRadiusMultiplier={44}
           connectionFontScale={1.2}
           connectionStrokeScale={0.7}
-          ignoreGlobalScale={true}
           interactive={false}
           showHoverEffects={false}
           showConnectionDots={true}

@@ -71,23 +71,41 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
 };
 
 import { measureTextWidth } from './services/textMeasurement.js';
+import {
+  STANDARD_TEXT_SETTINGS,
+  LEGACY_DIM_SCALE,
+  CONNECTION_PREVIEW_FLOORS,
+  buildConnectionPreviewNodes,
+  connectionPreviewRendererProps
+} from './utils/connectionPreview.js';
 
-// Neutral text settings so the panel's node/connection previews render at a
-// "standard" size regardless of the user's global font/node-size/connection sliders.
-const STANDARD_TEXT_SETTINGS = { fontSize: 1, lineSpacing: 1, nodeScale: 1, connectionWidth: 1 };
+// Node-box floors for the connection representation, shared with the hover aid and
+// the right panel's connection list (see utils/connectionPreview.js).
+const CONNECTION_FLOORS = CONNECTION_PREVIEW_FLOORS.controlPanel;
+const CONNECTION_NODE_MIN_WIDTH = CONNECTION_FLOORS.width;
 
-// getNodeDimensions inflates node geometry by 1.4× globally (utils.js). The panel
-// previews want the pre-resizable (0.8.2) box size, so divide that factor back out.
-// Mirrors HoverVisionAid so the connection representation matches the hover preview.
-const LEGACY_DIM_SCALE = 1 / 1.4;
-// Node-box floors for the connection representation. Rendered at full nodeScale here
-// (unlike HoverVisionAid, which is also downscaled 0.6× by CSS), so these are a touch
-// smaller than the hover aid's 100×96 to leave more clearance for the connection label.
-const CONNECTION_NODE_MIN_WIDTH = 130;
-const CONNECTION_NODE_MIN_HEIGHT = 84;
-// Corner radius scaled to match the floors: kept below CONNECTION_NODE_MIN_HEIGHT/2 so
-// the boxes stay rounded rectangles (~0.45 ratio) instead of capping into pills.
-const CONNECTION_NODE_CORNER_RADIUS = 38;
+/**
+ * Honest usable layout width for the panel.
+ *
+ * The panel is position:fixed, so window.innerWidth looks like the right answer —
+ * but under viewport-fit=cover (Capacitor iOS) innerWidth spans the safe-area
+ * bands the app never lays out into, so the panel would size its previews for
+ * space it doesn't have and get squeezed/clipped by its own
+ * max-width: calc(100vw - 16px). #root carries the safe-area insets as padding
+ * (App.css), so its content box is the width that actually exists.
+ */
+const measureAppWidth = () => {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return 1024;
+  const root = document.getElementById('root');
+  if (root) {
+    const cs = window.getComputedStyle(root);
+    const width = root.getBoundingClientRect().width
+      - (parseFloat(cs.paddingLeft) || 0)
+      - (parseFloat(cs.paddingRight) || 0);
+    if (width > 0) return width;
+  }
+  return document.documentElement?.clientWidth || window.innerWidth || 1024;
+};
 // Node-box floors for the single/multi-select node representation. Mirror HoverVisionAid's
 // single-node preview (100×96) so the control-panel pills match the hover aid.
 const NODE_PREVIEW_MIN_WIDTH = 100;
@@ -171,6 +189,27 @@ const UnifiedBottomControlPanel = ({
   const [isDragging, setIsDragging] = useState(false);
   const dragStartYRef = useRef(0);
   const dismissThresholdPx = 70;
+
+  // Track the app's real usable width (see measureAppWidth) rather than trusting
+  // window.innerWidth, which diverges from it inside the iOS web view.
+  const [appWidth, setAppWidth] = useState(measureAppWidth);
+  useEffect(() => {
+    const update = () => setAppWidth(measureAppWidth());
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
+    let observer;
+    const root = document.getElementById('root');
+    if (root && window.ResizeObserver) {
+      observer = new ResizeObserver(update);
+      observer.observe(root);
+    }
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('orientationchange', update);
+      observer?.disconnect();
+    };
+  }, []);
 
   const handleDismissPointerDown = useCallback((e) => {
     if (!onDismiss) return;
@@ -295,7 +334,10 @@ const UnifiedBottomControlPanel = ({
   // space than the segment actually offers. On mobile the panel reserves 8px
   // viewport margin + 16px inner padding per side (see UnifiedBottomControlPanel.css
   // mode-nodes block); desktop only reserves ~12px per side.
-  const viewportLimit = Math.max(260, mobileState.width - (mobileState.isMobile ? 48 : 24));
+  const viewportLimit = Math.max(
+    260,
+    Math.min(mobileState.width, appWidth) - (mobileState.isMobile ? 48 : 24)
+  );
 
   const nodeRendererMetrics = useMemo(() => {
     const padding = mobileState.isMobile ? 0 : 8;
@@ -643,19 +685,13 @@ const UnifiedBottomControlPanel = ({
                   });
                 }
               });
-              // Give each node an explicit, floored box (matching HoverVisionAid) so
-              // short-name nodes don't collapse to tiny, pill-rounded boxes: without a
-              // floor, getNodeDimensions returns compact sizes → small text, and a height
-              // under ~88px makes the corner radius cap at height/2 (a full pill). Flooring
-              // at 130×84 keeps readable text and rounded-rectangle corners.
-              const nodes = Array.from(nodesMap.values()).map((n) => {
-                const dims = getNodeDimensions(n, false, null, 39, STANDARD_TEXT_SETTINGS);
-                return {
-                  ...n,
-                  width: Math.max(dims.currentWidth * LEGACY_DIM_SCALE, CONNECTION_NODE_MIN_WIDTH),
-                  height: Math.max(dims.currentHeight * LEGACY_DIM_SCALE, CONNECTION_NODE_MIN_HEIGHT)
-                };
-              });
+              // Give each node an explicit, floored box (shared recipe — see
+              // utils/connectionPreview.js) so short-name nodes don't collapse to tiny,
+              // pill-rounded boxes.
+              const nodes = buildConnectionPreviewNodes(
+                Array.from(nodesMap.values()),
+                CONNECTION_FLOORS
+              );
 
               // Transform triples to the format expected by UniversalNodeRenderer
               const connections = triples.map(t => {
@@ -725,24 +761,26 @@ const UnifiedBottomControlPanel = ({
                 Math.min(connectionLabelSpace - 60, 400)
               ) * 1.25); // More room between nodes so the connection line + label aren't scrunched
 
-              // Height tracks the (now shorter) 84px node boxes — enough for full-scale
-              // text without leaving the panel unnecessarily tall.
+              // Height tracks the 84px node boxes — enough for full-scale text without
+              // leaving the panel unnecessarily tall. The floor keeps the box from
+              // clipping the node height (and forcing a vertical downscale) on short
+              // panels: floor height + padding on both sides + label clearance.
+              const rendererPadding = 6;
+              const minRendererHeight = CONNECTION_FLOORS.height + rendererPadding * 2 + 16;
               const calculatedHeight = isMobile
-                ? Math.min(130, Math.max(100, calculatedWidth * 0.23))
-                : Math.min(150, Math.max(112, calculatedWidth * 0.25));
+                ? Math.min(130, Math.max(minRendererHeight, calculatedWidth * 0.23))
+                : Math.min(150, Math.max(minRendererHeight, calculatedWidth * 0.25));
 
               return (
                 <UniversalNodeRenderer
                   {...RENDERER_PRESETS.CONNECTION_PANEL}
-                  renderContext="full"
+                  {...connectionPreviewRendererProps(CONNECTION_FLOORS)}
                   nodes={nodes}
                   connections={connections}
-                  padding={isMobile ? 6 : 6}
+                  padding={rendererPadding}
                   containerWidth={calculatedWidth}
                   containerHeight={calculatedHeight}
                   minHorizontalSpacing={dynamicMinHorizontalSpacing}
-                  cornerRadiusMultiplier={CONNECTION_NODE_CORNER_RADIUS}
-                  ignoreGlobalScale={true}
                   forceShowConnectionDots={inputMode === 'touch'}
                   onNodeClick={onNodeClick}
                   onConnectionClick={onPredicateClick}

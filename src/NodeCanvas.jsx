@@ -76,7 +76,7 @@ import useGraphStore, {
 import useHistoryStore from './store/historyStore.js';
 import useImageCache, { queueThumbnailFetch } from './services/imageCache.js';
 
-import { getAppViewportSize } from './utils/appViewport.js';
+import { getAppViewportSize, canvasPointToClient } from './utils/appViewport.js';
 import {
   NODE_WIDTH,
   NODE_HEIGHT,
@@ -11859,22 +11859,20 @@ function NodeCanvas() {
     const nodeCenterCanvasX = nodeData.x + nodeDimensions.currentWidth / 2;
     const nodeCenterCanvasY = nodeData.y + nodeDimensions.currentHeight / 2;
 
-    // Map canvas coords -> viewport (screen) coords via the content group's screen CTM.
+    // Map canvas coords -> client coords via the content group's live transform.
     // This is the robust path: it accounts for pan, zoom, header, side panels, and scroll,
     // matching the position:fixed orb. The previous code regex-parsed `svgElement.style.transform`,
     // but pan/zoom live on the <g> transform ATTRIBUTE (translate(x y) scale(z), space-separated,
     // no px) — so the regex never matched and it always launched from pan=0/zoom=1 (wrong).
+    // canvasPointToClient() deliberately avoids getScreenCTM(), which sits ~safe-area-inset-top
+    // below client coords under Capacitor — see the note on the helper.
     const svgElement = containerElement.querySelector('.canvas');
     const contentG = contentGroupRef.current;
+    const nodeClientPoint = canvasPointToClient(svgElement, contentG, nodeCenterCanvasX, nodeCenterCanvasY);
     let nodeScreenX, nodeScreenY;
-    if (svgElement && contentG && typeof contentG.getScreenCTM === 'function' && contentG.getScreenCTM()) {
-      const ctm = contentG.getScreenCTM();
-      const pt = svgElement.createSVGPoint();
-      pt.x = nodeCenterCanvasX;
-      pt.y = nodeCenterCanvasY;
-      const sp = pt.matrixTransform(ctm);
-      nodeScreenX = sp.x;
-      nodeScreenY = sp.y;
+    if (nodeClientPoint) {
+      nodeScreenX = nodeClientPoint.x;
+      nodeScreenY = nodeClientPoint.y;
     } else {
       // Fallback: approximate from refs (no CTM available).
       const p = panOffsetRef.current || { x: 0, y: 0 };
