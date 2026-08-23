@@ -283,6 +283,21 @@ const RECIPES = {
   hurtleTravel: {
     [HapticTier.TAPTIC]: { tick: true }
   },
+  /**
+   * One detent as the header tab strip scrolls past a lattice position.
+   *
+   * Covers both halves of the gesture from a single track on scrollLeft,
+   * because they're the same physical thing: dragging the strip ticks in step
+   * with the finger, and the auto-recenter that follows the idle timer ticks in
+   * step with its own ease-out — fast at first, thinning as it settles. That
+   * deceleration is the "spin"; it isn't scripted, it falls out of detenting
+   * position rather than time.
+   *
+   * Taptic-only, like every other stream here.
+   */
+  headerScroll: {
+    [HapticTier.TAPTIC]: { tick: true }
+  },
   /** An edge is selected. A tick — the same class of act as tapping a node. */
   edgeSelect: {
     [HapticTier.TAPTIC]: { tick: true },

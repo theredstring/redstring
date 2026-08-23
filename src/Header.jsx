@@ -6,7 +6,7 @@ import { useTheme } from './hooks/useTheme.js';
 import HeaderGraphTab from './HeaderGraphTab';
 import { showContextMenu } from './components/GlobalContextMenu';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
-import { haptic } from './services/haptics.js';
+import { haptic, createDetentTrack } from './services/haptics.js';
 
 // Import all logo states
 import logo1 from './assets/redstring_button/header_logo_1.svg';
@@ -105,8 +105,20 @@ const Header = ({
     }
   });
 
+  // Detent spacing (px of scrollLeft) for the header tab strip. Tabs run
+  // ~150-220px wide, so this is roughly two or three clicks per tab: enough to
+  // feel the strip moving without turning into a motor. Sized against the 40ms
+  // haptic rate limit — a brisk ~1800px/s flick lands right at the ceiling, and
+  // anything denser would just be clipped there anyway.
+  const TABS_DETENT_PX = 72;
+
   const headerRef = useRef(null);
   const tabsScrollContainerRef = useRef(null);
+  const tabsScrollTrack = useRef(createDetentTrack('headerScroll', TABS_DETENT_PX));
+  // True only while the smooth recenter is animating. Distinguishes it from the
+  // instant scrollLeft jumps (initial centering, tab changes), which move the
+  // strip without anyone scrolling it and must not click.
+  const animatingRecenterRef = useRef(false);
   const activeTabRef = useRef(null);
   const recenterTimeoutRef = useRef(null);
   const isProgrammaticScroll = useRef(false);
@@ -190,6 +202,7 @@ const Header = ({
       const startScrollLeft = container.scrollLeft;
       const delta = targetScrollLeft - startScrollLeft;
       const startTime = performance.now();
+      animatingRecenterRef.current = true;
 
       const animateScroll = (currentTime) => {
         const elapsed = currentTime - startTime;
@@ -203,6 +216,7 @@ const Header = ({
           requestAnimationFrame(animateScroll);
         } else {
           isProgrammaticScroll.current = false;
+          animatingRecenterRef.current = false;
         }
       };
 
@@ -212,6 +226,20 @@ const Header = ({
 
   // Scroll event handler with 3-second timeout to recenter
   const handleTabsScroll = useCallback(() => {
+    // Detents first, and deliberately ahead of the programmatic-scroll guard:
+    // the recenter animation writes scrollLeft frame by frame, so its scroll
+    // events are exactly what makes the strip tick as it spins back.
+    const el = tabsScrollContainerRef.current;
+    if (el) {
+      if (isProgrammaticScroll.current && !animatingRecenterRef.current) {
+        // An instant jump — reseed the lattice at the new position so the jump
+        // itself doesn't fire, and so the next real scroll ticks from here.
+        tabsScrollTrack.current.reset(el.scrollLeft);
+      } else {
+        tabsScrollTrack.current.update(el.scrollLeft);
+      }
+    }
+
     // Ignore programmatic scrolls
     if (isProgrammaticScroll.current) return;
 
