@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import CanvasModal from './CanvasModal';
 import AuthSection from './universe-manager/AuthSection.jsx';
 import GitHubDeviceFlowPanel from './modals/GitHubDeviceFlowPanel.jsx';
@@ -169,13 +169,32 @@ const StorageSetupModal = ({
   const modalWidth = isCompactLayout
     ? Math.min(Math.max(viewportSize.width - 24, 320), 540)
     : 600;
-  // Fixed height so every step renders in the same frame (and centering is
-  // exact — CanvasModal only truly centers a numeric-height modal). Sized to
-  // fit the tallest step (git-connect's AuthSection); denser steps on small
-  // screens scroll inside the content area. Clamped to the viewport.
-  const modalHeight = isCompactLayout
-    ? Math.min(Math.max(viewportSize.height - 24, 440), 620)
-    : Math.min(Math.max(viewportSize.height - 40, 420), 520);
+
+  // Content padding. The top pad also reserves the strip the absolutely
+  // positioned back/close buttons occupy, so no step's heading can slide under
+  // them. These numbers feed the height math below, so keep them in JS rather
+  // than inlining different values in the style object.
+  const contentPadX = isCompactLayout ? 20 : 32;
+  const contentPadTop = isCompactLayout ? 44 : 52;
+  const contentPadBottom = isCompactLayout ? 22 : 28;
+
+  // The modal is sized to the step it is showing rather than pinned to one
+  // height for every step: short steps get a compact box with real margins,
+  // and tall ones (git-connect's AuthSection, git-repo with the repo list
+  // open) grow instead of clipping. Past the viewport the content area
+  // scrolls, so nothing is ever cut off.
+  const contentRef = useRef(null);
+  const [measuredContentHeight, setMeasuredContentHeight] = useState(0);
+  const modalVerticalMargin = isCompactLayout ? 12 : 20;
+  const maxModalHeight = Math.max(280, viewportSize.height - modalVerticalMargin * 2 - 8);
+  const modalHeight = measuredContentHeight > 0
+    ? Math.min(
+        Math.max(measuredContentHeight + contentPadTop + contentPadBottom, 280),
+        maxModalHeight
+      )
+    // Pre-measurement fallback (first frame only) — close to the common case so
+    // the modal does not visibly resize on open.
+    : Math.min(isCompactLayout ? 560 : 500, maxModalHeight);
 
   // No File System Access API (mobile browsers): folder/local-file storage
   // can't work, so git becomes the only storage path.
@@ -202,6 +221,27 @@ const StorageSetupModal = ({
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Track the natural height of whatever step is rendered so the modal can size
+  // itself to it. ResizeObserver (not a step-keyed effect) because content
+  // grows in place too: the repo list expanding, an error banner appearing, the
+  // device-flow panel swapping in.
+  useLayoutEffect(() => {
+    const el = contentRef.current;
+    if (!isVisible || !el) {
+      setMeasuredContentHeight(0);
+      return undefined;
+    }
+    const measure = () => {
+      const next = Math.ceil(el.getBoundingClientRect().height);
+      setMeasuredContentHeight((prev) => (Math.abs(prev - next) > 1 ? next : prev));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isVisible, step]);
 
   const refreshAuthStatus = useCallback(() => {
     try { setAuthStatus(persistentAuth.getAuthStatus()); } catch { /* ignore */ }
@@ -603,8 +643,8 @@ const StorageSetupModal = ({
         backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
         border: `2px solid ${done ? statusColors.success : theme.canvas.border}`,
         borderRadius: '8px',
-        padding: isCompactLayout ? '10px 12px' : '12px 14px',
-        marginBottom: '10px',
+        padding: isCompactLayout ? '12px' : '14px',
+        marginBottom: '12px',
         display: 'flex',
         alignItems: 'center',
         gap: '12px',
@@ -660,9 +700,9 @@ const StorageSetupModal = ({
     <>
       <style>{'@keyframes rs-onboarding-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'}</style>
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '10px' : '12px', flexShrink: 0 }}>
+      <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '18px' : '22px', flexShrink: 0 }}>
         <h1 style={{
-          margin: '0 0 2px 0',
+          margin: '0 0 6px 0',
           color: theme.accent.primary,
           fontSize: isCompactLayout ? '1.25rem' : '1.45rem',
           fontWeight: '600',
@@ -671,7 +711,7 @@ const StorageSetupModal = ({
           Welcome to Redstring
         </h1>
         <h2 style={{
-          margin: '0 0 22px 0',
+          margin: 0,
           color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '0.85rem' : '1.05rem',
           fontWeight: 'bold',
@@ -682,10 +722,10 @@ const StorageSetupModal = ({
       </div>
 
       {/* Universe name */}
-      <div style={{ marginBottom: '10px', flexShrink: 0 }}>
+      <div style={{ marginBottom: '14px', flexShrink: 0 }}>
         <label style={{
           display: 'block',
-          marginBottom: '4px',
+          marginBottom: '6px',
           fontWeight: 'bold',
           fontSize: '0.76rem',
           color: theme.canvas.textPrimary,
@@ -730,7 +770,7 @@ const StorageSetupModal = ({
 
       {/* Workspace folder (desktop) — global location where local files land */}
       {showWorkspaceRow && (
-        <div style={{ marginBottom: '10px', flexShrink: 0 }}>
+        <div style={{ marginBottom: '14px', flexShrink: 0 }}>
           <div style={{
             padding: isCompactLayout ? '10px 12px' : '12px 14px',
             backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
@@ -840,7 +880,7 @@ const StorageSetupModal = ({
         {anySlotFilled && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-            marginBottom: '10px', marginTop: '2px', fontSize: '0.78rem',
+            marginBottom: '4px', marginTop: '4px', fontSize: '0.78rem',
             color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif"
           }}>
             <span style={{ fontWeight: 600 }}>Source of truth:</span>
@@ -876,7 +916,7 @@ const StorageSetupModal = ({
       </div>
 
       {/* Get Connected — always visible, greyed out until a slot is filled */}
-      <div style={{ marginTop: isCompactLayout ? '6px' : '8px', flexShrink: 0 }}>
+      <div style={{ marginTop: isCompactLayout ? '14px' : '18px', flexShrink: 0 }}>
         {primaryCta({ label: 'Get Connected', onClick: () => onFinishOnboarding?.(), disabled: !anySlotFilled, large: true })}
 
         {/* Escape hatch. Without it, onboarding is a dead end wherever no local
@@ -1096,7 +1136,7 @@ const StorageSetupModal = ({
       </div>
 
       {/* Or link an existing repo */}
-      <div style={repoCardStyle()}>
+      <div style={{ ...repoCardStyle(), marginBottom: 0 }}>
         <div
           style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
           onClick={() => {
@@ -1215,7 +1255,6 @@ const StorageSetupModal = ({
           display: 'flex',
           flexDirection: 'column',
           gap: '10px',
-          padding: '0 12px',
           fontFamily: "'EmOne', sans-serif"
         }}>
           {GIT_ONBOARDING_TASKS.map((task) => {
@@ -1251,7 +1290,7 @@ const StorageSetupModal = ({
         </div>
 
         {finishError && (
-          <div style={{ padding: '0 12px', marginTop: '16px' }}>
+          <div style={{ marginTop: '16px' }}>
             <div style={{
               padding: '10px 12px',
               borderRadius: '6px',
@@ -1311,17 +1350,16 @@ const StorageSetupModal = ({
       {...canvasModalProps}
     >
       <div style={{
-        padding: isCompactLayout ? '14px 24px' : '20px 32px',
         boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
-        justifyContent: 'center',
         position: 'relative',
         flex: 1,
         minHeight: 0,
         overflow: 'hidden'
       }}>
-        {/* Close button - always available (except mid-finish) */}
+        {/* Close button - always available (except mid-finish). Pinned to the
+            padded frame, outside the scroll area, so it never scrolls away. */}
         {!finishRunning && (
           <PanelIconButton
             icon={X}
@@ -1337,7 +1375,31 @@ const StorageSetupModal = ({
           />
         )}
 
-        {renderStep()}
+        {/* Scrollable content area. Sized to the step by the measurement above,
+            so this only actually scrolls when the step is taller than the
+            viewport allows — clipping is no longer possible either way. */}
+        <div style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          overscrollBehavior: 'contain',
+          WebkitOverflowScrolling: 'touch',
+          padding: `${contentPadTop}px ${contentPadX}px ${contentPadBottom}px`,
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+          {/* `margin: auto 0` centers the step vertically when it fits and
+              simply falls back to top-aligned scrolling when it does not
+              (unlike justify-content: center, which clips the overflow). */}
+          <div
+            ref={contentRef}
+            style={{ margin: 'auto 0', display: 'flex', flexDirection: 'column', width: '100%' }}
+          >
+            {renderStep()}
+          </div>
+        </div>
       </div>
     </CanvasModal>
     </>

@@ -442,7 +442,7 @@ app.get('/api/github/app/installations', async (c) => {
         headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `Bearer ${jwtStr}`, 'User-Agent': USER_AGENT },
       });
       if (resp.ok) {
-        const all: any[] = await resp.json().catch(() => []);
+        const all = (await resp.json().catch(() => [])) as any[];
         const loginLc = oauthUser.login.toLowerCase();
         installs = (Array.isArray(all) ? all : []).filter((inst: any) => (inst?.account?.login || '').toLowerCase() === loginLc);
       } else {
