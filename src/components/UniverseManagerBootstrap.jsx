@@ -169,7 +169,10 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
             result = await backend.setSourceOfTruth(payload.slug, payload.sourceType);
             break;
           case 'discoverUniversesInRepository':
-            result = await backend.discoverUniversesInRepository(payload.repoConfig);
+            result = await backend.discoverUniversesInRepository(payload.repoConfig, payload.options);
+            break;
+          case 'discoverAllLinkedRepositories':
+            result = await backend.discoverAllLinkedRepositories(payload.extraRepos);
             break;
           case 'linkToDiscoveredUniverse':
             result = await backend.linkToDiscoveredUniverse(payload.discoveredUniverse, payload.repoConfig);

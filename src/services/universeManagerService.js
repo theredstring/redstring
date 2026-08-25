@@ -710,14 +710,23 @@ export const universeManagerService = {
     return Array.from(map.values());
   },
 
-  async discoverUniverses(repoConfig) {
+  async discoverUniverses(repoConfig, options) {
     const discovered = await universeBackendBridge.discoverUniversesInRepository({
       type: 'github',
       user: repoConfig.user,
       repo: repoConfig.repo,
       authMethod: repoConfig.authMethod || 'oauth'
-    });
+    }, options);
     return discovered;
+  },
+
+  /**
+   * Scan every repo linked to a universe (plus any extra repos passed in) so
+   * the repository list is already populated when the panel opens. Cached
+   * repos cost a listing call and no file downloads.
+   */
+  async discoverAllLinkedRepositories(extraRepos) {
+    return universeBackendBridge.discoverAllLinkedRepositories(extraRepos);
   },
 
   async linkDiscoveredUniverse(discovered, repoConfig) {

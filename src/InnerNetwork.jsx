@@ -1,26 +1,61 @@
 import React from 'react';
-import { 
-    NODE_WIDTH, 
-    NODE_HEIGHT, 
-    NODE_PADDING, 
-    AVERAGE_CHAR_WIDTH, 
-    LINE_HEIGHT_ESTIMATE, 
-    EXPANDED_NODE_WIDTH, 
+import {
+    NODE_WIDTH,
+    NODE_HEIGHT,
+    NODE_PADDING,
+    AVERAGE_CHAR_WIDTH,
+    LINE_HEIGHT_ESTIMATE,
+    EXPANDED_NODE_WIDTH,
     NAME_AREA_FACTOR,
     NODE_CORNER_RADIUS,
     NODE_DEFAULT_COLOR
 } from './constants'; // Import necessary constants
 import { getNodeDimensions } from './utils.js'; // Import from utils.js
 import { getTextColor } from './utils/colorUtils.js';
+import { buildNodeFontString, wrapTextToLines, measureTextWidth } from './services/textMeasurement.js';
+import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from "./store/graphStore.js";
 
-// --- InnerNetwork Component --- 
+// --- Canvas parity constants ---
+// The decomposition preview is a *scaled-down canvas*, not its own visual language:
+// every value below is the number NodeCanvas/Node.jsx already use, so a mini-node
+// is the real node under a `scale()` rather than a separately-tuned lookalike.
+const LABEL_FONT_BASE = 45;         // Node.jsx: 45 * fontSize * effNodeScale
+const LABEL_LINE_HEIGHT_BASE = 39;  // Node.jsx: 39 * fontSize * lineSpacing * effNodeScale
+const LABEL_V_PADDING_BASE = 34;    // Node.jsx: .node-name-container vertical padding
+const BG_INSET = 6;                 // Node.jsx: background rect inset (and its rx reduction)
+const EDGE_STROKE_BASE = 27;        // NodeCanvas: 27 * connectionWidth
+const ARROW_OFFSET_BASE = 12;       // NodeCanvas: straight-edge arrow `offset`
+const ARROW_POINTS = '-26,34 26,34 0,-34'; // NodeCanvas arrowhead, drawn at scale(connectionWidth)
+
+// Legibility cutoff. Once the proportional label projects below this many pixels in
+// the preview's own space it stops being text and starts being a smudge — drop it and
+// let the node read as a colored block. (Previously the label was *boosted* to stay
+// readable, which is what made mini-nodes look like tiny text floating in fat padding:
+// a 28px cap against a box sized for 45px text.)
+const MIN_LABEL_PX = 7;
+
+/** Longest prefix of `text` that fits `maxWidth`, suffixed with an ellipsis. */
+const truncateToWidth = (text, fontString, maxWidth) => {
+  if (!text || maxWidth <= 0) return text;
+  if (measureTextWidth(text, fontString) <= maxWidth) return text;
+  let clipped = text.trimEnd();
+  while (clipped.length > 0 && measureTextWidth(`${clipped}…`, fontString) > maxWidth) {
+    clipped = clipped.slice(0, -1).trimEnd();
+  }
+  return clipped ? `${clipped}…` : '';
+};
+
+// --- InnerNetwork Component ---
 // Rename connections to edges, expect plain data objects
 const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
   // Access store for prototype data to determine edge colors
+  const theme = useTheme();
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
-  const nodeScaleGlobal = useGraphStore(state => state.textSettings?.nodeScale ?? 1.0);
+  const textSettings = useGraphStore(state => state.textSettings);
+  const nodeScaleGlobal = textSettings?.nodeScale ?? 1.0;
+  const connectionWidth = textSettings?.connectionWidth ?? 1.0;
 
   // Helper function to get edge color based on type hierarchy
   const getEdgeColor = (edge, destNode) => {
@@ -95,6 +130,11 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
   // Adjust translation to account for the padded bounding box origin (minX - padding)
   const translateX = padding + (availableWidth - scaledNetworkWidth) / 2 - ((minX - BOUNDING_BOX_PADDING) * scale);
   const translateY = padding + (availableHeight - scaledNetworkHeight) / 2 - ((minY - BOUNDING_BOX_PADDING) * scale);
+
+  // Edges keep their true canvas weight (27 * connectionWidth in graph coordinates), so
+  // they thin out with the rest of the drawing instead of staying a fixed screen width.
+  // The `1 / scale` floor is only a don't-vanish backstop for extreme zoom-outs.
+  const edgeStrokeWidth = Math.max(EDGE_STROKE_BASE * connectionWidth, 1 / scale);
 
   // Helper function to calculate edge intersection with rectangular nodes (adapted from NodeCanvas)
   const getNodeEdgeIntersection = (nodeX, nodeY, nodeWidth, nodeHeight, dirX, dirY) => {
@@ -191,12 +231,12 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
           return (
             <line
               key={`inner-conn-${edge.id || idx}`}
-              x1={sCenterX} 
+              x1={sCenterX}
               y1={sCenterY}
               x2={eCenterX}
               y2={eCenterY}
               stroke="rgba(0,0,0,0.6)"
-              strokeWidth={Math.max(1, 4 / scale)} 
+              strokeWidth={edgeStrokeWidth}
             />
           );
         }
@@ -234,8 +274,13 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
             sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
             destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
           } else {
-            // Precise intersection positioning
-            const arrowLength = 3; // Smaller arrow offset for inner network
+            // Precise intersection positioning — same slope-aware pull-back NodeCanvas
+            // uses for straight edges, so arrowheads sit off the node at the same
+            // distance they would on the real canvas.
+            const angleDeg = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
+            const normalizedAngle = angleDeg > 90 ? 180 - angleDeg : angleDeg;
+            const isQuantizedSlope = normalizedAngle < 15 || normalizedAngle > 75;
+            const arrowLength = (isQuantizedSlope ? ARROW_OFFSET_BASE * 0.6 : ARROW_OFFSET_BASE) * connectionWidth;
             sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
             sourceArrowX = sourceIntersection.x + (dx / length) * arrowLength;
             sourceArrowY = sourceIntersection.y + (dy / length) * arrowLength;
@@ -257,32 +302,32 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
               x2={shouldShortenDest ? (destIntersection?.x || eCenterX) : eCenterX}
               y2={shouldShortenDest ? (destIntersection?.y || eCenterY) : eCenterY}
               stroke={edgeColor}
-              strokeWidth={Math.max(1, 4 / scale)} 
+              strokeWidth={edgeStrokeWidth}
             />
-            
+
             {/* Source Arrow */}
             {arrowsToward.has(edge.sourceId) && (
-              <g transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}>
+              <g transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90}) scale(${connectionWidth})`}>
                 <polygon
-                  points="-12,15 12,15 0,-15"
+                  points={ARROW_POINTS}
                   fill={edgeColor}
                   stroke={edgeColor}
-                  strokeWidth={Math.max(0.5, 2 / scale)}
+                  strokeWidth={6}
                   strokeLinejoin="round"
                   strokeLinecap="round"
                   paintOrder="stroke fill"
                 />
               </g>
             )}
-            
+
             {/* Destination Arrow */}
             {arrowsToward.has(edge.destinationId) && (
-              <g transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}>
+              <g transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90}) scale(${connectionWidth})`}>
                 <polygon
-                  points="-12,15 12,15 0,-15"
+                  points={ARROW_POINTS}
                   fill={edgeColor}
                   stroke={edgeColor}
-                  strokeWidth={Math.max(0.5, 2 / scale)}
+                  strokeWidth={6}
                   strokeLinejoin="round"
                   strokeLinecap="round"
                   paintOrder="stroke fill"
@@ -302,19 +347,19 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
 
          return (
            <g key={`inner-node-${node.id}`}>
-             {/* Node background */}
+             {/* Node background — same 6px inset + reduced corner radius Node.jsx draws */}
              <rect
-               x={node.x + 3} // Small offset for border effect
-               y={node.y + 3}
-               width={dimensions.currentWidth - 6}
-               height={dimensions.currentHeight - 6}
-               rx={(dimensions.scaledCornerRadius ?? NODE_CORNER_RADIUS) - 3}
-               ry={(dimensions.scaledCornerRadius ?? NODE_CORNER_RADIUS) - 3}
+               x={node.x + BG_INSET}
+               y={node.y + BG_INSET}
+               width={dimensions.currentWidth - 2 * BG_INSET}
+               height={dimensions.currentHeight - 2 * BG_INSET}
+               rx={(dimensions.scaledCornerRadius ?? NODE_CORNER_RADIUS) - BG_INSET}
+               ry={(dimensions.scaledCornerRadius ?? NODE_CORNER_RADIUS) - BG_INSET}
                fill={node.color || NODE_DEFAULT_COLOR || 'maroon'}
                stroke="rgba(0,0,0,0.3)"
                strokeWidth={Math.max(0.5, 1 / scale)}
              />
-             
+
              {hasThumbnail && (
                 <image
                     href={node.thumbnailSrc}
@@ -327,36 +372,62 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
                 />
              )}
 
-             {/* Node title text — left-aligned so truncation shows the start, not the middle */}
+             {/* Node title — rendered at the node's TRUE canvas typography (font, line
+                 height, wrapping and padding all straight from Node.jsx), so the label
+                 fills its box in the same proportion it does on the canvas. Only the
+                 fitting `scale` on the parent <g> makes it small. */}
              {(() => {
-               // Target ~11 screen-px font size regardless of the fitting scale.
-               // canvas-coord font size × scale = screen px.
-               const TARGET_PX = 18;
-               const fontSize = Math.min(Math.max(TARGET_PX / scale, 13), 28);
-               const availableCanvasW = dimensions.currentWidth - (dimensions.scaledPadding ?? NODE_PADDING) * 2;
-               // Approximate char width for EmOne bold (~0.58× em)
-               const avgCharW = fontSize * 0.58;
-               const maxChars = Math.floor(availableCanvasW / avgCharW);
+               const effScale = nodeScaleGlobal * (node.sizeMul ?? 1.0);
+               const augTs = {
+                 ...textSettings,
+                 fontSize: (textSettings?.fontSize ?? 1.0) * effScale,
+               };
+               const fontSize = LABEL_FONT_BASE * augTs.fontSize;
+
+               // Size cutoff: below this the glyphs are noise. Drop the label rather
+               // than inflate it out of proportion to keep it "readable".
+               if (fontSize * scale < MIN_LABEL_PX) return null;
+
+               const lineHeight = LABEL_LINE_HEIGHT_BASE * augTs.fontSize * (textSettings?.lineSpacing ?? 1.0);
+               const fontString = buildNodeFontString(augTs);
+               const maxTextWidth = dimensions.currentWidth - 2 * (dimensions.scaledPadding ?? NODE_PADDING);
                const rawName = node.name || 'Untitled';
-               const displayName =
-                 maxChars > 3 && rawName.length > maxChars
-                   ? rawName.slice(0, maxChars - 1) + '…'
-                   : rawName;
-               return (
+
+               // Same wrapping engine getNodeDimensions used to size this box, so the
+               // line count here matches the line count the box was built for.
+               let lines = wrapTextToLines(rawName, maxTextWidth, fontString);
+               if (lines.length === 0) lines = [rawName];
+
+               // Clamp to the lines that actually fit the text area, then ellipsize.
+               const vPadding = LABEL_V_PADDING_BASE * effScale;
+               const maxLines = Math.max(1, Math.floor((titleHeight - 2 * vPadding) / lineHeight));
+               if (lines.length > maxLines) {
+                 lines = lines.slice(0, maxLines);
+                 lines[maxLines - 1] = truncateToWidth(`${lines[maxLines - 1]}…`, fontString, maxTextWidth);
+               }
+               // A single word wider than the box can't be wrapped by the engine
+               // (Node.jsx breaks it mid-glyph); clip it instead of letting it bleed out.
+               lines = lines.map(line => truncateToWidth(line, fontString, maxTextWidth));
+
+               const centerY = node.y + titleHeight / 2;
+               const fill = getTextColor(node.color || NODE_DEFAULT_COLOR || 'maroon', theme.darkMode);
+
+               return lines.map((line, i) => (
                  <text
+                   key={`inner-node-label-${node.id}-${i}`}
                    x={node.x + dimensions.currentWidth / 2}
-                   y={node.y + titleHeight / 2}
+                   y={centerY + (i - (lines.length - 1) / 2) * lineHeight}
                    textAnchor="middle"
                    dominantBaseline="central"
                    fontSize={fontSize}
-                   fill={getTextColor(node.color || NODE_DEFAULT_COLOR || 'maroon')}
+                   fill={fill}
                    fontWeight="bold"
                    fontFamily="'EmOne', sans-serif"
                    style={{ pointerEvents: 'none', userSelect: 'none' }}
                  >
-                   {displayName}
+                   {line}
                  </text>
-               );
+               ));
              })()}
            </g>
          );

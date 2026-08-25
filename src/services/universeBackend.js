@@ -18,6 +18,13 @@ import { SemanticProviderFactory } from '../backend/git/index.js';
 import startupCoordinator from './startupCoordinator.js';
 import { exportToRedstring, importFromRedstring, downloadRedstringFile, validateFormatVersion, getRedstringStats } from '../formats/redstringFormat.js';
 import { slotsHaveEqualKnowledge } from './semanticHash.js';
+import repoDiscoveryCache from './repoDiscoveryCache.js';
+import {
+  createUniverseConfigFromDiscovered,
+  listUniverseFiles,
+  withCounts,
+  hydrateUniverseCounts
+} from './universeDiscovery.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
   getCurrentDeviceConfig,
@@ -76,214 +83,6 @@ const SOURCE_OF_TRUTH = {
   LOCAL: 'local',
   GIT: 'git',
   BROWSER: 'browser'
-};
-
-// Helper functions for universe discovery (inlined from deleted universeDiscovery.js)
-const extractSchemaPath = (filePath) => {
-  const parts = (filePath || '').split('/').filter(Boolean);
-  if (parts.length <= 1) {
-    const fileBase = parts[parts.length - 1] || '';
-    return fileBase.replace(/\.redstring$/i, '') || 'default';
-  }
-  parts.pop(); // Remove filename
-  const folder = parts.pop();
-  return folder || 'default';
-};
-
-const createUniverseConfigFromDiscovered = (discoveredUniverse, repoConfig) => {
-  const baseFileName = String(discoveredUniverse.fileName || '').replace(/\.redstring$/i, '');
-  return {
-    slug: discoveredUniverse.slug,
-    name: baseFileName || discoveredUniverse.name,
-    nodeCount: discoveredUniverse.metadata?.nodeCount,
-    connectionCount: discoveredUniverse.metadata?.connectionCount,
-    graphCount: discoveredUniverse.metadata?.graphCount,
-    sourceOfTruth: 'git',
-    localFile: {
-      enabled: false,
-      unavailableReason: 'Linked to Git repository'
-    },
-    gitRepo: {
-      enabled: true,
-      linkedRepo: {
-        type: repoConfig.type,
-        user: repoConfig.user,
-        repo: repoConfig.repo,
-        authMethod: repoConfig.authMethod
-      },
-      schemaPath: 'schema',
-      universeFolder: extractSchemaPath(discoveredUniverse.path),
-      universeFile: discoveredUniverse.fileName,
-      priority: 'primary'
-    },
-    metadata: {
-      ...discoveredUniverse.metadata,
-      discoveredAt: new Date().toISOString(),
-      originalPath: discoveredUniverse.path
-    }
-  };
-};
-
-const discoverUniversesWithStats = async (provider) => {
-  const stats = { scannedDirs: 0, candidates: 0, valid: 0, invalid: 0 };
-  const universes = [];
-
-  const normalizePathValue = (value) => {
-    if (provider && typeof provider.normalizePathInput === 'function') {
-      const normalized = provider.normalizePathInput(value);
-      if (typeof normalized === 'string') {
-        return normalized.replace(/^\/+/, '').replace(/\/+$/, '');
-      }
-    }
-
-    if (value == null) {
-      return '';
-    }
-
-    if (typeof value === 'string') {
-      if (value === '[object Object]') {
-        return '';
-      }
-      return value.replace(/^\/+/, '').replace(/\/+$/, '');
-    }
-
-    if (Array.isArray(value)) {
-      return value.filter(Boolean).join('/');
-    }
-
-    if (typeof value === 'object') {
-      if (typeof value.path === 'string') return normalizePathValue(value.path);
-      if (typeof value.fullPath === 'string') return normalizePathValue(value.fullPath);
-      if (typeof value.relativePath === 'string') return normalizePathValue(value.relativePath);
-      if (Array.isArray(value.segments)) return normalizePathValue(value.segments);
-      if (typeof value.toString === 'function' && value.toString !== Object.prototype.toString) {
-        return normalizePathValue(value.toString());
-      }
-      return '';
-    }
-
-    const fallback = String(value);
-    return fallback === '[object Object]' ? '' : fallback;
-  };
-
-  const joinPaths = (...parts) => parts
-    .map(part => normalizePathValue(part))
-    .filter(segment => segment.length > 0)
-    .join('/');
-
-  // Counts come from the shared format-aware reader — the file on disk uses the
-  // separated-storage shape (prototypeSpace/spatialGraphs, v4 edges nested per
-  // graph), not the Zustand store shape.
-  const tryParseRedstring = (text) => {
-    try {
-      return getRedstringStats(JSON.parse(text));
-    } catch {
-      return { nodeCount: null, graphCount: null, connectionCount: null };
-    }
-  };
-
-  const collectFromDir = async (dirPath) => {
-    stats.scannedDirs += 1;
-    const safeDirPath = normalizePathValue(dirPath);
-    const items = await provider.listDirectoryContents(safeDirPath);
-    for (const item of items) {
-      const itemName = typeof item.name === 'string' ? item.name.trim() : '';
-      if (itemName === '[object Object]' || itemName === 'object Object') {
-        continue;
-      }
-
-      if (item.type === 'dir') {
-        // Skip backup/archive directories
-        const dirName = (item.name || '').toLowerCase();
-        if (/^(\.?backups?|\.?archive|\.?old|\.?bak)$/.test(dirName)) {
-          continue;
-        }
-        const nextDirPath = normalizePathValue(item.path) || joinPaths(safeDirPath, item.name);
-        if (!nextDirPath) {
-          continue;
-        }
-        await collectFromDir(nextDirPath);
-        continue;
-      }
-      if (item.type === 'file' && /\.redstring$/i.test(item.name)) {
-        stats.candidates += 1;
-        const base = item.name.replace(/\.redstring$/i, '');
-        const itemPath = normalizePathValue(item.path) || joinPaths(safeDirPath, item.name);
-        const discovered = {
-          name: base,
-          slug: base,
-          path: itemPath,
-          fileName: item.name,
-          metadata: {}
-        };
-        try {
-          // Best-effort: extract simple metrics for nicer UI
-          const content = await provider.readFileRaw(itemPath);
-          const metrics = tryParseRedstring(content);
-          // Mirrored flat + nested: some selectors read `file.nodeCount` and
-          // others `file.metadata.nodeCount`. Writing only the nested copy is
-          // why the import list rendered no counts and never showed EMPTY.
-          for (const key of ['nodeCount', 'graphCount', 'connectionCount', 'instanceCount']) {
-            if (metrics[key] != null) {
-              discovered.metadata[key] = metrics[key];
-              discovered[key] = metrics[key];
-            }
-          }
-          stats.valid += 1;
-        } catch {
-          // File might not be readable (missing or access) — still list it
-          stats.invalid += 1;
-        }
-        universes.push(discovered);
-      }
-    }
-  };
-
-  // Prefer standard location first (GitHub API is case-sensitive, try common variants)
-  for (const folder of ['universes', 'Universe', 'Universes']) {
-    await collectFromDir(folder).catch(() => { });
-    if (universes.length > 0) break;
-  }
-
-  // If nothing found under universes/, do a shallow root scan as a fallback
-  if (universes.length === 0) {
-    try {
-      const rootItems = await provider.listDirectoryContents('');
-      for (const item of rootItems) {
-        const itemName = typeof item.name === 'string' ? item.name.trim() : '';
-        if (itemName === '[object Object]' || itemName === 'object Object') {
-          continue;
-        }
-
-        if (item.type === 'file' && /\.redstring$/i.test(item.name)) {
-          stats.candidates += 1;
-          const base = item.name.replace(/\.redstring$/i, '');
-          universes.push({
-            name: base,
-            slug: base,
-            path: normalizePathValue(item.path) || item.name,
-            fileName: item.name,
-            metadata: {}
-          });
-          stats.valid += 1;
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  // Deduplicate by slug (keep first occurrence = shallowest path)
-  const seen = new Set();
-  const deduped = [];
-  for (const u of universes) {
-    if (!seen.has(u.slug)) {
-      seen.add(u.slug);
-      deduped.push(u);
-    }
-  }
-
-  return { universes: deduped, stats };
 };
 
 const LOCAL_FILE_ERROR = {
@@ -2621,15 +2420,28 @@ class UniverseBackend {
   }
 
   /**
-   * Discover universes in a repository
+   * Discover universes in a repository.
+   *
+   * Cache-first and two-pass: the file list lands (and paints) before any file
+   * is downloaded, then counts fill in for files whose content we haven't read
+   * before. Results are written through `repoDiscoveryCache`, so the UI can
+   * render the last-known list synchronously on mount and watch this refresh it.
+   *
+   * @param {Object} repoConfig - { user, repo, authMethod }
+   * @param {Object} [options]
+   * @param {boolean} [options.skipCounts] - list only; leave counts as-is
+   * @param {boolean} [options.silent] - suppress status banners (background sweeps)
    */
-  async discoverUniversesInRepository(repoConfig) {
+  async discoverUniversesInRepository(repoConfig, options = {}) {
     if (!this.isInitialized) {
       await this.initialize();
     }
 
+    const repoKey = `${repoConfig.user}/${repoConfig.repo}`;
+    repoDiscoveryCache.markLoading(repoConfig.user, repoConfig.repo, true);
+
     try {
-      umLog(`[UniverseBackend] Discovering universes in ${repoConfig.user}/${repoConfig.repo}...`);
+      umLog(`[UniverseBackend] Discovering universes in ${repoKey}...`);
 
       const resolveDiscoveryAuth = async (preferredMethod = null) => {
         if (!preferredMethod || preferredMethod === 'github-app') {
@@ -2681,7 +2493,7 @@ class UniverseBackend {
         }
         const provider = SemanticProviderFactory.createProvider(providerConfig);
         try {
-          return await discoverUniversesWithStats(provider);
+          return { result: await listUniverseFiles(provider), provider };
         } catch (error) {
           const message = error?.message || '';
           const isAuthError = message.includes('401') || message.toLowerCase().includes('unauthorized');
@@ -2696,18 +2508,103 @@ class UniverseBackend {
         }
       };
 
-      const { universes: discovered, stats } = await runDiscovery(authContext, true);
-      umLog(`[UniverseBackend] Discovered ${discovered.length} universes in repository`);
-      this.notifyStatus('info', `Discovery: ${discovered.length} found • scanned ${stats.scannedDirs} dirs • ${stats.valid} valid • ${stats.invalid} invalid`);
+      // Pass 1 — listing. Cheap, and it carries each file's blob sha.
+      const { result: { universes: listed, stats }, provider } = await runDiscovery(authContext, true);
+      umLog(`[UniverseBackend] Listed ${listed.length} universe files in ${repoKey}`);
 
-      if (discovered.length === 0) {
-        this.notifyStatus('info', `No universes found in ${repoConfig.user}/${repoConfig.repo}`);
+      // Anything we've already read at this exact sha resolves with no network
+      // work at all, so the first paint usually arrives fully populated.
+      const seeded = listed.map((file) => {
+        const cached = repoDiscoveryCache.getCountsForSha(repoConfig.user, repoConfig.repo, file.path, file.sha);
+        return cached ? withCounts(file, cached) : file;
+      });
+      repoDiscoveryCache.setRepoItems(repoConfig.user, repoConfig.repo, seeded);
+
+      if (listed.length === 0) {
+        if (!options.silent) this.notifyStatus('info', `No universes found in ${repoKey}`);
+        return seeded;
       }
-      return discovered;
+
+      if (options.skipCounts) {
+        return seeded;
+      }
+
+      // Pass 2 — counts for anything not already cached. Each resolved file is
+      // written straight back to the cache so rows lose their "?" one by one.
+      const { files: hydrated, downloads, cacheHits } = await hydrateUniverseCounts(
+        provider,
+        repoConfig,
+        seeded,
+        (partial) => repoDiscoveryCache.setRepoItems(repoConfig.user, repoConfig.repo, [...partial])
+      );
+
+      repoDiscoveryCache.setRepoItems(repoConfig.user, repoConfig.repo, hydrated);
+      umLog(`[UniverseBackend] Discovered ${hydrated.length} universes in ${repoKey} (${cacheHits} cached, ${downloads} downloaded)`);
+      // Background sweeps stay quiet — a status banner per repo on panel open
+      // is exactly the intrusion auto-discovery is supposed to avoid.
+      if (!options.silent) {
+        this.notifyStatus('info', `Discovery: ${hydrated.length} found • scanned ${stats.scannedDirs} dirs • ${cacheHits} cached • ${downloads} read`);
+      }
+
+      return hydrated;
     } catch (error) {
       umError('[UniverseBackend] Universe discovery failed:', error);
+      // Keep the last known list on screen with an error marker — a failed scan
+      // must not read as "this repository is empty".
+      repoDiscoveryCache.setRepoItems(repoConfig.user, repoConfig.repo, null, {
+        error: error?.message || 'Discovery failed',
+        scanned: false
+      });
       throw error;
     }
+  }
+
+  /**
+   * Discover across every repository linked to any universe, plus any extra
+   * repos the caller names. Runs on panel mount so the lists are already
+   * populated; cached repos cost a listing call and no downloads.
+   */
+  async discoverAllLinkedRepositories(extraRepos = []) {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    const targets = new Map();
+    const add = (user, repo, authMethod) => {
+      if (!user || !repo) return;
+      const key = `${user}/${repo}`;
+      if (!targets.has(key)) targets.set(key, { user, repo, authMethod: authMethod || 'oauth' });
+    };
+
+    for (const universe of this.universes.values()) {
+      const linked = universe?.gitRepo?.linkedRepo;
+      if (typeof linked === 'string' && linked.includes('/')) {
+        const [user, repo] = linked.split('/');
+        add(user, repo, universe.gitRepo.authMethod);
+      } else if (linked?.user && linked?.repo) {
+        add(linked.user, linked.repo, linked.authMethod || universe.gitRepo?.authMethod);
+      }
+    }
+
+    for (const entry of extraRepos || []) {
+      add(entry?.user || entry?.owner?.login || entry?.owner, entry?.repo || entry?.name, entry?.authMethod);
+    }
+
+    if (targets.size === 0) return [];
+
+    // Sequential: discovery is bounded by GitHub rate limits, and a burst of
+    // parallel scans on mount is exactly the intrusive behavior to avoid.
+    const results = [];
+    for (const target of targets.values()) {
+      try {
+        const items = await this.discoverUniversesInRepository(target, { silent: true });
+        results.push({ ...target, items });
+      } catch (error) {
+        umWarn(`[UniverseBackend] Background discovery failed for ${target.user}/${target.repo}:`, error?.message || error);
+        results.push({ ...target, items: [], error: error?.message });
+      }
+    }
+    return results;
   }
 
   /**

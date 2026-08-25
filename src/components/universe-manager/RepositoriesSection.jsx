@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 
 import {
   Github,
@@ -9,12 +9,31 @@ import {
   GitBranch,
   AlertCircle,
   Download,
-  Upload
+  Upload,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import PanelSegment from './shared/PanelSegment.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import { countLabel } from '../../utils/universeCounts.js';
 
+const EXPANDED_STORAGE_KEY = 'redstring-repo-sections-collapsed';
+
+/**
+ * Which repo cards the user has collapsed. Stored as a COLLAPSED set rather
+ * than an expanded one so the default — for repos never touched, including
+ * ones added later — is open: the universe lists are the reason this section
+ * exists, and hiding them by default buries the point.
+ */
+const loadCollapsed = () => {
+  try {
+    const raw = localStorage.getItem(EXPANDED_STORAGE_KEY);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set();
+  }
+};
 
 /**
  * RepositoriesSection - Shows your managed repositories
@@ -32,6 +51,22 @@ const RepositoriesSection = ({
   isSlim = false
 }) => {
   const theme = useTheme();
+  const [collapsedRepos, setCollapsedRepos] = useState(loadCollapsed);
+
+  const toggleRepo = useCallback((repoKey) => {
+    setCollapsedRepos((prev) => {
+      const next = new Set(prev);
+      if (next.has(repoKey)) next.delete(repoKey);
+      else next.add(repoKey);
+      try {
+        localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify([...next]));
+      } catch {
+        // Preference only — losing it costs nothing.
+      }
+      return next;
+    });
+  }, []);
+
   if (repositories.length === 0) {
     return (
       <PanelSegment
@@ -87,6 +122,9 @@ const RepositoriesSection = ({
           const discoveryState = discoveryMap?.[discoveryKey] || {};
           const discoveredItems = discoveryState.items || [];
           const isDiscovering = Boolean(discoveryState.loading);
+          const isCollapsed = collapsedRepos.has(repoFullName);
+          // Never scanned AND nothing cached — distinct from "scanned, empty".
+          const neverScanned = !discoveryState.lastScanned && discoveredItems.length === 0;
 
           return (
             <div
@@ -167,47 +205,87 @@ const RepositoriesSection = ({
                   gap: 8
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <GitBranch size={14} />
+                <div
+                  onClick={() => toggleRepo(repoFullName)}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    userSelect: 'none'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <GitBranch size={14} style={{ flexShrink: 0 }} />
                     <span style={{ fontWeight: 600, fontSize: '0.75rem' }}>Universe files</span>
+                    {discoveredItems.length > 0 && (
+                      <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>
+                        ({discoveredItems.length})
+                      </span>
+                    )}
+                    {/* Scanning is shown as a quiet inline marker rather than
+                        replacing the list — a background refresh must never
+                        blank out contents that are already on screen. */}
+                    {isDiscovering && (
+                      <RefreshCw
+                        size={11}
+                        style={{ animation: 'spin 1s linear infinite', color: theme.canvas.textSecondary, flexShrink: 0 }}
+                      />
+                    )}
                     {discoveryState.error && (
-                      <span style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        color: theme.canvas.brand,
-                        fontSize: '0.7rem'
-                      }}>
-                        <AlertCircle size={12} />
-                        {discoveryState.error}
+                      <span
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          color: theme.canvas.brand,
+                          fontSize: '0.7rem',
+                          minWidth: 0
+                        }}
+                        title={discoveryState.error}
+                      >
+                        <AlertCircle size={12} style={{ flexShrink: 0 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {discoveredItems.length > 0 ? 'Showing last known' : discoveryState.error}
+                        </span>
                       </span>
                     )}
                   </div>
-                  <PanelIconButton
-                    icon={RefreshCw}
-                    size={20}
-                    onClick={() => {
-                      if (!onDiscoverRepository) return;
-                      const user = repo.owner?.login || repo.owner;
-                      onDiscoverRepository({ user, repo: repo.name });
-                    }}
-                    title={discoveredItems.length > 0 ? 'Rescan for universe files' : 'Scan for universe files'}
-                    disabled={isDiscovering}
-                    style={{
-                      animation: isDiscovering ? 'spin 1s linear infinite' : 'none'
-                    }}
-                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                    <PanelIconButton
+                      icon={RefreshCw}
+                      size={20}
+                      onClick={(e) => {
+                        e?.stopPropagation?.();
+                        if (!onDiscoverRepository) return;
+                        const user = repo.owner?.login || repo.owner;
+                        onDiscoverRepository({ user, repo: repo.name });
+                      }}
+                      title={discoveredItems.length > 0 ? 'Rescan for universe files' : 'Scan for universe files'}
+                      disabled={isDiscovering}
+                      style={{
+                        animation: isDiscovering ? 'spin 1s linear infinite' : 'none'
+                      }}
+                    />
+                    <PanelIconButton
+                      icon={isCollapsed ? ChevronRight : ChevronDown}
+                      size={20}
+                      onClick={(e) => {
+                        e?.stopPropagation?.();
+                        toggleRepo(repoFullName);
+                      }}
+                      title={isCollapsed ? 'Show universe files' : 'Hide universe files'}
+                    />
+                  </div>
                 </div>
 
-                {isDiscovering ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: '#555' }}>
-                    <RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} />
-                    Discovering universes...
-                  </div>
-                ) : discoveredItems.length === 0 ? (
+                {isCollapsed ? null : discoveredItems.length === 0 ? (
                   <div style={{ fontSize: '0.72rem', color: '#555', fontStyle: 'italic' }}>
-                    No universes discovered yet. Run a scan to locate .redstring files.
+                    {isDiscovering
+                      ? 'Scanning for universe files...'
+                      : neverScanned
+                        ? 'Not scanned yet.'
+                        : 'No .redstring files in this repository.'}
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -238,16 +316,12 @@ const RepositoriesSection = ({
                               {itemPath && (
                                 <div style={{ fontSize: '0.68rem', color: '#555' }}>{itemPath}</div>
                               )}
+                              {/* Always rendered, so the row doesn't reflow when
+                                  counts arrive — "?" holds the space. */}
                               <div style={{ fontSize: '0.65rem', color: theme.canvas.brand, display: 'flex', gap: 10, marginTop: 4 }}>
-                                {(item.metadata?.graphCount ?? item.graphCount) !== undefined && (
-                                  <span>{item.metadata?.graphCount ?? item.graphCount} webs</span>
-                                )}
-                                {(item.metadata?.nodeCount ?? item.nodeCount) !== undefined && (
-                                  <span>{item.metadata?.nodeCount ?? item.nodeCount} things</span>
-                                )}
-                                {(item.metadata?.connectionCount ?? item.connectionCount) !== undefined && (
-                                  <span>{item.metadata?.connectionCount ?? item.connectionCount} connections</span>
-                                )}
+                                <span>{countLabel(item, 'graphCount')} webs</span>
+                                <span>{countLabel(item, 'nodeCount')} things</span>
+                                <span>{countLabel(item, 'connectionCount')} connections</span>
                               </div>
                             </div>
                           </div>

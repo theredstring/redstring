@@ -22,6 +22,13 @@ import { persistentAuth } from '../../services/persistentAuth.js';
 import { listUserRepos, createRepository } from '../../services/githubRepoService.js';
 
 import { universeManagerService } from '../../services/universeManagerService.js';
+import repoDiscoveryCache from '../../services/repoDiscoveryCache.js';
+import { countLabel } from '../../utils/universeCounts.js';
+
+const repoKeyOf = (repo) => {
+  const user = repo?.owner?.login || repo?.owner;
+  return user && repo?.name ? `${user}/${repo.name}` : null;
+};
 
 const RepositorySelectionModal = ({
   isOpen,
@@ -45,11 +52,17 @@ const RepositorySelectionModal = ({
   const [authStatus, setAuthStatus] = useState(persistentAuth.getAuthStatus());
   const [expandedRepos, setExpandedRepos] = useState(new Set());
   const [discoveredUniverses, setDiscoveredUniverses] = useState({});
+  // Bumped whenever the shared discovery cache changes, so already-scanned
+  // repos show their universe list the instant they're expanded instead of
+  // re-fetching everything this modal has already been told once.
+  const [, setCachePulse] = useState(0);
   const [showCreateRepo, setShowCreateRepo] = useState(false);
   const [newRepoName, setNewRepoName] = useState('');
   const [newRepoPrivate, setNewRepoPrivate] = useState(true);
   const [creatingRepo, setCreatingRepo] = useState(false);
   const [createRepoError, setCreateRepoError] = useState(null);
+
+  useEffect(() => repoDiscoveryCache.subscribe(() => setCachePulse((n) => n + 1)), []);
 
   const modalTitle = intent === 'import'
     ? 'Import From Repository'
@@ -180,22 +193,22 @@ const RepositorySelectionModal = ({
       newExpanded.add(repoId);
       setExpandedRepos(newExpanded);
 
-      // Discover universes if not already cached
-      if (!discoveredUniverses[repoId]) {
+      // Rescan unless this repo was already scanned (here or anywhere else in
+      // the app) — the cache is shared, so an expand usually costs nothing.
+      const repo = repositories.find(r => r.id === repoId);
+      const cached = repoDiscoveryCache.getRepoEntry(repoKeyOf(repo));
+      if (!discoveredUniverses[repoId] && !cached.lastScanned && repo?.owner?.login && repo?.name) {
         try {
-          const repo = repositories.find(r => r.id === repoId);
-          if (repo?.owner?.login && repo?.name) {
-            const universes = await universeManagerService.discoverUniverses({
-              user: repo.owner.login,
-              repo: repo.name,
-              authMethod: 'oauth'
-            });
+          const universes = await universeManagerService.discoverUniverses({
+            user: repo.owner.login,
+            repo: repo.name,
+            authMethod: 'oauth'
+          });
 
-            setDiscoveredUniverses(prev => ({
-              ...prev,
-              [repoId]: universes || []
-            }));
-          }
+          setDiscoveredUniverses(prev => ({
+            ...prev,
+            [repoId]: universes || []
+          }));
         } catch (err) {
           console.warn('Failed to discover universes for repo:', repoId, err);
           setDiscoveredUniverses(prev => ({
@@ -558,7 +571,13 @@ const RepositorySelectionModal = ({
         ) : (
           filteredAndSortedRepos.map((repo) => {
             const isExpanded = expandedRepos.has(repo.id);
-            const universes = discoveredUniverses[repo.id] || [];
+            // Cache first: a repo scanned anywhere else in the app already has
+            // its list (and counts) here, with no request of our own.
+            const cacheEntry = repoDiscoveryCache.getRepoEntry(repoKeyOf(repo));
+            const scanned = discoveredUniverses[repo.id]
+              ?? (cacheEntry.lastScanned ? cacheEntry.items : undefined);
+            const universes = scanned || [];
+            const isScanning = scanned === undefined;
             const hasUniverses = universes.length > 0;
 
             return (
@@ -724,7 +743,7 @@ const RepositorySelectionModal = ({
                   borderTop: `1px solid ${theme.darkMode ? '#555' : '#808080'}`,
                   padding: '8px 12px'
                 }}>
-                  {discoveredUniverses[repo.id] === undefined ? (
+                  {isScanning ? (
                     <div style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -838,15 +857,12 @@ const RepositorySelectionModal = ({
                               <div style={{ fontSize: '0.65rem', color: theme.canvas.textSecondary }}>{universe.path}</div>
                             )}
                             <div style={{ fontSize: '0.62rem', color: theme.darkMode ? theme.alert.error.text : theme.canvas.brand, display: 'flex', gap: 10 }}>
-                              {(universe.metadata?.graphCount ?? universe.graphCount) !== undefined && (
-                                <span>{universe.metadata?.graphCount ?? universe.graphCount} webs</span>
-                              )}
-                              {(universe.metadata?.nodeCount ?? universe.nodeCount) !== undefined && (
-                                <span>{universe.metadata?.nodeCount ?? universe.nodeCount} things</span>
-                              )}
-                              {(universe.metadata?.connectionCount ?? universe.connectionCount) !== undefined && (
-                                <span>{universe.metadata?.connectionCount ?? universe.connectionCount} connections</span>
-                              )}
+                              {/* "?" until the file has actually been read —
+                                  always rendered so the row holds its layout
+                                  when the real numbers land. */}
+                              <span>{countLabel(universe, 'graphCount')} webs</span>
+                              <span>{countLabel(universe, 'nodeCount')} things</span>
+                              <span>{countLabel(universe, 'connectionCount')} connections</span>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                               {/* Load from Repo: show for import/null intents AND for attach

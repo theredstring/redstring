@@ -41,6 +41,7 @@ import { getStatusColors } from './utils/statusColors.js';
 import StatusBanner from './components/StatusBanner.jsx';
 import universeBackend from './services/universeBackend.js';
 import universeBackendBridge from './services/universeBackendBridge.js';
+import repoDiscoveryCache from './services/repoDiscoveryCache.js';
 import saveCoordinator from './services/SaveCoordinator';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 import UniverseLinkingModal from './components/modals/UniverseLinkingModal.jsx';
@@ -248,7 +249,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const [pendingUniverseLink, setPendingUniverseLink] = useState(null);
 
   const [repositoryTargetSlug, setRepositoryTargetSlug] = useState(null);
-  const [discoveryMap, setDiscoveryMap] = useState({});
+  // Seeded synchronously from the persisted discovery cache so the repository
+  // list paints with real contents on the very first frame. This used to be a
+  // bare `useState({})`, which meant every panel open started empty and the
+  // universe lists only appeared after a full network scan.
+  const [discoveryMap, setDiscoveryMap] = useState(() => repoDiscoveryCache.getAllRepoEntries());
   const [syncTelemetry, setSyncTelemetry] = useState({});
   // Tick counter bumped on SaveCoordinator status events so the Status & Sync
   // panel (which reads coordinator.isSaving / hasUnsavedChanges() at render
@@ -805,19 +810,20 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     return syncTelemetry?.[slug] || null;
   }, [syncTelemetry]);
 
+  // Mirror the discovery cache into render state. The cache is the single
+  // source of truth and lives at module scope, so results survive this panel
+  // unmounting — which is what makes the lists "already be up there" instead of
+  // being rebuilt from nothing on every open.
+  //
+  // (This replaced an effect that PRUNED discovery down to the active
+  // universe's sources, which actively discarded the lists for every other
+  // linked repo.)
   useEffect(() => {
-    if (!activeUniverse?.raw?.sources) return;
-    setDiscoveryMap((prev) => {
-      const next = {};
-      activeUniverse.raw.sources.forEach((src) => {
-        if (src.type === 'github' && src.user && src.repo) {
-          const key = `${src.user}/${src.repo}`;
-          if (prev[key]) next[key] = prev[key];
-        }
-      });
-      return next;
+    setDiscoveryMap(repoDiscoveryCache.getAllRepoEntries());
+    return repoDiscoveryCache.subscribe((repoKey, entry) => {
+      setDiscoveryMap((prev) => ({ ...prev, [repoKey]: entry }));
     });
-  }, [activeUniverse?.raw?.sources]);
+  }, []);
 
   // Listen for slot conflict events from universeBackend — show ConfirmDialog
   useEffect(() => {
@@ -1907,29 +1913,74 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   };
 
-  const handleDiscover = async (source) => {
-    const key = `${source.user}/${source.repo}`;
-    setDiscoveryMap((prev) => ({
-      ...prev,
-      [key]: { ...(prev[key] || {}), loading: true, error: null }
-    }));
+  // Repos we've already kicked off a scan for this session. Prevents the
+  // effects below from re-scanning on every render or state refresh.
+  const scannedRepoKeysRef = useRef(new Set());
+  const discoveryBootstrappedRef = useRef(false);
 
+  const toRepoTarget = useCallback((repo) => {
+    const user = repo?.owner?.login || repo?.owner || repo?.user;
+    const name = repo?.name || repo?.repo;
+    if (!user || !name) return null;
+    return { user, repo: name, authMethod: dataAuthMethod || 'oauth' };
+  }, [dataAuthMethod]);
+
+  // Populate every linked + managed repo once the panel has credentials.
+  // Cached repos already painted from disk; this pass refreshes the listing
+  // and only downloads files whose content hash it hasn't seen.
+  useEffect(() => {
+    if (discoveryBootstrappedRef.current) return;
+    if (!dataAuthMethod) return; // no credentials yet — nothing to scan with
+    discoveryBootstrappedRef.current = true;
+
+    const extras = managedRepositories.map(toRepoTarget).filter(Boolean);
+    extras.forEach(({ user, repo }) => scannedRepoKeysRef.current.add(`${user}/${repo}`));
+
+    universeManagerService.discoverAllLinkedRepositories(extras)
+      .then((results) => {
+        (results || []).forEach(({ user, repo }) => {
+          if (user && repo) scannedRepoKeysRef.current.add(`${user}/${repo}`);
+        });
+      })
+      .catch((err) => {
+        // Non-fatal and deliberately silent: the cached lists stay on screen,
+        // and each repo keeps its own error marker. A failed background scan
+        // should not throw a banner at someone who just opened the panel.
+        umWarn('[UniverseManager] Background repository discovery failed:', err?.message || err);
+      });
+  }, [dataAuthMethod, managedRepositories, toRepoTarget]);
+
+  // Newly added repos get scanned immediately so their universe list is there
+  // by the time the user looks at the card.
+  useEffect(() => {
+    if (!discoveryBootstrappedRef.current || !dataAuthMethod) return;
+
+    const fresh = managedRepositories
+      .map(toRepoTarget)
+      .filter((target) => target && !scannedRepoKeysRef.current.has(`${target.user}/${target.repo}`));
+
+    if (fresh.length === 0) return;
+
+    fresh.forEach((target) => {
+      scannedRepoKeysRef.current.add(`${target.user}/${target.repo}`);
+      universeManagerService.discoverUniverses(target, { silent: true }).catch((err) => {
+        umWarn(`[UniverseManager] Discovery failed for ${target.user}/${target.repo}:`, err?.message || err);
+      });
+    });
+  }, [managedRepositories, dataAuthMethod, toRepoTarget]);
+
+  // Discovery state (loading / items / error) is written by the backend
+  // straight into repoDiscoveryCache, and the subscription above mirrors it
+  // into render state — so this only has to kick off the scan.
+  const handleDiscover = async (source) => {
     try {
-      const results = await universeManagerService.discoverUniverses({
+      await universeManagerService.discoverUniverses({
         user: source.user,
         repo: source.repo,
         authMethod: dataAuthMethod || 'oauth'
       });
-      setDiscoveryMap((prev) => ({
-        ...prev,
-        [key]: { items: results, loading: false, error: null }
-      }));
     } catch (err) {
       umError('[UniverseManager] Discovery failed:', err);
-      setDiscoveryMap((prev) => ({
-        ...prev,
-        [key]: { items: [], loading: false, error: err.message }
-      }));
       setError(`Discovery failed: ${err.message}`);
     }
   };
@@ -2733,6 +2784,15 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       const newList = managedRepositories.filter(r =>
         `${r.owner?.login || r.owner}/${r.name}` !== repoKey
       );
+
+      // Drop its cached listing + counts, and allow a rescan if it's re-added.
+      repoDiscoveryCache.forgetRepo(repoKey);
+      scannedRepoKeysRef.current.delete(repoKey);
+      setDiscoveryMap((prev) => {
+        const next = { ...prev };
+        delete next[repoKey];
+        return next;
+      });
 
       setManagedRepositories(newList);
       try {

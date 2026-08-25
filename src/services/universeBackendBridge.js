@@ -411,7 +411,9 @@ class UniverseBackendBridge {
       case 'setSourceOfTruth':
         return backend.setSourceOfTruth(payload.slug, payload.sourceType);
       case 'discoverUniversesInRepository':
-        return backend.discoverUniversesInRepository(payload.repoConfig);
+        return backend.discoverUniversesInRepository(payload.repoConfig, payload.options);
+      case 'discoverAllLinkedRepositories':
+        return backend.discoverAllLinkedRepositories(payload.extraRepos);
       case 'linkToDiscoveredUniverse':
         return backend.linkToDiscoveredUniverse(payload.discoveredUniverse, payload.repoConfig);
       case 'forceSave':
@@ -500,8 +502,12 @@ class UniverseBackendBridge {
     return this.sendCommand('setSourceOfTruth', { slug, sourceType });
   }
 
-  discoverUniversesInRepository(repoConfig) {
-    return this.sendCommand('discoverUniversesInRepository', { repoConfig });
+  discoverUniversesInRepository(repoConfig, options) {
+    return this.sendCommand('discoverUniversesInRepository', { repoConfig, options });
+  }
+
+  discoverAllLinkedRepositories(extraRepos) {
+    return this.sendCommand('discoverAllLinkedRepositories', { extraRepos });
   }
 
   linkToDiscoveredUniverse(discoveredUniverse, repoConfig) {
@@ -561,7 +567,8 @@ const universeBackendBridge = {
   deleteUniverse: (slug) => bridgeInstance.deleteUniverse(slug),
   updateUniverse: (slug, updates) => bridgeInstance.updateUniverse(slug, updates),
   setSourceOfTruth: (slug, sourceType) => bridgeInstance.setSourceOfTruth(slug, sourceType),
-  discoverUniversesInRepository: (repoConfig) => bridgeInstance.discoverUniversesInRepository(repoConfig),
+  discoverUniversesInRepository: (repoConfig, options) => bridgeInstance.discoverUniversesInRepository(repoConfig, options),
+  discoverAllLinkedRepositories: (extraRepos) => bridgeInstance.discoverAllLinkedRepositories(extraRepos),
   linkToDiscoveredUniverse: (discoveredUniverse, repoConfig) => bridgeInstance.linkToDiscoveredUniverse(discoveredUniverse, repoConfig),
   forceSave: (universeSlug, storeState, options) => bridgeInstance.forceSave(universeSlug, storeState, options),
   saveActiveUniverse: (storeState) => bridgeInstance.saveActiveUniverse(storeState),
