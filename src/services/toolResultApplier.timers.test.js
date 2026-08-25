@@ -15,12 +15,22 @@ vi.mock('./offscreenLayout.js', () => ({ applyOffscreenLayout: vi.fn() }));
 // and N /api/enrich POSTs each cloning the whole prototype Map.
 describe('wizard follow-up timers', () => {
   let dispatched;
-  const record = (e) => dispatched.push(e.detail?.graphId);
+  let ackEnabled;
+  // Stand in for a live NodeCanvas: record the request and acknowledge it, the
+  // same contract the real listener honors. Without an ack the requester falls
+  // back to an offscreen pass (covered separately below).
+  const record = (e) => {
+    dispatched.push(e.detail?.graphId);
+    if (ackEnabled) {
+      window.dispatchEvent(new CustomEvent('rs-auto-layout-ack', { detail: { graphId: e.detail?.graphId } }));
+    }
+  };
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     dispatched = [];
+    ackEnabled = true;
     window.addEventListener('rs-trigger-auto-layout', record);
   });
 
@@ -68,6 +78,37 @@ describe('wizard follow-up timers', () => {
       vi.advanceTimersByTime(2000);
       expect(dispatched).toEqual([]);
       expect(applyOffscreenLayout).not.toHaveBeenCalled();
+    });
+  });
+
+  // The ACTIVE graph is deliberately skipped by the immediate offscreen pass —
+  // the canvas owns its animated tween — so the event is its only path to being
+  // laid out. When nothing acts on that event (no canvas mounted, or a pending
+  // debounce cancelled), the graph would otherwise keep the seed-random
+  // positions applyBulkGraphUpdates gave it. That was the long-standing
+  // "createPopulatedGraph rendered but never laid out" bug.
+  describe('scheduleGraphLayout ack fallback', () => {
+    it('lays the graph out offscreen when nobody acknowledges the request', () => {
+      ackEnabled = false;
+      // Active graph: the store mock has no such graph, so the immediate pass is
+      // still counted — assert on the count AFTER the dispatch instead.
+      scheduleGraphLayout('graph-a');
+      const beforeFallback = applyOffscreenLayout.mock.calls.length;
+      vi.advanceTimersByTime(600); // dispatch
+      expect(dispatched).toEqual(['graph-a']);
+      expect(applyOffscreenLayout).toHaveBeenCalledTimes(beforeFallback);
+
+      vi.advanceTimersByTime(3000); // ack window expires
+      expect(applyOffscreenLayout).toHaveBeenCalledTimes(beforeFallback + 1);
+      expect(applyOffscreenLayout).toHaveBeenLastCalledWith('graph-a');
+    });
+
+    it('stands down once the canvas acknowledges', () => {
+      scheduleGraphLayout('graph-a'); // ackEnabled: true
+      vi.advanceTimersByTime(600);
+      const afterDispatch = applyOffscreenLayout.mock.calls.length;
+      vi.advanceTimersByTime(5000);
+      expect(applyOffscreenLayout).toHaveBeenCalledTimes(afterDispatch);
     });
   });
 

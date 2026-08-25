@@ -89,6 +89,45 @@ function layoutAfterWizardMutation(graphId) {
 const LAYOUT_DISPATCH_DELAY_MS = 600;
 const __pendingLayoutTimers = new Map(); // graphId -> timer id
 
+/**
+ * Dispatch the layout request and verify somebody acted on it.
+ *
+ * For the ACTIVE graph the offscreen pass above is deliberately skipped (the
+ * canvas owns the animated tween), which makes this event the ONLY path to a
+ * laid-out graph. If nothing acts on it the graph is left sitting at the
+ * seed-random positions applyBulkGraphUpdates gave it, with no second chance —
+ * the exact symptom of "the graph appeared but auto-layout never ran".
+ *
+ * NodeCanvas acknowledges every event it takes responsibility for (including
+ * one it defers because the user is holding a node). No ack inside the window
+ * means no canvas is listening, so lay the graph out here instead.
+ */
+const LAYOUT_ACK_TIMEOUT_MS = 3000;
+
+function dispatchLayoutWithFallback(graphId) {
+  if (typeof window === 'undefined') return;
+
+  let timer = null;
+  const onAck = (e) => {
+    if (e.detail?.graphId !== graphId) return;
+    window.removeEventListener('rs-auto-layout-ack', onAck);
+    if (timer) clearTimeout(timer);
+  };
+  window.addEventListener('rs-auto-layout-ack', onAck);
+
+  timer = setTimeout(() => {
+    window.removeEventListener('rs-auto-layout-ack', onAck);
+    console.warn('[Wizard] No canvas ack for auto-layout of', graphId, '— laying it out offscreen.');
+    try {
+      applyOffscreenLayout(graphId);
+    } catch (e) {
+      console.warn('[Wizard] Fallback offscreen layout failed:', e);
+    }
+  }, LAYOUT_ACK_TIMEOUT_MS);
+
+  window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
+}
+
 export function scheduleGraphLayout(graphId, delay = LAYOUT_DISPATCH_DELAY_MS) {
   if (!graphId) return;
   const pending = __pendingLayoutTimers.get(graphId);
@@ -101,9 +140,7 @@ export function scheduleGraphLayout(graphId, delay = LAYOUT_DISPATCH_DELAY_MS) {
   }
   __pendingLayoutTimers.set(graphId, setTimeout(() => {
     __pendingLayoutTimers.delete(graphId);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
-    }
+    dispatchLayoutWithFallback(graphId);
   }, delay));
 }
 
