@@ -604,6 +604,109 @@ export const PERSISTED_STORE_KEYS = [
   'universeCreatedAt'
 ];
 
+const sizeOf = (value) => {
+  if (value instanceof Map || value instanceof Set) return value.size;
+  if (Array.isArray(value)) return value.length;
+  if (value && typeof value === 'object') return Object.keys(value).length;
+  return null;
+};
+
+const valuesOf = (value) => {
+  if (value instanceof Map) return Array.from(value.values());
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object') return Object.values(value);
+  return [];
+};
+
+/**
+ * Count webs / things / connections in a .redstring document WITHOUT running a
+ * full import.
+ *
+ * This exists because the counts shown in the repository + universe selectors
+ * were being computed by ad-hoc readers that only knew the Zustand store shape
+ * (`nodePrototypes` / `graphs` / `edges` at the top level). A real .redstring
+ * file uses the separated-storage shape (`prototypeSpace.prototypes` /
+ * `spatialGraphs.graphs`), and since v4 edges live INSIDE each spatial graph
+ * rather than in a top-level `relationships.edges` map — so those readers
+ * reported 0 things / 0 connections and an unknown web count for every file
+ * they scanned.
+ *
+ * Accepts any of: a current v4 file, a v3 file (top-level `relationships`), a
+ * legacy/flat file (`legacy.*` or bare `graphs`/`nodePrototypes`/`edges`), a
+ * `{ storeState }` wrapper, or a live Zustand store state (Maps included).
+ *
+ * Counts match the live metrics shown for the active universe: things = node
+ * prototypes, webs = graphs, connections = deduplicated edges.
+ *
+ * @param {Object} data - Parsed .redstring JSON or store state
+ * @returns {{nodeCount: number|null, graphCount: number|null, connectionCount: number|null, instanceCount: number|null}}
+ *   Counts, or nulls when `data` is not a readable document.
+ */
+export const getRedstringStats = (data) => {
+  const empty = { nodeCount: null, graphCount: null, connectionCount: null, instanceCount: null };
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return empty;
+
+  // Tolerate `{ storeState: ... }` dumps produced by debug/bridge exports.
+  const doc = (data.storeState && typeof data.storeState === 'object') ? data.storeState : data;
+
+  const prototypes =
+    doc.prototypeSpace?.prototypes ??
+    doc.legacy?.nodePrototypes ??
+    doc.nodePrototypes ??
+    doc.nodes ??
+    null;
+
+  const graphs =
+    doc.spatialGraphs?.graphs ??
+    doc.legacy?.graphs ??
+    doc.graphs ??
+    null;
+
+  // Nothing recognizable — don't report a confident 0.
+  if (prototypes == null && graphs == null) return empty;
+
+  const nodeCount = sizeOf(prototypes) ?? 0;
+  const graphCount = sizeOf(graphs) ?? 0;
+
+  const graphList = valuesOf(graphs);
+  const instanceCount = graphList.reduce((total, graph) => {
+    const instances = graph?.['redstring:instances'] ?? graph?.instances;
+    return total + (sizeOf(instances) ?? 0);
+  }, 0);
+
+  // Edges: v3 and earlier keep a global map; v4 scatters them across graphs.
+  // Both can be present in partially-migrated files, so union the ids rather
+  // than adding the two sources together (which double-counts).
+  const edgeIds = new Set();
+  const addEdges = (value) => {
+    if (value instanceof Map) {
+      for (const key of value.keys()) edgeIds.add(key);
+    } else if (Array.isArray(value)) {
+      value.forEach((edge, index) => edgeIds.add(edge?.id ?? `#${index}`));
+    } else if (value && typeof value === 'object') {
+      for (const key of Object.keys(value)) edgeIds.add(key);
+    }
+  };
+
+  addEdges(doc.relationships?.edges ?? doc.legacy?.edges ?? doc.edges);
+  for (const graph of graphList) {
+    addEdges(graph?.['redstring:edges'] ?? graph?.edges);
+  }
+
+  let connectionCount = edgeIds.size;
+  if (connectionCount === 0) {
+    // Last resort for files that carry edge id lists but no edge bodies.
+    const listedIds = new Set();
+    for (const graph of graphList) {
+      const ids = graph?.['redstring:edgeIds'] ?? graph?.edgeIds;
+      if (Array.isArray(ids)) ids.forEach((id) => listedIds.add(id));
+    }
+    connectionCount = listedIds.size;
+  }
+
+  return { nodeCount, graphCount, connectionCount, instanceCount };
+};
+
 /**
  * Export current Zustand store state to .redstring format
  * @param {Object} storeState - The current state from the Zustand store

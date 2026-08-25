@@ -838,8 +838,11 @@ const RepositorySelectionModal = ({
                               <div style={{ fontSize: '0.65rem', color: theme.canvas.textSecondary }}>{universe.path}</div>
                             )}
                             <div style={{ fontSize: '0.62rem', color: theme.darkMode ? theme.alert.error.text : theme.canvas.brand, display: 'flex', gap: 10 }}>
+                              {(universe.metadata?.graphCount ?? universe.graphCount) !== undefined && (
+                                <span>{universe.metadata?.graphCount ?? universe.graphCount} webs</span>
+                              )}
                               {(universe.metadata?.nodeCount ?? universe.nodeCount) !== undefined && (
-                                <span>{universe.metadata?.nodeCount ?? universe.nodeCount} nodes</span>
+                                <span>{universe.metadata?.nodeCount ?? universe.nodeCount} things</span>
                               )}
                               {(universe.metadata?.connectionCount ?? universe.connectionCount) !== undefined && (
                                 <span>{universe.metadata?.connectionCount ?? universe.connectionCount} connections</span>

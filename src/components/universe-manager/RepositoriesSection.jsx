@@ -239,8 +239,11 @@ const RepositoriesSection = ({
                                 <div style={{ fontSize: '0.68rem', color: '#555' }}>{itemPath}</div>
                               )}
                               <div style={{ fontSize: '0.65rem', color: theme.canvas.brand, display: 'flex', gap: 10, marginTop: 4 }}>
+                                {(item.metadata?.graphCount ?? item.graphCount) !== undefined && (
+                                  <span>{item.metadata?.graphCount ?? item.graphCount} webs</span>
+                                )}
                                 {(item.metadata?.nodeCount ?? item.nodeCount) !== undefined && (
-                                  <span>{item.metadata?.nodeCount ?? item.nodeCount} nodes</span>
+                                  <span>{item.metadata?.nodeCount ?? item.nodeCount} things</span>
                                 )}
                                 {(item.metadata?.connectionCount ?? item.connectionCount) !== undefined && (
                                   <span>{item.metadata?.connectionCount ?? item.connectionCount} connections</span>

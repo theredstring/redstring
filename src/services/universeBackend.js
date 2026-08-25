@@ -16,7 +16,7 @@ import { GitSyncEngine, saveCoordinator as loadGateCoordinator } from '../backen
 import { persistentAuth } from '../backend/auth/index.js';
 import { SemanticProviderFactory } from '../backend/git/index.js';
 import startupCoordinator from './startupCoordinator.js';
-import { exportToRedstring, importFromRedstring, downloadRedstringFile, validateFormatVersion } from '../formats/redstringFormat.js';
+import { exportToRedstring, importFromRedstring, downloadRedstringFile, validateFormatVersion, getRedstringStats } from '../formats/redstringFormat.js';
 import { slotsHaveEqualKnowledge } from './semanticHash.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -171,33 +171,12 @@ const discoverUniversesWithStats = async (provider) => {
     .filter(segment => segment.length > 0)
     .join('/');
 
+  // Counts come from the shared format-aware reader — the file on disk uses the
+  // separated-storage shape (prototypeSpace/spatialGraphs, v4 edges nested per
+  // graph), not the Zustand store shape.
   const tryParseRedstring = (text) => {
     try {
-      const data = JSON.parse(text);
-      const storeState = data?.storeState || data; // tolerate plain store dumps
-
-      let nodeCount = 0;
-      if (storeState) {
-        if (Array.isArray(storeState.nodes)) {
-          nodeCount = storeState.nodes.length;
-        } else if (storeState.nodePrototypes) {
-          nodeCount = (storeState.nodePrototypes instanceof Map
-            ? storeState.nodePrototypes.size
-            : Object.keys(storeState.nodePrototypes || {}).length);
-        }
-      }
-
-      const graphsVal = storeState?.graphs;
-      const graphCount = graphsVal
-        ? (graphsVal instanceof Map ? graphsVal.size : Object.keys(graphsVal || {}).length)
-        : null;
-
-      const edgesVal = storeState?.edges;
-      const connectionCount = edgesVal
-        ? (Array.isArray(edgesVal) ? edgesVal.length : Object.keys(edgesVal || {}).length)
-        : 0;
-
-      return { nodeCount, graphCount, connectionCount };
+      return getRedstringStats(JSON.parse(text));
     } catch {
       return { nodeCount: null, graphCount: null, connectionCount: null };
     }
@@ -241,9 +220,15 @@ const discoverUniversesWithStats = async (provider) => {
           // Best-effort: extract simple metrics for nicer UI
           const content = await provider.readFileRaw(itemPath);
           const metrics = tryParseRedstring(content);
-          if (metrics.nodeCount != null) discovered.metadata.nodeCount = metrics.nodeCount;
-          if (metrics.graphCount != null) discovered.metadata.graphCount = metrics.graphCount;
-          if (metrics.connectionCount != null) discovered.metadata.connectionCount = metrics.connectionCount;
+          // Mirrored flat + nested: some selectors read `file.nodeCount` and
+          // others `file.metadata.nodeCount`. Writing only the nested copy is
+          // why the import list rendered no counts and never showed EMPTY.
+          for (const key of ['nodeCount', 'graphCount', 'connectionCount', 'instanceCount']) {
+            if (metrics[key] != null) {
+              discovered.metadata[key] = metrics[key];
+              discovered[key] = metrics[key];
+            }
+          }
           stats.valid += 1;
         } catch {
           // File might not be readable (missing or access) — still list it
@@ -4436,6 +4421,20 @@ class UniverseBackend {
   analyzeStoreData(storeState) {
     if (!storeState) {
       return { nodeCount: 0, graphCount: 0, connectionCount: 0, timestamp: null };
+    }
+
+    // Safety net: callers are supposed to hand us imported store state, but a
+    // raw .redstring document (prototypeSpace/spatialGraphs) reads as entirely
+    // empty under the store-shape logic below — and "0 nodes" silently means
+    // "safe to overwrite" in the conflict paths. Route it to the format reader.
+    if (storeState.prototypeSpace || storeState.spatialGraphs) {
+      const stats = getRedstringStats(storeState);
+      return {
+        nodeCount: stats.nodeCount ?? 0,
+        graphCount: stats.graphCount ?? 0,
+        connectionCount: stats.connectionCount ?? 0,
+        timestamp: storeState.metadata?.modified || storeState.metadata?.lastModified || Date.now()
+      };
     }
 
     const nodeCount = storeState.nodePrototypes

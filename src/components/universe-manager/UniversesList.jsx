@@ -557,9 +557,12 @@ const UniversesList = ({
             universes.map((universe) => {
               const isActive = universe.slug === activeUniverseSlug;
               const resolvedSource = universe.sourceOfTruth || universe.raw?.sourceOfTruth || universe.storage?.primary?.type || null;
-              const storedNodeCount = universe.nodeCount || universe.raw?.nodeCount || universe.metadata?.nodeCount || universe.raw?.metadata?.nodeCount || 0;
-              const storedConnectionCount = universe.connectionCount || universe.raw?.connectionCount || universe.metadata?.connectionCount || universe.raw?.metadata?.connectionCount || 0;
-              const storedGraphCount = universe.graphCount || universe.raw?.graphCount || universe.metadata?.graphCount || universe.raw?.metadata?.graphCount || 0;
+              // `??`, not `||`: a genuine 0 is an answer, and falling through it
+              // resurrects a stale count from an older metadata layer (a universe
+              // the user just emptied kept reporting its previous totals).
+              const storedNodeCount = universe.nodeCount ?? universe.raw?.nodeCount ?? universe.metadata?.nodeCount ?? universe.raw?.metadata?.nodeCount ?? 0;
+              const storedConnectionCount = universe.connectionCount ?? universe.raw?.connectionCount ?? universe.metadata?.connectionCount ?? universe.raw?.metadata?.connectionCount ?? 0;
+              const storedGraphCount = universe.graphCount ?? universe.raw?.graphCount ?? universe.metadata?.graphCount ?? universe.raw?.metadata?.graphCount ?? 0;
 
               // For the active universe, use live Zustand-derived metrics
               const nodeCount = (isActive && liveMetrics) ? liveMetrics.nodeCount : storedNodeCount;
