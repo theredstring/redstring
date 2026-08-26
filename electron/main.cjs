@@ -347,6 +347,18 @@ function createWindow() {
       devUrl += '?' + params.join('&');
     }
 
+    // Mirror renderer console output into this terminal. Chromium's own
+    // warnings (tile memory, raster) already land here, so forwarding the app's
+    // logs puts both in one copy-pasteable stream — which is what makes
+    // window.__diag output shareable. Dev only.
+    mainWindow.webContents.on('console-message', (_event, level, message, lineNo, sourceId) => {
+      // Skip Vite's HMR chatter; keep everything the app actually says.
+      if (typeof sourceId === 'string' && sourceId.includes('/@vite/')) return;
+      const levelTag = ['LOG', 'WARN', 'ERROR', 'DEBUG'][level] || 'LOG';
+      const where = sourceId ? ` (${String(sourceId).split('/').pop()}:${lineNo})` : '';
+      console.log(`[renderer:${levelTag}]${where} ${message}`);
+    });
+
     mainWindow.loadURL(devUrl);
     mainWindow.webContents.openDevTools();
   } else {

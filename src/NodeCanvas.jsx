@@ -76,7 +76,7 @@ import useGraphStore, {
 import useHistoryStore from './store/historyStore.js';
 import useImageCache, { queueThumbnailFetch } from './services/imageCache.js';
 
-import { getAppViewportSize, canvasPointToClient } from './utils/appViewport.js';
+import { getAppViewportSize } from './utils/appViewport.js';
 import {
   NODE_WIDTH,
   NODE_HEIGHT,
@@ -121,7 +121,7 @@ import { useTheme } from './hooks/useTheme.js';
 import { useMobileLandscapeShell } from './hooks/useMobileLandscapeShell.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, trimRoutePreviewEnd, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
 import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
@@ -419,6 +419,29 @@ const TRACKPAD_ZOOM_GLIDE_EXTENSION_MS = 45;
 // slowed to a stop should stay exactly where it was left.
 const TRACKPAD_ZOOM_GLIDE_MIN_SPEED = 0.0015;
 
+// The gesture layer that wraps the <svg> — see useCanvasTransform. Viewport
+// sized and clipping (the 100k SVG overflows it exactly as it used to overflow
+// .canvas-area), with the transform origin pinned to 0,0 so a CSS delta written
+// here composes with the content group's attribute transform. Deliberately has
+// NO background: .canvas-area paints theme.canvas.bg behind it, so the strips a
+// zoom-out briefly exposes come up the right colour. Module scope so the object
+// identity is stable and React never diffs the imperatively-written transform.
+const GESTURE_LAYER_STYLE = {
+  position: 'absolute',
+  inset: 0,
+  overflow: 'hidden',
+  transformOrigin: '0 0',
+  // The whole design rests on Blink bounding this layer to the wrapper's box
+  // rather than to its 100k-square SVG child; `contain: paint` states that
+  // guarantee explicitly instead of relying on the clip alone.
+  contain: 'paint',
+  // A full-bleed div is hit-testable, and two canvas handlers dispatch on
+  // `e.target.classList.contains('canvas-area')` — if this box ever won the hit
+  // test, click-to-deselect would silently stop working. The <svg> sets
+  // pointerEvents:'auto' on itself, so it re-enables the part that matters.
+  pointerEvents: 'none',
+};
+
 
 /**
  * Root canvas component for Redstring's graph interface.
@@ -440,6 +463,21 @@ function NodeCanvas() {
   // CULLING FLAG - viewport culling for nodes and edges
   const ENABLE_CULLING = false;
 
+  // ORBIT DIM FLAG — flip to true to bring the scrim back.
+  //
+  // Orbit mode used to dim the canvas behind the overlay with a translucent
+  // rect sized to 3x the viewport per side: ~9 viewport areas of 70% black,
+  // painting ABOVE the whole graph. Two costs came with it. Every tile it
+  // covered became non-opaque, so the compositor had to blend the entire stack
+  // beneath instead of discarding what was hidden; and its geometry was
+  // rewritten on every pan tick, invalidating that raster each time. It existed
+  // only in orbit mode — which is the one mode that misbehaved.
+  //
+  // With it off the rect is still rendered, but transparent and static at full
+  // canvas size, so orbit's click-anywhere-to-exit keeps working while costing
+  // nothing to paint and needing no per-tick updates.
+  const ENABLE_ORBIT_DIM = false;
+
   // TEMPORARY DIAGNOSTIC - zoom flicker root-cause investigation.
   // Remove after culprit identified. See /Users/granteubanks/.claude/plans/sleepy-snacking-mist.md
   const DIAGNOSE_ZOOM_FLICKER = true;
@@ -453,6 +491,10 @@ function NodeCanvas() {
   // outer <svg> off the GPU compositor path so a 100k SVG can't trigger
   // tile-raster-on-scale flicker.
   const contentGroupRef = useRef(null);
+  // The gesture layer wrapping the <svg>. During a zoom gesture the content
+  // group's attribute is frozen and only a CSS delta is written here, so the
+  // compositor scales the existing raster instead of re-rastering the whole SVG
+  // every tick. See useCanvasTransform.
   const wrapperRef = useRef(null);
   const containerRef = useRef(null);
   const suppressNextMouseDownRef = useRef(false);
@@ -2148,7 +2190,7 @@ function NodeCanvas() {
   // --- DOM-bypass pan/zoom (Phase 1 perf refactor) ---
   // panRef/zoomRef are the authoritative values; DOM is updated directly.
   // settledPan/settledZoom are React state that updates ~150ms after interaction stops.
-  const transform = useCanvasTransform(svgRef, contentGroupRef, canvasSize);
+  const transform = useCanvasTransform(svgRef, contentGroupRef, canvasSize, wrapperRef);
   const panOffsetRef = transform.panRef;     // alias for existing code
   const zoomLevelRef = transform.zoomRef;    // alias for existing code
   const setPanOffset = transform.setPan;     // drop-in alias for migration
@@ -11257,7 +11299,11 @@ function NodeCanvas() {
     zoomLevel,
     zoomLevelRef,
     setZoomLevel,
-    applyTransform: transform.applyTransform,
+    // The gesture-path writer, not the committing one: held Shift/Space is a
+    // real zoom gesture that changes scale every frame, so it should ride the
+    // compositor like the trackpad and pinch paths do. The flushSettle() this
+    // hook already fires when movement ends is what commits the delta.
+    applyTransform: transform.applyGestureTransform,
     flushSettle: transform.flushSettle,
     onTransformChange: () => transform.onTransformChangeRef.current?.(),
     isPanningOrZoomingRef: isPanningOrZooming,
@@ -11512,6 +11558,18 @@ function NodeCanvas() {
   const updateOrbitDimRect = useCallback(() => {
     const el = orbitDimRectRef.current;
     if (!el) return;
+    // With dimming off the rect is transparent and statically sized to the whole
+    // canvas plane, so it never needs repositioning — and skipping this removes
+    // a write into the content group on every pan tick.
+    if (!ENABLE_ORBIT_DIM) return;
+    // While a compositor delta is riding, the content group's raster is frozen
+    // on purpose and this rect is inside it — writing here would both invalidate
+    // that raster every tick (the exact cost the delta exists to avoid) and
+    // double-apply the delta, since the rect is derived from the same pan/zoom
+    // the delta already encodes. Freezing it alongside the raster keeps the two
+    // consistent; the commit re-fires onTransformChange and this catches up.
+    // Its 3x-viewport margin covers any drift the recommit thresholds allow.
+    if (transform.gestureActiveRef.current) return;
     const pan = panOffsetRef.current;
     const z = zoomLevelRef.current || 1;
     const vp = viewportSizeRef.current;
@@ -11523,14 +11581,14 @@ function NodeCanvas() {
     el.setAttribute('y', y0 - vh);
     el.setAttribute('width', vw * 3);
     el.setAttribute('height', vh * 3);
-  }, [canvasSize]);
+  }, [canvasSize, transform.gestureActiveRef]);
 
   useEffect(() => {
-    if (!semanticOrbitActive) return;
+    if (!semanticOrbitActive || !ENABLE_ORBIT_DIM) return;
     updateOrbitDimRect();
     window.addEventListener('canvas-transform-change', updateOrbitDimRect);
     return () => window.removeEventListener('canvas-transform-change', updateOrbitDimRect);
-  }, [semanticOrbitActive, updateOrbitDimRect]);
+  }, [semanticOrbitActive, updateOrbitDimRect, ENABLE_ORBIT_DIM]);
 
   // Fetch orbit candidates only when orbit mode is explicitly active
   useEffect(() => {
@@ -11863,29 +11921,25 @@ function NodeCanvas() {
     const nodeCenterCanvasX = nodeData.x + nodeDimensions.currentWidth / 2;
     const nodeCenterCanvasY = nodeData.y + nodeDimensions.currentHeight / 2;
 
-    // Map canvas coords -> client coords via the content group's live transform.
-    // This is the robust path: it accounts for pan, zoom, header, side panels, and scroll,
-    // matching the position:fixed orb. The previous code regex-parsed `svgElement.style.transform`,
-    // but pan/zoom live on the <g> transform ATTRIBUTE (translate(x y) scale(z), space-separated,
-    // no px) — so the regex never matched and it always launched from pan=0/zoom=1 (wrong).
-    // canvasPointToClient() deliberately avoids getScreenCTM(), which sits ~safe-area-inset-top
-    // below client coords under Capacitor — see the note on the helper.
-    const svgElement = containerElement.querySelector('.canvas');
-    const contentG = contentGroupRef.current;
-    const nodeClientPoint = canvasPointToClient(svgElement, contentG, nodeCenterCanvasX, nodeCenterCanvasY);
-    let nodeScreenX, nodeScreenY;
-    if (nodeClientPoint) {
-      nodeScreenX = nodeClientPoint.x;
-      nodeScreenY = nodeClientPoint.y;
-    } else {
-      // Fallback: approximate from refs (no CTM available).
-      const p = panOffsetRef.current || { x: 0, y: 0 };
-      nodeScreenX = nodeCenterCanvasX * currentZoom + p.x;
-      nodeScreenY = nodeCenterCanvasY * currentZoom + p.y + HEADER_HEIGHT;
-    }
+    // Map canvas coords -> client coords: the container's rect plus the live
+    // pan/zoom, which is the exact inverse of the client→canvas math every input
+    // handler uses, so it accounts for pan, zoom, header, side panels and scroll
+    // and matches the position:fixed orb. Stays in pure client space, avoiding
+    // getScreenCTM() — that sits ~safe-area-inset-top below client coords under
+    // Capacitor (see the note in appViewport.js).
+    //
+    // Measured off the CONTAINER rather than the <svg> or the content group's
+    // CTM: during a zoom gesture the canvas freezes the group's attribute and
+    // carries the remainder as a CSS transform on the gesture layer, so both of
+    // those disagree with the refs mid-gesture. .canvas-area never transforms.
+    const containerRect = containerElement.getBoundingClientRect();
+    const panNow = panOffsetRef.current || { x: 0, y: 0 };
+    const nodeScreenX = containerRect.left
+      + (nodeCenterCanvasX * currentZoom + (panNow.x - canvasSize.offsetX * currentZoom));
+    const nodeScreenY = containerRect.top
+      + (nodeCenterCanvasY * currentZoom + (panNow.y - canvasSize.offsetY * currentZoom));
 
     // Target is the header center, in viewport coords (orb is position:fixed).
-    const containerRect = containerElement.getBoundingClientRect();
     const headerCenterX = Math.round(containerRect.left + containerRect.width / 2);
     const headerCenterY = Math.round(HEADER_HEIGHT / 2);
 
@@ -12344,8 +12398,11 @@ function NodeCanvas() {
 
           // Convert the right-click screen point to canvas coords (mirrors the
           // Cmd/Ctrl+V handler in useCanvasKeyboard.js).
-          const svgElement = document.querySelector('.canvas');
-          const rect = svgElement?.getBoundingClientRect();
+          // Measure the container, not the <svg>: during a zoom gesture the svg
+          // rides a CSS transform on the gesture layer (see useCanvasTransform)
+          // while panOffsetRef/zoomLevelRef stay in the untransformed frame, so
+          // mixing the two would disagree. .canvas-area never transforms.
+          const rect = containerRef.current?.getBoundingClientRect();
           let targetPos;
           if (rect && typeof clientX === 'number' && typeof clientY === 'number') {
             targetPos = {
@@ -12551,9 +12608,17 @@ function NodeCanvas() {
                 x: node.x + dimensions.currentWidth / 2,
                 y: node.y + dimensions.currentHeight / 2
               };
-              const svgRect = svgRef.current.getBoundingClientRect();
-              const screenX = svgRect.left + (nodeCenter.x * zoomLevelRef.current + panOffsetRef.current.x);
-              const screenY = svgRect.top + (nodeCenter.y * zoomLevelRef.current + panOffsetRef.current.y);
+              // Canvas→client is the container rect plus the live pan/zoom, the
+              // exact inverse of the client→canvas math the input handlers use.
+              // (This previously measured the <svg> and dropped the offsetX/Y
+              // term, putting the anchor 50000*zoom px away; and the <svg> now
+              // carries a CSS transform during zoom gestures, so the container
+              // is also the only rect that stays in the refs' frame.)
+              const canvasRect = containerRef.current?.getBoundingClientRect();
+              const zNow = zoomLevelRef.current;
+              const panNow = panOffsetRef.current;
+              const screenX = (canvasRect?.left || 0) + (nodeCenter.x * zNow + (panNow.x - canvasSize.offsetX * zNow));
+              const screenY = (canvasRect?.top || 0) + (nodeCenter.y * zNow + (panNow.y - canvasSize.offsetY * zNow));
 
               // Use this as anchor for color picker
               handlePieMenuColorPickerOpen(instanceId, { x: screenX, y: screenY });
@@ -13726,6 +13791,11 @@ function NodeCanvas() {
             </div>
           ) : (
             <>
+              {/* Gesture layer — see GESTURE_LAYER_STYLE. Wraps ONLY the <svg>:
+                  the fixed-position overlays that follow are siblings on purpose,
+                  because #root's identity transform (App.css) is their containing
+                  block and a transformed ancestor here would steal that. */}
+              <div ref={wrapperRef} style={GESTURE_LAYER_STYLE}>
               <svg
                 ref={svgRef}
                 className="canvas"
@@ -14952,12 +15022,12 @@ function NodeCanvas() {
 
                             let previewPts = orthoRouting.points;
                             if (!arrowsToward.has(sourceNode.id)) {
-                              const t = trimRouteEnd(previewPts, sBox, true, previewBack);
+                              const t = trimRoutePreviewEnd(orthoRouting, previewPts, sBox, true, previewBack);
                               previewPts = t.points;
                               straightDotSource = t.endpoint;
                             }
                             if (!arrowsToward.has(destNode.id)) {
-                              const t = trimRouteEnd(previewPts, eBox, false, previewBack);
+                              const t = trimRoutePreviewEnd(orthoRouting, previewPts, eBox, false, previewBack);
                               previewPts = t.points;
                               straightDotDest = t.endpoint;
                             }
@@ -16452,7 +16522,18 @@ function NodeCanvas() {
                               orbitDimRectRef.current = el;
                               if (el) updateOrbitDimRect();
                             }}
-                            fill="rgba(0, 0, 0, 0.7)"
+                            data-orbit-dim=""
+                            /* Dimming off: transparent and static at full canvas
+                               size — nothing to paint, nothing to blend through,
+                               no per-tick geometry writes, and still the click
+                               target that exits orbit mode. */
+                            {...(ENABLE_ORBIT_DIM ? null : {
+                              x: canvasSize.offsetX,
+                              y: canvasSize.offsetY,
+                              width: canvasSize.width,
+                              height: canvasSize.height,
+                            })}
+                            fill={ENABLE_ORBIT_DIM ? 'rgba(0, 0, 0, 0.7)' : 'transparent'}
                             style={{ cursor: 'pointer', touchAction: 'manipulation' }}
                             onMouseDown={(e) => {
                               orbitClickDownPos.current = { x: e.clientX, y: e.clientY };
@@ -16767,6 +16848,7 @@ function NodeCanvas() {
                   )}
                 </g>
               </svg>
+              </div>
               <HoverVisionAid
                 headerHeight={headerHeight}
                 hoveredNode={hoveredNodeForVision}
@@ -17293,6 +17375,7 @@ function NodeCanvas() {
             panOffset={panOffset}
             zoomLevel={zoomLevel}
             liveZoomRef={zoomLevelRef}
+            livePanRef={panOffsetRef}
             containerRef={containerRef}
             canvasSize={canvasSize}
             debugMode={debugMode}

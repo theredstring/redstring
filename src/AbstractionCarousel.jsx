@@ -12,7 +12,6 @@ import {
 import useGraphStore from './store/graphStore.js';
 import useImageCache from './services/imageCache.js';
 import { useTheme } from './hooks/useTheme.js';
-import { canvasPointToClient } from './utils/appViewport.js';
 import './AbstractionCarousel.css';
 
 
@@ -174,6 +173,7 @@ const AbstractionCarousel = ({
   panOffset,
   zoomLevel,
   liveZoomRef, // ref to the canvas's live (authoritative) zoom, ahead of the settled zoomLevel prop
+  livePanRef,  // ref to the canvas's live pan, likewise ahead of the settled panOffset prop
   containerRef,
   canvasSize, // Canvas size with offsetX/offsetY for coordinate system alignment
   debugMode,
@@ -534,13 +534,23 @@ const AbstractionCarousel = ({
 
   // Calculate the center position where the carousel should be anchored.
   //
-  // The math approach below (manually reconstructing the canvas transform) is
-  // fragile on iOS Chrome — the URL bar's "morphing" behavior shifts the visual
-  // viewport in ways that stale panOffset/zoomLevel props don't capture, leaving
-  // the carousel anchored above the node. Prefer reading the canvas SVG's own
-  // live transform via canvasPointToClient(), which reports where the node
-  // actually is on screen right now, and fall back to math only if that lookup
-  // fails (e.g. SVG not yet mounted).
+  // This reconstructs the canvas transform from the container's rect plus the
+  // canvas's LIVE pan/zoom refs — the exact inverse of the client→canvas math
+  // every canvas input handler uses. It reads the same two sources they do, so
+  // it cannot disagree with them.
+  //
+  // It used to read the SVG's own transform via canvasPointToClient() instead,
+  // because the equivalent math fed by the *settled* panOffset/zoomLevel props
+  // lagged ~150ms and left the carousel anchored away from its node. Live refs
+  // remove that lag at the source, which makes the CTM lookup unnecessary — and
+  // it is now actively wrong: during a zoom the canvas freezes the content
+  // group's attribute and carries the remainder as a CSS transform on a wrapper
+  // (see useCanvasTransform), so getCTM() reports the stale baseline while the
+  // SVG's client rect reflects the wrapper — mixing them drifts by (1−r) times
+  // the node's screen offset, which is hundreds of pixels mid-gesture.
+  //
+  // Deliberately still pure client space (container rect + refs), preserving the
+  // reason appViewport.js avoids getScreenCTM() under Capacitor.
   const getCarouselPosition = useCallback(() => {
     if (!selectedNode || !containerRef.current || !canvasSize) return { x: 0, y: 0 };
 
@@ -548,22 +558,15 @@ const AbstractionCarousel = ({
     const nodeCenterX = selectedNode.x + nodeDimensions.currentWidth / 2;
     const nodeCenterY = selectedNode.y + nodeDimensions.currentHeight / 2;
 
-    // Find the canvas SVG and its content group (the <g> that holds the
-    // pan/zoom transform — it's the first <g> child of svg.canvas).
-    const svgEl = containerRef.current.querySelector('svg.canvas');
-    const contentGroup = svgEl?.firstElementChild?.tagName === 'g'
-      ? svgEl.firstElementChild
-      : svgEl?.querySelector('g');
+    const z = getLiveZoom();
+    const livePan = livePanRef?.current;
+    const pan = (livePan && typeof livePan.x === 'number') ? livePan : panOffset;
 
-    const client = canvasPointToClient(svgEl, contentGroup, nodeCenterX, nodeCenterY);
-    if (client) return client;
-
-    // Fallback: original math (only hit if SVG/CTM unavailable).
     const containerRect = containerRef.current.getBoundingClientRect();
-    const screenX = nodeCenterX * zoomLevel + (panOffset.x - canvasSize.offsetX * zoomLevel) + containerRect.left;
-    const screenY = nodeCenterY * zoomLevel + (panOffset.y - canvasSize.offsetY * zoomLevel) + containerRect.top;
+    const screenX = nodeCenterX * z + (pan.x - canvasSize.offsetX * z) + containerRect.left;
+    const screenY = nodeCenterY * z + (pan.y - canvasSize.offsetY * z) + containerRect.top;
     return { x: screenX, y: screenY };
-  }, [selectedNode, panOffset, zoomLevel, containerRef, canvasSize]);
+  }, [selectedNode, panOffset, livePanRef, getLiveZoom, containerRef, canvasSize]);
 
   // Calculate the stack offset using real position and dynamic offsets
   const getStackOffset = useCallback(() => {

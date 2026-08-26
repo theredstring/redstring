@@ -10,6 +10,9 @@ import { MultiBackend } from 'react-dnd-multi-backend'
 // Initialize debug configuration early
 import './utils/debugConfig.js'
 
+// Canvas render diagnostics — exposes window.__diag. Inert until invoked.
+import './utils/canvasDiagnostics.js'
+
 // Initialize Pretext text measurement (sets up font-load cache invalidation)
 import { initTextMeasurement } from './services/textMeasurement.js'
 initTextMeasurement()

@@ -1054,6 +1054,49 @@ export function arcParamOf(arc, pt) {
 }
 
 /**
+ * Retract one end of a routed polyline for the hover/selection preview, landing
+ * the new endpoint exactly on the route the renderer will draw.
+ *
+ * Same contract and return shape as trimRouteEnd, and for a non-arc routing it
+ * IS trimRouteEnd. On a Lombardi arc it does what the arrowhead placement does:
+ * step in arc parameter instead of walking the sampled polyline, whose chords
+ * cut the corner and sit inside the circle.
+ *
+ * The offset is under a pixel, but it is not a static one — it depends on where
+ * the ~8° sample grid happens to fall against the node box, so it changes as the
+ * node moves and the dot shimmers off its own line during a drag. It also
+ * propagates: rebuildRoutedPath re-emits the arc THROUGH this endpoint, and SVG
+ * quietly inflates the radius to reach a point the circle doesn't pass through,
+ * so the whole curve flexes a hair the moment you hover it.
+ *
+ * @param {{arc?:object}|null} routing - the routing descriptor being previewed
+ * @param {Array<{x:number,y:number}>} points - polyline to trim
+ * @param {{minX:number,minY:number,maxX:number,maxY:number}|null} box
+ * @param {boolean} fromStart - trim the start (true) or the end (false)
+ * @param {number} dist - distance past the border, as a chord
+ * @returns {{points: Array, endpoint: {x:number,y:number}}}
+ */
+export function trimRoutePreviewEnd(routing, points, box, fromStart, dist) {
+  const trimmed = trimRouteEnd(points, box, fromStart, dist);
+  const arc = routing?.arc;
+  if (!arc || !(arc.radius > 0) || arc.sweep === 0 || trimmed.points.length < 2) return trimmed;
+
+  const t0 = arcParamOf(arc, trimRouteEnd(points, box, fromStart, 0).endpoint);
+  const t = arcParamAtChord(arc, t0, dist, fromStart);
+  // Unreachable: a bow too short to retract that far. The chord walk already
+  // clamped to the far end, which is the best answer available.
+  if (t === null) return trimmed;
+
+  const endpoint = arcPointAt(arc, t);
+  return {
+    points: fromStart
+      ? [endpoint, ...trimmed.points.slice(1)]
+      : [...trimmed.points.slice(0, -1), endpoint],
+    endpoint,
+  };
+}
+
+/**
  * Sample an arc into a polyline, ~8° per step.
  *
  * Deliberately does NOT go through arcPointAt: that computes a tangent angle

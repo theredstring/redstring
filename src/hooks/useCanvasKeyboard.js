@@ -31,8 +31,10 @@ export const useCanvasKeyboard = ({
     zoomLevel,
     zoomLevelRef,
     setZoomLevel,
-    applyTransform,  // direct DOM transform write (no React state)
-    flushSettle,     // flush settled React state (call when movement ends)
+    applyTransform,  // direct DOM transform write (no React state). Wired to the
+                     // gesture path, so it may leave a compositor delta riding —
+                     // flushSettle() below is what commits it.
+    flushSettle,     // flush settled React state + commit (call when movement ends)
     onTransformChange, // synchronous callback fired on every pan/zoom mutation (drives culling)
     isPanningOrZoomingRef, // shared ref — guards view-save timeout from firing during movement
     canvasSize, // {width, height, offsetX, offsetY}

@@ -1077,27 +1077,35 @@ export default function OrbitOverlay({
     };
   }, [ensureRafRunning]);
 
-  // Canvas pan/zoom handling. A zoom re-rasters the whole canvas SVG on
-  // every tick — a NodeCanvas design property the overlay cannot change; it
-  // can only control how much of its own paint rides in those per-tick
-  // passes. Modes, selectable live via `window.__orbitZoomMode`:
-  //   'hide' (default) — the overlay sits gestures out entirely
-  //                      (visibility:hidden). The only mode measured quiet
-  //                      against the GPU tile budget on real hardware.
+  // Canvas pan/zoom handling. Zooming used to re-raster the whole canvas SVG on
+  // every tick, and the overlay's only lever was how much of its own paint rode
+  // along in those passes — which is why it used to disappear entirely during a
+  // zoom. NodeCanvas now freezes the raster and scales it on the compositor
+  // instead (see useCanvasTransform), so there are no per-tick re-rasters to
+  // ride and the overlay can stay fully visible.
+  //
+  // Modes, selectable live via `window.__orbitZoomMode`:
+  //   'full' (default) — nothing shed. Correct while compositor zoom is on.
   //   'lod'            — rects/lines/arrows stay visible; text and images
   //                      (the scale-dependent raster hogs) are shed via the
-  //                      stylesheet's [data-canvas-gesture] rules. Measured:
-  //                      still exceeds the tile budget while zooming.
-  //   'full'           — nothing shed.
-  // In every mode the rotation loop freezes during the gesture (its writes
-  // would add invalidations on top of the zoom's own). Everything restores
-  // 250ms after the last transform event.
+  //                      stylesheet's [data-canvas-gesture] rules.
+  //   'hide'           — the overlay sits gestures out entirely
+  //                      (visibility:hidden). The fallback that was measured
+  //                      quiet back when every tick re-rastered; pair it with
+  //                      `window.__compositorZoom = false` to get that
+  //                      behaviour back wholesale.
+  //
+  // The rotation loop still freezes during the gesture in every mode, and that
+  // is now load-bearing rather than merely polite: its writes are SVG mutations
+  // inside the frozen content group, and any such write invalidates the raster
+  // the compositor is scaling. Everything restores 250ms after the last
+  // transform event.
   useEffect(() => {
     let timer = null;
     const onCanvasTransform = () => {
       const root = overlayRootRef.current;
       const m = typeof window !== 'undefined' ? window.__orbitZoomMode : undefined;
-      const mode = m === 'lod' || m === 'full' ? m : 'hide';
+      const mode = m === 'lod' || m === 'hide' ? m : 'full';
       if (root) {
         if (mode === 'hide' && root.style.visibility !== 'hidden') {
           root.style.visibility = 'hidden';

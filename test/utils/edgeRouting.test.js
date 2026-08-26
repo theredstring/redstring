@@ -20,6 +20,7 @@ import {
   ARROW_CAP_RADIUS,
   lombardiLineTrim,
   arcParamAtChord,
+  trimRoutePreviewEnd,
 } from '../../src/utils/canvas/edgeRouting.js';
 import { getNodeHitbox } from '../../src/utils/canvas/nodeHitbox.js';
 import {
@@ -617,6 +618,76 @@ describe('computeLombardiRouting', () => {
         expect(gap).toBeLessThan(ARROW_CAP_RADIUS * cw * 1.15);
         expect(offArc(r.arc, { x: r.endX, y: r.endY })).toBeLessThan(0.01);
       }
+    });
+  });
+
+  describe('the hover dot sits ON the arc too', () => {
+    // Same root cause as the arrowhead: trimRouteEnd walks the SAMPLED polyline,
+    // whose chords sit inside the circle, so the retracted end landed up to a px
+    // off the curve — and by an amount that depended on where the ~8° sample grid
+    // fell against the node box, so it shimmered as the node moved.
+    const WIDTHS = [0.25, 1, 2, 4];
+    const BOWS = { gentle: 0.15, medium: 0.6, tight: 1.15, extreme: 1.3 };
+    const offArc = (arc, pt) => Math.abs(Math.hypot(pt.x - arc.cx, pt.y - arc.cy) - arc.radius);
+
+    for (const [shape, t] of Object.entries(BOWS)) {
+      it(`lands both dots exactly on the curve, wherever the node is — ${shape} bow`, () => {
+        const tans = new Map([['e1', { sourceAngle: t, destAngle: Math.PI - t }]]);
+        for (const cw of WIDTHS) {
+          // Sweep the far node so the sample grid falls differently each time.
+          for (let bx = 400; bx <= 800; bx += 37) {
+            const a = node('a', 0, 0);
+            const b = node('b', bx, 0);
+            const r = computeLombardiRouting(edge([]), a, b, d, d, tans, { connectionWidth: cw });
+            const back = POLY_TIP * cw + 8;
+            const src = trimRoutePreviewEnd(r, r.points, getNodeHitbox(a, d, false), true, back);
+            const dst = trimRoutePreviewEnd(r, src.points, getNodeHitbox(b, d, false), false, back);
+            expect(offArc(r.arc, src.endpoint)).toBeLessThan(1e-9);
+            expect(offArc(r.arc, dst.endpoint)).toBeLessThan(1e-9);
+          }
+        }
+      });
+    }
+
+    it('keeps the returned polyline ending exactly where the dots are', () => {
+      // rebuildRoutedPath re-emits the arc from points[0] and points[last]. If
+      // those disagree with the dots, the hovered curve and its dots part ways.
+      const tans = new Map([['e1', { sourceAngle: 0.6, destAngle: Math.PI - 0.6 }]]);
+      const a = node('a', 0, 0);
+      const b = node('b', 600, 0);
+      const r = computeLombardiRouting(edge([]), a, b, d, d, tans, { connectionWidth: 2 });
+      const src = trimRoutePreviewEnd(r, r.points, getNodeHitbox(a, d, false), true, 76);
+      const dst = trimRoutePreviewEnd(r, src.points, getNodeHitbox(b, d, false), false, 76);
+      expect(dst.points[0]).toEqual(src.endpoint);
+      expect(dst.points[dst.points.length - 1]).toEqual(dst.endpoint);
+      expect(dst.points.length).toBeGreaterThan(1);
+    });
+
+    it('retracts further as the distance grows, and stays inside the arc', () => {
+      const tans = new Map([['e1', { sourceAngle: 0.6, destAngle: Math.PI - 0.6 }]]);
+      const a = node('a', 0, 0);
+      const r = computeLombardiRouting(edge([]), a, node('b', 600, 0), d, d, tans);
+      const box = getNodeHitbox(a, d, false);
+      // The zero-distance retreat, NOT trimRouteEnd's raw chord intersection —
+      // that one is itself half a px inside the circle, which is the whole point.
+      const border = trimRoutePreviewEnd(r, r.points, box, true, 0).endpoint;
+      let prev = 0;
+      for (const back of [0, 20, 42, 100]) {
+        const pt = trimRoutePreviewEnd(r, r.points, box, true, back).endpoint;
+        const gap = Math.hypot(pt.x - border.x, pt.y - border.y);
+        expect(gap).toBeGreaterThanOrEqual(prev);
+        expect(gap).toBeCloseTo(back, 3);   // measured as a chord from the border
+        prev = gap;
+      }
+    });
+
+    it('is plain trimRouteEnd for a routing with no arc', () => {
+      const pts = [{ x: 0, y: 0 }, { x: 300, y: 0 }];
+      const box = { minX: -10, minY: -10, maxX: 10, maxY: 10 };
+      expect(trimRoutePreviewEnd({ arc: null }, pts, box, true, 40))
+        .toEqual(trimRouteEnd(pts, box, true, 40));
+      expect(trimRoutePreviewEnd(null, pts, box, true, 40))
+        .toEqual(trimRouteEnd(pts, box, true, 40));
     });
   });
 

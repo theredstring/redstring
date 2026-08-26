@@ -37,6 +37,19 @@ export function getAppViewportSize() {
  * Map a point in canvas coordinates to client (viewport) coordinates — the
  * space `position: fixed` overlays live in.
  *
+ * DEPRECATED for the NodeCanvas pan/zoom transform, and currently unused.
+ * During a zoom gesture the canvas freezes the content group's transform
+ * ATTRIBUTE at a baseline and carries the remainder as a CSS transform on a
+ * wrapper around the <svg> (see useCanvasTransform). `getCTM()` then reports
+ * only the stale baseline while `svgEl.getBoundingClientRect()` reflects the
+ * wrapper, so mixing them drifts by (1 − r) times the point's screen offset —
+ * hundreds of pixels mid-gesture. Prefer the container rect plus the live
+ * pan/zoom refs, the exact inverse of the client→canvas math the input handlers
+ * use and immune to both problems:
+ *
+ *   clientX = containerRect.left + x * zoom + (pan.x - canvasSize.offsetX * zoom)
+ *
+
  * Deliberately NOT `getScreenCTM()`. That call maps into the *screen* space the
  * UA happens to be using, and the two spaces are only the same when the page
  * origin and the client origin coincide. Under Capacitor they don't: the

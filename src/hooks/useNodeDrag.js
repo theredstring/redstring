@@ -6,7 +6,7 @@ import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
-import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRouteEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransform } from '../utils/canvas/edgeLabelPlacement.js';
 import {
   computeGroupLayout,
@@ -959,12 +959,12 @@ export const useNodeDrag = ({
             || getNodeHitbox(virtualDest, dDims, curSelectedIds.has(edge.destinationId));
           let previewPts = routing.points;
           if (!hasSourceArrow) {
-            const t = trimRouteEnd(previewPts, sBox, true, dragPreviewBack);
+            const t = trimRoutePreviewEnd(routing, previewPts, sBox, true, dragPreviewBack);
             previewPts = t.points;
             dotSourcePos = t.endpoint;
           }
           if (!hasDestArrow) {
-            const t = trimRouteEnd(previewPts, eBox, false, dragPreviewBack);
+            const t = trimRoutePreviewEnd(routing, previewPts, eBox, false, dragPreviewBack);
             previewPts = t.points;
             dotDestPos = t.endpoint;
           }

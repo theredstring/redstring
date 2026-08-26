@@ -247,7 +247,7 @@ describe('OrbitOverlay', () => {
     expect(conn.style.opacity).toBe('');
   });
 
-  it('sheds text/image detail and freezes rotation while the canvas transform changes', () => {
+  it('freezes rotation but stays visible while the canvas transform changes', () => {
     // Fake only the timeout clock — faking rAF would displace the manual
     // rafQueue stub the frame accounting in these tests is built on.
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -258,12 +258,14 @@ describe('OrbitOverlay', () => {
       const item = container.querySelector('.orbit-items > g');
       expect(rafQueue.length).toBeGreaterThan(0);
 
-      // Fired synchronously by NodeCanvas's pan/zoom mutators. In the default
-      // 'hide' mode the overlay sits the gesture out entirely — the only mode
-      // measured quiet against the GPU tile budget — and the rotation loop
-      // stops writing.
+      // Fired synchronously by NodeCanvas's pan/zoom mutators. NodeCanvas now
+      // freezes the canvas raster and scales it on the compositor rather than
+      // re-rastering per tick, so the default 'full' mode sheds nothing and the
+      // overlay stays on screen through the gesture. The rotation loop still
+      // stops writing: its writes are SVG mutations inside the frozen content
+      // group and would invalidate the raster being scaled.
       act(() => { window.dispatchEvent(new Event('canvas-transform-change')); });
-      expect(root.style.visibility).toBe('hidden');
+      expect(root.style.visibility).toBe('');
       expect(root.hasAttribute('data-canvas-gesture')).toBe(false);
 
       const frozen = item.getAttribute('transform');
@@ -272,13 +274,12 @@ describe('OrbitOverlay', () => {
       expect(rafQueue.length).toBe(0);
 
       act(() => { vi.advanceTimersByTime(300); });
-      expect(root.style.visibility).toBe(''); // restored
       expect(rafQueue.length).toBeGreaterThan(0); // rotation restarted
       flushFrames(6); // > one steady-write interval
       expect(item.getAttribute('transform')).not.toBe(frozen);
 
-      // 'lod' mode keeps geometry visible and sheds text/images through the
-      // stylesheet's [data-canvas-gesture] rules instead.
+      // 'lod' keeps geometry visible and sheds text/images through the
+      // stylesheet's [data-canvas-gesture] rules.
       window.__orbitZoomMode = 'lod';
       act(() => { window.dispatchEvent(new Event('canvas-transform-change')); });
       expect(root.style.visibility).toBe('');
@@ -288,6 +289,13 @@ describe('OrbitOverlay', () => {
       expect(sheet).toContain('[data-canvas-gesture] image');
       act(() => { vi.advanceTimersByTime(300); });
       expect(root.hasAttribute('data-canvas-gesture')).toBe(false);
+
+      // 'hide' remains available as the pre-compositor fallback.
+      window.__orbitZoomMode = 'hide';
+      act(() => { window.dispatchEvent(new Event('canvas-transform-change')); });
+      expect(root.style.visibility).toBe('hidden');
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(root.style.visibility).toBe('');
     } finally {
       delete window.__orbitZoomMode;
       vi.useRealTimers();
