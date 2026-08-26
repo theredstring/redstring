@@ -63,6 +63,7 @@ MAPPINGS=(
   "github-app-id:GITHUB_APP_ID:trim"
   "github-app-slug:GITHUB_APP_SLUG:trim"
   "github-app-private-key:GITHUB_APP_PRIVATE_KEY:raw"
+  "github-app-webhook-secret:GITHUB_APP_WEBHOOK_SECRET:trim"
 )
 
 for entry in "${MAPPINGS[@]}"; do
@@ -72,7 +73,7 @@ for entry in "${MAPPINGS[@]}"; do
     exit 1
   fi
 done
-echo "${green}✓${off} All 5 source secrets present"
+echo "${green}✓${off} All ${#MAPPINGS[@]} source secrets present"
 echo
 
 # --- Copy --------------------------------------------------------------------

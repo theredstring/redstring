@@ -13,6 +13,10 @@ export interface Env {
   GITHUB_APP_ID: string;          // numeric, stored as string
   GITHUB_APP_PRIVATE_KEY: string; // PEM (PKCS#8 or PKCS#1 — converted in jwt.ts)
   GITHUB_APP_SLUG: string;
+  // Optional: HMAC secret for the App's webhook deliveries. When bound, bad
+  // signatures are rejected; when absent, deliveries are accepted unverified —
+  // matching what the Node server did.
+  GITHUB_APP_WEBHOOK_SECRET?: string;
   // Optional: set to the string "true" to allow *.pages.dev / *.workers.dev
   // preview origins through CORS (off by default — those suffixes are
   // registrable by anyone).

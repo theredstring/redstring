@@ -610,6 +610,62 @@ app.delete('/api/github/auth/github-app', (c) => c.json({
 }));
 
 // =============================================================================
+// GitHub App webhook
+// =============================================================================
+//
+// Registered as the App's Webhook URL, so GitHub POSTs here directly — nothing
+// in the SPA calls it. On Cloud Run this verified the signature and then
+// proxied to oauth-server, which only logged the event; that second hop has no
+// equivalent here and nothing consumes the payload, so this verifies and
+// acknowledges.
+//
+// It exists rather than 404ing because GitHub retries failed deliveries and
+// eventually flags the endpoint as failing on the App's settings page. A clean
+// 200 keeps that quiet. If you'd rather not have the endpoint at all, clear the
+// Webhook URL in the App settings and delete this route.
+//
+// Verification mirrors the old behaviour exactly: enforce when the secret is
+// bound, warn and accept when it isn't.
+app.post('/api/github/app/webhook', async (c) => {
+  const event = c.req.header('x-github-event') || 'unknown';
+  const signature = c.req.header('x-hub-signature-256') || '';
+  const secret = (c.env as Env & { GITHUB_APP_WEBHOOK_SECRET?: string }).GITHUB_APP_WEBHOOK_SECRET;
+
+  // Raw bytes, not a re-serialized object — the HMAC covers the exact payload.
+  const raw = await c.req.text();
+
+  if (secret) {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(raw));
+    const expected = 'sha256=' + [...new Uint8Array(mac)]
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    // Constant-time compare: a length check first, then accumulate differences
+    // so the loop can't return early and leak position via timing.
+    let mismatch = expected.length ^ signature.length;
+    for (let i = 0; i < expected.length && i < signature.length; i++) {
+      mismatch |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+    }
+    if (mismatch !== 0) {
+      console.warn('[Webhook] Invalid signature, rejecting', { event });
+      return c.json({ error: 'Invalid webhook signature', service: SERVICE }, 401);
+    }
+  } else {
+    console.warn('[Webhook] GITHUB_APP_WEBHOOK_SECRET not set — accepting unverified', { event });
+  }
+
+  console.log('[Webhook] Acknowledged', { event });
+  return c.json({ received: true, event, service: SERVICE });
+});
+
+// =============================================================================
 // 404 for anything else under /api/github/
 // =============================================================================
 app.all('/api/github/*', (c) => c.json({ error: 'Not found', path: c.req.path, service: SERVICE }, 404));

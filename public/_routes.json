@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Route only /api/github/* requests through Pages Functions. Everything else is served as a static asset from dist/ for max edge-cache performance.",
-  "include": ["/api/github/*"],
+  "description": "Route only GitHub endpoints through Pages Functions. Everything else is served as a static asset from dist/ for max edge-cache performance. /github/app/callback has no /api prefix but is the GitHub App's Callback and Setup URL, so it must reach a Function rather than falling through to the SPA.",
+  "include": ["/api/github/*", "/github/app/callback"],
   "exclude": []
 }
