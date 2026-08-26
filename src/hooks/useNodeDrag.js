@@ -3,10 +3,10 @@ import * as GeometryUtils from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
-import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
+import { getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
-import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRouteEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransform } from '../utils/canvas/edgeLabelPlacement.js';
 import {
   computeGroupLayout,
@@ -44,6 +44,26 @@ const DROP_DURATION = 50; // ms
 // pop is needed to read through it.
 const LIFT_SCALE = 1.15;
 const LIFT_SCALE_ZOOM = 1.4;
+
+/**
+ * Move a selected connection's endpoint dots. React placed them at the
+ * pre-drag geometry and does not re-render during the gesture, so without this
+ * they sit frozen while the line they cap follows the node.
+ */
+const writeEndpointDots = (entry, sourcePos, destPos) => {
+  if (sourcePos && entry.dotSource) {
+    entry.dotSource.forEach(c => {
+      c.setAttribute('cx', sourcePos.x);
+      c.setAttribute('cy', sourcePos.y);
+    });
+  }
+  if (destPos && entry.dotDest) {
+    entry.dotDest.forEach(c => {
+      c.setAttribute('cx', destPos.x);
+      c.setAttribute('cy', destPos.y);
+    });
+  }
+};
 
 /**
  * useNodeDrag — Extracts all node/group dragging behavior from NodeCanvas.
@@ -443,12 +463,24 @@ export const useNodeDrag = ({
           // below would stamp the EDGE's geometry onto it — the clip region
           // would collapse to the shape of the line itself, erasing the
           // connection entirely.
-          paths: Array.from(el.querySelectorAll('path:not([data-shell-clip])')),
+          //
+          // The invisible hit target is split out for the opposite reason: it
+          // carries the FULL route while the visible stroke retracts on a
+          // selected edge, so the two need different geometry written to them
+          // (the settled render draws them from different values already).
+          paths: Array.from(el.querySelectorAll('path:not([data-shell-clip]):not([data-edge-hit])')),
+          hitPaths: Array.from(el.querySelectorAll('path[data-edge-hit]')),
           shellClip: el.querySelector('path[data-shell-clip]'),
-          lines: Array.from(el.querySelectorAll('line')),
+          lines: Array.from(el.querySelectorAll('line:not([data-edge-hit])')),
+          hitLines: Array.from(el.querySelectorAll('line[data-edge-hit]')),
           arrows: Array.from(el.querySelectorAll('[data-arrow]')),
           selfArrow: el.querySelector('[data-arrow="self"]'),
           texts: Array.from(el.querySelectorAll('text')),
+          // Endpoint dots of a selected connection. They only exist while the
+          // edge is selected (hover is suppressed for the whole drag), and they
+          // have to be moved by hand each frame like everything else here.
+          dotSource: Array.from(el.querySelectorAll('[data-endpoint-dot="source"] circle')),
+          dotDest: Array.from(el.querySelectorAll('[data-endpoint-dot="dest"] circle')),
           ...labelTextOf(el),
         }));
         dragEdgeElsRef.current.set(edgeId, cachedEls);
@@ -650,7 +682,21 @@ export const useNodeDrag = ({
     // Read once per frame, not once per edge — it cannot change mid-frame, and
     // the routing below needs it as well as the arrowhead transform does (the
     // Lombardi end back-offs scale with it; see lombardiArrowInsets).
-    const dragConnWidth = useGraphStore.getState().textSettings?.connectionWidth ?? 1;
+    const dragStoreState = useGraphStore.getState();
+    const dragConnWidth = dragStoreState.textSettings?.connectionWidth ?? 1;
+
+    // A SELECTED connection carries the endpoint affordance the settled render
+    // calls `isActive`: each arrow-less end retracts by an arrowhead's length
+    // and is capped with a dot. Hover is force-cleared for the duration of a
+    // drag (see renderConnectionEdge), so selection is the whole of it here.
+    // Reproduce it below, or a selected edge lengthens the moment the drag
+    // starts and its dots stay behind at the pre-drag geometry.
+    const dragSelectedEdgeId = dragStoreState.selectedEdgeId;
+    const dragSelectedEdgeIds = dragStoreState.selectedEdgeIds;
+    const isEdgeActive = (id) => dragSelectedEdgeId === id
+      || !!dragSelectedEdgeIds?.has?.(id);
+    // Distance an arrow-less end retracts. Matches the settled render exactly.
+    const dragPreviewBack = POLY_TIP * dragConnWidth + 8;
 
     // Edge data index was built once at drag start; reuse it.
     const edgeDataMap = dragEdgeDataRef.current;
@@ -696,6 +742,9 @@ export const useNodeDrag = ({
 
       const edge = edgeDataMap.get(edgeId);
       if (!edge) return;
+
+      // Selected connections carry the retracted-end + endpoint-dot affordance.
+      const active = isEdgeActive(edgeId);
 
       // Get effective positions (dragPositionsRef for dragged, store for static)
       const dragPos = dragPositionsRef.current;
@@ -895,6 +944,33 @@ export const useNodeDrag = ({
         const sourceArrow = routing.sourceArrow ?? arrowFor(routing.sourceSide, routing.startX, routing.startY);
         const destArrow = routing.destArrow ?? arrowFor(routing.destSide, routing.endX, routing.endY);
 
+        // Selection retraction (the settled render's orthogonal hover preview):
+        // pull each arrow-less end an arrowhead-length clear of its node box and
+        // drop that end's dot there. The hit target keeps the FULL route — hover
+        // detection measures against the untrimmed polyline, and the settled
+        // render draws it from orthoHitPathD for exactly that reason.
+        let routedPathD = routing.pathD;
+        let dotSourcePos = null;
+        let dotDestPos = null;
+        if (active) {
+          const sBox = boundsOf(sAnchor)
+            || getNodeHitbox(virtualSource, sDims, curSelectedIds.has(edge.sourceId));
+          const eBox = boundsOf(eAnchor)
+            || getNodeHitbox(virtualDest, dDims, curSelectedIds.has(edge.destinationId));
+          let previewPts = routing.points;
+          if (!hasSourceArrow) {
+            const t = trimRouteEnd(previewPts, sBox, true, dragPreviewBack);
+            previewPts = t.points;
+            dotSourcePos = t.endpoint;
+          }
+          if (!hasDestArrow) {
+            const t = trimRouteEnd(previewPts, eBox, false, dragPreviewBack);
+            previewPts = t.points;
+            dotDestPos = t.endpoint;
+          }
+          routedPathD = rebuildRoutedPath(routing, previewPts);
+        }
+
         // Cheap on-path label placement (no obstacle avoidance — that pass is far
         // too expensive per frame). Stays on the polyline and axis-aligned, so it
         // agrees closely with the settled placement computed on drop.
@@ -909,15 +985,18 @@ export const useNodeDrag = ({
         // of straightening the moment you grab a node. The advances come from
         // the cache — they can't change during a drag.
         edgeEls.forEach((entry) => {
-          const { paths, lines, arrows: arrowGs, texts, labelText, labelAdvances, labelForm, labelTouched } = entry;
+          const { paths, hitPaths, lines, arrows: arrowGs, texts, labelText, labelAdvances, labelForm, labelTouched } = entry;
           const dragLabelGlyphs = (routing.arc && labelText && labelAdvances)
             ? labelArcGlyphFrames(routing.arc, labelPos, labelAdvances, {
               minBow: labelArcMinBow,
               rotationQuantum: curvedGlyphQuantum(labelAngleQuantumRef?.current ?? 0),
             })
             : null;
-          // Glow, visible stroke and click target all share the routed geometry.
-          paths.forEach(p => p.setAttribute('d', routing.pathD));
+          // Glow and visible stroke share the (possibly retracted) geometry; the
+          // click target stays on the full route.
+          paths.forEach(p => p.setAttribute('d', routedPathD));
+          hitPaths.forEach(p => p.setAttribute('d', routing.pathD));
+          writeEndpointDots(entry, dotSourcePos, dotDestPos);
 
           lines.forEach((line, i) => {
             const stub = stubs[i];
@@ -977,89 +1056,182 @@ export const useNodeDrag = ({
         return;
       }
 
-      let endpoints;
-      if (isDirected && (hasSourceArrow || hasDestArrow)) {
-        // Clip arrow-side endpoints against a thing-group's full outer box (not the
-        // anchor tab) so the drag-time line + arrow terminate just outside the box,
-        // matching the settled render and keeping the arrowhead visible.
-        const clipped = getVisualConnectionEndpoints(
-          virtualSource, virtualDest, sDims, dDims,
-          curSelectedIds.has(edge.sourceId),
-          curSelectedIds.has(edge.destinationId),
-          true,
-          sAnchor?.outerBounds || null,
-          eAnchor?.outerBounds || null
-        );
-        endpoints = {
-          x1: hasSourceArrow ? clipped.x1 : centerX1,
-          y1: hasSourceArrow ? clipped.y1 : centerY1,
-          x2: hasDestArrow ? clipped.x2 : centerX2,
-          y2: hasDestArrow ? clipped.y2 : centerY2,
-        };
-      } else {
-        endpoints = { x1: centerX1, y1: centerY1, x2: centerX2, y2: centerY2 };
-      }
-
-      // Get curve info for parallel edges
-      const curveInfo = curCurveInfo.get(edgeId);
-      const useCurve = curveInfo && curveInfo.totalInPair > 1;
-      const dragCurveSpacing = 200 * (multiConnectionCurveRef?.current ?? 1.0);
-      const parallelPath = calculateParallelEdgePath(
-        endpoints.x1, endpoints.y1, endpoints.x2, endpoints.y2, curveInfo, dragCurveSpacing
+      // Endpoints clipped to each node's visual border (inset variant), against a
+      // thing-group's full outer box where there is one rather than the anchor
+      // tab — so a line + arrow terminate just outside the box, matching the
+      // settled render and keeping the arrowhead visible. Every shortened end
+      // below resolves to these; the label placement further down reuses them.
+      const borderEndpoints = getVisualConnectionEndpoints(
+        virtualSource, virtualDest, sDims, dDims,
+        curSelectedIds.has(edge.sourceId),
+        curSelectedIds.has(edge.destinationId),
+        true,
+        sAnchor?.outerBounds || null,
+        eAnchor?.outerBounds || null
       );
+
+      // Base endpoints: border on an arrow side, center on an arrow-less one.
+      // This is also the connection's click target, which never retracts.
+      const endpoints = (isDirected && (hasSourceArrow || hasDestArrow))
+        ? {
+          x1: hasSourceArrow ? borderEndpoints.x1 : centerX1,
+          y1: hasSourceArrow ? borderEndpoints.y1 : centerY1,
+          x2: hasDestArrow ? borderEndpoints.x2 : centerX2,
+          y2: hasDestArrow ? borderEndpoints.y2 : centerY2,
+        }
+        : { x1: centerX1, y1: centerY1, x2: centerX2, y2: centerY2 };
+
+      // Get curve info for parallel edges. Only the OFF-CENTER copies of a
+      // bundle actually bow — the middle one of an odd bundle has zero offset
+      // and is drawn as a straight line, which is what the settled render keys
+      // its endpoint handling off (`isCurvedEdge`).
+      const curveInfo = curCurveInfo.get(edgeId);
+      let isCurvedEdge = false;
+      if (curveInfo && curveInfo.totalInPair > 1) {
+        const centerIndex = (curveInfo.totalInPair - 1) / 2;
+        isCurvedEdge = (curveInfo.pairIndex - centerIndex) !== 0;
+      }
+      const dragCurveSpacing = 200 * (multiConnectionCurveRef?.current ?? 1.0);
+
+      // A selected curved edge anchors its arrow-less ends at the node BORDER
+      // instead of the center before the bow is computed — the same shortening
+      // an arrow would produce — so hover/selection geometry and arrow geometry
+      // are the same curve.
+      let curveStartX = endpoints.x1, curveStartY = endpoints.y1;
+      let curveEndX = endpoints.x2, curveEndY = endpoints.y2;
+      if (active && isCurvedEdge) {
+        if (!hasSourceArrow) { curveStartX = borderEndpoints.x1; curveStartY = borderEndpoints.y1; }
+        if (!hasDestArrow) { curveEndX = borderEndpoints.x2; curveEndY = borderEndpoints.y2; }
+      }
+      const parallelPath = calculateParallelEdgePath(
+        curveStartX, curveStartY, curveEndX, curveEndY, curveInfo, dragCurveSpacing
+      );
+      const useCurve = parallelPath.type === 'curve';
       // Shared curved arrow placement + trim t values (same helper as the settled
       // render). Match the settled arrow scale (connectionWidth) so tips land
       // identically before and after drop.
-      const dragConnectionWidth = useGraphStore.getState().textSettings?.connectionWidth ?? 1;
       const curvedArrowPlacement = (useCurve && parallelPath.ctrlX != null)
-        ? getCurvedArrowPlacement(parallelPath, dragConnectionWidth, DEFAULT_TIP_INSET)
+        ? getCurvedArrowPlacement(parallelPath, dragConnWidth, DEFAULT_TIP_INSET)
         : null;
 
+      // Curve trim. An arrowhead pulls its end back to the head's base depth;
+      // selection does the same on both ends so a bare hover/selection reads as
+      // a preview arrow. Same condition and same t values as the settled render.
+      let trimmedPath = null;
+      if (useCurve && parallelPath.ctrlX != null && (active || hasSourceArrow || hasDestArrow)) {
+        const tStart = curvedArrowPlacement ? curvedArrowPlacement.source.trimT : (active ? 0.08 : 0);
+        const tEnd = curvedArrowPlacement ? curvedArrowPlacement.dest.trimT : (active ? 0.92 : 1);
+        trimmedPath = getTrimmedBezierPath(
+          parallelPath.startX, parallelPath.startY,
+          parallelPath.ctrlX, parallelPath.ctrlY,
+          parallelPath.endX, parallelPath.endY,
+          tStart, tEnd
+        );
+      }
+
+      // Visible-line ends and endpoint-dot positions for a selected connection.
+      // Straight: retract each arrow-less end an arrowhead-length past the node
+      // border and cap it with the dot. Curved: the dot caps the trimmed curve.
+      let lineStartX = endpoints.x1, lineStartY = endpoints.y1;
+      let lineEndX = endpoints.x2, lineEndY = endpoints.y2;
+      let dotSourcePos = null;
+      let dotDestPos = null;
+      if (active && !isCurvedEdge) {
+        // Selection shortens BOTH ends to the border (the arrow-side ends are
+        // already there); the arrow-less ones then retract further.
+        lineStartX = borderEndpoints.x1; lineStartY = borderEndpoints.y1;
+        lineEndX = borderEndpoints.x2; lineEndY = borderEndpoints.y2;
+        const chordX = centerX2 - centerX1;
+        const chordY = centerY2 - centerY1;
+        const chordLen = Math.sqrt(chordX * chordX + chordY * chordY);
+        if (chordLen > 0) {
+          const ux = chordX / chordLen;
+          const uy = chordY / chordLen;
+          if (!hasSourceArrow) {
+            const sBounds = boundsOf(sAnchor);
+            const inter = sBounds
+              ? getLineNodeIntersection(centerX1, centerY1, centerX2, centerY2, sBounds)
+              : getNodeEdgeIntersection(virtualSource.x, virtualSource.y, sDims.currentWidth, sDims.currentHeight, ux, uy);
+            if (inter) {
+              lineStartX = inter.x + ux * dragPreviewBack;
+              lineStartY = inter.y + uy * dragPreviewBack;
+              dotSourcePos = { x: lineStartX, y: lineStartY };
+            }
+          }
+          if (!hasDestArrow) {
+            const eBounds = boundsOf(eAnchor);
+            const inter = eBounds
+              ? getLineNodeIntersection(centerX2, centerY2, centerX1, centerY1, eBounds)
+              : getNodeEdgeIntersection(virtualDest.x, virtualDest.y, dDims.currentWidth, dDims.currentHeight, -ux, -uy);
+            if (inter) {
+              lineEndX = inter.x - ux * dragPreviewBack;
+              lineEndY = inter.y - uy * dragPreviewBack;
+              dotDestPos = { x: lineEndX, y: lineEndY };
+            }
+          }
+        }
+      } else if (active && useCurve && trimmedPath) {
+        if (!hasSourceArrow) dotSourcePos = { x: trimmedPath.startX, y: trimmedPath.startY };
+        if (!hasDestArrow) dotDestPos = { x: trimmedPath.endX, y: trimmedPath.endY };
+      }
+
       // Update each edge <g> element (may appear in both above/below blocks)
-      edgeEls.forEach(({ paths, lines, arrows: arrowGs, texts }) => {
+      edgeEls.forEach((entry) => {
+        const { paths, hitPaths, lines, hitLines, arrows: arrowGs, texts } = entry;
         // --- Update edge geometry (paths + lines) ---
-        if (parallelPath.type === 'line' && !useCurve) {
+        // The visible stroke and its glow use the possibly-retracted ends; the
+        // invisible click target keeps the full span (hover detection measures
+        // against it, and the settled render draws it from the same untrimmed
+        // values).
+        if (!useCurve) {
           // Straight edge: update <line> elements
           lines.forEach(line => {
-            line.setAttribute('x1', endpoints.x1);
-            line.setAttribute('y1', endpoints.y1);
-            line.setAttribute('x2', endpoints.x2);
-            line.setAttribute('y2', endpoints.y2);
+            line.setAttribute('x1', lineStartX);
+            line.setAttribute('y1', lineStartY);
+            line.setAttribute('x2', lineEndX);
+            line.setAttribute('y2', lineEndY);
           });
           // Also update any <path> elements (glow, click target)
+          const isSimpleLine = (d) => d && d.startsWith('M') && d.includes('L') && !d.includes('Q') && !d.includes('C');
           paths.forEach(path => {
-            const d = path.getAttribute('d');
             // Only update paths that look like simple lines (M...L...) not complex routes
-            if (d && (d.startsWith('M') && d.includes('L') && !d.includes('Q') && !d.includes('C'))) {
+            if (isSimpleLine(path.getAttribute('d'))) {
+              path.setAttribute('d', `M ${lineStartX} ${lineStartY} L ${lineEndX} ${lineEndY}`);
+            }
+          });
+          hitPaths.forEach(path => {
+            if (isSimpleLine(path.getAttribute('d'))) {
               path.setAttribute('d', `M ${endpoints.x1} ${endpoints.y1} L ${endpoints.x2} ${endpoints.y2}`);
             }
           });
         } else {
-          // Curved/parallel edge: update <path> elements. When an arrow is present,
-          // trim the curve to the back of that end's arrowhead (trimT) so the curve's
-          // round cap tucks under the triangle and never overshoots it mid-drag.
-          let curveD = parallelPath.path;
-          if (curvedArrowPlacement && (hasSourceArrow || hasDestArrow)) {
-            const tStart = hasSourceArrow ? curvedArrowPlacement.source.trimT : 0;
-            const tEnd = hasDestArrow ? curvedArrowPlacement.dest.trimT : 1;
-            curveD = getTrimmedBezierPath(
-              parallelPath.startX, parallelPath.startY,
-              parallelPath.ctrlX, parallelPath.ctrlY,
-              parallelPath.endX, parallelPath.endY,
-              tStart, tEnd
-            ).path;
-          }
+          // Curved/parallel edge: update <path> elements with the trimmed curve
+          // (see trimmedPath above) so the round cap tucks under an arrowhead
+          // and never overshoots it mid-drag.
+          const curveD = trimmedPath ? trimmedPath.path : parallelPath.path;
           paths.forEach(path => {
             path.setAttribute('d', curveD);
           });
+          hitPaths.forEach(path => {
+            path.setAttribute('d', parallelPath.path);
+          });
           // Also update any straight <line> elements that might exist as click targets
           lines.forEach(line => {
-            line.setAttribute('x1', endpoints.x1);
-            line.setAttribute('y1', endpoints.y1);
-            line.setAttribute('x2', endpoints.x2);
-            line.setAttribute('y2', endpoints.y2);
+            line.setAttribute('x1', lineStartX);
+            line.setAttribute('y1', lineStartY);
+            line.setAttribute('x2', lineEndX);
+            line.setAttribute('y2', lineEndY);
           });
         }
+        hitLines.forEach(line => {
+          line.setAttribute('x1', endpoints.x1);
+          line.setAttribute('y1', endpoints.y1);
+          line.setAttribute('x2', endpoints.x2);
+          line.setAttribute('y2', endpoints.y2);
+        });
+
+        // Endpoint dots of a selected connection travel with the ends they cap.
+        writeEndpointDots(entry, dotSourcePos, dotDestPos);
 
         // --- Update arrow positions ---
         // (Manhattan/Clean returned above with their own port-based placement.)
@@ -1071,7 +1243,7 @@ export const useNodeDrag = ({
               arrowGs.forEach(arrowG => {
                 const type = arrowG.getAttribute('data-arrow');
                 const p = type === 'source' ? curvedArrowPlacement.source : curvedArrowPlacement.dest;
-                arrowG.setAttribute('transform', `translate(${p.x}, ${p.y}) rotate(${p.angle + 90}) scale(${dragConnectionWidth})`);
+                arrowG.setAttribute('transform', `translate(${p.x}, ${p.y}) rotate(${p.angle + 90}) scale(${dragConnWidth})`);
               });
             } else {
               // Straight: arrows near endpoints, angle from line direction
@@ -1085,10 +1257,10 @@ export const useNodeDrag = ({
                   const type = arrowG.getAttribute('data-arrow');
                   if (type === 'source') {
                     arrowG.setAttribute('transform',
-                      `translate(${endpoints.x1 + (dx / len) * offset}, ${endpoints.y1 + (dy / len) * offset}) rotate(${angle + 180 + 90}) scale(${dragConnectionWidth})`);
+                      `translate(${endpoints.x1 + (dx / len) * offset}, ${endpoints.y1 + (dy / len) * offset}) rotate(${angle + 180 + 90}) scale(${dragConnWidth})`);
                   } else {
                     arrowG.setAttribute('transform',
-                      `translate(${endpoints.x2 - (dx / len) * offset}, ${endpoints.y2 - (dy / len) * offset}) rotate(${angle + 90}) scale(${dragConnectionWidth})`);
+                      `translate(${endpoints.x2 - (dx / len) * offset}, ${endpoints.y2 - (dy / len) * offset}) rotate(${angle + 90}) scale(${dragConnWidth})`);
                   }
                 });
               }
@@ -1106,14 +1278,7 @@ export const useNodeDrag = ({
         // runs earlier this frame) so the midpoint sits centered on the truly
         // visible run — no separate slide-off-box step.
         if (texts.length > 0) {
-          const visibleEndpoints = getVisualConnectionEndpoints(
-            virtualSource, virtualDest, sDims, dDims,
-            curSelectedIds.has(edge.sourceId),
-            curSelectedIds.has(edge.destinationId),
-            true,
-            sAnchor?.outerBounds || null,
-            eAnchor?.outerBounds || null
-          );
+          const visibleEndpoints = borderEndpoints;
           const labelPlacementPath = calculateParallelEdgePath(
             visibleEndpoints.x1, visibleEndpoints.y1,
             visibleEndpoints.x2, visibleEndpoints.y2,

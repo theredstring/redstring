@@ -61,7 +61,7 @@ import {
 } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
 import { debugLogSync } from './utils/debugLogger.js';
-import { getNodeHitbox, getVisualConnectionEndpoints, getLineNodeIntersection } from './utils/canvas/nodeHitbox.js';
+import { getNodeHitbox, getVisualConnectionEndpoints, getLineNodeIntersection, getNodeEdgeIntersection } from './utils/canvas/nodeHitbox.js';
 import { stabilizeLabelPosition, clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
 import apiKeyManager from './services/apiKeyManager.js';
@@ -14734,40 +14734,8 @@ function NodeCanvas() {
                           const dy = y2 - y1;
                           const length = Math.sqrt(dx * dx + dy * dy);
 
-                          // Helper function to calculate edge intersection with rectangular nodes
-                          const getNodeEdgeIntersection = (nodeX, nodeY, nodeWidth, nodeHeight, dirX, dirY) => {
-                            const centerX = nodeX + nodeWidth / 2;
-                            const centerY = nodeY + nodeHeight / 2;
-                            const halfWidth = nodeWidth / 2;
-                            const halfHeight = nodeHeight / 2;
-                            const intersections = [];
-
-                            if (dirX > 0) {
-                              const t = halfWidth / dirX;
-                              const y = dirY * t;
-                              if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX + halfWidth, y: centerY + y, distance: t });
-                            }
-                            if (dirX < 0) {
-                              const t = -halfWidth / dirX;
-                              const y = dirY * t;
-                              if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX - halfWidth, y: centerY + y, distance: t });
-                            }
-                            if (dirY > 0) {
-                              const t = halfHeight / dirY;
-                              const x = dirX * t;
-                              if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY + halfHeight, distance: t });
-                            }
-                            if (dirY < 0) {
-                              const t = -halfHeight / dirY;
-                              const x = dirX * t;
-                              if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY - halfHeight, distance: t });
-                            }
-
-                            return intersections.reduce((closest, current) =>
-                              !closest || current.distance < closest.distance ? current : closest, null);
-                          };
-
-                          // Calculate edge intersections. For thing-group anchors the arrow tip must
+                          // Calculate edge intersections. getNodeEdgeIntersection is shared with
+                          // the drag-time DOM writer (see nodeHitbox.js) so both agree. For thing-group anchors the arrow tip must
                           // sit on the group's OUTER box edge, not the anchor tab (which hides under
                           // the box). getNodeEdgeIntersection rays from the box CENTER, which is wrong
                           // here because the line doesn't pass through the outer-box center (the title
@@ -15227,6 +15195,7 @@ function NodeCanvas() {
                               {/* Invisible click area for edge selection - matches hover detection */}
                               {orthoRouting ? (
                                 <path
+                                  data-edge-hit
                                   d={orthoHitPathD}
                                   fill="none"
                                   stroke="transparent"
@@ -15261,6 +15230,7 @@ function NodeCanvas() {
                                 />
                               ) : useCurve ? (
                                 <path
+                                  data-edge-hit
                                   d={parallelPath.path}
                                   fill="none"
                                   stroke="transparent"
@@ -15295,6 +15265,7 @@ function NodeCanvas() {
                                 />
                               ) : (
                                 <line
+                                  data-edge-hit
                                   x1={x1}
                                   y1={y1}
                                   x2={x2}
@@ -15756,8 +15727,11 @@ function NodeCanvas() {
                                     {(isHovered || isSelected) && (
                                       <>
                                         {/* Source Dot - only show if arrow not pointing toward source */}
+                                        {/* data-endpoint-dot lets the drag-time DOM writer move these
+                                            with the connection; without it a selected edge's dots sat
+                                            frozen at their pre-drag position for the whole gesture. */}
                                         {!arrowsToward.has(sourceNode.id) && (
-                                          <g>
+                                          <g data-endpoint-dot="source">
                                             <circle
                                               cx={sourceDotX}
                                               cy={sourceDotY}
@@ -15779,7 +15753,7 @@ function NodeCanvas() {
 
                                         {/* Destination Dot - only show if arrow not pointing toward destination */}
                                         {!arrowsToward.has(destNode.id) && (
-                                          <g>
+                                          <g data-endpoint-dot="dest">
                                             <circle
                                               cx={destDotX}
                                               cy={destDotY}

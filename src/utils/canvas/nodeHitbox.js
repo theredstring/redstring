@@ -216,3 +216,50 @@ export const getVisualConnectionEndpoints = (
     y2: end.y - uy * VISIBLE_LINE_OUTSET
   };
 };
+
+/**
+ * Where a ray leaving a node's centre crosses the node's RAW box (no visual
+ * inset, no selection stroke) — the point an arrowhead tip anchors to, and the
+ * point an arrow-less end is pulled back from on hover/selection.
+ *
+ * Shared by the settled render (NodeCanvas) and the drag-time DOM writer
+ * (useNodeDrag) so a connection's arrow tips and endpoint dots sit in the same
+ * place mid-gesture as they do on drop. It was inlined in the renderer, so the
+ * drag path had no way to reproduce it.
+ *
+ * @param {number} nodeX, nodeY - node top-left
+ * @param {number} nodeWidth, nodeHeight - node dimensions
+ * @param {number} dirX, dirY - ray direction (need not be normalized)
+ * @returns {{x:number,y:number,distance:number}|null} nearest border crossing
+ */
+export const getNodeEdgeIntersection = (nodeX, nodeY, nodeWidth, nodeHeight, dirX, dirY) => {
+  const centerX = nodeX + nodeWidth / 2;
+  const centerY = nodeY + nodeHeight / 2;
+  const halfWidth = nodeWidth / 2;
+  const halfHeight = nodeHeight / 2;
+  const intersections = [];
+
+  if (dirX > 0) {
+    const t = halfWidth / dirX;
+    const y = dirY * t;
+    if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX + halfWidth, y: centerY + y, distance: t });
+  }
+  if (dirX < 0) {
+    const t = -halfWidth / dirX;
+    const y = dirY * t;
+    if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX - halfWidth, y: centerY + y, distance: t });
+  }
+  if (dirY > 0) {
+    const t = halfHeight / dirY;
+    const x = dirX * t;
+    if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY + halfHeight, distance: t });
+  }
+  if (dirY < 0) {
+    const t = -halfHeight / dirY;
+    const x = dirX * t;
+    if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY - halfHeight, distance: t });
+  }
+
+  return intersections.reduce((closest, current) =>
+    !closest || current.distance < closest.distance ? current : closest, null);
+};
