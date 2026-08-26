@@ -856,7 +856,7 @@ const RepositorySelectionModal = ({
                             {universe.path && (
                               <div style={{ fontSize: '0.65rem', color: theme.canvas.textSecondary }}>{universe.path}</div>
                             )}
-                            <div style={{ fontSize: '0.62rem', color: theme.darkMode ? theme.alert.error.text : theme.canvas.brand, display: 'flex', gap: 10 }}>
+                            <div style={{ fontSize: '0.62rem', color: theme.canvas.brandText, display: 'flex', gap: 10 }}>
                               {/* "?" until the file has actually been read —
                                   always rendered so the row holds its layout
                                   when the real numbers land. */}

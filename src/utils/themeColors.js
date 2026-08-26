@@ -15,7 +15,12 @@ export const LIGHT_THEME = {
     hover: '#cfc6c6',    // Hover states
     active: '#bdb5b5',   // Active tab/button states
     inactive: '#979090', // Inactive tab/button states
-    brand: '#7A0000',    // Brand/accent color
+    brand: '#7A0000',    // Brand/accent color (fills, borders, solid buttons)
+    // Brand color for TEXT sitting on a canvas/panel background. In light mode
+    // this is the brand maroon itself; in dark mode the maroon is nearly
+    // invisible against #2E2A2A, so it lifts to a warm rose that still reads as
+    // Redstring red. Use this for brand-colored labels; keep `brand` for fills.
+    brandText: '#7A0000',
   },
   // Accent colors remain theme-independent
   accent: {
@@ -56,7 +61,8 @@ export const DARK_THEME = {
     hover: '#4a4545',    // Hover states
     active: '#2E2A2A',   // Active tab/button states
     inactive: '#3F3A3A', // Inactive tab/button states
-    brand: '#7A0000',    // Brand/accent color
+    brand: '#7A0000',    // Brand/accent color (fills, borders, solid buttons)
+    brandText: '#CCAAA8', // Brand color for text on dark backgrounds (see LIGHT_THEME)
   },
   accent: {
     primary: '#8B0000',

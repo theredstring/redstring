@@ -176,8 +176,8 @@ const RepositoriesSection = ({
                     size={20}
                     filled={repo.isMain}
                     fillColor="#cc6600"
-                    color={repo.isMain ? theme.canvas.brand : theme.canvas.textPrimary}
-                    hoverColor={repo.isMain ? theme.canvas.brand : theme.canvas.textPrimary}
+                    color={repo.isMain ? theme.canvas.brandText : theme.canvas.textPrimary}
+                    hoverColor={repo.isMain ? theme.canvas.brandText : theme.canvas.textPrimary}
                     onClick={() => onSetMainRepository(repo)}
                     title={repo.isMain ? 'Already main repository' : 'Set as main repository'}
                     disabled={repo.isMain}
@@ -238,7 +238,10 @@ const RepositoriesSection = ({
                           display: 'flex',
                           alignItems: 'center',
                           gap: 4,
-                          color: theme.canvas.brand,
+                          // An actual failure marker, so it takes the alert
+                          // token rather than the brand one — and that token is
+                          // already lifted for dark backgrounds.
+                          color: theme.alert.error.text,
                           fontSize: '0.7rem',
                           minWidth: 0
                         }}
@@ -318,7 +321,7 @@ const RepositoriesSection = ({
                               )}
                               {/* Always rendered, so the row doesn't reflow when
                                   counts arrive — "?" holds the space. */}
-                              <div style={{ fontSize: '0.65rem', color: theme.canvas.brand, display: 'flex', gap: 10, marginTop: 4 }}>
+                              <div style={{ fontSize: '0.65rem', color: theme.canvas.brandText, display: 'flex', gap: 10, marginTop: 4 }}>
                                 <span>{countLabel(item, 'graphCount')} webs</span>
                                 <span>{countLabel(item, 'nodeCount')} things</span>
                                 <span>{countLabel(item, 'connectionCount')} connections</span>
