@@ -16,7 +16,6 @@ import {
 import { useTheme } from '../../hooks/useTheme.js';
 import PanelSegment from './shared/PanelSegment.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
-import ActionChip from '../shared/ActionChip.jsx';
 import { countLabel } from '../../utils/universeCounts.js';
 
 const EXPANDED_STORAGE_KEY = 'redstring-repo-sections-collapsed';
@@ -331,18 +330,68 @@ const RepositoriesSection = ({
                           </div>
 
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            <ActionChip
-                              icon={Download}
-                              label="Load from Repo"
+                            <button
                               onClick={() => onImportUniverse && onImportUniverse(item, repoInfo)}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#D0CACA';
+                                e.currentTarget.style.transform = 'scale(1.02)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = '#DEDADA';
+                                e.currentTarget.style.transform = 'scale(1)';
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                padding: '6px 12px',
+                                backgroundColor: '#DEDADA',
+                                border: '2px solid #7A0000',
+                                borderRadius: 20,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                fontFamily: "'EmOne', sans-serif",
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                color: '#7A0000',
+                                whiteSpace: 'nowrap'
+                              }}
                               title="Load this file from the repository"
-                            />
-                            <ActionChip
-                              icon={Upload}
-                              label="Save to Repo"
+                            >
+                              <Download size={14} />
+                              Load from Repo
+                            </button>
+                            <button
                               onClick={() => onSyncUniverse && onSyncUniverse(item, repoInfo)}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#D0CACA';
+                                e.currentTarget.style.transform = 'scale(1.02)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = '#DEDADA';
+                                e.currentTarget.style.transform = 'scale(1)';
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                padding: '6px 12px',
+                                backgroundColor: '#DEDADA',
+                                border: '2px solid #7A0000',
+                                borderRadius: 20,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                fontFamily: "'EmOne', sans-serif",
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                color: '#7A0000',
+                                whiteSpace: 'nowrap'
+                              }}
                               title="Save current state to this file in the repository"
-                            />
+                            >
+                              <Upload size={14} />
+                              Save to Repo
+                            </button>
                           </div>
                         </div>
                       );
