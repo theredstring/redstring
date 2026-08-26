@@ -937,6 +937,31 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
 
   const ungroupedNodes = nodes.filter(n => !nodeToGroups.has(n.id));
 
+  // Settings every sub-layout runs under — a group's interior in Phase 1 and
+  // the groupless remainder in Phase 1b. Shared deliberately: the remainder is
+  // a subgraph like any other, and if it were solved under different spacing
+  // or a different label allowance it would visibly not match the groups
+  // sitting next to it.
+  const subgraphOptions = (entityCount) => {
+    const subSize = Math.max(800, Math.sqrt(entityCount) * 500);
+    return {
+      width: subSize,
+      height: subSize,
+      padding: 100,
+      groups: [],
+      layoutScale: options.layoutScale,
+      layoutScaleMultiplier: options.layoutScaleMultiplier,
+      iterationPreset: options.iterationPreset,
+      repulsionStrength: config.repulsionStrength,
+      attractionStrength: config.attractionStrength,
+      stiffness: config.stiffness,
+      edgeAvoidance: config.edgeAvoidance,
+      edgeLabelFontSize: config.edgeLabelFontSize,
+      routingStyle: config.routingStyle,
+      lombardiCurvature: config.lombardiCurvature,
+    };
+  };
+
   // ---- Phase 1: Layout each group leaves-first, substituting child groups
   // with synthetic rigid blocks sized by the child's visual bounds. ----
   const groupLayouts = new Map();
@@ -1025,29 +1050,11 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       });
     }
 
-    const totalEntities = directMemberNodes.length + blockNodes.length;
-    const subSize = Math.max(800, Math.sqrt(totalEntities) * 500);
-
     const positions = layoutSubgraph(
       [...directMemberNodes, ...blockNodes],
       intraEdges,
       intraGroupAlgorithm,
-      {
-        width: subSize,
-        height: subSize,
-        padding: 100,
-        groups: [],
-        layoutScale: options.layoutScale,
-        layoutScaleMultiplier: options.layoutScaleMultiplier,
-        iterationPreset: options.iterationPreset,
-        repulsionStrength: config.repulsionStrength,
-        attractionStrength: config.attractionStrength,
-        stiffness: config.stiffness,
-        edgeAvoidance: config.edgeAvoidance,
-        edgeLabelFontSize: config.edgeLabelFontSize,
-        routingStyle: config.routingStyle,
-        lombardiCurvature: config.lombardiCurvature,
-      }
+      subgraphOptions(directMemberNodes.length + blockNodes.length)
     );
 
     // Compose final positions for every node "owned" by this group's layout.
@@ -1121,6 +1128,79 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     return forceDirectedLayout(nodes, edges, { ...options, groups: [] });
   }
 
+  // ---- Phase 1b: Lay the groupless remainder out, component by component ----
+  // The remainder used to get no layout at all: each ungrouped node was dropped
+  // at the average of its already-placed neighbours plus ~80px of jitter. For a
+  // node whose neighbours are all ungrouped too that average is the *previous*
+  // ungrouped node, so a whole groupless component walked itself into a single
+  // jitter-sized pile — the more groups a graph had, the more of the graph
+  // collapsed, and on the pattern path (no Phase 3 refinement) the pile was the
+  // final answer.
+  //
+  // A groupless component is a subgraph like any other, so solve each one with
+  // the same pipeline a group's interior gets, and hand it to the meta phase
+  // below as its own entity. Per COMPONENT rather than one blob for the whole
+  // remainder: components are independent, and bundling them would drag a
+  // satellite hanging off group C over to wherever the rest of the loose nodes
+  // happened to land.
+  const ungroupedLayouts = [];
+  const ungroupedMetaOf = new Map(); // nodeId -> meta entity id
+  if (ungroupedNodes.length > 0) {
+    const ungroupedIds = new Set(ungroupedNodes.map(n => n.id));
+    const ungroupedAdjacency = new Map();
+    ungroupedNodes.forEach(n => ungroupedAdjacency.set(n.id, []));
+    const ungroupedEdges = [];
+    for (const e of edges) {
+      if (!ungroupedIds.has(e.sourceId) || !ungroupedIds.has(e.destinationId)) continue;
+      if (e.sourceId === e.destinationId) continue;
+      ungroupedAdjacency.get(e.sourceId).push(e.destinationId);
+      ungroupedAdjacency.get(e.destinationId).push(e.sourceId);
+      ungroupedEdges.push({
+        id: e.id,
+        sourceId: e.sourceId,
+        destinationId: e.destinationId,
+        name: e.name,
+        directionality: e.directionality
+      });
+    }
+
+    const components = getGraphClusters(ungroupedNodes, ungroupedAdjacency);
+    components.forEach((componentNodes, index) => {
+      const memberIds = new Set(componentNodes.map(n => n.id));
+      const componentEdges = ungroupedEdges.filter(
+        e => memberIds.has(e.sourceId) && memberIds.has(e.destinationId)
+      );
+      const positions = layoutSubgraph(
+        componentNodes,
+        componentEdges,
+        intraGroupAlgorithm,
+        subgraphOptions(componentNodes.length)
+      );
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      positions.forEach((pos, nodeId) => {
+        const node = nodeById.get(nodeId);
+        const w = node?.width || 150;
+        const h = node?.height || 100;
+        if (pos.x < minX) minX = pos.x;
+        if (pos.y < minY) minY = pos.y;
+        if (pos.x + w > maxX) maxX = pos.x + w;
+        if (pos.y + h > maxY) maxY = pos.y + h;
+      });
+      if (!isFinite(minX)) return;
+
+      const metaId = `__ungrouped__${index}`;
+      componentNodes.forEach(n => ungroupedMetaOf.set(n.id, metaId));
+      ungroupedLayouts.push({
+        metaId,
+        positions,
+        minX, minY,
+        width: maxX - minX,
+        height: maxY - minY,
+      });
+    });
+  }
+
   // Multi-group nodes that the existing fallback expects: peer-conflict nodes
   // (kept for backwards-compat with the centroid placement at line ~734).
   const multiGroupNodeIds = peerConflictNodes;
@@ -1130,7 +1210,6 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   // composed layout via the rigid-block substitution above; only top-level
   // groups need meta-positioning relative to each other.
 
-  const ungroupedSet = new Set(ungroupedNodes.map(n => n.id));
   const topLevelLayoutEntries = hierarchy.topLevelGroupIds
     .map(gId => [gId, groupLayouts.get(gId)])
     .filter(([, layout]) => layout);
@@ -1149,15 +1228,26 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     });
   });
 
-  // Virtual meta-node for ungrouped nodes (e.g. edge definition nodes)
-  if (ungroupedNodes.length > 0) {
+  // Group spacing is a property of group size, so measure it before the
+  // groupless components join the meta layout — otherwise a handful of loose
+  // satellites drags the average down and pulls the groups in on each other.
+  const groupMetaCount = metaNodes.length;
+  const avgGroupDim = groupMetaCount > 0
+    ? metaNodes.reduce((s, n) => s + Math.max(n.width, n.height), 0) / groupMetaCount
+    : 0;
+
+  // One virtual meta-node per groupless component, sized by the region its
+  // Phase-1b layout actually occupies. The remainder used to get a single
+  // meta-node sized by a node-count guess whose solved position was then
+  // thrown away — the meta solver reserved a slot nothing was placed into.
+  ungroupedLayouts.forEach(layout => {
     metaNodes.push({
-      id: '__ungrouped__',
-      width: Math.max(300, Math.sqrt(ungroupedNodes.length) * 150),
-      height: Math.max(200, Math.sqrt(ungroupedNodes.length) * 100),
+      id: layout.metaId,
+      width: layout.width + META_NODE_PAD,
+      height: layout.height + META_NODE_PAD,
       x: 0, y: 0
     });
-  }
+  });
 
   // Build meta-edges from cross-group node connections.
   // For nested groups we walk each membership up to its top-level ancestor —
@@ -1177,7 +1267,8 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       for (const gid of gs) tops.add(topLevelOf(gid));
       return [...tops];
     }
-    if (ungroupedSet.has(nodeId)) return ['__ungrouped__'];
+    const metaId = ungroupedMetaOf.get(nodeId);
+    if (metaId) return [metaId];
     return [];
   };
   edges.forEach(e => {
@@ -1227,8 +1318,12 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   }, 0);
   const corridor = Math.max(200, crossGroupLabel + config.nodeGap * 2);
 
-  // Run force-directed on meta-nodes — same engine, group scale
-  const avgDim = metaNodes.reduce((s, n) => s + Math.max(n.width, n.height), 0) / metaNodes.length;
+  // Run force-directed on meta-nodes — same engine, group scale. The scale is
+  // the GROUPS' average extent (avgGroupDim, measured before the groupless
+  // components were appended): a graph with six loose satellites and two groups
+  // must not end up with its groups spaced as if they were satellite-sized.
+  const avgDim = avgGroupDim ||
+    (metaNodes.reduce((s, n) => s + Math.max(n.width, n.height), 0) / metaNodes.length);
   const metaPositions = forceDirectedLayout(metaNodes, metaEdges, {
     width: config.width,
     height: config.height,
@@ -1244,8 +1339,15 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     // reached the solver.
     targetLinkDistance: avgDim + corridor,
     linkDistance: avgDim + corridor,
-    minNodeDistance: avgDim * 0.8,
-    minLinkDistance: avgDim * 0.8,
+    // The FLOOR under every meta edge, and unlike targetLinkDistance it is a
+    // hard max() the size-aware per-pair target cannot come in under. Group
+    // scale is wrong for it: a two-node satellite meta-node linked to a group
+    // would be held a whole group's width away from the thing it is attached
+    // to, reading as unrelated. Group-to-group spacing does not depend on this
+    // — those pairs are big, so their own size-aware target clears it anyway,
+    // and separateGroupBoxes has the last word on the rects regardless.
+    minNodeDistance: corridor,
+    minLinkDistance: corridor,
   });
 
   // Shift each group's internal layout to its meta-node position.
@@ -1359,10 +1461,184 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     }
   });
 
-  // Place ungrouped nodes near their connected groups — but never seed one
-  // inside a group's rect, or Phase 3's springs and exclusion force fight a
-  // tug-of-war over it
+  // Drop the Phase-1b remainder into the slot the meta solver reserved for it,
+  // rigidly — its internal arrangement is a finished layout and re-deriving
+  // each node's position from its neighbours is exactly what collapsed it.
+  // The meta-edges above already pulled that slot toward whichever groups the
+  // remainder connects to, and Phase 3 (force path) still refines individual
+  // nodes across the boundary.
+  ungroupedLayouts.forEach(layout => {
+    const metaPos = metaPositions.get(layout.metaId);
+    if (!metaPos) return;
+    const dx = metaPos.x + META_NODE_PAD / 2 - layout.minX;
+    const dy = metaPos.y + META_NODE_PAD / 2 - layout.minY;
+    layout.positions.forEach((pos, nodeId) => {
+      finalPositions.set(nodeId, { x: pos.x + dx, y: pos.y + dy });
+    });
+  });
+
+  // Which top-level groups each groupless component actually connects to.
+  const componentGroupLinks = new Map();
+  edges.forEach(e => {
+    [[e.sourceId, e.destinationId], [e.destinationId, e.sourceId]].forEach(([a, b]) => {
+      const metaId = ungroupedMetaOf.get(a);
+      const gs = nodeToGroups.get(b);
+      if (!metaId || !gs || gs.size === 0) return;
+      if (!componentGroupLinks.has(metaId)) componentGroupLinks.set(metaId, new Set());
+      gs.forEach(gid => componentGroupLinks.get(metaId).add(topLevelOf(gid)));
+    });
+  });
+
+  /** Bounding box of the nodes a predicate accepts, from a top-left map. */
+  const boundsOf = (topLeft, ids) => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    ids.forEach(id => {
+      const pos = topLeft.get(id);
+      if (!pos) return;
+      const n = nodeById.get(id);
+      minX = Math.min(minX, pos.x);
+      minY = Math.min(minY, pos.y);
+      maxX = Math.max(maxX, pos.x + (n?.width || 150));
+      maxY = Math.max(maxY, pos.y + (n?.height || 100));
+    });
+    return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+  };
+
+  /**
+   * Reel every attached groupless component back in toward the group it hangs
+   * off, in place.
+   *
+   * A groupless component sits in the meta layout as a peer of a whole group,
+   * and meta spacing is GROUP scale — right for two groups facing each other,
+   * far too wide for a two-node satellite whose only edge runs into one of
+   * them. Left out there a satellite reads as unrelated to the thing it is
+   * literally connected to.
+   *
+   * So slide each component back along the line from its anchor group's centre
+   * — the direction the meta solver already chose for it — until it is one
+   * corridor off that group's rect, stopping early at whatever it would have
+   * run into. Translating rigidly along that one line is what makes this safe
+   * to run as a finisher: it preserves the component's internal layout and
+   * keeps it inside the corridor already cleared for it.
+   *
+   * Run BOTH before Phase 3 (so the refinement starts from a sane placement)
+   * and after it (Phase 3's group-exclusion force is strong enough to shove an
+   * ungrouped node clear across the canvas, and a satellite that ends up beside
+   * the wrong group is worse than one that never moved).
+   */
+  const reelAttachedComponents = (topLeft) => {
+    if (ungroupedLayouts.length === 0) return;
+    const overlaps = (a, b, pad) =>
+      a.minX < b.maxX + pad && a.maxX > b.minX - pad &&
+      a.minY < b.maxY + pad && a.maxY > b.minY - pad;
+    // Clear a box being SLID PAST by the width the group-exclusion pass will
+    // insist on anyway, not by a whole corridor. A corridor is the gap that has
+    // to hold a label between two groups; demanding it here just to slip past a
+    // bystander rejects the route and strands the satellite mid-canvas.
+    const clearance = config.groupBoundaryPadding || 100;
+
+    // Group rects as they stand in THIS position map, not as the meta phase
+    // left them — Phase 3 moves group members too.
+    const groupBoxes = new Map();
+    topLevelLayoutEntries.forEach(([gId]) => {
+      const group = hierarchy.groupsById.get(gId);
+      const members = hierarchy.memberSets.get(gId);
+      if (!group || !members) return;
+      const bbox = boundsOf(topLeft, [...members]);
+      if (!bbox) return;
+      const vb = deriveGroupVisualBounds(group, bbox, options.gridSize, options.measureLabelWidth);
+      groupBoxes.set(gId, {
+        minX: vb.x, minY: vb.y, maxX: vb.x + vb.w, maxY: vb.y + vb.h,
+        centerX: vb.x + vb.w / 2, centerY: vb.y + vb.h / 2
+      });
+    });
+
+    const componentNodeIds = new Map();
+    ungroupedMetaOf.forEach((metaId, nodeId) => {
+      if (!componentNodeIds.has(metaId)) componentNodeIds.set(metaId, []);
+      componentNodeIds.get(metaId).push(nodeId);
+    });
+    const componentBoxes = new Map();
+    componentNodeIds.forEach((ids, metaId) => {
+      const bbox = boundsOf(topLeft, ids);
+      if (bbox) componentBoxes.set(metaId, bbox);
+    });
+
+    // Smallest first: a satellite should get to claim the spot beside its group
+    // before a larger component that is merely near it.
+    const reelOrder = [...componentBoxes.keys()].sort((a, b) => {
+      const ba = componentBoxes.get(a), bb = componentBoxes.get(b);
+      return ((ba.maxX - ba.minX) * (ba.maxY - ba.minY)) - ((bb.maxX - bb.minX) * (bb.maxY - bb.minY));
+    });
+
+    for (const metaId of reelOrder) {
+      const links = componentGroupLinks.get(metaId);
+      if (!links || links.size === 0) continue;  // free-floating: leave it where it is
+      const box = componentBoxes.get(metaId);
+      const cx = (box.minX + box.maxX) / 2;
+      const cy = (box.minY + box.maxY) / 2;
+      const halfW = (box.maxX - box.minX) / 2;
+      const halfH = (box.maxY - box.minY) / 2;
+
+      // Anchor on the connected group whose rect is nearest.
+      let anchor = null, anchorDist = Infinity;
+      links.forEach(gid => {
+        const gb = groupBoxes.get(gid);
+        if (!gb) return;
+        const bp = nearestBoundaryPoint(gb, cx, cy);
+        const d = Math.hypot(bp.x - cx, bp.y - cy);
+        if (d < anchorDist) { anchorDist = d; anchor = gb; }
+      });
+      if (!anchor) continue;
+
+      const exit = nearestBoundaryPoint(anchor, cx, cy);
+      let ux = cx - anchor.centerX;
+      let uy = cy - anchor.centerY;
+      const uLen = Math.hypot(ux, uy);
+      if (uLen < 1) continue;
+      ux /= uLen; uy /= uLen;
+      const reach = corridor + Math.abs(ux) * halfW + Math.abs(uy) * halfH;
+      const desired = { x: exit.x + ux * reach, y: exit.y + uy * reach };
+
+      // Only ever pull closer, never push a component further out.
+      if (Math.hypot(desired.x - anchor.centerX, desired.y - anchor.centerY) >= uLen) continue;
+      const moveX = desired.x - cx;
+      const moveY = desired.y - cy;
+
+      // Everything the component must not land on. The anchor is excluded: the
+      // target sits exactly one corridor off it by construction, so including
+      // it would only let float error reject the component's own destination.
+      const obstacles = [
+        ...[...groupBoxes.values()].filter(b => b !== anchor),
+        ...[...componentBoxes.entries()].filter(([id]) => id !== metaId).map(([, b]) => b),
+      ];
+      let chosen = null;
+      for (const t of [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1]) {
+        const dx = moveX * t, dy = moveY * t;
+        const cand = {
+          minX: box.minX + dx, minY: box.minY + dy,
+          maxX: box.maxX + dx, maxY: box.maxY + dy,
+        };
+        if (obstacles.some(o => overlaps(cand, o, clearance))) continue;
+        chosen = { dx, dy, box: cand };
+        break;
+      }
+      if (!chosen) continue;
+
+      componentNodeIds.get(metaId).forEach(nodeId => {
+        const pos = topLeft.get(nodeId);
+        if (pos) topLeft.set(nodeId, { x: pos.x + chosen.dx, y: pos.y + chosen.dy });
+      });
+      componentBoxes.set(metaId, chosen.box);
+    }
+  };
+
+  reelAttachedComponents(finalPositions);
+
+  // Anything still unplaced (a node the sub-solver dropped) gets the old
+  // neighbour-average seed, kept out of every group's rect.
   ungroupedNodes.forEach(node => {
+    if (finalPositions.has(node.id)) return;
     let sumX = 0, sumY = 0, connCount = 0;
     edges.forEach(e => {
       let targetId = null;
@@ -1372,18 +1648,15 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       const pos = finalPositions.get(targetId);
       if (pos) { sumX += pos.x; sumY += pos.y; connCount++; }
     });
-    let anchor;
-    if (connCount > 0) {
-      anchor = {
-        x: sumX / connCount + idJitter(node.id, 'x') * 80,
-        y: sumY / connCount + idJitter(node.id, 'y') * 80
-      };
-    } else {
-      anchor = {
-        x: centerX + idJitter(node.id, 'x') * 200,
-        y: centerY + idJitter(node.id, 'y') * 200
-      };
-    }
+    const anchor = connCount > 0
+      ? {
+          x: sumX / connCount + idJitter(node.id, 'x') * 80,
+          y: sumY / connCount + idJitter(node.id, 'y') * 80
+        }
+      : {
+          x: centerX + idJitter(node.id, 'x') * 200,
+          y: centerY + idJitter(node.id, 'y') * 200
+        };
     finalPositions.set(node.id, ejectFromGroupBoxes(anchor.x, anchor.y, 120));
   });
 
@@ -1504,7 +1777,15 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     minGroupDistance: config.minGroupDistance,
     centerStrength: 0.005,
   });
-  return enforceGroupClaims(refined);
+  // Phase 3's group-exclusion force treats an ungrouped node as something to
+  // push out of every rect, with nothing but one spring holding it to the group
+  // it belongs beside — enough, on a canvas the groups mostly fill, to shove a
+  // satellite past a neighbouring group entirely. Reel once more before the
+  // claims pass gets the last word.
+  const settled = enforceGroupClaims(refined);
+  if (ungroupedLayouts.length === 0) return settled;
+  reelAttachedComponents(settled);
+  return enforceGroupClaims(settled);
 }
 
 // ============================================================================

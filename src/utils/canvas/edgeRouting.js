@@ -828,9 +828,9 @@ export const ARROW_CAP_RADIUS = 13.5;
  * measured from the node border, so its round cap ends flush with the
  * arrowhead's rear edge instead of poking out through the point.
  *
- * The arrowhead itself is NOT placed with this — see computeLombardiRouting,
- * which anchors the tip on the border and backs the polygon's origin off along
- * the tangent, exactly as getCurvedArrowPlacement does for curved edges.
+ * Measured as a CHORD from the border, not as arc length: computeLombardiRouting
+ * builds the arrowhead from two points on the arc that are the triangle's own
+ * straight length apart, and the stroke has to stop against the rear one.
  *
  * Both used to share one flat constant (44) with no connection-width term at
  * all. The polygon scales with width and the constant did not, so the tip
@@ -1019,6 +1019,28 @@ export function arcPointAt(arc, s) {
     y: arc.cy + arc.radius * Math.sin(a),
     angle: Math.atan2(dir * Math.cos(a), -dir * Math.sin(a)) * (180 / Math.PI),
   };
+}
+
+/**
+ * Walk along an arc from parameter `s` until the STRAIGHT-LINE distance back to
+ * the starting point is `chordDist`, and return that parameter.
+ *
+ * Arc length is the wrong measure whenever the thing being placed is straight.
+ * An arrowhead is a rigid triangle: its tip and its rear edge are `2·POLY_TIP·cw`
+ * apart as the crow flies, not as the curve runs, so anchoring the rear at an
+ * arc-LENGTH retreat leaves it hanging off the curve by the difference — several
+ * px on a tight bow at width 1, and most of a node at width 4.
+ *
+ * @returns {number|null} the parameter, or null when the arc cannot reach that
+ *   far — a chord longer than the diameter, or a walk that runs off the end.
+ */
+export function arcParamAtChord(arc, s, chordDist, forward) {
+  if (!arc || !(arc.radius > 0) || arc.sweep === 0) return null;
+  const half = chordDist / (2 * arc.radius);
+  if (!(half < 1)) return null;
+  const step = (2 * Math.asin(half)) / Math.abs(arc.sweep);
+  const t = forward ? s + step : s - step;
+  return (t < 0 || t > 1) ? null : t;
 }
 
 /** Where a point falls along the arc, clamped into [0,1]. */
@@ -1416,36 +1438,66 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
     const cw = options.connectionWidth || 1;
     const lineTrim = lombardiLineTrim(cw);
 
+    // Where the arc's own parameter puts a node's border.
+    //
+    // trimRouteEnd intersects the SAMPLED polyline, whose chords cut the corner
+    // and land a fraction inside the circle. Re-reading that point as an arc
+    // parameter throws the error away: everything downstream then works in
+    // parameters and comes back out exactly on the curve.
+    const borderParamOf = (fromStart, box) =>
+      arcParamOf(arc, trimRouteEnd(fullPoints, box, fromStart, 0).endpoint);
+
     // Where an end sits after retreating `dist` from its node border.
     //
-    // On an arc the retreat is measured as ARC LENGTH rather than as distance
-    // along the sampled chords, which always undershoot the curve. The error is
-    // invisible for a small back-off, but this one scales with connection width
-    // and at 4x it is most of a node wide. Stepping in arc parameter is exact,
-    // cheaper, and independent of how densely the arc happened to be sampled.
+    // The retreat is a CHORD distance, matching the arrowhead below: the stroke
+    // has to stop under a straight triangle's rear edge, so it has to be
+    // measured the way that triangle is built. Stepping in arc parameter also
+    // makes it independent of how densely the arc happened to be sampled.
     const retreatFrom = (fromStart, box, dist) => {
-      const border = trimRouteEnd(fullPoints, box, fromStart, 0).endpoint;
       if (!arc || !(arc.radius > 0) || arc.sweep === 0) {
         return trimRouteEnd(fullPoints, box, fromStart, dist).endpoint;
       }
-      const step = dist / (arc.radius * Math.abs(arc.sweep));
-      const t0 = arcParamOf(arc, border);
-      return arcPointAt(arc, fromStart ? Math.min(1, t0 + step) : Math.max(0, t0 - step));
+      const t0 = borderParamOf(fromStart, box);
+      const t = arcParamAtChord(arc, t0, dist, fromStart);
+      // Unreachable (a bow tighter than the retreat is long): clamp to the far
+      // end rather than leaving the stroke un-trimmed under the arrowhead.
+      return arcPointAt(arc, t ?? (fromStart ? 1 : 0));
     };
 
-    // Tangent-following arrowheads, anchored by their TIP.
+    // Arrowheads anchored by BOTH ends, straddling the curve.
     //
-    // The tip goes on the node border and the polygon's origin is backed off
-    // from it along the tangent — the same contract getCurvedArrowPlacement
-    // uses, and the only one that survives both the width slider and a tight
-    // bow. Retreating along the CURVE by the triangle's own length instead
-    // leaves the tip off the border by the arc's sagitta, because the triangle
-    // that then draws forward from there is straight: correct at low curvature,
-    // and several pixels adrift exactly where the curve is most pronounced.
-    const headingAt = (pt) => (arc ? arcPointAt(arc, arcParamOf(arc, pt)).angle : chord * (180 / Math.PI));
+    // The triangle is rigid: tip and rear edge sit 2·POLY_TIP·cw apart in a
+    // straight line. Placing it therefore means choosing two points on the arc
+    // exactly that far apart — the tip on the node border, the rear where the
+    // stroke stops — and handing back their midpoint as the polygon's origin
+    // with the bearing between them as its angle. The head then reads as part
+    // of the curve at any bow, and the stroke meets its rear edge dead on.
+    //
+    // Following the TANGENT AT THE TIP instead (which is what backing the
+    // origin off along `headingAt` amounted to) keeps the tip honest but lets
+    // the rear drift off the curve by the sagitta over the triangle's length:
+    // ~4px on a medium bow at width 1, and past 60px at width 4, which is the
+    // arrowhead visibly hanging off the end of its own connection.
+    const headingAt = (t) => (arc ? arcPointAt(arc, t).angle : chord * (180 / Math.PI));
     const arrowFor = (fromStart, box, reverse) => {
-      const tip = trimRouteEnd(fullPoints, box, fromStart, 0).endpoint;
-      const angle = (reverse ? headingAt(tip) + 180 : headingAt(tip));
+      const t0 = arc ? borderParamOf(fromStart, box) : 0;
+      // Snapped back onto the circle — the sampled polyline's tip is off it.
+      const tip = arc ? arcPointAt(arc, t0) : trimRouteEnd(fullPoints, box, fromStart, 0).endpoint;
+      // The body extends AWAY from the node it points at: forward along the arc
+      // for a source arrow, backward for a destination one.
+      const tRear = arcParamAtChord(arc, t0, 2 * cw * POLY_TIP, fromStart);
+      if (tRear !== null) {
+        const rear = arcPointAt(arc, tRear);
+        return {
+          x: (tip.x + rear.x) / 2,
+          y: (tip.y + rear.y) / 2,
+          angle: Math.atan2(tip.y - rear.y, tip.x - rear.x) * (180 / Math.PI),
+        };
+      }
+      // No rear anchor available (straight edge, or an arc too short/tight to
+      // hold the whole triangle). Fall back to the tangent at the tip, which
+      // still keeps the tip on the border.
+      const angle = reverse ? headingAt(t0) + 180 : headingAt(t0);
       const rad = angle * (Math.PI / 180);
       return {
         x: tip.x - cw * POLY_TIP * Math.cos(rad),

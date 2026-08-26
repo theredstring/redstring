@@ -17,7 +17,9 @@ import {
   lombardiArcFor,
   MAX_TANGENT_CHORD,
   POLY_TIP,
+  ARROW_CAP_RADIUS,
   lombardiLineTrim,
+  arcParamAtChord,
 } from '../../src/utils/canvas/edgeRouting.js';
 import { getNodeHitbox } from '../../src/utils/canvas/nodeHitbox.js';
 import {
@@ -559,6 +561,86 @@ describe('computeLombardiRouting', () => {
       // radius, so the trim sits between the tip and that rear edge.
       expect(lombardiLineTrim(1)).toBeGreaterThan(POLY_TIP);
       expect(lombardiLineTrim(1)).toBeLessThan(2 * POLY_TIP);
+    });
+  });
+
+  describe('the arrowhead sits ON the arc, not alongside it', () => {
+    // The regression: the polygon's origin was backed off from the tip along
+    // the TANGENT AT THE TIP. The tip stayed honest but the rest of the rigid
+    // triangle walked off the curve by the sagitta over its own length — a few
+    // px on a medium bow at width 1, tens of px at width 4 — so the head read
+    // as visibly detached from the line it terminates.
+    const WIDTHS = [0.25, 0.5, 1, 1.5, 2, 3, 4];
+    const BOWS = { gentle: 0.15, medium: 0.6, tight: 1.15, extreme: 1.3 };
+
+    // Both ends of the polygon's axis, in world coords. Mirrors the render:
+    // translate(origin) rotate(angle+90) scale(cw) puts local (0,∓34) here.
+    const axisOf = (arrow, cw) => {
+      const rad = (arrow.angle * Math.PI) / 180;
+      const dx = cw * POLY_TIP * Math.cos(rad);
+      const dy = cw * POLY_TIP * Math.sin(rad);
+      return {
+        tip: { x: arrow.x + dx, y: arrow.y + dy },
+        rear: { x: arrow.x - dx, y: arrow.y - dy },
+      };
+    };
+    const offArc = (arc, pt) => Math.abs(Math.hypot(pt.x - arc.cx, pt.y - arc.cy) - arc.radius);
+
+    for (const [shape, t] of Object.entries(BOWS)) {
+      it(`keeps both tip and rear edge on the curve — ${shape} bow`, () => {
+        const tans = new Map([['e1', { sourceAngle: t, destAngle: Math.PI - t }]]);
+        for (const cw of WIDTHS) {
+          for (const end of ['a', 'b']) {
+            const r = computeLombardiRouting(
+              edge([end]), node('a', 0, 0), node('b', 600, 0), d, d, tans, { connectionWidth: cw }
+            );
+            const { tip, rear } = axisOf(end === 'a' ? r.sourceArrow : r.destArrow, cw);
+            expect(offArc(r.arc, tip)).toBeLessThan(0.01);
+            expect(offArc(r.arc, rear)).toBeLessThan(0.01);
+          }
+        }
+      });
+    }
+
+    it('stops the stroke one cap-radius short of the rear edge', () => {
+      // The whole point of the trim: the round cap tucks under the arrowhead's
+      // base instead of poking out past its point.
+      const tans = new Map([['e1', { sourceAngle: 0.6, destAngle: Math.PI - 0.6 }]]);
+      for (const cw of WIDTHS) {
+        const r = computeLombardiRouting(
+          edge(['b']), node('a', 0, 0), node('b', 600, 0), d, d, tans, { connectionWidth: cw }
+        );
+        const { rear } = axisOf(r.destArrow, cw);
+        const gap = Math.hypot(rear.x - r.endX, rear.y - r.endY);
+        // Chord vs arc over that short a span, so allow a hair of slack.
+        expect(gap).toBeGreaterThan(ARROW_CAP_RADIUS * cw * 0.95);
+        expect(gap).toBeLessThan(ARROW_CAP_RADIUS * cw * 1.15);
+        expect(offArc(r.arc, { x: r.endX, y: r.endY })).toBeLessThan(0.01);
+      }
+    });
+  });
+
+  describe('arcParamAtChord', () => {
+    const arc = solveLombardiArc({ x: 0, y: 0 }, { x: 600, y: 0 }, 0.6, Math.PI - 0.6, 1);
+
+    it('lands exactly the requested straight-line distance away', () => {
+      const from = arcPointAt(arc, 0.3);
+      for (const dist of [10, 68, 136]) {
+        for (const forward of [true, false]) {
+          const t = arcParamAtChord(arc, 0.3, dist, forward);
+          expect(t).not.toBeNull();
+          const pt = arcPointAt(arc, t);
+          expect(Math.hypot(pt.x - from.x, pt.y - from.y)).toBeCloseTo(dist, 6);
+          expect(forward ? t > 0.3 : t < 0.3).toBe(true);
+        }
+      }
+    });
+
+    it('returns null rather than clamping when the arc cannot reach', () => {
+      expect(arcParamAtChord(arc, 0.5, 1e6, true)).toBeNull();      // past the diameter
+      expect(arcParamAtChord(arc, 0.02, 200, false)).toBeNull();    // off the near end
+      expect(arcParamAtChord(null, 0, 10, true)).toBeNull();
+      expect(arcParamAtChord({ radius: 0, sweep: 1 }, 0, 10, true)).toBeNull();
     });
   });
 

@@ -291,6 +291,10 @@ const EDGE_HIT_TOUCH_BOOST = 1.4;
 // handing out a fresh array identity on every pan tick.
 const EMPTY_OBSTACLES = Object.freeze([]);
 
+// Single identity for "no orbit data", so resetting an already-empty orbit
+// bails out of the render instead of handing OrbitOverlay fresh arrays.
+const EMPTY_ORBIT = Object.freeze({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+
 
 // Above this many visible connections, labels stop trying to dodge the ones
 // they land under. The dodge needs every connection's routed geometry plus a
@@ -479,7 +483,7 @@ function NodeCanvas() {
       gestureBlockClearTimerRef.current = null;
     }, delay);
   }, []);
-  const [orbitData, setOrbitData] = useState({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+  const [orbitData, setOrbitData] = useState(EMPTY_ORBIT);
   const [orbitLoading, setOrbitLoading] = useState(false);
   const [semanticOrbitActive, setSemanticOrbitActive] = useState(false);
   const semanticOrbitActiveRef = useRef(false);
@@ -11534,7 +11538,7 @@ function NodeCanvas() {
     (async () => {
       try {
         if (!semanticOrbitActive || selectedInstanceIds.size !== 1) {
-          setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+          setOrbitData(EMPTY_ORBIT);
           setOrbitLoading(false);
           return;
         }
@@ -11545,7 +11549,7 @@ function NodeCanvas() {
         const proto = inst ? useGraphStore.getState().nodePrototypes.get(inst.prototypeId) : null;
 
         if (!proto) {
-          setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+          setOrbitData(EMPTY_ORBIT);
           setOrbitLoading(false);
           return;
         }
@@ -11588,7 +11592,7 @@ function NodeCanvas() {
       } catch (error) {
         console.error('Orbit search failed:', error);
         if (!cancelled) {
-          setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+          setOrbitData(EMPTY_ORBIT);
           setOrbitLoading(false);
         }
       }
@@ -11600,14 +11604,14 @@ function NodeCanvas() {
   useEffect(() => {
     if (selectedInstanceIds.size === 0 && semanticOrbitActive) {
       setSemanticOrbitActive(false);
-      setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+      setOrbitData(EMPTY_ORBIT);
     }
   }, [selectedInstanceIds, semanticOrbitActive]);
 
   // Exit orbit mode callback
   const exitOrbitMode = useCallback(() => {
     setSemanticOrbitActive(false);
-    setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+    setOrbitData(EMPTY_ORBIT);
     setOrbitLoading(false);
     // Re-show control panel if nodes still selected
     if (selectedInstanceIds.size > 0) {
@@ -16508,18 +16512,23 @@ function NodeCanvas() {
 
                             return (
                               <>
-                                <OrbitOverlay
-                                  centerX={centerX}
-                                  centerY={centerY}
-                                  focusWidth={dimensions.currentWidth}
-                                  focusHeight={dimensions.currentHeight}
-                                  ring1Candidates={orbitData.ring1 || []}
-                                  ring2Candidates={orbitData.ring2 || []}
-                                  ring3Candidates={orbitData.ring3 || []}
-                                  ring4Candidates={orbitData.ring4 || []}
-                                  onOrbitItemClick={handleOrbitItemClick}
-                                  isLoading={orbitLoading}
-                                />
+                                {/* Only mount while orbit mode is on. The overlay owns an
+                                    animation loop, so mounting it for any plain selection
+                                    put a permanent per-frame loop in the canvas subtree. */}
+                                {semanticOrbitActive && (
+                                  <OrbitOverlay
+                                    centerX={centerX}
+                                    centerY={centerY}
+                                    focusWidth={dimensions.currentWidth}
+                                    focusHeight={dimensions.currentHeight}
+                                    ring1Candidates={orbitData.ring1 || []}
+                                    ring2Candidates={orbitData.ring2 || []}
+                                    ring3Candidates={orbitData.ring3 || []}
+                                    ring4Candidates={orbitData.ring4 || []}
+                                    onOrbitItemClick={handleOrbitItemClick}
+                                    isLoading={orbitLoading}
+                                  />
+                                )}
                                 <Node
                                   key={activeNodeToRender.id}
                                   node={activeNodeToRender}

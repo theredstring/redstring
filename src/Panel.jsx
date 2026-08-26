@@ -850,6 +850,11 @@ const Panel = memo(forwardRef(
     // ALL STATE DECLARATIONS - MOVED TO TOP TO AVOID INITIALIZATION ERRORS
     // Panel width state
     const [panelWidth, setPanelWidth] = useState(INITIAL_PANEL_WIDTH);
+    // Mirror of panelWidth for handlers that must read the latest value without
+    // going through a state updater (updaters run during render, so side effects
+    // such as dispatching panelWidthChanged must not live inside them).
+    const panelWidthRef = useRef(panelWidth);
+    useEffect(() => { panelWidthRef.current = panelWidth; }, [panelWidth]);
     const [lastCustomWidth, setLastCustomWidth] = useState(INITIAL_PANEL_WIDTH);
     const [isWidthInitialized, setIsWidthInitialized] = useState(false);
     const [isAnimatingWidth, setIsAnimatingWidth] = useState(false);
@@ -1133,16 +1138,15 @@ const Panel = memo(forwardRef(
     // viewport can support.
     useEffect(() => {
       const handleViewportResize = () => {
-        setPanelWidth(prev => {
-          const clamped = clampPanelWidthToViewport(prev);
-          if (clamped !== prev) {
-            setIsWideLayout(clamped > 250);
-            try {
-              window.dispatchEvent(new CustomEvent('panelWidthChanged', { detail: { side, width: clamped } }));
-            } catch { }
-          }
-          return clamped;
-        });
+        const prev = panelWidthRef.current;
+        const clamped = clampPanelWidthToViewport(prev);
+        if (clamped === prev) return;
+        panelWidthRef.current = clamped;
+        setPanelWidth(clamped);
+        setIsWideLayout(clamped > 250);
+        try {
+          window.dispatchEvent(new CustomEvent('panelWidthChanged', { detail: { side, width: clamped } }));
+        } catch { }
       };
       window.addEventListener('resize', handleViewportResize);
       return () => window.removeEventListener('resize', handleViewportResize);

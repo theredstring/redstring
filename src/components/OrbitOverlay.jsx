@@ -1,27 +1,132 @@
-import React, { useMemo, useEffect, useRef, useState, useCallback } from 'react';
+import React, { useMemo, useEffect, useRef, useCallback } from 'react';
 
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { getNodeDimensions } from '../utils.js';
-import { NODE_CORNER_RADIUS, NODE_PADDING, NODE_DEFAULT_COLOR } from '../constants';
+import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from '../constants';
 import { candidateToConcept } from '../services/candidates.js';
-import { useTheme } from '../hooks/useTheme.js';
 import useGraphStore from '../store/graphStore.js';
-import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText } from '../utils/colorUtils';
+import { useTheme } from '../hooks/useTheme.js';
+import { getTextColor, getLightHueText, getDarkHueText } from '../utils/colorUtils';
 import { formatPredicate } from '../utils/predicateFormatter.js';
 import { wrapTextToLines } from '../services/textMeasurement.js';
+import { getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
+import { resolveEdgeLabelFontSize, estimateEdgeLabelWidth } from '../services/layoutGeometry.js';
+import { POLY_TIP } from '../utils/canvas/edgeRouting.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
-const SOURCE_TO_RING_MARGIN = 200; // Gap from source node edge to first orbit ring
-const INTER_RING_MARGIN = 100;      // Gap between successive orbit rings
+const SOURCE_TO_RING_MARGIN = 200; // Minimum gap from source node edge to first orbit ring
+const INTER_RING_MARGIN = 100;     // Minimum gap between successive orbit rings
 const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.02; // Steady clockwise rotation
+// Steady-state motion writes are throttled to this rate. The drift is around
+// a pixel per write, but every write invalidates the canvas raster, and the
+// A/B test (`__orbitFreeze`) proved the per-frame writes are what drives the
+// GPU's "tile memory limits exceeded" black-tile flicker: frozen orbit, no
+// warnings. Entrances keep the full frame rate (small areas, brief); settled
+// content writes at this cadence. Runtime-tunable for calibration:
+// `window.__orbitHz = 8` (or 4, 30, ...) in the console overrides it live.
+const STEADY_WRITE_HZ_DEFAULT = 15;
 const RADIAL_PERTURBATION_PX_BASE = 1; // very subtle radial wiggle
 const ANGLE_JITTER_RAD_BASE = 0.004; // subtle angle wobble
 const MIN_FREQ_HZ = 0.2;
 const MAX_FREQ_HZ = 1.2;
 
-const clamp01 = (v) => Math.min(1, Math.max(0, v));
+// JS-driven rotation is ON. Its per-frame attribute writes do repaint the
+// canvas surface, but at a FIXED scale that repaint is cheap — glyph and
+// image rasters are cached and reused, which is the same reason panning never
+// flickered. The expensive case is a CHANGING scale (zooming): every glyph
+// and image resamples on every tick, costing more the further in you zoom.
+// That case is handled by the canvas-gesture effect below, which freezes this
+// loop and sheds the overlay's text/image detail for the duration of the
+// gesture.
+const ENABLE_ORBIT_ROTATION = true;
+
+// A CSS sway stood in for rotation while the rotation loop was suspected of
+// causing the zoom flicker. Rotation is back — the flicker was zoom-time
+// re-raster cost, not the animation — so the sway is off; the machinery stays
+// behind this flag.
+const ENABLE_ORBIT_SWAY = false;
+const ORBIT_SWAY_DEG = 0.9;        // ±sway about the focus center; ~±12px at ring 1
+const ORBIT_SWAY_PERIOD_SEC = 26;  // one full there-and-back cycle
+
+const ITEM_ALPHA = 0.85;
+
+// One stylesheet for the overlay. The alpha rules are load-bearing for zoom
+// performance: items and connections used to carry group opacity (0.85 on
+// their root <g>), and group opacity forces the rasterizer to paint each
+// group into its own offscreen isolation surface. Zooming mutates the canvas
+// transform attribute, which repaints the whole SVG every tick — so ~2N
+// surface allocations per tick, a raster-memory storm that flashed black
+// tiles across the app. Inherited fill/stroke-opacity paints inline with no
+// surfaces; only <image> needs element opacity (bounded to image items).
+// Hover brightening toggles [data-hovered] instead of touching opacity.
+const ORBIT_STYLE_SHEET = `
+@keyframes orbit-sway {
+  0%   { transform: rotate(0deg); }
+  25%  { transform: rotate(${ORBIT_SWAY_DEG}deg); }
+  75%  { transform: rotate(-${ORBIT_SWAY_DEG}deg); }
+  100% { transform: rotate(0deg); }
+}
+.orbit-items > g, .orbit-connection {
+  fill-opacity: ${ITEM_ALPHA};
+  stroke-opacity: ${ITEM_ALPHA};
+  transition: fill-opacity 0.2s ease, stroke-opacity 0.2s ease;
+}
+.orbit-items > g[data-hovered], .orbit-connection[data-hovered] {
+  fill-opacity: 1;
+  stroke-opacity: 1;
+}
+.orbit-items > g image {
+  opacity: ${ITEM_ALPHA};
+  transition: opacity 0.2s ease;
+}
+.orbit-items > g[data-hovered] image { opacity: 1; }
+/* Level-of-detail during canvas pan/zoom ([data-canvas-gesture] is set by the
+   gesture effect): text and images are the scale-dependent raster hogs — the
+   glyphs and bitmaps resample on every zoom tick — so they sit out the
+   gesture while rects, lines, and arrows keep the orbit present. */
+.orbit-overlay[data-canvas-gesture] text,
+.orbit-overlay[data-canvas-gesture] image {
+  visibility: hidden;
+}
+`;
+
+// Suspend CSS animations while the canvas transform is changing and resume
+// shortly after it settles ('canvas-transform-change' fires synchronously
+// from the pan/zoom mutators). An animating element keeps invalidating its
+// raster mid-gesture, exactly when raster work is scarcest. Used by the
+// loading dots; the main overlay handles gestures with the promote-and-freeze
+// effect in the parent component instead.
+const useSuspendAnimationDuringCanvasTransform = (getEls) => {
+  useEffect(() => {
+    let timer = null;
+    const suspend = () => {
+      for (const el of getEls()) {
+        if (el && el.style.animationName !== 'none') el.style.animationName = 'none';
+      }
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        for (const el of getEls()) {
+          if (el) el.style.animationName = '';
+        }
+      }, 250);
+    };
+    window.addEventListener('canvas-transform-change', suspend);
+    return () => {
+      window.removeEventListener('canvas-transform-change', suspend);
+      if (timer) clearTimeout(timer);
+    };
+  }, [getEls]);
+};
+
+// Predicates that carry no meaning worth drawing. Module scope: this used to be
+// rebuilt inside every connection render.
+// Note: 'externalUrl' filtered earlier in orbitResolver.js dedupeAndPartitionOrbit()
+const HIDDEN_PREDICATES = new Set(['relatedTo', 'related', 'related_to', 'related_via', 'broader', 'narrower', 'seeAlso', 'isPrimaryTopicOf', 'wikiPageWikiLink']);
+
+const hasVisiblePredicate = (predicate) => Boolean(predicate) && !HIDDEN_PREDICATES.has(predicate);
 
 // Deterministic pseudo-random in [0,1) from a string and optional salt
 const hashToUnitFloat = (str, salt = '') => {
@@ -50,132 +155,139 @@ const ORBIT_LABEL_LINE_HEIGHT = 39;
 const ORBIT_LABEL_SIDE_PADDING = 42;
 const ORBIT_LABEL_FONT_STRING = "bold 45px 'EmOne', sans-serif";
 
-// Component to render a connection from center to an orbit item
-const OrbitConnection = ({
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  predicate,
-  color,
-  isHovered = false
-}) => {
-  const theme = useTheme();
+// Connection geometry, matching NodeCanvas edge rendering.
+const EDGE_STROKE_BASE = 27;          // NodeCanvas: strokeWidth = 27 * connectionWidth
+const ARROW_POLYGON = '-26,34 26,34 0,-34'; // NodeCanvas arrow, verbatim
+const ARROW_TIP_EPS = 2;              // px of arrow tip tucked under the item border
+const LABEL_HALO_REF_SIZE = 54;       // NodeCanvas: strokeWidth = 8 * (fontSize / 54)
+const LABEL_PAD = 30;                 // clearance each side of a connection label
 
-  // Entrance animation. Clocked per painted frame with a capped delta (not wall
-  // time from mount) — mounting the whole orbit janks the main thread, and a
-  // wall-clock elapsed would burn the entire entrance window before the first
-  // frames ever paint, cutting the effect off after a split second.
-  const [entranceProgress, setEntranceProgress] = useState(0);
-  useEffect(() => {
-    let raf;
-    let last = null;
-    let elapsed = 0;
-    const tick = (ts) => {
-      if (last !== null) elapsed += Math.min(ts - last, ENTRANCE_MAX_FRAME_MS);
-      last = ts;
-      const t = Math.min(1, elapsed / ENTRANCE_DURATION_MS);
-      setEntranceProgress(t);
-      if (t < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => { if (raf) cancelAnimationFrame(raf); };
-  }, []);
-  const connEase = 1 - Math.pow(1 - entranceProgress, 3);
+/**
+ * Connection geometry from the focus node to one orbit item, matching how
+ * NodeCanvas draws edges. Shared by the initial React render and the animation
+ * loop so both agree on every frame.
+ *
+ * Unlike the canvas, the arrow tip stops AT the item border rather than
+ * penetrating it: canvas nodes are opaque and hide the overlap, orbit items
+ * render at 0.85 opacity and would let it show through.
+ *
+ * `innerFreeRadius` is where the label's half of the run begins — the focus
+ * node's border for ring 1, the previous ring's outer edge beyond that, so
+ * labels land in open annular gaps instead of on top of inner-ring items.
+ */
+function computeOrbitConnectionGeometry({
+  sourceX, sourceY,
+  focusWidth, focusHeight,
+  targetCx, targetCy,
+  targetW, targetH,
+  connectionWidth,
+  innerFreeRadius,
+}) {
+  const dx = targetCx - sourceX;
+  const dy = targetCy - sourceY;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
 
-  // Don't render generic, missing, or infrastructure predicates
-  // Note: 'externalUrl' filtered earlier in orbitResolver.js dedupeAndPartitionOrbit()
-  const HIDDEN_PREDICATES = new Set(['relatedTo', 'related', 'related_to', 'related_via', 'broader', 'narrower', 'seeAlso', 'isPrimaryTopicOf', 'wikiPageWikiLink']);
-  if (!predicate || predicate === null || HIDDEN_PREDICATES.has(predicate)) {
-    return null;
-  }
+  // Border crossing on the target, ray cast from the item's center back toward
+  // the source (NodeCanvas passes the reversed direction the same way).
+  const hit = getNodeEdgeIntersection(
+    targetCx - targetW / 2, targetCy - targetH / 2, targetW, targetH, -ux, -uy
+  );
+  const targetBorderDist = hit ? len - hit.distance : Math.max(0, len - Math.max(targetW, targetH) / 2);
+  const borderX = hit ? hit.x : sourceX + ux * targetBorderDist;
+  const borderY = hit ? hit.y : sourceY + uy * targetBorderDist;
 
-  const formattedPredicate = formatPredicate(predicate);
+  // NodeCanvas pulls the arrow back 12px from the border, 7.2px on near
+  // axis-aligned slopes where the ray meets a flat side instead of a corner.
+  const angleDeg = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
+  const normalizedAngle = angleDeg > 90 ? 180 - angleDeg : angleDeg;
+  const isQuantizedSlope = normalizedAngle < 15 || normalizedAngle > 75;
+  const canvasOffset = isQuantizedSlope ? 12 * 0.6 : 12;
+  // Back the whole triangle out so its tip, POLY_TIP*cw ahead of the origin,
+  // lands just inside the border.
+  const pullback = Math.max(canvasOffset, POLY_TIP * connectionWidth - ARROW_TIP_EPS);
 
-  // Calculate direction vector and length (matching NodeCanvas)
-  const dx = targetX - sourceX;
-  const dy = targetY - sourceY;
-  const length = Math.sqrt(dx * dx + dy * dy);
-
-  // Calculate midpoint for label placement
-  const midX = (sourceX + targetX) / 2;
-  const midY = (sourceY + targetY) / 2;
-
-  // Calculate arrow position - find intersection with target node edge, then offset back
-  // This matches NodeCanvas edge rendering (lines 9950-9954)
-  const targetWidth = 150; // Approximate orbit item width
-  const targetHeight = 80; // Approximate orbit item height
-
-  // Find intersection with target node rectangle
-  const halfWidth = targetWidth / 2;
-  const halfHeight = targetHeight / 2;
-
-  // Direction from source to target
-  const dirX = dx / length;
-  const dirY = dy / length;
-
-  // Calculate intersection with node bounds (simplified - assumes rectangle)
-  let tIntersect = Infinity;
-
-  // Check intersection with each side
-  if (dirX !== 0) {
-    const tRight = (halfWidth) / Math.abs(dirX);
-    const tLeft = (halfWidth) / Math.abs(dirX);
-    tIntersect = Math.min(tIntersect, tRight, tLeft);
-  }
-  if (dirY !== 0) {
-    const tTop = (halfHeight) / Math.abs(dirY);
-    const tBottom = (halfHeight) / Math.abs(dirY);
-    tIntersect = Math.min(tIntersect, tTop, tBottom);
-  }
-
-  // Position arrow back from intersection point
-  // Adjust offset based on angle - larger offset for diagonal/corner intersections
-  const angle = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
-  const normalizedAngle = angle > 90 ? 180 - angle : angle;
-  const isQuantizedSlope = normalizedAngle < 15 || normalizedAngle > 75; // Near horizontal/vertical
-  const baseOffset = 50; // Base offset distance
-  const arrowLength = isQuantizedSlope ? baseOffset * 0.7 : baseOffset; // Larger offset for corners
-  const intersectionX = targetX - dirX * tIntersect;
-  const intersectionY = targetY - dirY * tIntersect;
-  const arrowX = intersectionX - dirX * arrowLength;
-  const arrowY = intersectionY - dirY * arrowLength;
+  const arrowX = borderX - ux * pullback;
+  const arrowY = borderY - uy * pullback;
   const arrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
 
-  // Calculate text rotation angle
-  let textAngle = arrowAngle;
-  // Keep text right-side up
-  if (textAngle > 90 || textAngle < -90) {
-    textAngle += 180;
-  }
+  // Label sits at the midpoint of the open run: from the focus border (or the
+  // previous ring's outer edge) to the target border.
+  const sourceHit = getNodeEdgeIntersection(
+    sourceX - focusWidth / 2, sourceY - focusHeight / 2, focusWidth, focusHeight, ux, uy
+  );
+  const innerR = innerFreeRadius != null
+    ? innerFreeRadius
+    : (sourceHit ? sourceHit.distance : Math.max(focusWidth, focusHeight) / 2);
+  const labelDist = (innerR + targetBorderDist) / 2;
 
-  // Font size matching NodeCanvas
-  const fontSize = 30;
-  const textStrokeWidth = Math.max(1, fontSize * 0.12); // thinner outline, matches connection labels
+  let labelAngle = arrowAngle;
+  if (labelAngle > 90 || labelAngle < -90) labelAngle += 180; // keep text upright
+
+  return {
+    x1: sourceX,
+    y1: sourceY,
+    x2: arrowX,
+    y2: arrowY,
+    arrowTransform: `translate(${arrowX}, ${arrowY}) rotate(${arrowAngle + 90}) scale(${connectionWidth})`,
+    labelTransform: `translate(${sourceX + ux * labelDist}, ${sourceY + uy * labelDist}) rotate(${labelAngle})`,
+  };
+}
+
+// Connection from the focus node to one orbit item. Renders once per data
+// change; the animation loop moves it by writing attributes through the refs it
+// hands back via `registerConn`.
+const OrbitConnection = React.memo(function OrbitConnection({
+  id,
+  sourceX,
+  sourceY,
+  focusWidth,
+  focusHeight,
+  baseTargetCx,
+  baseTargetCy,
+  targetW,
+  targetH,
+  innerFreeRadius,
+  predicate,
+  color,
+  connectionWidth,
+  labelFontSize,
+  darkMode,
+  registerConn,
+}) {
+  const geom = computeOrbitConnectionGeometry({
+    sourceX, sourceY, focusWidth, focusHeight,
+    targetCx: baseTargetCx, targetCy: baseTargetCy,
+    targetW, targetH, connectionWidth, innerFreeRadius,
+  });
+
+  const elsRef = useRef({});
+  const setGroup = useCallback((el) => {
+    elsRef.current.connG = el;
+    if (el) registerConn(id, elsRef.current);
+    else registerConn(id, null);
+  }, [id, registerConn]);
+
+  const fill = darkMode ? getDarkHueText(color) : getLightHueText(color);
+  const halo = darkMode ? getLightHueText(color) : getDarkHueText(color);
 
   return (
-    <g className="orbit-connection" opacity={(isHovered ? 1 : 0.85) * connEase} style={{ transition: connEase >= 1 ? 'opacity 0.2s ease' : undefined }}>
-      {/* Connection line - solid like NodeCanvas edges */}
+    <g ref={setGroup} className="orbit-connection" style={{ pointerEvents: 'none' }}>
       <line
-        x1={sourceX}
-        y1={sourceY}
-        x2={arrowX}
-        y2={arrowY}
+        ref={(el) => { elsRef.current.connLine = el; }}
+        x1={geom.x1}
+        y1={geom.y1}
+        x2={geom.x2}
+        y2={geom.y2}
         stroke={color}
-        strokeWidth={16}
+        strokeWidth={EDGE_STROKE_BASE * connectionWidth}
         strokeLinecap="round"
-        style={{
-          pointerEvents: 'none'
-        }}
       />
 
-      {/* Directional arrow at target (matching NodeCanvas positioning) */}
-      <g
-        transform={`translate(${arrowX}, ${arrowY}) rotate(${arrowAngle + 90})`}
-        style={{ pointerEvents: 'none' }}
-      >
+      <g ref={(el) => { elsRef.current.arrowG = el; }} transform={geom.arrowTransform}>
         <polygon
-          points="-18,22 18,22 0,-22"
+          points={ARROW_POLYGON}
           fill={color}
           stroke={color}
           strokeWidth="6"
@@ -185,57 +297,41 @@ const OrbitConnection = ({
         />
       </g>
 
-      {/* Label text with stroke outline */}
-      <text
-        x={midX}
-        y={midY}
-        fontSize={fontSize}
-        fontFamily="'EmOne', sans-serif"
-        fontWeight="bold"
-        fill={theme.darkMode ? getDarkHueText(color) : getLightHueText(color)}
-        stroke={theme.darkMode ? getLightHueText(color) : getDarkHueText(color)}
-        strokeWidth={textStrokeWidth}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        paintOrder="stroke fill"
-        textAnchor="middle"
-        dominantBaseline="middle"
-        transform={`rotate(${textAngle}, ${midX}, ${midY})`}
-        style={{
-          pointerEvents: 'none',
-          userSelect: 'none'
-        }}
-      >
-        {formattedPredicate}
-      </text>
+      <g ref={(el) => { elsRef.current.labelG = el; }} transform={geom.labelTransform}>
+        <text
+          x={0}
+          y={0}
+          fontSize={labelFontSize}
+          fontFamily="'EmOne', sans-serif"
+          fontWeight="bold"
+          fill={fill}
+          stroke={halo}
+          strokeWidth={8 * (labelFontSize / LABEL_HALO_REF_SIZE)}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          paintOrder="stroke fill"
+          textAnchor="middle"
+          dominantBaseline="middle"
+          style={{ userSelect: 'none' }}
+        >
+          {formatPredicate(predicate)}
+        </text>
+      </g>
     </g>
   );
-};
+});
 
-const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, isHovered, onHover, onHoverEnd, onClick }) => {
-  const theme = useTheme();
-  const rotation = useGraphStore(state => state.orbitRotation);
+const DraggableOrbitItem = React.memo(function DraggableOrbitItem({
+  candidate,
+  x,
+  y,
+  dims,
+  darkMode,
+  onHoverChange,
+  onClick,
+  registerItemEl,
+}) {
   const concept = useMemo(() => candidateToConcept(candidate), [candidate]);
-
-  // Entrance animation: scale from 0 + fade in. Clocked per painted frame with a
-  // capped delta (see OrbitConnection) so mount jank can't swallow the effect.
-  const [entranceProgress, setEntranceProgress] = useState(0);
-  useEffect(() => {
-    let raf;
-    let last = null;
-    let elapsed = 0;
-    const tick = (ts) => {
-      if (last !== null) elapsed += Math.min(ts - last, ENTRANCE_MAX_FRAME_MS);
-      last = ts;
-      const t = Math.min(1, elapsed / ENTRANCE_DURATION_MS);
-      setEntranceProgress(t);
-      if (t < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => { if (raf) cancelAnimationFrame(raf); };
-  }, []);
-  // Ease-out cubic
-  const ease = 1 - Math.pow(1 - entranceProgress, 3);
 
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: SPAWNABLE_NODE,
@@ -259,19 +355,10 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
   const fill = candidate.color || NODE_DEFAULT_COLOR;
   const hasImage = Boolean(candidate.imageSrc);
 
-  // Re-calculate width and height based on candidate for rendering
-  const tempNode = {
-    id: `orbit-${candidate.id}`,
-    x: 0, y: 0, scale: 1, prototypeId: null,
-    name: candidate.name,
-    color: candidate.color || NODE_DEFAULT_COLOR,
-    definitionGraphIds: []
-  };
-  const { currentWidth, currentHeight, scaledCornerRadius } = getNodeDimensions(tempNode, false, null);
+  const { currentWidth, currentHeight, scaledCornerRadius } = dims;
   const effectiveCornerRadius = scaledCornerRadius || NODE_CORNER_RADIUS;
 
-  // Text contrast
-  const textColor = getTextColor(fill, theme.darkMode);
+  const textColor = getTextColor(fill, darkMode);
 
   // Word-wrap the label into lines for SVG <text> rendering (no foreignObject).
   const nameLines = useMemo(
@@ -281,10 +368,11 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
     [hasImage, label, currentWidth]
   );
 
-  // Center of the item for scale-from-center transform
-  const cx = x + currentWidth / 2;
-  const cy = y + currentHeight / 2;
-  const baseOpacity = isDragging ? 0.3 : (isHovered ? 1.0 : 0.85);
+  // react-dnd's drag connector and the animation registry both need this node.
+  const setRef = useCallback((el) => {
+    drag(el);
+    registerItemEl(candidate.id, el);
+  }, [drag, registerItemEl, candidate.id]);
 
   // Tap tracking: fire onClick on touchend (finger up), not touchstart, and only if movement
   // stayed within slop and react-dnd didn't claim this as a drag.
@@ -310,11 +398,11 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
 
   return (
     <g
-      ref={drag}
-      transform={ease < 1 ? `translate(${cx}, ${cy}) scale(${ease}) translate(${-cx}, ${-cy})` : undefined}
+      ref={setRef}
+      // No transform or opacity from React: the animation loop owns both, and a
+      // re-render (drag start/end) would otherwise stomp the current frame.
       style={{
-        opacity: baseOpacity * ease,
-        transition: ease >= 1 ? 'opacity 0.2s ease' : undefined,
+        ...(isDragging ? { opacity: 0.3 } : null),
         cursor: 'pointer',
         WebkitTapHighlightColor: 'transparent',
         touchAction: 'manipulation',
@@ -323,8 +411,8 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      onMouseEnter={() => onHover?.(candidate.id)}
-      onMouseLeave={() => onHoverEnd?.()}
+      onMouseEnter={() => onHoverChange?.(candidate.id, true)}
+      onMouseLeave={() => onHoverChange?.(candidate.id, false)}
     >
       {/* Clip path for image nodes */}
       {hasImage && (
@@ -410,7 +498,7 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
       />
     </g>
   );
-};
+});
 
 const computeRingRadius = (items, innerEdgeRadius, spacing, count) => {
   // innerEdgeRadius = the outer edge of the previous ring (or source node)
@@ -466,6 +554,14 @@ const measureCandidates = (candidates) => {
     return { candidate: c, dims };
   });
 };
+
+// Radial room a ring's connection labels need, so the gap in front of the ring
+// can hold them. Labels lie along the radius, so their width is what competes.
+const ringLabelRoom = (measured, labelFontSize) => measured.reduce((m, { candidate }) => (
+  hasVisiblePredicate(candidate.predicate)
+    ? Math.max(m, estimateEdgeLabelWidth(formatPredicate(candidate.predicate), labelFontSize))
+    : m
+), 0);
 
 // Loading animation: dots orbiting the node's rounded rectangle
 const LOADING_DOT_COUNT = 8;
@@ -541,47 +637,57 @@ function pointOnRoundedRect(t, cx, cy, w, h, cr) {
   }
 }
 
-const OrbitLoadingDots = ({ centerX, centerY, focusWidth, focusHeight }) => {
-  const theme = useTheme();
-  const nodeScale = useGraphStore(state => state.textSettings?.nodeScale ?? 1.0);
-  const [timeSec, setTimeSec] = useState(0);
-  const rafRef = useRef(null);
-  const startRef = useRef(null);
+const LOADING_PULSE_KEYFRAMES = `
+@keyframes orbit-dot-pulse {
+  0%   { opacity: 0.85; }
+  55%  { opacity: 0.18; }
+  100% { opacity: 0.85; }
+}`;
 
-  useEffect(() => {
-    const loop = (ts) => {
-      if (!startRef.current) startRef.current = ts;
-      setTimeSec((ts - startRef.current) / 1000);
-      rafRef.current = requestAnimationFrame(loop);
-    };
-    rafRef.current = requestAnimationFrame(loop);
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, []);
+const OrbitLoadingDots = ({ centerX, centerY, focusWidth, focusHeight, textPrimary, nodeScale }) => {
+  const groupRef = useRef(null);
+  const getAnimatedEls = useCallback(
+    () => (groupRef.current ? Array.from(groupRef.current.querySelectorAll('circle')) : []),
+    []
+  );
+  useSuspendAnimationDuringCanvasTransform(getAnimatedEls);
 
   const w = focusWidth + 2 * LOADING_PAD;
   const h = focusHeight + 2 * LOADING_PAD;
   // Match the node's scaled corner radius (getNodeDimensions: NODE_CORNER_RADIUS * 1.4 * nodeScale)
   const cr = NODE_CORNER_RADIUS * 1.4 * nodeScale;
 
+  // Dots hold still; a phase-staggered opacity pulse chases around the border
+  // for the comet effect. CSS opacity animations run on the compositor, so
+  // loading drives no main-thread frames and never repaints the canvas
+  // surface (the old version rewrote cx/cy in a RAF loop, re-rastering the
+  // whole SVG on every frame for the entire fetch).
   const dots = [];
   for (let i = 0; i < LOADING_DOT_COUNT; i++) {
-    const t = (i / LOADING_DOT_COUNT + timeSec / LOADING_ORBIT_PERIOD_SEC) % 1;
+    const t = i / LOADING_DOT_COUNT;
     const pos = pointOnRoundedRect(t, centerX, centerY, w, h, cr);
-    // Comet-tail: leading dot brightest, trailing fades
-    const opacity = 0.3 + 0.5 * ((LOADING_DOT_COUNT - i) / LOADING_DOT_COUNT);
     dots.push(
       <circle
         key={i}
         cx={pos.x}
         cy={pos.y}
         r={LOADING_DOT_RADIUS}
-        fill={theme.canvas.textPrimary}
-        opacity={opacity}
+        fill={textPrimary}
+        opacity={0.85}
+        style={{
+          animation: `orbit-dot-pulse ${LOADING_ORBIT_PERIOD_SEC}s linear infinite`,
+          animationDelay: `${(-t * LOADING_ORBIT_PERIOD_SEC).toFixed(3)}s`,
+        }}
       />
     );
   }
 
-  return <g className="orbit-loading-dots">{dots}</g>;
+  return (
+    <g ref={groupRef} className="orbit-loading-dots">
+      <style>{LOADING_PULSE_KEYFRAMES}</style>
+      {dots}
+    </g>
+  );
 };
 
 export default function OrbitOverlay({
@@ -596,10 +702,20 @@ export default function OrbitOverlay({
   onOrbitItemClick,
   isLoading = false
 }) {
-  // Hover tracking — pauses all orbit animation when any item is hovered
-  const [hoveredCandidateId, setHoveredCandidateId] = useState(null);
+  // Store reads live in the parent only. Every child subscribing separately put
+  // ~3N selectors on the store, all of them re-running on every write.
+  const theme = useTheme();
+  const darkMode = theme.darkMode;
+  const connectionWidth = useGraphStore(state => state.textSettings?.connectionWidth ?? 1.0);
+  const fontScale = useGraphStore(state => state.textSettings?.fontSize || 1);
+  const connectionLabelSize = useGraphStore(state => state.connectionLabelSize ?? 1.0);
+  const nodeScale = useGraphStore(state => state.textSettings?.nodeScale ?? 1.0);
 
-  // Always call hooks first, before any early returns
+  const labelFontSize = useMemo(
+    () => resolveEdgeLabelFontSize({ fontSize: fontScale }, connectionLabelSize),
+    [fontScale, connectionLabelSize]
+  );
+
   const measuredRing1 = useMemo(() => measureCandidates(ring1Candidates || []), [ring1Candidates]);
   const measuredRing2 = useMemo(() => measureCandidates(ring2Candidates || []), [ring2Candidates]);
   const measuredRing3 = useMemo(() => measureCandidates(ring3Candidates || []), [ring3Candidates]);
@@ -609,34 +725,37 @@ export default function OrbitOverlay({
     return Math.max(focusWidth, focusHeight) / 2;
   }, [focusWidth, focusHeight]);
 
-  // Chain radius calculations: ring1 uses SOURCE_TO_RING_MARGIN, subsequent rings use INTER_RING_MARGIN
-  const ring1Radius = useMemo(() => {
-    return computeRingRadius(measuredRing1, centerRadius, SOURCE_TO_RING_MARGIN, Math.max(1, measuredRing1.length));
-  }, [measuredRing1, centerRadius]);
+  // Ring radii, chained outward. Each gap must clear the ring's own connection
+  // labels — they lie along the radius, so a long predicate pushes its ring out.
+  const rings = useMemo(() => {
+    const measured = [measuredRing1, measuredRing2, measuredRing3, measuredRing4];
+    const arrowRoom = 2 * POLY_TIP * connectionWidth;
+    const radii = [];
+    const innerFree = [];
+    let innerEdge = centerRadius;
 
-  const ring2Radius = useMemo(() => {
-    const ring1Outer = ring1Radius + (measuredRing1.length > 0
-      ? measuredRing1.reduce((m, it) => Math.max(m, it.dims.currentWidth), 0) / 2
-      : 0);
-    return computeRingRadius(measuredRing2, ring1Outer, INTER_RING_MARGIN, Math.max(1, measuredRing2.length));
-  }, [measuredRing2, ring1Radius, measuredRing1]);
+    for (let k = 0; k < 4; k++) {
+      const items = measured[k];
+      const minGap = k === 0 ? SOURCE_TO_RING_MARGIN : INTER_RING_MARGIN;
+      const gap = Math.max(minGap, ringLabelRoom(items, labelFontSize) + arrowRoom + 2 * LABEL_PAD);
+      const radius = computeRingRadius(items, innerEdge, gap, Math.max(1, items.length));
+      radii.push(radius);
+      // Ring 1 measures its label run from the focus node's own border.
+      innerFree.push(k === 0 ? null : innerEdge);
+      const maxWidth = items.length > 0
+        ? items.reduce((m, it) => Math.max(m, it.dims.currentWidth), 0)
+        : 0;
+      innerEdge = radius + maxWidth / 2;
+    }
 
-  const ring3Radius = useMemo(() => {
-    const ring2Outer = ring2Radius + (measuredRing2.length > 0
-      ? measuredRing2.reduce((m, it) => Math.max(m, it.dims.currentWidth), 0) / 2
-      : 0);
-    return computeRingRadius(measuredRing3, ring2Outer, INTER_RING_MARGIN, Math.max(1, measuredRing3.length));
-  }, [measuredRing3, ring2Radius, measuredRing2]);
+    return { radii, innerFree };
+  }, [measuredRing1, measuredRing2, measuredRing3, measuredRing4, centerRadius, labelFontSize, connectionWidth]);
 
-  const ring4Radius = useMemo(() => {
-    const ring3Outer = ring3Radius + (measuredRing3.length > 0
-      ? measuredRing3.reduce((m, it) => Math.max(m, it.dims.currentWidth), 0) / 2
-      : 0);
-    return computeRingRadius(measuredRing4, ring3Outer, INTER_RING_MARGIN, Math.max(1, measuredRing4.length));
-  }, [measuredRing4, ring3Radius, measuredRing3]);
-
-  // Compute collision-free base angles for all rings (runs only when ring compositions change, NOT every frame)
+  // Collision-free base angles for all rings (recomputed only when ring
+  // compositions or radii change, never per frame)
   const collisionFreeAngles = useMemo(() => {
+    const [ring1Radius, ring2Radius, ring3Radius] = rings.radii;
+
     // Ring 1: evenly spaced, no collision avoidance needed (reference ring)
     const r1n = Math.max(1, measuredRing1.length);
     const ring1Angles = measuredRing1.map((_, i) => (2 * Math.PI * i) / r1n);
@@ -683,92 +802,344 @@ export default function OrbitOverlay({
       return nudgeAngleAwayFromBlocked(raw, blocked123);
     });
 
-    return { ring1: ring1Angles, ring2: ring2Angles, ring3: ring3Angles, ring4: ring4Angles };
-  }, [measuredRing1, measuredRing2, measuredRing3, measuredRing4, ring1Radius, ring2Radius, ring3Radius, ring4Radius]);
+    return [ring1Angles, ring2Angles, ring3Angles, ring4Angles];
+  }, [measuredRing1, measuredRing2, measuredRing3, measuredRing4, rings]);
 
-  // Animation time state (seconds). Pauses when any item is hovered.
-  const [animTimeSec, setAnimTimeSec] = useState(0);
-  const rafRef = useRef(null);
-  const pausedRef = useRef(false);
-  const pausedTotalRef = useRef(0); // total ms spent paused
-  const pauseStartRef = useRef(null); // wall-clock ts when current pause began
-
-  // Sync hover state to ref so the RAF loop reads it without being a dependency
-  useEffect(() => {
-    if (hoveredCandidateId) {
-      pausedRef.current = true;
-    } else {
-      pausedRef.current = false;
-    }
-  }, [hoveredCandidateId]);
-
-  useEffect(() => {
-    let startTs = 0;
-    const loop = (ts) => {
-      if (!startTs) startTs = ts;
-      if (pausedRef.current) {
-        // Record when this pause began (once)
-        if (pauseStartRef.current === null) pauseStartRef.current = ts;
-      } else {
-        // If resuming from pause, accumulate the pause duration
-        if (pauseStartRef.current !== null) {
-          pausedTotalRef.current += (ts - pauseStartRef.current);
-          pauseStartRef.current = null;
-        }
-        setAnimTimeSec((ts - startTs - pausedTotalRef.current) / 1000);
+  // Resting positions plus each item's animation seeds. No time dependency: the
+  // animation loop derives every frame from these without React re-rendering.
+  const placements = useMemo(() => {
+    const measured = [measuredRing1, measuredRing2, measuredRing3, measuredRing4];
+    const out = [];
+    for (let k = 0; k < 4; k++) {
+      const ringRadius = rings.radii[k];
+      const innerFreeRadius = rings.innerFree[k];
+      const baseAngles = collisionFreeAngles[k];
+      const salt = `ring${k + 1}`;
+      for (let i = 0; i < measured[k].length; i++) {
+        const { candidate, dims } = measured[k][i];
+        const baseAngle = baseAngles[i] ?? 0;
+        const seed1 = hashToUnitFloat(candidate.id, `${salt}:radial`);
+        const seed2 = hashToUnitFloat(candidate.id, `${salt}:angle`);
+        const seed3 = hashToUnitFloat(candidate.id, `${salt}:freqR`);
+        const seed4 = hashToUnitFloat(candidate.id, `${salt}:freqA`);
+        out.push({
+          key: `ring${k + 1}-${candidate.id}`,
+          id: candidate.id,
+          candidate,
+          dims,
+          ringRadius,
+          innerFreeRadius,
+          baseAngle,
+          baseCx: centerX + ringRadius * Math.cos(baseAngle),
+          baseCy: centerY + ringRadius * Math.sin(baseAngle),
+          radialAmp: RADIAL_PERTURBATION_PX_BASE * (0.6 + 0.8 * seed1),
+          angleJitterAmp: ANGLE_JITTER_RAD_BASE * (0.6 + 0.8 * seed2),
+          radialFreq: MIN_FREQ_HZ + (MAX_FREQ_HZ - MIN_FREQ_HZ) * seed3,
+          angleFreq: MIN_FREQ_HZ + (MAX_FREQ_HZ - MIN_FREQ_HZ) * seed4,
+          radialPhase: seed1 * 10,
+          anglePhase: seed2 * 10,
+        });
       }
-      rafRef.current = requestAnimationFrame(loop);
-    };
-    rafRef.current = requestAnimationFrame(loop);
+    }
+    return out;
+  }, [measuredRing1, measuredRing2, measuredRing3, measuredRing4, rings, collisionFreeAngles, centerX, centerY]);
+
+  const placementsById = useMemo(() => {
+    const m = new Map();
+    for (const p of placements) m.set(p.id, p);
+    return m;
+  }, [placements]);
+
+  // Everything the animation loop needs, refreshed each render so it always
+  // animates against current geometry without being restarted.
+  const paramsRef = useRef();
+  paramsRef.current = {
+    centerX, centerY, focusWidth, focusHeight, connectionWidth, byId: placementsById,
+  };
+
+  // id -> { itemG, conn: {connG, connLine, arrowG, labelG} | null, entElapsed, lastTs, entranceDone }
+  const elsRef = useRef(new Map());
+  const rafRef = useRef(null);
+  const runningRef = useRef(false);
+  const pausedRef = useRef(false);
+  const swayRef = useRef(null);
+  const overlayRootRef = useRef(null);
+  // Canvas pan/zoom gesture in flight: rotation frozen, overlay hidden.
+  const transformPausedRef = useRef(false);
+  const transformPauseBeganRef = useRef(0);
+  const lastWriteTsRef = useRef(0);
+  const clockRef = useRef({ startTs: null, pausedTotal: 0, pauseStart: null });
+
+  const entryFor = useCallback((id) => {
+    let entry = elsRef.current.get(id);
+    if (!entry) {
+      entry = { itemG: null, conn: null, entElapsed: 0, lastTs: null, entranceDone: false };
+      elsRef.current.set(id, entry);
+    }
+    return entry;
+  }, []);
+
+  const ensureRafRunning = useCallback(() => {
+    if (runningRef.current || transformPausedRef.current || elsRef.current.size === 0) return;
+    runningRef.current = true;
+    rafRef.current = requestAnimationFrame(function loop(ts) {
+      if (transformPausedRef.current) {
+        // A canvas gesture started after this frame was scheduled. Write
+        // nothing — the compositor is reusing the overlay's cached raster —
+        // and stand down; the gesture-end timer restarts the loop.
+        runningRef.current = false;
+        rafRef.current = null;
+        return;
+      }
+      // Runtime A/B switch: `window.__orbitFreeze = true` in the console skips
+      // every write while keeping the loop alive (`false` resumes instantly).
+      // With this on, the orbit contributes zero raster invalidation — if the
+      // tile-memory warnings continue anyway, the pressure is static content,
+      // not this loop.
+      if (typeof window !== 'undefined' && window.__orbitFreeze) {
+        rafRef.current = requestAnimationFrame(loop);
+        return;
+      }
+      const { centerX: cx0, centerY: cy0, focusWidth: fw, focusHeight: fh, connectionWidth: cw, byId } = paramsRef.current;
+      const clock = clockRef.current;
+
+      if (clock.startTs === null) clock.startTs = ts;
+      if (pausedRef.current) {
+        if (clock.pauseStart === null) clock.pauseStart = ts;
+      } else if (clock.pauseStart !== null) {
+        clock.pausedTotal += ts - clock.pauseStart;
+        clock.pauseStart = null;
+      }
+      // Count the in-progress pause too, so orbit time holds still on frames
+      // that keep painting through a hover (an item still entering, say).
+      const pausedSoFar = clock.pausedTotal + (clock.pauseStart !== null ? ts - clock.pauseStart : 0);
+      const t = (ts - clock.startTs - pausedSoFar) / 1000;
+
+      // Steady-state throttle (see STEADY_WRITE_HZ_DEFAULT / window.__orbitHz).
+      // Entries mid-entrance write every frame; settled entries only on the
+      // throttled passes. A hover-pause frame always writes so the frozen pose
+      // lands before the loop stands down.
+      const hzOverride = typeof window !== 'undefined' ? Number(window.__orbitHz) : NaN;
+      const steadyIntervalMs = 1000 / (hzOverride > 0 ? hzOverride : STEADY_WRITE_HZ_DEFAULT);
+      const writeSteady = pausedRef.current || ts - lastWriteTsRef.current >= steadyIntervalMs;
+      if (writeSteady) lastWriteTsRef.current = ts;
+
+      let entranceActive = false;
+
+      for (const [id, els] of elsRef.current) {
+        const p = byId.get(id);
+        if (!p) continue;
+        // Settled entries wait for a throttled pass; their sub-pixel drift is
+        // not worth a raster invalidation every frame.
+        if (els.entranceDone && !writeSteady) continue;
+
+        // Entrance clock is per item and credited per painted frame with a
+        // capped delta: mounting the orbit janks the main thread, and wall time
+        // would burn the whole window before the first frame paints.
+        let ease = 1;
+        if (!els.entranceDone) {
+          if (els.lastTs !== null) els.entElapsed += Math.min(ts - els.lastTs, ENTRANCE_MAX_FRAME_MS);
+          const progress = Math.min(1, els.entElapsed / ENTRANCE_DURATION_MS);
+          ease = 1 - Math.pow(1 - progress, 3);
+          if (progress >= 1) {
+            els.entranceDone = true;
+            // Clear the entrance's group opacity: any value < 1 (even 0.999)
+            // would keep the group painting through an isolation surface. The
+            // steady-state translucency comes from the stylesheet's
+            // fill/stroke-opacity, which needs no surface.
+            if (els.itemG) els.itemG.style.opacity = '';
+            if (els.conn?.connG) els.conn.connG.style.opacity = '';
+          } else {
+            entranceActive = true;
+          }
+        }
+        els.lastTs = ts;
+
+        const angle = p.baseAngle
+          + (ENABLE_ORBIT_ROTATION ? ORBIT_ANGULAR_SPEED_RAD_PER_SEC * t : 0)
+          + p.angleJitterAmp * Math.sin(2 * Math.PI * p.angleFreq * t + p.anglePhase);
+        const radius = p.ringRadius + p.radialAmp * Math.sin(2 * Math.PI * p.radialFreq * t + p.radialPhase);
+        const cx = cx0 + radius * Math.cos(angle);
+        const cy = cy0 + radius * Math.sin(angle);
+
+        if (els.itemG) {
+          const drift = `translate(${cx - p.baseCx}, ${cy - p.baseCy})`;
+          els.itemG.setAttribute(
+            'transform',
+            els.entranceDone ? drift : `${drift} translate(${cx}, ${cy}) scale(${ease}) translate(${-cx}, ${-cy})`
+          );
+          if (!els.entranceDone) els.itemG.style.opacity = String(ease);
+        }
+
+        const conn = els.conn;
+        if (conn && conn.connG) {
+          const g = computeOrbitConnectionGeometry({
+            sourceX: cx0, sourceY: cy0,
+            focusWidth: fw, focusHeight: fh,
+            targetCx: cx, targetCy: cy,
+            targetW: p.dims.currentWidth, targetH: p.dims.currentHeight,
+            connectionWidth: cw,
+            innerFreeRadius: p.innerFreeRadius,
+          });
+          if (conn.connLine) {
+            conn.connLine.setAttribute('x1', g.x1);
+            conn.connLine.setAttribute('y1', g.y1);
+            conn.connLine.setAttribute('x2', g.x2);
+            conn.connLine.setAttribute('y2', g.y2);
+          }
+          if (conn.arrowG) conn.arrowG.setAttribute('transform', g.arrowTransform);
+          if (conn.labelG) conn.labelG.setAttribute('transform', g.labelTransform);
+          if (!els.entranceDone) conn.connG.style.opacity = String(ease);
+        }
+      }
+
+      // Idle out when there is nothing left to move: no rotation wanted, or
+      // paused on hover and every entrance has finished.
+      const keepGoing = entranceActive || (ENABLE_ORBIT_ROTATION && !pausedRef.current);
+      if (keepGoing && elsRef.current.size > 0) {
+        rafRef.current = requestAnimationFrame(loop);
+      } else {
+        runningRef.current = false;
+        rafRef.current = null;
+      }
+    });
+  }, []);
+
+  // Detaching only clears the element pointer — the entry, and with it the
+  // item's entrance progress, survives. React re-runs a ref callback whenever
+  // its identity changes, which for these happens on any re-render that swaps
+  // react-dnd's connector; dropping the entry there would replay the entrance
+  // animation mid-life. Entries whose candidate actually went away are pruned
+  // against the current placements instead.
+  const registerItemEl = useCallback((id, el) => {
+    if (el) {
+      const entry = entryFor(id);
+      if (entry.itemG !== el) {
+        entry.itemG = el;
+        el.style.opacity = entry.entranceDone ? '' : '0';
+      }
+      ensureRafRunning();
+    } else {
+      const entry = elsRef.current.get(id);
+      if (entry) entry.itemG = null;
+    }
+  }, [entryFor, ensureRafRunning]);
+
+  const registerConn = useCallback((id, els) => {
+    if (els) {
+      const entry = entryFor(id);
+      // Hold the connection's own ref object, not a copy of its fields: its
+      // inner ref callbacks re-run on every re-render and rewrite it in place.
+      entry.conn = els;
+      if (els.connG) {
+        els.connG.style.opacity = entry.entranceDone ? '' : '0';
+      }
+      ensureRafRunning();
+    } else {
+      const entry = elsRef.current.get(id);
+      if (entry) entry.conn = null;
+    }
+  }, [entryFor, ensureRafRunning]);
+
+  // Hover highlights and pauses without any React state: touching state here
+  // would re-render every item and connection on every mouse cross.
+  const handleHoverChange = useCallback((id, hovered) => {
+    const entry = elsRef.current.get(id);
+    if (entry && entry.entranceDone) {
+      // [data-hovered] flips the stylesheet's fill/stroke-opacity to 1 with a
+      // CSS transition — never group opacity, which would need a surface.
+      if (hovered) {
+        if (entry.itemG) entry.itemG.setAttribute('data-hovered', '');
+        if (entry.conn?.connG) entry.conn.connG.setAttribute('data-hovered', '');
+      } else {
+        if (entry.itemG) entry.itemG.removeAttribute('data-hovered');
+        if (entry.conn?.connG) entry.conn.connG.removeAttribute('data-hovered');
+      }
+    }
+    pausedRef.current = hovered;
+    if (!hovered) ensureRafRunning();
+  }, [ensureRafRunning]);
+
+  // Drop registry entries for candidates that are gone, so the loop isn't kept
+  // alive by entries nothing renders any more.
+  useEffect(() => {
+    for (const id of elsRef.current.keys()) {
+      if (!placementsById.has(id)) elsRef.current.delete(id);
+    }
+  }, [placementsById]);
+
+  useEffect(() => {
+    ensureRafRunning();
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
+      runningRef.current = false;
     };
-  }, []);
+  }, [ensureRafRunning]);
 
-  // Helper: compute animated positions from base angles + per-item perturbations
-  const computeAnimatedPositions = (measured, baseAngles, ringRadius, ringSalt) => {
-    const positions = [];
-    for (let i = 0; i < measured.length; i++) {
-      const { candidate, dims } = measured[i];
-      const baseAngle = baseAngles[i] ?? 0;
-      const seed1 = hashToUnitFloat(candidate.id, `${ringSalt}:radial`);
-      const seed2 = hashToUnitFloat(candidate.id, `${ringSalt}:angle`);
-      const seed3 = hashToUnitFloat(candidate.id, `${ringSalt}:freqR`);
-      const seed4 = hashToUnitFloat(candidate.id, `${ringSalt}:freqA`);
-      const radialAmp = RADIAL_PERTURBATION_PX_BASE * (0.6 + 0.8 * seed1);
-      const angleJitterAmp = ANGLE_JITTER_RAD_BASE * (0.6 + 0.8 * seed2);
-      const radialFreq = MIN_FREQ_HZ + (MAX_FREQ_HZ - MIN_FREQ_HZ) * seed3;
-      const angleFreq = MIN_FREQ_HZ + (MAX_FREQ_HZ - MIN_FREQ_HZ) * seed4;
-      const angle = baseAngle + ORBIT_ANGULAR_SPEED_RAD_PER_SEC * animTimeSec + angleJitterAmp * Math.sin(2 * Math.PI * angleFreq * animTimeSec + seed2 * 10);
-      const radius = ringRadius + radialAmp * Math.sin(2 * Math.PI * radialFreq * animTimeSec + seed1 * 10);
-      const cx = centerX + radius * Math.cos(angle);
-      const cy = centerY + radius * Math.sin(angle);
-      positions.push({ candidate, dims, x: cx - dims.currentWidth / 2, y: cy - dims.currentHeight / 2 });
-    }
-    return positions;
-  };
-
-  const ring1Positions = useMemo(() => computeAnimatedPositions(measuredRing1, collisionFreeAngles.ring1, ring1Radius, 'ring1'),
-    [measuredRing1, collisionFreeAngles, ring1Radius, centerX, centerY, animTimeSec]);
-
-  const ring2Positions = useMemo(() => computeAnimatedPositions(measuredRing2, collisionFreeAngles.ring2, ring2Radius, 'ring2'),
-    [measuredRing2, collisionFreeAngles, ring2Radius, centerX, centerY, animTimeSec]);
-
-  const ring3Positions = useMemo(() => computeAnimatedPositions(measuredRing3, collisionFreeAngles.ring3, ring3Radius, 'ring3'),
-    [measuredRing3, collisionFreeAngles, ring3Radius, centerX, centerY, animTimeSec]);
-
-  const ring4Positions = useMemo(() => computeAnimatedPositions(measuredRing4, collisionFreeAngles.ring4, ring4Radius, 'ring4'),
-    [measuredRing4, collisionFreeAngles, ring4Radius, centerX, centerY, animTimeSec]);
-
-  // Hover callbacks — setting hoveredCandidateId pauses the animation clock
-  const handleOrbitHover = useCallback((candidateId) => {
-    setHoveredCandidateId(candidateId);
-  }, []);
-
-  const handleOrbitHoverEnd = useCallback(() => {
-    setHoveredCandidateId(null);
-  }, []);
+  // Canvas pan/zoom handling. A zoom re-rasters the whole canvas SVG on
+  // every tick — a NodeCanvas design property the overlay cannot change; it
+  // can only control how much of its own paint rides in those per-tick
+  // passes. Modes, selectable live via `window.__orbitZoomMode`:
+  //   'hide' (default) — the overlay sits gestures out entirely
+  //                      (visibility:hidden). The only mode measured quiet
+  //                      against the GPU tile budget on real hardware.
+  //   'lod'            — rects/lines/arrows stay visible; text and images
+  //                      (the scale-dependent raster hogs) are shed via the
+  //                      stylesheet's [data-canvas-gesture] rules. Measured:
+  //                      still exceeds the tile budget while zooming.
+  //   'full'           — nothing shed.
+  // In every mode the rotation loop freezes during the gesture (its writes
+  // would add invalidations on top of the zoom's own). Everything restores
+  // 250ms after the last transform event.
+  useEffect(() => {
+    let timer = null;
+    const onCanvasTransform = () => {
+      const root = overlayRootRef.current;
+      const m = typeof window !== 'undefined' ? window.__orbitZoomMode : undefined;
+      const mode = m === 'lod' || m === 'full' ? m : 'hide';
+      if (root) {
+        if (mode === 'hide' && root.style.visibility !== 'hidden') {
+          root.style.visibility = 'hidden';
+        } else if (mode === 'lod' && !root.hasAttribute('data-canvas-gesture')) {
+          root.setAttribute('data-canvas-gesture', '');
+        }
+      }
+      if (!transformPausedRef.current) {
+        transformPausedRef.current = true;
+        transformPauseBeganRef.current = performance.now();
+      }
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        const rootEl = overlayRootRef.current;
+        if (rootEl) {
+          rootEl.style.visibility = '';
+          rootEl.removeAttribute('data-canvas-gesture');
+        }
+        transformPausedRef.current = false;
+        // Credit the gesture's span as paused time so rotation resumes from
+        // its frozen pose instead of jumping ahead. When a hover pause was
+        // already open across the span, its own frame accounting covers it.
+        const clock = clockRef.current;
+        if (clock.startTs !== null && clock.pauseStart === null) {
+          clock.pausedTotal += performance.now() - transformPauseBeganRef.current;
+        }
+        ensureRafRunning();
+      }, 250);
+    };
+    window.addEventListener('canvas-transform-change', onCanvasTransform);
+    return () => {
+      window.removeEventListener('canvas-transform-change', onCanvasTransform);
+      if (timer) clearTimeout(timer);
+      transformPausedRef.current = false;
+      const root = overlayRootRef.current;
+      if (root) {
+        root.style.visibility = '';
+        root.removeAttribute('data-canvas-gesture');
+      }
+    };
+  }, [ensureRafRunning]);
 
   // Early return check after all hooks are called
   const allEmpty = (!ring1Candidates || ring1Candidates.length === 0) &&
@@ -778,151 +1149,81 @@ export default function OrbitOverlay({
 
   if (allEmpty && !isLoading) return null;
   if (allEmpty && isLoading) {
-    return <OrbitLoadingDots centerX={centerX} centerY={centerY} focusWidth={focusWidth} focusHeight={focusHeight} />;
+    return (
+      <OrbitLoadingDots
+        centerX={centerX}
+        centerY={centerY}
+        focusWidth={focusWidth}
+        focusHeight={focusHeight}
+        textPrimary={theme.canvas.textPrimary}
+        nodeScale={nodeScale}
+      />
+    );
   }
 
   return (
-    <g className="orbit-overlay">
+    <g className="orbit-overlay" ref={overlayRootRef}>
+      <style>{ORBIT_STYLE_SHEET}</style>
+      {/* Sandwich: translate the local origin to the focus center, then back,
+          so an optional whole-orbit transform (the flag-gated CSS sway) pivots
+          about the focus while children keep absolute canvas coordinates. */}
+      <g transform={`translate(${centerX} ${centerY})`}>
+      <g
+        ref={swayRef}
+        className="orbit-sway"
+        style={ENABLE_ORBIT_SWAY ? {
+          // No will-change: it would pin a permanently-promoted GPU texture the
+          // size of the whole orbit. The running animation promotes a layer on
+          // its own, only while it needs one.
+          transformOrigin: '0 0',
+          animation: `orbit-sway ${ORBIT_SWAY_PERIOD_SEC}s ease-in-out infinite`,
+        } : undefined}
+      >
+      <g transform={`translate(${-centerX} ${-centerY})`}>
       {/* Render connections FIRST (behind orbit items) */}
       <g className="orbit-connections">
-        {/* Ring 1 connections */}
-        {ring1Positions.map(({ candidate, x, y, dims }) => {
-          const targetCenterX = x + dims.currentWidth / 2;
-          const targetCenterY = y + dims.currentHeight / 2;
-
-          return (
-            <OrbitConnection
-              key={`conn-${candidate.id}`}
-              sourceX={centerX}
-              sourceY={centerY}
-              targetX={targetCenterX}
-              targetY={targetCenterY}
-              predicate={candidate.predicate}
-              color={candidate.color}
-              isHovered={hoveredCandidateId === candidate.id}
-            />
-          );
-        })}
-
-        {/* Ring 2 connections */}
-        {ring2Positions.map(({ candidate, x, y, dims }) => {
-          const targetCenterX = x + dims.currentWidth / 2;
-          const targetCenterY = y + dims.currentHeight / 2;
-
-          return (
-            <OrbitConnection
-              key={`conn-${candidate.id}`}
-              sourceX={centerX}
-              sourceY={centerY}
-              targetX={targetCenterX}
-              targetY={targetCenterY}
-              predicate={candidate.predicate}
-              color={candidate.color}
-              isHovered={hoveredCandidateId === candidate.id}
-            />
-          );
-        })}
-
-        {/* Ring 3 connections */}
-        {ring3Positions.map(({ candidate, x, y, dims }) => {
-          const targetCenterX = x + dims.currentWidth / 2;
-          const targetCenterY = y + dims.currentHeight / 2;
-
-          return (
-            <OrbitConnection
-              key={`conn-${candidate.id}`}
-              sourceX={centerX}
-              sourceY={centerY}
-              targetX={targetCenterX}
-              targetY={targetCenterY}
-              predicate={candidate.predicate}
-              color={candidate.color}
-              isHovered={hoveredCandidateId === candidate.id}
-            />
-          );
-        })}
-
-        {/* Ring 4 connections */}
-        {ring4Positions.map(({ candidate, x, y, dims }) => {
-          const targetCenterX = x + dims.currentWidth / 2;
-          const targetCenterY = y + dims.currentHeight / 2;
-
-          return (
-            <OrbitConnection
-              key={`conn-${candidate.id}`}
-              sourceX={centerX}
-              sourceY={centerY}
-              targetX={targetCenterX}
-              targetY={targetCenterY}
-              predicate={candidate.predicate}
-              color={candidate.color}
-              isHovered={hoveredCandidateId === candidate.id}
-            />
-          );
-        })}
+        {placements.filter(p => hasVisiblePredicate(p.candidate.predicate)).map(p => (
+          <OrbitConnection
+            key={`conn-${p.key}`}
+            id={p.id}
+            sourceX={centerX}
+            sourceY={centerY}
+            focusWidth={focusWidth}
+            focusHeight={focusHeight}
+            baseTargetCx={p.baseCx}
+            baseTargetCy={p.baseCy}
+            targetW={p.dims.currentWidth}
+            targetH={p.dims.currentHeight}
+            innerFreeRadius={p.innerFreeRadius}
+            predicate={p.candidate.predicate}
+            color={p.candidate.color}
+            connectionWidth={connectionWidth}
+            labelFontSize={labelFontSize}
+            darkMode={darkMode}
+            registerConn={registerConn}
+          />
+        ))}
       </g>
 
       {/* Render orbit items SECOND (on top of connections) */}
       <g className="orbit-items">
-        {ring1Positions.map(({ candidate, dims, x, y }) => (
+        {placements.map(p => (
           <DraggableOrbitItem
-            key={`ring1-${candidate.id}`}
-            candidate={candidate}
-            x={x}
-            y={y}
-            width={dims.currentWidth}
-            height={dims.currentHeight}
-            isHovered={hoveredCandidateId === candidate.id}
-            onHover={handleOrbitHover}
-            onHoverEnd={handleOrbitHoverEnd}
+            key={p.key}
+            candidate={p.candidate}
+            x={p.baseCx - p.dims.currentWidth / 2}
+            y={p.baseCy - p.dims.currentHeight / 2}
+            dims={p.dims}
+            darkMode={darkMode}
+            onHoverChange={handleHoverChange}
             onClick={onOrbitItemClick}
+            registerItemEl={registerItemEl}
           />
         ))}
-        {ring2Positions.map(({ candidate, dims, x, y }) => (
-          <DraggableOrbitItem
-            key={`ring2-${candidate.id}`}
-            candidate={candidate}
-            x={x}
-            y={y}
-            width={dims.currentWidth}
-            height={dims.currentHeight}
-            isHovered={hoveredCandidateId === candidate.id}
-            onHover={handleOrbitHover}
-            onHoverEnd={handleOrbitHoverEnd}
-            onClick={onOrbitItemClick}
-          />
-        ))}
-        {ring3Positions.map(({ candidate, dims, x, y }) => (
-          <DraggableOrbitItem
-            key={`ring3-${candidate.id}`}
-            candidate={candidate}
-            x={x}
-            y={y}
-            width={dims.currentWidth}
-            height={dims.currentHeight}
-            isHovered={hoveredCandidateId === candidate.id}
-            onHover={handleOrbitHover}
-            onHoverEnd={handleOrbitHoverEnd}
-            onClick={onOrbitItemClick}
-          />
-        ))}
-        {ring4Positions.map(({ candidate, dims, x, y }) => (
-          <DraggableOrbitItem
-            key={`ring4-${candidate.id}`}
-            candidate={candidate}
-            x={x}
-            y={y}
-            width={dims.currentWidth}
-            height={dims.currentHeight}
-            isHovered={hoveredCandidateId === candidate.id}
-            onHover={handleOrbitHover}
-            onHoverEnd={handleOrbitHoverEnd}
-            onClick={onOrbitItemClick}
-          />
-        ))}
+      </g>
+      </g>
+      </g>
       </g>
     </g>
   );
 }
-
-
