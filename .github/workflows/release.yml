@@ -12,36 +12,28 @@ permissions:
   contents: write
 
 jobs:
-  # Build every distributable in parallel. Nothing publishes here — artifacts go
-  # to the `publish` job below, which is the only writer of the GitHub release.
-  #
-  # macOS is split by architecture on purpose. Notarization is ~3.5 minutes of
-  # waiting on Apple per arch and electron-builder runs them serially, so a
-  # combined mac job spent ~7 minutes of its ~10 doing nothing but waiting.
-  # Running the two arches as concurrent jobs overlaps that wait.
-  build:
-    name: build (${{ matrix.label }})
+  release:
     runs-on: ${{ matrix.os }}
 
     strategy:
-      # One target's failure shouldn't cancel the others — a macOS OOM took the
-      # Linux and Windows builds down with it on v0.11.0, so the run reported
-      # nothing about whether they would have succeeded.
+      # One platform's failure shouldn't cancel the other two — a macOS OOM took
+      # the Linux and Windows builds down with it on the first v0.11.0 attempt,
+      # so the run reported nothing about whether they would have succeeded.
       fail-fast: false
       matrix:
-        include:
-          - os: macos-latest
-            label: mac-x64
-            args: --mac --x64
-          - os: macos-latest
-            label: mac-arm64
-            args: --mac --arm64
-          - os: ubuntu-latest
-            label: linux
-            args: --linux
-          - os: windows-latest
-            label: win
-            args: --win
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
+    # macOS builds both architectures in this one job, serially, and writes a
+    # single latest-mac.yml describing all four artifacts. Splitting the arches
+    # into concurrent jobs to overlap the ~3.5min notarization waits was tried
+    # and reverted: `--mac --x64` does NOT restrict architecture when
+    # electron-builder.json declares `arch: ["x64", "arm64"]` on the targets —
+    # the config wins — so both jobs built all four artifacts, took 11m and 13m
+    # respectively (slower than the 11m12s single job), and produced two
+    # conflicting manifests whose merge shipped one build's hashes against
+    # another build's bytes. Any future attempt must restrict arch via CLI
+    # target:arch pairs (`--mac dmg:arm64 zip:arm64`) and be verified by
+    # inspecting the artifact contents, not the flag's intent.
 
     steps:
       - name: Check out Git repository
@@ -71,7 +63,7 @@ jobs:
       - name: Bundle agent server
         run: npm run bundle:agent
 
-      - name: Build
+      - name: Build and Release
         uses: samuelmeuli/action-electron-builder@v1
         env:
           # Vite's sourcemap generation is the memory ceiling on this build: the
@@ -97,84 +89,6 @@ jobs:
           VITE_GITHUB_APP_CLIENT_ID: ${{ secrets.VITE_GITHUB_APP_CLIENT_ID }}
           VITE_GITHUB_APP_SLUG: ${{ secrets.VITE_GITHUB_APP_SLUG }}
         with:
+          # GitHub token, automatically provided to the action
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          args: ${{ matrix.args }}
-          # Publishing happens once, in the `publish` job. Two mac jobs writing
-          # to the same release would race on latest-mac.yml.
-          release: false
-
-      # Only the distributables. dist-electron also holds the unpacked .app and
-      # win-unpacked trees, which are hundreds of MB and are already contained
-      # in the artifacts below.
-      - name: Collect distributables
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-${{ matrix.label }}
-          if-no-files-found: error
-          retention-days: 7
-          path: |
-            dist-electron/*.dmg
-            dist-electron/*.zip
-            dist-electron/*.exe
-            dist-electron/*.AppImage
-            dist-electron/*.blockmap
-            dist-electron/*.yml
-
-  publish:
-    name: publish release
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out Git repository
-        uses: actions/checkout@v4
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      # Each artifact lands in its own subdirectory, which is what keeps the two
-      # macOS `latest-mac.yml` files from overwriting each other before the merge
-      # below can see them both.
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Merge macOS update manifests
-        run: |
-          npm install js-yaml@4 --no-save --no-audit --no-fund
-          node scripts/merge-mac-update-manifest.js artifacts release
-
-      - name: Assemble release files
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p release
-          # Everything except latest-mac.yml, which the merge step already wrote.
-          # -n so nothing can clobber the merged manifest.
-          find artifacts -type f ! -name 'latest-mac.yml' -exec cp -n {} release/ \;
-          echo "Release payload:"
-          ls -lh release/
-
-      - name: Create draft release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          TITLE="${TAG#v}"
-          # Created as a draft, matching how electron-builder's GitHub publisher
-          # behaved: the release is reviewed and published by hand.
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG exists — uploading assets over it."
-            gh release upload "$TAG" release/* --clobber
-          else
-            gh release create "$TAG" release/* \
-              --draft \
-              --title "$TITLE" \
-              --generate-notes
-          fi
-          echo "::notice::Draft release $TAG is ready. Review and publish it manually."
+          release: true
