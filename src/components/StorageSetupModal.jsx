@@ -346,6 +346,17 @@ const StorageSetupModal = ({
 
   // --- Workspace folder handlers (mirror UniversesList) ---
 
+  // Linking the folder only stores the directory handle. Universes that lost
+  // their file handle stay disconnected until something re-runs resolution, so
+  // kick that off here — otherwise the canvas needs a manual app reload.
+  const reconnectAfterWorkspaceChange = async () => {
+    try {
+      await universeBackend.reconnectFromWorkspaceFolder();
+    } catch (e) {
+      console.error('[StorageSetupModal] Failed to reconnect universes to workspace folder:', e);
+    }
+  };
+
   const handlePickWorkspaceFolder = async () => {
     try {
       if (window.electron?.fileSystem?.pickFolder) {
@@ -354,6 +365,7 @@ const StorageSetupModal = ({
         setWorkspaceFolder(folderPath.split(/[/\\]/).pop());
         setWorkspaceNeedsPermission(false);
         await saveWorkspaceHandle(folderPath);
+        await reconnectAfterWorkspaceChange();
         return;
       }
       if (!('showDirectoryPicker' in window)) {
@@ -364,6 +376,7 @@ const StorageSetupModal = ({
       setWorkspaceFolder(handle.name);
       setWorkspaceNeedsPermission(false);
       await saveWorkspaceHandle(handle);
+      await reconnectAfterWorkspaceChange();
     } catch (e) {
       if (e.name !== 'AbortError') console.error('[StorageSetupModal] Failed to pick workspace folder:', e);
     }
@@ -378,7 +391,10 @@ const StorageSetupModal = ({
   const handleRegrantWorkspacePermission = async () => {
     try {
       const result = await requestWorkspacePermission();
-      if (result === 'granted') setWorkspaceNeedsPermission(false);
+      if (result === 'granted') {
+        setWorkspaceNeedsPermission(false);
+        await reconnectAfterWorkspaceChange();
+      }
     } catch (e) {
       console.error('[StorageSetupModal] Failed to re-grant workspace permission:', e);
     }

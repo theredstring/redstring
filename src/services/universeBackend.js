@@ -1124,6 +1124,67 @@ class UniverseBackend {
     }
   }
 
+  /**
+   * Re-run local file resolution after the workspace folder is linked (or its
+   * permission re-granted).
+   *
+   * Linking the folder only wrote the directory handle — nothing re-ran
+   * ensureLocalFileHandle, so universes stuck at `needs_reconnect` stayed
+   * disconnected and the canvas sat on the loading gate until the user
+   * manually reloaded the app. This walks every local-enabled universe so the
+   * workspace fallback in ensureLocalFileHandle gets its chance, then loads
+   * the active universe if it reconnected and the store is still empty.
+   *
+   * @returns {Promise<{reconnected: string[], reloaded: boolean}>}
+   */
+  async reconnectFromWorkspaceFolder() {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    const reconnected = [];
+
+    for (const universe of this.getAllUniverses()) {
+      if (!universe?.slug || !universe.localFile?.enabled) continue;
+
+      const hadHandle = !!this.fileHandles.get(universe.slug);
+      try {
+        const result = await this.ensureLocalFileHandle(universe);
+        if (result?.success && result.handle && !hadHandle) {
+          reconnected.push(universe.slug);
+        }
+      } catch (error) {
+        umWarn(`[UniverseBackend] Workspace reconnect failed for ${universe.slug}:`, error);
+      }
+    }
+
+    if (reconnected.length > 0) {
+      this.saveToStorage();
+      await this.ensureSaveCoordinator();
+    }
+
+    // Only reload when the active universe is one of the ones we just
+    // reconnected AND the store has nothing in it. reloadUniverse has its own
+    // race guard, but checking here keeps us from touching a store the user
+    // has already been working in.
+    const activeSlug = this.activeUniverseSlug;
+    let reloaded = false;
+    if (activeSlug && reconnected.includes(activeSlug)) {
+      const counts = this._countStoreItems(this.storeOperations?.getState?.());
+      if (counts.nodes === 0 && counts.graphs <= 1) {
+        try {
+          const result = await this.reloadUniverse(activeSlug);
+          reloaded = !!result?.success;
+        } catch (error) {
+          umWarn(`[UniverseBackend] Failed to load ${activeSlug} after workspace link:`, error);
+        }
+      }
+    }
+
+    umLog(`[UniverseBackend] Workspace reconnect: ${reconnected.length} reconnected, active ${reloaded ? 'reloaded' : 'untouched'}`);
+    return { reconnected, reloaded };
+  }
+
   // ========== END CORE UNIVERSE MANAGEMENT METHODS ==========
 
   /**

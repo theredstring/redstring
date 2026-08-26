@@ -55,6 +55,7 @@ const UniversesList = ({
   onGrantLocalPermission,
   onSwapLocalFile,
   onWorkspacePermissionGranted,
+  onWorkspaceFolderLinked,
   isSlim = false,
   isMobile = false
 }) => {
@@ -155,6 +156,7 @@ const UniversesList = ({
         setWorkspaceFolder(folderName);
         setWorkspaceNeedsPermission(false);
         await saveWorkspaceHandle(folderPath);
+        await onWorkspaceFolderLinked?.();
         return;
       }
 
@@ -168,6 +170,7 @@ const UniversesList = ({
       setWorkspaceFolder(handle.name);
       setWorkspaceNeedsPermission(false);
       await saveWorkspaceHandle(handle);
+      await onWorkspaceFolderLinked?.();
     } catch (e) {
       if (e.name !== 'AbortError') {
         console.error('[UniversesList] Failed to pick workspace folder:', e);

@@ -3357,11 +3357,38 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const handleWorkspacePermissionGranted = async () => {
     try {
       setLoading(true);
+      await universeBackend.reconnectFromWorkspaceFolder();
       await refreshState();
       setSyncStatus({ type: 'success', message: 'Workspace folder access restored.' });
     } catch (error) {
       umError('[UniverseManager] Workspace permission refresh failed:', error);
       setError(`Failed to refresh after workspace permission grant: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Linking the folder is only half the job — universes that lost their file
+  // handle still need to be resolved against it, and the active one loaded, or
+  // the user is left staring at an empty canvas until they reload the app.
+  const handleWorkspaceFolderLinked = async () => {
+    try {
+      setLoading(true);
+      const { reconnected, reloaded } = await universeBackend.reconnectFromWorkspaceFolder();
+      await refreshState();
+      if (reconnected.length > 0) {
+        setSyncStatus({
+          type: 'success',
+          message: reloaded
+            ? `Workspace folder linked — reconnected ${reconnected.length} universe${reconnected.length === 1 ? '' : 's'} and loaded the active one`
+            : `Workspace folder linked — reconnected ${reconnected.length} universe${reconnected.length === 1 ? '' : 's'}`
+        });
+      } else {
+        setSyncStatus({ type: 'success', message: 'Workspace folder linked.' });
+      }
+    } catch (error) {
+      umError('[UniverseManager] Workspace folder link follow-up failed:', error);
+      setError(`Failed to reconnect universes to workspace folder: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -3918,6 +3945,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onLoadFromRepo={handleLoadFromRepo}
         onGrantLocalPermission={handleGrantLocalPermission}
         onWorkspacePermissionGranted={handleWorkspacePermissionGranted}
+        onWorkspaceFolderLinked={handleWorkspaceFolderLinked}
         isSlim={isSlim}
         isMobile={deviceInfo.isMobile}
       />
