@@ -11,7 +11,7 @@
  *   __diag.help()
  *   __diag.scan()                     // what is actually in the render tree
  *   __diag.record(5000)               // 5s of frame timings, then a report
- *   __diag.compare(5000)              // same, with the gesture layer disabled
+ *   __diag.suspect('list')            // bisect: disable one suspect at a time
  *
  * Import for side effect only. Costs nothing until a command is run.
  */
@@ -34,12 +34,9 @@ function pct(sorted, p) {
 function els() {
   const container = document.querySelector('.canvas-area');
   const svg = document.querySelector('svg.canvas');
-  // The gesture layer is the div between them, if it exists.
-  let layer = null;
-  if (svg && svg.parentElement && svg.parentElement !== container) layer = svg.parentElement;
   const group = svg?.querySelector('g');
   const orbit = document.querySelector('.orbit-overlay');
-  return { container, svg, layer, group, orbit };
+  return { container, svg, group, orbit };
 }
 
 /* ------------------------------------------------------------------ */
@@ -55,22 +52,12 @@ const TRIGGERS = [
 const NEUTRAL = new Set(['auto', 'none', 'normal', 'visible', '', 'None']);
 
 function scan({ limit = 60000 } = {}) {
-  const { container, svg, layer, group, orbit } = els();
+  const { container, svg, group, orbit } = els();
   if (!svg) { log('no svg.canvas in the DOM — is a graph open?'); return null; }
 
   log('─── structural scan ───────────────────────────────');
-  log('gesture layer present:', !!layer);
-  if (layer) {
-    log('  layer style :', JSON.stringify({
-      position: layer.style.position || getComputedStyle(layer).position,
-      contain: getComputedStyle(layer).contain,
-      overflow: getComputedStyle(layer).overflow,
-      willChange: getComputedStyle(layer).willChange,
-      transform: layer.style.transform || 'none',
-    }));
-    log('  layer box   :', layer.clientWidth + 'x' + layer.clientHeight);
-  }
   log('content <g> transform:', group?.getAttribute('transform') || '(none)');
+  log('zoom:', num(currentZoom(), 3));
 
   const all = svg.querySelectorAll('*');
   const total = all.length;
@@ -156,6 +143,19 @@ function scan({ limit = 60000 } = {}) {
 }
 
 /* ------------------------------------------------------------------ */
+/* effective zoom                                                      */
+/* ------------------------------------------------------------------ */
+
+/** The zoom currently written to the content group. */
+function currentZoom() {
+  const { group } = els();
+  const attr = group?.getAttribute('transform');
+  if (!attr) return NaN;
+  const m = /scale\(([-\d.eE+]+)\)/.exec(attr);
+  return m ? Number(m[1]) : NaN;
+}
+
+/* ------------------------------------------------------------------ */
 /* frame recording                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -187,8 +187,10 @@ function record(ms = 5000, label = '') {
     lafObs.observe({ type: 'long-animation-frame', buffered: false });
   } catch { lafObs = null; }
 
+  const zooms = [];
   const tick = (t) => {
     frames.push(t - last);
+    zooms.push(currentZoom());
     last = t;
     if (t - started < ms) raf = requestAnimationFrame(tick);
     else finish();
@@ -214,6 +216,27 @@ function record(ms = 5000, label = '') {
     log('janky frames  >24ms:', d.filter(x => x > 24).length,
         ' >50ms:', d.filter(x => x > 50).length,
         ' >100ms:', d.filter(x => x > 100).length);
+
+    // Which zoom levels the jank actually happened at. A cost that clusters in
+    // a band rather than growing with zoom points at how much detail is on
+    // screen, not at zoom depth itself.
+    const zAll = zooms.slice(1);
+    const zJank = zAll.filter((z, i) => Number.isFinite(z) && d[i] > 24);
+    const zOk = zAll.filter((z, i) => Number.isFinite(z) && d[i] <= 24);
+    if (zAll.some(Number.isFinite)) {
+      const span = (arr) => arr.length
+        ? `${num(Math.min(...arr), 2)}–${num(Math.max(...arr), 2)} (median ${num(pct([...arr].sort((a, b) => a - b), 50), 2)})`
+        : 'none';
+      log('zoom range covered   :', span(zAll.filter(Number.isFinite)));
+      log('zoom during JANK     :', span(zJank));
+      log('zoom during smooth   :', span(zOk));
+      if (zJank.length && zOk.length) {
+        const jMin = Math.min(...zJank), jMax = Math.max(...zJank);
+        log(`→ jank clusters at zoom ${num(jMin, 2)}–${num(jMax, 2)};`,
+            'if smooth frames occur both below and above that, the cost peaks',
+            'with on-screen detail rather than with zoom depth.');
+      }
+    }
     log('orbit active during recording:', orbitOn);
     if (lafObs) {
       log('long animation frames:', longFrames.length);
@@ -286,64 +309,6 @@ function writes(ms = 3000, label = '') {
 }
 
 /* ------------------------------------------------------------------ */
-/* gesture-layer A/B                                                   */
-/* ------------------------------------------------------------------ */
-
-/**
- * Neutralise the wrapper div added for compositor zoom, so its STRUCTURAL cost
- * can be measured separately from the delta-writing logic. `__compositorZoom`
- * only stops the writes — it leaves the containing/clipping box in place, so it
- * can never exonerate the box itself.
- */
-function wrapper(mode = 'status') {
-  const { layer } = els();
-  if (!layer) { log('no gesture layer found'); return; }
-  const cs = getComputedStyle(layer);
-  if (mode === 'status') {
-    log('gesture layer:', JSON.stringify({
-      contain: cs.contain, overflow: cs.overflow, willChange: cs.willChange,
-      transform: layer.style.transform || 'none',
-    }));
-    return;
-  }
-  if (mode === 'off') {
-    // As close to "this div isn't here" as we can get without unmounting it.
-    layer.style.contain = 'none';
-    layer.style.overflow = 'visible';
-    layer.style.willChange = 'auto';
-    layer.style.transform = 'none';
-    if (typeof window !== 'undefined') window.__compositorZoom = false;
-    log('gesture layer NEUTRALISED (contain/overflow/will-change/transform cleared,');
-    log('and __compositorZoom = false). Re-run your test now.');
-    return;
-  }
-  if (mode === 'on') {
-    layer.style.contain = '';
-    layer.style.overflow = '';
-    layer.style.willChange = '';
-    layer.style.transform = '';
-    if (typeof window !== 'undefined') delete window.__compositorZoom;
-    log('gesture layer restored to defaults');
-    return;
-  }
-  log('usage: __diag.wrapper("status" | "off" | "on")');
-}
-
-/** Record with the layer active, then neutralised, and print both. */
-async function compare(ms = 5000) {
-  log('A/B: keep doing the SAME interaction through both halves.');
-  wrapper('on');
-  await new Promise(r => setTimeout(r, 300));
-  record(ms, 'gesture layer ON');
-  await new Promise(r => setTimeout(r, ms + 500));
-  wrapper('off');
-  await new Promise(r => setTimeout(r, 300));
-  record(ms, 'gesture layer OFF');
-  await new Promise(r => setTimeout(r, ms + 500));
-  log('A/B done. Compare the two frame reports above.');
-}
-
-/* ------------------------------------------------------------------ */
 /* suspect bisection                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -395,12 +360,6 @@ const SUSPECTS = {
     off: () => { window.__orbitFreeze = true; return true; },
     on: () => { delete window.__orbitFreeze; },
   },
-  // The wrapper div added for compositor zoom: contain/overflow/will-change.
-  wrapper: {
-    what: 'the compositor-zoom wrapper (contain:paint + clip + will-change)',
-    off: () => { wrapper('off'); return true; },
-    on: () => { wrapper('on'); },
-  },
   // A 100k x 100k rect filled with a translucent pattern.
   grid: {
     what: 'the 100000x100000 grid pattern rect',
@@ -436,19 +395,15 @@ function suspect(name) {
 /* ------------------------------------------------------------------ */
 
 function probe() {
-  const { svg, layer, group } = els();
+  const { svg, group } = els();
   log('─── probe ─────────────────────────────────────────');
   log('content <g> attr :', group?.getAttribute('transform') || '(none)');
-  log('layer transform  :', layer?.style.transform || '(none)');
-  log('layer will-change:', layer ? getComputedStyle(layer).willChange : 'n/a');
-  log('layer contain    :', layer ? getComputedStyle(layer).contain : 'n/a');
+  log('zoom             :', num(currentZoom(), 3));
   log('svg client rect  :', svg ? JSON.stringify(svg.getBoundingClientRect().toJSON()) : 'n/a');
   log('flags            :', JSON.stringify({
-    compositorZoom: window.__compositorZoom,
     orbitZoomMode: window.__orbitZoomMode,
     orbitFreeze: window.__orbitFreeze,
     orbitHz: window.__orbitHz,
-    zoomRecommit: window.__zoomRecommit,
   }));
   log('───────────────────────────────────────────────────');
 }
@@ -458,13 +413,8 @@ function help() {
   log('  __diag.scan()            structural audit of the canvas render tree');
   log('  __diag.record(ms, label) record frame timings, then print a report');
   log('  __diag.writes(ms, label) count canvas DOM writes/sec, by element+attr');
-  log('  __diag.probe()           live transform / layer / flag state');
-  log('  __diag.wrapper(m)        "status" | "off" | "on" — A/B the gesture layer');
-  log('  __diag.compare(ms)       record ON then OFF, same interaction both times');
+  log('  __diag.probe()           live transform / zoom / flag state');
   log('  __diag.suspect("list")   bisect: disable one suspect at a time  <-- START HERE');
-  log('');
-  log('fastest path: open orbit, then __diag.suspect("dimrect"). If the canvas');
-  log('goes calm, the dim rect is the cause and the rest of this is noise.');
   log('');
   log('suggested run (paste the whole terminal output back):');
   log('  --- orbit OFF ---');
@@ -477,12 +427,12 @@ function help() {
   log('  6) __diag.record(5000,"orbit idle")     touch nothing');
   log('  7) __diag.writes(3000,"orbit idle")     touch nothing  <-- key number');
   log('  8) __diag.record(5000,"orbit pan")      pan continuously');
-  log('  --- isolate the new wrapper ---');
-  log('  9) __diag.wrapper("off") then repeat 6-8');
+  log('  --- bisect whatever is left ---');
+  log('  9) __diag.suspect("list") and work down it');
 }
 
 if (typeof window !== 'undefined') {
-  window.__diag = { help, scan, record, writes, probe, wrapper, compare, suspect, els };
+  window.__diag = { help, scan, record, writes, probe, suspect, currentZoom, els };
 }
 
 export default null;

@@ -232,19 +232,90 @@ describe('OrbitOverlay', () => {
     expect(item.getAttribute('transform')).not.toBe(frozen); // resumed
   });
 
-  it('drops group opacity after entrance so nothing needs an isolation surface', () => {
+  it('never uses group opacity, so no entry needs an isolation surface', () => {
+    // A value strictly between 0 and 1 in `style.opacity` on a multi-child <g>
+    // makes the rasterizer allocate an offscreen surface for that group. During
+    // an entrance that would happen to every item and connection every frame —
+    // ~80 surfaces churning at frame rate, which is what pushed the compositor's
+    // tile budget over in bursts. The fade rides inherited fill/stroke-opacity
+    // instead, which paints inline with no surface.
     const { container } = renderOverlay();
     const item = container.querySelector('.orbit-items > g');
     const conn = container.querySelector('.orbit-connection');
 
-    flushFrames(3); // mid-entrance: fading in via inline group opacity
-    const mid = Number(item.style.opacity);
+    const assertNoGroupOpacity = (where) => {
+      for (const el of [item, conn]) {
+        const o = el.style.opacity;
+        if (o === '') continue;
+        const n = Number(o);
+        expect(n === 0 || n === 1, `group opacity ${o} on ${el.getAttribute('class')} ${where}`).toBe(true);
+      }
+    };
+
+    // Mid-entrance: alpha ramps, but via fill-opacity — never group opacity.
+    flushFrames(3);
+    assertNoGroupOpacity('mid-entrance');
+    const mid = Number(item.style.fillOpacity);
     expect(mid).toBeGreaterThan(0);
     expect(mid).toBeLessThan(1);
+    expect(Number(item.style.strokeOpacity)).toBeCloseTo(mid, 6);
+    expect(item.hasAttribute('data-entering')).toBe(true);
 
-    flushFrames(40); // entrance complete
-    expect(item.style.opacity).toBe('');
-    expect(conn.style.opacity).toBe('');
+    // Alpha climbs as the entrance eases in.
+    flushFrames(4);
+    expect(Number(item.style.fillOpacity)).toBeGreaterThan(mid);
+
+    // Entrance complete: inline alpha handed back to the stylesheet.
+    flushFrames(40);
+    assertNoGroupOpacity('after entrance');
+    for (const el of [item, conn]) {
+      expect(el.style.fillOpacity).toBe('');
+      expect(el.style.strokeOpacity).toBe('');
+      expect(el.style.opacity).toBe('');
+      expect(el.hasAttribute('data-entering')).toBe(false);
+    }
+  });
+
+  it('holds the animation longer through a zoom than through a pan', () => {
+    // Zoom arrives in discrete steps; resuming in the gap between two of them
+    // makes the orbit stutter back to life mid-zoom.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { container } = renderOverlay();
+      flushFrames(40); // entrances done, rotation running
+      const item = container.querySelector('.orbit-items > g');
+
+      const fire = (zoom) => act(() => {
+        window.dispatchEvent(new CustomEvent('canvas-transform-change', { detail: { zoom } }));
+      });
+
+      // Two events at the SAME zoom read as a pan: resumed by 400ms.
+      fire(1);
+      fire(1);
+      flushFrames(1); // the already-scheduled frame stands down
+      expect(rafQueue.length).toBe(0); // paused either way
+      act(() => { vi.advanceTimersByTime(400); });
+      expect(rafQueue.length).toBeGreaterThan(0);
+
+      // A changed zoom holds past the pan delay…
+      flushFrames(2);
+      fire(1);
+      fire(1.2);
+      flushFrames(1);
+      const frozen = item.getAttribute('transform');
+      act(() => { vi.advanceTimersByTime(400); });
+      expect(rafQueue.length).toBe(0);
+      flushFrames(4);
+      expect(item.getAttribute('transform')).toBe(frozen); // still frozen
+
+      // …and resumes once the longer window elapses.
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(rafQueue.length).toBeGreaterThan(0);
+      flushFrames(4);
+      expect(item.getAttribute('transform')).not.toBe(frozen);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('freezes rotation but stays visible while the canvas transform changes', () => {

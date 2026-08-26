@@ -19,14 +19,22 @@ const SPAWNABLE_NODE = 'spawnable_node';
 const SOURCE_TO_RING_MARGIN = 200; // Minimum gap from source node edge to first orbit ring
 const INTER_RING_MARGIN = 100;     // Minimum gap between successive orbit rings
 const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.02; // Steady clockwise rotation
-// Steady-state motion writes are throttled to this rate. The drift is around
-// a pixel per write, but every write invalidates the canvas raster, and the
-// A/B test (`__orbitFreeze`) proved the per-frame writes are what drives the
-// GPU's "tile memory limits exceeded" black-tile flicker: frozen orbit, no
-// warnings. Entrances keep the full frame rate (small areas, brief); settled
-// content writes at this cadence. Runtime-tunable for calibration:
-// `window.__orbitHz = 8` (or 4, 30, ...) in the console overrides it live.
-const STEADY_WRITE_HZ_DEFAULT = 15;
+// Steady-state motion write rate. This was throttled to 15Hz while the orbit
+// dim rect was still in play: that rect laid ~9 viewport areas of 70% black
+// over the graph, so every write here had to blend the whole stack beneath it,
+// and cutting the write rate was the only lever the overlay had. With the rect
+// gone (ENABLE_ORBIT_DIM in NodeCanvas) the writes are ordinary invalidations
+// again, and 60Hz measured no worse than 15 — so the animation gets to be
+// smooth. Runtime-tunable if it ever needs re-testing:
+// `window.__orbitHz = 15` (or 8, 30, ...) in the console overrides it live.
+const STEADY_WRITE_HZ_DEFAULT = 60;
+// How long after the last canvas transform event the orbit animation resumes.
+// Panning is continuous, so a short delay tracks the end of the drag closely.
+// Zooming is not: wheel detents and trackpad increments leave gaps that are
+// routinely longer than the pan delay, and resuming inside one of those gaps
+// reads as the orbit stuttering back to life in the middle of a zoom.
+const PAN_RESUME_MS = 250;
+const ZOOM_RESUME_MS = 600;
 const RADIAL_PERTURBATION_PX_BASE = 1; // very subtle radial wiggle
 const ANGLE_JITTER_RAD_BASE = 0.004; // subtle angle wobble
 const MIN_FREQ_HZ = 0.2;
@@ -82,6 +90,13 @@ const ORBIT_STYLE_SHEET = `
   transition: opacity 0.2s ease;
 }
 .orbit-items > g[data-hovered] image { opacity: 1; }
+/* Entrances write alpha every frame, so the steady-state easing above must not
+   also be interpolating it — the two would fight and smear the fade. */
+.orbit-items > g[data-entering],
+.orbit-items > g[data-entering] image,
+.orbit-connection[data-entering] {
+  transition: none;
+}
 /* Level-of-detail during canvas pan/zoom ([data-canvas-gesture] is set by the
    gesture effect): text and images are the scale-dependent raster hogs — the
    glyphs and bitmaps resample on every zoom tick — so they sit out the
@@ -91,6 +106,47 @@ const ORBIT_STYLE_SHEET = `
   visibility: hidden;
 }
 `;
+
+/**
+ * Fade one entering item/connection WITHOUT group opacity.
+ *
+ * `element.style.opacity` on a multi-child <g> is the trap the stylesheet note
+ * above describes: any value between 0 and 1 makes the rasterizer allocate an
+ * offscreen isolation surface for that group. During an entrance that was
+ * happening to every item and every connection, every frame — up to ~80 surfaces
+ * allocated and torn down at frame rate, which is what pushed the compositor's
+ * tile budget over in bursts (and entrances re-fire as candidates stream in).
+ *
+ * Inherited fill/stroke-opacity paints inline with no surface at all. <image>
+ * ignores them, but it is a leaf, and element opacity on a leaf is just paint
+ * alpha — no surface either.
+ *
+ * @param {number} alpha 0..1 entrance progress, already eased
+ */
+function applyEntranceAlpha(els, alpha) {
+  const a = String(ITEM_ALPHA * alpha);
+  const itemG = els.itemG;
+  if (itemG) {
+    itemG.style.fillOpacity = a;
+    itemG.style.strokeOpacity = a;
+    if (els.itemImage === undefined) els.itemImage = itemG.querySelector('image') || null;
+    if (els.itemImage) els.itemImage.style.opacity = a;
+  }
+  const connG = els.conn?.connG;
+  if (connG) {
+    connG.style.fillOpacity = a;
+    connG.style.strokeOpacity = a;
+  }
+}
+
+/** Hand the element back to the stylesheet's steady-state alpha. */
+function clearEntranceAlpha(el) {
+  if (!el) return;
+  el.style.opacity = '';
+  el.style.fillOpacity = '';
+  el.style.strokeOpacity = '';
+  el.removeAttribute('data-entering');
+}
 
 // Suspend CSS animations while the canvas transform is changing and resume
 // shortly after it settles ('canvas-transform-change' fires synchronously
@@ -943,12 +999,10 @@ export default function OrbitOverlay({
           ease = 1 - Math.pow(1 - progress, 3);
           if (progress >= 1) {
             els.entranceDone = true;
-            // Clear the entrance's group opacity: any value < 1 (even 0.999)
-            // would keep the group painting through an isolation surface. The
-            // steady-state translucency comes from the stylesheet's
-            // fill/stroke-opacity, which needs no surface.
-            if (els.itemG) els.itemG.style.opacity = '';
-            if (els.conn?.connG) els.conn.connG.style.opacity = '';
+            // Hand alpha back to the stylesheet.
+            clearEntranceAlpha(els.itemG);
+            if (els.itemImage) els.itemImage.style.opacity = '';
+            clearEntranceAlpha(els.conn?.connG);
           } else {
             entranceActive = true;
           }
@@ -968,8 +1022,10 @@ export default function OrbitOverlay({
             'transform',
             els.entranceDone ? drift : `${drift} translate(${cx}, ${cy}) scale(${ease}) translate(${-cx}, ${-cy})`
           );
-          if (!els.entranceDone) els.itemG.style.opacity = String(ease);
         }
+        // Alpha for both item and connection, via inherited fill/stroke-opacity
+        // rather than group opacity — see applyEntranceAlpha.
+        if (!els.entranceDone) applyEntranceAlpha(els, ease);
 
         const conn = els.conn;
         if (conn && conn.connG) {
@@ -989,7 +1045,6 @@ export default function OrbitOverlay({
           }
           if (conn.arrowG) conn.arrowG.setAttribute('transform', g.arrowTransform);
           if (conn.labelG) conn.labelG.setAttribute('transform', g.labelTransform);
-          if (!els.entranceDone) conn.connG.style.opacity = String(ease);
         }
       }
 
@@ -1016,7 +1071,13 @@ export default function OrbitOverlay({
       const entry = entryFor(id);
       if (entry.itemG !== el) {
         entry.itemG = el;
-        el.style.opacity = entry.entranceDone ? '' : '0';
+        entry.itemImage = undefined; // re-resolve against the new element
+        if (entry.entranceDone) {
+          clearEntranceAlpha(el);
+        } else {
+          el.setAttribute('data-entering', '');
+          applyEntranceAlpha(entry, 0);
+        }
       }
       ensureRafRunning();
     } else {
@@ -1032,7 +1093,12 @@ export default function OrbitOverlay({
       // inner ref callbacks re-run on every re-render and rewrite it in place.
       entry.conn = els;
       if (els.connG) {
-        els.connG.style.opacity = entry.entranceDone ? '' : '0';
+        if (entry.entranceDone) {
+          clearEntranceAlpha(els.connG);
+        } else {
+          els.connG.setAttribute('data-entering', '');
+          applyEntranceAlpha(entry, 0);
+        }
       }
       ensureRafRunning();
     } else {
@@ -1077,12 +1143,11 @@ export default function OrbitOverlay({
     };
   }, [ensureRafRunning]);
 
-  // Canvas pan/zoom handling. Zooming used to re-raster the whole canvas SVG on
-  // every tick, and the overlay's only lever was how much of its own paint rode
-  // along in those passes — which is why it used to disappear entirely during a
-  // zoom. NodeCanvas now freezes the raster and scales it on the compositor
-  // instead (see useCanvasTransform), so there are no per-tick re-rasters to
-  // ride and the overlay can stay fully visible.
+  // Canvas pan/zoom handling. The overlay used to disappear during a zoom
+  // because every tick re-rastered the canvas and it could only control how
+  // much of its own paint rode along. The real cost was the orbit dim rect
+  // blending ~9 viewports of content beneath it; with that sized down the
+  // overlay can stay fully visible through a gesture.
   //
   // Modes, selectable live via `window.__orbitZoomMode`:
   //   'full' (default) — nothing shed. Correct while compositor zoom is on.
@@ -1090,10 +1155,9 @@ export default function OrbitOverlay({
   //                      (the scale-dependent raster hogs) are shed via the
   //                      stylesheet's [data-canvas-gesture] rules.
   //   'hide'           — the overlay sits gestures out entirely
-  //                      (visibility:hidden). The fallback that was measured
-  //                      quiet back when every tick re-rastered; pair it with
-  //                      `window.__compositorZoom = false` to get that
-  //                      behaviour back wholesale.
+  //                      (visibility:hidden). A fallback from when orbit mode
+  //                      laid a ~9-viewport translucent scrim over the graph
+  //                      and every gesture tick had to blend through it.
   //
   // The rotation loop still freezes during the gesture in every mode, and that
   // is now load-bearing rather than merely polite: its writes are SVG mutations
@@ -1102,7 +1166,18 @@ export default function OrbitOverlay({
   // transform event.
   useEffect(() => {
     let timer = null;
-    const onCanvasTransform = () => {
+    let lastZoom = null;
+    const onCanvasTransform = (e) => {
+      // Zoom arrives in discrete steps — wheel detents, trackpad increments —
+      // and the gaps between them are routinely longer than the pan resume
+      // delay. Resuming in those gaps makes the orbit visibly stutter back to
+      // life mid-zoom, so a zoom holds the animation for longer and stays still
+      // across the whole interaction.
+      const z = e?.detail?.zoom;
+      const zoomed = typeof z === 'number' && lastZoom !== null && z !== lastZoom;
+      if (typeof z === 'number') lastZoom = z;
+      const resumeMs = zoomed ? ZOOM_RESUME_MS : PAN_RESUME_MS;
+
       const root = overlayRootRef.current;
       const m = typeof window !== 'undefined' ? window.__orbitZoomMode : undefined;
       const mode = m === 'lod' || m === 'hide' ? m : 'full';
@@ -1134,7 +1209,7 @@ export default function OrbitOverlay({
           clock.pausedTotal += performance.now() - transformPauseBeganRef.current;
         }
         ensureRafRunning();
-      }, 250);
+      }, resumeMs);
     };
     window.addEventListener('canvas-transform-change', onCanvasTransform);
     return () => {

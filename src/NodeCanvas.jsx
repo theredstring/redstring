@@ -419,30 +419,6 @@ const TRACKPAD_ZOOM_GLIDE_EXTENSION_MS = 45;
 // slowed to a stop should stay exactly where it was left.
 const TRACKPAD_ZOOM_GLIDE_MIN_SPEED = 0.0015;
 
-// The gesture layer that wraps the <svg> — see useCanvasTransform. Viewport
-// sized and clipping (the 100k SVG overflows it exactly as it used to overflow
-// .canvas-area), with the transform origin pinned to 0,0 so a CSS delta written
-// here composes with the content group's attribute transform. Deliberately has
-// NO background: .canvas-area paints theme.canvas.bg behind it, so the strips a
-// zoom-out briefly exposes come up the right colour. Module scope so the object
-// identity is stable and React never diffs the imperatively-written transform.
-const GESTURE_LAYER_STYLE = {
-  position: 'absolute',
-  inset: 0,
-  overflow: 'hidden',
-  transformOrigin: '0 0',
-  // The whole design rests on Blink bounding this layer to the wrapper's box
-  // rather than to its 100k-square SVG child; `contain: paint` states that
-  // guarantee explicitly instead of relying on the clip alone.
-  contain: 'paint',
-  // A full-bleed div is hit-testable, and two canvas handlers dispatch on
-  // `e.target.classList.contains('canvas-area')` — if this box ever won the hit
-  // test, click-to-deselect would silently stop working. The <svg> sets
-  // pointerEvents:'auto' on itself, so it re-enables the part that matters.
-  pointerEvents: 'none',
-};
-
-
 /**
  * Root canvas component for Redstring's graph interface.
  *
@@ -463,20 +439,26 @@ function NodeCanvas() {
   // CULLING FLAG - viewport culling for nodes and edges
   const ENABLE_CULLING = false;
 
-  // ORBIT DIM FLAG — flip to true to bring the scrim back.
+  // ORBIT DIM — the scrim behind the orbit overlay. Set false to drop it
+  // entirely (the rect stays, transparent and static at full canvas size, so
+  // orbit's click-anywhere-to-exit keeps working at no paint cost).
   //
-  // Orbit mode used to dim the canvas behind the overlay with a translucent
-  // rect sized to 3x the viewport per side: ~9 viewport areas of 70% black,
-  // painting ABOVE the whole graph. Two costs came with it. Every tile it
-  // covered became non-opaque, so the compositor had to blend the entire stack
-  // beneath instead of discarding what was hidden; and its geometry was
-  // rewritten on every pan tick, invalidating that raster each time. It existed
-  // only in orbit mode — which is the one mode that misbehaved.
-  //
-  // With it off the rect is still rendered, but transparent and static at full
-  // canvas size, so orbit's click-anywhere-to-exit keeps working while costing
-  // nothing to paint and needing no per-tick updates.
+  // This was the cause of the orbit-mode tile-memory flicker, but the culprit
+  // was its SIZE, not its existence: it used to span 3x the viewport per side,
+  // i.e. ~9 viewport areas of 70% black painting above the whole graph. A
+  // translucent rect makes every tile it covers non-opaque, forcing the
+  // compositor to blend everything beneath rather than discard what is hidden.
+  // At viewport size plus a small margin the same effect costs a fraction of
+  // that. See updateOrbitDimRect.
+  // OFF: shrinking it to viewport-size was not enough. A translucent element
+  // INSIDE the content group makes the SVG's own tiles non-opaque at any size,
+  // so the whole graph beneath has to be blended rather than discarded. The
+  // scrim has to leave the SVG raster entirely to be affordable — see the note
+  // on updateOrbitDimRect.
   const ENABLE_ORBIT_DIM = false;
+  // Extra coverage on each side as a fraction of the viewport. Only has to
+  // survive between transform ticks, and the rect is repositioned on every one.
+  const ORBIT_DIM_MARGIN = 0.1;
 
   // TEMPORARY DIAGNOSTIC - zoom flicker root-cause investigation.
   // Remove after culprit identified. See /Users/granteubanks/.claude/plans/sleepy-snacking-mist.md
@@ -491,10 +473,6 @@ function NodeCanvas() {
   // outer <svg> off the GPU compositor path so a 100k SVG can't trigger
   // tile-raster-on-scale flicker.
   const contentGroupRef = useRef(null);
-  // The gesture layer wrapping the <svg>. During a zoom gesture the content
-  // group's attribute is frozen and only a CSS delta is written here, so the
-  // compositor scales the existing raster instead of re-rastering the whole SVG
-  // every tick. See useCanvasTransform.
   const wrapperRef = useRef(null);
   const containerRef = useRef(null);
   const suppressNextMouseDownRef = useRef(false);
@@ -2190,7 +2168,7 @@ function NodeCanvas() {
   // --- DOM-bypass pan/zoom (Phase 1 perf refactor) ---
   // panRef/zoomRef are the authoritative values; DOM is updated directly.
   // settledPan/settledZoom are React state that updates ~150ms after interaction stops.
-  const transform = useCanvasTransform(svgRef, contentGroupRef, canvasSize, wrapperRef);
+  const transform = useCanvasTransform(svgRef, contentGroupRef, canvasSize);
   const panOffsetRef = transform.panRef;     // alias for existing code
   const zoomLevelRef = transform.zoomRef;    // alias for existing code
   const setPanOffset = transform.setPan;     // drop-in alias for migration
@@ -3346,7 +3324,14 @@ function NodeCanvas() {
       // interaction stops, so these overlays must re-anchor off this signal to
       // track the canvas live instead of jumping once panning settles.
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('canvas-transform-change'));
+        // Carries the live zoom so listeners can tell a zoom from a pan — the
+        // orbit overlay holds its animation longer for zooms, since zoom
+        // arrives in discrete steps and it should stay still across the whole
+        // interaction rather than waking up between them. Plain Event
+        // listeners are unaffected; they simply ignore the detail.
+        window.dispatchEvent(new CustomEvent('canvas-transform-change', {
+          detail: { zoom: zoomLevelRef.current },
+        }));
       }
     };
     return () => { onTransformChangeRef.current = null; };
@@ -7953,7 +7938,12 @@ function NodeCanvas() {
           {
             id: 'orbit', label: 'Semantic Orbit', icon: Orbit, action: (instanceId) => {
               setSemanticOrbitActive(true);
-              setSelectedNodeIdForPieMenu(null);
+              // Deliberately NOT clearing selectedNodeIdForPieMenu: the menu is
+              // hidden for the duration by the semanticOrbitActive check on its
+              // isVisible prop instead. Clearing the target would unmount the
+              // menu and trip the "reset to page 0 when the target changes"
+              // effect, so leaving orbit would bring it back on the wrong page —
+              // not the one the Orbit button itself lives on.
               setNodeControlPanelVisible(false);
             }
           },
@@ -11299,11 +11289,7 @@ function NodeCanvas() {
     zoomLevel,
     zoomLevelRef,
     setZoomLevel,
-    // The gesture-path writer, not the committing one: held Shift/Space is a
-    // real zoom gesture that changes scale every frame, so it should ride the
-    // compositor like the trackpad and pinch paths do. The flushSettle() this
-    // hook already fires when movement ends is what commits the delta.
-    applyTransform: transform.applyGestureTransform,
+    applyTransform: transform.applyTransform,
     flushSettle: transform.flushSettle,
     onTransformChange: () => transform.onTransformChangeRef.current?.(),
     isPanningOrZoomingRef: isPanningOrZooming,
@@ -11513,7 +11499,11 @@ function NodeCanvas() {
     }
     // If isTransitioningPieMenu is true, we don't change currentPieMenuData or isPieMenuRendered here.
     // The existing menu plays its exit animation, and onExitAnimationComplete handles the next steps.
-  }, [selectedNodeIdForPieMenu, nodes, previewingNodeId, isTransitioningPieMenu, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNodeScale, carouselFocusedNodeDimensions, carouselFocusedNode, draggingNodeInfo]);
+    // semanticOrbitActive is read in the condition above, so it belongs here:
+    // leaving orbit has to re-run this to rebuild currentPieMenuData (the exit
+    // animation nulls it) and put the menu back in the DOM. Without the dep the
+    // menu stays gone until some unrelated change happens to re-trigger this.
+  }, [selectedNodeIdForPieMenu, nodes, previewingNodeId, isTransitioningPieMenu, semanticOrbitActive, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNodeScale, carouselFocusedNodeDimensions, carouselFocusedNode, draggingNodeInfo]);
 
   useEffect(() => {
     if (!isPieMenuRendered) {
@@ -11562,14 +11552,6 @@ function NodeCanvas() {
     // canvas plane, so it never needs repositioning — and skipping this removes
     // a write into the content group on every pan tick.
     if (!ENABLE_ORBIT_DIM) return;
-    // While a compositor delta is riding, the content group's raster is frozen
-    // on purpose and this rect is inside it — writing here would both invalidate
-    // that raster every tick (the exact cost the delta exists to avoid) and
-    // double-apply the delta, since the rect is derived from the same pan/zoom
-    // the delta already encodes. Freezing it alongside the raster keeps the two
-    // consistent; the commit re-fires onTransformChange and this catches up.
-    // Its 3x-viewport margin covers any drift the recommit thresholds allow.
-    if (transform.gestureActiveRef.current) return;
     const pan = panOffsetRef.current;
     const z = zoomLevelRef.current || 1;
     const vp = viewportSizeRef.current;
@@ -11577,11 +11559,21 @@ function NodeCanvas() {
     const vh = vp.height / z;
     const x0 = (0 - pan.x) / z + (canvasSize?.offsetX || 0);
     const y0 = (0 - pan.y) / z + (canvasSize?.offsetY || 0);
-    el.setAttribute('x', x0 - vw);
-    el.setAttribute('y', y0 - vh);
-    el.setAttribute('width', vw * 3);
-    el.setAttribute('height', vh * 3);
-  }, [canvasSize, transform.gestureActiveRef]);
+    // Cover the viewport plus a small margin — NOT the 3x-per-side box this
+    // used to use, which was ~9 viewports of blending.
+    //
+    // Sizing it down was not enough to make this affordable, which is why the
+    // flag above is off: a translucent element inside the content group makes
+    // the SVG's own tiles non-opaque at ANY size, so the whole graph beneath
+    // gets blended instead of discarded. The scrim has to become a separate
+    // compositor layer above the <svg> — one flat blend on the GPU — rather
+    // than an element competing inside the canvas's own raster.
+    const m = ORBIT_DIM_MARGIN;
+    el.setAttribute('x', x0 - vw * m);
+    el.setAttribute('y', y0 - vh * m);
+    el.setAttribute('width', vw * (1 + 2 * m));
+    el.setAttribute('height', vh * (1 + 2 * m));
+  }, [canvasSize]);
 
   useEffect(() => {
     if (!semanticOrbitActive || !ENABLE_ORBIT_DIM) return;
@@ -13791,11 +13783,6 @@ function NodeCanvas() {
             </div>
           ) : (
             <>
-              {/* Gesture layer — see GESTURE_LAYER_STYLE. Wraps ONLY the <svg>:
-                  the fixed-position overlays that follow are siblings on purpose,
-                  because #root's identity transform (App.css) is their containing
-                  block and a transformed ancestor here would steal that. */}
-              <div ref={wrapperRef} style={GESTURE_LAYER_STYLE}>
               <svg
                 ref={svgRef}
                 className="canvas"
@@ -16358,6 +16345,11 @@ function NodeCanvas() {
                             onPageChange={setPieMenuPage}
                             isVisible={(
                               currentPieMenuData?.node?.id === selectedNodeIdForPieMenu &&
+                              // Orbit owns the screen while it is up. Hiding via
+                              // isVisible (rather than clearing the target) keeps
+                              // the menu mounted and its page intact, so leaving
+                              // orbit animates it back exactly where it was.
+                              !semanticOrbitActive &&
                               (!isTransitioningPieMenu || abstractionPrompt.visible || carouselAnimationState === 'exiting') &&
                               !(draggingNodeInfo &&
                                 (draggingNodeInfo.primaryId === selectedNodeIdForPieMenu || draggingNodeInfo.instanceId === selectedNodeIdForPieMenu)
@@ -16848,7 +16840,6 @@ function NodeCanvas() {
                   )}
                 </g>
               </svg>
-              </div>
               <HoverVisionAid
                 headerHeight={headerHeight}
                 hoveredNode={hoveredNodeForVision}
