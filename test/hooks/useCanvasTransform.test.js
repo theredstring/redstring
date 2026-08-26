@@ -16,7 +16,7 @@ function makeGroup() {
   return document.createElementNS(SVG_NS, 'g');
 }
 
-function setup({ canvasSize = CANVAS_SIZE } = {}) {
+function setup({ canvasSize = CANVAS_SIZE, withOverlay = false } = {}) {
   const svg = document.createElementNS(SVG_NS, 'svg');
   const group = makeGroup();
   svg.appendChild(group);
@@ -24,12 +24,13 @@ function setup({ canvasSize = CANVAS_SIZE } = {}) {
 
   const svgRef = { current: svg };
   const contentGroupRef = { current: group };
+  const overlayGroupRef = { current: withOverlay ? makeGroup() : null };
 
   const { result } = renderHook(() =>
-    useCanvasTransform(svgRef, contentGroupRef, canvasSize)
+    useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayGroupRef)
   );
 
-  return { result, contentGroupRef, canvasSize };
+  return { result, contentGroupRef, overlayGroupRef, canvasSize };
 }
 
 /** Parse `translate(tx ty) scale(z)` off the content group. */
@@ -140,6 +141,38 @@ describe('useCanvasTransform', () => {
       ty: 60 + 50000 * 1.5,
       z: 1.5,
     });
+  });
+
+  it('keeps the orbit layer in the same coordinate space as the canvas', () => {
+    // Orbit renders its focus node and overlay into a second <svg> above the
+    // scrim. The two layers only line up if they carry the identical transform;
+    // any drift would put the orbit somewhere other than on its node.
+    const { result, contentGroupRef, overlayGroupRef } = setup({ withOverlay: true });
+
+    for (const [pan, zoom] of [
+      [{ x: 0, y: 0 }, 1],
+      [{ x: -640, y: 275 }, 2.5],
+      [{ x: 1200, y: -80 }, 0.6],
+    ]) {
+      act(() => { result.current.setPanAndZoom(pan, zoom); });
+      expect(overlayGroupRef.current.getAttribute('transform'))
+        .toBe(contentGroupRef.current.getAttribute('transform'));
+    }
+
+    // And a layer that mounts mid-session (orbit opening) picks up the current
+    // transform on the next write rather than staying at identity.
+    const lateGroup = makeGroup();
+    overlayGroupRef.current = lateGroup;
+    expect(lateGroup.getAttribute('transform')).toBeNull();
+    act(() => { result.current.applyTransform(); });
+    expect(lateGroup.getAttribute('transform'))
+      .toBe(contentGroupRef.current.getAttribute('transform'));
+  });
+
+  it('tolerates having no orbit layer', () => {
+    const { result, contentGroupRef } = setup(); // overlay ref holds null
+    act(() => { result.current.setPanAndZoom({ x: -5, y: 5 }, 1.5); });
+    expect(readTransform(contentGroupRef).z).toBe(1.5);
   });
 
   it('defers settled state until the interaction stops, and flushes on demand', async () => {

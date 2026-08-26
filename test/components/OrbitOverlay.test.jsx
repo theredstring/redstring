@@ -276,10 +276,34 @@ describe('OrbitOverlay', () => {
     }
   });
 
+  it('keeps animating through a canvas gesture by default', () => {
+    // The pause existed because a translucent scrim inside the content group
+    // made every write here blend through it. The scrim is its own compositor
+    // layer now, so the animation is free to keep running while the canvas
+    // moves.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { container } = renderOverlay();
+      flushFrames(40); // entrances done, rotation running
+      const item = container.querySelector('.orbit-items > g');
+
+      const before = item.getAttribute('transform');
+      act(() => {
+        window.dispatchEvent(new CustomEvent('canvas-transform-change', { detail: { zoom: 1.2 } }));
+      });
+      expect(rafQueue.length).toBeGreaterThan(0); // loop still alive
+      flushFrames(6); // > one steady-write interval
+      expect(item.getAttribute('transform')).not.toBe(before); // and still moving
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('holds the animation longer through a zoom than through a pan', () => {
     // Zoom arrives in discrete steps; resuming in the gap between two of them
     // makes the orbit stutter back to life mid-zoom.
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    window.__orbitGesturePause = true; // opt in — the default no longer pauses
     try {
       const { container } = renderOverlay();
       flushFrames(40); // entrances done, rotation running
@@ -314,6 +338,7 @@ describe('OrbitOverlay', () => {
       flushFrames(4);
       expect(item.getAttribute('transform')).not.toBe(frozen);
     } finally {
+      delete window.__orbitGesturePause;
       vi.useRealTimers();
     }
   });
@@ -322,6 +347,7 @@ describe('OrbitOverlay', () => {
     // Fake only the timeout clock — faking rAF would displace the manual
     // rafQueue stub the frame accounting in these tests is built on.
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    window.__orbitGesturePause = true; // this covers the opt-in pause path
     try {
       const { container } = renderOverlay();
       flushFrames(40); // entrances done, rotation running
@@ -369,6 +395,7 @@ describe('OrbitOverlay', () => {
       expect(root.style.visibility).toBe('');
     } finally {
       delete window.__orbitZoomMode;
+      delete window.__orbitGesturePause;
       vi.useRealTimers();
     }
   });

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import './NodeCanvas.css';
 import { X } from 'lucide-react';
 import Header from './Header.jsx';
@@ -419,6 +420,10 @@ const TRACKPAD_ZOOM_GLIDE_EXTENSION_MS = 45;
 // slowed to a stop should stay exactly where it was left.
 const TRACKPAD_ZOOM_GLIDE_MIN_SPEED = 0.0015;
 
+// The scrim drawn behind the orbit overlay. Lives on an HTML layer above the
+// <svg>, never as a rect inside it — see the orbit scrim in the render tree.
+const ORBIT_SCRIM_COLOR = 'rgba(0, 0, 0, 0.7)';
+
 /**
  * Root canvas component for Redstring's graph interface.
  *
@@ -474,6 +479,16 @@ function NodeCanvas() {
   // tile-raster-on-scale flicker.
   const contentGroupRef = useRef(null);
   const wrapperRef = useRef(null);
+  // Content group of the orbit layer — a second <svg> above the scrim, carrying
+  // the same pan/zoom transform as the main one. Held in state as well as a ref
+  // because the focus node and orbit overlay are portalled into it, and a portal
+  // target has to exist before React can render into it.
+  const overlayGroupRef = useRef(null);
+  const [overlayGroupEl, setOverlayGroupEl] = useState(null);
+  const setOverlayGroup = useCallback((el) => {
+    overlayGroupRef.current = el;
+    setOverlayGroupEl(el);
+  }, []);
   const containerRef = useRef(null);
   const suppressNextMouseDownRef = useRef(false);
   const suppressMouseDownResetTimeoutRef = useRef(null);
@@ -2168,7 +2183,7 @@ function NodeCanvas() {
   // --- DOM-bypass pan/zoom (Phase 1 perf refactor) ---
   // panRef/zoomRef are the authoritative values; DOM is updated directly.
   // settledPan/settledZoom are React state that updates ~150ms after interaction stops.
-  const transform = useCanvasTransform(svgRef, contentGroupRef, canvasSize);
+  const transform = useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayGroupRef);
   const panOffsetRef = transform.panRef;     // alias for existing code
   const zoomLevelRef = transform.zoomRef;    // alias for existing code
   const setPanOffset = transform.setPan;     // drop-in alias for migration
@@ -11575,6 +11590,14 @@ function NodeCanvas() {
     el.setAttribute('height', vh * (1 + 2 * m));
   }, [canvasSize]);
 
+  // Seed the orbit layer with the current transform the moment it mounts. Pan
+  // and zoom write to it from then on, but nothing fires between mount and the
+  // next interaction, so without this the layer would start at identity and the
+  // focus node would appear at raw canvas coords until the user moved.
+  useEffect(() => {
+    if (overlayGroupEl) transform.applyTransform();
+  }, [overlayGroupEl, transform.applyTransform]);
+
   useEffect(() => {
     if (!semanticOrbitActive || !ENABLE_ORBIT_DIM) return;
     updateOrbitDimRect();
@@ -16583,7 +16606,15 @@ function NodeCanvas() {
                             const centerX = activeNodeToRender.x + dimensions.currentWidth / 2;
                             const centerY = activeNodeToRender.y + dimensions.currentHeight / 2;
 
-                            return (
+                            // While orbiting, the focus node and its overlay render
+                            // into the orbit layer instead — above the scrim, so the
+                            // graph dims behind them without a translucent element
+                            // inside the canvas raster. Portalled rather than moved
+                            // so this stays one block of JSX with one set of
+                            // handlers; React events still bubble through the React
+                            // tree, so nothing about interaction changes.
+                            const portalTarget = semanticOrbitActive ? overlayGroupEl : null;
+                            const content = (
                               <>
                                 {/* Only mount while orbit mode is on. The overlay owns an
                                     animation loop, so mounting it for any plain selection
@@ -16683,6 +16714,7 @@ function NodeCanvas() {
                                 />
                               </>
                             );
+                            return portalTarget ? createPortal(content, portalTarget) : content;
                           })()
                         )}
 
@@ -16840,6 +16872,50 @@ function NodeCanvas() {
                   )}
                 </g>
               </svg>
+
+              {/* Orbit scrim. An HTML layer above the <svg>, NOT a rect inside
+                  it: a translucent element inside the content group makes the
+                  canvas's own tiles non-opaque, so the whole graph beneath has
+                  to be blended instead of discarded — that is what exhausted
+                  the GPU tile budget in orbit mode. As a sibling layer it is a
+                  single flat composite on the GPU and costs essentially
+                  nothing. pointer-events stays off so the transparent rect
+                  inside the canvas keeps handling click-to-exit unchanged. */}
+              {semanticOrbitActive && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: ORBIT_SCRIM_COLOR,
+                    pointerEvents: 'none',
+                  }}
+                />
+              )}
+
+              {/* Orbit layer. Geometry mirrors the main <svg> exactly (same
+                  origin, same size) and its content group carries the same
+                  transform, so anything portalled in here lands where it would
+                  have inside the canvas — just above the scrim. Only mounted
+                  during orbit, so normal rendering is untouched. */}
+              {semanticOrbitActive && (
+                <svg
+                  className="canvas-orbit-layer"
+                  width={canvasSize.width}
+                  height={canvasSize.height}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    overflow: 'visible',
+                    // Empty space must fall through to the canvas beneath; the
+                    // content group re-enables hits on the shapes themselves.
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <g ref={setOverlayGroup} style={{ pointerEvents: 'auto' }} />
+                </svg>
+              )}
+
               <HoverVisionAid
                 headerHeight={headerHeight}
                 hoveredNode={hoveredNodeForVision}

@@ -35,6 +35,19 @@ const STEADY_WRITE_HZ_DEFAULT = 60;
 // reads as the orbit stuttering back to life in the middle of a zoom.
 const PAN_RESUME_MS = 250;
 const ZOOM_RESUME_MS = 600;
+
+// Whether the rotation loop stands down while the canvas is being panned or
+// zoomed.
+//
+// This was necessary when orbit mode laid a translucent scrim INSIDE the canvas
+// content group: every write here had to be blended through it, so the overlay
+// had to hold still through a gesture. The scrim is now a separate compositor
+// layer above the <svg>, so the overlay's writes are ordinary invalidations and
+// the animation can keep running while you move the canvas.
+//
+// Flip to true (or `window.__orbitGesturePause = true` in the console, which
+// wins over this) to bring the pause back.
+const PAUSE_DURING_CANVAS_GESTURES = false;
 const RADIAL_PERTURBATION_PX_BASE = 1; // very subtle radial wiggle
 const ANGLE_JITTER_RAD_BASE = 0.004; // subtle angle wobble
 const MIN_FREQ_HZ = 0.2;
@@ -1159,11 +1172,9 @@ export default function OrbitOverlay({
   //                      laid a ~9-viewport translucent scrim over the graph
   //                      and every gesture tick had to blend through it.
   //
-  // The rotation loop still freezes during the gesture in every mode, and that
-  // is now load-bearing rather than merely polite: its writes are SVG mutations
-  // inside the frozen content group, and any such write invalidates the raster
-  // the compositor is scaling. Everything restores 250ms after the last
-  // transform event.
+  // Whether the rotation loop also stands down for the gesture is controlled by
+  // PAUSE_DURING_CANVAS_GESTURES (default off). Anything shed or paused is
+  // restored after the last transform event — sooner for a pan than a zoom.
   useEffect(() => {
     let timer = null;
     let lastZoom = null;
@@ -1181,6 +1192,13 @@ export default function OrbitOverlay({
       const root = overlayRootRef.current;
       const m = typeof window !== 'undefined' ? window.__orbitZoomMode : undefined;
       const mode = m === 'lod' || m === 'hide' ? m : 'full';
+      const dial = typeof window !== 'undefined' ? window.__orbitGesturePause : undefined;
+      const pauseEnabled = dial === undefined ? PAUSE_DURING_CANVAS_GESTURES : !!dial;
+
+      // Default config (nothing shed, nothing paused) has nothing to undo, so
+      // don't churn a timer on every tick of every gesture.
+      if (mode === 'full' && !pauseEnabled) return;
+
       if (root) {
         if (mode === 'hide' && root.style.visibility !== 'hidden') {
           root.style.visibility = 'hidden';
@@ -1188,7 +1206,7 @@ export default function OrbitOverlay({
           root.setAttribute('data-canvas-gesture', '');
         }
       }
-      if (!transformPausedRef.current) {
+      if (pauseEnabled && !transformPausedRef.current) {
         transformPausedRef.current = true;
         transformPauseBeganRef.current = performance.now();
       }
@@ -1200,15 +1218,17 @@ export default function OrbitOverlay({
           rootEl.style.visibility = '';
           rootEl.removeAttribute('data-canvas-gesture');
         }
-        transformPausedRef.current = false;
-        // Credit the gesture's span as paused time so rotation resumes from
-        // its frozen pose instead of jumping ahead. When a hover pause was
-        // already open across the span, its own frame accounting covers it.
-        const clock = clockRef.current;
-        if (clock.startTs !== null && clock.pauseStart === null) {
-          clock.pausedTotal += performance.now() - transformPauseBeganRef.current;
+        if (transformPausedRef.current) {
+          transformPausedRef.current = false;
+          // Credit the gesture's span as paused time so rotation resumes from
+          // its frozen pose instead of jumping ahead. When a hover pause was
+          // already open across the span, its own frame accounting covers it.
+          const clock = clockRef.current;
+          if (clock.startTs !== null && clock.pauseStart === null) {
+            clock.pausedTotal += performance.now() - transformPauseBeganRef.current;
+          }
+          ensureRafRunning();
         }
-        ensureRafRunning();
       }, resumeMs);
     };
     window.addEventListener('canvas-transform-change', onCanvasTransform);
