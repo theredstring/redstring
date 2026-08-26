@@ -6,6 +6,12 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
   { ignores: ['dist'] },
+  // Build and release tooling runs in Node, not the browser. Without this these
+  // files report `process`/`__dirname` as undefined globals.
+  {
+    files: ['scripts/**/*.js'],
+    languageOptions: { globals: globals.node },
+  },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {
