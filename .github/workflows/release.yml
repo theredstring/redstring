@@ -16,6 +16,10 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
+      # One platform's failure shouldn't cancel the other two — a macOS OOM
+      # took the Linux and Windows builds down with it on v0.11.0, so the run
+      # reported nothing about whether they would have succeeded.
+      fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
 
@@ -50,6 +54,13 @@ jobs:
       - name: Build and Release
         uses: samuelmeuli/action-electron-builder@v1
         env:
+          # Vite's sourcemap generation is the memory ceiling on this build: the
+          # main chunk is ~3.2MB and its map ~12.5MB, and producing that lot
+          # peaks around 2.8GB RSS. The macOS arm64 runner has 7GB, so Node 20
+          # sizes its old-space heap at roughly 2GB by default — which v0.10.2
+          # fit under and v0.11.0 does not. Raise it rather than shrink the
+          # build, so releases don't fail on the next few hundred KB either.
+          NODE_OPTIONS: --max-old-space-size=4096
           # Apple Notarization
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
