@@ -16,6 +16,7 @@ import {
 import { useTheme } from '../../hooks/useTheme.js';
 import PanelSegment from './shared/PanelSegment.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import ActionChip from '../shared/ActionChip.jsx';
 import { countLabel } from '../../utils/universeCounts.js';
 
 const EXPANDED_STORAGE_KEY = 'redstring-repo-sections-collapsed';
@@ -283,7 +284,7 @@ const RepositoriesSection = ({
                 </div>
 
                 {isCollapsed ? null : discoveredItems.length === 0 ? (
-                  <div style={{ fontSize: '0.72rem', color: '#555', fontStyle: 'italic' }}>
+                  <div style={{ fontSize: '0.72rem', color: theme.canvas.textSecondary, fontStyle: 'italic' }}>
                     {isDiscovering
                       ? 'Scanning for universe files...'
                       : neverScanned
@@ -317,7 +318,7 @@ const RepositoriesSection = ({
                             <div style={{ flex: 1 }}>
                               <div style={{ fontWeight: 600, fontSize: '0.78rem', color: theme.canvas.textPrimary }}>{displayName}</div>
                               {itemPath && (
-                                <div style={{ fontSize: '0.68rem', color: '#555' }}>{itemPath}</div>
+                                <div style={{ fontSize: '0.68rem', color: theme.canvas.textSecondary }}>{itemPath}</div>
                               )}
                               {/* Always rendered, so the row doesn't reflow when
                                   counts arrive — "?" holds the space. */}
@@ -330,68 +331,18 @@ const RepositoriesSection = ({
                           </div>
 
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            <button
+                            <ActionChip
+                              icon={Download}
+                              label="Load from Repo"
                               onClick={() => onImportUniverse && onImportUniverse(item, repoInfo)}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#D0CACA';
-                                e.currentTarget.style.transform = 'scale(1.02)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = '#DEDADA';
-                                e.currentTarget.style.transform = 'scale(1)';
-                              }}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 5,
-                                padding: '6px 12px',
-                                backgroundColor: '#DEDADA',
-                                border: '2px solid #7A0000',
-                                borderRadius: 20,
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                                fontFamily: "'EmOne', sans-serif",
-                                fontSize: '0.7rem',
-                                fontWeight: 700,
-                                color: '#7A0000',
-                                whiteSpace: 'nowrap'
-                              }}
                               title="Load this file from the repository"
-                            >
-                              <Download size={14} />
-                              Load from Repo
-                            </button>
-                            <button
+                            />
+                            <ActionChip
+                              icon={Upload}
+                              label="Save to Repo"
                               onClick={() => onSyncUniverse && onSyncUniverse(item, repoInfo)}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#D0CACA';
-                                e.currentTarget.style.transform = 'scale(1.02)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = '#DEDADA';
-                                e.currentTarget.style.transform = 'scale(1)';
-                              }}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 5,
-                                padding: '6px 12px',
-                                backgroundColor: '#DEDADA',
-                                border: '2px solid #7A0000',
-                                borderRadius: 20,
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                                fontFamily: "'EmOne', sans-serif",
-                                fontSize: '0.7rem',
-                                fontWeight: 700,
-                                color: '#7A0000',
-                                whiteSpace: 'nowrap'
-                              }}
                               title="Save current state to this file in the repository"
-                            >
-                              <Upload size={14} />
-                              Save to Repo
-                            </button>
+                            />
                           </div>
                         </div>
                       );

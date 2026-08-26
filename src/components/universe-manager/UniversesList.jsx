@@ -547,7 +547,7 @@ const UniversesList = ({
             <div style={{
               padding: '30px 20px',
               textAlign: 'left',
-              color: theme.canvas.brand,
+              color: theme.canvas.brandText,
               fontSize: '0.9rem',
               background: theme.canvas.inactive,
               borderRadius: 8,

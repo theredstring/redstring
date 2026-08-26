@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import Modal from '../shared/Modal.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import ActionChip from '../shared/ActionChip.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
 import { listUserRepos, createRepository } from '../../services/githubRepoService.js';
@@ -776,44 +777,13 @@ const RepositorySelectionModal = ({
                       )}
                       {onCreateUniverseFile && (
                         <div style={{ display: 'flex', justifyContent: 'center' }}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onCreateUniverseFile(repo);
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.backgroundColor = '#D0CACA';
-                              e.currentTarget.style.transform = 'scale(1.02)';
-                              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor = '#DEDADA';
-                              e.currentTarget.style.transform = 'scale(1)';
-                              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                            }}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 5,
-                              padding: '6px 12px',
-                              backgroundColor: '#DEDADA',
-                              border: '2px solid #7A0000',
-                              borderRadius: 20,
-                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s ease',
-                              fontFamily: "'EmOne', sans-serif",
-                              fontSize: '0.7rem',
-                              fontWeight: 700,
-                              color: '#7A0000',
-                              whiteSpace: 'nowrap'
-                            }}
+                          <ActionChip
+                            icon={FilePlus}
+                            label="New Universe File"
+                            onClick={() => onCreateUniverseFile(repo)}
+                            stopPropagation
                             title="Create a new .redstring file in this repository"
-                          >
-                            <FilePlus size={14} />
-                            New Universe File
-                          </button>
+                          />
                         </div>
                       )}
                       {universes.map((universe, index) => {
@@ -869,84 +839,22 @@ const RepositorySelectionModal = ({
                                   (an existing slot may want to pull the repo's universe in
                                   rather than overwrite it). */}
                               {(onImportDiscovered && (intent === 'import' || intent === 'attach' || intent === null)) && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onImportDiscovered(universe, repoInfo);
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#D0CACA';
-                                    e.currentTarget.style.transform = 'scale(1.02)';
-                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#DEDADA';
-                                    e.currentTarget.style.transform = 'scale(1)';
-                                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                                  }}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: 5,
-                                    padding: '6px 12px',
-                                    backgroundColor: '#DEDADA',
-                                    border: '2px solid #7A0000',
-                                    borderRadius: 20,
-                                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: "'EmOne', sans-serif",
-                                    fontSize: '0.7rem',
-                                    fontWeight: 700,
-                                    color: '#7A0000',
-                                    whiteSpace: 'nowrap'
-                                  }}
+                                <ActionChip
+                                  icon={Download}
+                                  label="Load from Repo"
+                                  onClick={() => onImportDiscovered(universe, repoInfo)}
+                                  stopPropagation
                                   title="Load this file from the repository"
-                                >
-                                  <Download size={14} />
-                                  Load from Repo
-                                </button>
+                                />
                               )}
                               {(onSyncDiscovered && (intent === 'attach' || intent === null)) && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onSyncDiscovered(universe, repoInfo);
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#D0CACA';
-                                    e.currentTarget.style.transform = 'scale(1.02)';
-                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#DEDADA';
-                                    e.currentTarget.style.transform = 'scale(1)';
-                                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                                  }}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: 5,
-                                    padding: '6px 12px',
-                                    backgroundColor: '#DEDADA',
-                                    border: '2px solid #7A0000',
-                                    borderRadius: 20,
-                                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: "'EmOne', sans-serif",
-                                    fontSize: '0.7rem',
-                                    fontWeight: 700,
-                                    color: '#7A0000',
-                                    whiteSpace: 'nowrap'
-                                  }}
+                                <ActionChip
+                                  icon={Upload}
+                                  label="Save to Repo"
+                                  onClick={() => onSyncDiscovered(universe, repoInfo)}
+                                  stopPropagation
                                   title="Save current state to this file in the repository"
-                                >
-                                  <Upload size={14} />
-                                  Save to Repo
-                                </button>
+                                />
                               )}
                             </div>
                           </div>
