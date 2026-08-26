@@ -733,7 +733,7 @@ const StorageSetupModal = ({
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
-          {anySlotFilled ? 'Add another place to save or get connected' : 'Set up your first universe'}
+          {anySlotFilled ? 'Add another place to save or get connected' : 'Set up your first Universe'}
         </h2>
       </div>
 
