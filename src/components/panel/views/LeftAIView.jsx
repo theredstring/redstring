@@ -10,6 +10,7 @@ import ThinkingBlock from '../../../ai/components/ThinkingBlock.jsx';
 import SteeringBlock from '../../../ai/components/SteeringBlock.jsx';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
 import { bridgeFetch, bridgeEventSource, getBridgeBaseUrl } from '../../../services/bridgeConfig.js';
+import { setLinkState, LINK_STATES } from '../../../formats/linkState.js';
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from '../../../constants.js';
 import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
@@ -91,6 +92,14 @@ function buildEnrichmentUpdates(nodeProto, searchResult, confidence, { overwrite
   const th = searchResult.page.thumbnailHeight;
   const imageAspectRatio = (tw && th) ? (th / tw) : undefined;
 
+  // The Wikidata item is the thing this article is ABOUT — an entity IRI,
+  // where the article URL is a document. fetchWikipediaSummary already resolves
+  // it via pageprops/wikibase_item; it was simply being thrown away. Capturing
+  // it is what lets About anchor on Wikidata and show the article as that
+  // entity's readable face rather than as an identity claim of its own.
+  const wikidataId = searchResult.page.wikidataId;
+  const wikidataUrl = wikidataId ? `https://www.wikidata.org/wiki/${wikidataId}` : undefined;
+
   const updates = {
     ...(hasExistingDescription ? {} : { description: searchResult.page.description }),
     semanticMetadata: {
@@ -102,13 +111,30 @@ function buildEnrichmentUpdates(nodeProto, searchResult, confidence, { overwrite
       wikipediaEnrichedAt: new Date().toISOString(),
       autoEnriched: true,
       autoEnrichConfidence: confidence,
+      ...(wikidataUrl ? { wikidataUrl } : {}),
       ...(imageAspectRatio ? { imageAspectRatio } : {})
     }
   };
 
   const currentLinks = nodeProto.externalLinks || [];
+  const added = [];
   if (!currentLinks.some(link => String(link).includes('wikipedia.org'))) {
-    updates.externalLinks = [searchResult.page.url, ...currentLinks];
+    added.push(searchResult.page.url);
+  }
+  if (wikidataUrl && !currentLinks.some(link => String(link).includes('wikidata.org'))) {
+    added.push(wikidataUrl);
+  }
+  if (added.length > 0) {
+    updates.externalLinks = [...added, ...currentLinks];
+    // Redstring found these; nobody has confirmed them. Recording the rung per
+    // link keeps the export honest and stops a later image upload from
+    // promoting them — the exporter used to read the rung off `autoEnriched`,
+    // which is cleared when a user replaces the enriched picture.
+    let sm = updates.semanticMetadata;
+    for (const link of added) {
+      sm = setLinkState(sm, link, LINK_STATES.MATCHED, 'auto');
+    }
+    updates.semanticMetadata = sm;
   }
 
   return updates;

@@ -96,6 +96,71 @@ describe('Sameness ladder (P2.5)', () => {
   });
 });
 
+describe('Per-link sameness (linkConfirmations)', () => {
+  const WD = 'https://www.wikidata.org/wiki/Q144';
+  const WP = 'https://en.wikipedia.org/wiki/Dog';
+  const DB = 'https://dbpedia.org/page/Dog';
+
+  const withStates = (states) => buildState({
+    externalLinks: [WD, WP, DB],
+    semanticMetadata: {
+      linkConfirmations: Object.fromEntries(
+        Object.entries(states).map(([url, state]) => [url, { state, by: 'user' }])
+      )
+    }
+  });
+
+  it('splits one prototype across all three rungs', () => {
+    const ex = exportToRedstring(withStates({ [WD]: 'same', [WP]: 'matched', [DB]: 'confirmed' }));
+    const dog = ex.prototypeSpace.prototypes.dog;
+
+    expect(dog['owl:sameAs']).toEqual([WD]);
+    // Cumulative: owl:sameAs co-emits skos:exactMatch alongside confirmed links.
+    expect(dog['skos:exactMatch']).toEqual([{ '@id': WD }, { '@id': DB }]);
+    expect(dog['skos:closeMatch']).toEqual([{ '@id': WP }]);
+  });
+
+  it('restores every link, in order, when the rungs are split', () => {
+    const state = withStates({ [WD]: 'same', [WP]: 'matched', [DB]: 'confirmed' });
+    const rt = importFromRedstring(exportToRedstring(state), {});
+    // The single-rung reader used to drop the closeMatch link entirely here.
+    expect(rt.storeState.nodePrototypes.get('dog').externalLinks).toEqual([WD, WP, DB]);
+  });
+
+  it('lets a per-link record override the autoEnriched image flag', () => {
+    const ex = exportToRedstring(buildState({
+      externalLinks: [WD, WP],
+      semanticMetadata: {
+        autoEnriched: true,
+        linkConfirmations: { [WD]: { state: 'confirmed', by: 'user' } }
+      }
+    }));
+    const dog = ex.prototypeSpace.prototypes.dog;
+
+    expect(dog['skos:exactMatch']).toEqual([{ '@id': WD }]);
+    expect(dog['skos:closeMatch']).toEqual([{ '@id': WP }]);
+    expect(dog['owl:sameAs']).toBeUndefined();
+  });
+
+  it('confirming a link does not promote it to owl:sameAs', () => {
+    const ex = exportToRedstring(withStates({ [WD]: 'confirmed', [WP]: 'confirmed', [DB]: 'confirmed' }));
+    const dog = ex.prototypeSpace.prototypes.dog;
+    expect(dog['owl:sameAs']).toBeUndefined();
+    expect(dog['skos:exactMatch']).toHaveLength(3);
+  });
+
+  it('falls back to the rung chain for documents with no rdfs:seeAlso', () => {
+    // Older exporters didn't carry the complete list on rdfs:seeAlso. Simulate
+    // one by exporting normally and stripping that key back off.
+    const legacy = exportToRedstring(buildState({ externalLinks: [WD, DB] }));
+    delete legacy.prototypeSpace.prototypes.dog['rdfs:seeAlso'];
+    expect(legacy.prototypeSpace.prototypes.dog['owl:sameAs']).toEqual([WD, DB]);
+
+    const rt = importFromRedstring(legacy, {});
+    expect(rt.storeState.nodePrototypes.get('dog').externalLinks).toEqual([WD, DB]);
+  });
+});
+
 describe('PROV stamping (P2.6)', () => {
   const PROV = {
     wasAttributedTo: 'redstring-wizard',

@@ -34,7 +34,6 @@ import mcpClient from './services/mcpClient.js';
 import * as fileStorage from './store/fileStorage.js';
 // import { bridgeFetch } from './services/bridgeConfig.js';
 import apiKeyManager from './services/apiKeyManager.js';
-import SemanticEditor from './components/SemanticEditor.jsx';
 import { enhancedSemanticSearch } from './services/semanticWebQuery.js';
 import PanelContentWrapper from './components/panel/PanelContentWrapper.jsx';
 import CollapsibleSection from './components/CollapsibleSection.jsx';

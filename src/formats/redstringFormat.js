@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 import uriGenerator from '../services/uriGenerator.js';
 import { runMigrations } from './migrations.js';
 import { safeJsonParse, stripDangerousKeys } from '../utils/safeJson.js';
+import { partitionLinksByState } from './linkState.js';
 
 // Current format version
 export const CURRENT_FORMAT_VERSION = '4.1.0';
@@ -951,18 +952,33 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     };
 
     // Sameness ladder (decision D8/P2.5). External links climb the ladder by how
-    // strong the claim is. Auto-enrichment (e.g. a Wikipedia article matched to a
-    // concept) is alignment, not identity → skos:closeMatch only. User-asserted
-    // links are interchangeable → skos:exactMatch, and per the cumulative rule
-    // co-emit owl:sameAs (the OWL docking port). rdfs:seeAlso keeps the raw URLs.
+    // strong the claim is. An automatic match (e.g. a Wikipedia article matched
+    // to a concept) is alignment, not identity → skos:closeMatch. A link the
+    // user confirmed is interchangeable → skos:exactMatch. An asserted identity
+    // → owl:sameAs, which per the cumulative rule co-emits skos:exactMatch.
+    // rdfs:seeAlso (above) keeps the complete ordered list of raw URLs.
+    //
+    // The rung is per-link, from semanticMetadata.linkConfirmations. It used to
+    // be chosen for the whole array from semanticMetadata.autoEnriched — but
+    // that flag is about images (it gates thumbnail stripping and is cleared
+    // when the user uploads their own picture), so uploading a photo promoted
+    // every matched link to owl:sameAs. resolveLinkState still falls back to it
+    // for links with no record, which is what keeps older files exporting
+    // byte-identically.
     const externalLinks = Array.isArray(prototype.externalLinks) ? prototype.externalLinks : [];
     if (externalLinks.length > 0) {
-      const linkRefs = externalLinks.map((url) => ({ "@id": url }));
-      if (prototype.semanticMetadata?.autoEnriched) {
-        prototypeSpace[id]["skos:closeMatch"] = linkRefs;
-      } else {
-        prototypeSpace[id]["owl:sameAs"] = externalLinks;
-        prototypeSpace[id]["skos:exactMatch"] = linkRefs;
+      const asRef = (url) => ({ "@id": url });
+      const { same, confirmed, matched } = partitionLinksByState(externalLinks, prototype.semanticMetadata);
+      if (same.length > 0) {
+        prototypeSpace[id]["owl:sameAs"] = same;
+      }
+      // Cumulative: owl:sameAs implies skos:exactMatch, so both rungs land here.
+      const exact = [...same, ...confirmed];
+      if (exact.length > 0) {
+        prototypeSpace[id]["skos:exactMatch"] = exact.map(asRef);
+      }
+      if (matched.length > 0) {
+        prototypeSpace[id]["skos:closeMatch"] = matched.map(asRef);
       }
     }
 
@@ -1684,12 +1700,19 @@ export const importFromRedstring = (redstringData, storeActions) => {
             convertedPrototype.semanticMetadata = prototype['redstring:semanticMetadata'] ?? prototype.semanticMetadata ?? null;
           }
 
-          // Recover external links from a single ladder rung (D8/P2.5), preferring
-          // owl:sameAs, then skos:exactMatch/closeMatch, then a legacy flat list.
-          // Reading one rung (not the union) avoids double-counting the same links
-          // emitted on two rungs, and preserves any duplicates the store held.
+          // Recover external links. rdfs:seeAlso is the complete, ordered list —
+          // every link regardless of rung — so it is the only source that
+          // survives a prototype whose links sit on DIFFERENT rungs. Reading a
+          // single rung (as this used to) silently dropped the closeMatch links
+          // of any node that also had a sameAs link. Unioning the rungs instead
+          // would double-count links emitted on two rungs and lose their order,
+          // which test/formats/property.test.js asserts on.
+          //
+          // The rung chain stays as the fallback for documents written before
+          // rdfs:seeAlso carried the full list.
           const sameAsRung =
-            hasOwn(prototype, 'owl:sameAs') ? prototype['owl:sameAs']
+            hasOwn(prototype, 'rdfs:seeAlso') ? prototype['rdfs:seeAlso']
+            : hasOwn(prototype, 'owl:sameAs') ? prototype['owl:sameAs']
             : hasOwn(prototype, 'skos:exactMatch') ? prototype['skos:exactMatch']
             : hasOwn(prototype, 'skos:closeMatch') ? prototype['skos:closeMatch']
             : prototype.externalLinks;

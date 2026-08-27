@@ -11,7 +11,10 @@ import SemanticEditor from '../SemanticEditor.jsx';
 import ConnectionBrowser from '../ConnectionBrowser.jsx';
 import StandardDivider from '../StandardDivider.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
-import { fastEnrichFromSemanticWeb } from '../../services/semanticWebQuery.js';
+import InfoPopover from '../shared/InfoPopover.jsx';
+import AboutSection from './AboutSection.jsx';
+import { ABOUT_INTRO } from './aboutCopy.js';
+import useAutoEnrichIdentifiers from '../../hooks/useAutoEnrichIdentifiers.js';
 import useGraphStore from "../../store/graphStore.js";
 import useImageCache, { queueThumbnailFetch } from '../../services/imageCache.js';
 
@@ -1244,67 +1247,11 @@ const SharedPanelContent = ({
   const cachedImage = useImageCache(state => (nodeData?.id ? state.images[nodeData.id] : null));
   const imageLoading = useImageCache(state => (nodeData?.id ? !!state.loading[nodeData.id] : false));
 
-  // Auto-enrich external links (but not bio descriptions) on mount if none exist
-  useEffect(() => {
-    let didCancel = false;
-    const hasAnySemanticLinks = (() => {
-      const links = [
-        ...(nodeData.externalLinks || []),
-        nodeData.semanticMetadata?.wikipediaUrl || null,
-        nodeData.semanticMetadata?.wikidataUrl || null
-      ].filter(Boolean);
-      return links.some(l => String(l).includes('wikipedia.org') || String(l).includes('wikidata.org') || String(l).includes('dbpedia.org'));
-    })();
+  // Look up what the world calls this thing. Lives here rather than inside
+  // AboutSection because CollapsibleSection only renders children while
+  // expanded, which would gate enrichment on the section being open.
+  useAutoEnrichIdentifiers(nodeData, onNodeUpdate);
 
-    if (!nodeData?.name || hasAnySemanticLinks) return;
-
-    (async () => {
-      try {
-        const result = await fastEnrichFromSemanticWeb(nodeData.name, { timeout: 15000 });
-        if (didCancel || !result || !result.suggestions) return;
-        const newLinks = Array.isArray(result.suggestions.externalLinks) ? result.suggestions.externalLinks : [];
-        if (newLinks.length === 0) return;
-
-        const existing = new Set((nodeData.externalLinks || []).map(String));
-        let changed = false;
-        for (const l of newLinks) {
-          if (!existing.has(String(l))) {
-            existing.add(String(l));
-            changed = true;
-          }
-        }
-        if (changed) {
-          // Only update external links, never auto-populate description/bio
-          onNodeUpdate({ ...nodeData, externalLinks: Array.from(existing) });
-        }
-      } catch (_) {
-        // best-effort, ignore errors
-      }
-    })();
-
-    return () => { didCancel = true; };
-  }, [nodeData.id]);
-
-  const unlinkSource = async (domain) => {
-    try {
-      const currentLinks = nodeData.externalLinks || [];
-      const filteredLinks = currentLinks.filter(link => !String(link).includes(domain));
-      const updates = { externalLinks: filteredLinks };
-      if (domain === 'wikipedia.org' && nodeData.semanticMetadata) {
-        updates.semanticMetadata = {
-          ...nodeData.semanticMetadata,
-          wikipediaUrl: undefined,
-          wikipediaTitle: undefined,
-          wikipediaEnriched: undefined,
-          wikipediaEnrichedAt: undefined,
-          wikipediaThumbnail: undefined,
-          wikipediaOriginalImage: undefined,
-          wikipediaAdditionalImages: undefined
-        };
-      }
-      await onNodeUpdate(updates);
-    } catch (_) { }
-  };
 
   const handleBioDoubleClick = () => {
     setTempBio(nodeData.description || '');
@@ -1815,258 +1762,29 @@ const SharedPanelContent = ({
         );
       })()}
 
-      {/* Dividing line above Origin section */}
+      {/* Dividing line above About section */}
       <StandardDivider margin="20px 0" />
 
-      {/* Origin Section - Always show, with semantic data if available */}
+      {/* About: what other systems call this subject, and where it came from.
+          Replaces the old Origin section, which rendered the same externalLinks
+          array as Semantic Web's External References card and split into two
+          mutually exclusive branches — so a semantic node never saw its links
+          and an ordinary node never saw its provenance. */}
       <CollapsibleSection
-        title="Origin"
+        title="About"
         defaultExpanded={true}
+        rightAdornment={
+          <InfoPopover title="About" label="What is this section?" size={14}>
+            {ABOUT_INTRO}
+          </InfoPopover>
+        }
       >
-        {nodeData.semanticMetadata?.isSemanticNode && nodeData.semanticMetadata?.originMetadata ? (
-          // Semantic web origin data
-          <div style={{
-            fontSize: '11px',
-            fontFamily: "'EmOne', sans-serif",
-            color: theme.canvas.textPrimary,
-            marginBottom: '12px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <div style={{
-                padding: '2px 6px',
-                background: theme.accent.primary,
-                borderRadius: '4px',
-                color: getTextColor(theme.accent.primary, theme.darkMode),
-                fontSize: '9px',
-                fontWeight: 'bold'
-              }}>
-                {nodeData.semanticMetadata.originMetadata.source.toUpperCase()}
-              </div>
-              <div style={{ fontSize: '9px', color: theme.canvas.textSecondary }}>
-                Confidence: {Math.round(nodeData.semanticMetadata.originMetadata.confidence * 100)}%
-              </div>
-            </div>
-
-            {nodeData.originalDescription && (
-              <div style={{
-                marginBottom: '8px',
-                padding: '8px',
-                background: accentBgLight,
-                borderRadius: '4px',
-                fontSize: '10px',
-                lineHeight: '1.4'
-              }}>
-                {nodeData.originalDescription}
-              </div>
-            )}
-
-            <div style={{ fontSize: '9px', color: theme.canvas.textSecondary, marginBottom: '4px' }}>
-              Discovered: {new Date(nodeData.semanticMetadata.originMetadata.discoveredAt).toLocaleDateString()}
-            </div>
-
-            {nodeData.semanticMetadata.originMetadata.searchQuery && (
-              <div style={{ fontSize: '9px', color: theme.canvas.textSecondary, marginBottom: '4px' }}>
-                Search: "{nodeData.semanticMetadata.originMetadata.searchQuery}"
-              </div>
-            )}
-
-            {nodeData.semanticMetadata.originMetadata.originalUri && (
-              <div style={{ marginTop: '8px' }}>
-                <PanelIconButton
-                  icon={ExternalLink}
-                  size={10}
-                  label="View Source"
-                  labelFontSize={10}
-                  variant="outline"
-                  color={accentColor}
-                  onClick={() => window.open(nodeData.semanticMetadata.originMetadata.originalUri, '_blank')}
-                  style={{ borderColor: accentColor, gap: '5px', padding: '5px 12px' }}
-                />
-              </div>
-            )}
-
-            <div style={{ marginTop: '8px', fontSize: '9px', color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif" }}>
-              {isHomeTab && graphData?.id && (
-                <div style={{ marginBottom: '2px' }}>Graph ID: {graphData.id}</div>
-              )}
-              ID: {nodeData.id}
-            </div>
-          </div>
-        ) : (
-          // Default origin information for all nodes
-          <div style={{
-            fontSize: '11px',
-            fontFamily: "'EmOne', sans-serif",
-            color: theme.canvas.textSecondary,
-            marginBottom: '12px'
-          }}>
-            <div style={{ marginBottom: '8px' }}>
-              <strong>Created:</strong> {nodeData.createdAt ? new Date(nodeData.createdAt).toLocaleDateString() : 'Unknown'}
-            </div>
-
-            {/* External source links: Wikipedia, Wikidata, DBpedia from either semanticMetadata or externalLinks */}
-            {(() => {
-              const links = [
-                ...(nodeData.externalLinks || []),
-                nodeData.semanticMetadata?.wikipediaUrl || null,
-                nodeData.semanticMetadata?.wikidataUrl || null
-              ].filter(Boolean);
-
-              const hasWikipedia = links.some(l => typeof l === 'string' && l.includes('wikipedia.org'));
-              const hasWikidata = links.some(l => typeof l === 'string' && l.includes('wikidata.org'));
-              const hasDBpedia = links.some(l => typeof l === 'string' && l.includes('dbpedia.org'));
-
-              return (
-                <>
-                  {hasWikipedia && (() => {
-                    const url = links.find(l => String(l).includes('wikipedia.org'));
-                    return (
-                      <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div>
-                          <strong>Wikipedia:</strong>
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ color: accentColor, marginLeft: '8px' }}
-                          >
-                            View Article
-                          </a>
-                        </div>
-                        <button
-                          onClick={() => unlinkSource('wikipedia.org')}
-                          title="Unlink Wikipedia"
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: theme.canvas.textSecondary,
-                            cursor: 'pointer',
-                            padding: '0 2px',
-                            lineHeight: 1,
-                            fontSize: '14px'
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    );
-                  })()}
-                  {hasWikidata && (() => {
-                    const url = links.find(l => String(l).includes('wikidata.org'));
-                    return (
-                      <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div>
-                          <strong>Wikidata:</strong>
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ color: accentColor, marginLeft: '8px' }}
-                          >
-                            View Data
-                          </a>
-                        </div>
-                        <button
-                          onClick={() => unlinkSource('wikidata.org')}
-                          title="Unlink Wikidata"
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: theme.canvas.textSecondary,
-                            cursor: 'pointer',
-                            padding: '0 2px',
-                            lineHeight: 1,
-                            fontSize: '14px'
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    );
-                  })()}
-                  {hasDBpedia && (() => {
-                    const url = links.find(l => String(l).includes('dbpedia.org'));
-                    return (
-                      <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div>
-                          <strong>DBpedia:</strong>
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ color: accentColor, marginLeft: '8px' }}
-                          >
-                            View Resource
-                          </a>
-                        </div>
-                        <button
-                          onClick={() => unlinkSource('dbpedia.org')}
-                          title="Unlink DBpedia"
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: theme.canvas.textSecondary,
-                            cursor: 'pointer',
-                            padding: '0 2px',
-                            lineHeight: 1,
-                            fontSize: '14px'
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    );
-                  })()}
-
-                  {!(hasWikipedia || hasWikidata || hasDBpedia) && (
-                    <div style={{
-                      fontSize: '10px',
-                      color: theme.canvas.textSecondary,
-                      fontStyle: 'italic',
-                      marginTop: '8px'
-                    }}>
-                      From Redstring
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-
-            <div style={{ marginTop: '8px', fontSize: '9px', color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif" }}>
-              {isHomeTab && graphData?.id && (
-                <div style={{ marginBottom: '2px' }}>Graph ID: {graphData.id}</div>
-              )}
-              ID: {nodeData.id}
-            </div>
-
-            {/* Auto-enriched badge - show when node was automatically enriched by AI agent */}
-            {nodeData.semanticMetadata?.autoEnriched && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                marginTop: '12px',
-                padding: '6px 8px',
-                background: accentBgLight,
-                borderRadius: '4px',
-                fontSize: '10px',
-                color: accentColor,
-                fontFamily: "'EmOne', sans-serif"
-              }}>
-                <span>Auto-enriched from Wikipedia</span>
-                <span style={{ color: theme.canvas.textSecondary, fontSize: '9px' }}>
-                  ({Math.round(nodeData.semanticMetadata.autoEnrichConfidence * 100)}% match)
-                </span>
-              </div>
-            )}
-          </div>
-        )}
+        <AboutSection
+          nodeData={nodeData}
+          onNodeUpdate={onNodeUpdate}
+          isHomeTab={isHomeTab}
+          graphData={graphData}
+        />
       </CollapsibleSection>
 
       {/* Dividing line above Components section */}
@@ -2193,7 +1911,10 @@ const SharedPanelContent = ({
       {/* Dividing line above Semantic Web section */}
       <StandardDivider margin="20px 0" />
 
-      {/* Semantic Web Section - unified external links + RDF schema */}
+      {/* Semantic Web: how this Thing maps onto shared vocabularies. External
+          references used to live here too, which is what made the name
+          confusing — ordinary link management filed under an ontology heading.
+          Those moved to About; what's left is genuinely semantic-web work. */}
       <CollapsibleSection
         title="Semantic Web"
         defaultExpanded={false}
@@ -2201,8 +1922,6 @@ const SharedPanelContent = ({
         <SemanticEditor
           nodeData={nodeData}
           onUpdate={onNodeUpdate}
-          onTypeSelect={onTypeSelect}
-          isUltraSlim={isUltraSlim}
         />
       </CollapsibleSection>
 

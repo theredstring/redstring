@@ -62,7 +62,11 @@ const PanelIconButton = ({
   hoverTextColor,
   labelFontSize = 13,
   style = {},
-  className = ''
+  className = '',
+  // Set by callers that use this button to open something (InfoPopover, the
+  // About row's state chooser) so assistive tech knows it toggles a surface.
+  ariaExpanded,
+  ariaHasPopup
 }) => {
   const theme = useTheme();
   const [isHovered, setIsHovered] = useState(false);
@@ -170,6 +174,8 @@ const PanelIconButton = ({
       title={title || label}
       disabled={disabled}
       aria-label={title || label}
+      aria-expanded={ariaExpanded}
+      aria-haspopup={ariaHasPopup}
     >
       {label && labelPosition === 'left' && (
         <span style={{ 
