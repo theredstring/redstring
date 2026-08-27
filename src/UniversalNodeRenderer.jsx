@@ -6,6 +6,7 @@ import { isValidColor } from './ai/palettes.js';
 import { NODE_DEFAULT_COLOR } from './constants.js';
 import { useTheme } from './hooks/useTheme.js';
 import { measureTextWidth } from './services/textMeasurement.js';
+import { CONNECTION_LABEL_BASE_FONT_SIZE, wrapConnectionLabel } from './UniversalNodeRenderer.presets.js';
 
 /**
  * Truncate `text` with an ellipsis so it fits on a single line within `maxWidth`
@@ -35,7 +36,7 @@ const truncateToWidth = (text, fontString, maxWidth) => {
 
 /**
  * Connection Text Component
- * 
+ *
  * A dedicated component for rendering connection names with proper styling,
  * colors, and stroke effects that match NodeCanvas appearance.
  */
@@ -60,7 +61,7 @@ const ConnectionText = ({
   const midY = (sourcePoint.y + targetPoint.y) / 2;
   const angle = Math.atan2(dy, dx) * 180 / Math.PI;
   const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
-  const fontSize = Math.max(8, 24 * transform.scale * fontScale);
+  const fontSize = Math.max(8, CONNECTION_LABEL_BASE_FONT_SIZE * transform.scale * fontScale);
   // The label's outline ("hole" effect) is intentionally lighter than the edge line
   // stroke in these universal representations (hover preview, control panel, etc.).
   // The actual canvas edge/label is rendered in NodeCanvas.jsx and is unaffected.
@@ -89,20 +90,7 @@ const ConnectionText = ({
     const available = Math.max(0, length * 0.45); // clip earlier; keep well clear of node ends/arrowheads
     lines.push(truncateToWidth(displayName, fontString, available));
   } else {
-    // Wrapping logic: roughly 15-20 chars for connection labels
-    const words = displayName.split(' ');
-    let currentLine = '';
-    const maxChars = 14; // Conservative wrap point for connection labels
-
-    words.forEach(word => {
-      if ((currentLine + word).length > maxChars && currentLine.length > 0) {
-        lines.push(currentLine.trim());
-        currentLine = word + ' ';
-      } else {
-        currentLine += word + ' ';
-      }
-    });
-    if (currentLine) lines.push(currentLine.trim());
+    lines.push(...wrapConnectionLabel(displayName));
   }
 
   return (
@@ -160,6 +148,12 @@ const UniversalNodeRenderer = ({
   // Layout
   alignNodesHorizontally = false, // For control panels - align all nodes on same Y axis
   minHorizontalSpacing = 140, // Minimum distance between nodes when aligned horizontally
+  // Exact gap in px between horizontally aligned nodes. When provided it replaces
+  // both the node-count heuristic and the proportional cap below: the caller has
+  // already divided its container between node boxes and connection span, so the
+  // renderer must not re-negotiate that split. Used by the right panel's
+  // Connections list, whose container width is the panel's, not the content's.
+  horizontalSpacing = null,
 
   // Interactivity
   interactive = true,
@@ -458,9 +452,12 @@ const UniversalNodeRenderer = ({
 
       // Calculate proportional spacing based on node count and container size
       // Smaller spacing for more nodes to fit better, but maintain readability
+      const spacingIsExplicit = horizontalSpacing != null;
       let spacing;
       if (nodesWithPositions.length === 1) {
         spacing = 0;
+      } else if (spacingIsExplicit) {
+        spacing = Math.max(0, horizontalSpacing);
       } else if (nodesWithPositions.length <= 3) {
         spacing = Math.max(16, minHorizontalSpacing * 0.8); // Reduce spacing slightly for 2-3 nodes
       } else if (nodesWithPositions.length <= 6) {
@@ -474,7 +471,7 @@ const UniversalNodeRenderer = ({
       // while sitting far apart at the edges. Cap the total gap budget at 30% of
       // the available width so the nodes stay large and simply move closer
       // together instead.
-      if (gaps > 0) {
+      if (gaps > 0 && !spacingIsExplicit) {
         spacing = Math.min(spacing, (availableWidth * 0.3) / gaps);
       }
 
@@ -631,7 +628,7 @@ const UniversalNodeRenderer = ({
       scaledConnections,
       transform: { scale, offsetX, offsetY }
     };
-  }, [nodes, connections, instances, containerWidth, containerHeight, scaleMode, minNodeSize, maxNodeSize, padding, routingStyle, alignNodesHorizontally, calculateConnectionPath, connectionStrokeScale, connectionWidthGlobal, renderContext, nodePrototypesMap, getConnectionName, getConnectionColor]);
+  }, [nodes, connections, instances, containerWidth, containerHeight, scaleMode, minNodeSize, maxNodeSize, padding, routingStyle, alignNodesHorizontally, minHorizontalSpacing, horizontalSpacing, calculateConnectionPath, connectionStrokeScale, connectionWidthGlobal, renderContext, nodePrototypesMap, getConnectionName, getConnectionColor]);
 
   // Event handlers
   const handleNodeMouseEnter = (node) => {

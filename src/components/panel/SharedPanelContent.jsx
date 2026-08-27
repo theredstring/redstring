@@ -677,30 +677,22 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
   return (
     <div style={{ margin: '2px 20px 20px 10px' }}>
       {showEnrichButton && (
-        <button
+        <PanelIconButton
+          icon={BookOpen}
+          size={12}
+          label={isSearching ? 'Searching Wikipedia...' :
+            nodeData.semanticMetadata?.autoEnriched ? 'Re-Pull from Wikipedia' :
+              'Pull from Wikipedia & Link'}
+          labelFontSize={11}
+          variant="outline"
+          color={accentColor}
           onClick={handleWikipediaSearch}
           disabled={isSearching}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '6px 10px',
-            border: `1px solid ${accentColor}`,
-            borderRadius: '6px',
-            background: 'transparent',
-            color: accentColor,
-            fontFamily: "'EmOne', sans-serif",
-            fontSize: '11px',
-            cursor: isSearching ? 'wait' : 'pointer',
-            fontWeight: 'bold',
-            textAlign: 'left'
+            borderColor: accentColor,
+            cursor: isSearching ? 'wait' : 'pointer'
           }}
-        >
-          <BookOpen size={12} />
-          {isSearching ? 'Searching Wikipedia...' :
-            nodeData.semanticMetadata?.autoEnriched ? 'Re-Pull from Wikipedia' :
-              'Pull from Wikipedia & Link'}
-        </button>
+        />
       )}
 
       {showDisambiguation && searchResult?.type === 'disambiguation' && (
@@ -1802,30 +1794,22 @@ const SharedPanelContent = ({
               </div>
             )}
             {!hasImage && !imageLoading && (
-              <button
+              <PanelIconButton
+                icon={BookOpen}
+                size={12}
+                label={wikiIsSearching ? 'Searching Wikipedia...' : 'Pull from Wikipedia'}
+                labelFontSize={11}
+                variant="outline"
+                color={accentColor}
                 onClick={() => wikiSearchRef.current?.()}
                 disabled={wikiIsSearching}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '6px 10px',
-                  border: `1px solid ${accentColor}`,
-                  borderRadius: '6px',
-                  background: 'transparent',
-                  color: accentColor,
-                  fontFamily: "'EmOne', sans-serif",
-                  fontSize: '11px',
+                  borderColor: accentColor,
                   cursor: wikiIsSearching ? 'wait' : 'pointer',
-                  fontWeight: 'bold',
-                  textAlign: 'left',
                   marginLeft: '15px',
                   marginBottom: '10px'
                 }}
-              >
-                <BookOpen size={12} />
-                {wikiIsSearching ? 'Searching Wikipedia...' : 'Pull from Wikipedia'}
-              </button>
+              />
             )}
           </CollapsibleSection>
         );
@@ -1888,21 +1872,16 @@ const SharedPanelContent = ({
 
             {nodeData.semanticMetadata.originMetadata.originalUri && (
               <div style={{ marginTop: '8px' }}>
-                <button
+                <PanelIconButton
+                  icon={ExternalLink}
+                  size={10}
+                  label="View Source"
+                  labelFontSize={10}
+                  variant="outline"
+                  color={accentColor}
                   onClick={() => window.open(nodeData.semanticMetadata.originMetadata.originalUri, '_blank')}
-                  style={{
-                    padding: '4px 8px',
-                    border: `1px solid ${accentColor}`,
-                    borderRadius: '3px',
-                    background: 'transparent',
-                    color: accentColor,
-                    fontSize: '8px',
-                    cursor: 'pointer',
-                    fontFamily: "'EmOne', sans-serif"
-                  }}
-                >
-                  View Source
-                </button>
+                  style={{ borderColor: accentColor, gap: '5px', padding: '5px 12px' }}
+                />
               </div>
             )}
 
@@ -2129,7 +2108,13 @@ const SharedPanelContent = ({
               No components in this {isHomeTab ? 'graph' : 'definition'}.
             </div>
             {!isHomeTab && wizardEnabled && nodeData?.id && (
-              <button
+              <PanelIconButton
+                icon={Sparkles}
+                size={12}
+                label="Ask The Wizard"
+                labelFontSize={11}
+                variant="outline"
+                color={accentColor}
                 onClick={() => {
                   try {
                     window.dispatchEvent(new CustomEvent('rs-ask-wizard-define-node', {
@@ -2140,26 +2125,11 @@ const SharedPanelContent = ({
                   }
                 }}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '6px 10px',
-                  border: `1px solid ${accentColor}`,
-                  borderRadius: '6px',
-                  background: 'transparent',
-                  color: accentColor,
-                  fontFamily: "'EmOne', sans-serif",
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold',
-                  textAlign: 'left',
+                  borderColor: accentColor,
                   marginLeft: '15px',
                   marginBottom: '10px'
                 }}
-              >
-                <Sparkles size={12} />
-                Ask The Wizard
-              </button>
+              />
             )}
           </>
         )}

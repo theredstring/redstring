@@ -1,9 +1,39 @@
 /**
  * Preset configurations for UniversalNodeRenderer
- * 
+ *
  * These presets can be used across the app for consistent rendering
  * in different contexts like panels, modals, previews, etc.
  */
+
+/**
+ * Base font size of a connection label, before the renderer's fit scale is
+ * applied. Lives here rather than in the renderer so a caller that budgets
+ * horizontal room for the label can measure it at the size it will draw at
+ * without importing the component.
+ */
+export const CONNECTION_LABEL_BASE_FONT_SIZE = 24;
+
+/**
+ * How a connection label breaks across lines in the 'full' render context: a
+ * greedy wrap at a conservative character count, deliberately independent of the
+ * container width. Callers reserving span for a label have to measure through
+ * this rather than measuring the unwrapped string — the wrap is what decides how
+ * wide the label ends up.
+ */
+export const wrapConnectionLabel = (text, maxChars = 14) => {
+  const lines = [];
+  let currentLine = '';
+  String(text || '').split(' ').forEach(word => {
+    if ((currentLine + word).length > maxChars && currentLine.length > 0) {
+      lines.push(currentLine.trim());
+      currentLine = word + ' ';
+    } else {
+      currentLine += word + ' ';
+    }
+  });
+  if (currentLine) lines.push(currentLine.trim());
+  return lines;
+};
 
 export const RENDERER_PRESETS = {
   // For connection control panels

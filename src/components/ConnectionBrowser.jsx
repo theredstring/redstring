@@ -7,18 +7,13 @@ import Dropdown from './Dropdown.jsx';
 import { useTheme } from '../hooks/useTheme.js';
 import UniversalNodeRenderer from '../UniversalNodeRenderer';
 import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
+import { connectionPreviewRendererProps } from '../utils/connectionPreview.js';
 import {
-  CONNECTION_PREVIEW_FLOORS,
-  buildConnectionPreviewNodes,
-  connectionPreviewRendererProps
-} from '../utils/connectionPreview.js';
-import { measureTextWidth } from '../services/textMeasurement.js';
+  PANEL_FLOORS,
+  PANEL_RENDERER_PADDING,
+  layoutPanelConnection
+} from '../utils/connectionRowLayout.js';
 import './ConnectionBrowser.css';
-
-// Same sizing recipe as the canvas connection control panel and the hover aid, at
-// the smaller floor a ~280px-wide panel column can actually fit.
-const PANEL_FLOORS = CONNECTION_PREVIEW_FLOORS.panelList;
-const PANEL_RENDERER_PADDING = 10;
 
 /**
  * Connection Triplet Component
@@ -62,14 +57,6 @@ const ConnectionTriplet = ({
   const objectName = typeof object === 'string' ? object : JSON.stringify(object);
   const predicateName = typeof predicate === 'string' ? predicate : JSON.stringify(predicate);
 
-  const nodes = buildConnectionPreviewNodes(
-    [
-      { id: 'subject', name: subjectName, color: subjectColor || defaultColor },
-      { id: 'object', name: objectName, color: objectColor || defaultColor }
-    ],
-    PANEL_FLOORS
-  );
-
   // Map directionality to arrowsToward Set with synthetic node IDs
   const arrowsToward = new Set();
   const dirType = connection?.directionality;
@@ -96,27 +83,28 @@ const ConnectionTriplet = ({
     arrowsToward.add('object');
   }
 
+  // Divide the row between the two node boxes and the connection between them —
+  // node names and the predicate come back already truncated to their budgets.
+  const { nodes, span, height, labelFontScale, predicate: displayPredicate } =
+    layoutPanelConnection({
+      nodes: [
+        { id: 'subject', name: subjectName, color: subjectColor || defaultColor },
+        { id: 'object', name: objectName, color: objectColor || defaultColor }
+      ],
+      predicate: predicateName,
+      containerWidth,
+      hasArrows: arrowsToward.size > 0,
+      isUltraSlim
+    });
+
   const connections = [{
     id: 'conn',
     sourceId: 'subject',
     destinationId: 'object',
-    connectionName: predicateName,
+    connectionName: displayPredicate,
     color: connectionColor,
     directionality: { arrowsToward }
   }];
-
-  // Height derives from the node floor rather than a magic number, so the box can
-  // never clip the node and force a vertical downscale (which is what shrank the
-  // text and collapsed the corners into pills).
-  const height = PANEL_FLOORS.height + PANEL_RENDERER_PADDING * 2 + (isUltraSlim ? 8 : 20);
-
-  // Room for the predicate label between the two nodes, measured like the control
-  // panel does — but on the panel's tighter budget, and clamped so the gap can
-  // never push the nodes out to the edges of a narrow column.
-  const labelWidth = measureTextWidth(predicateName, '22px "EmOne", sans-serif');
-  const minHorizontalSpacing = Math.round(
-    Math.max(48, Math.min(labelWidth * 0.6 + 40, containerWidth * 0.4))
-  );
 
   return (
     <div
@@ -182,7 +170,8 @@ const ConnectionTriplet = ({
         padding={PANEL_RENDERER_PADDING}
         containerWidth={containerWidth}
         containerHeight={height}
-        minHorizontalSpacing={minHorizontalSpacing}
+        horizontalSpacing={span}
+        connectionFontScale={labelFontScale}
       />
     </div>
   );

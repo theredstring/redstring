@@ -192,8 +192,12 @@ const UnifiedSelector = ({
   const cardHeight = isMobilePortrait ? (isExtraSmall ? '100px' : '105px') : (isSmallScreen ? '110px' : '75px');
 
   // Touch-friendly sizing on mobile, compact on desktop
-  const iconSize = isMobilePortrait ? 22 : 18;
-  const closeIconSize = isMobilePortrait ? 22 : 18;
+  const iconSize = isMobilePortrait ? 26 : 22;
+  const closeIconSize = isMobilePortrait ? 26 : 22;
+  // Footprint of the PieMenu-style icon buttons (close, palette). Kept above the
+  // icon itself so the hover bubble has room to read as a bubble rather than a
+  // ring crowding the glyph.
+  const iconButtonHitSize = isMobilePortrait ? '44px' : '40px';
 
   const content = (
     <>
@@ -278,8 +282,8 @@ const UnifiedSelector = ({
                 onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }}
                 title="Close"
                 style={{
-                  minWidth: '36px',
-                  minHeight: '36px',
+                  minWidth: iconButtonHitSize,
+                  minHeight: iconButtonHitSize,
                   flexShrink: 0,
                   marginLeft: '8px'
                 }}
@@ -301,8 +305,8 @@ const UnifiedSelector = ({
                     flexShrink: 0,
                     touchAction: 'manipulation',
                     padding: isMobilePortrait ? '8px' : '4px',
-                    minWidth: '36px',
-                    minHeight: '36px'
+                    minWidth: iconButtonHitSize,
+                    minHeight: iconButtonHitSize
                   }}
                   onPointerDown={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
@@ -363,8 +367,12 @@ const UnifiedSelector = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    minWidth: `${actionButtonMinWidth}px`,
-                    minHeight: `${actionButtonMinHeight}px`,
+                    // These already carry their unit. Interpolating another "px"
+                    // onto them yielded "52pxpx", which the CSSOM drops on the
+                    // floor — which is why the + button had quietly been sizing
+                    // itself to padding + glyph rather than to this floor.
+                    minWidth: actionButtonMinWidth,
+                    minHeight: actionButtonMinHeight,
                     touchAction: 'manipulation'
                   }}
                   title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : 'Create node type'}

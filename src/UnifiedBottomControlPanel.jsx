@@ -71,7 +71,6 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
   );
 };
 
-import { measureTextWidth } from './services/textMeasurement.js';
 import {
   STANDARD_TEXT_SETTINGS,
   LEGACY_DIM_SCALE,
@@ -79,6 +78,7 @@ import {
   buildConnectionPreviewNodes,
   connectionPreviewRendererProps
 } from './utils/connectionPreview.js';
+import { layoutConnectionRow, widestWrappedLabel } from './utils/connectionRowLayout.js';
 
 // Node-box floors for the connection representation, shared with the hover aid and
 // the right panel's connection list (see utils/connectionPreview.js).
@@ -702,13 +702,7 @@ const UnifiedBottomControlPanel = ({
                   });
                 }
               });
-              // Give each node an explicit, floored box (shared recipe — see
-              // utils/connectionPreview.js) so short-name nodes don't collapse to tiny,
-              // pill-rounded boxes.
-              const nodes = buildConnectionPreviewNodes(
-                Array.from(nodesMap.values()),
-                CONNECTION_FLOORS
-              );
+              const previewNodes = Array.from(nodesMap.values());
 
               // Transform triples to the format expected by UniversalNodeRenderer
               const connections = triples.map(t => {
@@ -741,25 +735,25 @@ const UnifiedBottomControlPanel = ({
               const isMobile = mobileState.isMobile;
               const baseSpacing = isMobile ? 90 : 140;
               // Self-loops render as two side-by-side copies in UniversalNodeRenderer; budget width accordingly.
-              const selfLoopCount = connections.reduce(
-                (n, c) => n + (c.sourceId && c.destinationId && c.sourceId === c.destinationId ? 1 : 0),
-                0
-              );
-              const layoutNodeCount = nodes.length + selfLoopCount;
-              // Budget width for the actual (now floored) node boxes so the larger
+              const selfLoopNodeIds = connections
+                .filter(c => c.sourceId && c.destinationId && c.sourceId === c.destinationId)
+                .map(c => c.sourceId);
+              const selfLoopCount = selfLoopNodeIds.length;
+              const layoutNodeCount = previewNodes.length + selfLoopCount;
+              // Budget width for the actual (floored) node boxes so the larger
               // previews get enough room instead of being fit-scaled back down.
-              const nodeWidthBudget = nodes.reduce((sum, n) => sum + n.width * 0.4, 0)
+              const naturalNodes = buildConnectionPreviewNodes(previewNodes, CONNECTION_FLOORS);
+              const nodeWidthBudget = naturalNodes.reduce((sum, n) => sum + n.width * 0.4, 0)
                 + selfLoopCount * CONNECTION_NODE_MIN_WIDTH * 0.4;
               const nodeSpacing = nodeWidthBudget + layoutNodeCount * (isMobile ? 90 : 70);
 
-              const connectionLabelFont = isMobile
-                ? '22px "EmOne", sans-serif'
-                : '28px "EmOne", sans-serif';
-
-              const longestConnectionLabelWidth = connections.reduce((max, conn) => {
-                const width = measureTextWidth(conn.connectionName, connectionLabelFont);
-                return Math.max(max, width);
-              }, 0);
+              // Room to ask for on the label's behalf. Measured through the wrap the
+              // renderer applies, not across the unwrapped string — a long predicate
+              // draws as two short lines, so measuring it flat asks for a container
+              // far wider than the label ever needs.
+              const longestConnectionLabelWidth = widestWrappedLabel(
+                connections.map(conn => conn.connectionName)
+              );
 
               const connectionLabelSpace = Math.max(
                 isMobile ? 140 : 230,
@@ -773,11 +767,6 @@ const UnifiedBottomControlPanel = ({
                 baseSpacing + nodeSpacing + connectionLabelSpace
               );
 
-              const dynamicMinHorizontalSpacing = Math.round(Math.max(
-                isMobile ? 72 : 92,
-                Math.min(connectionLabelSpace - 60, 400)
-              ) * 1.25); // More room between nodes so the connection line + label aren't scrunched
-
               // Height tracks the 84px node boxes — enough for full-scale text without
               // leaving the panel unnecessarily tall. The floor keeps the box from
               // clipping the node height (and forcing a vertical downscale) on short
@@ -788,16 +777,36 @@ const UnifiedBottomControlPanel = ({
                 ? Math.min(130, Math.max(minRendererHeight, calculatedWidth * 0.23))
                 : Math.min(150, Math.max(minRendererHeight, calculatedWidth * 0.25));
 
+              // Split that width between boxes and gaps with the connection budgeted
+              // first — the viewport clamp above means the container often can't be as
+              // wide as the content wants, and it was the gaps that absorbed the
+              // shortfall.
+              const row = layoutConnectionRow({
+                nodes: previewNodes,
+                labels: connections.map(conn => conn.connectionName),
+                containerWidth: calculatedWidth,
+                containerHeight: calculatedHeight,
+                padding: rendererPadding,
+                floors: CONNECTION_FLOORS,
+                duplicateNodeIds: selfLoopNodeIds,
+                hasArrows: connections.some(c => c.directionality?.arrowsToward?.size > 0)
+              });
+              const fittedConnections = connections.map((conn, i) => ({
+                ...conn,
+                connectionName: row.labels[i]
+              }));
+
               return (
                 <UniversalNodeRenderer
                   {...RENDERER_PRESETS.CONNECTION_PANEL}
                   {...connectionPreviewRendererProps(CONNECTION_FLOORS)}
-                  nodes={nodes}
-                  connections={connections}
+                  nodes={row.nodes}
+                  connections={fittedConnections}
                   padding={rendererPadding}
                   containerWidth={calculatedWidth}
                   containerHeight={calculatedHeight}
-                  minHorizontalSpacing={dynamicMinHorizontalSpacing}
+                  horizontalSpacing={row.spacing}
+                  connectionFontScale={row.labelFontScale}
                   forceShowConnectionDots={inputMode === 'touch'}
                   onNodeClick={onNodeClick}
                   onConnectionClick={onPredicateClick}

@@ -27,18 +27,52 @@ export const LEGACY_DIM_SCALE = 1 / 1.4;
  * corner radius cap at height/2 (a full pill instead of a rounded rectangle).
  *
  * cornerRadius is kept below height/2 in every entry so the boxes stay rounded
- * rectangles at the same ratio (~0.45) the canvas node uses.
+ * rectangles rather than collapsing into pills — at ~0.48 of the floor height,
+ * a touch softer than the canvas node's own ratio, which reads better at the
+ * small sizes these previews draw at.
  */
 export const CONNECTION_PREVIEW_FLOORS = {
   // Canvas bottom control panel: rendered at full nodeScale.
-  controlPanel: { width: 130, height: 84, cornerRadius: 38 },
+  controlPanel: { width: 130, height: 84, cornerRadius: 40 },
   // Hover vision aid: also downscaled ~0.6× by CSS, hence the taller box.
-  hover: { width: 100, height: 96, cornerRadius: 44 },
+  hover: { width: 100, height: 96, cornerRadius: 46 },
   // Right panel Connections list: a ~280px-wide column can't fit two 130px
   // boxes plus a predicate label, so this is the deliberate concession — same
   // recipe and proportions, smaller box.
-  panelList: { width: 110, height: 72, cornerRadius: 32 }
+  panelList: { width: 110, height: 72, cornerRadius: 34 }
 };
+
+/** Box a name gets under the canvas recipe, at preview (pre-1.4×) scale. */
+function previewBox(node, name, floors) {
+  const dims = getNodeDimensions({ ...node, name }, false, null, 39, STANDARD_TEXT_SETTINGS);
+  return {
+    width: Math.max(dims.currentWidth * LEGACY_DIM_SCALE, floors.width),
+    height: Math.max(dims.currentHeight * LEGACY_DIM_SCALE, floors.height)
+  };
+}
+
+/**
+ * Longest prefix of `name` whose preview box still fits `maxWidth`.
+ *
+ * getNodeDimensions grows a text node's box up to 420px (preview scale) to fit
+ * the name, so two long names alone can exceed a panel column — and the
+ * renderer's answer to that is to fit-scale the whole drawing down, which takes
+ * the predicate label's font with it. Trimming the name keeps the boxes inside
+ * their budget so nothing has to shrink.
+ */
+function truncateNameToWidth(node, name, maxWidth, floors) {
+  if (previewBox(node, name, floors).width <= maxWidth) return name;
+  const ellipsis = '…';
+  let lo = 0;
+  let hi = name.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    const candidate = name.slice(0, mid).trimEnd() + ellipsis;
+    if (previewBox(node, candidate, floors).width <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo > 0 ? name.slice(0, lo).trimEnd() + ellipsis : ellipsis;
+}
 
 /**
  * Size a set of preview nodes the way the canvas sizes them: measure the name at
@@ -52,18 +86,21 @@ export const CONNECTION_PREVIEW_FLOORS = {
  *
  * @param {Array<object>} nodes - node-ish objects ({ id, name, color, ... })
  * @param {{width:number,height:number}} floors - entry from CONNECTION_PREVIEW_FLOORS
+ * @param {{maxWidth?:number}} [options] - maxWidth truncates names whose box would
+ *   exceed it. Only consumers whose container width is fixed independently of the
+ *   content (the right panel column) need this; the control panel and hover aid
+ *   size their container to the content instead.
  * @returns {Array<object>} nodes with x/y/width/height set
  */
-export function buildConnectionPreviewNodes(nodes, floors) {
+export function buildConnectionPreviewNodes(nodes, floors, { maxWidth } = {}) {
+  // The floor is the narrowest box the recipe can produce, so a cap below it is
+  // unsatisfiable — clamp rather than truncate a name down to nothing.
+  const cap = maxWidth != null ? Math.max(maxWidth, floors.width) : Infinity;
   return nodes.map((node) => {
-    const dims = getNodeDimensions(node, false, null, 39, STANDARD_TEXT_SETTINGS);
-    return {
-      ...node,
-      x: 0,
-      y: 0,
-      width: Math.max(dims.currentWidth * LEGACY_DIM_SCALE, floors.width),
-      height: Math.max(dims.currentHeight * LEGACY_DIM_SCALE, floors.height)
-    };
+    const name = cap === Infinity
+      ? node.name
+      : truncateNameToWidth(node, node.name, cap, floors);
+    return { ...node, name, x: 0, y: 0, ...previewBox(node, name, floors) };
   });
 }
 
