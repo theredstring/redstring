@@ -18,6 +18,26 @@ const SPAWNABLE_NODE = 'spawnable_node';
 
 const SOURCE_TO_RING_MARGIN = 200; // Minimum gap from source node edge to first orbit ring
 const INTER_RING_MARGIN = 100;     // Minimum gap between successive orbit rings
+// Side-to-side clearance between neighbouring items on the same ring. Separate
+// from the radial gap on purpose — see computeRingRadius.
+const RING_TANGENTIAL_PAD = 60;
+// How much of a ring's label width the gap outside ring 1 has to reserve.
+//
+// Zero, now that labels are centred on the whole focus-border-to-item run
+// (see computeOrbitConnectionGeometry): an outer ring's run spans every band
+// inside it, so its labels have far more room than any gap in front of the ring
+// could give them, and reserving that room again only pushed the ring out. Ring
+// 1 still reserves in full — its run is the short one, between the focus node
+// and the first ring, and it is the ring worth keeping perfectly circular.
+// Anything that still does not fit extends per item instead (labelOverflowExtension).
+const OUTER_RING_LABEL_FRACTION = 0;
+// How far an outer ring may encroach into the radial footprint of the ring
+// inside it, as a fraction of that ring's half-width. Chaining full item widths
+// outward is what makes ring 4 so distant, and it assumes an outer item could
+// end up directly behind an inner one — which the stagger and the collision
+// nudge specifically prevent. Since neighbours are angularly offset, their boxes
+// can share some radial band without ever touching.
+const RING_STAGGER_OVERLAP = 0.5;
 const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.02; // Steady clockwise rotation
 // Steady-state motion write rate. This was throttled to 15Hz while the orbit
 // dim rect was still in play: that rect laid ~9 viewport areas of 70% black
@@ -72,6 +92,11 @@ const ORBIT_SWAY_DEG = 0.9;        // ±sway about the focus center; ~±12px at 
 const ORBIT_SWAY_PERIOD_SEC = 26;  // one full there-and-back cycle
 
 const ITEM_ALPHA = 0.85;
+// What every OTHER triplet fades to while one is hovered, so the hovered
+// subject-predicate-object reads on its own. The focus node is not ours to
+// dim — NodeCanvas renders it, above this layer — which is right anyway: it is
+// the subject of every triplet here, so it belongs to the hovered one too.
+const DIMMED_ALPHA = 0.1;
 
 // One stylesheet for the overlay. The alpha rules are load-bearing for zoom
 // performance: items and connections used to carry group opacity (0.85 on
@@ -94,6 +119,13 @@ const ORBIT_STYLE_SHEET = `
   stroke-opacity: ${ITEM_ALPHA};
   transition: fill-opacity 0.2s ease, stroke-opacity 0.2s ease;
 }
+/* Everything that is not the hovered triplet. Listed before [data-hovered] so
+   that if the two ever land on one element at once — they shouldn't — being
+   hovered wins. */
+.orbit-items > g[data-dimmed], .orbit-connection[data-dimmed] {
+  fill-opacity: ${DIMMED_ALPHA};
+  stroke-opacity: ${DIMMED_ALPHA};
+}
 .orbit-items > g[data-hovered], .orbit-connection[data-hovered] {
   fill-opacity: 1;
   stroke-opacity: 1;
@@ -102,6 +134,7 @@ const ORBIT_STYLE_SHEET = `
   opacity: ${ITEM_ALPHA};
   transition: opacity 0.2s ease;
 }
+.orbit-items > g[data-dimmed] image { opacity: ${DIMMED_ALPHA}; }
 .orbit-items > g[data-hovered] image { opacity: 1; }
 /* Entrances write alpha every frame, so the steady-state easing above must not
    also be interpolating it — the two would fight and smear the fade. */
@@ -152,6 +185,27 @@ function applyEntranceAlpha(els, alpha) {
   }
 }
 
+/**
+ * Push one triplet into or out of the background while another is hovered.
+ *
+ * An attribute flip, for the same reason hover brightening is one: the
+ * stylesheet's inherited fill/stroke-opacity needs no isolation surface, and
+ * its 0.2s transition does the fade for free in both directions.
+ *
+ * Entering elements are skipped. Their alpha is being written inline every
+ * frame by applyEntranceAlpha, which outranks the stylesheet — so they would
+ * ignore this. They pick the dim up when their entrance hands alpha back, which
+ * matters: candidates stream in, so entrances do finish mid-hover.
+ */
+function setTripletDimmed(entry, dim) {
+  if (!entry || !entry.entranceDone) return;
+  for (const el of [entry.itemG, entry.conn?.connG]) {
+    if (!el) continue;
+    if (dim) el.setAttribute('data-dimmed', '');
+    else el.removeAttribute('data-dimmed');
+  }
+}
+
 /** Hand the element back to the stylesheet's steady-state alpha. */
 function clearEntranceAlpha(el) {
   if (!el) return;
@@ -160,35 +214,6 @@ function clearEntranceAlpha(el) {
   el.style.strokeOpacity = '';
   el.removeAttribute('data-entering');
 }
-
-// Suspend CSS animations while the canvas transform is changing and resume
-// shortly after it settles ('canvas-transform-change' fires synchronously
-// from the pan/zoom mutators). An animating element keeps invalidating its
-// raster mid-gesture, exactly when raster work is scarcest. Used by the
-// loading dots; the main overlay handles gestures with the promote-and-freeze
-// effect in the parent component instead.
-const useSuspendAnimationDuringCanvasTransform = (getEls) => {
-  useEffect(() => {
-    let timer = null;
-    const suspend = () => {
-      for (const el of getEls()) {
-        if (el && el.style.animationName !== 'none') el.style.animationName = 'none';
-      }
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        for (const el of getEls()) {
-          if (el) el.style.animationName = '';
-        }
-      }, 250);
-    };
-    window.addEventListener('canvas-transform-change', suspend);
-    return () => {
-      window.removeEventListener('canvas-transform-change', suspend);
-      if (timer) clearTimeout(timer);
-    };
-  }, [getEls]);
-};
 
 // Predicates that carry no meaning worth drawing. Module scope: this used to be
 // rebuilt inside every connection render.
@@ -239,10 +264,6 @@ const LABEL_PAD = 30;                 // clearance each side of a connection lab
  * Unlike the canvas, the arrow tip stops AT the item border rather than
  * penetrating it: canvas nodes are opaque and hide the overlap, orbit items
  * render at 0.85 opacity and would let it show through.
- *
- * `innerFreeRadius` is where the label's half of the run begins — the focus
- * node's border for ring 1, the previous ring's outer edge beyond that, so
- * labels land in open annular gaps instead of on top of inner-ring items.
  */
 function computeOrbitConnectionGeometry({
   sourceX, sourceY,
@@ -250,7 +271,6 @@ function computeOrbitConnectionGeometry({
   targetCx, targetCy,
   targetW, targetH,
   connectionWidth,
-  innerFreeRadius,
 }) {
   const dx = targetCx - sourceX;
   const dy = targetCy - sourceY;
@@ -281,15 +301,20 @@ function computeOrbitConnectionGeometry({
   const arrowY = borderY - uy * pullback;
   const arrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
 
-  // Label sits at the midpoint of the open run: from the focus border (or the
-  // previous ring's outer edge) to the target border.
+  // Label sits at the midpoint of the VISIBLE run — focus border to item
+  // border — which is exactly how NodeCanvas centres an edge label (it builds a
+  // separate border-to-border `labelPlacementPath` for the purpose rather than
+  // using the drawn path). Outer rings used to start this run at the previous
+  // ring's outer edge instead, to keep labels out of the inner bands; that shoved
+  // every outer label hard up against its own item and read as badly off-centre.
+  // It was also unnecessary: the collision nudge already offsets each outer item
+  // angularly from every inner one, so an item's radial run is clear all the way
+  // back to the focus node and the label threads between the inner rings.
   const sourceHit = getNodeEdgeIntersection(
     sourceX - focusWidth / 2, sourceY - focusHeight / 2, focusWidth, focusHeight, ux, uy
   );
-  const innerR = innerFreeRadius != null
-    ? innerFreeRadius
-    : (sourceHit ? sourceHit.distance : Math.max(focusWidth, focusHeight) / 2);
-  const labelDist = (innerR + targetBorderDist) / 2;
+  const sourceBorderDist = sourceHit ? sourceHit.distance : Math.max(focusWidth, focusHeight) / 2;
+  const labelDist = (sourceBorderDist + targetBorderDist) / 2;
 
   let labelAngle = arrowAngle;
   if (labelAngle > 90 || labelAngle < -90) labelAngle += 180; // keep text upright
@@ -317,7 +342,6 @@ const OrbitConnection = React.memo(function OrbitConnection({
   baseTargetCy,
   targetW,
   targetH,
-  innerFreeRadius,
   predicate,
   color,
   connectionWidth,
@@ -328,7 +352,7 @@ const OrbitConnection = React.memo(function OrbitConnection({
   const geom = computeOrbitConnectionGeometry({
     sourceX, sourceY, focusWidth, focusHeight,
     targetCx: baseTargetCx, targetCy: baseTargetCy,
-    targetW, targetH, connectionWidth, innerFreeRadius,
+    targetW, targetH, connectionWidth,
   });
 
   const elsRef = useRef({});
@@ -569,23 +593,47 @@ const DraggableOrbitItem = React.memo(function DraggableOrbitItem({
   );
 });
 
-const computeRingRadius = (items, innerEdgeRadius, spacing, count) => {
+/**
+ * Radius for one ring.
+ *
+ * Two independent constraints, and keeping them separate is the whole point:
+ *
+ *  - RADIAL (`radialGap`): room between this ring and the one inside it, for
+ *    the connection line and its arrow — plus, for ring 1 only, its labels.
+ *    Labels lie ALONG the radius, so a long predicate widens ring 1's gap.
+ *  - TANGENTIAL (`tangentialPad`): side-to-side clearance between neighbouring
+ *    items ON this ring. Pushing the ring outward is the only way to buy
+ *    angular room, so this term divides by sin(dθ/2) and grows fast.
+ *
+ * These used to be the same number. Feeding the label-sized radial gap into the
+ * chord term meant a ~430px predicate demanded ~430px of *sideways* clearance
+ * between items too, which at ten items to a ring inflated the radius by more
+ * than a thousand pixels — and each ring chained onto the last, so the outer
+ * rings ended up absurdly far out. Labels never needed that: they run radially,
+ * and the rings are staggered so a label threads between the outer ring's items
+ * rather than colliding with them.
+ *
+ * Beyond ring 1 the radial gap no longer carries labels at all: an outer label
+ * is centred on the run all the way back to the focus node, which is longer than
+ * any inter-ring gap, and the rare overflow moves its own item out on its own
+ * (labelOverflowExtension) rather than moving the ring.
+ */
+const computeRingRadius = (items, innerEdgeRadius, radialGap, tangentialPad, count) => {
   // innerEdgeRadius = the outer edge of the previous ring (or source node)
   if (items.length === 0 || count === 0) {
-    return innerEdgeRadius + spacing;
+    return innerEdgeRadius + radialGap;
   }
 
   const maxWidth = items.reduce((m, it) => Math.max(m, it.dims.currentWidth), 0);
+  const radialMin = innerEdgeRadius + radialGap + maxWidth / 2;
 
   // For a single item, no chord geometry needed
-  if (count === 1) {
-    return innerEdgeRadius + spacing + maxWidth / 2;
-  }
+  if (count === 1) return radialMin;
 
-  const chordNeeded = maxWidth + spacing;
+  const chordNeeded = maxWidth + tangentialPad;
   const dTheta = (Math.PI * 2) / count;
   const minR = chordNeeded / (2 * Math.sin(dTheta / 2));
-  return Math.max(innerEdgeRadius + spacing + maxWidth / 2, minR);
+  return Math.max(radialMin, minR);
 };
 
 // Nudge an angle away from blocked angular ranges (inner ring items' connection paths)
@@ -632,11 +680,52 @@ const ringLabelRoom = (measured, labelFontSize) => measured.reduce((m, { candida
     : m
 ), 0);
 
+// Distance from a box's centre to its border along a unit direction — the same
+// ray/AABB cast the connection geometry uses, hoisted so layout can ask the
+// question before anything is drawn.
+const halfExtentAlong = (w, h, ux, uy) => {
+  const hit = getNodeEdgeIntersection(-w / 2, -h / 2, w, h, ux, uy);
+  return hit ? hit.distance : Math.max(w, h) / 2;
+};
+
+/**
+ * How much further out ONE item has to sit for its own label to fit.
+ *
+ * The label is centred on the run between the focus node's border and the
+ * item's, so that run has to be at least as long as the label plus its
+ * clearance. When it isn't, the item moves outward by the shortfall — its
+ * connection line and arrowhead follow, since both derive from the item's
+ * centre — rather than the whole ring moving out to accommodate one long
+ * predicate. Ring radii are set by the widest label on the ring, so under the
+ * old scheme a single verbose relation pushed its ring out and every ring
+ * beyond it chained onto that. This localises the cost to the item that caused it.
+ */
+const labelOverflowExtension = ({
+  ringRadius, angle, focusWidth, focusHeight, dims, predicate, labelFontSize,
+}) => {
+  if (!hasVisiblePredicate(predicate)) return 0;
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+  const sourceBorder = halfExtentAlong(focusWidth, focusHeight, ux, uy);
+  // Cast back toward the focus node, the direction the connection arrives from.
+  const targetBorder = ringRadius - halfExtentAlong(dims.currentWidth, dims.currentHeight, -ux, -uy);
+  const available = targetBorder - sourceBorder;
+  const needed = estimateEdgeLabelWidth(formatPredicate(predicate), labelFontSize) + 2 * LABEL_PAD;
+  // Moving the item out by d lengthens the run by exactly d (the direction, and
+  // so both border crossings, are unchanged), so one pass closes the gap.
+  return Math.max(0, needed - available);
+};
+
 // Loading animation: dots orbiting the node's rounded rectangle
 const LOADING_DOT_COUNT = 8;
 const LOADING_DOT_RADIUS = 6;
 const LOADING_PAD = 40; // padding beyond node bounds
 const LOADING_ORBIT_PERIOD_SEC = 3; // one full loop in seconds
+// Fixed light colour, deliberately NOT theme.canvas.textPrimary. These dots sit
+// on the orbit scrim, which is the same dark overlay in either theme — so the
+// light-mode text colour (#260000, near black) vanished against it. Matches the
+// dark theme's primary text, which is what the scrim effectively makes this.
+const LOADING_DOT_COLOR = '#DEDADA';
 
 function pointOnRoundedRect(t, cx, cy, w, h, cr) {
   // Parameterize the rounded rect perimeter clockwise from top-center
@@ -713,24 +802,47 @@ const LOADING_PULSE_KEYFRAMES = `
   100% { opacity: 0.85; }
 }`;
 
-const OrbitLoadingDots = ({ centerX, centerY, focusWidth, focusHeight, textPrimary, nodeScale }) => {
-  const groupRef = useRef(null);
-  const getAnimatedEls = useCallback(
-    () => (groupRef.current ? Array.from(groupRef.current.querySelectorAll('circle')) : []),
-    []
-  );
-  useSuspendAnimationDuringCanvasTransform(getAnimatedEls);
+const OrbitLoadingDots = ({ centerX, centerY, focusWidth, focusHeight, nodeScale }) => {
+  const dotsRef = useRef([]);
 
   const w = focusWidth + 2 * LOADING_PAD;
   const h = focusHeight + 2 * LOADING_PAD;
   // Match the node's scaled corner radius (getNodeDimensions: NODE_CORNER_RADIUS * 1.4 * nodeScale)
   const cr = NODE_CORNER_RADIUS * 1.4 * nodeScale;
 
-  // Dots hold still; a phase-staggered opacity pulse chases around the border
-  // for the comet effect. CSS opacity animations run on the compositor, so
-  // loading drives no main-thread frames and never repaints the canvas
-  // surface (the old version rewrote cx/cy in a RAF loop, re-rastering the
-  // whole SVG on every frame for the entire fetch).
+  // Geometry the loop reads each frame. In a ref so a prop change repositions
+  // the dots without tearing down and restarting the animation mid-loop.
+  const geomRef = useRef(null);
+  geomRef.current = { centerX, centerY, w, h, cr };
+
+  // The dots travel around the node's border. They were parked in place at one
+  // point — only a staggered opacity pulse moving between them — because every
+  // cx/cy write repainted the canvas, and orbit mode then laid a translucent
+  // scrim over the whole graph that every one of those repaints had to blend
+  // through. That scrim is a separate compositor layer now, so eight attribute
+  // writes a frame are ordinary and the dots can actually travel again. The
+  // pulse stays on top of the motion — together they give the comet trail.
+  useEffect(() => {
+    let raf = 0;
+    let startTs = null;
+    const loop = (ts) => {
+      if (startTs === null) startTs = ts;
+      const phase = ((ts - startTs) / 1000 / LOADING_ORBIT_PERIOD_SEC) % 1;
+      const g = geomRef.current;
+      for (let i = 0; i < dotsRef.current.length; i++) {
+        const el = dotsRef.current[i];
+        if (!el) continue;
+        const t = (i / LOADING_DOT_COUNT + phase) % 1;
+        const pos = pointOnRoundedRect(t, g.centerX, g.centerY, g.w, g.h, g.cr);
+        el.setAttribute('cx', pos.x);
+        el.setAttribute('cy', pos.y);
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   const dots = [];
   for (let i = 0; i < LOADING_DOT_COUNT; i++) {
     const t = i / LOADING_DOT_COUNT;
@@ -738,10 +850,11 @@ const OrbitLoadingDots = ({ centerX, centerY, focusWidth, focusHeight, textPrima
     dots.push(
       <circle
         key={i}
+        ref={(el) => { dotsRef.current[i] = el; }}
         cx={pos.x}
         cy={pos.y}
         r={LOADING_DOT_RADIUS}
-        fill={textPrimary}
+        fill={LOADING_DOT_COLOR}
         opacity={0.85}
         style={{
           animation: `orbit-dot-pulse ${LOADING_ORBIT_PERIOD_SEC}s linear infinite`,
@@ -752,7 +865,7 @@ const OrbitLoadingDots = ({ centerX, centerY, focusWidth, focusHeight, textPrima
   }
 
   return (
-    <g ref={groupRef} className="orbit-loading-dots">
+    <g className="orbit-loading-dots">
       <style>{LOADING_PULSE_KEYFRAMES}</style>
       {dots}
     </g>
@@ -800,24 +913,37 @@ export default function OrbitOverlay({
     const measured = [measuredRing1, measuredRing2, measuredRing3, measuredRing4];
     const arrowRoom = 2 * POLY_TIP * connectionWidth;
     const radii = [];
-    const innerFree = [];
     let innerEdge = centerRadius;
+
+    // Live tuning: `window.__orbitRings = { tangentialPad, outerLabelFraction,
+    // staggerOverlap, sourceMargin, interRingMargin }` overrides any of these.
+    const dial = (typeof window !== 'undefined' && window.__orbitRings) || null;
+    const tangentialPad = dial?.tangentialPad ?? RING_TANGENTIAL_PAD;
+    const outerLabelFraction = dial?.outerLabelFraction ?? OUTER_RING_LABEL_FRACTION;
+    const staggerOverlap = Math.min(0.8, Math.max(0, dial?.staggerOverlap ?? RING_STAGGER_OVERLAP));
+    const sourceMargin = dial?.sourceMargin ?? SOURCE_TO_RING_MARGIN;
+    const interMargin = dial?.interRingMargin ?? INTER_RING_MARGIN;
 
     for (let k = 0; k < 4; k++) {
       const items = measured[k];
-      const minGap = k === 0 ? SOURCE_TO_RING_MARGIN : INTER_RING_MARGIN;
-      const gap = Math.max(minGap, ringLabelRoom(items, labelFontSize) + arrowRoom + 2 * LABEL_PAD);
-      const radius = computeRingRadius(items, innerEdge, gap, Math.max(1, items.length));
+      const minGap = k === 0 ? sourceMargin : interMargin;
+      const labelShare = k === 0 ? 1 : outerLabelFraction;
+      const radialGap = Math.max(
+        minGap,
+        ringLabelRoom(items, labelFontSize) * labelShare + arrowRoom + 2 * LABEL_PAD
+      );
+      const radius = computeRingRadius(items, innerEdge, radialGap, tangentialPad, Math.max(1, items.length));
       radii.push(radius);
-      // Ring 1 measures its label run from the focus node's own border.
-      innerFree.push(k === 0 ? null : innerEdge);
       const maxWidth = items.length > 0
         ? items.reduce((m, it) => Math.max(m, it.dims.currentWidth), 0)
         : 0;
-      innerEdge = radius + maxWidth / 2;
+      // The next ring starts inside this one's outer edge: its items sit in the
+      // angular gaps between these, so the two bands may overlap without the
+      // boxes meeting. See RING_STAGGER_OVERLAP.
+      innerEdge = radius + (maxWidth / 2) * (1 - staggerOverlap);
     }
 
-    return { radii, innerFree };
+    return { radii };
   }, [measuredRing1, measuredRing2, measuredRing3, measuredRing4, centerRadius, labelFontSize, connectionWidth]);
 
   // Collision-free base angles for all rings (recomputed only when ring
@@ -880,13 +1006,23 @@ export default function OrbitOverlay({
     const measured = [measuredRing1, measuredRing2, measuredRing3, measuredRing4];
     const out = [];
     for (let k = 0; k < 4; k++) {
-      const ringRadius = rings.radii[k];
-      const innerFreeRadius = rings.innerFree[k];
+      const nominalRadius = rings.radii[k];
       const baseAngles = collisionFreeAngles[k];
       const salt = `ring${k + 1}`;
       for (let i = 0; i < measured[k].length; i++) {
         const { candidate, dims } = measured[k][i];
         const baseAngle = baseAngles[i] ?? 0;
+        // Each item rides its own ring's radius unless its label needs more run
+        // than that leaves — then this one item steps outward, ring intact.
+        const ringRadius = nominalRadius + labelOverflowExtension({
+          ringRadius: nominalRadius,
+          angle: baseAngle,
+          focusWidth,
+          focusHeight,
+          dims,
+          predicate: candidate.predicate,
+          labelFontSize,
+        });
         const seed1 = hashToUnitFloat(candidate.id, `${salt}:radial`);
         const seed2 = hashToUnitFloat(candidate.id, `${salt}:angle`);
         const seed3 = hashToUnitFloat(candidate.id, `${salt}:freqR`);
@@ -897,7 +1033,6 @@ export default function OrbitOverlay({
           candidate,
           dims,
           ringRadius,
-          innerFreeRadius,
           baseAngle,
           baseCx: centerX + ringRadius * Math.cos(baseAngle),
           baseCy: centerY + ringRadius * Math.sin(baseAngle),
@@ -911,7 +1046,8 @@ export default function OrbitOverlay({
       }
     }
     return out;
-  }, [measuredRing1, measuredRing2, measuredRing3, measuredRing4, rings, collisionFreeAngles, centerX, centerY]);
+  }, [measuredRing1, measuredRing2, measuredRing3, measuredRing4, rings, collisionFreeAngles,
+      centerX, centerY, focusWidth, focusHeight, labelFontSize]);
 
   const placementsById = useMemo(() => {
     const m = new Map();
@@ -931,6 +1067,10 @@ export default function OrbitOverlay({
   const rafRef = useRef(null);
   const runningRef = useRef(false);
   const pausedRef = useRef(false);
+  // Which triplet the pointer is on, or null. A ref, like everything else hover
+  // touches: routing it through state would re-render every item and connection
+  // on every mouse cross.
+  const hoveredIdRef = useRef(null);
   const swayRef = useRef(null);
   const overlayRootRef = useRef(null);
   // Canvas pan/zoom gesture in flight: rotation frozen, overlay hidden.
@@ -1016,6 +1156,8 @@ export default function OrbitOverlay({
             clearEntranceAlpha(els.itemG);
             if (els.itemImage) els.itemImage.style.opacity = '';
             clearEntranceAlpha(els.conn?.connG);
+            // Arriving while another triplet is hovered means arriving dimmed.
+            setTripletDimmed(els, hoveredIdRef.current !== null && hoveredIdRef.current !== id);
           } else {
             entranceActive = true;
           }
@@ -1048,7 +1190,6 @@ export default function OrbitOverlay({
             targetCx: cx, targetCy: cy,
             targetW: p.dims.currentWidth, targetH: p.dims.currentHeight,
             connectionWidth: cw,
-            innerFreeRadius: p.innerFreeRadius,
           });
           if (conn.connLine) {
             conn.connLine.setAttribute('x1', g.x1);
@@ -1087,6 +1228,7 @@ export default function OrbitOverlay({
         entry.itemImage = undefined; // re-resolve against the new element
         if (entry.entranceDone) {
           clearEntranceAlpha(el);
+          setTripletDimmed(entry, hoveredIdRef.current !== null && hoveredIdRef.current !== id);
         } else {
           el.setAttribute('data-entering', '');
           applyEntranceAlpha(entry, 0);
@@ -1108,6 +1250,7 @@ export default function OrbitOverlay({
       if (els.connG) {
         if (entry.entranceDone) {
           clearEntranceAlpha(els.connG);
+          setTripletDimmed(entry, hoveredIdRef.current !== null && hoveredIdRef.current !== id);
         } else {
           els.connG.setAttribute('data-entering', '');
           applyEntranceAlpha(entry, 0);
@@ -1123,6 +1266,13 @@ export default function OrbitOverlay({
   // Hover highlights and pauses without any React state: touching state here
   // would re-render every item and connection on every mouse cross.
   const handleHoverChange = useCallback((id, hovered) => {
+    // Crossing straight from one item to the next fires the old item's leave
+    // and the new item's enter in whichever order the browser chooses, so a
+    // leave only clears the hover if this item is still the one holding it.
+    if (hovered) hoveredIdRef.current = id;
+    else if (hoveredIdRef.current === id) hoveredIdRef.current = null;
+    const hoveredId = hoveredIdRef.current;
+
     const entry = elsRef.current.get(id);
     if (entry && entry.entranceDone) {
       // [data-hovered] flips the stylesheet's fill/stroke-opacity to 1 with a
@@ -1135,8 +1285,15 @@ export default function OrbitOverlay({
         if (entry.conn?.connG) entry.conn.connG.removeAttribute('data-hovered');
       }
     }
-    pausedRef.current = hovered;
-    if (!hovered) ensureRafRunning();
+
+    // Push the rest of the orbit back so the hovered triplet stands alone, and
+    // bring it all forward again on the way out.
+    for (const [otherId, other] of elsRef.current) {
+      setTripletDimmed(other, hoveredId !== null && hoveredId !== otherId);
+    }
+
+    pausedRef.current = hoveredId !== null;
+    if (!pausedRef.current) ensureRafRunning();
   }, [ensureRafRunning]);
 
   // Drop registry entries for candidates that are gone, so the loop isn't kept
@@ -1258,7 +1415,6 @@ export default function OrbitOverlay({
         centerY={centerY}
         focusWidth={focusWidth}
         focusHeight={focusHeight}
-        textPrimary={theme.canvas.textPrimary}
         nodeScale={nodeScale}
       />
     );
@@ -1297,7 +1453,6 @@ export default function OrbitOverlay({
             baseTargetCy={p.baseCy}
             targetW={p.dims.currentWidth}
             targetH={p.dims.currentHeight}
-            innerFreeRadius={p.innerFreeRadius}
             predicate={p.candidate.predicate}
             color={p.candidate.color}
             connectionWidth={connectionWidth}

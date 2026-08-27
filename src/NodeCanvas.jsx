@@ -422,7 +422,26 @@ const TRACKPAD_ZOOM_GLIDE_MIN_SPEED = 0.0015;
 
 // The scrim drawn behind the orbit overlay. Lives on an HTML layer above the
 // <svg>, never as a rect inside it — see the orbit scrim in the render tree.
-const ORBIT_SCRIM_COLOR = 'rgba(0, 0, 0, 0.7)';
+const ORBIT_SCRIM_COLOR = 'rgba(0, 0, 0, 0.8)';
+// Backdrop blur behind the scrim, in px. 0 disables it.
+//
+// OFF, because it brought the tile-memory flicker back — and specifically when
+// zoomed deep into a crowded orbit, which is the signature of the thing it does
+// wrong. The reasoning for turning it on was that a compositor effect on an HTML
+// layer samples the already-composited texture beneath, so its cost is bounded
+// by the viewport. That is true of the BLUR. It is not true of the render
+// surface the blur forces: asking for the backdrop makes the compositor
+// materialise the layer beneath as a surface rather than drawing it straight
+// through, and the layer beneath is the 100k x 100k canvas, whose transformed
+// bounds grow with zoom. At normal zoom the clip keeps that near viewport size;
+// zoomed deep it does not, and the budget goes.
+//
+// Kept behind the dial rather than deleted, since the look was worth wanting:
+// `window.__orbitBlur = 3` (or 6, 12) in the console turns it on, taking effect
+// on the next render, so it A/Bs live against `window.__diag.record(3000)`.
+// Anything reinstating it by default needs that measurement at deep zoom on a
+// full orbit, not just at rest.
+const ORBIT_SCRIM_BLUR_PX = 0;
 
 /**
  * Root canvas component for Redstring's graph interface.
@@ -16881,16 +16900,24 @@ function NodeCanvas() {
                   single flat composite on the GPU and costs essentially
                   nothing. pointer-events stays off so the transparent rect
                   inside the canvas keeps handling click-to-exit unchanged. */}
-              {semanticOrbitActive && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    background: ORBIT_SCRIM_COLOR,
-                    pointerEvents: 'none',
-                  }}
-                />
-              )}
+              {semanticOrbitActive && (() => {
+                const blurPx = typeof window !== 'undefined' && window.__orbitBlur != null
+                  ? Number(window.__orbitBlur)
+                  : ORBIT_SCRIM_BLUR_PX;
+                const blur = blurPx > 0 ? `blur(${blurPx}px)` : undefined;
+                return (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      background: ORBIT_SCRIM_COLOR,
+                      backdropFilter: blur,
+                      WebkitBackdropFilter: blur, // Safari / iOS still need the prefix
+                      pointerEvents: 'none',
+                    }}
+                  />
+                );
+              })()}
 
               {/* Orbit layer. Geometry mirrors the main <svg> exactly (same
                   origin, same size) and its content group carries the same

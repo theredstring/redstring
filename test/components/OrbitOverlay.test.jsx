@@ -5,7 +5,7 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
 import OrbitOverlay from '../../src/components/OrbitOverlay.jsx';
-import { EDGE_LABEL_BASE_FONT_SIZE } from '../../src/services/layoutGeometry.js';
+import { EDGE_LABEL_BASE_FONT_SIZE, estimateEdgeLabelWidth } from '../../src/services/layoutGeometry.js';
 import { POLY_TIP } from '../../src/utils/canvas/edgeRouting.js';
 
 // Drive requestAnimationFrame by hand so we can count frames and React commits.
@@ -64,10 +64,39 @@ const candidate = (id, predicate, extra = {}) => ({
   ...extra,
 });
 
+// An item's live box: its background rect plus whatever drift the animation
+// loop has written onto the group. The overlay is always rendered with its
+// focus node at the origin, so these are also vectors from the focus centre.
+const itemBox = (itemG) => {
+  const rect = itemG.querySelector('rect');
+  const drift = itemG.getAttribute('transform')?.match(/^translate\(([-\d.]+), ([-\d.]+)\)/);
+  const dx = drift ? Number(drift[1]) : 0;
+  const dy = drift ? Number(drift[2]) : 0;
+  const w = Number(rect.getAttribute('width'));
+  const h = Number(rect.getAttribute('height'));
+  return { w, h, cx: Number(rect.getAttribute('x')) + dx + w / 2, cy: Number(rect.getAttribute('y')) + dy + h / 2 };
+};
+
+// Distance from a centred box's centre to its border along a unit direction.
+const borderDist = (w, h, ux, uy) => Math.min(
+  ux !== 0 ? (w / 2) / Math.abs(ux) : Infinity,
+  uy !== 0 ? (h / 2) / Math.abs(uy) : Infinity
+);
+
+// Where a connection's label group sits, as a distance from the focus centre.
+const labelDistance = (connG) => {
+  const m = connG.querySelectorAll('g')[1].getAttribute('transform')
+    .match(/translate\(([-\d.]+), ([-\d.]+)\)/);
+  return Math.hypot(Number(m[1]), Number(m[2]));
+};
+
 const renderOverlay = (props = {}) => {
   const spy = vi.fn();
   const Counting = (p) => { spy(); return <OrbitOverlay {...p} />; };
-  const utils = render(
+  // One tree builder for both the initial render and any re-render: swapping the
+  // component TYPE at this position would unmount rather than update, throwing
+  // away every ref the overlay keeps its animation state in.
+  const tree = (p) => (
     <DndProvider backend={HTML5Backend}>
       <svg>
         <Counting
@@ -80,12 +109,17 @@ const renderOverlay = (props = {}) => {
           ring3Candidates={[]}
           ring4Candidates={[]}
           onOrbitItemClick={() => {}}
-          {...props}
+          {...p}
         />
       </svg>
     </DndProvider>
   );
-  return { ...utils, spy };
+  const utils = render(tree(props));
+  return {
+    ...utils,
+    spy,
+    rerenderWith: (next) => act(() => { utils.rerender(tree({ ...props, ...next })); }),
+  };
 };
 
 describe('OrbitOverlay', () => {
@@ -173,6 +207,72 @@ describe('OrbitOverlay', () => {
     expect(longX).toBeGreaterThan(shortX);
   });
 
+  it('centres every label on the run between the focus node and its item', () => {
+    // NodeCanvas builds a separate border-to-border path purely so an edge label
+    // lands mid-visible-segment. Outer orbit rings used to start that run at the
+    // ring inside them instead — which pinned their labels against their own
+    // items and read as badly off-centre.
+    const { container } = renderOverlay({
+      ring1Candidates: [candidate('a', 'instanceOf')],
+      ring2Candidates: [candidate('b', 'partOf')],
+    });
+    flushFrames(3);
+
+    const items = container.querySelectorAll('.orbit-items > g');
+    const conns = container.querySelectorAll('.orbit-connection');
+    expect(conns.length).toBe(2);
+
+    for (let i = 0; i < conns.length; i++) {
+      const box = itemBox(items[i]);
+      const len = Math.hypot(box.cx, box.cy);
+      const ux = box.cx / len;
+      const uy = box.cy / len;
+
+      const dist = labelDistance(conns[i]);
+      const behind = dist - borderDist(400, 200, ux, uy);              // focus border → label
+      const ahead = (len - borderDist(box.w, box.h, -ux, -uy)) - dist; // label → item border
+
+      expect(behind).toBeGreaterThan(0);
+      expect(behind).toBeCloseTo(ahead, 6);
+    }
+  });
+
+  it('extends only the item whose label outgrows its run, not its whole ring', () => {
+    // Outer rings reserve no label room, so a long predicate can outgrow the run
+    // it is centred on. The fix is local: that item steps outward far enough to
+    // fit, and its ring-mate stays put. Sizing the ring for its worst label
+    // instead is what used to push every ring beyond it out as well.
+    const long = 'isThePrincipalManufacturingSubsidiaryOfTheParentHoldingCompany';
+    // Resting positions only — no frames — so both renders are compared at the
+    // same point in the drift animation.
+    const ring1 = [candidate('a', 'instanceOf')];
+    const radii = (container) => Array.from(container.querySelectorAll('.orbit-items > g'))
+      .map((g) => { const b = itemBox(g); return Math.hypot(b.cx, b.cy); });
+
+    // [ring1 a, ring2 b, ring2 c] in both renders; only c's predicate differs.
+    const withLong = renderOverlay({ ring1Candidates: ring1, ring2Candidates: [candidate('b', 'partOf'), candidate('c', long)] });
+    const items = withLong.container.querySelectorAll('.orbit-items > g');
+    const longRadii = radii(withLong.container);
+    cleanup();
+
+    const control = renderOverlay({ ring1Candidates: ring1, ring2Candidates: [candidate('b', 'partOf'), candidate('c', 'partOf')] });
+    const shortRadii = radii(control.container);
+
+    // The long label moved its own item out...
+    expect(longRadii[2]).toBeGreaterThan(shortRadii[2]);
+    // ...and left its ring-mate, and the ring inside it, exactly where they were.
+    expect(longRadii[1]).toBeCloseTo(shortRadii[1], 6);
+    expect(longRadii[0]).toBeCloseTo(shortRadii[0], 6);
+
+    // It moved far enough that the label actually fits the run it is centred on.
+    const box = itemBox(items[2]);
+    const len = Math.hypot(box.cx, box.cy);
+    const ux = box.cx / len;
+    const uy = box.cy / len;
+    const run = (len - borderDist(box.w, box.h, -ux, -uy)) - borderDist(400, 200, ux, uy);
+    expect(run).toBeGreaterThan(estimateEdgeLabelWidth(long, EDGE_LABEL_BASE_FONT_SIZE));
+  });
+
   it('renders no connection for hidden predicates', () => {
     const { container } = renderOverlay({
       ring1Candidates: [candidate('a', 'relatedTo'), candidate('b', 'seeAlso'), candidate('c', 'instanceOf')],
@@ -230,6 +330,76 @@ describe('OrbitOverlay', () => {
     expect(conn.hasAttribute('data-hovered')).toBe(false);
     flushFrames(6); // > one steady-write interval
     expect(item.getAttribute('transform')).not.toBe(frozen); // resumed
+  });
+
+  it('fades every other triplet back while one is hovered, and restores them after', () => {
+    const { container } = renderOverlay({
+      ring1Candidates: [candidate('a', 'instanceOf'), candidate('b', 'partOf')],
+      ring2Candidates: [candidate('c', 'hasPart')],
+    });
+    flushFrames(40); // finish entrances — dimming waits for them, like the highlight
+
+    const items = Array.from(container.querySelectorAll('.orbit-items > g'));
+    const conns = Array.from(container.querySelectorAll('.orbit-connection'));
+    const dimmed = () => [...items, ...conns].filter((el) => el.hasAttribute('data-dimmed'));
+
+    expect(dimmed()).toEqual([]);
+
+    fireEvent.mouseEnter(items[0]);
+    // Everything except the hovered item and its own connection goes back.
+    expect(dimmed()).toEqual([items[1], items[2], conns[1], conns[2]]);
+    expect(items[0].hasAttribute('data-dimmed')).toBe(false);
+    expect(conns[0].hasAttribute('data-dimmed')).toBe(false);
+    // Via the stylesheet, as ever — group opacity would cost an isolation surface.
+    expect(items[1].style.opacity).toBe('');
+    expect(items[1].style.fillOpacity).toBe('');
+
+    fireEvent.mouseLeave(items[0]);
+    expect(dimmed()).toEqual([]);
+  });
+
+  it('keeps the orbit dimmed when the pointer crosses straight to another triplet', () => {
+    // Leave and enter arrive in browser-chosen order. A leave that fired after
+    // the next item's enter used to clear the new hover, un-dimming everything
+    // and restarting rotation under the pointer.
+    const { container } = renderOverlay();
+    flushFrames(40);
+
+    const items = Array.from(container.querySelectorAll('.orbit-items > g'));
+    fireEvent.mouseEnter(items[0]);
+    fireEvent.mouseEnter(items[1]);
+    fireEvent.mouseLeave(items[0]); // the straggler
+
+    expect(items[1].hasAttribute('data-hovered')).toBe(true);
+    expect(items[1].hasAttribute('data-dimmed')).toBe(false);
+    expect(items[0].hasAttribute('data-dimmed')).toBe(true);
+
+    // ...and rotation is still held for the triplet actually under the pointer.
+    flushFrames(2); // the already-scheduled frame only stands down when it runs
+    const frozen = items[1].getAttribute('transform');
+    flushFrames(6);
+    expect(items[1].getAttribute('transform')).toBe(frozen);
+  });
+
+  it('brings a late arrival in already dimmed when a triplet is hovered', () => {
+    // Candidates stream in, so entrances finish mid-hover. Their alpha is
+    // written inline until they land, which outranks the stylesheet — the dim
+    // has to be re-applied at the moment the entrance hands alpha back.
+    const { rerenderWith, container } = renderOverlay();
+    flushFrames(40);
+
+    const first = container.querySelector('.orbit-items > g');
+    fireEvent.mouseEnter(first);
+
+    rerenderWith({
+      ring1Candidates: [candidate('a', 'instanceOf'), candidate('b', 'partOf'), candidate('late', 'hasPart')],
+    });
+
+    const late = container.querySelectorAll('.orbit-items > g')[2];
+    expect(late.hasAttribute('data-dimmed')).toBe(false); // still entering
+    flushFrames(40);                                      // entrance completes
+    expect(late.hasAttribute('data-dimmed')).toBe(true);
+    expect(late.style.fillOpacity).toBe('');              // handed back to the sheet
   });
 
   it('never uses group opacity, so no entry needs an isolation surface', () => {
