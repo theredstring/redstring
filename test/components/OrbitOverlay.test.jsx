@@ -273,6 +273,40 @@ describe('OrbitOverlay', () => {
     expect(run).toBeGreaterThan(estimateEdgeLabelWidth(long, EDGE_LABEL_BASE_FONT_SIZE));
   });
 
+  it('reports the circle it occupies so the canvas can frame it', () => {
+    const onExtentChange = vi.fn();
+    const { container, unmount } = renderOverlay({
+      onExtentChange,
+      ring1Candidates: [candidate('a', 'instanceOf'), candidate('b', 'partOf')],
+      ring2Candidates: [candidate('c', 'hasPart')],
+    });
+
+    const extent = onExtentChange.mock.calls.at(-1)[0];
+    expect(extent).toMatchObject({ centerX: 0, centerY: 0 });
+
+    // Every item's farthest corner is inside the reported circle...
+    const farthest = Math.max(...Array.from(container.querySelectorAll('.orbit-items > g')).map((g) => {
+      const b = itemBox(g);
+      return Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sy]) =>
+        Math.hypot(b.cx + sx * b.w / 2, b.cy + sy * b.h / 2)));
+    }));
+    expect(extent.radius).toBeGreaterThanOrEqual(farthest);
+    // ...and not so far outside it that framing would leave the orbit tiny.
+    expect(extent.radius).toBeLessThan(farthest * 1.1);
+
+    unmount();
+    // Cleared on the way out — otherwise the next orbit gets framed on this one.
+    expect(onExtentChange.mock.calls.at(-1)[0]).toBeNull();
+  });
+
+  it('reports no extent until something is actually placed', () => {
+    // Candidates arrive asynchronously. Framing the bare focus node in the gap
+    // would zoom hard in and then straight back out as the first results land.
+    const onExtentChange = vi.fn();
+    renderOverlay({ onExtentChange, ring1Candidates: [] });
+    expect(onExtentChange.mock.calls.at(-1)[0]).toBeNull();
+  });
+
   it('renders no connection for hidden predicates', () => {
     const { container } = renderOverlay({
       ring1Candidates: [candidate('a', 'relatedTo'), candidate('b', 'seeAlso'), candidate('c', 'instanceOf')],

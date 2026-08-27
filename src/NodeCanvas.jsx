@@ -443,6 +443,10 @@ const ORBIT_SCRIM_COLOR = 'rgba(0, 0, 0, 0.8)';
 // full orbit, not just at rest.
 const ORBIT_SCRIM_BLUR_PX = 0;
 
+// Breathing room around the orbit when the canvas frames it, as a fraction of
+// the usable region on each side.
+const ORBIT_FIT_PADDING = 0.06;
+
 /**
  * Root canvas component for Redstring's graph interface.
  *
@@ -541,6 +545,11 @@ function NodeCanvas() {
   const [orbitLoading, setOrbitLoading] = useState(false);
   const [semanticOrbitActive, setSemanticOrbitActive] = useState(false);
   const semanticOrbitActiveRef = useRef(false);
+  // The circle the live orbit occupies, reported by OrbitOverlay: { centerX,
+  // centerY, radius }, or null when there is no orbit or nothing placed yet.
+  // Drives the framing effect further down.
+  const [orbitFrame, setOrbitFrame] = useState(null);
+  const orbitFitRef = useRef({ fitted: false, framedRadius: 0 });
   // Mirrors store inputMode so RAF callbacks and pointer handlers can read the
   // current modality without re-binding when it flips.
   const inputModeRef = useRef('mouse');
@@ -5889,6 +5898,57 @@ function NodeCanvas() {
       animateCanvasView(finalPan, tz);
     }
   }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, carouselFocusedNodeScale]);
+
+  // Frame the whole orbit when it opens.
+  //
+  // Fits against viewportBounds — the usable canvas region, with the panels, the
+  // header and the type-list bar already subtracted — the same bounds the
+  // carousel framing and the edge glow use, so the orbit centres in what is
+  // actually visible rather than in the raw window.
+  //
+  // Candidates arrive asynchronously and the orbit keeps growing after it opens,
+  // so this reframes as it grows. Two rules keep that from turning into a camera
+  // that will not sit still: nothing happens while the orbit still fits the
+  // frame, and animateCanvasView re-eases from wherever the last one got to, so
+  // consecutive reframes read as one continuous pull-back rather than a series
+  // of jumps. Once the results stop arriving, so does this.
+  useEffect(() => {
+    if (!semanticOrbitActive) {
+      orbitFitRef.current = { fitted: false, framedRadius: 0 };
+      return;
+    }
+    if (!orbitFrame || !(orbitFrame.radius > 0)) return;
+
+    const vb = viewportBounds;
+    const usable = Math.min(
+      vb.width * (1 - 2 * ORBIT_FIT_PADDING),
+      vb.height * (1 - 2 * ORBIT_FIT_PADDING)
+    );
+    const diameter = orbitFrame.radius * 2;
+    const state = orbitFitRef.current;
+
+    if (state.fitted) {
+      if (orbitFrame.radius <= state.framedRadius) return;   // nothing new to fit
+      // It grew — but if it still fits at the zoom we are actually at (the user
+      // may have adjusted it since), leave the view alone and just record it.
+      if (diameter * (zoomLevelRef.current || 1) <= usable) {
+        state.framedRadius = orbitFrame.radius;
+        return;
+      }
+    }
+
+    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, usable / diameter));
+    const targetPanX = (vb.x + vb.width / 2) - (orbitFrame.centerX - canvasSize.offsetX) * tz;
+    const targetPanY = (vb.y + vb.height / 2) - (orbitFrame.centerY - canvasSize.offsetY) * tz;
+    const minPanX = viewportSize.width - canvasSize.width * tz;
+    const minPanY = viewportSize.height - canvasSize.height * tz;
+    animateCanvasView({
+      x: Math.min(Math.max(targetPanX, minPanX), 0),
+      y: Math.min(Math.max(targetPanY, minPanY), 0),
+    }, tz);
+
+    orbitFitRef.current = { fitted: true, framedRadius: orbitFrame.radius };
+  }, [semanticOrbitActive, orbitFrame, viewportBounds, viewportSize, canvasSize, animateCanvasView, zoomLevelRef, MIN_ZOOM, MAX_ZOOM]);
 
   // Animation states for carousel
   const [carouselAnimationState, setCarouselAnimationState] = useState('hidden'); // 'hidden', 'entering', 'visible', 'exiting'
@@ -16649,6 +16709,7 @@ function NodeCanvas() {
                                     ring3Candidates={orbitData.ring3 || []}
                                     ring4Candidates={orbitData.ring4 || []}
                                     onOrbitItemClick={handleOrbitItemClick}
+                                    onExtentChange={setOrbitFrame}
                                     isLoading={orbitLoading}
                                   />
                                 )}

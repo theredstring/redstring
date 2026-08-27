@@ -882,6 +882,7 @@ export default function OrbitOverlay({
   ring3Candidates,
   ring4Candidates,
   onOrbitItemClick,
+  onExtentChange,
   isLoading = false
 }) {
   // Store reads live in the parent only. Every child subscribing separately put
@@ -1054,6 +1055,41 @@ export default function OrbitOverlay({
     for (const p of placements) m.set(p.id, p);
     return m;
   }, [placements]);
+
+  /**
+   * The circle the orbit occupies, reported up so the canvas can frame it.
+   *
+   * Reported rather than recomputed there: ring radii come out of this
+   * component's layout, per-item label extensions included, and a second
+   * derivation of "where the orbit ends" would drift from this one.
+   *
+   * Null until something is actually placed. Candidates arrive asynchronously,
+   * and framing the bare focus node in the gap would zoom hard in and then back
+   * out as the first results land.
+   */
+  const extent = useMemo(() => {
+    if (placements.length === 0) return null;
+    let radius = Math.max(focusWidth, focusHeight) / 2;
+    for (const p of placements) {
+      // Circumscribed radius of the item's box — its corners reach further than
+      // its half-width, and at the outermost ring that is what has to fit.
+      radius = Math.max(radius, p.ringRadius + Math.hypot(p.dims.currentWidth, p.dims.currentHeight) / 2);
+    }
+    return radius;
+  }, [placements, focusWidth, focusHeight]);
+
+  // Held in a ref so the report below depends only on the geometry, not on
+  // whether the parent happened to hand us a new callback identity.
+  const onExtentChangeRef = useRef(onExtentChange);
+  onExtentChangeRef.current = onExtentChange;
+
+  useEffect(() => {
+    onExtentChangeRef.current?.(extent === null ? null : { centerX, centerY, radius: extent });
+  }, [centerX, centerY, extent]);
+
+  // Report the orbit gone on the way out, so a canvas that frames on this does
+  // not frame the departed orbit's extent when the next one opens.
+  useEffect(() => () => { onExtentChangeRef.current?.(null); }, []);
 
   // Everything the animation loop needs, refreshed each render so it always
   // animates against current geometry without being restarted.
