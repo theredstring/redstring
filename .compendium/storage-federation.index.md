@@ -1,7 +1,7 @@
 ---
 compendium_version: 1
 category: storage-federation
-last_reviewed: 2026-06-13
+last_reviewed: 2026-08-27
 ---
 
 # Storage, Sync, and Federation — Document Index
@@ -23,6 +23,7 @@ These documents cover local development setup, deployment environments (GCP Clou
 | [LOCAL_DOCKER_SETUP.md](../LOCAL_DOCKER_SETUP.md) | Docker-specific setup guide; container config | Docker-first development workflow |
 | [LOCAL_LLM_SETUP.md](../LOCAL_LLM_SETUP.md) | Setting up local LLMs via Ollama as an alternative to remote AI providers | Offline / BYOK local model setup |
 | [ELECTRON_SETUP.md](../ELECTRON_SETUP.md) | Building Redstring as an Electron desktop app: native file access, IPC setup, packaging | Desktop app builds and distribution |
+| [CAPACITOR_IOS_SETUP.md](../CAPACITOR_IOS_SETUP.md) | iOS via Capacitor. Storage is **fully abstracted** — no file pickers, no workspace setup; the app owns a `Universes/` folder in its Documents container. File handles are prefixed strings (`capacitor://Documents/Universes/<slug>.redstring`) that flow through the same code paths as Electron's absolute paths, deliberately encoding a `Directory` enum + relative path because iOS rotates the app-container UUID | iOS builds; any change to file-handle resolution or `universeBackend.js` (it must keep working for all three handle shapes) |
 | [TROUBLESHOOTING.md](../TROUBLESHOOTING.md) | Common issues and their resolutions; MCP-specific troubleshooting | Diagnosing environment and configuration problems |
 | [SECURITY.md](../SECURITY.md) | Security policy and vulnerability reporting procedures | Security disclosures |
 
@@ -56,7 +57,6 @@ These documents cover local development setup, deployment environments (GCP Clou
 
 ## Historical Documents
 
-| File | Summary | Consult when |
-|------|---------|--------------|
-| [UNIFIED_REPO_INTERFACE_SUMMARY.md](../UNIFIED_REPO_INTERFACE_SUMMARY.md) | Documents auto-create universe flow added to `RepositorySelectionModal` | Debugging auto-create flow; understanding the modal's state machine |
-| [IMPORT_OPTIONS_UPDATE.md](../IMPORT_OPTIONS_UPDATE.md) | Documents new-universe-from-file option added to `GitNativeFederation` | Understanding import paths from the UI |
+None — this category is entirely current.
+
+> **Removed 2026-08-27** (recoverable from git history): `UNIFIED_REPO_INTERFACE_SUMMARY.md` and `IMPORT_OPTIONS_UPDATE.md` — short "what I changed" notes on `RepositorySelectionModal` and `GitNativeFederation`. Read those components directly; `GIT_FEDERATION.md` is the authoritative guide for the storage model.

@@ -1,7 +1,7 @@
 ---
 compendium_version: 1
 category: ai-agent-mcp
-last_reviewed: 2026-06-13
+last_reviewed: 2026-08-27
 ---
 
 # AI Agent and MCP — Document Index
@@ -10,7 +10,9 @@ last_reviewed: 2026-06-13
 
 These documents cover the Wizard AI agent, the MCP (Model Context Protocol) server, the bridge daemon that connects Redstring's Zustand store to MCP tools, prompt engineering, and external AI client integration. The Wizard is Redstring's built-in agentic system; MCP is the protocol through which external AI clients (Claude Desktop, etc.) control the graph. Key code paths: `src/wizard/`, `redstring-mcp-server.js`, `src/services/BridgeClient.jsx`, `src/wizard/tools/`, `src/wizard/AgentLoop.js`.
 
-**Critical cross-reference**: See [`MEMORY.md`](../../.claude/projects/-Users-granteubanks-Code-redstringuireact/memory/MEMORY.md) for session-persistent rules about MCP serialization pitfalls, stdio transport constraints, and predictive ID mismatches — those rules are derived from hard-won bugs and must be followed.
+**Two systems live here, and they are separate.** The **Wizard** is an agent loop with conversation state (`src/wizard/AgentLoop.js`). **One-shot calls** are stateless single-question model calls that replace heuristics (`src/services/oneShot.js`) — no loop, no state. Do not merge them.
+
+**Critical cross-reference**: session-persistent rules about MCP serialization pitfalls, stdio transport constraints, and predictive ID mismatches live in the user's Claude Code project memory at `~/.claude/projects/-Users-granteubanks-Code-redstringuireact/memory/MEMORY.md` (outside this repo — not a relative path). Those rules are derived from hard-won bugs and must be followed.
 
 ---
 
@@ -19,6 +21,7 @@ These documents cover the Wizard AI agent, the MCP (Model Context Protocol) serv
 | File | Summary | Key for |
 |------|---------|---------|
 | [AI_INTEGRATION_GUIDE.md](../AI_INTEGRATION_GUIDE.md) | Comprehensive MCP provider/client architecture, search-first orchestration pattern, tool categories, agent lifecycle | Any MCP work; foundational architecture read |
+| [ONE_SHOT_CALLS.md](../ONE_SHOT_CALLS.md) | The one-shot constrained-call pattern: the four-part design contract (null on failure, mandatory heuristic fallback, never throws, every call logged), the `oneShotChoice`/`Boolean`/`Label`/`List` primitives, and every wired call site across `src/wizard/tools/utils/`, `DuplicateManager.jsx`, and `NodeCanvas.jsx` | Adding or modifying any one-shot call; understanding `resolveNodeSmart`, shape classification, structure review, or suggestion prefills |
 | [MCP_SETUP_GUIDE.md](../MCP_SETUP_GUIDE.md) | Step-by-step MCP server setup with Claude Desktop | First-time MCP configuration |
 | [MCP_TOOLS_QUICK_REFERENCE.md](../MCP_TOOLS_QUICK_REFERENCE.md) | Quick reference table of all available MCP tool names, types, and signatures | Looking up tool names and parameter shapes |
 | [REDSTRING_MCP_SYSTEM_PROMPT.md](../REDSTRING_MCP_SYSTEM_PROMPT.md) | The actual system prompt text to paste into an external AI client connecting via MCP | Configuring Claude Desktop or any external MCP client |
@@ -29,6 +32,7 @@ These documents cover the Wizard AI agent, the MCP (Model Context Protocol) serv
 | [AI_TESTING_GUIDE.md](../AI_TESTING_GUIDE.md) | Testing and debugging AI integration: test modes, expected outputs, common failures | Validating AI integration |
 | [WIZARD_TESTING_GUIDE.md](../WIZARD_TESTING_GUIDE.md) | Running Wizard E2E tests, test suite structure, how to add tests | Testing the Wizard specifically |
 | [AI_INTEGRATION_TROUBLESHOOTING.md](../AI_INTEGRATION_TROUBLESHOOTING.md) | Common AI integration failures and their resolutions | Debugging broken MCP connections or tool call failures |
+| `claude-redstring-system-prompt.txt` | A second external-client system prompt, referenced from `CLAUDE_DESKTOP_SETUP.md`. Emphasises spatial reasoning (`get_spatial_map`, cluster detection, panel-aware positioning). ⚠️ **Overlaps heavily with `REDSTRING_MCP_SYSTEM_PROMPT.md`** — two prompts for the same job, and editing one does not update the other. Reconcile them before relying on either | Configuring Claude Desktop; check both files when changing external-client prompt behavior |
 
 ---
 
@@ -49,8 +53,8 @@ Read these for context when working in the relevant area. Code already incorpora
 | [WIZARD_FIXES.md](../WIZARD_FIXES.md) | Post-thinking greeting bug and continuation hallucination fixes | Debugging Wizard response anomalies |
 | [WIZARD_ANALYSIS.md](../WIZARD_ANALYSIS.md) | Broad analysis of the Wizard as a product and Redstring as a platform; still accurate as high-level positioning | Understanding strategic context; writing positioning copy |
 | [WIZARD_AUTO_LAYOUT_TEST.md](../WIZARD_AUTO_LAYOUT_TEST.md) | Documents Wizard + auto-layout integration: test cases, expected behavior | Testing Wizard-triggered layout |
-| [AI_INTEGRATION_SUMMARY.md](../AI_INTEGRATION_SUMMARY.md) | Before/after summary of the AI integration work — **superseded-by: AI_INTEGRATION_GUIDE.md** | Historical reference only; prefer AI_INTEGRATION_GUIDE.md |
-| [walkthrough.md](../walkthrough.md) | Documents Wizard runtime fixes, new MCP tools added, test run results from a specific session | Understanding which tools were added and why; reviewing historical test results |
+
+> **Removed 2026-08-27** (recoverable from git history): `AI_INTEGRATION_SUMMARY.md` (superseded by `AI_INTEGRATION_GUIDE.md`), `walkthrough.md` (a session transcript), and the four small-model handoff prompts `ONESHOT_HANDOFF{,_2,_3}.md` + `SMALL_MODEL_FIXES_HANDOFF.md`. The handoffs were task instructions for an agent, not documentation, and all their work shipped — verified against `src/services/oneShot.js`, the seven `src/wizard/tools/utils/` modules, `strictRequired` in `LLMClient.js:250`, and the small-model `planTask` tier exclusion at `schemas.js:1252`. Their durable content is now `ONE_SHOT_CALLS.md` (what was built) and `SMALL_MODEL_ROADMAP.md` (what wasn't).
 
 ---
 
@@ -59,3 +63,4 @@ Read these for context when working in the relevant area. Code already incorpora
 | File | Summary | Note |
 |------|---------|------|
 | [AGENT_ARCHITECTURE_VISION.md](../AGENT_ARCHITECTURE_VISION.md) | Hierarchical multi-agent system: specialized sub-agents, orchestration layer, agent-to-agent communication | **No code exists yet** — vision only; do not assume any implementation |
+| [SMALL_MODEL_ROADMAP.md](../SMALL_MODEL_ROADMAP.md) | Backlog of heuristics that are candidates for one-shot replacement, each with file and approximate line references: tool-tier keyword gating (`schemas.js`), `cognitiveAgent.js` keyword NLU, Wikipedia disambiguation, tabular column detection, reuse-selector ranking (`UnifiedSelector.jsx`), entity-matching fuzzy verdicts, semantic-web ranking, merge survivor recommendation, semantic seed selection, and the AgentLoop task-like check | **Not implemented.** Line references were accurate when written — re-verify before starting. Follow the contract in `ONE_SHOT_CALLS.md` for anything built from this list |

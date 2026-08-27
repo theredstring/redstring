@@ -1,7 +1,7 @@
 ---
 compendium_version: 1
 category: core-system
-last_reviewed: 2026-06-13
+last_reviewed: 2026-08-27
 ---
 
 # Core System Reference — Document Index
@@ -23,6 +23,7 @@ Key code paths this category maps to: `src/store/graphStore.jsx`, `src/core/Grap
 | [SAVE_COORDINATOR_README.md](../SAVE_COORDINATOR_README.md) | Authoritative reference for SaveCoordinator: batching middleware, drag-aware saves, FNV-1a hashing, viewport exclusion, worker communication | Any work touching saves, file I/O, or performance during interactions |
 | [GIT_FEDERATION.md](../GIT_FEDERATION.md) | Authoritative single-source guide for the universe/Git storage model: multi-slot storage, federation, conflict resolution | Universe management, Git integration, multi-device sync |
 | [GRAPH_QUERY_ABSTRACTION.md](../GRAPH_QUERY_ABSTRACTION.md) | Documents the `graphQueries.js` API surface and query patterns for reading graph state without touching the store directly | Querying graph data, building selectors |
+| [HEADLESS.md](../HEADLESS.md) | The same Zustand store running in Node, with no browser — a **library-first extraction** where the browser, the `redstring` CLI (`cli/redstring.js`), the background HTTP service, and the MCP server all host one environment-agnostic core (`src/headless/HeadlessUniverse.js`, `HeadlessWorkspace.js`). Covers the workspace/universe model, `redstring init`, and pull/push. The hosted static-SPA deployment never imports any headless code | Any work on the core that must stay environment-agnostic; CLI usage; understanding the workspace vs. active-universe distinction |
 
 ## Future-Intent Documents
 

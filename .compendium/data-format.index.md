@@ -1,7 +1,7 @@
 ---
 compendium_version: 1
 category: data-format
-last_reviewed: 2026-06-13
+last_reviewed: 2026-08-27
 ---
 
 # Data Format and Migration — Document Index

@@ -1,8 +1,13 @@
 # Redstring AI Compendium
 
-This is the primary entry point for any AI agent working in this codebase. It provides a categorized, status-tagged index of all 86+ documentation files, a task-based reading order, and a status taxonomy so you can immediately distinguish current architecture from historical fix notes from unimplemented plans.
+This is the primary entry point for any AI agent working in this codebase. It provides a categorized, status-tagged index of the project's documentation, a task-based reading order, and a status taxonomy so you can immediately distinguish current architecture from historical fix notes from unimplemented plans.
 
-**Do not read all 86 files.** Use the task-based reading order below to find exactly what you need, then follow the category dispatch table to the relevant index.
+**Do not read every file.** Use the task-based reading order below to find exactly what you need, then follow the category dispatch table to the relevant index.
+
+**Two things that are not part of this repo**, despite sitting in the working tree — do not grep them for current behavior:
+
+- `docs/` — a separate, nested git repository, gitignored here. Holds a Mintlify site plus ~45 archived fix-notes. Only `docs/COLLABORATION_PLAN.md` is indexed (core-system).
+- `CHANGELOG.md` — gitignored, local-only.
 
 ---
 
@@ -29,14 +34,17 @@ Find your task below and read only the listed files — in order. This is the fa
 |------|--------------------------|
 | **Understand core architecture** | `CLAUDE.md`, `README.md` (§Architecture section) |
 | **Work with the Wizard / MCP** | `AI_INTEGRATION_GUIDE.md`, `REDSTRING_MCP_SYSTEM_PROMPT.md`, then `AGENTIC_ARCHITECTURE.md` (historical — explains the pipeline shape) |
+| **Replace a heuristic with a small constrained model call** | `ONE_SHOT_CALLS.md` (current — the design contract and every wired call site), then `SMALL_MODEL_ROADMAP.md` (future-intent — the remaining backlog). Note this is *not* the Wizard's agent loop |
 | **Call MCP tools from an external client** | `MCP_TOOLS_QUICK_REFERENCE.md`, `MCP_SETUP_GUIDE.md` |
 | **Use Redstring headless (no browser: CLI, workspaces, universes, GitHub)** | `HEADLESS.md` (current — the CLI, workspace/universe model, `redstring init`, pull/push) |
 | **Read or write `.redstring` files** | `redstring-format-spec.md` (legacy-canonical — migration code is derived from this), `REDSTRING_FORMAT_VERSIONING.md` |
 | **Migrate data between format versions** | `REDSTRING_FORMAT_VERSIONING.md`, `MIGRATION_GUIDE.md`, `redstring-format-spec.md` (legacy-canonical) |
-| **Modify the layout algorithm** | `AUTO_LAYOUT_GUIDE.md`, `REDESIGNED_LAYOUT_SUMMARY.md` (historical — explains why it was rebuilt), `FORCE_SIMULATION_TUNER.md` |
-| **Investigate a drag or performance regression** | `DRAG_PERFORMANCE_COMPLETE.md` (historical — contains exact NodeCanvas/utils.js line references from the three-bottleneck analysis) |
+| **Modify the layout algorithm** | `AUTO_LAYOUT_GUIDE.md`, `LAYOUT_HISTORY.md` (historical — why it is shaped this way; **read before renaming any parameter**, aliases are mandatory), `FORCE_SIMULATION_TUNER.md`. Take current values from `FORCE_LAYOUT_DEFAULTS` in code, never from a doc |
+| **Investigate a *drag* performance regression** | `DRAG_PERFORMANCE_COMPLETE.md` (historical — exact NodeCanvas/utils.js line references from the three-bottleneck analysis) |
+| **Investigate a *zoom* performance regression** | `ZOOM_PERF_DIAGNOSIS.md` (**current — mechanisms 1–4 are still live**, incl. viewport culling disabled since April). A different problem from drag; do not substitute the drag doc |
 | **Deploy or configure infrastructure** | `DEPLOYMENT.md`, `GITHUB_APP_SETUP.md`, `cloudflare/README.md` (if targeting Cloudflare Pages) |
 | **Build or debug the iOS app** | `CAPACITOR_IOS_SETUP.md` (current — Capacitor build, app-managed universe files, device-flow auth), `ELECTRON_SETUP.md` (the desktop analogue this was modeled on) |
+| **Change file-handle resolution or universe loading** | `CAPACITOR_IOS_SETUP.md` + `ELECTRON_SETUP.md` + `HEADLESS.md` — three handle shapes (browser FS handle, absolute path, `capacitor://` prefixed string) share one code path in `universeBackend.js`. All three must keep working |
 | **Work with SPARQL / semantic web / Wikidata** | `SEMANTIC_WEB_INTEGRATION.md`, `RDF_INTEGRATION_README.md`, `SEMANTIC_DISCOVERY_GUIDE.md` |
 | **Set up the save / sync system** | `SAVE_COORDINATOR_README.md`, `GIT_FEDERATION.md` |
 | **Understand the v4.0.0 format roadmap** | `FORMAT_REFACTOR_PLAN.md` (future-intent — SKOS/PROV/RDF-star alignment; **no code exists yet**) |
@@ -61,8 +69,17 @@ Find your task below and read only the listed files — in order. This is the fa
 
 ## Compendium Maintenance Notes
 
-- **Last reviewed**: 2026-06-13
-- **File count indexed**: 86 .md files + `aiinstructions.txt`
-- **Files intentionally excluded**: `docs/README.md` (Mintlify template placeholder — contains no Redstring content)
-- **No existing files were moved or renamed** — all index entries point to files at their original paths
-- When adding a new significant .md file to the project, add an entry to the relevant `.compendium/*.index.md` and update this file's task table if warranted
+- **Last reviewed**: 2026-08-27
+- **Indexed**: 66 root .md files + `deployment/`, `cloudflare/` and two `docs/` entries + `aiinstructions.txt`
+- **Excluded**: `docs/` (separate nested git repo, gitignored) and `CHANGELOG.md` (gitignored, local-only)
+- When adding a significant .md file, add an entry to the relevant `.compendium/*.index.md` and update the task table above if warranted
+
+### 2026-08-27 cleanup
+
+Reduced from 85 root .md files / 20,544 lines to 66 / ~17,600. Everything deleted is recoverable from git history; each category index carries a "Removed" note naming its files and why.
+
+- **23 files deleted.** Four completed agent handoff prompts (verified shipped before removal), three session transcripts and one-time completion checklists, four docs the compendium itself already marked superseded, four small "what I changed" notes, and nine per-iteration layout summaries.
+- **Nine layout summaries → `LAYOUT_HISTORY.md`.** They had drifted badly: the most recent documented `repulsionStrength: 500000` against a shipped value of `2200`. The replacement records design rationale only and points at code for values.
+- **Two documents added for existing, previously undocumented code**: `ONE_SHOT_CALLS.md` (the `oneShot.js` subsystem, wired into ~12 call sites and never indexed) and `LAYOUT_HISTORY.md`.
+- **Four documents newly indexed**: `ZOOM_PERF_DIAGNOSIS.md` (was in no index at all despite describing live issues), `HEADLESS.md` and `CAPACITOR_IOS_SETUP.md` (were in the task table but no index), `SMALL_MODEL_ROADMAP.md`.
+- **`SEMANTIC_WEB_ENHANCEMENT.md` was kept**, against the initial plan to delete it as superseded. It is the only record of several conceptual sections, and its OWL/RDF-Schema "verdict" needed an explicit contradiction note rather than silent deletion. See the semantic-web index.

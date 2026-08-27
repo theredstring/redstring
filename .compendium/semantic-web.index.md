@@ -1,7 +1,7 @@
 ---
 compendium_version: 1
 category: semantic-web
-last_reviewed: 2026-06-13
+last_reviewed: 2026-08-27
 ---
 
 # Semantic Web and Knowledge Discovery — Document Index
@@ -29,7 +29,7 @@ These documents cover the RDF/JSON-LD dual-format storage architecture, SPARQL c
 | File | Summary | Consult when |
 |------|---------|--------------|
 | [WIKIPEDIA_IMPROVEMENTS.md](../WIKIPEDIA_IMPROVEMENTS.md) | Documents disambiguation handling and Wikipedia photo extraction improvements (thumbnail URL sizing, aspect ratio storage) | Debugging Wikipedia enrichment; understanding why images use URL-based caching |
-| [SEMANTIC_WEB_ENHANCEMENT.md](../SEMANTIC_WEB_ENHANCEMENT.md) | Documents OWL `sameAs` additions to the JSON-LD context and external site integration — **superseded-by: SEMANTIC_WEB_INTEGRATION.md** for the current context shape | Understanding the evolution of the JSON-LD context; historical OWL alignment work |
+| [SEMANTIC_WEB_ENHANCEMENT.md](../SEMANTIC_WEB_ENHANCEMENT.md) | OWL `sameAs` additions to the JSON-LD context and external site integration. **For the current context shape it is superseded by `SEMANTIC_WEB_INTEGRATION.md`** — but it is *not* redundant: it is the only record of several conceptual sections (the three-layer architecture, the "Rosetta Stone" mechanism, the prototype-instance model as it relates to RDF, and **"Abstraction Bush Scaffolding: Beyond Tree Structures"**). ⚠️ Its closing "Verdict: You Need RDF Schema + OWL + External Vocabularies" reflects an earlier stance and runs against current positioning, which is deliberately *not* to flatten interpretive complexity into formal logic. Read the concepts, discard the verdict | Working on the abstraction axis or JSON-LD context evolution; understanding how the prototype-instance model maps onto RDF |
 
 ---
 
