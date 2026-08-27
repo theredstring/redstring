@@ -29,20 +29,18 @@ body {
 /* Fullscreen shell: phone-sized Capacitor build in landscape.
  *
  * See hooks/useMobileLandscapeShell.js — the class is toggled on <body> by
- * App.jsx. Landscape has no vertical room to spare, so the app gives every
- * inset back to the canvas except the one that would actually swallow content:
- * the left band under the notch / Dynamic Island. That band is painted pitch
- * black (App.jsx) rather than the header colour, so it reads as bezel instead
- * of as a stripe of missing UI.
+ * App.jsx. This mode drops the header and the TypeList to hand the whole box to
+ * the canvas, and the insets go the same way: every one of them is released so
+ * the canvas is edge-to-edge.
  *
- * The right inset is iOS's mirror of the notch band and covers nothing but
- * rounded corners, and the bottom home-indicator band sits over canvas the user
- * is free to pan — so both are released. */
+ * Nothing is lost by that. The bands only ever sat over canvas the user is free
+ * to pan, and reserving the notch side was never a real guard anyway — which
+ * side the notch lands on flips with the rotation direction (inset-left in one,
+ * inset-right in the other), so a fixed left band both stole width in one
+ * orientation and covered nothing in the other. A full-bleed canvas is the
+ * consistent answer in both. */
 body.rs-fullscreen-landscape {
-  padding-top: 0;
-  padding-bottom: 0;
-  padding-right: 0;
-  padding-left: env(safe-area-inset-left, 0px);
+  padding: 0;
 }
 
 /* Make #root the containing block for position: fixed descendants.

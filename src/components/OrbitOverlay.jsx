@@ -248,6 +248,23 @@ const ORBIT_LABEL_FONT_SIZE = 45;
 const ORBIT_LABEL_LINE_HEIGHT = 39;
 const ORBIT_LABEL_SIDE_PADDING = 42;
 const ORBIT_LABEL_FONT_STRING = "bold 45px 'EmOne', sans-serif";
+/**
+ * How far BELOW the intended centre a line's alphabetic baseline goes, as a
+ * fraction of the font size, so the glyphs straddle that centre.
+ *
+ * This exists because dominant-baseline does not survive the trip into <tspan>
+ * on WebKit. Multi-line labels are tspans, and on iOS — Safari, Chrome, and the
+ * Capacitor shell alike, since they are all WebKit — each line fell back to the
+ * alphabetic baseline, which puts the glyphs ENTIRELY ABOVE the y coordinate
+ * rather than around it. That is the label sitting high in its node.
+ *
+ * Placing the baseline arithmetically works the same on every engine, since it
+ * asks nothing of any of them. Roughly half a capital's height: it centres the
+ * caps, which is what a titled label is mostly made of. Slightly lower than the
+ * `middle` baseline it replaces, which used half the x-height and so rode a
+ * little high even where it worked.
+ */
+const ORBIT_LABEL_BASELINE_SHIFT = 0.35;
 
 // Connection geometry, matching NodeCanvas edge rendering.
 const EDGE_STROKE_BASE = 27;          // NodeCanvas: strokeWidth = 27 * connectionWidth
@@ -558,9 +575,12 @@ const DraggableOrbitItem = React.memo(function DraggableOrbitItem({
       {!hasImage && nameLines.length > 0 && (
         <text
           x={x + currentWidth / 2}
-          y={y + currentHeight / 2}
+          /* Baseline placed by hand rather than by dominant-baseline, which
+             WebKit does not carry into the <tspan>s below — see
+             ORBIT_LABEL_BASELINE_SHIFT. The tspan dy centres the block of
+             lines on this; the shift centres the glyphs on the node. */
+          y={y + currentHeight / 2 + ORBIT_LABEL_FONT_SIZE * ORBIT_LABEL_BASELINE_SHIFT}
           textAnchor="middle"
-          dominantBaseline="middle"
           fontFamily="'EmOne', sans-serif"
           fontWeight="bold"
           fontSize={ORBIT_LABEL_FONT_SIZE}
@@ -885,6 +905,7 @@ export default function OrbitOverlay({
   ring3Candidates,
   ring4Candidates,
   onOrbitItemClick,
+  onExtentChange,
   isLoading = false
 }) {
   // Store reads live in the parent only. Every child subscribing separately put
@@ -1057,6 +1078,41 @@ export default function OrbitOverlay({
     for (const p of placements) m.set(p.id, p);
     return m;
   }, [placements]);
+
+  /**
+   * The circle the orbit occupies, reported up so the canvas can frame it.
+   *
+   * Reported rather than recomputed there: ring radii come out of this
+   * component's layout, per-item label extensions included, and a second
+   * derivation of "where the orbit ends" would drift from this one.
+   *
+   * Null until something is actually placed. Candidates arrive asynchronously,
+   * and framing the bare focus node in the gap would zoom hard in and then back
+   * out as the first results land.
+   */
+  const extent = useMemo(() => {
+    if (placements.length === 0) return null;
+    let radius = Math.max(focusWidth, focusHeight) / 2;
+    for (const p of placements) {
+      // Circumscribed radius of the item's box — its corners reach further than
+      // its half-width, and at the outermost ring that is what has to fit.
+      radius = Math.max(radius, p.ringRadius + Math.hypot(p.dims.currentWidth, p.dims.currentHeight) / 2);
+    }
+    return radius;
+  }, [placements, focusWidth, focusHeight]);
+
+  // Held in a ref so the report below depends only on the geometry, not on
+  // whether the parent happened to hand us a new callback identity.
+  const onExtentChangeRef = useRef(onExtentChange);
+  onExtentChangeRef.current = onExtentChange;
+
+  useEffect(() => {
+    onExtentChangeRef.current?.(extent === null ? null : { centerX, centerY, radius: extent });
+  }, [centerX, centerY, extent]);
+
+  // Report the orbit gone on the way out, so a canvas that frames on this does
+  // not frame the departed orbit's extent when the next one opens.
+  useEffect(() => () => { onExtentChangeRef.current?.(null); }, []);
 
 
   // Everything the animation loop needs, refreshed each render so it always

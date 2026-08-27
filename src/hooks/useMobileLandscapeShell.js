@@ -11,9 +11,8 @@ import { isCapacitor } from '../utils/capacitorAdapter.js';
  * starting at y=0 rather than below a header that no longer exists.
  *
  * The safe-area treatment changes with it — see the `.rs-fullscreen-landscape`
- * rule in App.css. Only the left inset (the notch band) is kept, painted black
- * rather than the header colour; top, bottom and right insets are released so
- * the canvas runs to the physical edges.
+ * rule in App.css. Every inset is released, notch side included, so the canvas
+ * runs to the physical edges on all four sides.
  *
  * Deliberately narrow: Capacitor only (a desktop browser resized to a landscape
  * strip should keep its chrome), and phones only. An iPad's short side is 744pt

@@ -7,6 +7,7 @@ import useGraphStore from "./store/graphStore.js";
 import { getNodeDimensions } from './utils.js';
 import useMobileDetection from './hooks/useMobileDetection';
 import { getTextColor, getLightHueText, getDarkHueText } from './utils/colorUtils.js';
+import { haptic } from './services/haptics.js';
 import './UnifiedBottomControlPanel.css';
 
 // Small helper to render a triangle cap (rounded-ish via strokeJoin/lineJoin aesthetics)
@@ -309,6 +310,21 @@ const UnifiedBottomControlPanel = ({
     onActionHoverChange?.({ id, label });
   }, [onActionHoverChange]);
 
+  // Haptics for the whole button field, delegated from the root rather than
+  // repeated across ~40 call sites. This panel is the flat mirror of PieMenu, so
+  // it borrows PieMenu's two events wholesale: a commit is menuSelect, and the
+  // ◀/▶ nav chevrons — the only .piemenu-buttons that live in an .arrow-group —
+  // step through a set, which is menuPage's whole reason for existing. Capture
+  // phase so the tick leads the action rather than trailing it.
+  //
+  // The hidden nav chevrons need no guard: they're `visibility: hidden`, which
+  // takes them out of hit-testing entirely, so they never become a click target.
+  const handleButtonHaptic = useCallback((e) => {
+    const button = e.target?.closest?.('.piemenu-button');
+    if (!button) return;
+    haptic(button.closest('.arrow-group') ? 'menuPage' : 'menuSelect');
+  }, []);
+
   const nodeDimensionEntries = useMemo(() => {
     if (!(isNodes || isDecompose) || !Array.isArray(selectedNodes)) {
       return [];
@@ -588,6 +604,7 @@ const UnifiedBottomControlPanel = ({
     <div
       className={`unified-bottom-panel mode-${mode} ${typeListOpen ? 'with-typelist' : ''} ${animationState} ${className}`}
       onAnimationEnd={handleAnimationEnd}
+      onClickCapture={handleButtonHaptic}
       onTouchStart={(e) => { e.stopPropagation(); }}
     >
       <div className="unified-bottom-content" style={dragStyle}>

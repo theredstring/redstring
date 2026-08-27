@@ -10,6 +10,7 @@ import useViewportBounds from './hooks/useViewportBounds';
 import useMobileDetection from './hooks/useMobileDetection';
 import { useTheme } from './hooks/useTheme.js';
 import PanelIconButton from './components/shared/PanelIconButton';
+import { haptic } from './services/haptics.js';
 import './UnifiedSelector.css';
 
 
@@ -79,6 +80,12 @@ const UnifiedSelector = ({
 
   const handleSubmit = useCallback(() => {
     if (name.trim() && onSubmit) {
+      // The + button, its touch path, and the Enter key all funnel through here,
+      // past the empty-name guard, so this is the one place that means "something
+      // was actually created". Medium impact rather than the menuSelect that
+      // opened this dialog: every mode here brings a new Thing, connection type,
+      // abstraction, or group into existence, and creation carries the weight.
+      haptic('nodeSpawn');
       onSubmit({ name: name.trim(), color });
       setName('');
     }

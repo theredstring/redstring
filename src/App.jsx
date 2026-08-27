@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import NodeCanvas from './NodeCanvas';
 import SpawningNodeDragLayer from './SpawningNodeDragLayer';
 import BridgeClient from './ai/BridgeClient.jsx';
@@ -12,7 +11,6 @@ import { isCapacitor, registerCapacitorLifecycle, logPlatformDiagnostics } from 
 import { warmHaptics } from './services/haptics.js';
 import { saveCoordinator } from './services/SaveCoordinator.js';
 import { DARK_THEME, LIGHT_THEME } from './utils/themeColors.js';
-import { useMobileLandscapeShell } from './hooks/useMobileLandscapeShell.js';
 import './App.css';
 
 // TEMP: manual test hook for empty node-group placeholder feature — remove before commit.
@@ -20,7 +18,6 @@ if (typeof window !== 'undefined') window.useGraphStore = useGraphStore;
 
 function App() {
   const darkMode = useGraphStore(s => s.darkMode);
-  const mobileLandscapeShell = useMobileLandscapeShell();
 
   // Prints one "[Platform] isCapacitor=..." line, visible in the Xcode console
   // because Capacitor forwards JS console output to the native log.
@@ -44,20 +41,18 @@ function App() {
     // canvas colour is only the fallback for the first paint, before a header
     // has mounted. The canvas paints its own background over this.
     //
-    // The one exception is the fullscreen landscape shell, where the only band
-    // left is the notch strip on the left. There is no header to match there,
-    // and a coloured stripe beside a full-bleed canvas reads as a rendering
-    // fault — so it goes pitch black and reads as bezel.
-    const bandColor = mobileLandscapeShell
-      ? '#000000'
-      : `var(--rs-header-bg, ${theme.canvas.bg})`;
+    // In the fullscreen landscape shell there are no bands at all — that mode
+    // releases every inset (App.css) — so this only backs rubber-band overscroll
+    // there.
+    const bandColor = `var(--rs-header-bg, ${theme.canvas.bg})`;
     document.body.style.backgroundColor = bandColor;
     // html too: iOS rubber-band overscroll reveals the root background, not the
     // body's, and a mismatch there flashes the wrong colour at the edges.
     root.style.backgroundColor = bandColor;
-    // (The body class that releases the top/bottom/right insets is owned by
-    // useMobileLandscapeShell.js — it has to be applied before anything
-    // re-measures #root, which a React effect here cannot guarantee.)
+    // (The body class that releases the insets in the fullscreen landscape
+    // shell is owned by useMobileLandscapeShell.js — it has to be applied
+    // before anything re-measures #root, which a React effect here cannot
+    // guarantee.)
 
     // Add/remove dark-mode class on html element for CSS
     root.classList.toggle('dark-mode', darkMode);
@@ -87,7 +82,7 @@ function App() {
       root.style.setProperty('--bubble-user-text', '#260000');
       root.style.setProperty('--bubble-user-border', 'rgba(151, 144, 144, 0.8)');
     }
-  }, [darkMode, mobileLandscapeShell]);
+  }, [darkMode]);
 
   // Unsaved-changes protection on exit.
   //
@@ -164,37 +159,6 @@ function App() {
       <BridgeClient />
       <GlobalContextMenu />
       <UpdateToast />
-
-      {/* The notch band, drawn as a real element rather than left to <body>'s
-          background.
-
-          Reserving the band with padding on <body> only keeps content out of it
-          while `#root`'s identity transform actually captures the app's
-          position:fixed descendants (App.css) — and the panels, which are fixed
-          with `left: 0`, were still painting into the band. An opaque strip on
-          top makes the band black no matter how `fixed` resolves down there.
-
-          It is portalled to <body> on purpose: as a sibling of #root it escapes
-          that transform, so its own `left: 0` is the physical screen edge
-          rather than the inside edge of the band it is meant to cover. It sits
-          above every layer in the app (panels 10000, TypeList 20000) and takes
-          no pointer events, so it changes nothing but what you see. */}
-      {mobileLandscapeShell && createPortal(
-        <div
-          aria-hidden="true"
-          style={{
-            position: 'fixed',
-            top: 0,
-            bottom: 0,
-            left: 0,
-            width: 'env(safe-area-inset-left, 0px)',
-            backgroundColor: '#000000',
-            pointerEvents: 'none',
-            zIndex: 2147483000,
-          }}
-        />,
-        document.body
-      )}
     </>
   );
 }

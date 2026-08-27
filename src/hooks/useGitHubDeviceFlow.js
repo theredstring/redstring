@@ -1,8 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import {
   requestDeviceCode,
-  pollForToken,
-  openVerificationUrl
+  pollForToken
 } from '../services/githubDeviceFlow.js';
 
 /**
@@ -47,9 +46,9 @@ export function useGitHubDeviceFlow() {
       errorMessage: null
     });
 
-    // Auto-open browser to save the user one click. They can still copy
-    // the code manually from the modal if their browser launch fails.
-    openVerificationUrl(code.verificationUriComplete || code.verificationUri).catch(() => {});
+    // Deliberately do NOT auto-open the browser: the user has to copy the
+    // user_code first, and a browser stealing focus mid-copy loses them the
+    // code. The panel shows the URL and an explicit "Open GitHub" button.
 
     try {
       const tokenData = await pollForToken({

@@ -1433,6 +1433,39 @@ const FULL_ARC_RANGE = Object.freeze({ t0: 0, t1: 1 });
 const MIN_VISIBLE_ARC_FRACTION = 0.05;
 
 /**
+ * The stretch of a STRAIGHT Lombardi connection the reader can actually see:
+ * the centre-to-centre chord clipped at each end against that end's real
+ * occluder (node hitbox, or a thing-group's whole outer box).
+ *
+ * A Lombardi edge whose two tangent demands cancel is drawn as a LINE, not an
+ * arc — the whole of a single-triplet subgraph is that case, and so is every
+ * degree-2 node whose neighbours sit on opposite bearings. Such an edge has no
+ * arc, so it never reaches `visibleRange`, and the label placer was handed the
+ * raw centre-to-centre polyline instead. Its midpoint is only the middle of the
+ * VISIBLE run when both nodes happen to be the same size along the chord; every
+ * other time the label sits pushed toward the smaller node by half the
+ * difference, which is the off-centre label.
+ *
+ * So do for a line what `visibleRange` does for an arc. This is also exactly
+ * what the straight/curved routing styles already do via
+ * getVisualConnectionEndpoints — hence a straight Lombardi connection now
+ * centres its label the same way the straight styles it otherwise mimics do.
+ * Arcs are untouched: they keep going through `visibleRange`.
+ */
+function visibleChordPoints(p, q, sBox, dBox) {
+  const chord = [p, q];
+  const a = trimRouteEnd(chord, sBox, true, 0).endpoint;
+  const b = trimRouteEnd(chord, dBox, false, 0).endpoint;
+  // Degenerate (overlapping nodes, or a group box that swallows the chord): a
+  // sliver gives the placer nothing to work with, and the full chord at least
+  // keeps the label near its connection. Same guard, and same threshold, as the
+  // arc case below.
+  const full = Math.hypot(q.x - p.x, q.y - p.y);
+  const seen = Math.hypot(b.x - a.x, b.y - a.y);
+  return seen > full * MIN_VISIBLE_ARC_FRACTION ? [a, b] : chord;
+}
+
+/**
  * Compute the full Lombardi routing descriptor for an edge.
  *
  * Endpoint convention matches the other routings: an arrow-bearing end
@@ -1585,6 +1618,7 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
   const to = endPt;
 
   let visibleRange = null;
+  let labelPoints = null;
 
   return {
     kind: 'lombardi',
@@ -1595,6 +1629,24 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
     get points() {
       if (points === null) points = arc ? sampleArc(arc) : [from, to];
       return points;
+    },
+    /**
+     * The polyline a LABEL is placed along, which for a straight connection is
+     * NOT `points`. See visibleChordPoints. Arcs hand back `points` unchanged —
+     * the arc placer never reads this, it works in arc parameters against
+     * `visibleRange`.
+     *
+     * Lazy for the same reason `points` is: an edge whose name is hidden pays
+     * nothing.
+     */
+    get labelPoints() {
+      if (labelPoints) return labelPoints;
+      if (arc) {
+        if (points === null) points = sampleArc(arc);
+        return (labelPoints = points);
+      }
+      labelPoints = visibleChordPoints(p, q, sourceBox(), destBox());
+      return labelPoints;
     },
     /**
      * The stretch of the arc the reader can actually SEE, in arc parameters.

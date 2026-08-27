@@ -4,6 +4,7 @@ import {
   estimateTextWidth,
   labelBoundsFor,
   chooseRoutedLabelPlacement,
+  placeLabelOnRoute,
   getVisibleObstacleRects,
 } from '../../src/utils/canvas/edgeLabelPlacement.js';
 import {
@@ -11,6 +12,7 @@ import {
   computeLombardiRouting,
   LOMBARDI_LANE_FRACTION,
 } from '../../src/utils/canvas/edgeRouting.js';
+import { getNodeHitbox } from '../../src/utils/canvas/nodeHitbox.js';
 
 describe('quantizeAngle', () => {
   // The point of this function is a rendering-cost one: distinct rotation
@@ -249,6 +251,117 @@ describe('parallel connections between the same two nodes', () => {
     const out = place(4);
     const anchors = out.map(p => `${p.anchor.t.toFixed(3)}@${p.anchor.offset}`);
     expect(new Set(anchors).size).toBe(anchors.length);
+  });
+});
+
+describe('a straight Lombardi connection centres its label on what is visible', () => {
+  // A subgraph of a single triplet is the case: both nodes are degree 1, so
+  // each one's single tangent slot lands on the bearing to the other, the two
+  // demands cancel, and solveLombardiArc emits a LINE. The label then had no
+  // arc to ride and was placed on the raw centre-to-centre chord — whose
+  // midpoint is the middle of the visible run only when both nodes are the same
+  // size along it.
+  const FONT = 59.4;
+  const NAME = 'is a kind of';
+
+  // Deliberately lopsided: 'b' is nearly three times as wide as 'a', so the
+  // chord midpoint and the visible midpoint are ~200px apart.
+  const NODES = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 1600, y: 0 }];
+  const DIMS = new Map([
+    ['a', { currentWidth: 260, currentHeight: 130 }],
+    ['b', { currentWidth: 740, currentHeight: 130 }],
+  ]);
+
+  const route = (arrows = []) => {
+    const edge = {
+      id: 'e1', sourceId: 'a', destinationId: 'b',
+      directionality: { arrowsToward: new Set(arrows) },
+    };
+    const tangents = computeLombardiTangents(NODES, [edge], DIMS);
+    return {
+      edge,
+      routing: computeLombardiRouting(
+        edge, NODES[0], NODES[1], DIMS.get('a'), DIMS.get('b'), tangents,
+        { curvature: 1, selectedInstanceIds: new Set(), connectionWidth: 1 }
+      ),
+    };
+  };
+
+  // Where the connection emerges from each node — the ends of the run a reader
+  // can actually see, and what the straight/curved styles centre on.
+  const visibleMidX = () => {
+    const a = getNodeHitbox(NODES[0], DIMS.get('a'), false).maxX;
+    const b = getNodeHitbox(NODES[1], DIMS.get('b'), false).minX;
+    return (a + b) / 2;
+  };
+  const chordMidX = () => (
+    (NODES[0].x + DIMS.get('a').currentWidth / 2 + NODES[1].x + DIMS.get('b').currentWidth / 2) / 2
+  );
+
+  const place = (routing, edge) => chooseRoutedLabelPlacement(
+    routing, NAME, NODES, new Set(['a', 'b']), DIMS,
+    new Map(), FONT, edge.id, new Set(), { obstacles: [], segmentIndex: null }
+  );
+
+  it('is a line, not an arc', () => {
+    expect(route().routing.arc).toBeNull();
+  });
+
+  it('lands on the visible midpoint rather than the chord midpoint', () => {
+    const { routing, edge } = route();
+    // The two are far enough apart that this cannot pass by coincidence.
+    expect(Math.abs(visibleMidX() - chordMidX())).toBeGreaterThan(100);
+    expect(place(routing, edge).x).toBeCloseTo(visibleMidX(), 6);
+  });
+
+  it('stays centred whichever ends carry arrows', () => {
+    // Arrows retract the drawn stroke, which used to drag the label with them.
+    // What the reader sees still runs border to border — the arrowhead's tip
+    // sits on the border — so the label belongs in the same place either way.
+    for (const arrows of [[], ['b'], ['a'], ['a', 'b']]) {
+      const { routing, edge } = route(arrows);
+      expect(place(routing, edge).x).toBeCloseTo(visibleMidX(), 6);
+    }
+  });
+
+  it('keeps the label level along the connection', () => {
+    const { routing, edge } = route();
+    expect(place(routing, edge).angle).toBeCloseTo(0, 6);
+    expect(place(routing, edge).y).toBeCloseTo(65, 6);
+  });
+
+  it('hands the drag the same polyline the full solve used', () => {
+    // The per-frame placer re-evaluates the settled solve's anchor. Measured
+    // against a different polyline it would resolve somewhere else, and the
+    // label would jump the instant a node was picked up.
+    const { routing, edge } = route();
+    const solved = place(routing, edge);
+    const carried = placeLabelOnRoute(routing, solved.anchor);
+    expect(carried.x).toBeCloseTo(solved.x, 6);
+    expect(carried.y).toBeCloseTo(solved.y, 6);
+  });
+
+  it('falls back to the full chord when the nodes overlap', () => {
+    // Nothing is visible to centre on; the chord at least keeps the label near
+    // the connection instead of collapsing it onto a degenerate sliver.
+    const nodes = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 40, y: 0 }];
+    const dims = new Map([
+      ['a', { currentWidth: 260, currentHeight: 130 }],
+      ['b', { currentWidth: 260, currentHeight: 130 }],
+    ]);
+    const edge = {
+      id: 'e1', sourceId: 'a', destinationId: 'b',
+      directionality: { arrowsToward: new Set() },
+    };
+    const routing = computeLombardiRouting(
+      edge, nodes[0], nodes[1], dims.get('a'), dims.get('b'),
+      computeLombardiTangents(nodes, [edge], dims),
+      { curvature: 1, selectedInstanceIds: new Set(), connectionWidth: 1 }
+    );
+    expect(routing.labelPoints).toEqual([
+      { x: 130, y: 65 },
+      { x: 170, y: 65 },
+    ]);
   });
 });
 

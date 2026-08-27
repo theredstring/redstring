@@ -1068,6 +1068,20 @@ export const chooseArcLabelPlacement = (
 // ---------------------------------------------------------------------------
 
 /**
+ * The polyline a routing wants its label placed along.
+ *
+ * Usually its drawn geometry, but a descriptor may nominate a different one —
+ * a straight Lombardi connection hands back the stretch of itself that isn't
+ * buried under a node, because the middle of a centre-to-centre chord is not
+ * the middle of what the reader sees. See `labelPoints` in edgeRouting.js.
+ *
+ * Both entry points below have to read it through here, or the settled solve
+ * and the per-frame drag would measure their `anchor.t` against different
+ * polylines and the label would jump the moment a node was picked up.
+ */
+const labelPolylineOf = (routing) => routing?.labelPoints ?? routing?.points;
+
+/**
  * Cheap deterministic placement. Used per-frame during drags and by the pie menu.
  *
  * Pass the `anchor` from a previous full solve to KEEP that solve's answer as
@@ -1112,13 +1126,14 @@ export const placeLabelOnRoute = (routing, anchor = null) => {
                 anchor,
             };
         }
-        if (routing?.points?.length >= 2) {
-            return { ...anchorOnPolyline(routing.points, anchor.t, anchor.offset), anchor };
+        const points = labelPolylineOf(routing);
+        if (points?.length >= 2) {
+            return { ...anchorOnPolyline(points, anchor.t, anchor.offset), anchor };
         }
     }
     return routing?.arc
         ? placeLabelOnArc(routing.arc, routing.visibleRange)
-        : placeLabelOnPath(routing?.points);
+        : placeLabelOnPath(labelPolylineOf(routing));
 };
 
 /** Full placement with obstacle avoidance. Used by the settled render. */
@@ -1132,7 +1147,9 @@ export const chooseRoutedLabelPlacement = (
         ? chooseArcLabelPlacement(routing.arc, connectionName, nodes, visibleNodeIds,
             baseDimsById, placedLabels, fontSize, edgeId, selectedNodeIds,
             { ...options, range: routing.visibleRange })
-        : chooseOrthogonalLabelPlacement(routing?.points, connectionName, nodes, visibleNodeIds,
+        // A straight routing places against the run the reader can SEE, which
+        // for Lombardi is not the same polyline it draws. See labelPolylineOf.
+        : chooseOrthogonalLabelPlacement(labelPolylineOf(routing), connectionName, nodes, visibleNodeIds,
             baseDimsById, placedLabels, fontSize, edgeId, selectedNodeIds, options)
 );
 

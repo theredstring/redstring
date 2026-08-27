@@ -9,6 +9,7 @@ import {
   generateProgressiveColor,
   getTextColor
 } from './utils/colorUtils.js';
+import { getFixedOverlayOrigin } from './utils/appViewport.js';
 import useGraphStore from './store/graphStore.js';
 import useImageCache from './services/imageCache.js';
 import { useTheme } from './hooks/useTheme.js';
@@ -551,6 +552,15 @@ const AbstractionCarousel = ({
   //
   // Deliberately still pure client space (container rect + refs), preserving the
   // reason appViewport.js avoids getScreenCTM() under Capacitor.
+  //
+  // The result is then rebased out of client space, because the wrapper this
+  // feeds is `position: fixed` and fixed does NOT mean "the viewport" in this
+  // app — #root's transform makes it the containing block (App.css), and under
+  // viewport-fit=cover #root starts one safe-area inset in from the screen. A
+  // client-space number written to a fixed `top` therefore lands one inset too
+  // low, which is the carousel sitting below the node it replaced on the native
+  // shell. getFixedOverlayOrigin() is (0, 0) wherever there are no insets, so
+  // desktop and the fullscreen landscape shell are untouched.
   const getCarouselPosition = useCallback(() => {
     if (!selectedNode || !containerRef.current || !canvasSize) return { x: 0, y: 0 };
 
@@ -563,8 +573,9 @@ const AbstractionCarousel = ({
     const pan = (livePan && typeof livePan.x === 'number') ? livePan : panOffset;
 
     const containerRect = containerRef.current.getBoundingClientRect();
-    const screenX = nodeCenterX * z + (pan.x - canvasSize.offsetX * z) + containerRect.left;
-    const screenY = nodeCenterY * z + (pan.y - canvasSize.offsetY * z) + containerRect.top;
+    const origin = getFixedOverlayOrigin();
+    const screenX = nodeCenterX * z + (pan.x - canvasSize.offsetX * z) + containerRect.left - origin.x;
+    const screenY = nodeCenterY * z + (pan.y - canvasSize.offsetY * z) + containerRect.top - origin.y;
     return { x: screenX, y: screenY };
   }, [selectedNode, panOffset, livePanRef, getLiveZoom, containerRef, canvasSize]);
 

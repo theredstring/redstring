@@ -299,6 +299,78 @@ describe('OrbitOverlay', () => {
     expect(Math.hypot(box.cx - restingCx, box.cy - restingCy)).toBeGreaterThan(100);
   });
 
+  it('reports the circle it occupies so the canvas can frame it', () => {
+    const onExtentChange = vi.fn();
+    const { container, unmount } = renderOverlay({
+      onExtentChange,
+      ring1Candidates: [candidate('a', 'instanceOf'), candidate('b', 'partOf')],
+      ring2Candidates: [candidate('c', 'hasPart')],
+    });
+
+    const extent = onExtentChange.mock.calls.at(-1)[0];
+    expect(extent).toMatchObject({ centerX: 0, centerY: 0 });
+
+    // Every item's farthest corner is inside the reported circle...
+    const farthest = Math.max(...Array.from(container.querySelectorAll('.orbit-items > g')).map((g) => {
+      const b = itemBox(g);
+      return Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sy]) =>
+        Math.hypot(b.cx + sx * b.w / 2, b.cy + sy * b.h / 2)));
+    }));
+    expect(extent.radius).toBeGreaterThanOrEqual(farthest);
+    // ...and not so far outside it that framing would leave the orbit tiny.
+    expect(extent.radius).toBeLessThan(farthest * 1.1);
+
+    unmount();
+    // Cleared on the way out — otherwise the next orbit gets framed on this one.
+    expect(onExtentChange.mock.calls.at(-1)[0]).toBeNull();
+  });
+
+  it('reports no extent until something is actually placed', () => {
+    // Candidates arrive asynchronously. Framing the bare focus node in the gap
+    // would zoom hard in and then straight back out as the first results land.
+    const onExtentChange = vi.fn();
+    renderOverlay({ onExtentChange, ring1Candidates: [] });
+    expect(onExtentChange.mock.calls.at(-1)[0]).toBeNull();
+  });
+
+  it('centres node labels on the node without relying on dominant-baseline', () => {
+    // dominant-baseline does not reach <tspan> on WebKit, so every iOS browser
+    // fell back to the alphabetic baseline and put the label above the node's
+    // centre instead of around it.
+    const { container } = renderOverlay({ ring1Candidates: [candidate('a', 'instanceOf')] });
+
+    const item = container.querySelector('.orbit-items > g');
+    const rect = item.querySelector('rect');
+    const centreY = Number(rect.getAttribute('y')) + Number(rect.getAttribute('height')) / 2;
+    const text = item.querySelector('text');
+
+    expect(text.getAttribute('dominant-baseline')).toBeNull();
+    // The baseline sits below the node's centre, by half a capital's height, so
+    // the glyphs above it straddle that centre.
+    const baseline = Number(text.getAttribute('y'))
+      + Number(text.querySelector('tspan').getAttribute('dy')); // single line: block offset is 0
+    expect(baseline).toBeGreaterThan(centreY);
+    expect(baseline - centreY).toBeCloseTo(45 * 0.35, 6);
+    cleanup();
+
+    // A wrapped label's lines straddle that same baseline, so the block as a
+    // whole stays centred however many lines it runs to.
+    const { container: wrapped } = renderOverlay({
+      ring1Candidates: [candidate('a', 'instanceOf', { name: 'A Rather Long Candidate Name That Wraps' })],
+    });
+    const wItem = wrapped.querySelector('.orbit-items > g');
+    const wRect = wItem.querySelector('rect');
+    const wCentre = Number(wRect.getAttribute('y')) + Number(wRect.getAttribute('height')) / 2;
+    const wText = wItem.querySelector('text');
+    const spans = Array.from(wText.querySelectorAll('tspan'));
+    expect(spans.length).toBeGreaterThan(1);
+
+    let cursor = Number(wText.getAttribute('y'));
+    const baselines = spans.map((s) => { cursor += Number(s.getAttribute('dy')); return cursor; });
+    const mean = baselines.reduce((a, b) => a + b, 0) / baselines.length;
+    expect(mean - wCentre).toBeCloseTo(45 * 0.35, 6);
+  });
+
   it('renders no connection for hidden predicates', () => {
     const { container } = renderOverlay({
       ring1Candidates: [candidate('a', 'relatedTo'), candidate('b', 'seeAlso'), candidate('c', 'instanceOf')],

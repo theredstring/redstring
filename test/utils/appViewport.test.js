@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { getAppViewportSize } from '../../src/utils/appViewport.js';
+import { getAppViewportSize, getFixedOverlayOrigin } from '../../src/utils/appViewport.js';
 
 /**
  * Under viewport-fit=cover, window.innerHeight becomes the FULL screen —
@@ -60,5 +60,44 @@ describe('getAppViewportSize', () => {
       width: window.innerWidth,
       height: window.innerHeight
     });
+  });
+});
+
+/**
+ * #root carries a transform (App.css) so the fixed panels measure from the app
+ * box, which makes it the containing block for every fixed descendant. An
+ * overlay anchored off a MEASUREMENT — a client rect, a touch's clientY — has
+ * to be rebased out of client space before it can be written to a fixed
+ * left/top, or it lands one safe-area inset off. That was the abstraction
+ * carousel sitting below its node in the Capacitor build.
+ */
+function mockRootRect({ left, top }) {
+  const el = { getBoundingClientRect: () => ({ left, top }) };
+  vi.spyOn(document, 'getElementById').mockImplementation((id) =>
+    (id === 'root' ? el : null));
+  return el;
+}
+
+describe('getFixedOverlayOrigin', () => {
+  it('reports the inset origin the app box starts at', () => {
+    mockRootRect({ left: 0, top: 59 }); // portrait: notch band on top only
+    expect(getFixedOverlayOrigin()).toEqual({ x: 0, y: 59 });
+  });
+
+  it('is zero on a display with no insets', () => {
+    mockRootRect({ left: 0, top: 0 });
+    expect(getFixedOverlayOrigin()).toEqual({ x: 0, y: 0 });
+  });
+
+  it('falls back to the viewport origin when #root is absent', () => {
+    vi.spyOn(document, 'getElementById').mockReturnValue(null);
+    expect(getFixedOverlayOrigin()).toEqual({ x: 0, y: 0 });
+  });
+
+  it('falls back when measuring throws', () => {
+    vi.spyOn(document, 'getElementById').mockImplementation(() => {
+      throw new Error('detached document');
+    });
+    expect(getFixedOverlayOrigin()).toEqual({ x: 0, y: 0 });
   });
 });

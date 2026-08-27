@@ -34,6 +34,44 @@ export function getAppViewportSize() {
 }
 
 /**
+ * The client-space point that a `position: fixed` left/top of (0, 0) actually
+ * lands on inside this app.
+ *
+ * Normally that is the viewport origin and this whole question is moot. Not
+ * here: `#root` carries an identity transform (App.css), deliberately, so the
+ * fixed panels measure from the app box instead of from behind the Dynamic
+ * Island — and a transform makes an element the containing block for its fixed
+ * descendants. Under viewport-fit=cover <body> pads by the safe-area insets, so
+ * #root starts one inset in from the physical edges, and every fixed descendant
+ * measures from there.
+ *
+ * That is what an overlay wants when it positions itself in app terms
+ * (`left: 0`, `bottom: 0`). It is exactly wrong for one positioned from a
+ * MEASUREMENT — getBoundingClientRect(), a touch's clientX/Y, an SVG client
+ * rect — because those are client-space, and handing them to a fixed element's
+ * left/top lands it one inset further down and to the right than the thing it
+ * is anchored to. Subtract this from such coordinates first.
+ *
+ * Zero on any display without insets (every env() resolves to 0, so #root sits
+ * at the origin), which is why the desktop path never showed the drift.
+ */
+export function getFixedOverlayOrigin() {
+  if (typeof document === 'undefined') return { x: 0, y: 0 };
+  try {
+    const root = document.getElementById('root');
+    if (root) {
+      // The containing block is the transformed ancestor's PADDING box; #root
+      // carries no padding or border (App.css), so its client rect is it.
+      const rect = root.getBoundingClientRect();
+      return { x: rect.left, y: rect.top };
+    }
+  } catch {
+    // Fall through to the viewport origin.
+  }
+  return { x: 0, y: 0 };
+}
+
+/**
  * Map a point in canvas coordinates to client (viewport) coordinates — the
  * space `position: fixed` overlays live in.
  *

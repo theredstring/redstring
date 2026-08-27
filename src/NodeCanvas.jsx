@@ -443,15 +443,23 @@ const ORBIT_SCRIM_COLOR = 'rgba(0, 0, 0, 0.8)';
 // full orbit, not just at rest.
 const ORBIT_SCRIM_BLUR_PX = 0;
 
-// The zoom the canvas settles at when orbit opens.
+// Breathing room around the orbit when the canvas frames it, as a fraction of
+// the usable region on each side.
+const ORBIT_FIT_PADDING = 0.06;
+// How far out the framing is allowed to go.
 //
-// A constant, deliberately. Framing the orbit's full extent put the camera out
-// near 0.15 — and because candidates keep arriving after it opens, it kept
-// pulling further out as the rings grew, so the view never stopped moving and
-// ended up too far out to read. This lands somewhere legible and stays there;
-// the outer rings are reached by panning and zooming, the normal way around a
-// canvas. `window.__orbitZoom = 0.4` overrides it live.
-const ORBIT_ENTRY_ZOOM = 0.3;
+// The framing itself fits the orbit's extent — that is what gets the whole
+// thing, vertical axis included, into the usable region. Left unbounded it went
+// out near 0.15, which is further than anything is readable at, and since
+// candidates keep arriving it kept pulling further as the rings grew.
+//
+// This floor stops it short: a small orbit is still framed exactly, a big one
+// stops here and its outer rings run off screen, to be reached by panning like
+// anywhere else on the canvas. It doubles as the settling rule — once the fit
+// is pinned at the floor, more arrivals ask for the same zoom, so the camera
+// stops moving on its own rather than needing a separate rule to stop it.
+// `window.__orbitZoom = 0.18` overrides it live.
+const ORBIT_FIT_MIN_ZOOM = 0.22;
 
 /**
  * Root canvas component for Redstring's graph interface.
@@ -551,9 +559,11 @@ function NodeCanvas() {
   const [orbitLoading, setOrbitLoading] = useState(false);
   const [semanticOrbitActive, setSemanticOrbitActive] = useState(false);
   const semanticOrbitActiveRef = useRef(false);
-  // Tracks the false→true edge on semanticOrbitActive, so the framing effect
-  // further down runs when orbit opens and not on any later re-render.
-  const prevOrbitActiveRef = useRef(false);
+  // The circle the live orbit occupies, reported by OrbitOverlay: { centerX,
+  // centerY, radius }, or null when there is no orbit or nothing placed yet.
+  // Drives the framing effect further down.
+  const [orbitFrame, setOrbitFrame] = useState(null);
+  const orbitFitRef = useRef({ fitted: false, zoom: 0 });
   // Mirrors store inputMode so RAF callbacks and pointer handlers can read the
   // current modality without re-binding when it flips.
   const inputModeRef = useRef('mouse');
@@ -5903,44 +5913,59 @@ function NodeCanvas() {
     }
   }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, carouselFocusedNodeScale]);
 
-  // Centre the focus node and pull back to a fixed zoom when orbit opens.
+  // Frame the orbit when it opens, out to a limit.
   //
-  // Once, on the way in — not as the orbit fills. The focus node is all this
-  // needs, and the canvas already knows which node that is, so the framing does
-  // not wait on candidates arriving; it lands the moment orbit opens.
+  // Fits against viewportBounds — the usable canvas region, with the panels, the
+  // header and the type-list bar already subtracted — the same bounds the
+  // carousel framing and the edge glow use, so the orbit centres in what is
+  // actually visible rather than in the raw window. Fitting the SMALLER of the
+  // two axes is what gets the vertical extent in; the region is wider than it is
+  // tall, so height is normally the binding one.
   //
-  // Centred against viewportBounds — the usable canvas region, with the panels,
-  // header and type-list bar already subtracted — the same bounds the carousel
-  // framing and the edge glow use, so the node sits in the middle of what is
-  // actually visible rather than the middle of the raw window.
+  // Candidates arrive asynchronously and the orbit keeps growing after it opens,
+  // so this reframes as it grows — but only as far as ORBIT_FIT_MIN_ZOOM, and
+  // never while the orbit still fits the frame. animateCanvasView re-eases from
+  // wherever the last one reached, so consecutive reframes read as one
+  // continuous pull-back rather than a series of jumps.
   useEffect(() => {
-    const was = prevOrbitActiveRef.current;
-    prevOrbitActiveRef.current = semanticOrbitActive;
-    if (was || !semanticOrbitActive) return;
-    if (selectedInstanceIds.size !== 1) return;
-
-    const focusId = [...selectedInstanceIds][0];
-    const node = nodeById.get(focusId);
-    if (!node) return;
-    const dims = baseDimsById.get(focusId) || getNodeDimensions(node, false, null);
-    const centerX = node.x + dims.currentWidth / 2;
-    const centerY = node.y + dims.currentHeight / 2;
-
-    const dialled = typeof window !== 'undefined' && window.__orbitZoom != null
-      ? Number(window.__orbitZoom)
-      : ORBIT_ENTRY_ZOOM;
-    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, dialled));
+    if (!semanticOrbitActive) {
+      orbitFitRef.current = { fitted: false, zoom: 0 };
+      return;
+    }
+    if (!orbitFrame || !(orbitFrame.radius > 0)) return;
 
     const vb = viewportBounds;
-    const targetPanX = (vb.x + vb.width / 2) - (centerX - canvasSize.offsetX) * tz;
-    const targetPanY = (vb.y + vb.height / 2) - (centerY - canvasSize.offsetY) * tz;
+    const usable = Math.min(
+      vb.width * (1 - 2 * ORBIT_FIT_PADDING),
+      vb.height * (1 - 2 * ORBIT_FIT_PADDING)
+    );
+    const diameter = orbitFrame.radius * 2;
+    const floor = typeof window !== 'undefined' && window.__orbitZoom != null
+      ? Number(window.__orbitZoom)
+      : ORBIT_FIT_MIN_ZOOM;
+    const tz = Math.max(MIN_ZOOM, floor, Math.min(MAX_ZOOM, usable / diameter));
+
+    const state = orbitFitRef.current;
+    if (state.fitted) {
+      // Already pulled back as far as this is willing to go — growing past that
+      // asks for the same zoom, so there is nothing left to do.
+      if (tz === state.zoom) return;
+      // It grew and wants a different zoom, but still fits at whatever zoom we
+      // are actually at (the user may have moved since) — leave the view alone.
+      if (diameter * (zoomLevelRef.current || 1) <= usable) return;
+    }
+
+    const targetPanX = (vb.x + vb.width / 2) - (orbitFrame.centerX - canvasSize.offsetX) * tz;
+    const targetPanY = (vb.y + vb.height / 2) - (orbitFrame.centerY - canvasSize.offsetY) * tz;
     const minPanX = viewportSize.width - canvasSize.width * tz;
     const minPanY = viewportSize.height - canvasSize.height * tz;
     animateCanvasView({
       x: Math.min(Math.max(targetPanX, minPanX), 0),
       y: Math.min(Math.max(targetPanY, minPanY), 0),
     }, tz);
-  }, [semanticOrbitActive, selectedInstanceIds, nodeById, baseDimsById, viewportBounds, viewportSize, canvasSize, animateCanvasView, MIN_ZOOM, MAX_ZOOM]);
+
+    orbitFitRef.current = { fitted: true, zoom: tz };
+  }, [semanticOrbitActive, orbitFrame, viewportBounds, viewportSize, canvasSize, animateCanvasView, zoomLevelRef, MIN_ZOOM, MAX_ZOOM]);
 
   // Animation states for carousel
   const [carouselAnimationState, setCarouselAnimationState] = useState('hidden'); // 'hidden', 'entering', 'visible', 'exiting'
@@ -6016,6 +6041,47 @@ function NodeCanvas() {
     setTimeout(() => setIsPieMenuActionInProgress(false), 100);
     setIsTransitioningPieMenu(true);
   }, []);
+
+  // Touch's way in to the same exit.
+  //
+  // The carousel dismisses itself on a click outside — but it listens for
+  // `mousedown`, and the canvas calls preventDefault() on both touchstart and
+  // touchend, which suppresses the compatibility mouse events entirely. So on a
+  // touch device that listener never fires, and the tap fell through to the
+  // canvas's own tap handling, which cleared the selection and nulled
+  // selectedNodeIdForPieMenu — the exact thing onCarouselClose documents above
+  // as fatal. The pie menu unmounted before it could animate out, so
+  // onExitAnimationComplete never ran: the carousel stayed up over a node the
+  // canvas was already hiding, with the pie menu permanently disabled. That is
+  // the frozen node.
+  //
+  // Idempotent because handleTouchEndCanvas runs twice per touchend (React
+  // onTouchEnd plus the document listener attached on touchstart), and a second
+  // request part-way through the exit would restart the transition.
+  const carouselCloseRequestedRef = useRef(false);
+  useEffect(() => {
+    if (!abstractionCarouselVisible) carouselCloseRequestedRef.current = false;
+  }, [abstractionCarouselVisible]);
+  const requestCarouselClose = useCallback(() => {
+    if (!abstractionCarouselVisibleRef.current) return false;
+    if (carouselCloseRequestedRef.current) return true;
+    carouselCloseRequestedRef.current = true;
+    if (!selectedNodeIdForPieMenu) {
+      // No pie menu means nothing to animate out, and the exit chain hangs off
+      // that animation — routing through it here would leave the carousel up
+      // for good. Tear it down directly, as handleCanvasClick's defensive
+      // branch does for the mouse.
+      setAbstractionCarouselVisible(false);
+      setAbstractionCarouselNode(null);
+      setCarouselAnimationState('hidden');
+      setCarouselPieMenuStage(1);
+      setCarouselFocusedNode(null);
+      setCarouselFocusedNodeDimensions(null);
+      return true;
+    }
+    onCarouselClose();
+    return true;
+  }, [onCarouselClose, selectedNodeIdForPieMenu]);
 
   const onCarouselReplaceNode = useCallback((oldNodeId, newNodeData) => {
     // TODO: Implement node replacement functionality
@@ -6214,13 +6280,27 @@ function NodeCanvas() {
   // the edge glow uses — and sizes the zoom off the pie-menu button cluster so the
   // buttons and chevrons stay on-screen. Flip FOCUS_ON_SELECT_ENABLED to disable.
   const FOCUS_ON_SELECT_ENABLED = true;
-  const FOCUS_FILL_WIDE = 0.96;   // desktop: cluster fills ~68% of the region half-width
-  const FOCUS_FILL_NARROW = 0.96; // mobile: fill nearly the whole half-width
+  // How much of the usable region's half-extent the pie-menu cluster is fitted to.
+  // Past 1.0 on purpose: clusterHalfReach below is a deliberately generous bound
+  // (3 button rings), while the menu actually draws a single ring at bPad + bSize
+  // from the node edge — roughly a third of that. Fitting to the conservative
+  // reach at 0.96 therefore landed noticeably further out than the menu needs,
+  // so selection reads as zoomed-out. These overfill it to close that gap; the
+  // real buttons and chevrons still sit well inside the region.
+  const FOCUS_FILL_WIDE = 1.1;   // desktop
+  const FOCUS_FILL_NARROW = 1.1; // mobile
   const FOCUS_WIDTH_WIDE = 1200;  // px: at/above this usable width, use WIDE
   const FOCUS_WIDTH_NARROW = 480; // px: at/below this usable width, use NARROW
   const FOCUS_VERTICAL_BIAS = 0.1; // fraction of region height to lift the node above center
                                    // (matches the carousel/decompose framings — a dead-center
                                    // node + radial menu reads as sitting too low)
+                                   //
+                                   // Dropped to 0 in the fullscreen landscape shell. The lift
+                                   // exists to offset the chrome above the canvas; that shell
+                                   // has no header and no TypeList, so the usable region IS the
+                                   // screen and the same 10% just parks the node high with dead
+                                   // space under it — in the one layout with the least vertical
+                                   // room to spare. See useMobileLandscapeShell.js.
   // Skip the animation when the node is already essentially framed, so we don't yank
   // the view on every click — only re-frame when the menu would otherwise be clipped
   // or the node is small/off to the side.
@@ -6274,7 +6354,7 @@ function NodeCanvas() {
     const referenceZoom = Math.min(referenceZoomH, referenceZoomV);
     const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
 
-    const verticalBias = vb.height * FOCUS_VERTICAL_BIAS;
+    const verticalBias = mobileLandscapeShell ? 0 : vb.height * FOCUS_VERTICAL_BIAS;
     const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
     const targetPanY = (regionCenterY - verticalBias) - (centerY - canvasSize.offsetY) * tz;
     const minPanX = viewportSize.width - canvasSize.width * tz;
@@ -6293,7 +6373,7 @@ function NodeCanvas() {
     if (zoomClose && panClose) return;
 
     animateCanvasView(finalPan, tz);
-  }, [nodes, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings]);
+  }, [nodes, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, mobileLandscapeShell]);
 
   // Frame the connection (edge) pie menu the same way focusNodeInView frames a node:
   // fit the menu's own bounds into the usable region. The edge menu is a single row
@@ -9622,6 +9702,7 @@ function NodeCanvas() {
     nodeLiftDelay,
     tryToggleConnectionOrbAtPoint,
     trySelectConnectionAtPoint,
+    requestCarouselClose,
   });
 
   // Prevent native long-press context menu on touch devices (iOS/Android)
@@ -13844,6 +13925,9 @@ function NodeCanvas() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  // Same act as the header's + (Create New Thing), so it gets the
+                  // same feedback — see Header.jsx's action row.
+                  haptic('menuSelect');
                   storeActions.createNewGraph({ name: 'New Thing' });
                 }}
                 onTouchEnd={(e) => {
@@ -13851,6 +13935,7 @@ function NodeCanvas() {
                   // which prevents synthetic clicks from firing on this button on mobile.
                   // Handle the tap explicitly here.
                   e.stopPropagation();
+                  haptic('menuSelect');
                   storeActions.createNewGraph({ name: 'New Thing' });
                 }}
                 style={{
@@ -16625,7 +16710,13 @@ function NodeCanvas() {
                               height: canvasSize.height,
                             })}
                             fill={ENABLE_ORBIT_DIM ? 'rgba(0, 0, 0, 0.7)' : 'transparent'}
-                            style={{ cursor: 'pointer', touchAction: 'manipulation' }}
+                            /* touchAction 'none', like the canvas surface this
+                               covers — every gesture here is the app's to
+                               interpret. It read 'manipulation' before, copied
+                               from a small button where handing pan and pinch
+                               back to the browser is harmless; on something
+                               spanning the whole canvas it is not. */
+                            style={{ cursor: 'pointer', touchAction: 'none' }}
                             onMouseDown={(e) => {
                               orbitClickDownPos.current = { x: e.clientX, y: e.clientY };
                             }}
@@ -16643,23 +16734,41 @@ function NodeCanvas() {
                               exitOrbitMode();
                             }}
                             onTouchStart={(e) => {
-                              const t = e.touches?.[0];
-                              if (t) orbitClickDownPos.current = { x: t.clientX, y: t.clientY };
+                              // Only a one-finger sequence can be a tap. A second finger
+                              // means a pinch, which is the canvas's gesture, not ours.
+                              const t = e.touches?.length === 1 ? e.touches[0] : null;
+                              orbitClickDownPos.current = t ? { x: t.clientX, y: t.clientY } : null;
                             }}
                             onTouchEnd={(e) => {
                               const down = orbitClickDownPos.current;
                               orbitClickDownPos.current = null;
-                              // Always suppress the synthetic click that follows touchend, so a
-                              // pan-then-lift doesn't fall through to the click handler and exit.
+                              // Suppress the synthetic click that follows touchend either way,
+                              // so a pan-then-lift can't fall through to onClick and exit.
                               if (e.cancelable) e.preventDefault();
-                              e.stopPropagation();
-                              if (!down) return; // unmatched touchend (touch started elsewhere)
+
                               const t = e.changedTouches?.[0];
-                              if (!t) return;
-                              const dx = t.clientX - down.x;
-                              const dy = t.clientY - down.y;
-                              if (dx * dx + dy * dy > 25) return; // was a pan
-                              exitOrbitMode();
+                              const isTap = down && t
+                                && e.touches?.length === 0            // last finger up
+                                && (t.clientX - down.x) ** 2 + (t.clientY - down.y) ** 2 <= 25;
+
+                              // Deliberately does NOT stop propagation, for any outcome.
+                              //
+                              // The canvas's own touchend is where a gesture gets torn down —
+                              // the pinch flag cleared, pan momentum launched — and it is also
+                              // what removes the document-level touchmove/touchend listeners
+                              // that handleTouchStartCanvas attached for this gesture. Stopping
+                              // propagation here (which React forwards to the native event, so
+                              // the document listeners never fire either) meant that in orbit
+                              // mode none of it ran: pans lost their inertia, every touch leaked
+                              // a live touchmove listener, and after a pinch the pinch flag
+                              // stayed set, so every later touch was read as a continuing pinch
+                              // and panning stopped working at all.
+                              //
+                              // The canvas will read a tap here as a bare-canvas tap and clear
+                              // the selection, which exits orbit by way of the deselect effect.
+                              // Exiting explicitly as well is harmless and does not depend on
+                              // that chain holding.
+                              if (isTap) exitOrbitMode();
                             }}
                           />
                         )}
@@ -16706,6 +16815,7 @@ function NodeCanvas() {
                                     ring3Candidates={orbitData.ring3 || []}
                                     ring4Candidates={orbitData.ring4 || []}
                                     onOrbitItemClick={handleOrbitItemClick}
+                                    onExtentChange={setOrbitFrame}
                                     isLoading={orbitLoading}
                                   />
                                 )}

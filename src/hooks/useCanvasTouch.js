@@ -104,6 +104,9 @@ export const useCanvasTouch = ({
     nodeLiftDelay,
     tryToggleConnectionOrbAtPoint,
     trySelectConnectionAtPoint,
+    // Closes the abstraction carousel the way the Back button does, and reports
+    // whether there was one open to close. Idempotent — see NodeCanvas.
+    requestCarouselClose,
 }) => {
     // --- Refs moved to hook ---
     const lastTouchRef = useRef({ x: 0, y: 0 });
@@ -767,6 +770,28 @@ export const useCanvasTouch = ({
             touchMultiPanRef.current = false;
             return;
         }
+        // A tap anywhere on the canvas while the abstraction carousel is open
+        // closes the carousel, and does nothing else.
+        //
+        // This is the touch half of the carousel's own click-away, which is a
+        // document `mousedown` listener and so never fires here: both
+        // touchstart and touchend call preventDefault(), which suppresses the
+        // compatibility mouse events. Without it the tap ran the ordinary
+        // tap-off path below, and clearing the selection / nulling
+        // selectedNodeIdForPieMenu while the carousel is up unmounts the pie
+        // menu before its exit animation — so the carousel-exit chain that
+        // hangs off it never runs and the carousel is stuck over a hidden node.
+        //
+        // Returns before the selection and plus-sign work because the mouse
+        // path effectively does too: closing raises justCompletedCarouselExit,
+        // which is what makes handleCanvasClick skip its own deselect on the
+        // click that follows a mouse click-away.
+        if (isTap && requestCarouselClose?.()) {
+            if (ignoreCanvasClick) ignoreCanvasClick.current = true;
+            touchMultiPanRef.current = false;
+            return;
+        }
+
         // If an edge / node / UI element handled this tap, it raised
         // ignoreCanvasClick.current to claim the tap. Bail before touching
         // selection — otherwise we'd undo the work the element-level handler
