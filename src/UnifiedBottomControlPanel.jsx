@@ -28,6 +28,63 @@ const TriangleCap = ({ direction = 'left', color = null, variant = 'ghost', onCl
   );
 };
 
+/**
+ * The page-turn arrow, built the way PieMenu builds its own (see renderChevron):
+ * one two-arm polyline stroked twice — a wide maroon band underneath, a narrower
+ * #DEDADA band on top — so the maroon reads as an outline around a bubble-coloured
+ * arrow rather than as a fill. Round caps and joins do the rest.
+ *
+ * Deliberately NOT a .piemenu-button. On the canvas these arrows sit outside the
+ * ring of bubbles and are bare arrows precisely so that turning the page doesn't
+ * look like taking an action; wrapping them in another maroon circle here would
+ * throw that distinction away at exactly the moment the row grows a second page.
+ *
+ * Geometry is in viewBox units, at the proportions the canvas menu lands on for a
+ * typical node: arm span 100, depth 42, fill 20, outline 7 a side. The box is
+ * padded by half the outer stroke (17) so the round caps aren't clipped.
+ */
+const PIE_CHEVRON_FILL_WIDTH = 20;
+const PIE_CHEVRON_OUTER_WIDTH = PIE_CHEVRON_FILL_WIDTH + 7 * 2;
+
+const PieChevron = ({ direction, onClick, title }) => {
+  const points = direction === 'left'
+    ? '21,-50 -21,0 21,50'
+    : '-21,-50 21,0 -21,50';
+
+  const activate = (e) => {
+    e.stopPropagation();
+    onClick?.(e);
+  };
+
+  return (
+    <svg
+      className="piemenu-chevron"
+      viewBox="-38 -67 76 134"
+      role="button"
+      aria-label={title}
+      title={title}
+      onClick={activate}
+    >
+      <polyline
+        points={points}
+        fill="none"
+        stroke="maroon"
+        strokeWidth={PIE_CHEVRON_OUTER_WIDTH}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <polyline
+        points={points}
+        fill="none"
+        stroke="#DEDADA"
+        strokeWidth={PIE_CHEVRON_FILL_WIDTH}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
+
 const NodePill = ({ name, color = '#800000', onClick }) => {
   return (
     <div
@@ -170,6 +227,15 @@ const UnifiedBottomControlPanel = ({
   onPalette,
   onOrbit,
   onGroup,
+
+  // The canvas pie menu's own pages for a single Thing, handed over verbatim so
+  // this panel renders the same buttons rather than a transcription of them.
+  // See nodePieMenuPages in NodeCanvas: adding a page there adds it here too.
+  // Null (or a null target) falls back to the hand-written node buttons below,
+  // which is what multi-select still uses — the pie menu has no multi-select
+  // form, and its actions are all written against exactly one instance.
+  pieMenuPages = null,
+  pieMenuTargetInstanceId = null,
 
   // Optional navigations (shown on node mode)
   onLeftNav,
@@ -320,10 +386,52 @@ const UnifiedBottomControlPanel = ({
   // The hidden nav chevrons need no guard: they're `visibility: hidden`, which
   // takes them out of hit-testing entirely, so they never become a click target.
   const handleButtonHaptic = useCallback((e) => {
+    // Page-turn arrows step through a set, same as the ◀/▶ nav chevrons below.
+    if (e.target?.closest?.('.piemenu-chevron')) {
+      haptic('menuPage');
+      return;
+    }
     const button = e.target?.closest?.('.piemenu-button');
     if (!button) return;
     haptic(button.closest('.arrow-group') ? 'menuPage' : 'menuSelect');
   }, []);
+
+  // ---- Shared pie-menu pages -------------------------------------------------
+  // The panel keeps its own page index rather than sharing the canvas menu's.
+  // They are two views that happen to read the same list, and yoking their
+  // scroll position together would mean paging one silently re-pages the other.
+  const [pieMenuPageIndex, setPieMenuPageIndex] = useState(0);
+
+  const pieMenuPageCount = Array.isArray(pieMenuPages) ? pieMenuPages.length : 0;
+  const usePieMenuPages = isNodes && pieMenuPageCount > 0 && !!pieMenuTargetInstanceId;
+
+  // Clamp on read: the page list is rebuilt as state changes and can get shorter
+  // while the panel is parked on a page that no longer exists.
+  const pagedNodeButtons = usePieMenuPages
+    ? (pieMenuPages[Math.min(pieMenuPageIndex, pieMenuPageCount - 1)] || [])
+    : null;
+
+  // A different Thing is a fresh menu, not a page flip — start it at page one.
+  useEffect(() => {
+    setPieMenuPageIndex(0);
+  }, [pieMenuTargetInstanceId]);
+
+  const turnPieMenuPage = useCallback((delta) => {
+    if (pieMenuPageCount < 2) return;
+    // Wraps in both directions, matching PieMenu's chevrons.
+    setPieMenuPageIndex(prev => (prev + delta + pieMenuPageCount) % pieMenuPageCount);
+  }, [pieMenuPageCount]);
+
+  const runPieMenuButton = useCallback((button, e) => {
+    if (!pieMenuTargetInstanceId || typeof button?.action !== 'function') return;
+    // Palette (and anything else that anchors a popover) is handed the button's
+    // top-centre in client coords — the same shape PieMenu passes from a touch.
+    const rect = e.currentTarget.getBoundingClientRect();
+    button.action(pieMenuTargetInstanceId, {
+      x: rect.left + rect.width / 2,
+      y: rect.top
+    });
+  }, [pieMenuTargetInstanceId]);
 
   const nodeDimensionEntries = useMemo(() => {
     if (!(isNodes || isDecompose) || !Array.isArray(selectedNodes)) {
@@ -930,8 +1038,45 @@ const UnifiedBottomControlPanel = ({
                   </div>
                 </>
               )
+            ) : usePieMenuPages ? (
+              // Single Thing: render the canvas pie menu's own pages, flanked by
+              // page-turn arrows when there is more than one. Nothing about which
+              // buttons exist is decided here — see the pieMenuPages prop.
+              <>
+                {pieMenuPageCount > 1 && (
+                  <PieChevron
+                    direction="left"
+                    title="Previous page"
+                    onClick={() => turnPieMenuPage(-1)}
+                  />
+                )}
+                {pagedNodeButtons.map((button) => {
+                  const Icon = button.icon;
+                  return (
+                    <div
+                      key={button.id}
+                      className="piemenu-button"
+                      onClick={(e) => runPieMenuButton(button, e)}
+                      title={button.label}
+                      onMouseEnter={() => triggerActionHover(`control-${button.id}`, button.label)}
+                      onMouseLeave={clearActionHover}
+                    >
+                      {Icon && <Icon size={iconSize} />}
+                    </div>
+                  );
+                })}
+                {pieMenuPageCount > 1 && (
+                  <PieChevron
+                    direction="right"
+                    title="Next page"
+                    onClick={() => turnPieMenuPage(1)}
+                  />
+                )}
+              </>
             ) : isNodes ? (
-              // Node mode: Show all available node actions
+              // Multi-select (and the panel's exit animation, where the target id is
+              // already gone): the pie menu has no form for this, so these stay
+              // hand-written and keep their selection-wide handlers.
               <>
                 <div
                   className="piemenu-button"

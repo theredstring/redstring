@@ -2201,6 +2201,7 @@ const SharedPanelContent = ({
         <SemanticEditor
           nodeData={nodeData}
           onUpdate={onNodeUpdate}
+          onTypeSelect={onTypeSelect}
           isUltraSlim={isUltraSlim}
         />
       </CollapsibleSection>

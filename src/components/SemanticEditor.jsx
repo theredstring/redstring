@@ -1,12 +1,77 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Globe, Link, Book, Search, ExternalLink, Plus, X, Check, Tags, FileText, Eye, Settings, CheckCircle, RotateCcw, Zap, Loader2, AlertCircle, CheckSquare } from 'lucide-react';
+import { Globe, Link, Book, Search, ExternalLink, Plus, X, Check, Tags, FileText, Eye, Settings, CheckCircle, RotateCcw, Zap, Loader2, AlertCircle, CheckSquare, ArrowUpFromDot } from 'lucide-react';
 import { PANEL_CLOSE_ICON_SIZE } from '../constants';
+import Dropdown from './Dropdown.jsx';
+import PanelIconButton from './shared/PanelIconButton.jsx';
+import StandardDivider from './StandardDivider.jsx';
 import { rdfResolver } from '../services/rdfResolver.js';
 import { enrichFromSemanticWeb, fastEnrichFromSemanticWeb } from '../services/semanticWebQuery.js';
 import { knowledgeFederation } from '../services/knowledgeFederation.js';
 import { getTextColor } from '../utils/colorUtils.js';
 import { useTheme } from '../hooks/useTheme.js';
 import useGraphStore from '../store/graphStore.js';
+
+const FONT = "'EmOne', sans-serif";
+
+/**
+ * Theme-derived tokens for this editor.
+ *
+ * Everything here used to be hardcoded to the light palette (#260000 text on a
+ * rgba(38,0,0,0.03) card, #8B0000 labels), which left the whole section
+ * unreadable in dark mode. `canvas.brandText` is the one to reach for on labels:
+ * it *is* the brand maroon in light mode and lifts to a warm rose on dark, where
+ * the maroon disappears into the background.
+ */
+const useSemanticTokens = () => {
+  const theme = useTheme();
+  return useMemo(() => ({
+    theme,
+    text: theme.canvas.textPrimary,
+    muted: theme.canvas.textSecondary,
+    brand: theme.canvas.brandText,
+    border: theme.canvas.border,
+    // Card fill and hairline: a tint of the text colour, so it reads as a
+    // recessed surface in either mode rather than a fixed grey.
+    surface: theme.darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(38,0,0,0.03)',
+    hairline: theme.darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(38,0,0,0.10)',
+    danger: theme.alert.error.text
+  }), [theme]);
+};
+
+/**
+ * A literal value — a name, a URI, a comment pulled off the node.
+ *
+ * Deliberately NOT a <code> element in a tinted box: the browser's default
+ * monospace is a terminal font that belongs to no part of this interface, and
+ * boxing every value turns a short list into a wall of chips. Weight and colour
+ * carry the distinction instead, in the same typeface as everything else.
+ */
+const Literal = ({ children, muted = false, tokens, style = {} }) => (
+  <span style={{
+    fontFamily: FONT,
+    color: muted ? tokens.muted : tokens.text,
+    wordBreak: 'break-word',
+    ...style
+  }}>
+    {children}
+  </span>
+);
+
+/** Label above (or beside) a value. Brand-coloured, small, quiet. */
+const FieldLabel = ({ children, tokens, style = {} }) => (
+  <div style={{
+    fontFamily: FONT,
+    fontSize: '11px',
+    fontWeight: 'bold',
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: tokens.brand,
+    marginBottom: 4,
+    ...style
+  }}>
+    {children}
+  </div>
+);
 
 // DOI validation regex
 const DOI_REGEX = /^10\.\d{4,}\/[-._;()\/:a-zA-Z0-9]+$/;
@@ -124,6 +189,7 @@ const SemanticLinkInput = ({ onAdd, placeholder, type, icon: Icon, defaultValue 
 };
 
 const ExternalLinkCard = ({ link, onRemove, provenance = null }) => {
+  const tokens = useSemanticTokens();
   const [wikidataLabel, setWikidataLabel] = useState(null);
 
   const extractWikidataId = (uri) => {
@@ -242,7 +308,11 @@ const ExternalLinkCard = ({ link, onRemove, provenance = null }) => {
     }
   };
 
-  const { type, display, url, color, desc } = getDisplayInfo(link);
+  // `color` from getDisplayInfo is each source's own brand colour (DOI orange,
+  // arXiv red, black for Wikipedia). A stack of these read as a swatch chart
+  // rather than a list, and the black ones vanished on the dark canvas — the
+  // source name carries that identity on its own.
+  const { type, display, url, desc } = getDisplayInfo(link);
   const finalDisplay = wikidataLabel || display;
   const prov = provenance;
   const contextText = (() => {
@@ -256,25 +326,27 @@ const ExternalLinkCard = ({ link, onRemove, provenance = null }) => {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      padding: '8px 10px',
-      border: `1px solid ${color}`,
-      borderRadius: '8px',
-      marginBottom: '6px',
+      gap: 8,
+      padding: '6px 0',
+      borderTop: `1px solid ${tokens.hairline}`,
       minWidth: 0
     }}>
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
-          fontSize: '12px',
+          fontFamily: FONT,
+          fontSize: '10px',
           fontWeight: 'bold',
-          color: color,
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          color: tokens.brand,
           marginBottom: '2px'
         }}>
           {type}
         </div>
         <div style={{
-          fontSize: '12px',
-          color: '#666',
-          fontFamily: "'EmOne', sans-serif",
+          fontSize: '13px',
+          color: tokens.text,
+          fontFamily: FONT,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap'
@@ -284,76 +356,51 @@ const ExternalLinkCard = ({ link, onRemove, provenance = null }) => {
         {contextText && (
           <div
             title={prov?.appliedAt ? `Applied ${new Date(prov.appliedAt).toLocaleString()}` : undefined}
-            style={{ fontSize: '10px', color: '#999', marginTop: '2px' }}
+            style={{ fontFamily: FONT, fontSize: '11px', color: tokens.muted, marginTop: '2px' }}
           >
             {contextText}
           </div>
         )}
       </div>
-      <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'center' }}>
-        <button
+      <div style={{ display: 'flex', gap: 2, flexShrink: 0, alignItems: 'center' }}>
+        <PanelIconButton
+          icon={ExternalLink}
+          size={14}
           onClick={() => window.open(url, '_blank')}
-          style={{
-            width: '32px',
-            height: '28px',
-            border: 'none',
-            backgroundColor: 'transparent',
-            cursor: 'pointer',
-            color: color,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
           title="Open external link"
-        >
-          <ExternalLink size={16} />
-        </button>
-        <button
+        />
+        <PanelIconButton
+          icon={X}
+          size={14}
+          variant="danger"
           onClick={() => onRemove(link)}
-          style={{
-            width: '28px',
-            height: '28px',
-            border: 'none',
-            backgroundColor: '#8B0000',
-            color: '#EFE8E5',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            lineHeight: 1,
-            maxHeight: '28px'
-          }}
           title="Remove link"
-        >
-          <span style={{ fontWeight: 'bold', fontSize: '16px' }}>×</span>
-        </button>
+        />
       </div>
     </div>
   );
 };
 
-// Compact card container for visual hierarchy without full-width dividers
-const SectionCard = ({ title, icon: Icon, rightEl = null, children, style = {} }) => {
+/**
+ * A sub-section of the Semantic Web panel.
+ *
+ * This used to be a bordered card with a maroon rule down its left edge — a
+ * container style that existed nowhere else in Redstring, so three of them
+ * stacked read as a foreign widget dropped into the panel. The panel's own way
+ * of separating sections is a heading and a StandardDivider, which is what this
+ * uses now. Losing the card also loses its `overflow: hidden`, which was
+ * clipping the classification dropdown's menu at the card's bottom edge.
+ */
+const Section = ({ title, icon: Icon, rightEl = null, children, style = {} }) => {
+  const tokens = useSemanticTokens();
   return (
-    <div
-      style={{
-        border: '1px solid rgba(38,0,0,0.10)',
-        borderLeft: '3px solid #8B0000',
-        background: 'rgba(38,0,0,0.03)',
-        borderRadius: '8px',
-        padding: '10px',
-        marginBottom: '10px',
-        overflow: 'hidden',
-        ...style
-      }}
-    >
+    <div style={{ marginBottom: '4px', ...style }}>
       {(title || rightEl) && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           {title ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {Icon && <Icon size={14} style={{ color: '#260000' }} />}
-              <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#260000' }}>{title}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: tokens.text }}>
+              {Icon && <Icon size={16} />}
+              <div style={{ fontFamily: FONT, fontSize: '1rem', fontWeight: 'bold' }}>{title}</div>
             </div>
           ) : <span />}
           {rightEl}
@@ -554,6 +601,7 @@ const WikipediaSearch = ({ onSelect }) => {
 };
 
 const RDFSchemaPropertiesSection = ({ nodeData, onUpdate }) => {
+  const tokens = useSemanticTokens();
   const [rdfsSeeAlso, setRdfsSeeAlso] = useState((nodeData['rdfs:seeAlso'] || []).join(', '));
 
   const handleSeeAlsoBlur = () => {
@@ -575,24 +623,37 @@ const RDFSchemaPropertiesSection = ({ nodeData, onUpdate }) => {
   };
 
   return (
-    <SectionCard title="RDF Schema" icon={Tags}>
-      {/* Auto-synced RDF properties */}
-      <div style={{ fontSize: '14px', marginBottom: 6 }}>
-        <div style={{ marginBottom: 4, color: '#260000' }}>
-          <strong>rdfs:label:</strong> <code>"{nodeData.name || 'Untitled'}"</code>
+    <Section title="RDF Schema" icon={Tags}>
+      {/* Auto-synced RDF properties, as a definition list rather than a run of
+          boxed literals — the property name is the label, the node's value is
+          the content. */}
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ marginBottom: 8 }}>
+          <FieldLabel tokens={tokens}>rdfs:label</FieldLabel>
+          <Literal tokens={tokens} style={{ fontSize: '14px' }}>
+            {nodeData.name || 'Untitled'}
+          </Literal>
         </div>
-        <div style={{ marginBottom: 0, color: '#260000' }}>
-          <strong>rdfs:comment:</strong> <code>"{(nodeData.description || 'No description').substring(0, 60)}{(nodeData.description || '').length > 60 ? '...' : ''}"</code>
+        <div>
+          <FieldLabel tokens={tokens}>rdfs:comment</FieldLabel>
+          <Literal tokens={tokens} muted={!nodeData.description} style={{ fontSize: '14px' }}>
+            {nodeData.description
+              ? `${nodeData.description.substring(0, 120)}${nodeData.description.length > 120 ? '…' : ''}`
+              : 'No description'}
+          </Literal>
           <ProvenanceBadge provenance={nodeData.semanticProvenance} field="description" />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, color: '#260000', fontSize: '12px' }}>
-          <CheckCircle size={14} style={{ color: '#260000' }} /> Auto-synced
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 4, marginTop: 8,
+          color: tokens.muted, fontSize: '12px', fontFamily: FONT
+        }}>
+          <CheckCircle size={13} style={{ color: tokens.muted }} /> Kept in sync with this thing
         </div>
       </div>
 
       {/* rdfs:seeAlso */}
       <div>
-        <div style={{ fontSize: '14px', color: '#8B0000', fontWeight: 'bold', marginBottom: 6 }}>See Also</div>
+        <FieldLabel tokens={tokens}>rdfs:seeAlso</FieldLabel>
         <input
           type="text"
           value={rdfsSeeAlso}
@@ -603,17 +664,20 @@ const RDFSchemaPropertiesSection = ({ nodeData, onUpdate }) => {
           style={{
             width: '100%',
             padding: '6px 8px',
-            border: '1px solid #8B0000',
+            border: `1px solid ${tokens.border}`,
             borderRadius: '6px',
             fontSize: '14px',
-            fontFamily: "'EmOne', sans-serif",
+            fontFamily: FONT,
+            color: tokens.text,
             backgroundColor: 'transparent',
             boxSizing: 'border-box'
           }}
         />
-        <div style={{ fontSize: '12px', color: '#260000', marginTop: 2 }}>Comma-separated URLs</div>
+        <div style={{ fontSize: '12px', color: tokens.muted, marginTop: 4, fontFamily: FONT }}>
+          Comma-separated URLs
+        </div>
       </div>
-    </SectionCard>
+    </Section>
   );
 };
 
@@ -623,7 +687,28 @@ const titleCase = (s = '') => s
   .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
   .join(' ');
 
-const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
+/**
+ * Split a class URI into the vocabulary it belongs to and the term itself, so a
+ * mapping can be shown as a labelled value ("SCHEMA / Person") rather than one
+ * undifferentiated string. Handles both CURIEs (`schema:Person`) and full URIs.
+ */
+const splitClassUri = (uri = '') => {
+  if (uri.startsWith('http://') || uri.startsWith('https://')) {
+    try {
+      const u = new URL(uri);
+      const local = (u.hash ? u.hash.slice(1) : u.pathname.split('/').filter(Boolean).pop()) || uri;
+      return { prefix: u.hostname.replace(/^www\./, ''), local: decodeURIComponent(local) };
+    } catch {
+      return { prefix: 'uri', local: uri };
+    }
+  }
+  const idx = uri.indexOf(':');
+  if (idx > 0) return { prefix: uri.slice(0, idx), local: uri.slice(idx + 1) };
+  return { prefix: 'term', local: uri };
+};
+
+const SemanticClassificationSection = ({ nodeData, onUpdate, onTypeSelect }) => {
+  const tokens = useSemanticTokens();
   // Store access for types
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
   const addNodePrototype = useGraphStore(state => state.addNodePrototype);
@@ -695,204 +780,190 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
     setNodeType(nodeData.id, targetTypeId);
   };
 
-  // Common ontology mappings
+  // Common ontology mappings. These carried per-vocabulary brand colours
+  // (Google blue/green/red) that belonged to nothing else in the interface;
+  // the vocabulary now reads as a prefix instead.
   const commonOntologies = [
-    { id: 'schema:Person', name: 'Person (Schema.org)', color: '#4285f4' },
-    { id: 'foaf:Person', name: 'Person (FOAF)', color: '#34a853' },
-    { id: 'dbo:Person', name: 'Person (DBpedia)', color: '#ea4335' },
-    { id: 'schema:Organization', name: 'Organization (Schema.org)', color: '#4285f4' },
-    { id: 'foaf:Organization', name: 'Organization (FOAF)', color: '#34a853' },
-    { id: 'schema:CreativeWork', name: 'Creative Work (Schema.org)', color: '#4285f4' },
-    { id: 'schema:Thing', name: 'Thing (Schema.org)', color: '#4285f4' }
+    { id: 'schema:Person' },
+    { id: 'foaf:Person' },
+    { id: 'dbo:Person' },
+    { id: 'schema:Organization' },
+    { id: 'foaf:Organization' },
+    { id: 'schema:CreativeWork' },
+    { id: 'schema:Thing' }
   ];
 
+  const availableOntologies = commonOntologies.filter(
+    onto => !equivalentClasses.some(cls => cls['@id'] === onto.id)
+  );
+
+  const typeColor = typePrototype?.color || tokens.theme.accent.primary;
+
   return (
-    <SectionCard
+    <Section
       title="Semantic Classification"
       icon={Search}
     >
-      {/* Primary Type chip */}
-      <div style={{ marginBottom: '8px' }}>
-        <div style={{ fontSize: '14px', color: '#8B0000', fontWeight: 'bold', marginBottom: 6 }}>Primary Type</div>
-        {typePrototype ? (
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '6px 10px',
-            background: typePrototype.color || '#8B0000',
-            color: getTextColor(typePrototype.color || '#8B0000'),
-            borderRadius: '12px',
-            border: '1px solid rgba(0,0,0,0.15)',
-            cursor: 'pointer'
-          }}
-            onClick={() => openRightPanelNodeTab?.(typePrototype.id)}
-            title="Open type"
+      {/* Primary type. Every thing has one — it is the Is-a axis, not an
+          optional tag — so there is no way to clear it here; the button changes
+          it, through the same picker the panel's own Type row uses. */}
+      <div style={{ marginBottom: '12px' }}>
+        <FieldLabel tokens={tokens}>Primary Type</FieldLabel>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => onTypeSelect?.(nodeData.id)}
+            title="Change this thing's type"
+            style={{
+              // Matches the panel's Type row button so the two read as the
+              // same control on the same fact.
+              backgroundColor: typeColor,
+              color: getTextColor(typeColor, tokens.theme.darkMode),
+              border: 'none',
+              borderRadius: '8px',
+              padding: '5px 10px',
+              fontSize: '0.8rem',
+              fontWeight: 'bold',
+              fontFamily: FONT,
+              cursor: 'pointer',
+              outline: 'none'
+            }}
           >
-            <span style={{ fontWeight: 'bold' }}>{titleCase(typePrototype.name || 'Thing')}</span>
-            <span style={{ fontSize: '10px', opacity: 0.8 }}>(type)</span>
-          </div>
-        ) : (
-          <div style={{ fontSize: '12px', color: '#260000' }}>None set</div>
-        )}
-      </div>
-
-      {/* Quick Ontology Mappings */}
-      <div style={{ marginBottom: '6px' }}>
-        <label style={{
-          display: 'block',
-          fontSize: '14px',
-          color: '#8B0000',
-          marginBottom: '6px',
-          fontWeight: 'bold'
-        }}>
-          Quick Classifications (owl:equivalentClass):
-        </label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-          {commonOntologies.map(onto => {
-            const isSelected = equivalentClasses.some(cls => cls['@id'] === onto.id);
-            return (
-              <button
-                key={onto.id}
-                onClick={() => isSelected
-                  ? removeEquivalentClass(onto.id)
-                  : addEquivalentClass(onto.id, 'quick-select')
-                }
-                style={{
-                  padding: '4px 8px',
-                  fontSize: '12px',
-                  border: `1px solid ${onto.color}`,
-                  backgroundColor: isSelected ? onto.color : '#DEDADA',
-                  color: isSelected ? '#EFE8E5' : onto.color,
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease'
-                }}
-              >
-                {onto.name}
-              </button>
-            );
-          })}
+            {titleCase(typePrototype?.name || 'Thing')}
+          </button>
+          {typePrototype && (
+            <button
+              onClick={() => openRightPanelNodeTab?.(typePrototype.id)}
+              title="Open this type in a tab"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
+                color: tokens.muted,
+                fontFamily: FONT,
+                fontSize: '12px',
+                textDecoration: 'underline'
+              }}
+            >
+              Open
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Current Classifications */}
+      {/* Add a mapping from the common vocabularies, one at a time. Sits above
+          the list, like the input in External References — and so the dropdown's
+          menu opens over the list rather than off the end of the section. */}
+      {availableOntologies.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <FieldLabel tokens={tokens}>Add Equivalent Class</FieldLabel>
+          <Dropdown
+            options={availableOntologies.map(onto => {
+              const { prefix, local } = splitClassUri(onto.id);
+              return { value: onto.id, label: `${local} · ${prefix}` };
+            })}
+            value=""
+            placeholder="Choose a vocabulary term…"
+            onChange={(uri) => uri && addEquivalentClass(uri, 'quick-select')}
+          />
+        </div>
+      )}
+
+      {/* Equivalent classes. Rows, not chips: a vocabulary prefix reads as a
+          label and the term reads as content, which is what they are — a grid
+          of coloured pills gave every mapping the same shouting weight and told
+          you nothing about which vocabulary it came from. */}
       {equivalentClasses.length > 0 && (
-        <div style={{ marginTop: 6 }}>
-          <label style={{
-            display: 'block',
-            fontSize: '14px',
-            color: '#8B0000',
-            marginBottom: '6px',
-            fontWeight: 'bold'
-          }}>
-            Current Classifications ({equivalentClasses.length}):
-          </label>
-          {equivalentClasses.map((cls, index) => (
-            <div
-              key={index}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '6px 8px',
-                backgroundColor: 'transparent',
-                border: '1px solid #ddd',
-                borderRadius: '4px',
-                marginBottom: '6px',
-                fontSize: '14px'
-              }}
-            >
-              <div>
-                <code style={{
-                  backgroundColor: 'rgba(0,0,0,0.03)',
-                  padding: '2px 4px',
-                  borderRadius: '3px',
-                  fontSize: '12px',
-                  color: '#260000'
-                }}>
-                  {cls['@id']}
-                </code>
-                {cls.source && (
-                  <span style={{
-                    marginLeft: '8px',
-                    fontSize: '11px',
-                    color: '#260000',
-                    fontStyle: 'italic'
-                  }}>
-                    via {cls.source}
-                  </span>
-                )}
+        <div style={{ marginBottom: 10 }}>
+          <FieldLabel tokens={tokens}>Equivalent Classes ({equivalentClasses.length})</FieldLabel>
+          {equivalentClasses.map((cls, index) => {
+            const uri = cls['@id'];
+            const { prefix, local } = splitClassUri(uri);
+            // The class this node's type came from cannot be removed here —
+            // dropping it used to strip the row that offered "Promote to Type",
+            // leaving no way to set a type from this section at all.
+            const isPrimary = !!typePrototype
+              && deriveNameFromUri(uri).toLowerCase() === (typePrototype.name || '').toLowerCase();
+            return (
+              <div
+                key={index}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  padding: '6px 0',
+                  borderTop: index === 0 ? 'none' : `1px solid ${tokens.hairline}`
+                }}
+              >
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{
+                      fontFamily: FONT, fontSize: '10px', fontWeight: 'bold',
+                      letterSpacing: '0.04em', textTransform: 'uppercase', color: tokens.brand
+                    }}>
+                      {prefix}
+                    </span>
+                    <Literal tokens={tokens} style={{ fontSize: '13px' }}>{local}</Literal>
+                    {isPrimary && (
+                      <span style={{ fontFamily: FONT, fontSize: '11px', color: tokens.muted }}>
+                        · primary type
+                      </span>
+                    )}
+                  </div>
+                  {cls.source && (
+                    <div style={{ fontFamily: FONT, fontSize: '11px', color: tokens.muted, marginTop: 2 }}>
+                      via {cls.source}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                  {!isPrimary && (
+                    <PanelIconButton
+                      icon={ArrowUpFromDot}
+                      size={14}
+                      onClick={() => promoteClassToType(uri)}
+                      title="Make this the primary type"
+                    />
+                  )}
+                  {!isPrimary && (
+                    <PanelIconButton
+                      icon={X}
+                      size={14}
+                      variant="danger"
+                      onClick={() => removeEquivalentClass(uri)}
+                      title="Remove this classification"
+                    />
+                  )}
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  onClick={() => promoteClassToType(cls['@id'])}
-                  style={{
-                    padding: '3px 8px',
-                    border: '1px solid #8B0000',
-                    background: 'transparent',
-                    color: '#8B0000',
-                    borderRadius: '3px',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    lineHeight: 1
-                  }}
-                  title="Promote this external class to a local Type and set as Primary"
-                >
-                  Promote to Type
-                </button>
-                <button
-                  onClick={() => removeEquivalentClass(cls['@id'])}
-                  style={{
-                    padding: '3px 8px',
-                    border: 'none',
-                    backgroundColor: '#dc3545',
-                    color: '#EFE8E5',
-                    borderRadius: '3px',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    lineHeight: 1
-                  }}
-                >
-                  <X size={14} strokeWidth={3} style={{ color: '#EFE8E5' }} />
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* Abstraction Chains - Future Feature */}
       {Object.keys(abstractionChains).length > 0 && (
         <div style={{ marginTop: '15px' }}>
-          <label style={{
-            display: 'block',
-            fontSize: '14px',
-            color: '#8B0000',
-            marginBottom: '8px',
-            fontWeight: 'bold'
-          }}>
-            Abstraction Chains:
-          </label>
+          <FieldLabel tokens={tokens}>Abstraction Chains</FieldLabel>
           <div style={{
+            fontFamily: FONT,
             fontSize: '12px',
-            color: '#260000',
-            fontStyle: 'italic',
-            marginTop: '8px'
+            color: tokens.muted,
+            fontStyle: 'italic'
           }}>
             Future: These will be automatically mapped to rdfs:subClassOf relationships
           </div>
         </div>
       )}
-    </SectionCard>
+    </Section>
   );
 };
 
-// Provenance badge component
+// Where an auto-applied value came from. A word in the margin, not a badge —
+// the 7px pill it replaced was unreadable at that size anyway.
 const ProvenanceBadge = ({ provenance, field }) => {
+  const tokens = useSemanticTokens();
   if (!provenance || !provenance[field]) return null;
 
   const p = provenance[field];
@@ -902,25 +973,22 @@ const ProvenanceBadge = ({ provenance, field }) => {
   return (
     <span
       style={{
-        display: 'inline-block',
-        fontSize: '7px',
-        fontFamily: "'EmOne', sans-serif",
-        backgroundColor: 'rgba(139, 0, 0, 0.1)',
-        color: '#8B0000',
-        padding: '1px 3px',
-        borderRadius: '3px',
-        marginLeft: '4px',
+        fontFamily: FONT,
+        fontSize: '11px',
+        color: tokens.muted,
+        marginLeft: '6px',
         cursor: 'help'
       }}
       title={`Auto-applied from ${sourceText} (${Math.round(p.confidence * 100)}% confidence) at ${new Date(p.appliedAt).toLocaleString()}`}
     >
-      {sourceText}
+      · {sourceText.toLowerCase()}
     </span>
   );
 };
 
-const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
+const SemanticEditor = ({ nodeData, onUpdate, onTypeSelect, isUltraSlim = false }) => {
   const theme = useTheme();
+  const tokens = useSemanticTokens();
   const [enrichmentState, setEnrichmentState] = useState({
     isEnriching: false,
     progress: {},
@@ -1456,19 +1524,19 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         onUpdate={onUpdate}
       />
 
-      {/* Classification inside Semantic Profile */}
-      <div style={{ marginTop: '8px' }}>
-        <SemanticClassificationSection
-          nodeData={nodeData}
-          onUpdate={onUpdate}
-        />
-      </div>
+      <StandardDivider margin="16px 0" />
 
-      {/* spacing only; avoid divider lines */}
-      <div style={{ height: 8 }} />
+      {/* Classification inside Semantic Profile */}
+      <SemanticClassificationSection
+        nodeData={nodeData}
+        onUpdate={onUpdate}
+        onTypeSelect={onTypeSelect}
+      />
+
+      <StandardDivider margin="16px 0" />
 
       {/* External Links Section (Rosetta Stone) */}
-      <SectionCard
+      <Section
         title="External References (owl:sameAs)"
         icon={Link}
       >
@@ -1480,10 +1548,10 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
               onChange={(e) => setExternalType(e.target.value)}
               style={{
                 padding: '6px 8px',
-                border: '1px solid #8B0000',
+                border: `1px solid ${tokens.border}`,
                 borderRadius: '6px',
                 fontSize: '14px',
-                color: '#260000',
+                color: tokens.text,
                 background: 'transparent'
               }}
             >
@@ -1505,10 +1573,10 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
               onChange={(e) => setExternalType(e.target.value)}
               style={{
                 padding: '6px 8px',
-                border: '1px solid #8B0000',
+                border: `1px solid ${tokens.border}`,
                 borderRadius: '6px',
                 fontSize: '14px',
-                color: '#260000',
+                color: tokens.text,
                 background: 'transparent'
               }}
             >
@@ -1528,7 +1596,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         {/* Display existing links */}
         {externalLinks.length > 0 && (
           <div style={{ marginTop: 8 }}>
-            <div style={{ margin: '0 0 6px 0', fontSize: '14px', color: '#260000' }}>
+            <div style={{ margin: '0 0 6px 0', fontSize: '14px', color: tokens.text, fontFamily: FONT }}>
               Linked Resources ({externalLinks.length})
             </div>
             {externalLinks.map((link, index) => {
@@ -1552,26 +1620,26 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         {/* Close Candidates (when confidence is midrange) */}
         {lastSuggestionsMeta && lastSuggestionsMeta.confidence >= 0.6 && lastSuggestionsMeta.confidence < 0.78 && (
           <div style={{ marginTop: '10px' }}>
-            <h5 style={{ margin: '0 0 6px 0', fontSize: '14px', color: '#260000' }}>
+            <h5 style={{ margin: '0 0 6px 0', fontSize: '14px', color: tokens.text, fontFamily: FONT }}>
               Close candidates
             </h5>
             {lastSuggestionsMeta.items.map((cand, idx) => (
-              <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px dashed #ccc', borderRadius: '6px', padding: '6px 8px', marginBottom: '6px' }}>
-                <code style={{ fontSize: '12px', padding: '2px 4px', background: 'rgba(0,0,0,0.05)', borderRadius: '2px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: `1px dashed ${tokens.hairline}`, borderRadius: '6px', padding: '6px 8px', marginBottom: '6px' }}>
+                <span style={{ fontFamily: FONT, fontSize: '12px', color: tokens.text, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {cand.substring(0, 80)}{cand.length > 80 ? '…' : ''}
-                </code>
+                </span>
                 <div style={{ display: 'flex', gap: '6px', marginLeft: '8px' }}>
-                  <button onClick={() => addExternalLink(cand)} style={{ padding: '4px 8px', border: 'none', borderRadius: '4px', background: '#8B0000', color: '#EFE8E5', fontSize: '12px', cursor: 'pointer' }}>Use link</button>
+                  <button onClick={() => addExternalLink(cand)} style={{ padding: '4px 8px', border: 'none', borderRadius: '4px', background: tokens.theme.canvas.brand, color: '#EFE8E5', fontSize: '12px', fontFamily: FONT, cursor: 'pointer' }}>Use link</button>
                   {!nodeData.description && enrichmentState.results?.description && (
-                    <button onClick={() => applySuggestion('description', enrichmentState.results.description)} style={{ padding: '4px 8px', border: '1px solid #ccc', borderRadius: '4px', background: 'transparent', color: '#260000', fontSize: '12px', cursor: 'pointer' }}>Replace description</button>
+                    <button onClick={() => applySuggestion('description', enrichmentState.results.description)} style={{ padding: '4px 8px', border: `1px solid ${tokens.border}`, borderRadius: '4px', background: 'transparent', color: tokens.text, fontSize: '12px', cursor: 'pointer' }}>Replace description</button>
                   )}
-                  <button onClick={() => {/* alias placeholder */ }} style={{ padding: '4px 8px', border: '1px solid #ccc', borderRadius: '4px', background: 'transparent', color: '#260000', fontSize: '12px', cursor: 'pointer' }}>Add alias</button>
+                  <button onClick={() => {/* alias placeholder */ }} style={{ padding: '4px 8px', border: `1px solid ${tokens.border}`, borderRadius: '4px', background: 'transparent', color: tokens.text, fontSize: '12px', cursor: 'pointer' }}>Add alias</button>
                 </div>
               </div>
             ))}
           </div>
         )}
-      </SectionCard>
+      </Section>
 
       {/* spacing only; avoid divider lines */}
       <div style={{ height: 12 }} />
@@ -1584,7 +1652,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
             onClick={handleEnrichFromSemanticWeb}
             disabled={enrichmentState.isEnriching}
             style={{
-              backgroundColor: enrichmentState.isEnriching ? '#666' : '#8B0000',
+              backgroundColor: enrichmentState.isEnriching ? tokens.muted : tokens.theme.canvas.brand,
               color: '#EFE8E5',
               border: 'none',
               padding: '6px 10px',
@@ -1610,7 +1678,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
               onClick={handleMassImport}
               disabled={enrichmentState.isEnriching || federationState.isImporting}
               style={{
-                backgroundColor: (enrichmentState.isEnriching || federationState.isImporting) ? '#666' : '#4B0082',
+                backgroundColor: (enrichmentState.isEnriching || federationState.isImporting) ? tokens.muted : '#4B0082',
                 color: '#EFE8E5',
                 border: 'none',
                 padding: '6px 10px',
@@ -1636,7 +1704,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
               onClick={resolveExternalLinks}
               disabled={enrichmentState.isEnriching}
               style={{
-                backgroundColor: enrichmentState.isEnriching ? '#666' : '#2E8B57',
+                backgroundColor: enrichmentState.isEnriching ? tokens.muted : '#2E8B57',
                 color: '#EFE8E5',
                 border: 'none',
                 padding: '6px 10px',
@@ -1661,7 +1729,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         {/* Optional Wikipedia helper under Advanced */}
         {showAdvanced && (
           <div style={{ marginTop: '6px' }}>
-            <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>Wikipedia Helper</label>
+            <label style={{ display: 'block', fontSize: '12px', color: tokens.muted, marginBottom: '4px' }}>Wikipedia Helper</label>
             <WikipediaSearch onSelect={addExternalLink} />
           </div>
         )}
@@ -1670,13 +1738,13 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         {enrichmentState.isEnriching && (
           <div style={{
             fontSize: '11px',
-            color: '#666'
+            color: tokens.muted
           }}>
             <div style={{ marginBottom: '4px', fontWeight: 'bold' }}>Enriching from semantic web...</div>
             {Object.entries(enrichmentState.progress).map(([source, status]) => (
               <div key={source} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                {status === 'pending' && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ccc' }} />}
-                {status === 'active' && <Loader2 size={8} style={{ color: '#8B0000', animation: 'spin 1s linear infinite' }} />}
+                {status === 'pending' && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: tokens.hairline }} />}
+                {status === 'active' && <Loader2 size={8} style={{ color: tokens.brand, animation: 'spin 1s linear infinite' }} />}
                 {status === 'completed' && <CheckSquare size={8} style={{ color: '#2E8B57' }} />}
                 <span>{source.replace('_', ' ')}...</span>
               </div>
@@ -1688,7 +1756,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         {enrichmentState.error && (
           <div style={{
             fontSize: '11px',
-            color: '#dc3545',
+            color: tokens.danger,
             padding: '8px',
             backgroundColor: 'rgba(220, 53, 69, 0.1)',
             borderRadius: '4px',
@@ -1707,12 +1775,12 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
           <div style={{
             fontSize: '12px'
           }}>
-            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#8B0000' }}>Enrichment Suggestions:</div>
+            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: tokens.brand }}>Enrichment Suggestions:</div>
 
             {enrichmentState.results.description && (
               <div style={{ marginBottom: '8px' }}>
                 <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Description:</div>
-                <div style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>
+                <div style={{ fontSize: '11px', color: tokens.muted, marginBottom: '4px' }}>
                   {enrichmentState.results.description}
                 </div>
                 {!nodeData.description && (
@@ -1739,9 +1807,13 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                 <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>External Links:</div>
                 {enrichmentState.results.externalLinks.map((link, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                    <code style={{ fontSize: '10px', padding: '2px 4px', borderRadius: '2px', background: 'rgba(0,0,0,0.05)' }}>
-                      {link.substring(0, 50)}...
-                    </code>
+                    <span style={{
+                      fontFamily: FONT, fontSize: '11px', color: tokens.text,
+                      flex: 1, minWidth: 0, overflow: 'hidden',
+                      textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                    }}>
+                      {link}
+                    </span>
                     <button
                       onClick={() => applySuggestion('externalLink', link)}
                       style={{
@@ -1767,7 +1839,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                 {enrichmentState.results.equivalentClasses.map((cls, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
                     <span style={{ fontSize: '10px' }}>{cls.label}</span>
-                    <span style={{ fontSize: '9px', color: '#666' }}>({cls.source})</span>
+                    <span style={{ fontSize: '9px', color: tokens.muted }}>({cls.source})</span>
                     <button
                       onClick={() => applySuggestion('equivalentClass', cls)}
                       style={{
@@ -1787,7 +1859,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
               </div>
             )}
 
-            <div style={{ fontSize: '10px', color: '#666', marginTop: '8px' }}>Confidence: {(enrichmentState.results.confidence * 100).toFixed(0)}%</div>
+            <div style={{ fontSize: '10px', color: tokens.muted, marginTop: '8px' }}>Confidence: {(enrichmentState.results.confidence * 100).toFixed(0)}%</div>
           </div>
         )}
       </div>
@@ -1800,9 +1872,9 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         <div style={{
           marginBottom: '15px',
           padding: '12px',
-          backgroundColor: '#EFE8E5',
+          backgroundColor: tokens.surface,
           borderRadius: '6px',
-          border: '1px solid #e0e0e0'
+          border: `1px solid ${tokens.hairline}`
         }}>
           <div style={{
             fontSize: '12px',
@@ -1816,7 +1888,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
             <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
             Mass Importing Knowledge Cluster...
           </div>
-          <div style={{ fontSize: '11px', color: '#666' }}>
+          <div style={{ fontSize: '11px', color: tokens.muted }}>
             Stage: {federationState.progress.stage}
             {federationState.progress.entity && ` | Entity: ${federationState.progress.entity}`}
             {federationState.progress.level > 0 && ` | Level: ${federationState.progress.level}`}
@@ -1829,9 +1901,9 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         <div style={{
           marginBottom: '15px',
           padding: '12px',
-          backgroundColor: '#EFE8E5',
+          backgroundColor: tokens.surface,
           borderRadius: '6px',
-          border: '1px solid #e0e0e0'
+          border: `1px solid ${tokens.hairline}`
         }}>
           <div style={{
             fontSize: '12px',
@@ -1841,13 +1913,13 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
           }}>
             Knowledge Cluster Imported 🌐
           </div>
-          <div style={{ fontSize: '11px', color: '#333', marginBottom: '6px' }}>
+          <div style={{ fontSize: '11px', color: tokens.text, marginBottom: '6px' }}>
             <strong>{federationState.results.totalEntities}</strong> entities, <strong>{federationState.results.totalRelationships}</strong> relationships
           </div>
-          <div style={{ fontSize: '10px', color: '#666' }}>
+          <div style={{ fontSize: '10px', color: tokens.muted }}>
             Sources: {Object.entries(federationState.results.sourceBreakdown).map(([source, count]) => `${source}: ${count}`).join(', ')}
           </div>
-          <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+          <div style={{ fontSize: '10px', color: tokens.muted, marginTop: '4px' }}>
             Clusters: {federationState.results.clusters.size}
           </div>
         </div>
@@ -1861,14 +1933,14 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         <div style={{
           marginTop: '15px',
           padding: '12px',
-          backgroundColor: '#EFE8E5',
+          backgroundColor: tokens.surface,
           borderRadius: '6px',
-          border: '1px solid #e0e0e0'
+          border: `1px solid ${tokens.hairline}`
         }}>
           <h5 style={{
             margin: '0 0 10px 0',
             fontSize: '12px',
-            color: '#8B0000',
+            color: tokens.brand,
             fontWeight: 'bold'
           }}>
             Resolved RDF Data ({resolvedData.size})
@@ -1886,11 +1958,11 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                 {data.label || 'Unknown Resource'}
               </div>
               {data.description && (
-                <div style={{ color: '#666', marginBottom: '4px' }}>
+                <div style={{ color: tokens.muted, marginBottom: '4px' }}>
                   {data.description}
                 </div>
               )}
-              <div style={{ fontSize: '10px', color: '#8B0000' }}>Source: {link}</div>
+              <div style={{ fontSize: '10px', color: tokens.brand }}>Source: {link}</div>
             </div>
           ))}
         </div>
@@ -1900,7 +1972,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
       {autoApplied.length > 0 && (
         <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
           {autoApplied.slice(0,3).map((c, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 8px', borderRadius: '12px', background: 'rgba(139,0,0,0.1)', color: '#260000', fontSize: '10px' }}>
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 8px', borderRadius: '12px', background: tokens.surface, color: tokens.text, fontSize: '10px' }}>
               Applied from web
               <button
                 onClick={() => {
@@ -1913,7 +1985,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                   onUpdate(updates);
                   setAutoApplied(prev => prev.filter((_, idx) => idx !== i));
                 }}
-                style={{ border: 'none', background: 'transparent', color: '#8B0000', cursor: 'pointer', fontWeight: 'bold' }}
+                style={{ border: 'none', background: 'transparent', color: tokens.brand, cursor: 'pointer', fontWeight: 'bold' }}
               >
                 Undo
               </button>
@@ -1929,10 +2001,10 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
           onClick={() => setShowAdvanced(!showAdvanced)}
           style={{
             padding: '6px 12px',
-            border: '1px solid #8B0000',
+            border: `1px solid ${tokens.brand}`,
             borderRadius: '6px',
             background: 'transparent',
-            color: '#8B0000',
+            color: tokens.brand,
             fontSize: '11px',
             cursor: 'pointer',
             fontWeight: 'bold',
@@ -1968,15 +2040,15 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
             overflow: 'auto',
             fontFamily: "'EmOne', sans-serif"
           }}>
-            <h3 style={{ margin: '0 0 16px 0', color: '#260000' }}>Consolidate Preview</h3>
+            <h3 style={{ margin: '0 0 16px 0', color: tokens.text }}>Consolidate Preview</h3>
 
             <div style={{ marginBottom: '16px' }}>
-              <h4 style={{ margin: '0 0 8px 0', color: '#260000', fontSize: '14px' }}>Changes to apply:</h4>
+              <h4 style={{ margin: '0 0 8px 0', color: tokens.text, fontSize: '14px' }}>Changes to apply:</h4>
 
               {consolidatePreview.diff.description.changed && (
                 <div style={{ marginBottom: '8px', padding: '8px', backgroundColor: 'rgba(220, 38, 38, 0.1)', borderRadius: '4px' }}>
                   <strong>Description:</strong><br />
-                  <span style={{ color: '#666', fontSize: '12px' }}>
+                  <span style={{ color: tokens.muted, fontSize: '12px' }}>
                     Current: {consolidatePreview.diff.description.current || '(empty)'}
                   </span><br />
                   <span style={{ color: '#059669', fontSize: '12px' }}>
@@ -1989,10 +2061,10 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                 <div style={{ marginBottom: '8px', padding: '8px', backgroundColor: 'rgba(5, 150, 105, 0.1)', borderRadius: '4px' }}>
                   <strong>New External Links ({consolidatePreview.diff.externalLinks.new.length}):</strong><br />
                   {consolidatePreview.diff.externalLinks.new.slice(0, 3).map((link, i) => (
-                    <div key={i} style={{ fontSize: '11px', color: '#666' }}>• {link}</div>
+                    <div key={i} style={{ fontSize: '11px', color: tokens.muted }}>• {link}</div>
                   ))}
                   {consolidatePreview.diff.externalLinks.new.length > 3 && (
-                    <div style={{ fontSize: '11px', color: '#666' }}>... and {consolidatePreview.diff.externalLinks.new.length - 3} more</div>
+                    <div style={{ fontSize: '11px', color: tokens.muted }}>... and {consolidatePreview.diff.externalLinks.new.length - 3} more</div>
                   )}
                 </div>
               )}
@@ -2001,10 +2073,10 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                 <div style={{ marginBottom: '8px', padding: '8px', backgroundColor: 'rgba(79, 70, 229, 0.1)', borderRadius: '4px' }}>
                   <strong>New Classifications ({consolidatePreview.diff.equivalentClasses.new.length}):</strong><br />
                   {consolidatePreview.diff.equivalentClasses.new.slice(0, 3).map((cls, i) => (
-                    <div key={i} style={{ fontSize: '11px', color: '#666' }}>• {cls['@id'] || cls.id || 'Unknown'}</div>
+                    <div key={i} style={{ fontSize: '11px', color: tokens.muted }}>• {cls['@id'] || cls.id || 'Unknown'}</div>
                   ))}
                   {consolidatePreview.diff.equivalentClasses.new.length > 3 && (
-                    <div style={{ fontSize: '11px', color: '#666' }}>... and {consolidatePreview.diff.equivalentClasses.new.length - 3} more</div>
+                    <div style={{ fontSize: '11px', color: tokens.muted }}>... and {consolidatePreview.diff.equivalentClasses.new.length - 3} more</div>
                   )}
                 </div>
               )}
@@ -2015,10 +2087,10 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                 onClick={() => setShowConsolidatePreview(false)}
                 style={{
                   padding: '8px 16px',
-                  border: '1px solid #666',
+                  border: `1px solid ${tokens.muted}`,
                   borderRadius: '4px',
                   backgroundColor: 'transparent',
-                  color: '#666',
+                  color: tokens.muted,
                   cursor: 'pointer',
                   fontFamily: "'EmOne', sans-serif"
                 }}

@@ -138,9 +138,12 @@
   }
 
   .piemenu-buttons {
-    flex-wrap: wrap;
+    /* One strip, always. A wrap splits the row into two ragged lines and the
+       thing stops reading as a single control; letting the bubbles give up a
+       few px each keeps it intact far longer. See .piemenu-button below. */
+    flex-wrap: nowrap;
     justify-content: center;
-    gap: 8px;
+    gap: 6px;
     padding: 0 4px;
   }
 
@@ -148,7 +151,7 @@
   .unified-bottom-panel.mode-decompose .piemenu-buttons {
     width: 100%;
     padding: 0;
-    gap: 8px;
+    gap: 6px;
   }
 
   .unified-bottom-panel.mode-nodes .arrow-group {
@@ -156,9 +159,21 @@
   }
 
   .piemenu-button {
+    /* Shrinkable on mobile only. `width` is the flex basis the row starts from
+       and `min-width` is where the squeeze stops — between them a crowded strip
+       gives up a few px per bubble instead of wrapping. `height: auto` +
+       aspect-ratio is what keeps them circles while flex takes the width; a
+       fixed height here would flatten them into ovals as they compressed. */
     width: 46px;
-    height: 46px;
+    height: auto;
+    aspect-ratio: 1;
+    min-width: 34px;
+    flex-shrink: 1;
     border-width: 2px;
+  }
+
+  .piemenu-chevron {
+    height: 52px;
   }
 
   .node-pill {
@@ -215,6 +230,25 @@
 }
 
 .piemenu-button:hover {
+  transform: scale(1.1);
+}
+
+/* Page-turn arrows. Taller than the bubbles they flank, the way the canvas
+   menu's chevrons stand taller than its ring — they read as edges of the set
+   rather than as another item in it. Never shrinks: on a cramped row the
+   bubbles give up their px first, since losing the arrows loses a whole page. */
+.piemenu-chevron {
+  height: clamp(48px, 5.9vw, 58px);
+  width: auto;
+  flex-shrink: 0;
+  cursor: pointer;
+  overflow: visible;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s ease;
+}
+
+.piemenu-chevron:hover {
   transform: scale(1.1);
 }
 

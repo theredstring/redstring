@@ -6819,6 +6819,31 @@ function NodeCanvas() {
     return [];
   }, [selectedNodePrototypes, nodeControlPanelVisible, lastSelectedNodePrototypes]);
 
+  // The instance the control panel's pie-menu pages act on. Strictly single
+  // selection: every action in nodePieMenuPages is written against one instance,
+  // so with two Things selected the panel falls back to its own selection-wide
+  // buttons rather than silently applying Delete to whichever one sorted first.
+  const [lastSingleSelectedInstanceId, setLastSingleSelectedInstanceId] = useState(null);
+
+  useEffect(() => {
+    if (selectedInstanceIds.size === 1) {
+      setLastSingleSelectedInstanceId(Array.from(selectedInstanceIds)[0]);
+    } else if (selectedInstanceIds.size > 1) {
+      // Forget it on multi-select, or a later deselect would let the panel animate
+      // out still showing the pages of whichever Thing was selected before.
+      setLastSingleSelectedInstanceId(null);
+    }
+  }, [selectedInstanceIds]);
+
+  const singleSelectedInstanceId = useMemo(() => {
+    if (selectedInstanceIds.size === 1) return Array.from(selectedInstanceIds)[0];
+    // Selection already cleared but the panel is still animating out — hold the
+    // last target (same trick as nodePrototypesForPanel above) so the buttons
+    // don't flip to the multi-select set for the length of the exit.
+    if (selectedInstanceIds.size === 0 && nodeControlPanelVisible) return lastSingleSelectedInstanceId;
+    return null;
+  }, [selectedInstanceIds, nodeControlPanelVisible, lastSingleSelectedInstanceId]);
+
   const groupPanelTarget = selectedGroup || lastSelectedGroup;
   const groupPanelMode = groupPanelTarget?.linkedNodePrototypeId ? "nodegroup" : "group";
 
@@ -7433,6 +7458,343 @@ function NodeCanvas() {
     }, { finalize: true });
   }, [nodes, activeGraphId, storeActions]);
 
+  /**
+   * Every page of the default single-Thing pie menu, in display order.
+   *
+   * This is the one list, and it is the whole reason both menus can stay in
+   * step: PieMenu pages through it with its chevrons, the bottom control panel
+   * pages through it with its own, and neither has to be edited to add a page.
+   * The panel used to hand-transcribe a subset of page 0, which is how it ended
+   * up offering Orbit but not Duplicate, Copy, Swap, Add Image, Semantic Search,
+   * Ask The Wizard, or Open in Panel — those were reachable only from the canvas.
+   *
+   * An entry is a page: an array of the {id, label, icon, action} buttons PieMenu
+   * already renders. Actions take (instanceId, buttonPosition) and are written
+   * against one instance, which is what both consumers target.
+   */
+  const nodePieMenuPages = useMemo(() => {
+    const primaryPage = [
+      {
+        id: 'expand-tab',
+        label: 'Expand',
+        icon: ArrowUpFromDot,
+        action: (instanceId) => {
+          const nodeData = nodes.find(n => n.id === instanceId);
+          if (nodeData) {
+            const prototypeId = nodeData.prototypeId;
+            const currentState = useGraphStore.getState();
+            const prototypeData = currentState.nodePrototypes.get(prototypeId);
+
+            if (prototypeData?.definitionGraphIds && prototypeData.definitionGraphIds.length > 0) {
+              // Node has definitions - start hurtle animation to first one
+              const graphIdToOpen = prototypeData.definitionGraphIds[0];
+              startHurtleAnimation(instanceId, graphIdToOpen, prototypeId);
+            } else {
+              // No definitions recorded. Self-heal: find any existing graph that defines this prototype
+              const sourceGraphId = activeGraphId;
+              let orphanGraphId = null;
+              try {
+                for (const [gId, g] of currentState.graphs.entries()) {
+                  if (Array.isArray(g.definingNodeIds) && g.definingNodeIds.includes(prototypeId)) {
+                    orphanGraphId = gId;
+                    break;
+                  }
+                }
+              } catch (_) { }
+
+              if (orphanGraphId) {
+                console.log('[Expand] Found orphan definition graph. Repairing and opening.', {
+                  prototypeId,
+                  orphanGraphId
+                });
+                // Self-heal: add to prototype.definitionGraphIds
+                storeActions.updateNodePrototype(prototypeId, draft => {
+                  draft.definitionGraphIds = Array.isArray(draft.definitionGraphIds) ? draft.definitionGraphIds : [];
+                  if (!draft.definitionGraphIds.includes(orphanGraphId)) {
+                    draft.definitionGraphIds.push(orphanGraphId);
+                  }
+                });
+                startHurtleAnimation(instanceId, orphanGraphId, prototypeId, sourceGraphId);
+              } else {
+                // No existing definition anywhere - create one
+                storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
+
+                setTimeout(() => {
+                  const updatedState = useGraphStore.getState();
+                  const updatedNodeData = updatedState.nodePrototypes.get(prototypeId);
+                  if (updatedNodeData?.definitionGraphIds?.length > 0) {
+                    const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
+                    startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
+                  }
+                }, 50);
+              }
+            }
+          }
+        }
+      },
+      {
+        id: 'decompose-preview',
+        label: 'Decompose',
+        icon: PackageOpen,
+        action: (instanceId) => {
+          // Prevent decompose action during carousel transitions (only for non-carousel mode)
+          if (!abstractionCarouselVisible && carouselAnimationState === 'exiting') {
+
+            return;
+          }
+
+
+          setPendingDecomposeNodeId(instanceId); // Store the instance ID for later
+          setIsTransitioningPieMenu(true); // Start transition, current menu will hide
+          // previewingNodeId (which is an instanceId) will be set in onExitAnimationComplete after animation
+        }
+      },
+      {
+        id: 'abstraction', label: 'Abstraction', icon: Layers, action: (instanceId) => {
+          // Prevent abstraction action during carousel transitions (only for non-carousel mode)
+          if (!abstractionCarouselVisible && carouselAnimationState === 'exiting') {
+
+            return;
+          }
+
+
+          setPendingAbstractionNodeId(instanceId); // Store the instance ID for later
+          setIsTransitioningPieMenu(true); // Start transition, current menu will hide
+          // Abstraction carousel will be set up in onExitAnimationComplete after animation
+        }
+      },
+      {
+        id: 'delete', label: 'Delete', icon: Trash2, action: (instanceId) => {
+          deleteNodeWithAnimation(instanceId);
+          setSelectedInstanceIds(new Set());
+          setSelectedNodeIdForPieMenu(null);
+        }
+      },
+      {
+        id: 'edit', label: 'Edit', icon: Edit3, action: (instanceId) => {
+          const instance = nodes.find(n => n.id === instanceId);
+          if (instance) {
+            // Open panel tab using the PROTOTYPE ID
+            storeActions.openRightPanelNodeTab(instance.prototypeId, instance.name);
+            // Ensure right panel is expanded
+            if (!rightPanelExpanded) {
+              storeActions.setRightPanelExpanded(true);
+            }
+            // Enable inline editing on canvas using the INSTANCE ID
+            setEditingNodeIdOnCanvas(instanceId);
+          }
+        }
+      },
+      {
+        id: 'save',
+        label: (() => {
+          const node = nodes.find(n => n.id === selectedNodeIdForPieMenu);
+          return node && savedNodeIds.has(node.prototypeId) ? 'Unsave' : 'Save';
+        })(),
+        icon: Bookmark,
+        fill: (() => {
+          const node = nodes.find(n => n.id === selectedNodeIdForPieMenu);
+          return node && savedNodeIds.has(node.prototypeId) ? 'maroon' : 'none';
+        })(),
+        action: (instanceId) => {
+          const node = nodes.find(n => n.id === instanceId);
+          if (node) {
+            storeActions.toggleSavedNode(node.prototypeId);
+          }
+        }
+      },
+      {
+        id: 'palette', label: 'Palette', icon: Palette, action: (instanceId, buttonPosition) => {
+          const node = nodes.find(n => n.id === instanceId);
+          if (node && buttonPosition) {
+            // Use the actual button position passed from PieMenu
+            handlePieMenuColorPickerOpen(instanceId, buttonPosition);
+          }
+        }
+      },
+      {
+        // Cycle this instance's per-instance size, stored in instance.sizeMul (a
+        // continuous float persisted in the .redstring file). NOT instance.scale —
+        // that field is the transient drag-lift transform register (1 at rest), so
+        // reusing it would make nodes re-wrap text on grab and lose their size on
+        // drop. nextNodeSizeStep snaps the current value to the nearest named step
+        // and advances (M → L → XL → XS → S → M). getNodeDimensions + Node.jsx fold
+        // sizeMul into an effective node scale, so both the box and its label grow
+        // together, on top of the global node-size scope.
+        id: 'change-size',
+        label: (() => {
+          // Whichever menu is actually up. The control panel can outlive the pie
+          // menu on the same Thing, and reading only the pie menu's target left
+          // this reporting "Size: M" for an XL node in the panel's tooltip.
+          const targetId = selectedNodeIdForPieMenu ?? singleSelectedInstanceId;
+          const inst = nodes.find(n => n.id === targetId);
+          return `Size: ${nodeSizeLabel(inst?.sizeMul ?? 1.0)}`;
+        })(),
+        icon: Scaling,
+        action: (instanceId) => {
+          const instance = nodes.find(n => n.id === instanceId);
+          if (!instance || !activeGraphId) return;
+          const next = nextNodeSizeStep(instance.sizeMul ?? 1.0);
+          storeActions.updateNodeInstance(
+            activeGraphId,
+            instanceId,
+            (inst) => { inst.sizeMul = next; },
+            { type: 'node_resize', finalize: true }
+          );
+          // The hover chip snapshots its label when the pointer enters the
+          // button, so it would otherwise keep showing the pre-click size.
+          // Refresh it in place (same id → same chip, instant text swap) so it
+          // tracks the new size while the pointer stays on the button.
+          if (activePieMenuItemRef.current?.id === 'change-size') {
+            const refreshedItem = { id: 'change-size', label: `Size: ${nodeSizeLabel(next)}` };
+            setActivePieMenuItemForVision(refreshedItem);
+            activePieMenuItemRef.current = refreshedItem;
+          }
+        }
+      }
+    ];
+
+    // Reached via the ▶ chevron. Change Size cycles the per-instance size (stored
+    // in instance.scale) through the discrete steps M → L → XL → XS → S → M,
+    // layering on top of the global node-size scope.
+    const secondaryPage = [
+      {
+        id: 'duplicate', label: 'Duplicate', icon: CopyPlus, action: (instanceId) => {
+          const instance = nodes.find(n => n.id === instanceId);
+          if (!instance || !activeGraphId) return;
+          // Drop the copy slightly down-right of the original so it's visibly distinct.
+          const offset = 40;
+          const newInstanceId = uuidv4();
+          storeActions.addNodeInstance(
+            activeGraphId,
+            instance.prototypeId,
+            { x: instance.x + offset, y: instance.y + offset },
+            newInstanceId
+          );
+          // Move selection (and the pie menu) to the new copy.
+          setSelectedInstanceIds(new Set([newInstanceId]));
+          setSelectedNodeIdForPieMenu(newInstanceId);
+        }
+      },
+      {
+        id: 'copy', label: 'Copy', icon: ClipboardCopy, action: (instanceId) => {
+          // Copy this node (and any edges among the selection) to the clipboard,
+          // same path as Ctrl/Cmd+C so it can be pasted anywhere.
+          const currentGraph = graphsMap.get(activeGraphId);
+          if (!currentGraph || !instanceId) return;
+          const copied = copySelection(new Set([instanceId]), currentGraph, nodePrototypesMap, edgesMap);
+          if (copied) clipboardRef.current = copied;
+        }
+      },
+      {
+        id: 'swap', label: 'Swap', icon: SendToBack, action: (instanceId) => {
+          // Open the unified selector: pick an existing Thing or make a new one to
+          // re-point this instance at, keeping all connections (see performInstanceSwap).
+          const instance = nodes.find(n => n.id === instanceId);
+          setSwapPrompt({ visible: true, instanceId, name: '', color: instance?.color ?? null });
+        }
+      },
+      {
+        id: 'add-image', label: 'Add Image', icon: ImagePlus, action: (instanceId) => {
+          // Mirrors the panel's Add Image: pick a file, store it (full + thumbnail)
+          // on the node's prototype as data URLs. User uploads persist in-file.
+          const instance = nodes.find(n => n.id === instanceId);
+          const prototypeId = instance?.prototypeId;
+          if (!prototypeId) return;
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = 'image/*';
+          // Mobile Safari (and some mobile browsers) only open the file
+          // picker when the input is in the DOM. Attach it off-screen and
+          // remove it once a file is chosen or the picker is dismissed.
+          input.style.position = 'fixed';
+          input.style.left = '-9999px';
+          input.style.opacity = '0';
+          document.body.appendChild(input);
+          const cleanup = () => { try { input.remove(); } catch { } };
+          input.onchange = async (e) => {
+            const file = e.target.files?.[0];
+            cleanup();
+            if (!file) return;
+            const cache = useImageCache.getState();
+            cache.startImageLoading(prototypeId); // shimmer placeholder while decoding
+            try {
+              // HEIC-aware read (tablet/phone cameras default to HEIC, which
+              // browsers can't decode natively) — see loadImageFileAsDataUrl.
+              const { dataUrl, width, height } = await loadImageFileAsDataUrl(file);
+              const aspectRatio = (width > 0 && height > 0) ? (height / width) : 1;
+              const thumbSrc = await generateThumbnail(dataUrl, THUMBNAIL_MAX_DIMENSION);
+              storeActions.updateNodePrototype(prototypeId, draft => {
+                Object.assign(draft, { imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
+                // User image replaces any auto-enriched Wikipedia thumbnail — clear
+                // the flag so the save system persists it in-file.
+                if (draft.semanticMetadata?.autoEnriched) {
+                  draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
+                }
+                // Not recorded — a base64 data URL in both patch and inverse.
+              }, { type: 'prototype_image' });
+            } catch (error) {
+              console.error('[PieMenu] Add Image failed:', error);
+              alert(error?.message || 'Could not add this image.');
+            } finally {
+              cache.stopImageLoading(prototypeId);
+            }
+          };
+          // Cancelled picker fires no onchange; clean up on next focus.
+          window.addEventListener('focus', () => setTimeout(cleanup, 300), { once: true });
+          input.click();
+        }
+      },
+      {
+        id: 'semantic-search', label: 'Semantic Search', icon: TextSearch, action: (instanceId) => {
+          // Mirrors the right panel's Text Search: open Semantic Discovery for this
+          // node's name (and trigger the search directly if the view is already up).
+          const instance = nodes.find(n => n.id === instanceId);
+          const query = instance?.name || '';
+          if (!query.trim()) return;
+          try {
+            window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query } }));
+            if (typeof window.triggerSemanticSearch === 'function') {
+              window.triggerSemanticSearch(query);
+            }
+          } catch { }
+        }
+      },
+      {
+        id: 'ask-wizard', label: 'Ask The Wizard', icon: Sparkles, action: (instanceId) => {
+          const instance = nodes.find(n => n.id === instanceId);
+          if (!instance) return;
+          // Route through the same pref-aware "Ask The Wizard" flow used elsewhere.
+          window.dispatchEvent(new CustomEvent('rs-ask-wizard-define-node', {
+            detail: { prototypeId: instance.prototypeId }
+          }));
+        }
+      },
+      {
+        id: 'orbit', label: 'Semantic Orbit', icon: Orbit, action: (instanceId) => {
+          setSemanticOrbitActive(true);
+          // Deliberately NOT clearing selectedNodeIdForPieMenu: the menu is
+          // hidden for the duration by the semanticOrbitActive check on its
+          // isVisible prop instead. Clearing the target would unmount the
+          // menu and trip the "reset to page 0 when the target changes"
+          // effect, so leaving orbit would bring it back on the wrong page —
+          // not the one the Orbit button itself lives on.
+          setNodeControlPanelVisible(false);
+        }
+      },
+      {
+        id: 'open-in-panel', label: 'Open in Panel', icon: NotebookText, action: (instanceId) => {
+          const instance = nodes.find(n => n.id === instanceId);
+          if (!instance) return;
+          storeActions.openRightPanelNodeTab(instance.prototypeId, instance.name);
+          if (!rightPanelExpanded) storeActions.setRightPanelExpanded(true);
+        }
+      }
+    ];
+
+    return [primaryPage, secondaryPage];
+  }, [singleSelectedInstanceId, storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, graphsMap, edgesMap, nodePrototypesMap, clipboardRef, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, CopyPlus, Sparkles, Scaling, TextSearch, ImagePlus, SendToBack, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+
   // Pie Menu Button Configuration - now targetPieMenuButtons and dynamic
   const targetPieMenuButtons = useMemo(() => {
     const selectedNode = selectedNodeIdForPieMenu ? nodes.find(n => n.id === selectedNodeIdForPieMenu) : null;
@@ -8004,324 +8366,12 @@ function NodeCanvas() {
         return []; // Return empty array to hide all buttons during carousel exit
       }
 
-      // Page 2 of the default node menu: secondary options reached via the ▶ chevron.
-      // Change Size cycles the per-instance size (stored in instance.scale) through the
-      // discrete steps M → L → XL → XS → S → M, layering on top of the global node-size scope.
-      if (pieMenuPage === 1) {
-        return [
-          {
-            id: 'duplicate', label: 'Duplicate', icon: CopyPlus, action: (instanceId) => {
-              const instance = nodes.find(n => n.id === instanceId);
-              if (!instance || !activeGraphId) return;
-              // Drop the copy slightly down-right of the original so it's visibly distinct.
-              const offset = 40;
-              const newInstanceId = uuidv4();
-              storeActions.addNodeInstance(
-                activeGraphId,
-                instance.prototypeId,
-                { x: instance.x + offset, y: instance.y + offset },
-                newInstanceId
-              );
-              // Move selection (and the pie menu) to the new copy.
-              setSelectedInstanceIds(new Set([newInstanceId]));
-              setSelectedNodeIdForPieMenu(newInstanceId);
-            }
-          },
-          {
-            id: 'copy', label: 'Copy', icon: ClipboardCopy, action: (instanceId) => {
-              // Copy this node (and any edges among the selection) to the clipboard,
-              // same path as Ctrl/Cmd+C so it can be pasted anywhere.
-              const currentGraph = graphsMap.get(activeGraphId);
-              if (!currentGraph || !instanceId) return;
-              const copied = copySelection(new Set([instanceId]), currentGraph, nodePrototypesMap, edgesMap);
-              if (copied) clipboardRef.current = copied;
-            }
-          },
-          {
-            id: 'swap', label: 'Swap', icon: SendToBack, action: (instanceId) => {
-              // Open the unified selector: pick an existing Thing or make a new one to
-              // re-point this instance at, keeping all connections (see performInstanceSwap).
-              const instance = nodes.find(n => n.id === instanceId);
-              setSwapPrompt({ visible: true, instanceId, name: '', color: instance?.color ?? null });
-            }
-          },
-          {
-            id: 'add-image', label: 'Add Image', icon: ImagePlus, action: (instanceId) => {
-              // Mirrors the panel's Add Image: pick a file, store it (full + thumbnail)
-              // on the node's prototype as data URLs. User uploads persist in-file.
-              const instance = nodes.find(n => n.id === instanceId);
-              const prototypeId = instance?.prototypeId;
-              if (!prototypeId) return;
-              const input = document.createElement('input');
-              input.type = 'file';
-              input.accept = 'image/*';
-              // Mobile Safari (and some mobile browsers) only open the file
-              // picker when the input is in the DOM. Attach it off-screen and
-              // remove it once a file is chosen or the picker is dismissed.
-              input.style.position = 'fixed';
-              input.style.left = '-9999px';
-              input.style.opacity = '0';
-              document.body.appendChild(input);
-              const cleanup = () => { try { input.remove(); } catch { } };
-              input.onchange = async (e) => {
-                const file = e.target.files?.[0];
-                cleanup();
-                if (!file) return;
-                const cache = useImageCache.getState();
-                cache.startImageLoading(prototypeId); // shimmer placeholder while decoding
-                try {
-                  // HEIC-aware read (tablet/phone cameras default to HEIC, which
-                  // browsers can't decode natively) — see loadImageFileAsDataUrl.
-                  const { dataUrl, width, height } = await loadImageFileAsDataUrl(file);
-                  const aspectRatio = (width > 0 && height > 0) ? (height / width) : 1;
-                  const thumbSrc = await generateThumbnail(dataUrl, THUMBNAIL_MAX_DIMENSION);
-                  storeActions.updateNodePrototype(prototypeId, draft => {
-                    Object.assign(draft, { imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
-                    // User image replaces any auto-enriched Wikipedia thumbnail — clear
-                    // the flag so the save system persists it in-file.
-                    if (draft.semanticMetadata?.autoEnriched) {
-                      draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
-                    }
-                    // Not recorded — a base64 data URL in both patch and inverse.
-                  }, { type: 'prototype_image' });
-                } catch (error) {
-                  console.error('[PieMenu] Add Image failed:', error);
-                  alert(error?.message || 'Could not add this image.');
-                } finally {
-                  cache.stopImageLoading(prototypeId);
-                }
-              };
-              // Cancelled picker fires no onchange; clean up on next focus.
-              window.addEventListener('focus', () => setTimeout(cleanup, 300), { once: true });
-              input.click();
-            }
-          },
-          {
-            id: 'semantic-search', label: 'Semantic Search', icon: TextSearch, action: (instanceId) => {
-              // Mirrors the right panel's Text Search: open Semantic Discovery for this
-              // node's name (and trigger the search directly if the view is already up).
-              const instance = nodes.find(n => n.id === instanceId);
-              const query = instance?.name || '';
-              if (!query.trim()) return;
-              try {
-                window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query } }));
-                if (typeof window.triggerSemanticSearch === 'function') {
-                  window.triggerSemanticSearch(query);
-                }
-              } catch { }
-            }
-          },
-          {
-            id: 'ask-wizard', label: 'Ask The Wizard', icon: Sparkles, action: (instanceId) => {
-              const instance = nodes.find(n => n.id === instanceId);
-              if (!instance) return;
-              // Route through the same pref-aware "Ask The Wizard" flow used elsewhere.
-              window.dispatchEvent(new CustomEvent('rs-ask-wizard-define-node', {
-                detail: { prototypeId: instance.prototypeId }
-              }));
-            }
-          },
-          {
-            id: 'orbit', label: 'Semantic Orbit', icon: Orbit, action: (instanceId) => {
-              setSemanticOrbitActive(true);
-              // Deliberately NOT clearing selectedNodeIdForPieMenu: the menu is
-              // hidden for the duration by the semanticOrbitActive check on its
-              // isVisible prop instead. Clearing the target would unmount the
-              // menu and trip the "reset to page 0 when the target changes"
-              // effect, so leaving orbit would bring it back on the wrong page —
-              // not the one the Orbit button itself lives on.
-              setNodeControlPanelVisible(false);
-            }
-          },
-          {
-            id: 'open-in-panel', label: 'Open in Panel', icon: NotebookText, action: (instanceId) => {
-              const instance = nodes.find(n => n.id === instanceId);
-              if (!instance) return;
-              storeActions.openRightPanelNodeTab(instance.prototypeId, instance.name);
-              if (!rightPanelExpanded) storeActions.setRightPanelExpanded(true);
-            }
-          }
-        ];
-      }
-
-      return [
-        {
-          id: 'expand-tab',
-          label: 'Expand',
-          icon: ArrowUpFromDot,
-          action: (instanceId) => {
-            const nodeData = nodes.find(n => n.id === instanceId);
-            if (nodeData) {
-              const prototypeId = nodeData.prototypeId;
-              const currentState = useGraphStore.getState();
-              const prototypeData = currentState.nodePrototypes.get(prototypeId);
-
-              if (prototypeData?.definitionGraphIds && prototypeData.definitionGraphIds.length > 0) {
-                // Node has definitions - start hurtle animation to first one
-                const graphIdToOpen = prototypeData.definitionGraphIds[0];
-                startHurtleAnimation(instanceId, graphIdToOpen, prototypeId);
-              } else {
-                // No definitions recorded. Self-heal: find any existing graph that defines this prototype
-                const sourceGraphId = activeGraphId;
-                let orphanGraphId = null;
-                try {
-                  for (const [gId, g] of currentState.graphs.entries()) {
-                    if (Array.isArray(g.definingNodeIds) && g.definingNodeIds.includes(prototypeId)) {
-                      orphanGraphId = gId;
-                      break;
-                    }
-                  }
-                } catch (_) { }
-
-                if (orphanGraphId) {
-                  console.log('[Expand] Found orphan definition graph. Repairing and opening.', {
-                    prototypeId,
-                    orphanGraphId
-                  });
-                  // Self-heal: add to prototype.definitionGraphIds
-                  storeActions.updateNodePrototype(prototypeId, draft => {
-                    draft.definitionGraphIds = Array.isArray(draft.definitionGraphIds) ? draft.definitionGraphIds : [];
-                    if (!draft.definitionGraphIds.includes(orphanGraphId)) {
-                      draft.definitionGraphIds.push(orphanGraphId);
-                    }
-                  });
-                  startHurtleAnimation(instanceId, orphanGraphId, prototypeId, sourceGraphId);
-                } else {
-                  // No existing definition anywhere - create one
-                  storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-
-                  setTimeout(() => {
-                    const updatedState = useGraphStore.getState();
-                    const updatedNodeData = updatedState.nodePrototypes.get(prototypeId);
-                    if (updatedNodeData?.definitionGraphIds?.length > 0) {
-                      const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
-                      startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
-                    }
-                  }, 50);
-                }
-              }
-            }
-          }
-        },
-        {
-          id: 'decompose-preview',
-          label: 'Decompose',
-          icon: PackageOpen,
-          action: (instanceId) => {
-            // Prevent decompose action during carousel transitions (only for non-carousel mode)
-            if (!abstractionCarouselVisible && carouselAnimationState === 'exiting') {
-
-              return;
-            }
-
-
-            setPendingDecomposeNodeId(instanceId); // Store the instance ID for later
-            setIsTransitioningPieMenu(true); // Start transition, current menu will hide
-            // previewingNodeId (which is an instanceId) will be set in onExitAnimationComplete after animation
-          }
-        },
-        {
-          id: 'abstraction', label: 'Abstraction', icon: Layers, action: (instanceId) => {
-            // Prevent abstraction action during carousel transitions (only for non-carousel mode)
-            if (!abstractionCarouselVisible && carouselAnimationState === 'exiting') {
-
-              return;
-            }
-
-
-            setPendingAbstractionNodeId(instanceId); // Store the instance ID for later
-            setIsTransitioningPieMenu(true); // Start transition, current menu will hide
-            // Abstraction carousel will be set up in onExitAnimationComplete after animation
-          }
-        },
-        {
-          id: 'delete', label: 'Delete', icon: Trash2, action: (instanceId) => {
-            deleteNodeWithAnimation(instanceId);
-            setSelectedInstanceIds(new Set());
-            setSelectedNodeIdForPieMenu(null);
-          }
-        },
-        {
-          id: 'edit', label: 'Edit', icon: Edit3, action: (instanceId) => {
-            const instance = nodes.find(n => n.id === instanceId);
-            if (instance) {
-              // Open panel tab using the PROTOTYPE ID
-              storeActions.openRightPanelNodeTab(instance.prototypeId, instance.name);
-              // Ensure right panel is expanded
-              if (!rightPanelExpanded) {
-                storeActions.setRightPanelExpanded(true);
-              }
-              // Enable inline editing on canvas using the INSTANCE ID
-              setEditingNodeIdOnCanvas(instanceId);
-            }
-          }
-        },
-        {
-          id: 'save',
-          label: (() => {
-            const node = nodes.find(n => n.id === selectedNodeIdForPieMenu);
-            return node && savedNodeIds.has(node.prototypeId) ? 'Unsave' : 'Save';
-          })(),
-          icon: Bookmark,
-          fill: (() => {
-            const node = nodes.find(n => n.id === selectedNodeIdForPieMenu);
-            return node && savedNodeIds.has(node.prototypeId) ? 'maroon' : 'none';
-          })(),
-          action: (instanceId) => {
-            const node = nodes.find(n => n.id === instanceId);
-            if (node) {
-              storeActions.toggleSavedNode(node.prototypeId);
-            }
-          }
-        },
-        {
-          id: 'palette', label: 'Palette', icon: Palette, action: (instanceId, buttonPosition) => {
-            const node = nodes.find(n => n.id === instanceId);
-            if (node && buttonPosition) {
-              // Use the actual button position passed from PieMenu
-              handlePieMenuColorPickerOpen(instanceId, buttonPosition);
-            }
-          }
-        },
-        {
-          // Cycle this instance's per-instance size, stored in instance.sizeMul (a
-          // continuous float persisted in the .redstring file). NOT instance.scale —
-          // that field is the transient drag-lift transform register (1 at rest), so
-          // reusing it would make nodes re-wrap text on grab and lose their size on
-          // drop. nextNodeSizeStep snaps the current value to the nearest named step
-          // and advances (M → L → XL → XS → S → M). getNodeDimensions + Node.jsx fold
-          // sizeMul into an effective node scale, so both the box and its label grow
-          // together, on top of the global node-size scope.
-          id: 'change-size',
-          label: (() => {
-            const inst = nodes.find(n => n.id === selectedNodeIdForPieMenu);
-            return `Size: ${nodeSizeLabel(inst?.sizeMul ?? 1.0)}`;
-          })(),
-          icon: Scaling,
-          action: (instanceId) => {
-            const instance = nodes.find(n => n.id === instanceId);
-            if (!instance || !activeGraphId) return;
-            const next = nextNodeSizeStep(instance.sizeMul ?? 1.0);
-            storeActions.updateNodeInstance(
-              activeGraphId,
-              instanceId,
-              (inst) => { inst.sizeMul = next; },
-              { type: 'node_resize', finalize: true }
-            );
-            // The hover chip snapshots its label when the pointer enters the
-            // button, so it would otherwise keep showing the pre-click size.
-            // Refresh it in place (same id → same chip, instant text swap) so it
-            // tracks the new size while the pointer stays on the button.
-            if (activePieMenuItemRef.current?.id === 'change-size') {
-              const refreshedItem = { id: 'change-size', label: `Size: ${nodeSizeLabel(next)}` };
-              setActivePieMenuItemForVision(refreshedItem);
-              activePieMenuItemRef.current = refreshedItem;
-            }
-          }
-        }
-      ];
+      // Hand off to the shared page list. Clamp instead of trusting pieMenuPage:
+      // it is parent state that outlives any single menu, so it can still name a
+      // page that no longer exists.
+      return nodePieMenuPages[pieMenuPage] ?? nodePieMenuPages[0] ?? [];
     }
-  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage, graphsMap, edgesMap, nodePrototypesMap, clipboardRef, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, CopyPlus, Sparkles, Scaling, TextSearch, ImagePlus, SendToBack, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+  }, [nodePieMenuPages, storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage, graphsMap, edgesMap, nodePrototypesMap, clipboardRef, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, CopyPlus, Sparkles, Scaling, TextSearch, ImagePlus, SendToBack, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
 
   // Data for the decomposition CONTROL PANEL (mirrors the decomposition pie-menu state).
   // Non-null whenever a node is being previewed/decomposed; supplies the current definition
@@ -16573,7 +16623,10 @@ function NodeCanvas() {
                             nodeDimensions={currentPieMenuData.nodeDimensions}
                             nodeScale={textSettings?.nodeScale ?? 1.0}
                             focusedNode={carouselFocusedNode}
-                            pageCount={(!abstractionCarouselVisible && !(previewingNodeId && previewingNodeId === selectedNodeIdForPieMenu)) ? 2 : 1}
+                            pageCount={/* Counted off nodePieMenuPages rather than written down here, so
+                                          adding a page to that list grows the chevrons' range on its own.
+                                          Carousel and decomposition build their own single-page sets. */
+                              (!abstractionCarouselVisible && !(previewingNodeId && previewingNodeId === selectedNodeIdForPieMenu)) ? nodePieMenuPages.length : 1}
                             currentPage={pieMenuPage}
                             onPageChange={setPieMenuPage}
                             isVisible={(
@@ -17583,6 +17636,10 @@ function NodeCanvas() {
             onPalette={handleNodePanelPalette}
             onOrbit={handleNodePanelOrbit}
             onGroup={handleNodePanelGroup}
+            pieMenuPages={/* Decomposition builds its own single-page button set, so it
+                              opts out and keeps the hand-written decompose buttons. */
+              decomposePanelInfo ? null : nodePieMenuPages}
+            pieMenuTargetInstanceId={decomposePanelInfo ? null : singleSelectedInstanceId}
             onLeftNav={decomposePanelInfo ? () => { if (decomposePanelInfo.hasPrev) decomposePanelInfo.setIndex(decomposePanelInfo.index - 1); } : undefined}
             onRightNav={decomposePanelInfo ? () => { if (decomposePanelInfo.hasNext) decomposePanelInfo.setIndex(decomposePanelInfo.index + 1); } : undefined}
             hasLeftNav={decomposePanelInfo ? decomposePanelInfo.hasPrev : false}
