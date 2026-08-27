@@ -7,6 +7,7 @@ import InnerNetwork from './InnerNetwork.jsx'; // Pure SVG — used for the main
 import { getNodeDimensions } from './utils.js'; // Import needed for node dims
 import { buildNodeFontString, wrapTextToLines, measureTextWidth } from './services/textMeasurement.js';
 import { getTextColor } from './utils/colorUtils.js';
+import { getNodeLabelStyle } from './utils/nodeLabelStyle.js';
 import { isValidColor } from './ai/palettes.js';
 import { ChevronLeft, ChevronRight, Trash2, Expand, ArrowUpFromDot, PackageOpen } from 'lucide-react'; // Import navigation icons, trash, expand, and package-open
 import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./store/graphStore.js"; // Import store selectors
@@ -249,33 +250,26 @@ const Node = ({
     // the `node` reference doesn't change when a slider moves — so without these deps
     // the memo returns stale wrapping widths until the node is dragged (new ref).
   }, [node, node.sizeMul, textSettings.nodeScale, textSettings.fontSize, textSettings.lineSpacing]);
-  // Carve out the node's horizontal padding on both sides so the pinned text width
-  // exactly matches the wrapping target getNodeDimensions used (currentWidth - 2 * sP).
-  // Must use the SCALED padding — a fixed carve-out (was 60px) doesn't shrink with the
-  // node, so at small nodeScale it left almost no room and forced premature wrapping.
-  const previewTextMaxWidth = unexpandedDims
-    ? unexpandedDims.currentWidth - 2 * (unexpandedDims.scaledPadding ?? effPadding)
-    : undefined;
-
-  // Label typography — the single source of truth for BOTH the static <span> and the
-  // inline canvas editor. Keeping them on one object is what stops the title from
-  // visibly changing size/color/wrapping the moment you enter edit mode; anything
-  // hard-coded in Node.css for the editor would silently desync from node sizing.
-  const labelFontSize = 45 * textSettings.fontSize * effNodeScale;
-  const labelLineHeight = 39 * textSettings.fontSize * textSettings.lineSpacing * effNodeScale;
-  const labelTypography = {
-    fontFamily: "'EmOne', sans-serif",
-    fontSize: `${labelFontSize}px`,
-    fontWeight: 'bold',
+  // Label typography + container padding — shared with every other surface that
+  // draws a node (see utils/nodeLabelStyle.js). `typography` is the single source of
+  // truth for BOTH the static <span> and the inline canvas editor: keeping them on one
+  // object is what stops the title from visibly changing size/color/wrapping the moment
+  // you enter edit mode; anything hard-coded in Node.css for the editor would silently
+  // desync from node sizing.
+  const {
+    fontSize: labelFontSize,
+    lineHeight: labelLineHeight,
+    wrapMaxWidth: previewTextMaxWidth,
+    containerPadding: labelContainerPadding,
+    typography: labelTypography,
+  } = getNodeLabelStyle({
+    textSettings,
+    effNodeScale,
     color: nodeTextColor,
-    lineHeight: `${labelLineHeight}px`,
-    textAlign: 'center',
-    width: '100%',
-    minWidth: 0,
-    maxWidth: previewTextMaxWidth ? `${previewTextMaxWidth}px` : '100%',
-    overflowWrap: 'break-word',
-    wordBreak: 'break-word',
-  };
+    unexpandedDims,
+    scaledPadding: effPadding,
+    hasThumbnail: Boolean(nodeThumbnailSrc),
+  });
 
   // Auto-grow the editing field to its wrapped content height. A fixed-height
   // textarea would clip or scroll a two-line title that the static label shows in full.
@@ -521,12 +515,7 @@ const Node = ({
             justifyContent: 'center',
             width: '100%',
             height: '100%',
-            padding: (() => {
-              if (nodeThumbnailSrc) {
-                return `${31 * effNodeScale}px ${effPadding}px ${25 * effNodeScale}px`;
-              }
-              return `${34 * effNodeScale}px ${effPadding}px`;
-            })(),
+            padding: labelContainerPadding,
             boxSizing: 'border-box',
             pointerEvents: isEditingOnCanvas ? 'auto' : 'none',
             // Nodes suppress selection everywhere (see .node in Node.css) — but the

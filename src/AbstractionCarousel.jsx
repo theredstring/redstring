@@ -9,6 +9,7 @@ import {
   generateProgressiveColor,
   getTextColor
 } from './utils/colorUtils.js';
+import { getNodeLabelStyle } from './utils/nodeLabelStyle.js';
 import { getFixedOverlayOrigin } from './utils/appViewport.js';
 import useGraphStore from './store/graphStore.js';
 import useImageCache from './services/imageCache.js';
@@ -360,7 +361,12 @@ const AbstractionCarousel = ({
     const finalChain = chain.map(item => {
       const nodeForDimensions = item.type === 'current' ? selectedNode : item;
       const baseDimensions = getNodeDimensions(nodeForDimensions, false, null);
-      return { ...item, baseDimensions };
+      // Per-instance size multiplier, captured here because only `nodeForDimensions`
+      // carries it — chain members come from nodePrototypesMap, which has no instance
+      // data, while the current node is the hydrated instance. getNodeDimensions folds
+      // this into the box, so the label has to fold it into the font by the same factor.
+      const labelSizeMul = nodeForDimensions?.sizeMul ?? 1.0;
+      return { ...item, baseDimensions, labelSizeMul };
     });
 
     console.log('[AbstractionCarousel] Final chain with dimensions:', {
@@ -1436,6 +1442,21 @@ const AbstractionCarousel = ({
               // Scaled padding used to center the image (matches getNodeDimensions' imageWidth calc)
               const unscaledImagePadding = item.baseDimensions.scaledPadding ?? NODE_PADDING * 1.4 * nodeScaleGlobal;
 
+              // Label box, from the SAME helper Node.jsx renders with — the carousel is
+              // meant to be the canvas node, so its title has to wrap identically.
+              // effNodeScale must include the instance's sizeMul: item.baseDimensions was
+              // measured by getNodeDimensions, which folds sizeMul in. Scaling only by the
+              // global nodeScale (as this did) gave a shrunk instance a small box with a
+              // full-size font, wrapping a name the canvas kept on one line.
+              const labelStyle = getNodeLabelStyle({
+                textSettings,
+                effNodeScale: nodeScaleGlobal * (item.labelSizeMul ?? 1.0),
+                color: item.textColor || getTextColor(item.color || NODE_DEFAULT_COLOR),
+                unexpandedDims: item.baseDimensions,
+                scaledPadding: unscaledImagePadding,
+                hasThumbnail,
+              });
+
               // Unscaled border and corner radius
               const borderWidth = isMainNode ? 12 : 0; // Match NodeCanvas: 12 for centered, 0 for others
               const cornerRadius = item.baseDimensions.scaledCornerRadius ?? NODE_CORNER_RADIUS * 1.4 * nodeScaleGlobal;
@@ -1541,9 +1562,7 @@ const AbstractionCarousel = ({
                           justifyContent: 'center',
                           width: '100%',
                           height: '100%',
-                          // Match Node.jsx single-line padding for non-preview nodes
-                          // Node.jsx uses `20px ${isMultiline ? 30 : 22}px` when not previewing
-                          padding: `${28 * nodeScaleGlobal}px ${42 * nodeScaleGlobal}px`,
+                          padding: labelStyle.containerPadding,
                           boxSizing: 'border-box',
                           userSelect: 'none',
                           minWidth: 0
@@ -1551,17 +1570,8 @@ const AbstractionCarousel = ({
                       >
                         <span
                           style={{
-                            fontSize: `${45 * textSettings.fontSize * nodeScaleGlobal}px`,
-                            fontWeight: 'bold',
-                            fontFamily: "'EmOne', sans-serif",
-                            color: item.textColor || getTextColor(nodeColor),
-                            lineHeight: `${39 * textSettings.lineSpacing * nodeScaleGlobal}px`,
+                            ...labelStyle.typography,
                             whiteSpace: 'normal',
-                            overflowWrap: 'break-word',
-                            wordBreak: 'break-word',
-                            textAlign: 'center',
-                            minWidth: 0,
-                            width: '100%',
                             display: 'inline-block',
                             hyphens: 'auto'
                           }}

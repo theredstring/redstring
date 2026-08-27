@@ -1,9 +1,8 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Globe, Link, Book, Search, ExternalLink, Plus, X, Check, Tags, FileText, Eye, Settings, CheckCircle, RotateCcw, Zap, Loader2, AlertCircle, CheckSquare, ArrowUpFromDot } from 'lucide-react';
+import { Globe, Link, Book, Search, ExternalLink, Plus, X, Check, Tags, FileText, Eye, Settings, CheckCircle, RotateCcw, Zap, Loader2, AlertCircle, CheckSquare, CircleArrowUp } from 'lucide-react';
 import { PANEL_CLOSE_ICON_SIZE } from '../constants';
 import Dropdown from './Dropdown.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
-import StandardDivider from './StandardDivider.jsx';
 import { rdfResolver } from '../services/rdfResolver.js';
 import { enrichFromSemanticWeb, fastEnrichFromSemanticWeb } from '../services/semanticWebQuery.js';
 import { knowledgeFederation } from '../services/knowledgeFederation.js';
@@ -382,25 +381,40 @@ const ExternalLinkCard = ({ link, onRemove, provenance = null }) => {
 };
 
 /**
- * A sub-section of the Semantic Web panel.
+ * A sub-section of the Semantic Web panel: a card that groups one kind of
+ * statement about the node.
  *
- * This used to be a bordered card with a maroon rule down its left edge — a
- * container style that existed nowhere else in Redstring, so three of them
- * stacked read as a foreign widget dropped into the panel. The panel's own way
- * of separating sections is a heading and a StandardDivider, which is what this
- * uses now. Losing the card also loses its `overflow: hidden`, which was
- * clipping the classification dropdown's menu at the card's bottom edge.
+ * The card is what separates these from each other — no dividers between them.
+ * StandardDivider is the panel's rule for splitting top-level sections and is
+ * drawn in full text colour; using it here put a heavy black line between
+ * things that sit *inside* one section, flattening the hierarchy it was meant
+ * to express.
+ *
+ * Two things the earlier card got wrong and this doesn't: the 3px maroon rule
+ * down the left edge, a container style used nowhere else in Redstring; and
+ * `overflow: hidden`, which clipped the classification dropdown's menu at the
+ * card's bottom edge. The title is also a step smaller than the enclosing
+ * "Semantic Web" heading, so the nesting is legible.
  */
 const Section = ({ title, icon: Icon, rightEl = null, children, style = {} }) => {
   const tokens = useSemanticTokens();
   return (
-    <div style={{ marginBottom: '4px', ...style }}>
+    <div
+      style={{
+        border: `1px solid ${tokens.hairline}`,
+        background: tokens.surface,
+        borderRadius: '8px',
+        padding: '12px',
+        marginBottom: '10px',
+        ...style
+      }}
+    >
       {(title || rightEl) && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           {title ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: tokens.text }}>
-              {Icon && <Icon size={16} />}
-              <div style={{ fontFamily: FONT, fontSize: '1rem', fontWeight: 'bold' }}>{title}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: tokens.text }}>
+              {Icon && <Icon size={15} />}
+              <div style={{ fontFamily: FONT, fontSize: '0.9rem', fontWeight: 'bold' }}>{title}</div>
             </div>
           ) : <span />}
           {rightEl}
@@ -919,8 +933,10 @@ const SemanticClassificationSection = ({ nodeData, onUpdate, onTypeSelect }) => 
                 </div>
                 <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
                   {!isPrimary && (
+                    // Not ArrowUpFromDot — that glyph means "generalise"
+                    // everywhere else in the app.
                     <PanelIconButton
-                      icon={ArrowUpFromDot}
+                      icon={CircleArrowUp}
                       size={14}
                       onClick={() => promoteClassToType(uri)}
                       title="Make this the primary type"
@@ -1524,16 +1540,12 @@ const SemanticEditor = ({ nodeData, onUpdate, onTypeSelect, isUltraSlim = false 
         onUpdate={onUpdate}
       />
 
-      <StandardDivider margin="16px 0" />
-
       {/* Classification inside Semantic Profile */}
       <SemanticClassificationSection
         nodeData={nodeData}
         onUpdate={onUpdate}
         onTypeSelect={onTypeSelect}
       />
-
-      <StandardDivider margin="16px 0" />
 
       {/* External Links Section (Rosetta Stone) */}
       <Section
