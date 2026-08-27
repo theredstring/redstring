@@ -273,38 +273,30 @@ describe('OrbitOverlay', () => {
     expect(run).toBeGreaterThan(estimateEdgeLabelWidth(long, EDGE_LABEL_BASE_FONT_SIZE));
   });
 
-  it('reports the circle it occupies so the canvas can frame it', () => {
-    const onExtentChange = vi.fn();
-    const { container, unmount } = renderOverlay({
-      onExtentChange,
-      ring1Candidates: [candidate('a', 'instanceOf'), candidate('b', 'partOf')],
-      ring2Candidates: [candidate('c', 'hasPart')],
-    });
+  it('reports a clicked item at where it is drawn, as a centre', () => {
+    // The orbit rotates for as long as it is open, so an item's resting
+    // placement drifts arbitrarily far from where the pointer actually is.
+    const onOrbitItemClick = vi.fn();
+    const { container } = renderOverlay({ onOrbitItemClick });
+    flushFrames(40);       // entrances finish
+    flushFrames(20, 1000); // ...then ~20s of rotation
 
-    const extent = onExtentChange.mock.calls.at(-1)[0];
-    expect(extent).toMatchObject({ centerX: 0, centerY: 0 });
+    const item = container.querySelectorAll('.orbit-items > g')[0];
+    const box = itemBox(item); // rect + live drift = where it is on screen
+    const rect = item.querySelector('rect');
+    const restingCx = Number(rect.getAttribute('x')) + box.w / 2;
+    const restingCy = Number(rect.getAttribute('y')) + box.h / 2;
 
-    // Every item's farthest corner is inside the reported circle...
-    const farthest = Math.max(...Array.from(container.querySelectorAll('.orbit-items > g')).map((g) => {
-      const b = itemBox(g);
-      return Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sy]) =>
-        Math.hypot(b.cx + sx * b.w / 2, b.cy + sy * b.h / 2)));
-    }));
-    expect(extent.radius).toBeGreaterThanOrEqual(farthest);
-    // ...and not so far outside it that framing would leave the orbit tiny.
-    expect(extent.radius).toBeLessThan(farthest * 1.1);
+    fireEvent.click(item);
 
-    unmount();
-    // Cleared on the way out — otherwise the next orbit gets framed on this one.
-    expect(onExtentChange.mock.calls.at(-1)[0]).toBeNull();
-  });
+    expect(onOrbitItemClick).toHaveBeenCalledTimes(1);
+    const [, cx, cy, dims] = onOrbitItemClick.mock.calls[0];
+    expect(cx).toBeCloseTo(box.cx, 6);
+    expect(cy).toBeCloseTo(box.cy, 6);
+    expect(dims).toEqual({ currentWidth: box.w, currentHeight: box.h });
 
-  it('reports no extent until something is actually placed', () => {
-    // Candidates arrive asynchronously. Framing the bare focus node in the gap
-    // would zoom hard in and then straight back out as the first results land.
-    const onExtentChange = vi.fn();
-    renderOverlay({ onExtentChange, ring1Candidates: [] });
-    expect(onExtentChange.mock.calls.at(-1)[0]).toBeNull();
+    // The item really had moved — otherwise the assertion above proves nothing.
+    expect(Math.hypot(box.cx - restingCx, box.cy - restingCy)).toBeGreaterThan(100);
   });
 
   it('renders no connection for hidden predicates', () => {

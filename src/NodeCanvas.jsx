@@ -443,9 +443,15 @@ const ORBIT_SCRIM_COLOR = 'rgba(0, 0, 0, 0.8)';
 // full orbit, not just at rest.
 const ORBIT_SCRIM_BLUR_PX = 0;
 
-// Breathing room around the orbit when the canvas frames it, as a fraction of
-// the usable region on each side.
-const ORBIT_FIT_PADDING = 0.06;
+// The zoom the canvas settles at when orbit opens.
+//
+// A constant, deliberately. Framing the orbit's full extent put the camera out
+// near 0.15 — and because candidates keep arriving after it opens, it kept
+// pulling further out as the rings grew, so the view never stopped moving and
+// ended up too far out to read. This lands somewhere legible and stays there;
+// the outer rings are reached by panning and zooming, the normal way around a
+// canvas. `window.__orbitZoom = 0.4` overrides it live.
+const ORBIT_ENTRY_ZOOM = 0.3;
 
 /**
  * Root canvas component for Redstring's graph interface.
@@ -545,11 +551,9 @@ function NodeCanvas() {
   const [orbitLoading, setOrbitLoading] = useState(false);
   const [semanticOrbitActive, setSemanticOrbitActive] = useState(false);
   const semanticOrbitActiveRef = useRef(false);
-  // The circle the live orbit occupies, reported by OrbitOverlay: { centerX,
-  // centerY, radius }, or null when there is no orbit or nothing placed yet.
-  // Drives the framing effect further down.
-  const [orbitFrame, setOrbitFrame] = useState(null);
-  const orbitFitRef = useRef({ fitted: false, framedRadius: 0 });
+  // Tracks the false→true edge on semanticOrbitActive, so the framing effect
+  // further down runs when orbit opens and not on any later re-render.
+  const prevOrbitActiveRef = useRef(false);
   // Mirrors store inputMode so RAF callbacks and pointer handlers can read the
   // current modality without re-binding when it flips.
   const inputModeRef = useRef('mouse');
@@ -5899,56 +5903,44 @@ function NodeCanvas() {
     }
   }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, carouselFocusedNodeScale]);
 
-  // Frame the whole orbit when it opens.
+  // Centre the focus node and pull back to a fixed zoom when orbit opens.
   //
-  // Fits against viewportBounds — the usable canvas region, with the panels, the
-  // header and the type-list bar already subtracted — the same bounds the
-  // carousel framing and the edge glow use, so the orbit centres in what is
-  // actually visible rather than in the raw window.
+  // Once, on the way in — not as the orbit fills. The focus node is all this
+  // needs, and the canvas already knows which node that is, so the framing does
+  // not wait on candidates arriving; it lands the moment orbit opens.
   //
-  // Candidates arrive asynchronously and the orbit keeps growing after it opens,
-  // so this reframes as it grows. Two rules keep that from turning into a camera
-  // that will not sit still: nothing happens while the orbit still fits the
-  // frame, and animateCanvasView re-eases from wherever the last one got to, so
-  // consecutive reframes read as one continuous pull-back rather than a series
-  // of jumps. Once the results stop arriving, so does this.
+  // Centred against viewportBounds — the usable canvas region, with the panels,
+  // header and type-list bar already subtracted — the same bounds the carousel
+  // framing and the edge glow use, so the node sits in the middle of what is
+  // actually visible rather than the middle of the raw window.
   useEffect(() => {
-    if (!semanticOrbitActive) {
-      orbitFitRef.current = { fitted: false, framedRadius: 0 };
-      return;
-    }
-    if (!orbitFrame || !(orbitFrame.radius > 0)) return;
+    const was = prevOrbitActiveRef.current;
+    prevOrbitActiveRef.current = semanticOrbitActive;
+    if (was || !semanticOrbitActive) return;
+    if (selectedInstanceIds.size !== 1) return;
+
+    const focusId = [...selectedInstanceIds][0];
+    const node = nodeById.get(focusId);
+    if (!node) return;
+    const dims = baseDimsById.get(focusId) || getNodeDimensions(node, false, null);
+    const centerX = node.x + dims.currentWidth / 2;
+    const centerY = node.y + dims.currentHeight / 2;
+
+    const dialled = typeof window !== 'undefined' && window.__orbitZoom != null
+      ? Number(window.__orbitZoom)
+      : ORBIT_ENTRY_ZOOM;
+    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, dialled));
 
     const vb = viewportBounds;
-    const usable = Math.min(
-      vb.width * (1 - 2 * ORBIT_FIT_PADDING),
-      vb.height * (1 - 2 * ORBIT_FIT_PADDING)
-    );
-    const diameter = orbitFrame.radius * 2;
-    const state = orbitFitRef.current;
-
-    if (state.fitted) {
-      if (orbitFrame.radius <= state.framedRadius) return;   // nothing new to fit
-      // It grew — but if it still fits at the zoom we are actually at (the user
-      // may have adjusted it since), leave the view alone and just record it.
-      if (diameter * (zoomLevelRef.current || 1) <= usable) {
-        state.framedRadius = orbitFrame.radius;
-        return;
-      }
-    }
-
-    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, usable / diameter));
-    const targetPanX = (vb.x + vb.width / 2) - (orbitFrame.centerX - canvasSize.offsetX) * tz;
-    const targetPanY = (vb.y + vb.height / 2) - (orbitFrame.centerY - canvasSize.offsetY) * tz;
+    const targetPanX = (vb.x + vb.width / 2) - (centerX - canvasSize.offsetX) * tz;
+    const targetPanY = (vb.y + vb.height / 2) - (centerY - canvasSize.offsetY) * tz;
     const minPanX = viewportSize.width - canvasSize.width * tz;
     const minPanY = viewportSize.height - canvasSize.height * tz;
     animateCanvasView({
       x: Math.min(Math.max(targetPanX, minPanX), 0),
       y: Math.min(Math.max(targetPanY, minPanY), 0),
     }, tz);
-
-    orbitFitRef.current = { fitted: true, framedRadius: orbitFrame.radius };
-  }, [semanticOrbitActive, orbitFrame, viewportBounds, viewportSize, canvasSize, animateCanvasView, zoomLevelRef, MIN_ZOOM, MAX_ZOOM]);
+  }, [semanticOrbitActive, selectedInstanceIds, nodeById, baseDimsById, viewportBounds, viewportSize, canvasSize, animateCanvasView, MIN_ZOOM, MAX_ZOOM]);
 
   // Animation states for carousel
   const [carouselAnimationState, setCarouselAnimationState] = useState('hidden'); // 'hidden', 'entering', 'visible', 'exiting'
@@ -11773,7 +11765,16 @@ function NodeCanvas() {
   }, [selectedInstanceIds]);
 
   // Click-to-materialize: clicking an orbit item creates a real node at its position
-  const handleOrbitItemClick = useCallback((candidate, x, y, dims) => {
+  /**
+   * Place a clicked orbit item into the graph, where it was.
+   *
+   * `centerX` / `centerY` are the item's CENTRE in canvas coordinates, resolved
+   * live by OrbitOverlay. Node positions are top-left, so the centring happens
+   * here, once, against the dimensions the placed node will actually have —
+   * which are not necessarily the orbit item's, since the prototype may carry a
+   * type or definitions the orbit preview did not.
+   */
+  const handleOrbitItemClick = useCallback((candidate, centerX, centerY, dims) => {
     if (!activeGraphId || !candidate) return;
 
     // Convert candidate to concept data
@@ -11819,19 +11820,15 @@ function NodeCanvas() {
       storeActions.toggleSavedNode(prototypeId);
     }
 
-    // --- 2. Calculate position (x,y are already in SVG canvas coords) ---
+    // --- 2. Calculate position (centre → top-left) ---
     const prototype = nodePrototypesMap.get(prototypeId) || { id: prototypeId, name: conceptData.name, color: conceptData.color };
     const nodeDims = getNodeDimensions(prototype, false, null);
 
-    let position = {
-      x: x - (nodeDims.currentWidth / 2),
-      y: y - (nodeDims.currentHeight / 2)
-    };
-
-    if (gridMode !== 'off') {
-      const snapped = snapToGridAnimated(x, y, nodeDims.currentWidth, nodeDims.currentHeight, null);
-      position = { x: snapped.x, y: snapped.y };
-    }
+    // snapToGrid takes a CENTRE and returns a top-left, same as the branch
+    // below — so both paths are fed the centre, and neither offsets it twice.
+    const position = gridMode !== 'off'
+      ? snapToGridAnimated(centerX, centerY, nodeDims.currentWidth, nodeDims.currentHeight, null)
+      : { x: centerX - nodeDims.currentWidth / 2, y: centerY - nodeDims.currentHeight / 2 };
 
     // --- 3. Place instance ---
     storeActions.addNodeInstance(activeGraphId, prototypeId, position);
@@ -16709,7 +16706,6 @@ function NodeCanvas() {
                                     ring3Candidates={orbitData.ring3 || []}
                                     ring4Candidates={orbitData.ring4 || []}
                                     onOrbitItemClick={handleOrbitItemClick}
-                                    onExtentChange={setOrbitFrame}
                                     isLoading={orbitLoading}
                                   />
                                 )}

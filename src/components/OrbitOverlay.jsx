@@ -486,7 +486,10 @@ const DraggableOrbitItem = React.memo(function DraggableOrbitItem({
     if (touchRef.current.moved || isDragging) return;
     if (e.cancelable) e.preventDefault(); // suppress the synthetic click that follows
     e.stopPropagation();
-    onClick?.(candidate, x, y, { currentWidth, currentHeight });
+    // No coordinates: this component draws at its RESTING placement and the
+    // animation loop moves it from there, so it does not know where it ended
+    // up. The parent resolves the live position — see handleItemClick.
+    onClick?.(candidate, { currentWidth, currentHeight });
   };
 
   return (
@@ -500,7 +503,7 @@ const DraggableOrbitItem = React.memo(function DraggableOrbitItem({
         WebkitTapHighlightColor: 'transparent',
         touchAction: 'manipulation',
       }}
-      onClick={(e) => { e.stopPropagation(); onClick?.(candidate, x, y, { currentWidth, currentHeight }); }}
+      onClick={(e) => { e.stopPropagation(); onClick?.(candidate, { currentWidth, currentHeight }); }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -882,7 +885,6 @@ export default function OrbitOverlay({
   ring3Candidates,
   ring4Candidates,
   onOrbitItemClick,
-  onExtentChange,
   isLoading = false
 }) {
   // Store reads live in the parent only. Every child subscribing separately put
@@ -1056,40 +1058,6 @@ export default function OrbitOverlay({
     return m;
   }, [placements]);
 
-  /**
-   * The circle the orbit occupies, reported up so the canvas can frame it.
-   *
-   * Reported rather than recomputed there: ring radii come out of this
-   * component's layout, per-item label extensions included, and a second
-   * derivation of "where the orbit ends" would drift from this one.
-   *
-   * Null until something is actually placed. Candidates arrive asynchronously,
-   * and framing the bare focus node in the gap would zoom hard in and then back
-   * out as the first results land.
-   */
-  const extent = useMemo(() => {
-    if (placements.length === 0) return null;
-    let radius = Math.max(focusWidth, focusHeight) / 2;
-    for (const p of placements) {
-      // Circumscribed radius of the item's box — its corners reach further than
-      // its half-width, and at the outermost ring that is what has to fit.
-      radius = Math.max(radius, p.ringRadius + Math.hypot(p.dims.currentWidth, p.dims.currentHeight) / 2);
-    }
-    return radius;
-  }, [placements, focusWidth, focusHeight]);
-
-  // Held in a ref so the report below depends only on the geometry, not on
-  // whether the parent happened to hand us a new callback identity.
-  const onExtentChangeRef = useRef(onExtentChange);
-  onExtentChangeRef.current = onExtentChange;
-
-  useEffect(() => {
-    onExtentChangeRef.current?.(extent === null ? null : { centerX, centerY, radius: extent });
-  }, [centerX, centerY, extent]);
-
-  // Report the orbit gone on the way out, so a canvas that frames on this does
-  // not frame the departed orbit's extent when the next one opens.
-  useEffect(() => () => { onExtentChangeRef.current?.(null); }, []);
 
   // Everything the animation loop needs, refreshed each render so it always
   // animates against current geometry without being restarted.
@@ -1206,6 +1174,12 @@ export default function OrbitOverlay({
         const radius = p.ringRadius + p.radialAmp * Math.sin(2 * Math.PI * p.radialFreq * t + p.radialPhase);
         const cx = cx0 + radius * Math.cos(angle);
         const cy = cy0 + radius * Math.sin(angle);
+        // Where this item actually IS, kept for clicks. The drawn position is a
+        // drift transform away from the resting placement, and the rotation term
+        // in it grows for as long as orbit stays open, so the resting placement
+        // is not a usable answer to "where was the thing I just tapped".
+        els.cx = cx;
+        els.cy = cy;
 
         if (els.itemG) {
           const drift = `translate(${cx - p.baseCx}, ${cy - p.baseCy})`;
@@ -1331,6 +1305,32 @@ export default function OrbitOverlay({
     pausedRef.current = hoveredId !== null;
     if (!pausedRef.current) ensureRafRunning();
   }, [ensureRafRunning]);
+
+  /**
+   * Resolve a clicked item to where it is on screen, and hand that up as the
+   * item's CENTRE in canvas coordinates.
+   *
+   * The centre, explicitly, because the two ends of this used to disagree: the
+   * item reported its top-left corner and the canvas treated it as a centre and
+   * subtracted half a node again, so every placement landed half a node up and
+   * to the left of the thing that was clicked.
+   *
+   * Live position, not resting position, because the animation loop draws each
+   * item at a drift from its placement, and that drift includes a rotation that
+   * accumulates for as long as orbit is open — a minute in, the resting
+   * placement is a third of a turn away from what the pointer is over.
+   *
+   * Falls back to the resting placement for an item that has not been through
+   * the loop yet (it mounted this frame), which is exactly where it is drawn.
+   */
+  const handleItemClick = useCallback((candidate, dims) => {
+    const live = elsRef.current.get(candidate.id);
+    const resting = placementsById.get(candidate.id);
+    const cx = live?.cx ?? resting?.baseCx;
+    const cy = live?.cy ?? resting?.baseCy;
+    if (cx === undefined || cy === undefined) return;
+    onOrbitItemClick?.(candidate, cx, cy, dims);
+  }, [onOrbitItemClick, placementsById]);
 
   // Drop registry entries for candidates that are gone, so the loop isn't kept
   // alive by entries nothing renders any more.
@@ -1510,7 +1510,7 @@ export default function OrbitOverlay({
             dims={p.dims}
             darkMode={darkMode}
             onHoverChange={handleHoverChange}
-            onClick={onOrbitItemClick}
+            onClick={handleItemClick}
             registerItemEl={registerItemEl}
           />
         ))}
