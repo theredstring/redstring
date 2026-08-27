@@ -4,13 +4,13 @@
  * Demo script for RDF Resolution & SPARQL Integration
  * 
  * This script demonstrates the basic functionality of the new semantic web services.
- * Run with: node demo-rdf-resolution.js
+ * Run with: node scripts/demo-rdf-resolution.js
  */
 
-import { rdfResolver } from './src/services/rdfResolver.js';
-import { sparqlClient } from './src/services/sparqlClient.js';
-import { semanticEnrichment } from './src/services/semanticEnrichment.js';
-import { rdfValidation } from './src/services/rdfValidation.js';
+import { rdfResolver } from '../src/services/rdfResolver.js';
+import { sparqlClient } from '../src/services/sparqlClient.js';
+import { semanticEnrichment } from '../src/services/semanticEnrichment.js';
+import { rdfValidation } from '../src/services/rdfValidation.js';
 
 console.log('🚀 Redstring RDF Resolution & SPARQL Integration Demo\n');
 

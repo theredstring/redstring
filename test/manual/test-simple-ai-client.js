@@ -50,8 +50,8 @@ class SimpleAIClientTest {
     console.log('🔌 Starting MCP server...');
     
     return new Promise((resolve, reject) => {
-      this.mcpProcess = spawn('node', [join(__dirname, 'redstring-mcp-server.js')], {
-        cwd: __dirname,
+      this.mcpProcess = spawn('node', [join(__dirname, '../../redstring-mcp-server.js')], {
+        cwd: join(__dirname, '../..'),
         stdio: ['pipe', 'pipe', 'pipe']
       });
 

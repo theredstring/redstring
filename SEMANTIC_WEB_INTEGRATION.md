@@ -198,7 +198,7 @@ _:b1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#object> <node:prototype-b> .
 
 ### External Validation
 ```python
-# test_nquads.py - Python script for RDF analysis
+# test/manual/test_nquads.py - Python script for RDF analysis
 import rdflib
 g = rdflib.Graph()
 g.parse('cognitive-space.nq', format='nquads')
@@ -236,7 +236,7 @@ print(f"Found {len(statements)} RDF statements")
 ### Key Files
 - `src/formats/redstringFormat.js`: Dual-format export/import
 - `src/formats/rdfExport.js`: RDF serialization
-- `test_nquads.py`: External validation script
+- `test/manual/test_nquads.py`: External validation script
 
 ### Dependencies
 - `jsonld`: JSON-LD processing and RDF conversion
@@ -497,7 +497,7 @@ charlie.org/redstring/vocab/MarketForces
 
 ### ✅ Testing & Documentation
 
-- `test_dynamic_federation.py` - Comprehensive test suite
+- `test/manual/test_dynamic_federation.py` - Comprehensive test suite
 - `DYNAMIC_FEDERATION_GUIDE.md` - Complete user and technical guide
 
 ### ✅ Key Features
@@ -698,7 +698,7 @@ alice:ClimatePolicy a alice:Concept ;
 
 ### ✅ Testing & Validation
 
-- **`test_git_native_protocol.py`** - Comprehensive test suite (62/62 tests passed)
+- **`test/manual/test_git_native_protocol.py`** - Comprehensive test suite (62/62 tests passed)
 - **`GIT_NATIVE_PROTOCOL.md`** - Complete protocol documentation
 - **Updated `src/Panel.jsx`** - Integration of Git-Native Federation component
 

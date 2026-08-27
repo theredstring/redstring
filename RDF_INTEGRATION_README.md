@@ -155,7 +155,7 @@ The system works without network connectivity:
 Run the comprehensive demo to test all features:
 
 ```bash
-node demo-rdf-resolution.js
+node scripts/demo-rdf-resolution.js
 ```
 
 ### Unit Tests
@@ -334,7 +334,7 @@ class RDFValidation {
 1. Install dependencies: `npm install`
 2. Run tests: `npm test`
 3. Start development server: `npm run dev`
-4. Run demo: `node demo-rdf-resolution.js`
+4. Run demo: `node scripts/demo-rdf-resolution.js`
 
 ### Code Style
 

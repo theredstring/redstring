@@ -155,7 +155,7 @@ curl -X POST http://localhost:3001/api/bridge/actions/open-graph-tab \
 ### Quick Health Check
 ```bash
 # Test script to verify everything is working
-node test-add-instance.js
+node test/manual/test-add-instance.js
 ```
 
 ### Full Workflow Test
@@ -252,7 +252,7 @@ Always verify that prototypes and graphs exist before trying to use them.
 ### 4. **Keep Services Running**
 Use the connection wizard to monitor service status:
 ```bash
-node ai-connection-wizard-simple.js
+node scripts/ai-connection-wizard-simple.js
 ```
 
 ## Getting Help

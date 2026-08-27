@@ -55,7 +55,7 @@ debug-*.js
 demo-*.js
 diagnose-*.js
 test-*.js
-setup-oauth.js
+scripts/setup-oauth.js
 setup-oauth.md
 
 # Data and logs

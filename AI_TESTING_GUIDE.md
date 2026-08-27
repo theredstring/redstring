@@ -86,7 +86,7 @@ This ensures prototypes exist and the correct graph is active before instances a
 ### 1. Start the AI Connection Wizard
 
 ```bash
-node ./ai-connection-wizard.js
+node ./scripts/ai-connection-wizard.js
 ```
 
 This will:

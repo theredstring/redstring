@@ -3,7 +3,7 @@
  * Tests the new direct semantic web query functionality
  */
 
-import { enrichFromSemanticWeb } from './src/services/semanticWebQuery.js';
+import { enrichFromSemanticWeb } from '../../src/services/semanticWebQuery.js';
 
 async function testSemanticWebIntegration() {
   console.log('🌐 Testing Semantic Web Integration...\n');

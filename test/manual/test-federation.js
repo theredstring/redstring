@@ -3,7 +3,7 @@
  * Tests mass import and federated search
  */
 
-import { knowledgeFederation } from './src/services/knowledgeFederation.js';
+import { knowledgeFederation } from '../../src/services/knowledgeFederation.js';
 
 async function testFederatedKnowledge() {
   console.log('🌐 Testing Federated Knowledge System...\n');

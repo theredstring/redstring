@@ -76,7 +76,7 @@ else
     # Create the template
     cat > github.env << 'EOF'
 # GitHub App Configuration
-# Edit this file with your GitHub App credentials, then run setup-github-app.sh
+# Edit this file with your GitHub App credentials, then run scripts/setup-github-app.sh
 
 # GitHub App Credentials
 GITHUB_APP_ID="123456"

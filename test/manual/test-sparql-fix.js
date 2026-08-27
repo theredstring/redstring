@@ -2,7 +2,7 @@
  * Quick test to verify SPARQL client fix
  */
 
-import { sparqlClient } from './src/services/sparqlClient.js';
+import { sparqlClient } from '../../src/services/sparqlClient.js';
 
 async function testSparqlFix() {
   console.log('🔧 Testing SPARQL Client Fix...\n');

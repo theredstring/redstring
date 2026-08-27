@@ -35,7 +35,7 @@ class AIConnectionWizard {
     this.config = {
       redstringPort: 4000,
       bridgePort: 3001,
-      mcpServerPath: join(__dirname, 'redstring-mcp-server.js'),
+      mcpServerPath: join(__dirname, '../redstring-mcp-server.js'),
       maxRetries: 5,
       retryDelay: 2000,
       startupTimeout: 10000
@@ -185,7 +185,7 @@ class AIConnectionWizard {
   async startMCPServer() {
     return new Promise((resolve, reject) => {
       const mcpProcess = spawn('node', [this.config.mcpServerPath], {
-        cwd: __dirname,
+        cwd: join(__dirname, '..'),
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, NODE_ENV: 'production' }
       });

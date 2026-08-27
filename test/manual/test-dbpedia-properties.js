@@ -1,4 +1,4 @@
-import { findRelatedThroughDBpediaProperties, queryDBpedia, discoverDBpediaProperties } from './src/services/semanticWebQuery.js';
+import { findRelatedThroughDBpediaProperties, queryDBpedia, discoverDBpediaProperties } from '../../src/services/semanticWebQuery.js';
 
 async function testDBpediaProperties() {
   console.log('🧪 Testing DBpedia Property-Based Search...\n');
