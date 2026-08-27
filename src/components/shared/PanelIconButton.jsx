@@ -2,6 +2,19 @@ import React, { useState, useRef } from 'react';
 import { useTheme } from '../../hooks/useTheme.js';
 
 /**
+ * The hover-grow this button borrows from the canvas pie menu.
+ *
+ * These two values are the whole of `.pie-bubble-hover` / `.pie-chevron-hover`
+ * in PieMenu.css. They are restated here rather than imported because the pie
+ * menu states them in CSS on SVG groups and this is an inline-styled DOM button
+ * — there is no shared sheet to reach for. If PieMenu.css ever retunes its
+ * hover, retune these to match; the point of the component is that a panel
+ * button and a pie bubble grow the same way under the cursor.
+ */
+const PIE_HOVER_SCALE = 1.1;
+const PIE_HOVER_TRANSITION = '0.15s ease';
+
+/**
  * PanelIconButton - Reusable icon button matching right panel style
  * with PieMenu-style hover effects
  *
@@ -114,7 +127,17 @@ const PanelIconButton = ({
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.5 : 1,
     flexShrink: 0,
-    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+    // Timing is lifted from .pie-bubble-hover in PieMenu.css rather than chosen
+    // here, so this button's grow reads as the same gesture as a pie bubble's.
+    // Listed per-property instead of `all` because `all` also animates the
+    // padding/border swap a variant change brings, which the bubbles never do.
+    transition: [
+      `transform ${PIE_HOVER_TRANSITION}`,
+      `background-color ${PIE_HOVER_TRANSITION}`,
+      `box-shadow ${PIE_HOVER_TRANSITION}`,
+      `border-color ${PIE_HOVER_TRANSITION}`,
+      `color ${PIE_HOVER_TRANSITION}`
+    ].join(', '),
     borderRadius: isPill ? '20px' : '50%',
     ...style
   };
@@ -127,7 +150,7 @@ const PanelIconButton = ({
     boxShadow: `0 0 0 3px ${hoverStrokeColor}`,
     borderColor: 'transparent',
     color: hoverTextColor || hoverStrokeColor,
-    transform: 'scale(1.04)' // Natively adding hover grow
+    transform: `scale(${PIE_HOVER_SCALE})`
   } : {
     transform: 'scale(1)'
   };
@@ -167,7 +190,7 @@ const PanelIconButton = ({
           strokeWidth={currentStrokeWidth}
           style={{
             flexShrink: 0,
-            transition: 'color 0.2s ease, fill 0.2s ease, stroke-width 0.2s ease',
+            transition: `color ${PIE_HOVER_TRANSITION}, fill ${PIE_HOVER_TRANSITION}, stroke-width ${PIE_HOVER_TRANSITION}`,
           }}
         />
       )}

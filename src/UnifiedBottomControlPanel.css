@@ -156,8 +156,8 @@
   }
 
   .piemenu-button {
-    width: 40px;
-    height: 40px;
+    width: 46px;
+    height: 46px;
     border-width: 2px;
   }
 
@@ -196,12 +196,17 @@
   background: #DEDADA;
   border: 3px solid maroon;
   border-radius: 50%;
-  width: clamp(36px, 4.5vw, 44px);
-  height: clamp(36px, 4.5vw, 44px);
+  width: clamp(42px, 5.2vw, 52px);
+  height: clamp(42px, 5.2vw, 52px);
   box-sizing: border-box;
   padding: 0;
   cursor: pointer;
-  transition: all 0.2s ease;
+  /* Hover-grow is lifted from .pie-bubble-hover in PieMenu.css — same scale,
+     same duration, same curve — so a button down here and a bubble out on the
+     canvas answer the cursor identically. Only `transform` transitions: the
+     bubbles change nothing else on hover, and it was the lift-and-shadow this
+     rule used to carry that made the two read as different kinds of control. */
+  transition: transform 0.15s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -210,9 +215,7 @@
 }
 
 .piemenu-button:hover {
-  background: #d0d0d0;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(128, 0, 0, 0.3);
+  transform: scale(1.1);
 }
 
 .triple-item {

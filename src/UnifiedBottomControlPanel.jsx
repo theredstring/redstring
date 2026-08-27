@@ -343,8 +343,10 @@ const UnifiedBottomControlPanel = ({
     });
   }, [isNodes, isDecompose, selectedNodes]);
 
-  // Mobile-responsive icon sizing
-  const iconSize = mobileState.isMobile ? 14 : 18;
+  // Mobile-responsive icon sizing. Tracks the .piemenu-button footprint in
+  // UnifiedBottomControlPanel.css — the glyph has to grow with the bubble or a
+  // wider button just buys more empty margin around the same small icon.
+  const iconSize = mobileState.isMobile ? 18 : 22;
 
   // Upper bound for any renderer containerWidth — keeps us from asking for more
   // space than the segment actually offers. On mobile the panel reserves 8px

@@ -132,7 +132,7 @@ const AbstractionControlPanel = ({
         onMouseEnter={() => onActionHoverChange?.({ id: 'dimension-prev', label: 'Previous Dimension' })}
         onMouseLeave={() => onActionHoverChange?.(null)}
       >
-        <ChevronLeft size={18} />
+        <ChevronLeft size={22} />
       </div>
       
       {isEditingName ? (
@@ -203,7 +203,7 @@ const AbstractionControlPanel = ({
         onMouseEnter={() => onActionHoverChange?.({ id: 'dimension-next', label: 'Next Dimension' })}
         onMouseLeave={() => onActionHoverChange?.(null)}
       >
-        <ChevronRight size={18} />
+        <ChevronRight size={22} />
       </div>
     </div>
   );
