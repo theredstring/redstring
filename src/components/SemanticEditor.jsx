@@ -647,7 +647,7 @@ const RDFSchemaPropertiesSection = ({ nodeData, onUpdate }) => {
           display: 'flex', alignItems: 'center', gap: 4, marginTop: 8,
           color: tokens.muted, fontSize: '12px', fontFamily: FONT
         }}>
-          <CheckCircle size={13} style={{ color: tokens.muted }} /> Kept in sync with this thing
+          <CheckCircle size={13} style={{ color: tokens.muted }} /> Kept in sync with this Thing
         </div>
       </div>
 
