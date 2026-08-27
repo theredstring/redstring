@@ -1,6 +1,13 @@
-# Cloudflare Staging Deploy
+# Cloudflare Deploy
 
-Parallel staging stack for Redstring on Cloudflare Pages + Pages Functions. Built so that the existing GCP Cloud Run production deployment is untouched — this lives entirely on the `cloudflare-staging` branch and uses the **dev** GitHub credentials.
+Redstring on Cloudflare Pages + Pages Functions. Two projects, same code, different GitHub credentials:
+
+| Target | Pages project | URL | GitHub App |
+| --- | --- | --- | --- |
+| `dev` | `redstring-staging` | `redstring-staging.pages.dev` | dev |
+| `prod` | `redstring-prod` | `redstring.io` | prod |
+
+Deploy with `npm run cf:deploy:dev` / `npm run cf:deploy:prod` — see [Deploy](#deploy).
 
 ## What this is
 
@@ -52,12 +59,13 @@ This pulls in `hono`, `jose`, `wrangler`, and `@cloudflare/workers-types`.
 
 ### 2. Create the Pages project
 
+Both projects already exist, so this is only needed when rebuilding the stack from scratch:
+
 ```bash
-npx wrangler pages project create redstring-staging \
-  --production-branch=cloudflare-staging
+npx wrangler pages project create redstring-staging --production-branch=main
 ```
 
-(If you'd rather configure via the dashboard, create a Pages project named `redstring-staging` and connect it to this branch.)
+The production branch has to match what `cf-deploy.sh` uploads under (`main`), or every deploy lands as a preview and the project's main URL never changes.
 
 ### 3. Set the secrets
 
@@ -80,12 +88,25 @@ After the first deploy (next step) you'll get a URL like `https://redstring-stag
 ## Deploy
 
 ```bash
-npm run cf:deploy:staging
+npm run cf:deploy:dev     # → redstring-staging.pages.dev
+npm run cf:deploy:prod    # → redstring.io  (confirms first)
 ```
 
-This runs `npm run build` (Vite) then `wrangler pages deploy dist --project-name=redstring-staging`. Functions are auto-discovered from `functions/` next to the build output.
+Both call [`scripts/cf-deploy.sh`](../scripts/cf-deploy.sh), which builds, checks the build, uploads, and then asks the deployed Function which GitHub App it is wearing. Functions are auto-discovered from `functions/` next to the build output.
 
-First deploy emits the URL. Subsequent pushes to `cloudflare-staging` will auto-build via Cloudflare's Git integration if you wired that up in the dashboard.
+Neither Pages project is Git-connected, so **nothing deploys on push** — a deploy only happens when one of these commands runs.
+
+The two projects take the same `dist`; they differ only in their Worker secrets. So promoting the exact bytes verified on staging is a deploy with no rebuild in between:
+
+```bash
+npm run cf:deploy:prod -- --skip-build
+```
+
+Other flags: `--preview` (deploy to a preview URL instead of replacing the main one), `--dry-run` (check and build, stop before uploading), `--tail` (stream logs afterwards), `--yes` (skip the prod prompt). `scripts/cf-deploy.sh --help` lists them.
+
+### What the post-deploy check catches
+
+The script fails a prod deploy that comes back serving a client id other than the prod OAuth App's — every stored user token was minted by the prod App and would 401 against a different one. On dev it warns about the inverse: staging wearing prod credentials, which is the isolation this stack exists to keep. Secrets are set separately, by [`scripts/cf-set-prod-secrets.sh`](../scripts/cf-set-prod-secrets.sh).
 
 ## Local development
 
@@ -100,10 +121,19 @@ Hot-reload of the Function code while iterating: edit `functions/api/github/[[pa
 ## Logs
 
 ```bash
-npm run cf:tail:staging
+npm run cf:tail:dev
+npm run cf:tail:prod
 ```
 
 Streams live logs from the deployed Pages Function. Useful for debugging the OAuth and App flows.
+
+## Rollback
+
+```bash
+npx wrangler pages deployment list --project-name=redstring-prod
+```
+
+Each row carries a dashboard link; roll back to a previous deployment from there. Deployments are immutable, so rolling back is instant and does not need a rebuild.
 
 ## Verification checklist
 
@@ -122,21 +152,15 @@ After deploying, walk through this end-to-end. None of it touches prod GCP.
 
 ## What this does NOT do
 
-- Does not modify `main`, `oauth-server.js`, `bridge-daemon.js`, `app-semantic-server.js`, or any GCP-related file.
-- Does not change `redstring.io` DNS or production GitHub App settings.
+- Does not modify `oauth-server.js`, `bridge-daemon.js`, `app-semantic-server.js`, or any GCP-related file — the Cloud Run stack still stands as a rollback path.
 - Does not delete Cloud Run services, Container Registry images, or Cloud Build triggers.
-- Does not implement rate limiting on the Worker — staging URL is obscure; add Cloudflare Rate Limiting before prod cutover.
+- Does not implement rate limiting on the Worker. Now that `redstring.io` points here, the "the URL is obscure" argument no longer holds — add Cloudflare Rate Limiting.
 
-## Production cutover (not yet)
+## Production cutover (done)
 
-When staging validation succeeds, the production migration is a separate phase:
+`redstring-prod` exists, holds the prod GitHub credentials (copied from Google Secret Manager by [`scripts/cf-set-prod-secrets.sh`](../scripts/cf-set-prod-secrets.sh)), and serves `redstring.io`.
 
-1. Add `[env.production]` block to `wrangler.toml` with prod-named secret bindings.
-2. Create a `redstring-prod` Pages project, set prod secrets.
-3. Add the prod callback URL (`https://redstring.io/oauth/callback`) to the prod GitHub App.
-4. Test against prod credentials in a non-prod domain first.
-5. Point `redstring.io` DNS to Cloudflare Pages with the prod project. Keep Cloud Run running in parallel — instant rollback is just a DNS change.
-6. After 1-2 weeks of confidence, tear down Cloud Run + Container Registry + Cloud Build, delete `bridge-daemon.js` / `app-semantic-server.js` / `oauth-server.js` from the repo.
+Still open from the original cutover plan: tearing down Cloud Run + Container Registry + Cloud Build, and deleting `bridge-daemon.js` / `app-semantic-server.js` / `oauth-server.js` from the repo. Keeping Cloud Run up costs money but leaves a rollback path that is only a DNS change.
 
 ## Troubleshooting
 

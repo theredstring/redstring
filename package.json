@@ -1,7 +1,7 @@
 {
   "name": "redstring",
   "private": true,
-  "version": "0.11.1",
+  "version": "0.11.2",
   "bin": {
     "redstring": "cli/redstring.js"
   },
@@ -85,7 +85,11 @@
     "release:major": "./scripts/publish-release.sh major",
     "release:dry": "./scripts/publish-release.sh --dry-run",
     "cf:dev": "npm run build && wrangler pages dev dist --compatibility-date=2024-12-01 --compatibility-flag=nodejs_compat",
-    "cf:deploy:staging": "npm run build && wrangler pages deploy dist --project-name=redstring-staging",
+    "cf:deploy:dev": "./scripts/cf-deploy.sh dev",
+    "cf:deploy:prod": "./scripts/cf-deploy.sh prod",
+    "cf:deploy:staging": "./scripts/cf-deploy.sh dev",
+    "cf:tail:dev": "wrangler pages deployment tail --project-name=redstring-staging",
+    "cf:tail:prod": "wrangler pages deployment tail --project-name=redstring-prod",
     "cf:tail:staging": "wrangler pages deployment tail --project-name=redstring-staging"
   },
   "dependencies": {
