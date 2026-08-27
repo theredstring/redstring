@@ -6,7 +6,7 @@
  * step in order, then guarantees the canonical top-level shape so the importer
  * never has to branch on which sections to read.
  *
- * Rules for this file (see FORMAT_REFACTOR_PLAN.md §0):
+ * Rules for this file (see documentation/data-format/FORMAT_REFACTOR_PLAN.md §0):
  *   - Migration functions are PURE: no I/O, no store access, no `Date.now()`
  *     (timestamps are injected via the `now` argument).
  *   - Never edit a shipped step's behavior — append a new step instead.

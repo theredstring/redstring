@@ -319,7 +319,7 @@ await universeBackend.linkLocalFileToUniverse(slug, file.name);
 - Foundation for future format evolution
 - Peace of mind for production releases
 
-**Documentation**: See `REDSTRING_FORMAT_VERSIONING.md` for complete developer guide and API reference.
+**Documentation**: See `../data-format/REDSTRING_FORMAT_VERSIONING.md` for complete developer guide and API reference.
 
 ### Local-First Storage Architecture (2025-01)
 

@@ -56,7 +56,7 @@ demo-*.js
 diagnose-*.js
 test-*.js
 scripts/setup-oauth.js
-setup-oauth.md
+documentation/storage-federation/setup-oauth.md
 
 # Data and logs
 data/

@@ -92,7 +92,7 @@ npm run dev:full   # frontend + OAuth server + main server in one terminal
 
 ## Getting Started for AIs
 
-Redstring has a headless stack — the same Zustand store that powers the GUI runs in Node, driven by a CLI, HTTP API, or MCP server. **Start with `HEADLESS.md`** for the complete reference. The short version:
+Redstring has a headless stack — the same Zustand store that powers the GUI runs in Node, driven by a CLI, HTTP API, or MCP server. **Start with `documentation/core-system/HEADLESS.md`** for the complete reference. The short version:
 
 ```bash
 git clone https://github.com/yourusername/redstring.git
@@ -135,7 +135,7 @@ The MCP server exposes the full Wizard tool suite to any MCP-compatible AI clien
 node redstring-mcp-server.js
 ```
 
-See `HEADLESS.md` for HTTP endpoints, workspace management, GitHub-backed universes, and the full architecture.
+See `documentation/core-system/HEADLESS.md` for HTTP endpoints, workspace management, GitHub-backed universes, and the full architecture.
 
 ## Core Concepts
 
@@ -367,7 +367,7 @@ node cli/redstring.js apply my-mutations.json
 node cli/redstring.js apply my-mutations.json --universe ~/path/to/universe.redstring
 ```
 
-See `HEADLESS.md` for the full CLI reference and coworking details.
+See `documentation/core-system/HEADLESS.md` for the full CLI reference and coworking details.
 
 ## Semantic Web Features
 
@@ -482,7 +482,7 @@ Edges are embedded inside each `spatialGraph` entry (they were in a global `rela
 - **Supported**: v1.0.0, v2.0.0-semantic, v3.0.0 (all auto-migrated on open)
 - **Format History**: Metadata tracks migrations and applied changes
 
-See `redstring-format-spec.md` for the complete specification.
+See `documentation/data-format/redstring-format-spec.md` for the complete specification.
 
 ## Development
 
@@ -647,21 +647,21 @@ OAUTH_PORT=3002
 
 ### Core Documentation
 - `aiinstructions.txt` - Project overview and recent enhancements
-- `redstring-format-spec.md` - File format specification
-- `HEADLESS.md` - Run and drive Redstring without a browser (CLI, workspaces, universes, GitHub) — start here if you're an AI that cloned this repo
-- `SEMANTIC_WEB_INTEGRATION.md` - Semantic web features and RDF integration
+- `documentation/data-format/redstring-format-spec.md` - File format specification
+- `documentation/core-system/HEADLESS.md` - Run and drive Redstring without a browser (CLI, workspaces, universes, GitHub) — start here if you're an AI that cloned this repo
+- `documentation/semantic-web/SEMANTIC_WEB_INTEGRATION.md` - Semantic web features and RDF integration
 - `COMPREHENSIVE_AI_TOOLS.md` - Wizard tools and MCP integration
-- `GIT_FEDERATION.md` - Git federation architecture and workflows
+- `documentation/core-system/GIT_FEDERATION.md` - Git federation architecture and workflows
 
 ### Guides
-- `LOCAL_DEVELOPMENT.md` - Local setup and testing
-- `DEPLOYMENT.md` - Production deployment guide
-- `REDSTRING_FORMAT_VERSIONING.md` - Format versioning system
+- `documentation/storage-federation/LOCAL_DEVELOPMENT.md` - Local setup and testing
+- `documentation/storage-federation/DEPLOYMENT.md` - Production deployment guide
+- `documentation/data-format/REDSTRING_FORMAT_VERSIONING.md` - Format versioning system
 - `DYNAMIC_FEDERATION_GUIDE.md` - Dynamic federation and cross-domain linking
 
 ### Troubleshooting
-- `TROUBLESHOOTING.md` - Common issues and solutions
-- `AI_INTEGRATION_TROUBLESHOOTING.md` - Wizard and AI tool debugging
+- `documentation/storage-federation/TROUBLESHOOTING.md` - Common issues and solutions
+- `documentation/ai-agent-mcp/AI_INTEGRATION_TROUBLESHOOTING.md` - Wizard and AI tool debugging
 - `AUTH_401_FIX.md` - OAuth authentication issues
 
 ## Architecture Highlights

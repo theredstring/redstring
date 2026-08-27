@@ -14,7 +14,7 @@ import { exportToRedstring, toIri } from '../../src/formats/redstringFormat.js';
  *   - skos:broader chains where abstraction chains exist
  *   - PROV attribution where wizard provenance exists
  *
- * This test enforces the conformance invariant defined in FORMAT_REFACTOR_PLAN.md §1
+ * This test enforces the conformance invariant defined in documentation/data-format/FORMAT_REFACTOR_PLAN.md §1
  * ("strip every redstring: term … what remains must still be a good SKOS+PROV dataset").
  * It runs against both v3 export (default EMIT_V4=false) and v4 export (emitV4:true).
  */

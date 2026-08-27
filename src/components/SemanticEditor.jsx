@@ -3,6 +3,8 @@ import { Search, X, Tags, CheckCircle, CircleArrowUp } from 'lucide-react';
 import Dropdown from './Dropdown.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import PanelCard, { usePanelCardTokens } from './shared/PanelCard.jsx';
+import InfoPopover from './shared/InfoPopover.jsx';
+import { RDF_SCHEMA_INTRO, CLASSIFICATION_INTRO } from './semanticWebCopy.js';
 import useGraphStore from '../store/graphStore.js';
 
 const FONT = "'EmOne', sans-serif";
@@ -46,7 +48,15 @@ const RDFSchemaPropertiesSection = ({ nodeData }) => {
   const tokens = usePanelCardTokens();
 
   return (
-    <PanelCard title="RDF Schema" icon={Tags}>
+    <PanelCard
+      title="RDF Schema"
+      icon={Tags}
+      rightEl={
+        <InfoPopover title="RDF Schema" label="About RDF Schema" size={13}>
+          {RDF_SCHEMA_INTRO}
+        </InfoPopover>
+      }
+    >
       {/* Auto-synced RDF properties, as a definition list rather than a run of
           boxed literals — the property name is the label, the node's value is
           the content. */}
@@ -202,6 +212,11 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
     <PanelCard
       title="Semantic Classification"
       icon={Search}
+      rightEl={
+        <InfoPopover title="Semantic Classification" label="About semantic classification" size={13}>
+          {CLASSIFICATION_INTRO}
+        </InfoPopover>
+      }
     >
       {/* The Primary Type row that used to sit here duplicated the type
           button under the panel title, which is the canonical control for the

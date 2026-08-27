@@ -74,7 +74,7 @@ All local providers use the OpenAI `/v1/chat/completions` API format, making the
 - ✅ Lower latency (no network overhead)
 - ✅ No rate limits
 
-**See [LOCAL_LLM_SETUP.md](LOCAL_LLM_SETUP.md) for detailed setup instructions.**
+**See [LOCAL_LLM_SETUP.md](../storage-federation/LOCAL_LLM_SETUP.md) for detailed setup instructions.**
 
 ## MCP Tools Available
 ### Orchestration Policy

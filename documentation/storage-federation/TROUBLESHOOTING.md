@@ -262,5 +262,5 @@ If you're still having issues:
 1. **Check the logs** for specific error messages
 2. **Verify all services** are running and connected
 3. **Test with the provided scripts** to isolate the issue
-4. **Check the documentation** in `AI_GUIDED_WORKFLOW.md`
+4. **Check the documentation** in `../ai-agent-mcp/AI_GUIDED_WORKFLOW.md`
 5. **Use the system prompt** to ensure Claude knows how to use the tools correctly 

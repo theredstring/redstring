@@ -1,6 +1,6 @@
 /**
  * How strongly a node claims an external identifier — the "sameness ladder"
- * (D8/P2.5 in FORMAT_REFACTOR_PLAN.md), in one place.
+ * (D8/P2.5 in documentation/data-format/FORMAT_REFACTOR_PLAN.md), in one place.
  *
  * Both the exporter and the panel UI import this. They must not each decide a
  * link's rung independently, or the picture on screen and the triples in the

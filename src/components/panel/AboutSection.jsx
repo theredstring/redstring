@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, X, ChevronDown, Plus, Link2, History } from 'lucide-react';
+import { ExternalLink, X, ChevronDown, Plus, Link2, History, Check } from 'lucide-react';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import PanelCard, { usePanelCardTokens } from '../shared/PanelCard.jsx';
 import InfoPopover from '../shared/InfoPopover.jsx';
@@ -119,8 +119,9 @@ const ChooserOption = ({ option, isCurrent, onPick }) => {
         transition: 'background-color 0.15s ease'
       }}
     >
-      <span style={{ fontWeight: 'bold' }}>
-        {isCurrent ? '• ' : ''}{option.label}
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontWeight: 'bold' }}>
+        {isCurrent && <Check size={14} strokeWidth={2.5} style={{ flexShrink: 0 }} />}
+        {option.label}
       </span>
       <span style={{ display: 'block', opacity: 0.8, marginTop: 1 }}>{option.blurb}</span>
     </button>

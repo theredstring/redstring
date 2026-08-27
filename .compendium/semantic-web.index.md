@@ -18,9 +18,9 @@ These documents cover the RDF/JSON-LD dual-format storage architecture, SPARQL c
 
 | File | Summary | Key for |
 |------|---------|---------|
-| [SEMANTIC_WEB_INTEGRATION.md](../SEMANTIC_WEB_INTEGRATION.md) | Core dual-format architecture: how Redstring nodes map to RDF resources, JSON-LD context, data model translation layer | Understanding the semantic web data model; extending the JSON-LD context |
-| [RDF_INTEGRATION_README.md](../RDF_INTEGRATION_README.md) | RDF resolution architecture, direct-fetch SPARQL client design, background processing for enrichment, federated query patterns | Working with `sparqlClient.js` or `knowledgeFederation.js`; adding new SPARQL endpoints |
-| [SEMANTIC_DISCOVERY_GUIDE.md](../SEMANTIC_DISCOVERY_GUIDE.md) | User guide for semantic discovery: property-path queries, the connection browser UI, how to import Wikidata relationships as native nodes | Understanding or extending the semantic discovery UI in `SemanticEditor.jsx` |
+| [SEMANTIC_WEB_INTEGRATION.md](../documentation/semantic-web/SEMANTIC_WEB_INTEGRATION.md) | Core dual-format architecture: how Redstring nodes map to RDF resources, JSON-LD context, data model translation layer | Understanding the semantic web data model; extending the JSON-LD context |
+| [RDF_INTEGRATION_README.md](../documentation/semantic-web/RDF_INTEGRATION_README.md) | RDF resolution architecture, direct-fetch SPARQL client design, background processing for enrichment, federated query patterns | Working with `sparqlClient.js` or `knowledgeFederation.js`; adding new SPARQL endpoints |
+| [SEMANTIC_DISCOVERY_GUIDE.md](../documentation/semantic-web/SEMANTIC_DISCOVERY_GUIDE.md) | User guide for semantic discovery: property-path queries, the connection browser UI, how to import Wikidata relationships as native nodes | Understanding or extending the semantic discovery UI in `SemanticEditor.jsx` |
 
 ---
 
@@ -28,8 +28,8 @@ These documents cover the RDF/JSON-LD dual-format storage architecture, SPARQL c
 
 | File | Summary | Consult when |
 |------|---------|--------------|
-| [WIKIPEDIA_IMPROVEMENTS.md](../WIKIPEDIA_IMPROVEMENTS.md) | Documents disambiguation handling and Wikipedia photo extraction improvements (thumbnail URL sizing, aspect ratio storage) | Debugging Wikipedia enrichment; understanding why images use URL-based caching |
-| [SEMANTIC_WEB_ENHANCEMENT.md](../SEMANTIC_WEB_ENHANCEMENT.md) | OWL `sameAs` additions to the JSON-LD context and external site integration. **For the current context shape it is superseded by `SEMANTIC_WEB_INTEGRATION.md`** — but it is *not* redundant: it is the only record of several conceptual sections (the three-layer architecture, the "Rosetta Stone" mechanism, the prototype-instance model as it relates to RDF, and **"Abstraction Bush Scaffolding: Beyond Tree Structures"**). ⚠️ Its closing "Verdict: You Need RDF Schema + OWL + External Vocabularies" reflects an earlier stance and runs against current positioning, which is deliberately *not* to flatten interpretive complexity into formal logic. Read the concepts, discard the verdict | Working on the abstraction axis or JSON-LD context evolution; understanding how the prototype-instance model maps onto RDF |
+| [WIKIPEDIA_IMPROVEMENTS.md](../documentation/semantic-web/WIKIPEDIA_IMPROVEMENTS.md) | Documents disambiguation handling and Wikipedia photo extraction improvements (thumbnail URL sizing, aspect ratio storage) | Debugging Wikipedia enrichment; understanding why images use URL-based caching |
+| [SEMANTIC_WEB_ENHANCEMENT.md](../documentation/semantic-web/SEMANTIC_WEB_ENHANCEMENT.md) | OWL `sameAs` additions to the JSON-LD context and external site integration. **For the current context shape it is superseded by `../documentation/semantic-web/SEMANTIC_WEB_INTEGRATION.md`** — but it is *not* redundant: it is the only record of several conceptual sections (the three-layer architecture, the "Rosetta Stone" mechanism, the prototype-instance model as it relates to RDF, and **"Abstraction Bush Scaffolding: Beyond Tree Structures"**). ⚠️ Its closing "Verdict: You Need RDF Schema + OWL + External Vocabularies" reflects an earlier stance and runs against current positioning, which is deliberately *not* to flatten interpretive complexity into formal logic. Read the concepts, discard the verdict | Working on the abstraction axis or JSON-LD context evolution; understanding how the prototype-instance model maps onto RDF |
 
 ---
 
@@ -37,4 +37,4 @@ These documents cover the RDF/JSON-LD dual-format storage architecture, SPARQL c
 
 | File | Summary | Note |
 |------|---------|------|
-| [SEMANTIC_WEB_IMPROVEMENTS_PLAN.md](../SEMANTIC_WEB_IMPROVEMENTS_PLAN.md) | Plans for authentication resilience, persistent OAuth refresh tokens for Wikidata, and background re-enrichment scheduling | **Not implemented** — design decisions only; no code exists for auth resilience or scheduled re-enrichment |
+| [SEMANTIC_WEB_IMPROVEMENTS_PLAN.md](../documentation/semantic-web/SEMANTIC_WEB_IMPROVEMENTS_PLAN.md) | Plans for authentication resilience, persistent OAuth refresh tokens for Wikidata, and background re-enrichment scheduling | **Not implemented** — design decisions only; no code exists for auth resilience or scheduled re-enrichment |

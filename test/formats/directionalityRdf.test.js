@@ -5,7 +5,7 @@ import { exportToRedstring, fromIri } from '../../src/formats/redstringFormat.js
  * Directionality → RDF projection (P0.3) — pins audit finding #3.
  *
  * `edge.directionality.arrowsToward` (a Set of node IDs) has four states. The
- * correct RDF projection (per src/core/Edge.js and FORMAT_REFACTOR_PLAN.md §2):
+ * correct RDF projection (per src/core/Edge.js and documentation/data-format/FORMAT_REFACTOR_PLAN.md §2):
  *
  *   empty            → 2 reciprocal triples (non-directed)
  *   {destinationId}  → 1 triple  source → dest

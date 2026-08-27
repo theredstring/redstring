@@ -132,4 +132,4 @@ Tests are located in `test/` directory:
 - `src/services/semanticWebQuery.js`: Unified semantic enrichment service
 - `src/components/SemanticEditor.jsx`: Semantic web integration interface
 - `aiinstructions.txt`: Detailed project philosophy and comprehensive development patterns
-- `SAVE_COORDINATOR_README.md`: Documentation for save coordination system
+- `documentation/core-system/SAVE_COORDINATOR_README.md`: Documentation for save coordination system

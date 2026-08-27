@@ -94,12 +94,12 @@ device flow covers sign-in.
 
 | File | Role |
 | --- | --- |
-| [src/utils/capacitorAdapter.js](src/utils/capacitorAdapter.js) | Platform detection, handle codec, filesystem wrappers, lifecycle, native HTTP |
-| [src/utils/fileAccessAdapter.js](src/utils/fileAccessAdapter.js) | Cross-platform file I/O; Capacitor is a third branch alongside Electron and the File System Access API |
-| [src/services/fileHandlePersistence.js](src/services/fileHandlePersistence.js) | Persists handles (Capacitor uses the existing IndexedDB store; handles are plain strings) |
-| [src/services/universeBackend.js](src/services/universeBackend.js) | Device config, auto-linking new universes, deterministic handle recovery |
-| [src/utils/deviceDetection.js](src/utils/deviceDetection.js) | Keeps Capacitor out of Git-Only mode despite the mobile UA |
-| [capacitor.config.ts](capacitor.config.ts) | App ID, name, `webDir: dist` |
+| [src/utils/capacitorAdapter.js](../../src/utils/capacitorAdapter.js) | Platform detection, handle codec, filesystem wrappers, lifecycle, native HTTP |
+| [src/utils/fileAccessAdapter.js](../../src/utils/fileAccessAdapter.js) | Cross-platform file I/O; Capacitor is a third branch alongside Electron and the File System Access API |
+| [src/services/fileHandlePersistence.js](../../src/services/fileHandlePersistence.js) | Persists handles (Capacitor uses the existing IndexedDB store; handles are plain strings) |
+| [src/services/universeBackend.js](../../src/services/universeBackend.js) | Device config, auto-linking new universes, deterministic handle recovery |
+| [src/utils/deviceDetection.js](../../src/utils/deviceDetection.js) | Keeps Capacitor out of Git-Only mode despite the mobile UA |
+| [capacitor.config.ts](../../capacitor.config.ts) | App ID, name, `webDir: dist` |
 
 Two predicates express the distinctions that matter:
 

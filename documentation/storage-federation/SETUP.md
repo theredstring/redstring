@@ -125,7 +125,7 @@ See `deployment/gcp/README.md` for detailed deployment instructions.
 ## Getting Help
 
 For more detailed documentation, see:
-- [AI Integration Guide](./AI_INTEGRATION_GUIDE.md)
+- [AI Integration Guide](../ai-agent-mcp/AI_INTEGRATION_GUIDE.md)
 - [Deployment Guide](./DEPLOYMENT.md)
 - [Troubleshooting](./TROUBLESHOOTING.md)
 

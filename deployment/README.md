@@ -169,7 +169,7 @@ curl http://localhost:3002/api/clients > oauth-clients-backup.json
 
 ## Support
 
-See `DEPLOYMENT.md` for detailed deployment instructions and troubleshooting.
+See `../documentation/storage-federation/DEPLOYMENT.md` for detailed deployment instructions and troubleshooting.
 
 For issues:
 1. Check health endpoints

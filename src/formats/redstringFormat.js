@@ -1113,7 +1113,7 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       // RDF format (for semantic web integration)
       "rdfStatements": sourcePrototypeId && destinationPrototypeId && predicatePrototypeId ? (() => {
         // Project edge.directionality.arrowsToward (a Set of INSTANCE ids) to RDF.
-        // Correct mapping (see src/core/Edge.js and FORMAT_REFACTOR_PLAN.md §2):
+        // Correct mapping (see src/core/Edge.js and documentation/data-format/FORMAT_REFACTOR_PLAN.md §2):
         //   empty            → two reciprocal triples (non-directed)
         //   {destinationId}  → one triple  source → dest
         //   {sourceId}       → one triple  dest → source

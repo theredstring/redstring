@@ -102,7 +102,7 @@ You have 80+ markdown documentation files. Consider:
 - Move many docs to a `docs/archive/` folder
 - Keep only essential docs in root:
   - `README.md`
-  - `SETUP.md`
+  - `../storage-federation/SETUP.md`
   - `CONTRIBUTING.md` (if you want contributions)
   - `LICENSE.md`
   - `CHANGELOG.md`
@@ -168,7 +168,7 @@ Current README is deployment-focused. For open source, consider adding:
 [Installation and setup instructions]
 
 ## Documentation
-- [Setup Guide](./SETUP.md)
+- [Setup Guide](../storage-federation/SETUP.md)
 - [User Guide](./docs/USER_GUIDE.md)
 - [API Reference](./docs/API.md)
 

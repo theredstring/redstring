@@ -448,7 +448,7 @@ All new functionality is in separate files, so rollback is simple.
 ## Support
 
 For issues or questions:
-1. Check `SEMANTIC_DISCOVERY_GUIDE.md` for usage examples
+1. Check `../semantic-web/SEMANTIC_DISCOVERY_GUIDE.md` for usage examples
 2. See `SEMANTIC_IMPROVEMENTS_SUMMARY.md` for technical details
 3. Review test file: `src/services/__tests__/semanticSystem.test.js`
 

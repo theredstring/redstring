@@ -296,7 +296,7 @@ Imports .redstring data with automatic validation and migration.
 
 - `src/formats/redstringFormat.js` - Main format handler with versioning
 - `src/GitNativeFederation.jsx` - UI component that uses validation
-- `GIT_FEDERATION.md` - Git federation documentation
+- `../core-system/GIT_FEDERATION.md` - Git federation documentation
 - `redstring-format-spec.md` - Format specification
 
 ## Questions or Issues?
