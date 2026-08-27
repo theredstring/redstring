@@ -1041,7 +1041,7 @@ const Header = ({
       >
         {/* Hamburger trigger */}
         <div
-          title={isHamburgerOpen ? 'Close menu' : 'Open menu'}
+          title={isHamburgerOpen ? 'Close Menu' : 'Open menu'}
           style={{
             height: `${HEADER_HEIGHT}px`,
             width: `${HEADER_HEIGHT}px`,
@@ -1057,7 +1057,7 @@ const Header = ({
             haptic('menuSelect');
             // Label describes the state the tap produces, matching mouseenter's
             // "what will this do" phrasing.
-            onActionHoverChange?.({ id: 'header-hamburger', label: !isHamburgerOpen ? 'Close menu' : 'Open menu' });
+            onActionHoverChange?.({ id: 'header-hamburger', label: !isHamburgerOpen ? 'Close Menu' : 'Open menu' });
             setIsHamburgerOpen(prev => !prev);
           }}
           onMouseEnter={(e) => {
@@ -1066,7 +1066,7 @@ const Header = ({
               circle.style.transform = 'scale(1.06)';
               circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
             }
-            onActionHoverChange?.({ id: 'header-hamburger', label: isHamburgerOpen ? 'Close menu' : 'Open menu' });
+            onActionHoverChange?.({ id: 'header-hamburger', label: isHamburgerOpen ? 'Close Menu' : 'Open menu' });
           }}
           onMouseLeave={(e) => {
             const circle = e.currentTarget.querySelector('.header-btn-circle');
