@@ -26,7 +26,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, Globe, RefreshCw } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -142,6 +142,7 @@ import StorageSetupModal from './components/StorageSetupModal.jsx';
 import HelpModal from './components/HelpModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
+import PanelIconButton from './components/shared/PanelIconButton.jsx';
 
 
 
@@ -4563,13 +4564,16 @@ function NodeCanvas() {
         const dir = await suggestArrowDirection({ sourceName, targetName, label: label.trim(), timeoutMs: 4000 });
         if (!dir) return;
         const towardId = dir.arrowsToward === 'source' ? sourceInstId : targetInstId;
+        // Its own labelled entry: this resolves asynchronously, so folding it
+        // into whatever the user is doing when the model answers would attribute
+        // it to an unrelated action.
         storeActions.updateEdge(edgeId, (draft) => {
           if (!draft.directionality) draft.directionality = { arrowsToward: new Set() };
           if (!draft.directionality.arrowsToward) draft.directionality.arrowsToward = new Set();
           // User input always wins: never override a direction already set.
           if (draft.directionality.arrowsToward.size > 0) return;
           draft.directionality.arrowsToward = new Set([towardId]);
-        });
+        }, { historyLabel: 'Suggested connection direction' });
       } catch {
         // Never disrupt connection creation.
       }
@@ -6908,6 +6912,13 @@ function NodeCanvas() {
     // Copy all instances from the definition graph to the active graph
     const instanceIdMap = new Map(); // Maps old instance IDs to new instance IDs
     const newInstanceIds = [];
+    let createdGroupId = null;
+
+    // One gesture, one undo step. Without the transaction these calls split into
+    // several entries, and ensureGroupAnchor (a repair-typed, non-recordable
+    // action outside a transaction) dropped out entirely — so undoing a convert
+    // left a group with no anchor behind.
+    storeActions.withHistoryTransaction('Converted to node-group', () => {
 
     // Calculate offset to position the copied network at the original node's position
     let offsetX = instanceData.x;
@@ -6983,7 +6994,7 @@ function NodeCanvas() {
     }
 
     // Create a new node-group with all the copied instances
-    const createdGroupId = storeActions.createGroup(activeGraphId, {
+    createdGroupId = storeActions.createGroup(activeGraphId, {
       name: prototypeData.name,
       color: prototypeData.color || '#8B0000',
       memberInstanceIds: newInstanceIds
@@ -7011,6 +7022,9 @@ function NodeCanvas() {
     // was inside and pushes the new members up to them. Without it a node
     // converted inside another group is born un-nested and paints beneath it.
     storeActions.addInstancesToGroup(activeGraphId, createdGroupId, newInstanceIds);
+    });
+
+    if (!createdGroupId) return;
 
     // Get the updated group data from store
     const currentState = useGraphStore.getState();
@@ -7371,12 +7385,17 @@ function NodeCanvas() {
     if (activePieMenuColorNodeId) {
       const node = nodes.find(n => n.id === activePieMenuColorNodeId);
       if (node) {
+        // Coalesced across the drag; committed by handlePieMenuColorCommit.
         storeActions.updateNodePrototype(node.prototypeId, draft => {
           draft.color = color;
-        });
+        }, { coalesce: `node-color:${node.prototypeId}` });
       }
     }
   }, [activePieMenuColorNodeId, nodes, storeActions]);
+
+  const handlePieMenuColorCommit = useCallback(() => {
+    storeActions.flushHistory?.();
+  }, [storeActions]);
 
   // Re-point an existing instance at a different prototype (pie-menu "Swap").
   // Edges reference instance IDs, so every connection stays attached — only the
@@ -8063,7 +8082,8 @@ function NodeCanvas() {
                     if (draft.semanticMetadata?.autoEnriched) {
                       draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
                     }
-                  });
+                    // Not recorded — a base64 data URL in both patch and inverse.
+                  }, { type: 'prototype_image' });
                 } catch (error) {
                   console.error('[PieMenu] Add Image failed:', error);
                   alert(error?.message || 'Could not add this image.');
@@ -10905,8 +10925,13 @@ function NodeCanvas() {
         // Fall back to the carousel node as owner
       }
 
-      // Determine the node to insert into the chain: existing or new
+      // Determine the node to insert into the chain: existing or new.
+      // Wrapped so creating the prototype and wiring it into the chain are one
+      // undo step — previously only the prototype was recorded, so undo left an
+      // orphan prototype with the chain untouched (and recorded nothing at all
+      // when an existing prototype was chosen).
       let newNodeId = existingPrototypeId;
+      storeActions.withHistoryTransaction('Added abstraction layer', () => {
       if (!newNodeId) {
         // Create new node with color gradient
         let newNodeColor = color;
@@ -10948,6 +10973,7 @@ function NodeCanvas() {
         newNodeId,                              // the node to add (existing or newly created)
         targetPrototypeId                       // insert relative to this node (focused node in carousel)
       );
+      });
 
 
 
@@ -11497,6 +11523,31 @@ function NodeCanvas() {
     keyboardSettings,
     onDeleteNodes: deleteMultipleNodesWithAnimation,
   });
+
+  /**
+   * Commits an on-canvas node title edit.
+   *
+   * Node.jsx live-commits every keystroke so the node box can resize as you type
+   * (getNodeDimensions measures the committed name). Those intermediate writes
+   * still happen — they are just coalesced into one history entry, keyed per
+   * prototype, so one Cmd+Z undoes the whole typed name instead of one character.
+   *
+   * Was duplicated verbatim at three render paths (normal, active, dragging).
+   */
+  const handleCommitCanvasEdit = useCallback((prototypeId, newName, isRealTime = false, isAbort = false) => {
+    if (!prototypeId) return;
+    const coalesceKey = `node-name:${prototypeId}`;
+    const historyContext = isAbort
+      ? { coalesceAbort: coalesceKey }
+      : isRealTime
+        ? { coalesce: coalesceKey }
+        : { coalesceCommit: coalesceKey };
+
+    if (newName && newName.trim()) {
+      storeActions.updateNodePrototype(prototypeId, draft => { draft.name = newName; }, historyContext);
+    }
+    if (!isRealTime) setEditingNodeIdOnCanvas(null);
+  }, [storeActions]);
 
   const handleProjectTitleChange = (newTitle) => {
     // Get CURRENT activeGraphId directly from store
@@ -13801,6 +13852,10 @@ function NodeCanvas() {
               height: '100%',
               display: 'flex',
               flexDirection: 'column',
+              // Gutter so nothing in here — the error card especially — can sit
+              // flush against the window edges.
+              padding: '0 20px',
+              boxSizing: 'border-box',
               backgroundColor: theme.canvas.bg
             }}>
               {/* Main content area - mostly empty, just branding */}
@@ -13812,34 +13867,42 @@ function NodeCanvas() {
                 color: '#555'
               }}>
                 <div style={{
-                  fontSize: '32px',
                   fontFamily: "'EmOne', sans-serif",
                   color: theme.canvas.textPrimary,
-                  opacity: 0.8,
                   textAlign: 'center'
                 }}>
-                  Redstring
-                  <div style={{
-                    marginTop: '12px',
-                    display: 'flex',
-                    justifyContent: 'center',
-                    opacity: 0.6
-                  }}>
-                    <div
-                      className="loading-spinner"
-                      style={{
-                        borderColor: theme.canvas.border,
-                        borderTopColor: theme.canvas.textSecondary,
-                        width: 20,
-                        height: 20,
-                        borderWidth: 2
-                      }}
-                    />
+                  {/* The branding is deliberately quiet; the escape hatch below it
+                      is not, so the buttons sit outside this opacity. */}
+                  <div style={{ fontSize: '32px', opacity: 0.8 }}>
+                    Redstring
+                    <div style={{
+                      marginTop: '12px',
+                      display: 'flex',
+                      justifyContent: 'center',
+                      opacity: 0.6
+                    }}>
+                      <div
+                        className="loading-spinner"
+                        style={{
+                          borderColor: theme.canvas.border,
+                          borderTopColor: theme.canvas.textSecondary,
+                          width: 20,
+                          height: 20,
+                          borderWidth: 2
+                        }}
+                      />
+                    </div>
                   </div>
 
                   {/* Escape hatch for stuck loading states */}
                   <div style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
-                    <button
+                    <PanelIconButton
+                      icon={Globe}
+                      size={14}
+                      label="Go to Universes"
+                      labelFontSize={14}
+                      variant="outline"
+                      color={theme.canvas.textSecondary}
                       onClick={() => {
                         storeActions.setUniverseLoaded(true, false);
                         storeActions.setLeftPanelExpanded(true);
@@ -13849,78 +13912,51 @@ function NodeCanvas() {
                           }
                         }, 100);
                       }}
-                      style={{
-                        background: 'transparent',
-                        border: `1px solid ${theme.canvas.border}`,
-                        color: theme.canvas.textSecondary,
-                        padding: '8px 16px',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '0.9rem',
-                        fontFamily: "'EmOne', sans-serif",
-                        transition: 'all 0.2s ease',
-                        pointerEvents: 'auto',
-                        opacity: 0.7
-                      }}
-                      onMouseOver={(e) => {
-                        e.target.style.borderColor = theme.canvas.textSecondary;
-                        e.target.style.color = theme.canvas.textPrimary;
-                        e.target.style.opacity = 1;
-                      }}
-                      onMouseOut={(e) => {
-                        e.target.style.borderColor = theme.canvas.border;
-                        e.target.style.color = theme.canvas.textSecondary;
-                        e.target.style.opacity = 0.7;
-                      }}
-                    >
-                      Go to Universes
-                    </button>
-                    <button
+                      style={{ pointerEvents: 'auto' }}
+                    />
+                    <PanelIconButton
+                      icon={RefreshCw}
+                      size={14}
+                      label="Reload"
+                      labelFontSize={14}
+                      variant="outline"
+                      color={theme.canvas.textSecondary}
                       onClick={() => window.location.reload()}
-                      style={{
-                        background: 'transparent',
-                        border: `1px solid ${theme.canvas.border}`,
-                        color: theme.canvas.textSecondary,
-                        padding: '8px 16px',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '0.9rem',
-                        fontFamily: "'EmOne', sans-serif",
-                        transition: 'all 0.2s ease',
-                        pointerEvents: 'auto',
-                        opacity: 0.7
-                      }}
-                      onMouseOver={(e) => {
-                        e.target.style.borderColor = theme.canvas.textSecondary;
-                        e.target.style.color = theme.canvas.textPrimary;
-                        e.target.style.opacity = 1;
-                      }}
-                      onMouseOut={(e) => {
-                        e.target.style.borderColor = theme.canvas.border;
-                        e.target.style.color = theme.canvas.textSecondary;
-                        e.target.style.opacity = 0.7;
-                      }}
-                    >
-                      Reload
-                    </button>
+                      style={{ pointerEvents: 'auto' }}
+                    />
                   </div>
                 </div>
               </div>
 
-              {/* Error message at bottom with proper margins */}
+              {/* Error message at the bottom. The card is sized against the
+                  window rather than given a fixed max-width, and its bottom
+                  clearance tracks whether the TypeList bar is actually open —
+                  a flat 100px both overshot when it was closed and left the
+                  card touching the viewport edges on a narrow window. */}
               {universeLoadingError && (
                 <div style={{
+                  flexShrink: 0,
+                  alignSelf: 'center',
+                  width: 'min(500px, 100%)',
+                  boxSizing: 'border-box',
+                  // A long failure keeps its card on screen instead of pushing
+                  // itself off the bottom, where the TypeList would cover it.
+                  maxHeight: '40vh',
+                  overflowY: 'auto',
                   padding: '20px',
-                  marginBottom: '100px', // Account for TypeList
+                  // Clear the TypeList bar when it's open, and its always-present
+                  // toggle button (HEADER_HEIGHT + its 10px margin) when it isn't.
+                  marginBottom: `${(typeListVisible ? HEADER_HEIGHT : 0) + HEADER_HEIGHT + 20}px`,
                   textAlign: 'center',
                   color: '#d32f2f',
                   fontSize: '14px',
                   fontFamily: "'EmOne', sans-serif",
+                  // Load failures name file paths and URLs, which carry no break
+                  // opportunities of their own and otherwise run past the card.
+                  overflowWrap: 'anywhere',
                   backgroundColor: 'rgba(255, 255, 255, 0.9)',
                   border: '1px solid rgba(211, 47, 47, 0.3)',
-                  borderRadius: '8px',
-                  maxWidth: '500px',
-                  margin: '0 auto 100px auto'
+                  borderRadius: '8px'
                 }}>
                   {universeLoadingError}
                 </div>
@@ -16459,12 +16495,8 @@ function NodeCanvas() {
                           }}
                           isPreviewing={isPreviewing}
                           isEditingOnCanvas={node.id === editingNodeIdOnCanvas}
-                          onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
-                            if (newName && newName.trim()) {
-                              storeActions.updateNodePrototype(node.prototypeId, draft => { draft.name = newName; });
-                            }
-                            if (!isRealTime) setEditingNodeIdOnCanvas(null);
-                          }}
+                          onCommitCanvasEdit={(instanceId, newName, isRealTime = false, isAbort = false) =>
+                            handleCommitCanvasEdit(node.prototypeId, newName, isRealTime, isAbort)}
                           onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
                           onCreateDefinition={(prototypeId) => {
                             if (mouseMoved.current) return;
@@ -16866,12 +16898,8 @@ function NodeCanvas() {
                                   }}
                                   isPreviewing={isPreviewing}
                                   isEditingOnCanvas={activeNodeToRender.id === editingNodeIdOnCanvas}
-                                  onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
-                                    if (newName && newName.trim()) {
-                                      storeActions.updateNodePrototype(activeNodeToRender.prototypeId, draft => { draft.name = newName; });
-                                    }
-                                    if (!isRealTime) setEditingNodeIdOnCanvas(null);
-                                  }}
+                                  onCommitCanvasEdit={(instanceId, newName, isRealTime = false, isAbort = false) =>
+                            handleCommitCanvasEdit(activeNodeToRender.prototypeId, newName, isRealTime, isAbort)}
                                   onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
                                   onCreateDefinition={(prototypeId) => {
                                     if (mouseMoved.current) return;
@@ -16967,12 +16995,8 @@ function NodeCanvas() {
                                 }}
                                 isPreviewing={isPreviewing}
                                 isEditingOnCanvas={draggingNodeToRender.id === editingNodeIdOnCanvas}
-                                onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
-                                  if (newName && newName.trim()) {
-                                    storeActions.updateNodePrototype(draggingNodeToRender.prototypeId, draft => { draft.name = newName; });
-                                  }
-                                  if (!isRealTime) setEditingNodeIdOnCanvas(null);
-                                }}
+                                onCommitCanvasEdit={(instanceId, newName, isRealTime = false, isAbort = false) =>
+                            handleCommitCanvasEdit(draggingNodeToRender.prototypeId, newName, isRealTime, isAbort)}
                                 onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
                                 onCreateDefinition={(prototypeId) => {
                                   if (mouseMoved.current) return;
@@ -17322,11 +17346,19 @@ function NodeCanvas() {
                     if (name.trim()) {
                       finalizeConnectionSuggestion(name);
                       const newConnectionNodeId = uuidv4();
-                      storeActions.addNodePrototype({ id: newConnectionNodeId, name: name.trim(), description: '', picture: null, color: color || NODE_DEFAULT_COLOR, typeNodeId: null, definitionGraphIds: [] });
-                      if (connectionNamePrompt.edgeId) {
-                        storeActions.updateEdge(connectionNamePrompt.edgeId, (draft) => { draft.definitionNodeIds = [newConnectionNodeId]; });
-                        suggestEdgeArrowDirection(connectionNamePrompt.edgeId, name.trim());
-                      }
+                      // Creating the type and applying it to the edge is one
+                      // gesture. It only held together before because the
+                      // context-less updateEdge inherited addNodePrototype's
+                      // leaked context.
+                      storeActions.withHistoryTransaction(`Defined connection "${name.trim()}"`, () => {
+                        storeActions.addNodePrototype({ id: newConnectionNodeId, name: name.trim(), description: '', picture: null, color: color || NODE_DEFAULT_COLOR, typeNodeId: null, definitionGraphIds: [] });
+                        if (connectionNamePrompt.edgeId) {
+                          storeActions.updateEdge(connectionNamePrompt.edgeId, (draft) => { draft.definitionNodeIds = [newConnectionNodeId]; });
+                        }
+                      });
+                      // Async, and deliberately its own entry — it lands whenever
+                      // the model answers, long after this gesture is over.
+                      if (connectionNamePrompt.edgeId) suggestEdgeArrowDirection(connectionNamePrompt.edgeId, name.trim());
                       setConnectionNamePrompt({ visible: false, name: '', color: null, edgeId: null });
                       setDialogColorPickerVisible(false);
                     }
@@ -17717,6 +17749,7 @@ function NodeCanvas() {
             isVisible={pieMenuColorPickerVisible}
             onClose={handlePieMenuColorPickerClose}
             onColorChange={handlePieMenuColorChange}
+            onColorCommit={handlePieMenuColorCommit}
             currentColor={(() => {
               const node = nodes.find(n => n.id === activePieMenuColorNodeId);
               return node?.color || 'maroon';

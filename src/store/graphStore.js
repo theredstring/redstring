@@ -42,6 +42,13 @@ import {
 import { debugLogSync } from '../utils/debugLogger.js';
 import useHistoryStore from './historyStore.js';
 import { generateDescription } from '../utils/actionDescriptions.js';
+import {
+  isDocumentPatch,
+  deriveDomain,
+  collapseBatch,
+  isNonRecordableType,
+  POSITION_TYPES,
+} from './historyPolicy.js';
 
 /**
  * @module graphStore
@@ -759,14 +766,30 @@ const saveCoordinatorMiddleware = (config) => {
 
   // History batching variables
   let historyTimeout = null;
-  let historyBatch = {
+  // Backstop for a coalesced edit (typing, dragging a colour slider) whose commit
+  // boundary never arrives — a blur that never fires, a component unmounted mid-edit.
+  let historyIdleTimeout = null;
+  const HISTORY_BATCH_MS = 50;
+  const HISTORY_IDLE_MS = 2000;
+
+  const emptyHistoryBatch = () => ({
     patches: [],
     inversePatches: [],
     descriptions: [],
     domain: null,
     actionTypes: new Set(),
-    timestamp: 0
-  };
+    timestamp: 0,
+    actionId: null,
+    isWizard: false,
+    label: null,
+    coalesceKey: null
+  });
+
+  let historyBatch = emptyHistoryBatch();
+
+  // Active explicit transaction: { id, label, domain }. Set by withHistoryTransaction.
+  // Groups a multi-action gesture into one entry without relying on the debounce.
+  let historyTxn = null;
 
   // Lazy load SaveCoordinator to avoid circular dependencies
   const getSaveCoordinator = async () => {
@@ -799,6 +822,72 @@ const saveCoordinatorMiddleware = (config) => {
   };
 
   return (set, get, api) => {
+    // Hoisted out of enhancedSet: it was a nested function declaration, so every
+    // set() allocated a fresh closure and setTimeout captured whichever one armed
+    // it. It only worked because the state it mutates lives out here.
+    const clearHistoryTimers = () => {
+      if (historyTimeout) { clearTimeout(historyTimeout); historyTimeout = null; }
+      if (historyIdleTimeout) { clearTimeout(historyIdleTimeout); historyIdleTimeout = null; }
+    };
+
+    const flushHistoryBatch = () => {
+      // Always clear the timers first. Previously this only nulled the handle
+      // without clearing it, so a synchronous flush (domain switch) orphaned the
+      // armed timer, which then fired ~50ms into the NEXT batch and split it.
+      clearHistoryTimers();
+
+      if (!historyBatch.patches.length) {
+        historyBatch = emptyHistoryBatch();
+        return;
+      }
+
+      const { patches, inversePatches, isNoop } = collapseBatch(
+        historyBatch.patches,
+        historyBatch.inversePatches
+      );
+
+      // The edit ended where it started — e.g. Escape during a rename live-commits
+      // the original name back. Non-empty batch, but nothing to undo.
+      if (isNoop || !patches.length) {
+        historyBatch = emptyHistoryBatch();
+        return;
+      }
+
+      let finalDescription = historyBatch.label || historyBatch.descriptions[0];
+      if (!historyBatch.label && historyBatch.descriptions.length > 1) {
+        const uniqueTypes = historyBatch.actionTypes;
+        if (uniqueTypes.has('edge_update') && uniqueTypes.size > 1) {
+          finalDescription = `${historyBatch.descriptions[0]} (+ related updates)`;
+        } else if (historyBatch.descriptions.length > 3) {
+          finalDescription = `${historyBatch.descriptions[0]} (+ ${historyBatch.descriptions.length - 1} actions)`;
+        } else {
+          finalDescription = [...new Set(historyBatch.descriptions)].join(', ');
+        }
+      }
+
+      useHistoryStore.getState().pushAction({
+        domain: historyBatch.domain,
+        // Carried so undo can navigate to the graph it affects rather than
+        // silently editing a graph the user isn't looking at.
+        graphId: historyBatch.domain?.startsWith('graph-')
+          ? historyBatch.domain.slice('graph-'.length)
+          : null,
+        actionType: Array.from(historyBatch.actionTypes).join('+'),
+        description: finalDescription,
+        patches,
+        inversePatches,
+        timestamp: historyBatch.timestamp,
+        actionId: historyBatch.actionId,
+        isWizard: historyBatch.isWizard
+      });
+
+      historyBatch = emptyHistoryBatch();
+    };
+
+    // Exposed so undo/redo can close any open batch before rewinding, and so
+    // withHistoryTransaction can close one explicitly.
+    api.flushHistoryBatch = flushHistoryBatch;
+
     // Enhance the set function to track change context and capture patches
     const enhancedSet = (...args) => {
       // 0. Snapshot for collapse detection
@@ -813,8 +902,19 @@ const saveCoordinatorMiddleware = (config) => {
         currentInverse = i;
       };
 
-      // 2. Execute the state update
-      set(...args);
+      // 2. Execute the state update.
+      // If this throws — immer's applyPatches does, on an unresolvable path — the
+      // listener and the change context must still be cleared. Otherwise a leaked
+      // `ignore: true` from a failed undo silently suppresses every later
+      // recording, which is precisely the class of bug the synchronous reset exists
+      // to prevent.
+      try {
+        set(...args);
+      } catch (error) {
+        patchListener = null;
+        changeContext = { type: 'unknown' };
+        throw error;
+      }
 
       // 2a. Collapse detection. We allow load and reset contexts to legitimately
       // wipe state. Anything else getting flagged is suspicious — print a stack
@@ -823,7 +923,10 @@ const saveCoordinatorMiddleware = (config) => {
         if (preCounts) {
           const postCounts = countUserData(get());
           const ctxType = changeContext?.type || 'unknown';
-          const allowedToWipe = ctxType === 'load' || ctxType === 'reset' || ctxType === 'clear-universe';
+          // 'undo' legitimately shrinks state — undoing a paste or a bulk wizard
+          // build removes exactly what it added.
+          const allowedToWipe = ctxType === 'load' || ctxType === 'reset'
+            || ctxType === 'clear-universe' || ctxType === 'undo';
           const collapsed = !allowedToWipe && (
             (preCounts.nodes >= 5 && postCounts.nodes <= Math.max(2, Math.floor(preCounts.nodes * 0.1))) ||
             (preCounts.graphs >= 1 && postCounts.graphs === 0)
@@ -841,108 +944,92 @@ const saveCoordinatorMiddleware = (config) => {
       // 3. Initialize cleanup and reset listener immediately
       patchListener = null;
 
-      // --- History Recording (Batched) ---
-      const recordableTypes = new Set([
-        'node_place', 'node_delete', 'node_delete_batch', 'node_type_change', 'node_update',
-        'edge_create', 'edge_delete', 'edge_update', 'edge_type_change',
-        'group_create', 'group_update', 'group_delete', 'group_convert', 'group_combine',
-        'prototype_create', 'prototype_update', 'prototype_delete',
-        'position_update', 'node_position',
-        'graph_create', 'graph_delete', 'graph_update',
-        'paste', 'bulk_update'
-      ]);
+      // --- History Recording ---
+      // Recording is ON BY DEFAULT. A change is recorded unless it opts out, and
+      // the patch filter is what makes that default safe: anything touching only
+      // UI/settings state filters to zero document patches and records nothing.
+      // See historyPolicy.js for why the recorded root set is PERSISTED_STORE_KEYS.
+      const docPatches = (currentPatches || []).filter(isDocumentPatch);
+      const docInverse = (currentInverse || []).filter(isDocumentPatch);
 
-      if (changeContext.ignore) {
-        // Explicitly skip recording
-      } else if (recordableTypes.has(changeContext.type)) {
-        // Special handling for position updates: only record if finalized (drag end)
-        if ((changeContext.type === 'node_position' || changeContext.type === 'position_update') && !changeContext.finalize) {
-          // Skip recording intermediate drag states
+      const optedOut = changeContext.ignore || isNonRecordableType(changeContext.type, !!historyTxn);
+      // Intermediate drag frames are not edits; only the drop is.
+      const isUnfinalizedDrag = POSITION_TYPES.has(changeContext.type) && !changeContext.finalize;
+
+      if (!optedOut && !isUnfinalizedDrag && docPatches.length > 0) {
+        // An abort belongs to the same coalesce group as the edit it ends: the
+        // cancel write (restoring the original value) joins the batch, and the
+        // collapse pass then sees the edit ended where it started and drops the
+        // whole thing. If the restore was only partial, the real net change is
+        // still recorded rather than silently discarded.
+        const coalesceKey = changeContext.coalesce
+          || changeContext.coalesceCommit
+          || changeContext.coalesceAbort
+          || null;
+        const actionId = historyTxn?.id ?? changeContext.actionId ?? null;
+        const writeDomain = deriveDomain(docPatches, changeContext.graphId || get().activeGraphId);
+        let domain = writeDomain;
+
+        if (historyTxn) {
+          // A transaction pins its domain to the first write, and *widens* to
+          // 'global' if a later write in the same gesture is scoped elsewhere.
+          // It must never flush on a domain change: splitting on that is exactly
+          // what the transaction exists to prevent (creating a prototype is
+          // global, adding the edge that uses it is graph-scoped — one gesture).
+          if (historyTxn.domain == null) historyTxn.domain = writeDomain;
+          else if (historyTxn.domain !== writeDomain) historyTxn.domain = 'global';
+          domain = historyTxn.domain;
+          if (historyBatch.patches.length > 0) historyBatch.domain = domain;
+        }
+
+        // Close the open batch when the gesture genuinely changes — but never
+        // mid-transaction and never mid-coalesce, which is what keeps an async
+        // enrichment landing during a rename from splitting the user's edit.
+        const isDifferentAction = actionId && historyBatch.actionId && actionId !== historyBatch.actionId;
+        const isDifferentCoalesce = historyBatch.coalesceKey && historyBatch.coalesceKey !== coalesceKey;
+        if (!historyTxn && historyBatch.patches.length > 0 &&
+          (historyBatch.domain !== domain || isDifferentAction || isDifferentCoalesce)) {
+          flushHistoryBatch();
+        }
+
+        if (historyBatch.patches.length === 0) {
+          historyBatch.domain = domain;
+          historyBatch.timestamp = Date.now();
+          historyBatch.coalesceKey = coalesceKey;
+        }
+
+        historyBatch.patches.push(...docPatches);
+        // Inverse patches prepend: (revert new, then revert old)
+        historyBatch.inversePatches.unshift(...docInverse);
+        historyBatch.descriptions.push(generateDescription(changeContext, get()));
+        historyBatch.actionTypes.add(changeContext.type);
+
+        if (actionId) historyBatch.actionId = actionId;
+        if (changeContext.isWizard) historyBatch.isWizard = changeContext.isWizard;
+        if (historyTxn?.label) historyBatch.label = historyTxn.label;
+        if (changeContext.historyLabel) historyBatch.label = changeContext.historyLabel;
+
+        clearHistoryTimers();
+        if (historyTxn) {
+          // The transaction's own flush closes it — no timer.
+        } else if (changeContext.coalesce) {
+          // Held open until the commit boundary (blur / Enter / picker close).
+          // The idle timer only exists so a missed boundary can't wedge it open.
+          historyIdleTimeout = setTimeout(flushHistoryBatch, HISTORY_IDLE_MS);
+        } else if (changeContext.coalesceCommit || changeContext.coalesceAbort) {
+          flushHistoryBatch();
         } else {
-          // Determine domain
-          const isGlobal = changeContext.type.startsWith('prototype_') ||
-            changeContext.type.startsWith('graph_');
-
-          const domain = isGlobal
-            ? 'global'
-            : `graph-${changeContext.graphId || get().activeGraphId}`; // Fallback to active graph
-
-          // Accumulate into batch if patches exist
-          if (currentPatches && currentPatches.length > 0) {
-            // Check if we should flush previous batch due to major context switch (e.g. domain change or actionId change)
-            const isDifferentAction = changeContext.actionId && historyBatch.actionId && changeContext.actionId !== historyBatch.actionId;
-            if (historyBatch.patches.length > 0 && (historyBatch.domain !== domain || isDifferentAction)) {
-              // Flush immediately
-              flushHistoryBatch();
-            }
-
-            if (historyBatch.patches.length === 0) {
-              historyBatch.domain = domain;
-              historyBatch.timestamp = Date.now();
-            }
-
-            historyBatch.patches.push(...currentPatches);
-            // Inverse patches prepend: (Revert New, then Revert Old)
-            historyBatch.inversePatches.unshift(...currentInverse);
-
-            const desc = generateDescription(changeContext, get());
-            historyBatch.descriptions.push(desc);
-            historyBatch.actionTypes.add(changeContext.type);
-
-            if (changeContext.actionId) historyBatch.actionId = changeContext.actionId;
-            if (changeContext.isWizard) historyBatch.isWizard = changeContext.isWizard;
-
-            // Debounce flush
-            if (historyTimeout) clearTimeout(historyTimeout);
-            historyTimeout = setTimeout(flushHistoryBatch, 50); // 50ms batch window
-          }
+          historyTimeout = setTimeout(flushHistoryBatch, HISTORY_BATCH_MS);
         }
-      }
-
-      // Helper to flush batch
-      function flushHistoryBatch() {
-        if (!historyBatch.patches.length) return;
-
-        // Generate combined description
-        let finalDescription = historyBatch.descriptions[0];
-        if (historyBatch.descriptions.length > 1) {
-          // Check for homogenous batch
-          const uniqueTypes = historyBatch.actionTypes;
-          if (uniqueTypes.has('edge_update') && uniqueTypes.size > 1) {
-            // E.g. Update Node + Update Edge(s)
-            finalDescription = `${historyBatch.descriptions[0]} (+ related updates)`;
-          } else if (historyBatch.descriptions.length > 3) {
-            finalDescription = `${historyBatch.descriptions[0]} (+ ${historyBatch.descriptions.length - 1} actions)`;
-          } else {
-            // Join distinct descriptions if few
-            const uniqueDescs = [...new Set(historyBatch.descriptions)];
-            finalDescription = uniqueDescs.join(', ');
-          }
+      } else if (changeContext.coalesceCommit || changeContext.coalesceAbort) {
+        // A commit/abort that produced no patches of its own still has to close
+        // (or discard) whatever the edit accumulated.
+        if (changeContext.coalesceAbort) {
+          clearHistoryTimers();
+          historyBatch = emptyHistoryBatch();
+        } else {
+          flushHistoryBatch();
         }
-
-        useHistoryStore.getState().pushAction({
-          domain: historyBatch.domain,
-          actionType: Array.from(historyBatch.actionTypes).join('+'), // 'node_update+edge_update'
-          description: finalDescription,
-          patches: [...historyBatch.patches],
-          inversePatches: [...historyBatch.inversePatches],
-          timestamp: historyBatch.timestamp,
-          actionId: historyBatch.actionId,
-          isWizard: historyBatch.isWizard
-        });
-
-        // Reset
-        historyBatch = {
-          patches: [],
-          inversePatches: [],
-          descriptions: [],
-          domain: null,
-          actionTypes: new Set(),
-          timestamp: 0,
-          actionId: null,
-          isWizard: false
-        };
-        historyTimeout = null;
       }
 
       // Batch multiple rapid state changes into a single notification (Send to SaveCoordinator)
@@ -967,31 +1054,60 @@ const saveCoordinatorMiddleware = (config) => {
             coordinator.onStateChange(currentState, batchedContext);
           }
 
-          changeContext = { type: 'unknown' };
           batchedContext = { type: 'unknown' };
           pendingNotification = null;
         } catch (error) {
           console.warn('[GraphStore] SaveCoordinator notification failed:', error);
         }
       }, 0);
+
+      // Reset SYNCHRONOUSLY, not in the timer above. `pendingNotification` is
+      // cleared and rescheduled on every enhancedSet, so during any continuous
+      // burst of writes that reset never ran at all — and a context-less action
+      // silently inherited its neighbour's type, `ignore` and `finalize` flags.
+      // Multi-action gestures that relied on that leak now use
+      // withHistoryTransaction instead.
+      // Must be 'unknown', not {}: generateDescription's default branch calls
+      // type.replace() and throws on undefined.
+      changeContext = { type: 'unknown' };
     };
 
-    // Add change context setter to the store
-    const configWithContext = config(enhancedSet, get, {
-      ...api,
-      // Helper to set context for the next state change
-      setChangeContext: (context) => {
-        changeContext = { ...changeContext, ...context };
-      }
-    });
+    const setChangeContext = (context) => {
+      changeContext = { ...changeContext, ...context };
+    };
 
-    // Return config with context helper exposed
-    return {
-      ...configWithContext,
-      setChangeContext: (context) => {
-        changeContext = { ...changeContext, ...context };
+    /**
+     * Groups every store write inside `fn` into a single history entry.
+     *
+     * Replaces the 50ms debounce for multi-action gestures. The debounce cannot
+     * do this job: the batch is force-flushed whenever the domain changes,
+     * regardless of timing, so any gesture mixing a global action (creating a
+     * prototype) with a graph-scoped one (adding an edge) split mid-gesture no
+     * matter how fast it ran.
+     *
+     * @param {string} label - Description shown in the history panel.
+     * @param {function} fn - Synchronous function performing the writes.
+     */
+    const withHistoryTransaction = (label, fn, { domain = null } = {}) => {
+      flushHistoryBatch(); // close whatever was open
+      historyTxn = { id: uuidv4(), label, domain };
+      try {
+        const result = fn();
+        if (result && typeof result.then === 'function') {
+          console.error('[History] withHistoryTransaction requires a synchronous fn; async writes will not be grouped.');
+        }
+        return result;
+      } finally {
+        historyTxn = null;
+        flushHistoryBatch();
       }
     };
+
+    const historyApi = { setChangeContext, withHistoryTransaction, flushHistoryBatch };
+
+    const configWithContext = config(enhancedSet, get, { ...api, ...historyApi });
+
+    return { ...configWithContext, ...historyApi };
   };
 };
 
@@ -1016,6 +1132,36 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       clearInterval(cleanupTimer);
       cleanupTimer = null;
     }
+  };
+
+  /**
+   * `set` for writes that touch persisted state but are not document edits —
+   * opening a tab, expanding a graph, saving a node to the library.
+   *
+   * These roots (`openGraphIds`, `rightPanelTabs`, `expandedGraphIds`,
+   * `savedNodeIds`) are recorded, because deleting a graph or prototype cascades
+   * into them and undo has to put them back. So navigation has to say explicitly
+   * that it is not an edit; see NON_RECORDABLE_TYPES in historyPolicy.js.
+   *
+   * @param {string} type - A non-recordable change type.
+   * @param {*} updater - The value normally passed straight to `set`.
+   */
+  const navSet = (type, updater) => {
+    api.setChangeContext({ type });
+    return set(updater);
+  };
+
+  /**
+   * `set` that declares a change context inline, for actions written as a single
+   * `set(produce(...))` expression. Keeps them one expression instead of forcing
+   * a block body just to call setChangeContext first.
+   *
+   * @param {string|Object} context - A change type, or a full context object.
+   * @param {*} updater - The value normally passed straight to `set`.
+   */
+  const ctxSet = (context, updater) => {
+    api.setChangeContext(typeof context === 'string' ? { type: context } : context);
+    return set(updater);
   };
 
   // Start the timer initially
@@ -1655,6 +1801,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} graphId - ID of the graph to sweep.
      */
     cleanupOrphanedGroupAnchors: (graphId) => {
+      api.setChangeContext({ type: 'cleanup', graphId });
       set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
         if (!graph?.instances) return;
@@ -2788,7 +2935,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * and is excluded from cleanup. Intended for local Orbit index entries.
      */
     upsertProtectedPrototype: (prototypeData) => {
-      api.setChangeContext({ type: 'prototype_create', target: 'protected_prototype' });
+      // NOT 'prototype_create': orbitLocalIndex materializes the entire catalog
+      // through this in a loop at startup, which flooded history on every launch.
+      api.setChangeContext({ type: 'protected_prototype_upsert', target: 'protected_prototype' });
       let prototypeId = prototypeData.id;
       set(produce((draft) => {
         prototypeId = prototypeId || prototypeData.uri || uuidv4();
@@ -2937,7 +3086,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} primaryId - The prototype to merge INTO (survives).
      * @param {string} secondaryId - The prototype to merge FROM (deleted after merge).
      */
-    mergeNodePrototypes: (primaryId, secondaryId) => set(produce((draft) => {
+    mergeNodePrototypes: (primaryId, secondaryId) => ctxSet({ type: 'prototype_merge', primaryId, secondaryId }, produce((draft) => {
       const primary = draft.nodePrototypes.get(primaryId);
       const secondary = draft.nodePrototypes.get(secondaryId);
 
@@ -3180,7 +3329,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {boolean} [mergeOptions.keepPrimary] - For 'selective': retain primary's graphs.
      * @param {boolean} [mergeOptions.keepSecondary] - For 'selective': retain secondary's graphs.
      */
-    mergeDefinitionGraphs: (primaryId, secondaryId, mergeOptions = { strategy: 'combine' }) => set(produce((draft) => {
+    mergeDefinitionGraphs: (primaryId, secondaryId, mergeOptions = { strategy: 'combine' }) => ctxSet({ type: 'definition_merge', primaryId, secondaryId }, produce((draft) => {
       const primary = draft.nodePrototypes.get(primaryId);
       const secondary = draft.nodePrototypes.get(secondaryId);
 
@@ -3288,7 +3437,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} prototypeId - ID of the prototype to duplicate.
      * @returns {string} The new duplicate prototype's ID (via Immer return).
      */
-    duplicateNodePrototype: (prototypeId) => set(produce((draft) => {
+    duplicateNodePrototype: (prototypeId) => ctxSet({ type: 'prototype_duplicate', prototypeId }, produce((draft) => {
       const original = draft.nodePrototypes.get(prototypeId);
       if (!original) {
         console.error(`[duplicateNodePrototype] Node prototype ${prototypeId} not found`);
@@ -3567,7 +3716,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * Restores a soft-deleted instance from `pendingDeletions` back into its graph.
      * @param {string} instanceId - Instance ID in pendingDeletions.
      */
-    restoreNodeInstance: (instanceId) => set(produce((draft) => {
+    restoreNodeInstance: (instanceId) => ctxSet({ type: 'node_restore', instanceId }, produce((draft) => {
       const pendingDeletion = draft.pendingDeletions.get(instanceId);
       if (!pendingDeletion) {
         console.warn(`[restoreNodeInstance] No pending deletion found for instance ${instanceId}.`);
@@ -3603,7 +3752,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * Removes all soft-deleted instances whose grace period has elapsed.
      * Should be called periodically (e.g., on app focus or timer).
      */
-    cleanupExpiredDeletions: () => set(produce((draft) => {
+    cleanupExpiredDeletions: () => ctxSet('expired_deletion_cleanup', produce((draft) => {
       const now = Date.now();
       const expiredIds = [];
 
@@ -3651,9 +3800,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {string} prototypeId - ID of the prototype to update.
      * @param {function} recipe - Immer recipe: `(prototype) => { prototype.name = '...'; }`.
+     * @param {Object} [contextOptions] - Save/history context flags. Live-committing
+     *   editors (canvas title, colour picker) pass `coalesce` while editing and
+     *   `coalesceCommit`/`coalesceAbort` at the boundary, so a typing burst becomes
+     *   one history entry instead of one per keystroke.
      */
-    updateNodePrototype: (prototypeId, recipe) => {
-      api.setChangeContext({ type: 'prototype_update', target: 'prototype', prototypeId });
+    updateNodePrototype: (prototypeId, recipe, contextOptions = {}) => {
+      api.setChangeContext({ type: 'prototype_update', target: 'prototype', prototypeId, ...contextOptions });
       return set(produce((draft) => {
         const prototype = draft.nodePrototypes.get(prototypeId);
         if (prototype) {
@@ -3910,7 +4063,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} edgeId - ID of the edge to update.
      * @param {function} recipe - Immer recipe: `(edge) => { edge.name = '...'; }`.
      */
-    updateEdge: (edgeId, recipe) => set(produce((draft) => {
+    updateEdge: (edgeId, recipe, contextOptions = {}) => ctxSet({ type: 'edge_update', target: 'edge', edgeId, ...contextOptions }, produce((draft) => {
       const edge = draft.edges.get(edgeId);
       if (edge) {
         recipe(edge); // Apply the Immer updates
@@ -3981,7 +4134,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {Object} prototypeData - Edge prototype fields (id, name, color, description, etc.).
      */
-    addEdgePrototype: (prototypeData) => set(produce((draft) => {
+    addEdgePrototype: (prototypeData) => ctxSet('edge_prototype_create', produce((draft) => {
       const prototypeId = prototypeData.id || uuidv4();
       if (!draft.edgePrototypes.has(prototypeId)) {
         draft.edgePrototypes.set(prototypeId, { ...prototypeData, id: prototypeId });
@@ -3995,7 +4148,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} prototypeId - ID of the edge prototype to update.
      * @param {function} recipe - Immer recipe applied to the edge prototype.
      */
-    updateEdgePrototype: (prototypeId, recipe) => set(produce((draft) => {
+    updateEdgePrototype: (prototypeId, recipe) => ctxSet({ type: 'edge_prototype_update', prototypeId }, produce((draft) => {
       const prototype = draft.edgePrototypes.get(prototypeId);
       if (prototype) {
         const originalTypeNodeId = prototype.typeNodeId;
@@ -4018,7 +4171,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} edgeId - ID of the edge to retype.
      * @param {string|null} typeNodeId - ID of the edge prototype to use as type, or null.
      */
-    setEdgeType: (edgeId, typeNodeId) => set(produce((draft) => {
+    setEdgeType: (edgeId, typeNodeId) => ctxSet({ type: 'edge_type_change', edgeId, typeNodeId }, produce((draft) => {
       const edge = draft.edges.get(edgeId);
       if (!edge) {
         console.warn(`setEdgeType: Edge ${edgeId} not found.`);
@@ -4091,7 +4244,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} graphId - ID of the graph to open.
      * @param {string|null} [definitionNodeId=null] - Prototype ID to track as the active definition context.
      */
-    openGraphTab: (graphId, definitionNodeId = null) => set(produce((draft) => {
+    openGraphTab: (graphId, definitionNodeId = null) => navSet('tab_open', produce((draft) => {
       console.log(`[Store openGraphTab] Called with graphId: ${graphId}, definitionNodeId: ${definitionNodeId}`);
       if (draft.graphs.has(graphId)) { // Ensure graph exists
         // Add to open list if not already there (add to TOP of list)
@@ -4131,7 +4284,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {string} graphId - ID of the graph tab to close.
      */
-    closeGraphTab: (graphId) => set(produce((draft) => {
+    closeGraphTab: (graphId) => navSet('tab_close', produce((draft) => {
       draft.openGraphIds = draft.openGraphIds.filter(id => id !== graphId);
       if (draft.activeGraphId === graphId) {
         draft.activeGraphId = draft.openGraphIds.length > 0 ? draft.openGraphIds[0] : null;
@@ -4144,7 +4297,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {string|null} graphId - ID of the graph to activate.
      */
-    setActiveGraphTab: (graphId) => set(produce((draft) => {
+    setActiveGraphTab: (graphId) => navSet('active_graph_change', produce((draft) => {
       if (graphId === null) {
         draft.activeGraphId = null;
         return;
@@ -4529,6 +4682,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      */
     createNewGraph: (initialData = {}) => {
       const newGraphId = initialData.id || uuidv4(); // Use provided ID if available
+      api.setChangeContext({ type: 'graph_create', graphId: newGraphId, graphName: initialData.name || 'New Thing' });
       set(produce((draft) => {
         console.log('[Store createNewGraph] Creating new empty graph with ID:', newGraphId);
         const newGraphName = initialData.name || "New Thing";
@@ -4593,7 +4747,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} graphId - Specific UUID to use for the new graph.
      * @param {Object} [initialData] - Same shape as `createNewGraph` initial data.
      */
-    createGraphWithId: (graphId, initialData = {}) => set(produce((draft) => {
+    createGraphWithId: (graphId, initialData = {}) => ctxSet({ type: 'graph_create', graphId }, produce((draft) => {
       if (!graphId) return;
       if (draft.graphs.has(graphId)) return;
       const name = initialData.name || 'New Graph';
@@ -4639,6 +4793,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      */
     repairGraphLinkages: () => {
       console.log('[Repair Tool] Starting bidirectional link repair...');
+      api.setChangeContext({ type: 'graph_linkage_repair' });
       set(produce((draft) => {
         let repairCount = 0;
 
@@ -4687,6 +4842,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      */
     createAndAssignGraphDefinition: (prototypeId) => {
       let newGraphId = null;
+      api.setChangeContext({ type: 'definition_create', prototypeId });
       set(produce((draft) => {
         newGraphId = _createAndAssignGraphDefinition(draft, prototypeId);
         if (!newGraphId) return;
@@ -4717,6 +4873,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      */
     createAndAssignGraphDefinitionWithoutActivation: (prototypeId) => {
       let newGraphId = null;
+      api.setChangeContext({ type: 'definition_create', prototypeId });
       set(produce((draft) => {
         newGraphId = _createAndAssignGraphDefinition(draft, prototypeId);
         if (!newGraphId) return;
@@ -4737,6 +4894,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} prototypeId - Prototype that will own this definition graph.
      */
     createDefinitionGraphWithId: (graphId, prototypeId) => {
+      api.setChangeContext({ type: 'definition_create', prototypeId, graphId });
       set(produce((draft) => {
         const prototype = draft.nodePrototypes.get(prototypeId);
         if (!prototype) {
@@ -5025,7 +5183,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} nodeId - Prototype ID to open in the panel.
      * @param {string} [nodeNameFallback='Node Details'] - Tab title fallback if prototype name is absent.
      */
-    openRightPanelNodeTab: (nodeId, nodeNameFallback = 'Node Details') => set(produce((draft) => {
+    openRightPanelNodeTab: (nodeId, nodeNameFallback = 'Node Details') => navSet('tab_open', produce((draft) => {
       // Find prototype data to get the title
       const prototypeData = draft.nodePrototypes.get(nodeId);
       if (!prototypeData) {
@@ -5066,7 +5224,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {number} index - Index into `rightPanelTabs`.
      */
-    activateRightPanelTab: (index) => set(produce((draft) => {
+    activateRightPanelTab: (index) => navSet('tab_activate', produce((draft) => {
       if (index < 0 || index >= draft.rightPanelTabs.length) {
         console.warn(`activateRightPanelTab: Tab index ${index} out of bounds.`);
         return;
@@ -5083,7 +5241,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {string} nodeIdToClose - Prototype ID of the tab to close.
      */
-    closeRightPanelTab: (nodeIdToClose) => set(produce((draft) => {
+    closeRightPanelTab: (nodeIdToClose) => navSet('tab_close', produce((draft) => {
       // Find the index of the tab with the matching nodeId
       const index = draft.rightPanelTabs.findIndex(tab => tab.nodeId === nodeIdToClose);
 
@@ -5111,7 +5269,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {number} dragIndex - Source position (0-based, excluding home tab).
      * @param {number} hoverIndex - Target position (0-based, excluding home tab).
      */
-    moveRightPanelTab: (dragIndex, hoverIndex) => set(produce((draft) => {
+    moveRightPanelTab: (dragIndex, hoverIndex) => navSet('tab_move', produce((draft) => {
       // Convert to absolute indices (drag and hover are 0-based from the UI but we need to add 1 for the home tab)
       const sourceDragIndex = dragIndex + 1;
       const sourceHoverIndex = hoverIndex + 1;
@@ -5134,7 +5292,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {string} graphId - ID of the graph to close.
      */
-    closeGraph: (graphId) => set(produce((draft) => {
+    closeGraph: (graphId) => navSet('tab_close', produce((draft) => {
       console.log(`[Store closeGraph] Called with graphId: ${graphId}`);
       const index = draft.openGraphIds.indexOf(graphId);
       if (index === -1) {
@@ -5187,7 +5345,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * Toggles whether a graph node is expanded in the "Open Things" left panel list.
      * @param {string} graphId
      */
-    toggleGraphExpanded: (graphId) => set(produce((draft) => {
+    toggleGraphExpanded: (graphId) => navSet('graph_expand_toggle', produce((draft) => {
       console.log(`[Store toggleGraphExpanded] Called for ${graphId}. Current state:`, new Set(draft.expandedGraphIds)); // <<< Log entry
       if (draft.expandedGraphIds.has(graphId)) {
         draft.expandedGraphIds.delete(graphId);
@@ -5206,7 +5364,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {string} nodeId - Prototype ID to pin/unpin.
      */
-    toggleSavedNode: (nodeId) => set(produce((draft) => {
+    toggleSavedNode: (nodeId) => navSet('saved_toggle', produce((draft) => {
       const wasRemoved = draft.savedNodeIds.has(nodeId);
       if (wasRemoved) {
         draft.savedNodeIds.delete(nodeId);
@@ -5235,7 +5393,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {string} graphId - ID of the graph to bookmark/unbookmark.
      */
-    toggleSavedGraph: (graphId) => set(produce((draft) => {
+    toggleSavedGraph: (graphId) => navSet('saved_toggle', produce((draft) => {
       const graph = draft.graphs.get(graphId);
       if (!graph) {
         console.warn(`[Store toggleSavedGraph] Graph ${graphId} not found.`);
@@ -6187,7 +6345,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} nodeId - Prototype to remove the definition from.
      * @param {string} graphId - Definition graph to remove.
      */
-    removeDefinitionFromNode: (nodeId, graphId) => set(produce((draft) => {
+    removeDefinitionFromNode: (nodeId, graphId) => ctxSet({ type: 'definition_remove', nodeId, graphId }, produce((draft) => {
       const node = draft.nodePrototypes.get(nodeId);
       if (!node) {
         console.warn(`[Store removeDefinitionFromNode] Node prototype ${nodeId} not found.`);
@@ -6256,7 +6414,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} graphId - Graph to open/bring to front.
      * @param {string|null} [definitionNodeId=null] - Prototype to set as active definition context.
      */
-    openGraphTabAndBringToTop: (graphId, definitionNodeId = null) => set(produce((draft) => {
+    openGraphTabAndBringToTop: (graphId, definitionNodeId = null) => navSet('tab_open', produce((draft) => {
       console.log(`[Store openGraphTabAndBringToTop] Called with graphId: ${graphId}, definitionNodeId: ${definitionNodeId}`);
       if (!draft.graphs.has(graphId)) {
         console.warn(`[Store openGraphTabAndBringToTop] Graph ${graphId} not found.`);
@@ -6306,7 +6464,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * prototype was deleted, and removes edges referencing missing instances.
      * Called automatically 100ms after `toggleSavedNode` and `closeGraph`.
      */
-    cleanupOrphanedData: () => set(produce((draft) => {
+    cleanupOrphanedData: () => ctxSet('orphan_cleanup', produce((draft) => {
       console.log('[Store cleanupOrphanedData] Starting cleanup of orphaned data...');
 
       // UI reference hygiene before deeper cleanup
@@ -6817,6 +6975,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
 
         // Mark this as a load operation so SaveCoordinator doesn't treat it as a new edit
+        // The incoming universe has entirely different IDs, so every patch on
+        // the stack now points at state that no longer exists. Without this,
+        // Cmd+Z after switching universes replays against dead IDs.
+        useHistoryStore.getState().clearHistory();
         api.setChangeContext({ type: 'load' });
 
         set({
@@ -6870,7 +7032,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} newNodeId - Prototype ID of the node to insert into the chain.
      * @param {string|null} insertRelativeToNodeId - Existing chain member to insert relative to.
      */
-    addToAbstractionChain: (nodeId, dimension, direction, newNodeId, insertRelativeToNodeId) => set(produce((draft) => {
+    addToAbstractionChain: (nodeId, dimension, direction, newNodeId, insertRelativeToNodeId) => ctxSet({ type: 'abstraction_add', nodeId, dimension, direction, newNodeId }, produce((draft) => {
       console.log(`[Store] addToAbstractionChain called with:`, {
         nodeId,
         dimension,
@@ -6969,7 +7131,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} dimension - The abstraction dimension.
      * @param {string} nodeToRemove - Prototype ID of the node to remove from the chain.
      */
-    removeFromAbstractionChain: (nodeId, dimension, nodeToRemove) => set(produce((draft) => {
+    removeFromAbstractionChain: (nodeId, dimension, nodeToRemove) => ctxSet({ type: 'abstraction_remove', nodeId, dimension, nodeToRemove }, produce((draft) => {
       const node = draft.nodePrototypes.get(nodeId);
       if (!node?.abstractionChains?.[dimension]) return;
 
@@ -6995,7 +7157,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     /** Resets all store state to the empty default. Used to start a new universe. */
-    clearUniverse: () => set(() => ({
+    clearUniverse: () => {
+      useHistoryStore.getState().clearHistory();
+      api.setChangeContext({ type: 'clear-universe' });
+      return set(() => ({
       graphs: new Map(),
       nodePrototypes: new Map(),
       edges: new Map(),
@@ -7008,11 +7173,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       expandedGraphIds: new Set(),
       savedNodeIds: new Set(),
       savedGraphIds: new Set(),
-      isUniverseLoaded: false,
-      isUniverseLoading: false,
-      universeLoadingError: null,
-      hasUniverseFile: false,
-    })),
+        isUniverseLoaded: false,
+        isUniverseLoading: false,
+        universeLoadingError: null,
+        hasUniverseFile: false,
+      }));
+    },
 
     /** Marks the universe as connected to a file (hasUniverseFile). @param {boolean} [hasFile=true] */
     setUniverseConnected: (hasFile = true) => set(state => ({
@@ -7102,7 +7268,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {string} prototypeId - ID of the prototype to delete.
      */
-    deleteNodePrototype: (prototypeId) => set(produce((draft) => {
+    // Name is snapshotted into the context because generateDescription runs
+    // AFTER the mutation — by then the prototype is gone and the entry would
+    // read "Deleted type" with no indication of which one.
+    deleteNodePrototype: (prototypeId) => ctxSet(
+      { type: 'prototype_delete', prototypeId, prototypeName: get().nodePrototypes.get(prototypeId)?.name },
+      produce((draft) => {
       console.log(`[Store deleteNodePrototype] Deleting prototype: ${prototypeId}`);
 
       // Check if this is the base "Thing" or "Connection" type - prevent deletion
@@ -7189,7 +7360,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {string} graphId - ID of the graph to delete.
      */
-    deleteGraph: (graphId) => set(produce((draft) => {
+    deleteGraph: (graphId) => ctxSet(
+      { type: 'graph_delete', graphId, graphName: get().graphs.get(graphId)?.name },
+      produce((draft) => {
       console.log(`[Store deleteGraph] Deleting graph: ${graphId}`);
 
       const graph = draft.graphs.get(graphId);
@@ -7236,7 +7409,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * Removes graphs that are no longer referenced by any prototype's `definitionGraphIds`.
      * Also deletes all edges belonging to each orphaned graph.
      */
-    cleanupOrphanedGraphs: () => set(produce((draft) => {
+    cleanupOrphanedGraphs: () => ctxSet('orphan_cleanup', produce((draft) => {
       console.log('[Store cleanupOrphanedGraphs] Starting cleanup...');
 
       const orphanedGraphs = [];
@@ -7292,12 +7465,30 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // ─── HISTORY & UNDO/REDO ─────────────────────────────────────────────────────
 
     /**
-     * Applies Immer inverse patches to revert or redo a state change.
+     * Applies Immer patches to revert (undo) or reapply (redo) a state change.
      * Used by the history store's undo/redo system.
+     *
+     * Declares `type: 'undo'` for two reasons: it must never re-enter history,
+     * and without an explicit type the write ran under whatever context had
+     * leaked — so undoing a large change tripped the data-collapse tripwire and
+     * SaveCoordinator's shrinkage guard, surfacing "Save blocked: data shrank
+     * unexpectedly". To the user that reads as data loss.
      *
      * @param {import('immer').Patch[]} patches - Immer patches to apply.
      */
-    applyPatches: (patches) => set((state) => applyPatches(state, patches)),
+    applyPatches: (patches) => {
+      api.setChangeContext({ type: 'undo', ignore: true });
+      return set((state) => applyPatches(state, patches));
+    },
+
+    /**
+     * Closes any open history batch. Called before undo/redo so a coalesced edit
+     * in progress (mid-rename, mid-colour-drag) is committed as its own entry
+     * first — otherwise it would flush *after* the rewind, carrying inverse
+     * patches generated against state that no longer exists, and its truncation
+     * would clobber the redo just created.
+     */
+    flushHistory: () => { api.flushHistoryBatch?.(); },
 
     // ─── WIZARD / AGENT STATE ─────────────────────────────────────────────────────
 
@@ -7325,6 +7516,28 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     }),
 
     /**
+     * Merges metadata into many prototypes at once (auto-enrichment).
+     *
+     * Exists because the caller previously used raw `useGraphStore.setState`,
+     * which bypasses this middleware entirely — so the write produced no patches,
+     * never notified SaveCoordinator, and skipped the data-collapse tripwire. It
+     * only reached disk when some later unrelated edit happened to trigger a
+     * save. That was a durability bug, not just a missing undo entry.
+     *
+     * @param {Array<{protoId: string, updates: Object}>} entries
+     */
+    applyPrototypeMetadataBatch: (entries) => {
+      if (!Array.isArray(entries) || entries.length === 0) return;
+      api.setChangeContext({ type: 'enrichment_bulk', count: entries.length });
+      return set(produce((draft) => {
+        for (const { protoId, updates } of entries) {
+          const existing = draft.nodePrototypes.get(protoId);
+          if (existing) Object.assign(existing, updates);
+        }
+      }));
+    },
+
+    /**
      * Reverts a specific wizard-authored action by applying its inverse Immer patches.
      * Records the revert itself as a history entry.
      *
@@ -7341,12 +7554,25 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
       console.log(`[GraphStore] Reverting Wizard Action: ${action.description}`);
 
-      // Push a dedicated history event for reverting
-      api.setChangeContext({ type: 'wizard_revert', target: 'graph', isWizard: true, actionId: `${actionId}_revert` });
-
-      set((state) => {
-        return applyPatches(state, action.inversePatches);
+      // Push a dedicated history event for reverting.
+      // This must go through the shadowed `produce` (which feeds patchListener),
+      // not immer's raw applyPatches — using the raw one meant no patches were
+      // ever captured, so the revert was invisible to history and itself
+      // un-undoable, despite the comment above claiming otherwise.
+      api.setChangeContext({
+        type: 'wizard_revert',
+        target: 'graph',
+        isWizard: true,
+        actionId: `${actionId}_revert`,
+        historyLabel: `Reverted: ${action.description}`
       });
+
+      set(produce((draft) => {
+        const reverted = applyPatches(draft, action.inversePatches);
+        // applyPatches on a draft mutates in place and returns it; assigning the
+        // recognised roots back keeps the draft the single source of patches.
+        if (reverted !== draft) Object.assign(draft, reverted);
+      }));
     },
 
   }; // End of returned state and actions object

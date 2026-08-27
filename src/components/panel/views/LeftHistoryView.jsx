@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import useHistoryStore from '../../../store/historyStore.js';
 import useGraphStore from '../../../store/graphStore.js';
+import { performJumpTo } from '../../../store/historyActions.js';
 import { generateDescription } from '../../../utils/actionDescriptions.js';
 import { Clock, Globe, Filter, LayoutGrid } from 'lucide-react';
 import './LeftHistoryView.css';
@@ -9,7 +10,6 @@ const LeftHistoryView = () => {
     const history = useHistoryStore(state => state.history);
     const currentIndex = useHistoryStore(state => state.currentIndex);
     const activeGraphId = useGraphStore(state => state.activeGraphId);
-    const applyPatches = useGraphStore(state => state.applyPatches);
     const [filter, setFilter] = useState('all'); // 'all', 'graph', 'global'
 
     const effectiveIndex = history.length + currentIndex;
@@ -28,15 +28,9 @@ const LeftHistoryView = () => {
         return reversed;
     }, [history, filter, activeGraphId]);
 
-    const handleJumpTo = (index) => {
-        // Get jumpTo directly from store to ensure we have the latest function reference
-        const jumpTo = useHistoryStore.getState().jumpTo;
-        if (typeof jumpTo === 'function') {
-            jumpTo(index, applyPatches);
-        } else {
-            console.error('[LeftHistoryView] jumpTo is not a function:', jumpTo);
-        }
-    };
+    // performJumpTo also closes any in-progress coalesced edit and brings the
+    // target entry's graph into view before rewinding to it.
+    const handleJumpTo = (index) => performJumpTo(index);
 
     return (
         <div className="left-history-view">

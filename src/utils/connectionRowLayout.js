@@ -44,11 +44,15 @@ export const PANEL_RENDERER_PADDING = 10;
 const CONTROL_PANEL_SPAN = { min: 0.3, max: 0.52 };
 const PANEL_LIST_SPAN = { min: 0.5, max: 0.62 };
 const MIN_SPAN_PX = 72;
-// How far past the floor a box may grow before its name is truncated. The
-// control panel can afford a genuinely long name (~2.2× the floor is still a
-// third of its row); the narrow column can't, and clips sooner.
+// How far past the floor a box may grow before its name is truncated. This is a
+// guard against the pathological box (getNodeDimensions will go to 420px for one
+// name, and two of those drag the whole drawing's text down with them) — not the
+// thing that sets the row's proportions, which the span reservation above
+// already handles. So it sits high enough to let an ordinary two-word name
+// through whole and only clip the genuinely long ones. The panel's is the larger
+// multiple because its floor is the smaller box (110 vs 130).
 const CONTROL_PANEL_NODE_BOX_RATIO = 2.2;
-const PANEL_LIST_NODE_BOX_RATIO = 2.0;
+const PANEL_LIST_NODE_BOX_RATIO = 2.8;
 // Below this the label stops being worth reading, so clip the text instead of
 // shrinking it further.
 const MIN_LABEL_FONT_PX = 13;

@@ -1369,7 +1369,9 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
             const canonMerged = new Set((updates.externalLinks || []).map(canonicalizeLink));
             links.forEach(l => canonMerged.add(canonicalizeLink(l)));
             updates.externalLinks = Array.from(canonMerged);
-            onUpdate(updates);
+            // Background enrichment, not a user edit — and it fires on name
+            // change, so without this it lands inside a rename in progress.
+            onUpdate(updates, { ignore: true });
             setAutoApplied(prev => [{ field: 'externalLinks', prev: null, next: 'applied', sourceMode: oneStrongSource ? 'single' : 'multi', confidence: conf, sourcesFound, ts: Date.now() }, ...prev].slice(0, 5));
           }
         } else {

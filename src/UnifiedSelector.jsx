@@ -142,6 +142,39 @@ const UnifiedSelector = ({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isVisible, mode, onClose, handleSubmit]);
 
+  /**
+   * While any selector is open, Backspace/Delete must never reach the canvas.
+   *
+   * The name field is deliberately not autofocused, so a Backspace aimed at the
+   * text lands on document.body instead, bubbles to the window listener in
+   * useCanvasKeyboard, and deletes whatever node is still selected underneath —
+   * most visibly the node whose abstraction carousel opened this dialog. Every
+   * caller would otherwise need its own prompt flag threaded into that hook's
+   * isInputActive check; owning it here covers all of them at once.
+   *
+   * Capture on window fires ahead of every bubble-phase listener, and
+   * stopImmediatePropagation covers the other window-capture listeners too.
+   * Editable targets are passed through untouched so typing still erases text.
+   */
+  useEffect(() => {
+    if (!isVisible) return;
+    const swallowDestructiveKeys = (e) => {
+      if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+      const t = e.target;
+      const isEditableTarget = t && (
+        t.tagName === 'INPUT' ||
+        t.tagName === 'TEXTAREA' ||
+        t.isContentEditable === true
+      );
+      if (isEditableTarget) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+    };
+    window.addEventListener('keydown', swallowDestructiveKeys, true);
+    return () => window.removeEventListener('keydown', swallowDestructiveKeys, true);
+  }, [isVisible]);
+
   // Add wheel event listener to the scroll container
   useEffect(() => {
     const container = scrollContainerRef.current;

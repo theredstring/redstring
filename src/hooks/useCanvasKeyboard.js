@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import useGraphStore from '../store/graphStore.js';
-import useHistoryStore from '../store/historyStore';
+import { performUndo, performRedo } from '../store/historyActions.js';
 import { copySelection, pasteClipboard } from '../utils/clipboard';
 import { getNodeDimensions } from '../utils';
 import { NODE_DEFAULT_COLOR } from '../constants'; // Assumed constant exists
@@ -116,24 +116,34 @@ export const useCanvasKeyboard = ({
     // 1. Global Undo/Redo Shortcuts
     // ---------------------------------------------------------------------------
     useEffect(() => {
+        // Typing in a field must get the browser's own text undo. This handler
+        // used to preventDefault on every Cmd+Z, which killed native undo inside
+        // node name and description editors.
+        const isTextEntryTarget = (target) => !!target && (
+            target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.isContentEditable === true
+        );
+
         const handleKeyDown = (e) => {
-            // Check for Ctrl+Z or Cmd+Z
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-                const isRedo = e.shiftKey;
+            const key = e.key.toLowerCase();
+            const cmdOrCtrl = e.ctrlKey || e.metaKey;
+            if (!cmdOrCtrl) return;
 
-                // Prevent default browser undo/redo
-                e.preventDefault();
-                e.stopPropagation();
+            // Cmd+Y is the other conventional redo; it was documented but never wired.
+            const isUndoKey = key === 'z' && !e.shiftKey;
+            const isRedoKey = (key === 'z' && e.shiftKey) || key === 'y';
+            if (!isUndoKey && !isRedoKey) return;
 
-                const { undo, redo, canUndo, canRedo } = useHistoryStore.getState();
-                const { applyPatches } = useGraphStore.getState();
+            if (isTextEntryTarget(e.target)) return;
 
-                if (isRedo) {
-                    if (canRedo()) redo(applyPatches);
-                } else {
-                    if (canUndo()) undo(applyPatches);
-                }
-            }
+            e.preventDefault();
+            e.stopPropagation();
+
+            // performUndo/performRedo also flush any in-progress coalesced edit
+            // and navigate to the graph the change belongs to.
+            if (isRedoKey) performRedo();
+            else performUndo();
         };
 
         window.addEventListener('keydown', handleKeyDown);

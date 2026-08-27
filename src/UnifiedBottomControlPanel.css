@@ -6,6 +6,12 @@
   z-index: 20001;
   pointer-events: auto;
   touch-action: manipulation;
+  /* An abspos box with `left` set and `width: auto` shrink-to-fits against
+     (containing block - left) = 50vw, not the max-width below. Between ~769px
+     and ~1000px that budget is narrower than the info row needs, so the panel
+     collapsed to its min-content and flex-wrap threw the nav chevrons onto
+     their own lines. max-content opts out; max-width stays the real bound. */
+  width: max-content;
   max-width: calc(100vw - 16px);
   box-sizing: border-box;
   min-width: 0;

@@ -290,17 +290,14 @@ async function runEnrichment(nodeNames, { overwriteDescription = false } = {}) {
 
   // Apply all metadata in one shot (descriptions, links, Wikipedia URLs)
   console.log(`[Auto-Enrich] 💾 Applying ${pendingUpdates.length} metadata updates`);
-  useGraphStore.setState((state) => {
-    const nextPrototypes = new Map(state.nodePrototypes);
-    for (const { protoId, updates, nodeName } of pendingUpdates) {
-      const existing = nextPrototypes.get(protoId);
-      if (existing) {
-        nextPrototypes.set(protoId, { ...existing, ...updates });
-        console.log(`[Auto-Enrich] ✅ "${nodeName}" metadata applied`);
-      }
-    }
-    return { nodePrototypes: nextPrototypes };
-  });
+  // Goes through a real store action rather than raw setState: the raw setter
+  // bypasses the store middleware, so these writes produced no patches, never
+  // notified SaveCoordinator, and only reached disk when some later unrelated
+  // edit happened to trigger a save.
+  useGraphStore.getState().applyPrototypeMetadataBatch(pendingUpdates);
+  for (const { nodeName } of pendingUpdates) {
+    console.log(`[Auto-Enrich] ✅ "${nodeName}" metadata applied`);
+  }
 
   // ── Phase 3: Queue thumbnail fetches (blob URLs for SVG rendering) ──
   console.log(`[Auto-Enrich] 🖼️ Queuing ${imageJobs.length} thumbnail fetches`);

@@ -1590,12 +1590,14 @@ const Panel = memo(forwardRef(
           // Clear the auto-enriched flag: this is now a USER image, so the save
           // system must persist it in-file rather than stripping it as a
           // re-fetchable Wikipedia thumbnail.
+          // Not recorded: the patch and its inverse would each carry a full
+          // base64 data URL, pinning megabytes per entry in a 500-entry ring.
           storeActions.updateNodePrototype(nodeId, draft => {
             Object.assign(draft, { imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
             if (draft.semanticMetadata?.autoEnriched) {
               draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
             }
-          });
+          }, { type: 'prototype_image' });
         } catch (error) {
           console.error('Image add failed:', error);
           alert(error?.message || 'Could not add this image.');
@@ -1651,13 +1653,17 @@ const Panel = memo(forwardRef(
     };
 
     // Handle color picker change
+    // Sliders fire continuously; coalesce the whole picker session into one
+    // history entry, committed by onColorCommit when the picker closes.
     const handleColorChange = (newColor) => {
       if (colorPickerNodeId && storeActions?.updateNodePrototype) {
         storeActions.updateNodePrototype(colorPickerNodeId, draft => {
           draft.color = newColor;
-        });
+        }, { coalesce: `node-color:${colorPickerNodeId}` });
       }
     };
+
+    const handleColorCommit = () => storeActions?.flushHistory?.();
 
     // Handle opening color picker with toggle behavior
     const handleOpenColorPicker = (nodeId, iconElement, event) => {
@@ -2251,6 +2257,7 @@ const Panel = memo(forwardRef(
           isVisible={colorPickerVisible}
           onClose={handleCloseColorPicker}
           onColorChange={handleColorChange}
+          onColorCommit={handleColorCommit}
           currentColor={colorPickerNodeId ? nodePrototypesMap.get(colorPickerNodeId)?.color || theme.accent.primary : theme.accent.primary}
           position={colorPickerPosition}
           direction="down-left"

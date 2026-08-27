@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { applyPatches } from 'immer';
+import { patchSignature } from './historyPolicy.js';
 
 /**
  * History store for managing undo/redo stack.
@@ -28,8 +28,11 @@ const useHistoryStore = create((set, get) => ({
             const isRecent = (Date.now() - lastAction.timestamp) < 500; // Within 500ms
 
             if (isSameType && isSameDesc && isRecent) {
-                // deep check patches
-                const isSamePatches = JSON.stringify(lastAction.patches) === JSON.stringify(entry.patches);
+                // Structural comparison, not JSON.stringify: immer renders Map and
+                // Set values as `{}`, so two graph-creates with the same generated
+                // name compared equal and the second was silently dropped. It was
+                // also stringifying megabytes of base64 on the per-keystroke path.
+                const isSamePatches = patchSignature(lastAction.patches) === patchSignature(entry.patches);
                 if (isSamePatches) {
                     console.warn('[History] Duplicate action ignored:', entry.description);
                     return state; // No change
@@ -66,6 +69,30 @@ const useHistoryStore = create((set, get) => ({
         return history.filter(h => h.domain === domain);
     },
 
+    /**
+     * Applies patches and reports whether it worked.
+     *
+     * Immer's applyPatches throws "Cannot apply patch, path doesn't resolve"
+     * when an intermediate path segment is missing — reachable whenever state was
+     * mutated outside the patch-capturing path. Previously nothing caught it and
+     * `currentIndex` only advanced after applyFn returned, so a single bad entry
+     * made every subsequent undo re-throw on it: undo was wedged permanently.
+     * Now the bad entry is stepped over instead.
+     */
+    _tryApply: (applyFn, patches, entry) => {
+        try {
+            applyFn(patches);
+            return true;
+        } catch (error) {
+            console.error(
+                `[History] Could not apply "${entry?.description || 'action'}" — skipping it. ` +
+                `State it referenced no longer exists.`,
+                error
+            );
+            return false;
+        }
+    },
+
     // Undo action (generic)
     // The application logic needs to pass a callback to apply the patches to the correct store
     undo: (applyFn) => {
@@ -91,7 +118,9 @@ const useHistoryStore = create((set, get) => ({
         console.log(`[History] Undoing: ${entry.description}`);
 
         // callback to apply patches to the relevant store (graphStore)
-        applyFn(entry.inversePatches);
+        // Advance past the entry either way — on failure we step over it rather
+        // than retrying it forever on every subsequent Cmd+Z.
+        get()._tryApply(applyFn, entry.inversePatches, entry);
 
         set({ currentIndex: currentIndex - 1 });
     },
@@ -120,7 +149,7 @@ const useHistoryStore = create((set, get) => ({
 
         console.log(`[History] Redoing: ${entry.description}`);
 
-        applyFn(entry.patches);
+        get()._tryApply(applyFn, entry.patches, entry);
 
         set({ currentIndex: currentIndex + 1 });
     },
@@ -132,7 +161,9 @@ const useHistoryStore = create((set, get) => ({
 
         if (targetIndex === currentEffective) return;
 
-        const maxSteps = 100;
+        // Was 100 while maxHistorySize is 500 — the history panel lets you click
+        // any entry, so a deep jump stopped partway and stranded currentIndex.
+        const maxSteps = get().maxHistorySize;
         let steps = 0;
 
         // Note: We use get().currentIndex in loop because standard closure 'currentIndex' won't update

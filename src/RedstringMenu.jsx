@@ -7,6 +7,7 @@ import * as fileStorage from './store/fileStorage.js';
 import { debugConfig } from './utils/debugConfig.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import useHistoryStore from './store/historyStore.js';
+import { performUndo, performRedo } from './store/historyActions.js';
 import useGraphStore from './store/graphStore.js';
 
 const RedstringMenu = ({
@@ -67,6 +68,11 @@ const RedstringMenu = ({
   onSnapToGrid,
   onCondenseNodes
 }) => {
+  // Subscribed, not read via getState() during render — otherwise the greyed-out
+  // state of Undo/Redo never refreshes as history changes.
+  const canUndo = useHistoryStore(s => s.history.length + s.currentIndex >= 0);
+  const canRedo = useHistoryStore(s => s.currentIndex < -1);
+
   const [isExiting, setIsExiting] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   const [showDebugOption, setShowDebugOption] = useState(false);
@@ -430,12 +436,8 @@ const RedstringMenu = ({
                       >
                         <div
                           className="submenu-item"
-                          onClick={() => {
-                            const { undo, canUndo } = useHistoryStore.getState();
-                            const applyPatches = useGraphStore.getState().applyPatches;
-                            if (canUndo()) undo(applyPatches);
-                          }}
-                          style={{ cursor: 'pointer', opacity: useHistoryStore.getState().canUndo() ? 1 : 0.5 }}
+                          onClick={() => performUndo()}
+                          style={{ cursor: 'pointer', opacity: canUndo ? 1 : 0.5 }}
                         >
                           <Undo2 size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
@@ -445,12 +447,8 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
-                          onClick={() => {
-                            const { redo, canRedo } = useHistoryStore.getState();
-                            const applyPatches = useGraphStore.getState().applyPatches;
-                            if (canRedo()) redo(applyPatches);
-                          }}
-                          style={{ cursor: 'pointer', opacity: useHistoryStore.getState().canRedo() ? 1 : 0.5 }}
+                          onClick={() => performRedo()}
+                          style={{ cursor: 'pointer', opacity: canRedo ? 1 : 0.5 }}
                         >
                           <Redo2 size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>

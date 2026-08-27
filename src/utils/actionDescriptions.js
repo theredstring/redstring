@@ -33,6 +33,20 @@ export function generateDescription(context, state) {
             break;
         }
 
+        case 'node_update':
+        case 'node_resize': {
+            const inst = state.graphs?.get(state.activeGraphId)?.instances?.get(context.instanceId);
+            const proto = inst ? state.nodePrototypes?.get(inst.prototypeId) : null;
+            desc = `Updated "${proto?.name || 'node'}"`;
+            break;
+        }
+        case 'node_retarget':
+            desc = `Swapped node`;
+            break;
+        case 'node_restore':
+            desc = `Restored node`;
+            break;
+
         // Edge Actions
         case 'edge_create':
             desc = `Connected "${sourceName}" → "${targetName}"`;
@@ -40,6 +54,36 @@ export function generateDescription(context, state) {
         case 'edge_delete':
             desc = `Deleted connection`;
             break;
+        case 'edge_update':
+            desc = `Updated connection`;
+            break;
+        case 'edge_type_change': {
+            const typeProto = context.typeNodeId ? state.nodePrototypes?.get(context.typeNodeId) : null;
+            desc = `Changed connection type to "${typeProto?.name || 'Connection'}"`;
+            break;
+        }
+        case 'edge_prototype_create':
+            desc = `Created connection type`;
+            break;
+        case 'edge_prototype_update': {
+            const edgeProto = state.edgePrototypes?.get(context.prototypeId);
+            desc = `Updated connection type "${edgeProto?.name || 'Connection'}"`;
+            break;
+        }
+
+        // Abstraction chain (the carousel's Is-a axis)
+        case 'abstraction_add': {
+            const added = state.nodePrototypes?.get(context.newNodeId);
+            const owner = state.nodePrototypes?.get(context.nodeId);
+            const where = context.direction === 'above' ? 'above' : 'below';
+            desc = `Added "${added?.name || 'node'}" ${where} "${owner?.name || 'node'}"`;
+            break;
+        }
+        case 'abstraction_remove': {
+            const removed = state.nodePrototypes?.get(context.nodeToRemove);
+            desc = `Removed "${removed?.name || 'node'}" from abstraction chain`;
+            break;
+        }
 
         // Group Actions
         case 'group_create':
@@ -67,6 +111,18 @@ export function generateDescription(context, state) {
             break;
         case 'group_combine':
             desc = `Combined into group`;
+            break;
+        case 'group_decompose':
+        case 'group_decompose_empty': {
+            const proto = state.nodePrototypes?.get(context.prototypeId);
+            desc = `Decomposed "${proto?.name || 'node'}"`;
+            break;
+        }
+        case 'group_update_definition':
+            desc = `Updated definition from group`;
+            break;
+        case 'group_refresh_from_definition':
+            desc = `Refreshed group from definition`;
             break;
 
         // Position updates (usually bulk)
@@ -122,8 +178,39 @@ export function generateDescription(context, state) {
             desc = `Updated "${proto?.name || prototypeName || 'Type'}"`;
             break;
         }
+        // Names for deletions come from the context, not from state: this runs
+        // AFTER the mutation, so the thing being described is already gone.
         case 'prototype_delete':
-            desc = `Deleted type`;
+            desc = `Deleted "${context.prototypeName || 'type'}"`;
+            break;
+        case 'prototype_duplicate': {
+            const proto = state.nodePrototypes?.get(prototypeId);
+            desc = `Duplicated "${proto?.name?.replace(/ \(Copy\)$/, '') || 'type'}"`;
+            break;
+        }
+        case 'prototype_merge': {
+            const primary = state.nodePrototypes?.get(context.primaryId);
+            desc = `Merged into "${primary?.name || 'type'}"`;
+            break;
+        }
+        case 'definition_merge':
+            desc = `Merged definitions`;
+            break;
+        case 'definition_create': {
+            const proto = state.nodePrototypes?.get(prototypeId);
+            desc = `Created definition for "${proto?.name || 'node'}"`;
+            break;
+        }
+        case 'definition_remove': {
+            const proto = state.nodePrototypes?.get(context.nodeId);
+            desc = `Removed definition from "${proto?.name || 'node'}"`;
+            break;
+        }
+        case 'concept_create':
+            desc = `Created "${context.conceptName || prototypeName || 'concept'}"`;
+            break;
+        case 'enrichment_bulk':
+            desc = `Enriched ${context.count || 'several'} nodes`;
             break;
 
         // Graph Actions (Global)
@@ -136,7 +223,7 @@ export function generateDescription(context, state) {
             break;
         }
         case 'graph_delete':
-            desc = `Deleted graph`;
+            desc = `Deleted graph "${context.graphName || 'Graph'}"`;
             break;
 
         // Catch-all

@@ -13,7 +13,11 @@ const ColorPicker = ({
   position = { x: 0, y: 0 },
   direction = 'down-left', // 'down-left' or 'down-right'
   parentContainerRef = null, // Optional parent container to consider as "inside"
-  onDelete
+  onDelete,
+  // Fired once when the picker closes, marking the end of one colour edit.
+  // Sliders emit onColorChange continuously so the swatch tracks the drag; this
+  // is what lets a whole picker session collapse into a single undo step.
+  onColorCommit
 }) => {
   const theme = useTheme();
   const mobileState = useMobileDetection();
@@ -85,6 +89,24 @@ const ColorPicker = ({
       }
     }
   }, [currentColor, hexToHsv]);
+
+  // Close the colour edit when the picker goes away, whichever route it took —
+  // outside click, Escape, or the consumer simply unmounting it. Ref'd so the
+  // cleanup does not re-run on every prop change, and guarded so a StrictMode
+  // double-invoke cannot double-commit.
+  const onColorCommitRef = useRef(onColorCommit);
+  onColorCommitRef.current = onColorCommit;
+  const didCommitRef = useRef(false);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    didCommitRef.current = false;
+    return () => {
+      if (didCommitRef.current) return;
+      didCommitRef.current = true;
+      onColorCommitRef.current?.();
+    };
+  }, [isVisible]);
 
   // Handle hue slider change
   const handleHueChange = (e) => {
@@ -508,6 +530,8 @@ const ColorPicker = ({
           type="text"
           value={hexInput}
           onChange={handleHexInputChange}
+          // Typing a hex writes on every keystroke that parses; blur ends that edit.
+          onBlur={() => onColorCommit?.()}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}

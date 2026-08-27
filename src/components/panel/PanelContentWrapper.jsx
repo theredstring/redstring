@@ -208,11 +208,17 @@ const PanelContentWrapper = memo(({
     graphData.definingNodeIds && graphData.definingNodeIds.includes(nodeData?.id);
 
   // Action handlers
-  const handleNodeUpdate = (updatedData) => {
+  /**
+   * @param {Object} updatedData - Fields to merge into the prototype.
+   * @param {Object} [contextOptions] - History context. SemanticEditor's debounced
+   *   auto-enrichment passes `{ ignore: true }`: it fires on name change, so it
+   *   lands mid-rename and would otherwise appear as a user edit.
+   */
+  const handleNodeUpdate = (updatedData, contextOptions = {}) => {
     if (nodeData?.id) {
       storeActions.updateNodePrototype(nodeData.id, draft => {
         Object.assign(draft, updatedData);
-      });
+      }, contextOptions);
     }
   };
 
@@ -248,7 +254,8 @@ const PanelContentWrapper = memo(({
           if (draft.semanticMetadata?.autoEnriched) {
             draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
           }
-        });
+          // Not recorded — a base64 data URL in both the patch and its inverse.
+        }, { type: 'prototype_image' });
       } catch (error) {
         console.error('Image add failed:', error);
         alert(error?.message || 'Could not add this image.');
@@ -280,13 +287,16 @@ const PanelContentWrapper = memo(({
     setColorPickerVisible(true);
   };
 
+  // Coalesced per picker session — see handleColorCommit.
   const handleColorChange = (newColor) => {
     if (colorPickerNodeId && storeActions?.updateNodePrototype) {
       storeActions.updateNodePrototype(colorPickerNodeId, draft => {
         draft.color = newColor;
-      });
+      }, { coalesce: `node-color:${colorPickerNodeId}` });
     }
   };
+
+  const handleColorCommit = () => storeActions?.flushHistory?.();
 
   const handleColorPickerClose = () => {
     setColorPickerVisible(false);
@@ -515,6 +525,7 @@ const PanelContentWrapper = memo(({
         isVisible={colorPickerVisible}
         onClose={handleColorPickerClose}
         onColorChange={handleColorChange}
+        onColorCommit={handleColorCommit}
         currentColor={colorPickerNodeId && nodePrototypes ? nodePrototypes.get(colorPickerNodeId)?.color || theme.accent.primary : theme.accent.primary}
         position={colorPickerPosition}
         direction="down-left"

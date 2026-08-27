@@ -146,7 +146,10 @@ const Node = ({
     setTempName(original);
     // Undo the live-committed keystrokes (real-time so the editor stays open long
     // enough for the store write to land before the field unmounts).
-    if (original !== nodeName) onCommitCanvasEdit?.(instanceId, original, true);
+    // Signalled as an abort so history discards the whole coalesced edit rather
+    // than recording a round trip that ended where it started. Sent even when the
+    // name is unchanged, so an edit typed and manually erased still closes out.
+    onCommitCanvasEdit?.(instanceId, original, true, true);
     onCancelCanvasEdit?.();
   };
 
