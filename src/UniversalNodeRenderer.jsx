@@ -676,6 +676,77 @@ const UniversalNodeRenderer = ({
     }, 100); // 100ms delay before actually hiding dots
   };
 
+  // Per-connection geometry (trimmed line + dot/arrow anchor points), computed once
+  // so the connection bodies and the label pass agree on where everything sits.
+  // Labels are drawn in a second pass after every connection's arrows and hover
+  // dots, so a long label never ends up buried under a dot or arrowhead — its own
+  // or a neighbouring connection's.
+  const connectionRenderList = useMemo(() => {
+    return scaledConnections.map(conn => {
+      const isStableHovered = stableHoveredConnectionId === conn.id;
+
+      let adjustedPath = conn.path;
+      let adjustedSourcePoint = conn.sourcePoint;
+      let adjustedTargetPoint = conn.targetPoint;
+
+      // Safety check: ensure source and target points exist
+      if (conn.sourcePoint && conn.targetPoint &&
+        typeof conn.sourcePoint.x === 'number' && typeof conn.sourcePoint.y === 'number' &&
+        typeof conn.targetPoint.x === 'number' && typeof conn.targetPoint.y === 'number') {
+
+        const dx = conn.targetPoint.x - conn.sourcePoint.x;
+        const dy = conn.targetPoint.y - conn.sourcePoint.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+
+        if (length > 0) {
+          const unitX = dx / length;
+          const unitY = dy / length;
+
+          // Calculate dot/arrow positions (13% from nodes; more inset in the compact
+          // decomposition preview so arrowheads clear the node edges instead of overlapping).
+          const dotOffset = (renderContext === 'decomposition' ? 0.17 : 0.13) * length;
+
+          // Only shorten the line on sides where there are arrows or when hovering to show dots.
+          // forceShowConnectionDots keeps dots visible without hover (touch mode).
+          const showDotsHere = isStableHovered || forceShowConnectionDots;
+          const shouldShortenSource = conn.hasSourceArrow || (showDotsHere && !conn.hasSourceArrow);
+          const shouldShortenTarget = conn.hasTargetArrow || (showDotsHere && !conn.hasTargetArrow);
+
+          // Calculate adjusted points based on what should be shortened
+          adjustedSourcePoint = shouldShortenSource ? {
+            x: conn.sourcePoint.x + unitX * dotOffset,
+            y: conn.sourcePoint.y + unitY * dotOffset
+          } : conn.sourcePoint;
+
+          adjustedTargetPoint = shouldShortenTarget ? {
+            x: conn.targetPoint.x - unitX * dotOffset,
+            y: conn.targetPoint.y - unitY * dotOffset
+          } : conn.targetPoint;
+
+          // The visible line should die under the arrowhead, not at its centre —
+          // otherwise the round line cap (which grows with strokeWidth) pokes past
+          // the size-capped arrowhead silhouette on thick connections. Pull the line
+          // endpoints back to roughly the arrowhead base on sides that have an arrow.
+          const arrowScale = Math.min(4.0, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
+          const arrowLineInset = 15 * arrowScale;
+          const lineSourcePoint = conn.hasSourceArrow ? {
+            x: adjustedSourcePoint.x + unitX * arrowLineInset,
+            y: adjustedSourcePoint.y + unitY * arrowLineInset
+          } : adjustedSourcePoint;
+          const lineTargetPoint = conn.hasTargetArrow ? {
+            x: adjustedTargetPoint.x - unitX * arrowLineInset,
+            y: adjustedTargetPoint.y - unitY * arrowLineInset
+          } : adjustedTargetPoint;
+
+          // Create adjusted path - only shorten where needed
+          adjustedPath = `M ${lineSourcePoint.x} ${lineSourcePoint.y} L ${lineTargetPoint.x} ${lineTargetPoint.y}`;
+        }
+      }
+
+      return { conn, isStableHovered, adjustedPath, adjustedSourcePoint, adjustedTargetPoint };
+    });
+  }, [scaledConnections, stableHoveredConnectionId, forceShowConnectionDots, renderContext]);
+
   return (
     <div
       className={`universal-node-renderer ${className}`}
@@ -724,70 +795,7 @@ const UniversalNodeRenderer = ({
         )}
 
         {/* Render connections first (behind nodes) */}
-        {scaledConnections.map(conn => {
-          const isHovered = hoveredConnectionId === conn.id;
-          const isStableHovered = stableHoveredConnectionId === conn.id;
-
-          // Calculate adjusted connection path for consistent dot/arrow positioning
-          const dotRadius = Math.max(6, 10 * transform.scale);
-          let adjustedPath = conn.path;
-          let adjustedSourcePoint = conn.sourcePoint;
-          let adjustedTargetPoint = conn.targetPoint;
-
-          // Safety check: ensure source and target points exist
-          if (conn.sourcePoint && conn.targetPoint &&
-            typeof conn.sourcePoint.x === 'number' && typeof conn.sourcePoint.y === 'number' &&
-            typeof conn.targetPoint.x === 'number' && typeof conn.targetPoint.y === 'number') {
-
-            const dx = conn.targetPoint.x - conn.sourcePoint.x;
-            const dy = conn.targetPoint.y - conn.sourcePoint.y;
-            const length = Math.sqrt(dx * dx + dy * dy);
-
-            if (length > 0) {
-              const unitX = dx / length;
-              const unitY = dy / length;
-
-              // Calculate dot/arrow positions (13% from nodes; more inset in the compact
-              // decomposition preview so arrowheads clear the node edges instead of overlapping).
-              const dotOffset = (renderContext === 'decomposition' ? 0.17 : 0.13) * length;
-
-              // Only shorten the line on sides where there are arrows or when hovering to show dots.
-              // forceShowConnectionDots keeps dots visible without hover (touch mode).
-              const showDotsHere = isStableHovered || forceShowConnectionDots;
-              let shouldShortenSource = conn.hasSourceArrow || (showDotsHere && !conn.hasSourceArrow);
-              let shouldShortenTarget = conn.hasTargetArrow || (showDotsHere && !conn.hasTargetArrow);
-
-              // Calculate adjusted points based on what should be shortened
-              adjustedSourcePoint = shouldShortenSource ? {
-                x: conn.sourcePoint.x + unitX * dotOffset,
-                y: conn.sourcePoint.y + unitY * dotOffset
-              } : conn.sourcePoint;
-
-              adjustedTargetPoint = shouldShortenTarget ? {
-                x: conn.targetPoint.x - unitX * dotOffset,
-                y: conn.targetPoint.y - unitY * dotOffset
-              } : conn.targetPoint;
-
-              // The visible line should die under the arrowhead, not at its centre —
-              // otherwise the round line cap (which grows with strokeWidth) pokes past
-              // the size-capped arrowhead silhouette on thick connections. Pull the line
-              // endpoints back to roughly the arrowhead base on sides that have an arrow.
-              const arrowScale = Math.min(4.0, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
-              const arrowLineInset = 15 * arrowScale;
-              const lineSourcePoint = conn.hasSourceArrow ? {
-                x: adjustedSourcePoint.x + unitX * arrowLineInset,
-                y: adjustedSourcePoint.y + unitY * arrowLineInset
-              } : adjustedSourcePoint;
-              const lineTargetPoint = conn.hasTargetArrow ? {
-                x: adjustedTargetPoint.x - unitX * arrowLineInset,
-                y: adjustedTargetPoint.y - unitY * arrowLineInset
-              } : adjustedTargetPoint;
-
-              // Create adjusted path - only shorten where needed
-              adjustedPath = `M ${lineSourcePoint.x} ${lineSourcePoint.y} L ${lineTargetPoint.x} ${lineTargetPoint.y}`;
-            }
-          }
-
+        {connectionRenderList.map(({ conn, isStableHovered, adjustedPath, adjustedSourcePoint, adjustedTargetPoint }) => {
           return (
             <g key={`connection-${conn.id}`} filter={isStableHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}>
 
@@ -935,16 +943,8 @@ const UniversalNodeRenderer = ({
                 );
               })()}
 
-              {/* Connection name text - rendered on top of connection */}
-              <ConnectionText
-                connection={conn}
-                sourcePoint={adjustedSourcePoint}
-                targetPoint={adjustedTargetPoint}
-                transform={transform}
-                isHovered={isStableHovered}
-                fontScale={connectionFontScale}
-                renderContext={renderContext}
-              />
+              {/* Connection name text is drawn in a later pass (see below) so it sits
+                  above every connection's arrows and hover dots, not just its own. */}
 
               {/* Render dots within the connection group to access adjusted points */}
               {interactive && showConnectionDots && (isStableHovered || forceShowConnectionDots) && (
@@ -1075,6 +1075,26 @@ const UniversalNodeRenderer = ({
             </g>
           );
         })}
+
+        {/* Connection labels - second pass, so every label paints above all of the
+            connection arrows and hover dots rather than only the ones belonging to
+            its own connection group. */}
+        {connectionRenderList.map(({ conn, isStableHovered, adjustedSourcePoint, adjustedTargetPoint }) => (
+          <g
+            key={`connection-label-${conn.id}`}
+            filter={isStableHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}
+          >
+            <ConnectionText
+              connection={conn}
+              sourcePoint={adjustedSourcePoint}
+              targetPoint={adjustedTargetPoint}
+              transform={transform}
+              isHovered={isStableHovered}
+              fontScale={connectionFontScale}
+              renderContext={renderContext}
+            />
+          </g>
+        ))}
 
         {/* Render nodes on top */}
         {scaledNodes.map(node => {

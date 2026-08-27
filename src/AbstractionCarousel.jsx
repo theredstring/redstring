@@ -13,6 +13,7 @@ import { getFixedOverlayOrigin } from './utils/appViewport.js';
 import useGraphStore from './store/graphStore.js';
 import useImageCache from './services/imageCache.js';
 import { useTheme } from './hooks/useTheme.js';
+import { createDetentTrack } from './services/haptics.js';
 import './AbstractionCarousel.css';
 
 
@@ -437,6 +438,20 @@ const AbstractionCarousel = ({
   const physicsStateRef = useRef(physicsState);
   const updatePhysicsRef = useRef(null);
 
+  // One bump per node the focus crosses. The lattice is offset by half a level
+  // so a detent lands where the focus actually changes hands — the midpoint
+  // between two nodes — rather than at a node's centre, which is where the
+  // motion is slowest and a bump would arrive after the switch already read as
+  // done. floor(position + 0.5) is Math.round(position), i.e. exactly the
+  // roundedLevel the loop below reports as focused.
+  //
+  // Driven from the physics loop rather than from the input handlers because
+  // every way of moving the carousel — wheel, touch drag, flick momentum, the
+  // snap home, and the JUMP_TO_LEVEL animation a node tap fires — passes
+  // through it. Tapping the third node up therefore feels the two nodes it
+  // travels past, the same as scrolling there by hand.
+  const detentRef = useRef(createDetentTrack('carouselDetent', 1));
+
   // Every physics action must go through here, never useReducer's dispatch
   // directly. updatePhysics (the rAF loop body) dispatches an action, then
   // synchronously reads physicsStateRef.current to decide whether to keep
@@ -734,6 +749,8 @@ const AbstractionCarousel = ({
       }
     }
 
+    detentRef.current.update(position + 0.5);
+
     // Report which node is currently focused (closest to the center)
     if (onFocusedNodeChange && abstractionChainWithDims.length > 0) {
       const roundedLevel = Math.round(position);
@@ -764,6 +781,10 @@ const AbstractionCarousel = ({
     if (isVisible && !animationFrameRef.current) {
       // Reset all state when carousel opens
       runPhysicsAction({ type: 'RESET' });
+      // Seeded rather than zeroed: the first physics frame adopts wherever the
+      // carousel actually starts without emitting, so opening onto a node is
+      // silent and only leaving it bumps.
+      detentRef.current.reset();
       lastFrameTimeRef.current = performance.now();
       animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
     } else if (!isVisible && animationFrameRef.current) {
@@ -771,6 +792,7 @@ const AbstractionCarousel = ({
       animationFrameRef.current = null;
       // Reset all state when closing
       runPhysicsAction({ type: 'RESET' });
+      detentRef.current.reset();
     }
 
     return () => {
@@ -876,6 +898,18 @@ const AbstractionCarousel = ({
 
   const handleTouchStart = useCallback((e) => {
     if (!isVisible) return;
+    // These listeners live on the document, so they also see touches that
+    // belong to overlays rendered above the carousel — the Add-Above/Add-Below
+    // UnifiedSelector in particular. Claiming those would drag the carousel
+    // underneath the dialog and, worse, handleTouchMove's preventDefault would
+    // kill native scrolling inside the dialog's own node grid. The wheel path
+    // is already immune because UnifiedSelector stops wheel propagation before
+    // it reaches the document; touch has no such guard, so filter here.
+    if (e.target?.closest?.('.unified-selector-overlay')) {
+      touchStateRef.current.identifier = null;
+      touchStateRef.current.isDragging = false;
+      return;
+    }
     if (e.touches.length !== 1) {
       // Cancel any in-progress touch tracking for multi-touch
       touchStateRef.current.identifier = null;

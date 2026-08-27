@@ -273,4 +273,36 @@ describe('detent tracks', () => {
     await settle();
     expect(Haptics.selectionChanged).not.toHaveBeenCalled();
   });
+
+  // The carousel is the one detent track that bumps rather than ticks, and the
+  // one that survives onto a vibration motor — its lattice is one detent per
+  // chain node and the physics caps a flick at ~3 of them, so it's a burst
+  // rather than the stream the other tracks have to stay silent for.
+  it('bumps rather than ticks as the carousel focus crosses a node', async () => {
+    setPlatform({ native: true, platform: 'ios', userAgent: IPHONE_UA, maxTouchPoints: 5 });
+    const { createDetentTrack } = await loadHaptics();
+    const track = createDetentTrack('carouselDetent', 1);
+
+    // The carousel feeds position + 0.5, so a detent lands on the midpoint
+    // between two nodes — where focus changes hands — not on a node's centre.
+    track.reset(0.5);   // opened focused on level 0
+    track.update(0.9);  // drifting, still level 0
+    await settle();
+    expect(Haptics.impact).not.toHaveBeenCalled();
+
+    track.update(1.2);  // past the midpoint — level 1 is now focused
+    await settle();
+    expect(Haptics.impact).toHaveBeenCalledWith({ style: 'LIGHT' });
+    expect(Haptics.selectionChanged).not.toHaveBeenCalled();
+  });
+
+  it('still bumps the carousel on a vibration motor', async () => {
+    setPlatform({ userAgent: ANDROID_UA, maxTouchPoints: 5, vibrate: true });
+    const { createDetentTrack } = await loadHaptics();
+    const track = createDetentTrack('carouselDetent', 1);
+
+    track.reset(0.5);
+    track.update(1.5);
+    expect(window.navigator.vibrate).toHaveBeenCalledWith(8);
+  });
 });

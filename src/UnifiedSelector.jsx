@@ -91,6 +91,22 @@ const UnifiedSelector = ({
     }
   }, [name, onSubmit, color]);
 
+  /**
+   * A card in the grid is chosen. Both the touch path and the click path funnel
+   * through here so the feedback can't diverge between them.
+   *
+   * menuSelect, not the nodeSpawn that handleSubmit fires a few pixels above it,
+   * and the gap between them is the point: picking a card reuses a Thing that
+   * already exists — as a type, an abstraction layer, a group member — where the
+   * + button authors a new one. That's this table's standing rule (see nodeSpawn),
+   * and honouring it here means the same dialog can say "reused" and "created"
+   * in two different weights.
+   */
+  const handleNodeSelect = useCallback((prototype) => {
+    haptic('menuSelect');
+    onNodeSelect?.(prototype);
+  }, [onNodeSelect]);
+
   const handleColorPickerToggle = (element, event) => {
     event.stopPropagation();
     if (colorPickerVisible) {
@@ -481,13 +497,13 @@ const UnifiedSelector = ({
                           // (a scroll gesture already bailed above, so taps only).
                           if (e.cancelable) e.preventDefault();
                           touchHandledRef.current = true;
-                          onNodeSelect?.(prototype);
+                          handleNodeSelect(prototype);
                           setTimeout(() => { touchHandledRef.current = false; }, 400);
                         }}
                         onClick={(e) => {
                           if (touchHandledRef.current) return;
                           e.stopPropagation();
-                          onNodeSelect?.(prototype);
+                          handleNodeSelect(prototype);
                         }}
                       >
                         {/* Thumbnail background if available */}

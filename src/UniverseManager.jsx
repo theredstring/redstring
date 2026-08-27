@@ -624,6 +624,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const hasOAuth = !!serviceState.authStatus?.hasOAuthTokens;
   const hasApp = !!(serviceState.authStatus?.hasGitHubApp || serviceState.githubAppInstallation?.installationId);
   const dataAuthMethod = hasOAuth ? 'oauth' : (hasApp ? 'github-app' : null);
+  // GitHub accounts behind each connection: OAuth knows the signed-in user, the
+  // App knows the account (user or org) its installation lives on.
+  const oauthAccount = serviceState.authStatus?.userData || null;
+  const appAccount = serviceState.githubAppInstallation?.userData || null;
 
   // NOTE: git onboarding is now a self-contained wizard inside
   // StorageSetupModal (create repo → universe → attach → promote git). The
@@ -3987,6 +3991,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         statusBadge={statusBadge}
         hasApp={hasApp}
         hasOAuth={hasOAuth}
+        oauthAccount={oauthAccount}
+        appAccount={appAccount}
         dataAuthMethod={dataAuthMethod}
         isConnecting={isConnecting}
         allowOAuthBackup={allowOAuthBackup}

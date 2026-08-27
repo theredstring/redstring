@@ -10208,6 +10208,23 @@ function NodeCanvas() {
     // now lives in handleCanvasClick, which runs on release and can tell a pan from
     // a click (recentlyPanned / ignoreCanvasClick).
 
+    // Clear a stale ignoreCanvasClick left over from a previous element-claimed
+    // click. Edge hitboxes (and the group title) raise the flag *and*
+    // stopPropagation, so handleCanvasClick never runs to consume it — it then
+    // survives to swallow the NEXT bare-canvas click, which is the one meant to
+    // dismiss the connection control panel. That's the "first dismiss takes two
+    // clicks" bug: click one only clears the flag. Only presses that genuinely
+    // start on bare canvas clear it — element handlers raise the flag during the
+    // click that follows their own mousedown, so theirs is left intact. Mirrors
+    // handleTouchStartCanvas in useCanvasTouch.js, which already does this.
+    const startedOnBareCanvas = (
+      (e.target?.tagName === 'svg' && e.target.classList?.contains('canvas')) ||
+      (e.target?.tagName === 'DIV' && e.target.classList?.contains('canvas-area'))
+    );
+    if (startedOnBareCanvas) {
+      ignoreCanvasClick.current = false;
+    }
+
     isMouseDown.current = true;
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
     mouseDownPosition.current = { x: e.clientX, y: e.clientY };

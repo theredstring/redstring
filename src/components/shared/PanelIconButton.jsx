@@ -62,7 +62,15 @@ const PanelIconButton = ({
   const actualHoverFillColor = hoverFillColor || hoverStrokeColor;
 
   const handleClick = (e) => {
-    if (touchHandledRef.current) return; // Already handled by touch
+    if (touchHandledRef.current) {
+      // Already handled by touch. The browser still emits a compatibility click
+      // after touchend, and swallowing it silently is not enough: it must also
+      // be stopped, or it bubbles to a clickable ancestor and fires that a
+      // second time (e.g. a chevron inside a row that is itself a toggle).
+      e.stopPropagation();
+      e.preventDefault();
+      return;
+    }
     if (!disabled && onClick) {
       e.stopPropagation();
       onClick(e);

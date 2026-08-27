@@ -298,6 +298,29 @@ const RECIPES = {
   headerScroll: {
     [HapticTier.TAPTIC]: { tick: true }
   },
+  /**
+   * The abstraction carousel's focus crosses from one node in the chain to the
+   * next — see the detent track in AbstractionCarousel's physics loop.
+   *
+   * A light impact rather than the tick every other detent track here uses, and
+   * both halves of that are deliberate. Impact, because the thing detenting is a
+   * stack of large node boxes physically sliding past a focus point; a bump is
+   * what an object settling into a slot feels like, where a tick would read as
+   * an abstract selection change. Light, because it repeats.
+   *
+   * It also carries a BASIC recipe, which connectionStretch/headerScroll/
+   * hurtleTravel each refuse. Their rule is that a single vibration motor cannot
+   * render a *stream*, and it holds — but this track isn't one. Its lattice is
+   * one detent per chain node, not per 44px, and the physics bounds how many can
+   * fire: velocity is capped at MAX_VELOCITY and damped 0.75 per frame, so even
+   * a full-force flick travels ~3 levels before settling. Three bumps is a burst,
+   * which a motor renders fine. If a long chain ever does make this rattle on
+   * Android, deleting the BASIC line is the whole fix.
+   */
+  carouselDetent: {
+    [HapticTier.TAPTIC]: { impact: 'LIGHT' },
+    [HapticTier.BASIC]: { vibrate: 8 }
+  },
   /** An edge is selected. A tick — the same class of act as tapping a node. */
   edgeSelect: {
     [HapticTier.TAPTIC]: { tick: true },

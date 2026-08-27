@@ -10,6 +10,8 @@ const AuthSection = ({
   statusBadge,
   hasApp,
   hasOAuth,
+  oauthAccount,
+  appAccount,
   dataAuthMethod,
   isConnecting,
   allowOAuthBackup,
@@ -35,6 +37,11 @@ const AuthSection = ({
     info: theme.darkMode ? '#64b5f6' : '#1565c0'
   };
   // If not logged in and not loading
+
+  // GitHub account names, when we know them. OAuth reports the signed-in user;
+  // the App reports the account the installation lives on (user or org).
+  const oauthLogin = oauthAccount?.login || null;
+  const appLogin = appAccount?.login || null;
 
   return (
     <div data-auth-section="true" style={{ color: theme.canvas.textPrimary }}>
@@ -87,7 +94,23 @@ const AuthSection = ({
                <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.error, fontWeight: 700 }}>Not connected</span>
             )}
           </div>
-          <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Browse and manage repositories</div>
+          {hasOAuth && oauthLogin ? (
+            <div
+              title={oauthAccount?.name ? `${oauthAccount.name} (@${oauthLogin})` : `@${oauthLogin}`}
+              style={{
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                color: theme.canvas.textPrimary,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              @{oauthLogin}
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Browse and manage repositories</div>
+          )}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <PanelIconButton
               icon={Github}
@@ -136,7 +159,23 @@ const AuthSection = ({
                <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.error, fontWeight: 700 }}>Not installed</span>
             )}
           </div>
-          <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Enables secure auto-sync with Git</div>
+          {hasApp && appLogin ? (
+            <div
+              title={`Installed on @${appLogin}`}
+              style={{
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                color: theme.canvas.textPrimary,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              @{appLogin}
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Enables secure auto-sync with Git</div>
+          )}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <PanelIconButton
               icon={Settings}

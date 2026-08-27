@@ -158,6 +158,13 @@ const StorageSetupModal = ({
 
   const hasOAuth = !!authStatus?.hasOAuthTokens;
   const hasApp = !!authStatus?.hasGitHubApp;
+  // GitHub accounts behind each connection. `authStatus` carries the OAuth
+  // user; the App installation account comes straight off the auth cache and
+  // re-reads whenever authStatus changes (same auth events drive both).
+  const oauthAccount = authStatus?.userData || null;
+  const appAccount = (() => {
+    try { return persistentAuth.getAppInstallation()?.userData || null; } catch { return null; }
+  })();
   const statusBadge = hasOAuth && hasApp
     ? { label: 'Fully Connected', tone: statusColors.success }
     : (hasOAuth || hasApp)
@@ -1008,6 +1015,8 @@ const StorageSetupModal = ({
           statusBadge={statusBadge}
           hasApp={hasApp}
           hasOAuth={hasOAuth}
+          oauthAccount={oauthAccount}
+          appAccount={appAccount}
           dataAuthMethod={hasOAuth ? 'oauth' : (hasApp ? 'github-app' : null)}
           isConnecting={isConnecting}
           allowOAuthBackup={allowOAuthBackup}
