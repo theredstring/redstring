@@ -1,16 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, X, ChevronDown, Plus, Link2, History, Check } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ExternalLink, X, ChevronDown, Plus, Link2, History, Check, Binoculars } from 'lucide-react';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import PanelCard, { usePanelCardTokens } from '../shared/PanelCard.jsx';
 import InfoPopover from '../shared/InfoPopover.jsx';
 import AnchoredPopoverBox from '../shared/AnchoredPopoverBox.jsx';
 import {
   identifierFromUrl,
-  collectIdentifiers,
-  groupIdentifiers,
+  partitionIdentifiers,
   extractDOI,
-  isValidURL
+  isValidURL,
+  STANDARD_KINDS
 } from '../../utils/externalIdentifiers.js';
+import { resolveOrigin } from '../../utils/nodeOrigin.js';
+import { searchIdentifiers, describeIdentifier } from '../../services/identifierSearch.js';
 import {
   LINK_STATES,
   canonicalizeLink,
@@ -20,8 +22,9 @@ import {
 } from '../../formats/linkState.js';
 import {
   IDENTIFIERS_INTRO,
+  PICKER_INTRO,
+  EMPTY_SLOT_TEXT,
   MATCH_STATES,
-  MATCH_STATES_INTRO,
   PROVENANCE_INTRO,
   ID_INTRO,
   confidenceWord
@@ -41,63 +44,50 @@ const FONT = "'EmOne', sans-serif";
  *
  * Nothing here is stored beyond the URLs themselves and a per-link record of
  * how strongly the user means each one. Authority and identifier are derived at
- * render time by `identifierFromUrl`.
+ * render time by `identifierFromUrl`; the description under each row is fetched
+ * live and never written down.
  */
 
-/** Fetch a Wikidata item's label so a row can read "Q144 · dog", not just "Q144". */
-const useWikidataLabel = (url) => {
-  const [label, setLabel] = useState(null);
+/**
+ * What the authority says the thing at this URL actually is.
+ *
+ * This is the whole answer to "Wikidata's Symptoms is an artwork": the row says
+ * so, in Wikidata's own words, without anyone having to follow the link. Fetched
+ * per row rather than stored, because it is the authority's current statement
+ * and a cached copy would be the thing we are trying to catch being stale.
+ */
+const useIdentifierDescription = (url) => {
+  const [info, setInfo] = useState(null);
 
   useEffect(() => {
-    const qid = (() => {
-      if (!url) return null;
-      if (url.startsWith('wd:')) return url.replace('wd:', '').trim();
-      try {
-        const u = new URL(url);
-        if (!u.hostname.includes('wikidata.org')) return null;
-        const last = u.pathname.split('/').filter(Boolean).pop() || '';
-        return /^Q\d+$/i.test(last) ? last : null;
-      } catch {
-        return null;
-      }
-    })();
-
-    if (!qid) { setLabel(null); return; }
-
+    if (!url) { setInfo(null); return; }
+    const controller = new AbortController();
     let cancelled = false;
-    (async () => {
-      try {
-        const resp = await fetch(
-          `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${qid}&format=json&origin=*`
-        );
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const labels = data?.entities?.[qid]?.labels || {};
-        const value = labels.en?.value || Object.values(labels)[0]?.value || null;
-        if (!cancelled) setLabel(value);
-      } catch { /* a missing label is cosmetic; the identifier still reads fine */ }
-    })();
-    return () => { cancelled = true; };
+    setInfo(null);
+    describeIdentifier(url, { signal: controller.signal }).then(result => {
+      if (!cancelled) setInfo(result);
+    });
+    return () => { cancelled = true; controller.abort(); };
   }, [url]);
 
-  return label;
+  return info;
 };
 
 /**
- * One rung, as a button that looks like one.
+ * One choice inside a popover, as a button that looks like one.
  *
  * Outlined in the same maroon as its text, because the popover's fill is the
  * PieMenu's flat #DEDADA and an unoutlined row on it reads as a paragraph, not
- * a choice. The current rung is filled rather than outlined-differently, so the
- * three still scan as one set of equal options.
+ * a choice. The current one is filled rather than outlined differently, so a
+ * set still scans as a set of equal options.
  */
-const ChooserOption = ({ option, isCurrent, onPick }) => {
+const PopoverOption = ({ label, blurb, isCurrent, onClick }) => {
   const [isHovered, setIsHovered] = useState(false);
   const raised = isHovered || isCurrent;
 
   return (
     <button
-      onClick={() => onPick(option.state)}
+      onClick={onClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onBlur={() => setIsHovered(false)}
@@ -121,9 +111,9 @@ const ChooserOption = ({ option, isCurrent, onPick }) => {
     >
       <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontWeight: 'bold' }}>
         {isCurrent && <Check size={14} strokeWidth={2.5} style={{ flexShrink: 0 }} />}
-        {option.label}
+        {label}
       </span>
-      <span style={{ display: 'block', opacity: 0.8, marginTop: 1 }}>{option.blurb}</span>
+      {blurb && <span style={{ display: 'block', opacity: 0.8, marginTop: 1 }}>{blurb}</span>}
     </button>
   );
 };
@@ -133,124 +123,304 @@ const StateChooser = ({ anchor, current, onPick, onDismiss }) => (
   <AnchoredPopoverBox
     position={anchor}
     direction="down-left"
-    width={260}
-    estimatedHeight={240}
+    width={240}
+    estimatedHeight={190}
     onDismiss={onDismiss}
-    ariaLabel="How sure are you about this match?"
+    ariaLabel="Confidence"
   >
-    <div style={{ fontWeight: 'bold', marginBottom: 4 }}>How sure is this?</div>
-    <div style={{ marginBottom: 8, opacity: 0.85 }}>{MATCH_STATES_INTRO}</div>
+    {/* Title only. Three labelled options are self-explaining, and a paragraph
+        above them just pushes the choice further from the cursor. */}
+    <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Confidence</div>
     {MATCH_STATES.map(option => (
-      <ChooserOption
+      <PopoverOption
         key={option.state}
-        option={option}
+        label={option.label}
+        blurb={option.blurb}
         isCurrent={option.state === current}
-        onPick={onPick}
+        onClick={() => onPick(option.state)}
       />
     ))}
   </AnchoredPopoverBox>
 );
 
-/** One identifier: authority, what it identifies, and how strongly it's claimed. */
-const IdentifierRow = ({ url, page, state, onSetState, onRemove, isLast, tokens }) => {
-  const { authority, identifier, href } = identifierFromUrl(url);
-  const wikidataLabel = useWikidataLabel(url);
+/**
+ * Search one authority and take an entry from it.
+ *
+ * Fills an empty slot and replaces a wrong match with the same gesture, because
+ * they are the same act: deciding which entry over there is this thing. Opens
+ * pre-searched on the Thing's own name, which is right often enough that the
+ * common case is one click.
+ */
+const IdentifierPicker = ({ anchor, kind, authority, initialTerm, currentUrl, onPick, onDismiss }) => {
+  const [term, setTerm] = useState(initialTerm || '');
+  const [results, setResults] = useState([]);
+  const [status, setStatus] = useState('idle');
+
+  useEffect(() => {
+    const query = term.trim();
+    if (!query) { setResults([]); setStatus('idle'); return; }
+
+    const controller = new AbortController();
+    let cancelled = false;
+    setStatus('loading');
+
+    const timer = setTimeout(() => {
+      searchIdentifiers(kind, query, { signal: controller.signal })
+        .then(rows => {
+          if (cancelled) return;
+          setResults(rows);
+          setStatus('done');
+        })
+        .catch(error => {
+          if (cancelled || error?.name === 'AbortError') return;
+          setResults([]);
+          setStatus('error');
+        });
+    }, 350);
+
+    return () => { cancelled = true; clearTimeout(timer); controller.abort(); };
+  }, [term, kind]);
+
+  const currentCanonical = currentUrl ? canonicalizeLink(currentUrl) : null;
+
+  return (
+    <AnchoredPopoverBox
+      position={anchor}
+      direction="down-left"
+      width={330}
+      estimatedHeight={340}
+      onDismiss={onDismiss}
+      ariaLabel={`Find this on ${authority}`}
+      scrollable={false}
+    >
+      {/* Header and field are pinned; only the results scroll. How many results
+          come back isn't knowable in advance, and a box that scrolls as a whole
+          takes the search field away with it the moment you look past the
+          third one. */}
+      <div style={{ flexShrink: 0 }}>
+        <div style={{ fontWeight: 'bold', marginBottom: 4 }}>Find on {authority}</div>
+        <div style={{ marginBottom: 8, opacity: 0.85 }}>{PICKER_INTRO}</div>
+
+        <input
+          type="text"
+          value={term}
+          autoFocus
+          onChange={(e) => setTerm(e.target.value)}
+          placeholder={`Search ${authority}`}
+          style={{
+            width: '100%',
+            padding: '5px 8px',
+            marginBottom: 8,
+            border: '1.5px solid maroon',
+            borderRadius: 8,
+            background: 'transparent',
+            color: 'maroon',
+            fontFamily: FONT,
+            fontSize: '0.8rem',
+            boxSizing: 'border-box',
+            outline: 'none'
+          }}
+        />
+      </div>
+
+      <div className="anchored-popover-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        {status === 'loading' && <div style={{ opacity: 0.8 }}>Searching {authority}…</div>}
+        {status === 'error' && <div style={{ opacity: 0.8 }}>Could not reach {authority}.</div>}
+        {status === 'done' && results.length === 0 && (
+          <div style={{ opacity: 0.8 }}>Nothing on {authority} matches “{term.trim()}”.</div>
+        )}
+
+        {results.map(result => (
+          <PopoverOption
+            key={result.url}
+            label={`${result.label} · ${result.identifier}`}
+            blurb={result.description}
+            isCurrent={currentCanonical === canonicalizeLink(result.url)}
+            onClick={() => onPick(result.url)}
+          />
+        ))}
+      </div>
+    </AnchoredPopoverBox>
+  );
+};
+
+/**
+ * How strongly this match is claimed, as the control that changes it.
+ *
+ * The state used to be static text with a separate chevron button beside the
+ * other actions. Making the text itself the trigger says what the control does
+ * without a legend, and gives the row's action group back the slot the search
+ * button needed.
+ */
+const StateChip = ({ label, isOpen, onOpen, tokens }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const lit = isHovered || isOpen;
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onBlur={() => setIsHovered(false)}
+      aria-haspopup="dialog"
+      aria-expanded={isOpen}
+      title="Confidence"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 3,
+        marginTop: 5,
+        padding: '2px 9px',
+        borderRadius: 20,
+        border: `1px solid ${lit ? tokens.brand : tokens.hairline}`,
+        background: 'transparent',
+        color: lit ? tokens.brand : tokens.muted,
+        fontFamily: FONT,
+        fontSize: '11px',
+        cursor: 'pointer',
+        transition: 'color 0.15s ease, border-color 0.15s ease'
+      }}
+    >
+      {label}
+      <ChevronDown size={11} strokeWidth={2.5} />
+    </button>
+  );
+};
+
+/**
+ * One identifier, filled or not.
+ *
+ * A standing slot and a filled row are the same component on purpose: an empty
+ * Wikidata row has to sit in the same place, at the same weight, as a full one,
+ * or "nothing has grounded this yet" reads as an absence rather than a fact.
+ */
+const IdentifierRow = ({
+  kind,
+  authority,
+  url,
+  state,
+  nodeName,
+  isLast,
+  tokens,
+  onSetState,
+  onRemove,
+  onPick
+}) => {
+  const info = useIdentifierDescription(url);
   const [chooserAnchor, setChooserAnchor] = useState(null);
+  const [pickerAnchor, setPickerAnchor] = useState(null);
+
+  const { authority: derivedAuthority, identifier, href } = url
+    ? identifierFromUrl(url)
+    : { authority, identifier: null, href: null };
 
   const stateLabel = MATCH_STATES.find(s => s.state === state)?.label || '';
-  const pageInfo = page ? identifierFromUrl(page) : null;
 
-  const openChooser = (event) => {
+  const anchorFrom = (event) => {
     const rect = event.currentTarget?.getBoundingClientRect?.();
-    if (rect) setChooserAnchor({ x: rect.right, y: rect.bottom });
+    return rect ? { x: rect.right, y: rect.bottom } : null;
   };
 
   return (
     <div
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '7px 0',
+        padding: '9px 0',
         borderBottom: isLast ? 'none' : `1px solid ${tokens.hairline}`
       }}
     >
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{
-          fontFamily: FONT,
-          fontSize: '10px',
-          fontWeight: 'bold',
-          letterSpacing: '0.04em',
-          textTransform: 'uppercase',
-          color: tokens.brand,
-          marginBottom: 1
-        }}>
-          {authority}
-        </div>
-        <div style={{
-          fontFamily: FONT,
-          fontSize: '13px',
-          color: tokens.text,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap'
-        }}>
-          {identifier}
-          {wikidataLabel && (
-            <span style={{ color: tokens.muted }}> · {wikidataLabel}</span>
-          )}
-        </div>
-        <div style={{
-          fontFamily: FONT,
-          fontSize: '11px',
-          color: tokens.muted,
-          marginTop: 1,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          flexWrap: 'wrap'
-        }}>
-          <span>{stateLabel}</span>
-          {/* The Wikipedia article isn't its own row — it's the readable face of
-              the entity above it, and only shown when one lookup produced both. */}
-          {pageInfo && (
-            <a
-              href={pageInfo.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: tokens.brand }}
-            >
-              ↗ wikipedia
-            </a>
-          )}
-        </div>
-      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{
+            fontFamily: FONT,
+            fontSize: '10px',
+            fontWeight: 'bold',
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+            color: tokens.brand,
+            marginBottom: 2
+          }}>
+            {derivedAuthority}
+          </div>
 
-      <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-        <PanelIconButton
-          icon={ExternalLink}
-          size={14}
-          onClick={() => window.open(href, '_blank')}
-          title={`Open in ${authority}`}
-        />
-        <PanelIconButton
-          icon={ChevronDown}
-          size={14}
-          active={!!chooserAnchor}
-          onClick={openChooser}
-          title="How sure is this?"
-          ariaExpanded={!!chooserAnchor}
-          ariaHasPopup="dialog"
-        />
-        {/* Plain ghost variant, like every other remove button in the panel.
-            `danger` swaps the hover ring to #F44336, which is a colour this
-            panel uses nowhere else. */}
-        <PanelIconButton
-          icon={X}
-          size={14}
-          onClick={() => onRemove(url)}
-          title="Remove this identifier"
-        />
+          <div style={{
+            fontFamily: FONT,
+            fontSize: '13px',
+            color: url ? tokens.text : tokens.muted,
+            fontStyle: url ? 'normal' : 'italic',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}>
+            {url ? identifier : EMPTY_SLOT_TEXT}
+            {info?.label && info.label !== identifier && (
+              <span style={{ color: tokens.muted }}> · {info.label}</span>
+            )}
+          </div>
+
+          {/* The authority's own words about what it is holding. Two lines is
+              enough to catch a wrong match and short enough not to turn a list
+              of four identifiers into a page of prose. */}
+          {info?.description && (
+            <div style={{
+              fontFamily: FONT,
+              fontSize: '11px',
+              color: tokens.muted,
+              marginTop: 2,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden'
+            }}>
+              {info.description}
+            </div>
+          )}
+
+          {url && (
+            <StateChip
+              label={stateLabel}
+              tokens={tokens}
+              isOpen={!!chooserAnchor}
+              onOpen={(e) => setChooserAnchor(anchorFrom(e))}
+            />
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+          {/* Only the three standing authorities can be searched. A DOI or a
+              bare URL has no directory to look it up in, so that row keeps the
+              two buttons that do mean something. */}
+          {STANDARD_KINDS.includes(kind) && (
+            <PanelIconButton
+              icon={Binoculars}
+              size={14}
+              active={!!pickerAnchor}
+              onClick={(e) => setPickerAnchor(anchorFrom(e))}
+              title={url ? `Find a different ${authority} match` : `Find this on ${authority}`}
+              ariaExpanded={!!pickerAnchor}
+              ariaHasPopup="dialog"
+            />
+          )}
+          {url && (
+            <PanelIconButton
+              icon={ExternalLink}
+              size={14}
+              onClick={() => window.open(href, '_blank')}
+              title={`Open in ${derivedAuthority}`}
+            />
+          )}
+          {/* Plain ghost variant, like every other remove button in the panel.
+              `danger` swaps the hover ring to #F44336, a colour this panel uses
+              nowhere else. */}
+          {url && (
+            <PanelIconButton
+              icon={X}
+              size={14}
+              onClick={() => onRemove(url)}
+              title="Remove this identifier"
+            />
+          )}
+        </div>
       </div>
 
       {chooserAnchor && (
@@ -259,6 +429,18 @@ const IdentifierRow = ({ url, page, state, onSetState, onRemove, isLast, tokens 
           current={state}
           onPick={(next) => { onSetState(url, next); setChooserAnchor(null); }}
           onDismiss={() => setChooserAnchor(null)}
+        />
+      )}
+
+      {pickerAnchor && (
+        <IdentifierPicker
+          anchor={pickerAnchor}
+          kind={kind}
+          authority={authority}
+          initialTerm={nodeName}
+          currentUrl={url}
+          onPick={(next) => { onPick(kind, url, next); setPickerAnchor(null); }}
+          onDismiss={() => setPickerAnchor(null)}
         />
       )}
     </div>
@@ -337,6 +519,7 @@ const AddIdentifier = ({ onAdd, tokens }) => {
 const ProvenanceRows = ({ nodeData, isHomeTab, graphData, tokens }) => {
   const sm = nodeData?.semanticMetadata;
   const origin = sm?.originMetadata;
+  const from = resolveOrigin(nodeData);
 
   const row = (label, value, title) => value ? (
     <div style={{ display: 'flex', gap: 10, marginBottom: 4 }} title={title}>
@@ -381,18 +564,20 @@ const ProvenanceRows = ({ nodeData, isHomeTab, graphData, tokens }) => {
         </InfoPopover>
       }
     >
-      {row('Created', nodeData?.createdAt ? new Date(nodeData.createdAt).toLocaleDateString() : null)}
-      {row('Found by', foundBy, origin?.confidence != null ? `${Math.round(origin.confidence * 100)}% confidence` : undefined)}
-      {row('Source', origin?.source ? (
+      {/* Always answered. A Thing made here says so rather than showing a
+          heading with nothing under it. */}
+      {row('From', (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {String(origin.source)}
-          {origin.originalUri && (
-            <a href={origin.originalUri} target="_blank" rel="noopener noreferrer" style={{ color: tokens.brand }}>
+          {from.label}
+          {from.href && (
+            <a href={from.href} target="_blank" rel="noopener noreferrer" style={{ color: tokens.brand }}>
               ↗
             </a>
           )}
         </span>
-      ) : null)}
+      ))}
+      {row('Created', nodeData?.createdAt ? new Date(nodeData.createdAt).toLocaleDateString() : null)}
+      {row('Found by', foundBy, origin?.confidence != null ? `${Math.round(origin.confidence * 100)}% confidence` : undefined)}
       {/* Written by the semantic-concept materialization paths, but never
           exported. Display it, don't build on it. */}
       {row('As found', nodeData?.originalDescription)}
@@ -414,14 +599,12 @@ const ProvenanceRows = ({ nodeData, isHomeTab, graphData, tokens }) => {
 const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = null }) => {
   const tokens = usePanelCardTokens();
 
-  const rows = useMemo(() => {
-    const urls = collectIdentifiers(nodeData);
-    return groupIdentifiers(urls, nodeData).map(({ url, page }) => ({
-      url,
-      page,
-      state: resolveLinkState(url, nodeData?.semanticMetadata)
-    }));
-  }, [nodeData]);
+  const { slots, extras } = useMemo(() => partitionIdentifiers(nodeData), [nodeData]);
+
+  const stateOf = useCallback(
+    (url) => (url ? resolveLinkState(url, nodeData?.semanticMetadata) : null),
+    [nodeData]
+  );
 
   const handleSetState = useCallback((url, state) => {
     onNodeUpdate?.({
@@ -438,24 +621,29 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
       ...nodeData,
       externalLinks: [...existing, url],
       // Typing a link is a deliberate assertion, but not yet the strong identity
-      // claim — the user escalates to that explicitly.
+      // claim. The user escalates to that explicitly.
       semanticMetadata: setLinkState(nodeData?.semanticMetadata, url, LINK_STATES.CONFIRMED, 'user')
     });
   }, [nodeData, onNodeUpdate]);
 
   /**
-   * Removal has to reach every place a link can live, or a link removed from
-   * one store reappears from another on the next render.
+   * Strip a URL out of every place a link can live.
    *
-   * Replaces the old `unlinkSource(domain)` and keeps its Wikipedia side
-   * effects verbatim — the image section's delete path is coupled to those
-   * fields being cleared together.
+   * Shared by removal and replacement, and it has to reach all of them or a
+   * link taken out of one store reappears from another on the next render.
+   * `originMetadata.originalUri` included: it is read back by
+   * `collectIdentifiers`, so leaving it behind resurrects the row.
+   *
+   * Keeps the old `unlinkSource(domain)` Wikipedia side effects verbatim. The
+   * image section's delete path is coupled to those fields being cleared
+   * together, and a swapped article's cached thumbnail belongs to the article
+   * that is no longer linked.
    */
-  const handleRemove = useCallback((url) => {
+  const detachUrl = useCallback((semanticMetadata, url) => {
     const canonical = canonicalizeLink(url);
     const matches = (candidate) => typeof candidate === 'string' && canonicalizeLink(candidate) === canonical;
 
-    const sm = { ...(nodeData?.semanticMetadata || {}) };
+    const sm = { ...(semanticMetadata || {}) };
 
     if (Array.isArray(sm.externalLinks)) {
       sm.externalLinks = sm.externalLinks.filter(link => !matches(link));
@@ -470,13 +658,70 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
       sm.wikipediaOriginalImage = undefined;
       sm.wikipediaAdditionalImages = undefined;
     }
+    if (matches(sm.originMetadata?.originalUri)) {
+      sm.originMetadata = { ...sm.originMetadata, originalUri: undefined };
+    }
+
+    return clearLinkState(sm, url);
+  }, []);
+
+  const handleRemove = useCallback((url) => {
+    const canonical = canonicalizeLink(url);
+    onNodeUpdate?.({
+      ...nodeData,
+      externalLinks: (nodeData?.externalLinks || []).filter(
+        link => canonicalizeLink(link) !== canonical
+      ),
+      semanticMetadata: detachUrl(nodeData?.semanticMetadata, url)
+    });
+  }, [nodeData, onNodeUpdate, detachUrl]);
+
+  /**
+   * Take an entry from an authority, replacing whatever was in that slot.
+   *
+   * The new link lands in the old one's position rather than at the end, so
+   * correcting a match doesn't reorder the list, and it lands as `confirmed`:
+   * choosing it out of a list of descriptions is exactly the act of checking.
+   */
+  const handlePick = useCallback((kind, previousUrl, nextUrl) => {
+    if (!nextUrl) return;
+
+    let sm = previousUrl ? detachUrl(nodeData?.semanticMetadata, previousUrl) : { ...(nodeData?.semanticMetadata || {}) };
+
+    const existing = Array.isArray(nodeData?.externalLinks) ? nodeData.externalLinks : [];
+    const previousCanonical = previousUrl ? canonicalizeLink(previousUrl) : null;
+    const nextCanonical = canonicalizeLink(nextUrl);
+
+    let links = existing.filter(link => canonicalizeLink(link) !== nextCanonical);
+    const slotIndex = previousCanonical
+      ? links.findIndex(link => canonicalizeLink(link) === previousCanonical)
+      : -1;
+    if (slotIndex >= 0) links.splice(slotIndex, 1, nextUrl);
+    else links = [...links, nextUrl];
+
+    // The dedicated fields are what pairs a lookup's halves together and what
+    // the enrichment paths read, so they have to follow the swap.
+    if (kind === 'wikidata') sm.wikidataUrl = nextUrl;
+    if (kind === 'wikipedia') {
+      sm.wikipediaUrl = nextUrl;
+      sm.wikipediaTitle = decodeURIComponent(nextUrl.split('/').filter(Boolean).pop() || '').replace(/_/g, ' ');
+    }
 
     onNodeUpdate?.({
       ...nodeData,
-      externalLinks: (nodeData?.externalLinks || []).filter(link => !matches(link)),
-      semanticMetadata: clearLinkState(sm, url)
+      externalLinks: links,
+      semanticMetadata: setLinkState(sm, nextUrl, LINK_STATES.CONFIRMED, 'user')
     });
-  }, [nodeData, onNodeUpdate]);
+  }, [nodeData, onNodeUpdate, detachUrl]);
+
+  // The three standing slots first, then anything else the Thing carries.
+  const rows = useMemo(() => [
+    ...slots,
+    ...extras.map(url => {
+      const { kind, authority } = identifierFromUrl(url);
+      return { kind, authority, url };
+    })
+  ], [slots, extras]);
 
   return (
     // Two cards, the same container language Semantic Web is built from, so the
@@ -492,24 +737,21 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
           </InfoPopover>
         }
       >
-        {rows.length > 0 ? (
-          rows.map((row, index) => (
-            <IdentifierRow
-              key={row.url}
-              url={row.url}
-              page={row.page}
-              state={row.state}
-              tokens={tokens}
-              isLast={index === rows.length - 1}
-              onSetState={handleSetState}
-              onRemove={handleRemove}
-            />
-          ))
-        ) : (
-          <div style={{ fontSize: '12px', color: tokens.muted, padding: '2px 0' }}>
-            No other system names this yet.
-          </div>
-        )}
+        {rows.map((row, index) => (
+          <IdentifierRow
+            key={row.url || `slot-${row.kind}`}
+            kind={row.kind}
+            authority={row.authority}
+            url={row.url}
+            state={stateOf(row.url)}
+            nodeName={nodeData?.name || ''}
+            tokens={tokens}
+            isLast={index === rows.length - 1}
+            onSetState={handleSetState}
+            onRemove={handleRemove}
+            onPick={handlePick}
+          />
+        ))}
 
         <AddIdentifier onAdd={handleAdd} tokens={tokens} />
       </PanelCard>

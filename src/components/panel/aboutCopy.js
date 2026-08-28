@@ -5,50 +5,61 @@
  * the concepts underneath stay reachable. Nothing here says "owl:sameAs" or
  * "skos:exactMatch" — a user confirming a match is authoring those triples, and
  * doesn't need the vocabulary to do it correctly.
+ *
+ * Every string is as short as it can be and still be true. These sit inside
+ * popovers a reader opened for one specific question; a paragraph is a wall to
+ * get past, not an answer.
  */
 
 export const ABOUT_INTRO =
-  'What other systems call this same subject, and where those names came from. ' +
-  'Redstring uses these to line your thinking up with the wider world, so a ' +
-  'thing you wrote down can be recognised as the same thing someone else wrote down.';
+  'What other systems call this subject, and where it came from.';
 
 export const IDENTIFIERS_INTRO =
-  'Each row is another system\'s name for this subject. Redstring finds some of ' +
-  'these on its own; you can add or remove any of them.';
+  'Other systems\' names for this subject. The top three always show, even when ' +
+  'empty. Search to fill or swap one, and read the grey line: the same word ' +
+  'often names a different thing.';
+
+/**
+ * One line on purpose. This sits above a list whose length isn't knowable in
+ * advance, and every line of preamble is a result pushed out of view.
+ */
+export const PICKER_INTRO = 'Each description is that system\'s own.';
+
+/** Shown on a standing slot that nothing fills yet. */
+export const EMPTY_SLOT_TEXT = 'Not linked';
 
 /**
  * The sameness ladder, in the order it appears in the chooser. `state` matches
  * LINK_STATES in src/formats/linkState.js.
+ *
+ * Each blurb is one short line. Three rungs read as three rungs; a paragraph
+ * under each turns a quick decision into homework, and the label already
+ * carries most of the meaning.
  */
 export const MATCH_STATES = [
   {
     state: 'matched',
-    label: 'Matched automatically',
-    blurb: 'Redstring found this and it looks like the same subject, but nobody has checked.'
+    label: 'Matched Automatically',
+    blurb: 'Nobody has checked it.'
   },
   {
     state: 'confirmed',
     label: 'Confirmed',
-    blurb: 'You looked at this and it\'s right.'
+    blurb: 'You checked it.'
   },
   {
     state: 'same',
-    label: 'Same thing',
-    blurb: 'This name and this thing are one and the same. Anything true of one is true of the other.'
+    label: 'Same Thing',
+    blurb: 'Anything true of one is true of the other.'
   }
 ];
 
-export const MATCH_STATES_INTRO =
-  'How sure you are that this name refers to this same thing. It matters when ' +
-  'your work is shared or merged: a guess and a certainty travel differently.';
-
 export const PROVENANCE_INTRO =
-  'Where this thing came from, and how these names were found. This is the ' +
-  'evidence behind the rows above.';
+  'How this Thing got here, and how its names were found. Anything you made ' +
+  'yourself reads as Redstring.';
 
 export const ID_INTRO =
-  'Redstring\'s own internal handle for this thing. It never leaves your ' +
-  'universe and is only useful for debugging.';
+  'Redstring\'s internal handle. It never leaves your universe.';
 
 /** Numeric confidence → a word. The number stays available on hover. */
 export const confidenceWord = (value) => {

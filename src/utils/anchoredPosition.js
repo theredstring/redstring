@@ -17,12 +17,14 @@
  * @param {{x: number, y: number}} params.position - client coords of the anchor
  * @param {'down-left'|'down-right'} [params.direction] - which edge aligns to position.x
  * @param {number} params.width - the box's width
- * @param {number} params.height - the box's height (an estimate is fine; it only
- *   decides whether to flip above the anchor)
+ * @param {number} params.height - the height the box would like. Only a
+ *   preference: the returned `maxHeight` is what actually fits, so content
+ *   taller than this scrolls rather than running off the screen.
  * @param {number} params.zIndex
  * @param {boolean} [params.isMobile] - centre on the viewport instead of anchoring
  * @param {number} [params.offset] - gap between anchor and box
- * @returns {object} a style object using `position: fixed`
+ * @returns {object} a style object using `position: fixed`, including a
+ *   `maxHeight` the caller must not override
  */
 export function getAnchoredStyle({
   position,
@@ -41,13 +43,13 @@ export function getAnchoredStyle({
       left: '50%',
       top: '50%',
       transform: 'translate(-50%, -50%)',
+      maxHeight: `calc(100vh - ${offset * 4}px)`,
       zIndex
     };
   }
 
   let left;
   let right;
-  let top = position.y + offset;
 
   if (direction === 'down-right') {
     // Left edge of the box aligns with the anchor.
@@ -68,15 +70,27 @@ export function getAnchoredStyle({
     }
   }
 
-  // Not enough room below → put it above the anchor.
-  if (top + height > window.innerHeight) {
-    top = position.y - height - offset;
-  }
-  if (top < 0) {
-    top = offset;
-  }
+  /**
+   * Vertical placement is decided by the room that exists, not by the caller's
+   * guess at how tall the box will be.
+   *
+   * The earlier version placed the box at `position.y + offset` and only
+   * flipped above when `height` said it wouldn't fit. A list whose length
+   * depends on what a search returned is always taller than its estimate
+   * sometimes, and when it was, the box ran off the bottom of the screen with
+   * no way to reach the rest. So: pick the side with more room, then cap to
+   * that side. The box scrolls internally instead of overflowing.
+   */
+  const roomBelow = window.innerHeight - position.y - offset * 2;
+  const roomAbove = position.y - offset * 2;
+  const placeAbove = height > roomBelow && roomAbove > roomBelow;
 
-  const style = { position: 'fixed', top: Math.max(0, top), zIndex };
+  const maxHeight = Math.max(120, placeAbove ? roomAbove : roomBelow);
+  const top = placeAbove
+    ? Math.max(offset, position.y - Math.min(height, roomAbove) - offset)
+    : position.y + offset;
+
+  const style = { position: 'fixed', top: Math.max(0, top), maxHeight, zIndex };
   if (left !== undefined) style.left = Math.max(0, left);
   else style.right = Math.max(0, right);
   return style;

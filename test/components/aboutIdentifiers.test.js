@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   identifierFromUrl,
   collectIdentifiers,
-  groupIdentifiers,
+  partitionIdentifiers,
   extractDOI
 } from '../../src/utils/externalIdentifiers.js';
+import { resolveOrigin, LOCAL_ORIGIN_LABEL } from '../../src/utils/nodeOrigin.js';
 import {
   LINK_STATES,
   canonicalizeLink,
@@ -81,19 +82,64 @@ describe('collectIdentifiers', () => {
   });
 });
 
-describe('groupIdentifiers', () => {
-  it('folds the Wikipedia article into the Wikidata row when one lookup found both', () => {
-    const proto = { externalLinks: [WD, WP], semanticMetadata: { wikidataUrl: WD, wikipediaUrl: WP } };
-    const rows = groupIdentifiers(collectIdentifiers(proto), proto);
-    expect(rows).toEqual([{ url: WD, page: WP }]);
+describe('partitionIdentifiers', () => {
+  it('always returns all three standard slots, in order, empty or not', () => {
+    const { slots, extras } = partitionIdentifiers({ externalLinks: [WP] });
+    expect(slots.map(s => s.kind)).toEqual(['wikidata', 'wikipedia', 'dbpedia']);
+    expect(slots.map(s => s.url)).toEqual([null, WP, null]);
+    expect(extras).toEqual([]);
   });
 
-  it('leaves the article standing alone when nothing pairs them', () => {
-    // No wikidataUrl recorded → the two were not captured together, and
-    // inferring the pairing would fabricate a claim the user never made.
-    const proto = { externalLinks: [WD, WP], semanticMetadata: {} };
-    const rows = groupIdentifiers(collectIdentifiers(proto), proto);
-    expect(rows).toEqual([{ url: WD, page: null }, { url: WP, page: null }]);
+  it('files each link under its own authority rather than folding any together', () => {
+    // Wikidata and Wikipedia can disagree about what a word means — Wikidata's
+    // "Symptoms" is an artwork — so each needs its own row and its own swap.
+    const proto = { externalLinks: [WD, WP, DB], semanticMetadata: { wikidataUrl: WD, wikipediaUrl: WP } };
+    const { slots, extras } = partitionIdentifiers(proto);
+    expect(slots.map(s => s.url)).toEqual([WD, WP, DB]);
+    expect(extras).toEqual([]);
+  });
+
+  it('puts everything non-standard in extras, in order', () => {
+    const proto = { externalLinks: ['doi:10.1038/nature12373', WD, 'https://example.com/x'] };
+    const { slots, extras } = partitionIdentifiers(proto);
+    expect(slots[0].url).toBe(WD);
+    expect(extras).toEqual(['doi:10.1038/nature12373', 'https://example.com/x']);
+  });
+
+  it('keeps a second link to the same authority instead of dropping it', () => {
+    const other = 'https://www.wikidata.org/wiki/Q999';
+    const { slots, extras } = partitionIdentifiers({ externalLinks: [WD, other] });
+    expect(slots[0].url).toBe(WD);
+    expect(extras).toEqual([other]);
+  });
+});
+
+describe('resolveOrigin', () => {
+  it('says Redstring for a Thing with no outside source', () => {
+    expect(resolveOrigin({}).label).toBe(LOCAL_ORIGIN_LABEL);
+    expect(resolveOrigin({}).isLocal).toBe(true);
+  });
+
+  it('does not read an enrichment link as an origin', () => {
+    // Auto-enrichment adds Wikidata links to Things made here, long after they
+    // were made. Having one says nothing about where the Thing came from.
+    const proto = { externalLinks: [WD], semanticMetadata: { wikidataUrl: WD, autoEnriched: true } };
+    expect(resolveOrigin(proto).label).toBe(LOCAL_ORIGIN_LABEL);
+  });
+
+  it('names the service that handed the Thing over, and links back to it', () => {
+    const proto = { semanticMetadata: { originMetadata: { source: 'wikidata', originalUri: WD } } };
+    expect(resolveOrigin(proto)).toEqual({ label: 'Wikidata', href: WD, isLocal: false });
+  });
+
+  it('reads the authority off the URI when the source is just "external"', () => {
+    const proto = { semanticMetadata: { originMetadata: { source: 'external', originalUri: DB } } };
+    expect(resolveOrigin(proto).label).toBe('DBpedia');
+  });
+
+  it('lets a recorded origin win, for when Things can name their universe', () => {
+    const proto = { semanticMetadata: { origin: { label: 'Redstring (Field Notes)' }, originMetadata: { source: 'wikidata' } } };
+    expect(resolveOrigin(proto).label).toBe('Redstring (Field Notes)');
   });
 });
 

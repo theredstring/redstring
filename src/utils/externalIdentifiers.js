@@ -163,27 +163,50 @@ export const collectIdentifiers = (prototype) => {
 };
 
 /**
- * Group a Wikipedia article under the Wikidata row it was captured with.
+ * The three authorities that hold a permanent slot in About, in display order.
  *
- * Only pairs them when the prototype carries BOTH `wikidataUrl` and
- * `wikipediaUrl` — i.e. one lookup produced both. Never infer the pairing from
- * a matching title; that would fabricate an identity claim the user never made.
- *
- * @param {string[]} urls - output of collectIdentifiers
- * @param {object} prototype
- * @returns {Array<{url: string, page: string|null}>}
+ * Mirrors STANDARD_AUTHORITIES in services/identifierSearch.js, which carries
+ * the search implementation for each. Kept as bare kinds here so this module
+ * stays free of network code.
  */
-export const groupIdentifiers = (urls, prototype) => {
-  const sm = prototype?.semanticMetadata;
-  const pairedPage = (sm?.wikidataUrl && sm?.wikipediaUrl) ? canonicalizeLink(sm.wikipediaUrl) : null;
+export const STANDARD_KINDS = ['wikidata', 'wikipedia', 'dbpedia'];
 
-  const rows = [];
-  for (const url of urls) {
-    const canonical = canonicalizeLink(url);
-    // The paired article is folded into its Wikidata row rather than standing alone.
-    if (pairedPage && canonical === pairedPage) continue;
-    const isPairedEntity = pairedPage && canonical === canonicalizeLink(sm.wikidataUrl);
-    rows.push({ url, page: isPairedEntity ? sm.wikipediaUrl : null });
-  }
-  return rows;
+const AUTHORITY_FOR_KIND = {
+  wikidata: 'Wikidata',
+  wikipedia: 'Wikipedia',
+  dbpedia: 'DBpedia'
+};
+
+/**
+ * Sort a prototype's identifiers into the three standing slots and whatever
+ * else it carries.
+ *
+ * Every standard slot comes back present, `url: null` when nothing fills it, so
+ * the section can show what a Thing *could* be identified by rather than only
+ * what it happens to have. An empty Wikidata row is information: it says nobody
+ * has grounded this yet.
+ *
+ * Replaces the earlier grouping that folded a Wikipedia article underneath its
+ * Wikidata row. That made sense when rows only appeared for links that existed;
+ * with a standing Wikipedia slot it would hide the article from its own row.
+ * The two are also separately wrong-able — Wikidata matching an artwork while
+ * Wikipedia matches the concept is the ordinary case, not an anomaly — so they
+ * need separate swap controls.
+ *
+ * @param {object} prototype
+ * @returns {{slots: Array<{kind: string, authority: string, url: string|null}>, extras: string[]}}
+ */
+export const partitionIdentifiers = (prototype) => {
+  const urls = collectIdentifiers(prototype);
+  const taken = new Set();
+
+  const slots = STANDARD_KINDS.map(kind => {
+    // First match wins: a node with two Wikidata links shows the first in the
+    // slot and the rest below, rather than silently dropping one.
+    const hit = urls.find(url => !taken.has(url) && identifierFromUrl(url).kind === kind);
+    if (hit) taken.add(hit);
+    return { kind, authority: AUTHORITY_FOR_KIND[kind], url: hit || null };
+  });
+
+  return { slots, extras: urls.filter(url => !taken.has(url)) };
 };

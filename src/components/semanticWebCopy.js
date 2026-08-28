@@ -12,14 +12,10 @@
  */
 
 export const RDF_SCHEMA_INTRO =
-  'The two facts every shared vocabulary expects about a thing: its name and ' +
-  'its description. Redstring keeps them in step with what you typed above, so ' +
-  'there is nothing to fill in here. They appear under their standard names ' +
-  'because that is how other tools will read them when you export.';
+  'Your name and description, under the standard names other tools read on ' +
+  'export. Nothing to fill in.';
 
 export const CLASSIFICATION_INTRO =
-  'What other vocabularies call this KIND of thing. A Thing typed as Person ' +
-  'can also be declared the same kind as schema:Person and foaf:Person, which ' +
-  'lets a tool that has never seen your universe still know what it is looking ' +
-  'at. The primary type is set with the type button under the title; these are ' +
-  'the outside equivalents of it.';
+  'What other vocabularies call this kind of thing, so a tool that has never ' +
+  'seen your universe knows what it is looking at. The primary type itself is ' +
+  'the button under the title.';

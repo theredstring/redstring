@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getAnchoredStyle } from '../../utils/anchoredPosition.js';
 import useMobileDetection from '../../hooks/useMobileDetection.js';
+import './AnchoredPopoverBox.css';
 
 /**
  * The floating box half of an anchored popover — the PieMenu bubble translated
@@ -29,6 +30,10 @@ const AnchoredPopoverBox = ({
   triggerRef,
   role = 'dialog',
   ariaLabel,
+  // Off when the content manages its own scrolling region — a popover with a
+  // search field wants the field pinned and only the results scrolling, not the
+  // whole box sliding away under the cursor.
+  scrollable = true,
   children
 }) => {
   const boxRef = useRef(null);
@@ -92,12 +97,20 @@ const AnchoredPopoverBox = ({
       ref={boxRef}
       role={role}
       aria-label={ariaLabel}
+      // Only the box itself scrolls when `scrollable`; otherwise the content
+      // owns a scrolling region and carries this class there instead.
+      className={scrollable ? 'anchored-popover-scroll' : undefined}
       style={{
+        // `style` carries a maxHeight computed from the room actually available
+        // beside the anchor, so it is spread AFTER nothing that would override
+        // it. A flat cap here (this used to be 60vh) let a long list run past
+        // the bottom of the screen.
         ...style,
         width: boxWidth,
         maxWidth: 'calc(100vw - 24px)',
-        maxHeight: '60vh',
-        overflowY: 'auto',
+        ...(scrollable
+          ? { overflowY: 'auto' }
+          : { display: 'flex', flexDirection: 'column', overflow: 'hidden' }),
         background: '#DEDADA',
         border: '2px solid maroon',
         borderRadius: '8px',
