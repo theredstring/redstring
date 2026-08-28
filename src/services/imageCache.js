@@ -37,7 +37,16 @@ const useImageCache = create((set, get) => ({
   /** Remove cached image for a node prototype */
   clearImage: (protoId) => set(state => {
     const next = { ...state.images };
+    const dropped = next[protoId];
     delete next[protoId];
+    // Release the blob so repeated delete/undo cycles don't accumulate one
+    // detached blob per cycle — the whole point of this store is to keep image
+    // bytes out of the heap. Deferred a tick because subscribers still hold the
+    // URL in the frame being torn down; revoking synchronously renders a broken
+    // <image> for that frame.
+    if (dropped?.thumbnailSrc?.startsWith('blob:')) {
+      setTimeout(() => URL.revokeObjectURL(dropped.thumbnailSrc), 0);
+    }
     return { images: next };
   }),
 
@@ -75,7 +84,26 @@ let _queue = [];
 let _activeCount = 0;
 const MAX_CONCURRENT = 6; // Parallel fetches
 
-async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName) {
+/**
+ * Per-prototype generation counter, bumped on every queue and every cancel.
+ *
+ * A fetch takes long enough that the store can move underneath it. Undo an
+ * image deletion and redo it quickly and the sequence is: undo restores the
+ * Wikipedia URL → a fetch is queued → redo removes the URL and cancels → the
+ * in-flight fetch resolves and writes the image back. The node then shows an
+ * image the graph no longer references, and nothing clears it until reload.
+ * Comparing the epoch captured at queue time against the current one lets a
+ * superseded fetch drop its result instead of publishing it.
+ */
+const _epochs = new Map();
+
+function _bumpEpoch(protoId) {
+  const next = (_epochs.get(protoId) || 0) + 1;
+  _epochs.set(protoId, next);
+  return next;
+}
+
+async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName, epoch) {
   // Skip if already cached
   if (useImageCache.getState().getImage(protoId)) return;
 
@@ -88,6 +116,9 @@ async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName
     }
 
     const blob = await resp.blob();
+    // Superseded while in flight — the node no longer wants this image.
+    if (_epochs.get(protoId) !== epoch) return;
+
     const blobUrl = URL.createObjectURL(blob);
     useImageCache.getState().setImage(protoId, { thumbnailSrc: blobUrl, imageAspectRatio });
     console.log(`[ImageCache] Cached "${nodeName}" (blob ${(blob.size / 1024).toFixed(0)}KB)`);
@@ -102,7 +133,7 @@ async function _processQueue() {
     if (!job) break;
 
     _activeCount++;
-    _processSingleImage(job.protoId, job.thumbUrl, job.imageAspectRatio, job.nodeName)
+    _processSingleImage(job.protoId, job.thumbUrl, job.imageAspectRatio, job.nodeName, job.epoch)
       .finally(() => {
         _activeCount--;
         _processQueue(); // Process next job when one completes
@@ -122,8 +153,23 @@ async function _processQueue() {
 export function queueThumbnailFetch(protoId, thumbUrl, imageAspectRatio = 1, nodeName = '') {
   if (!thumbUrl) return;
   if (useImageCache.getState().getImage(protoId)) return;
-  _queue.push({ protoId, thumbUrl, imageAspectRatio, nodeName });
+  _queue.push({ protoId, thumbUrl, imageAspectRatio, nodeName, epoch: _bumpEpoch(protoId) });
   _processQueue();
+}
+
+/**
+ * Drop a prototype's cached image and abandon any fetch still in flight for it.
+ *
+ * Used when the graph stops referencing an image — the user deletes it, or a
+ * redo removes it again. Plain `clearImage` is not enough on its own: a queued
+ * or in-flight fetch would repopulate the cache moments later.
+ *
+ * @param {string} protoId - Node prototype ID
+ */
+export function cancelThumbnailFetch(protoId) {
+  _bumpEpoch(protoId);
+  _queue = _queue.filter(job => job.protoId !== protoId);
+  useImageCache.getState().clearImage(protoId);
 }
 
 export default useImageCache;

@@ -17,7 +17,7 @@ import { ABOUT_INTRO } from './aboutCopy.js';
 import { WIZARD_DEFINE_INTRO } from './panelCopy.js';
 import useAutoEnrichIdentifiers from '../../hooks/useAutoEnrichIdentifiers.js';
 import useGraphStore from "../../store/graphStore.js";
-import useImageCache, { queueThumbnailFetch } from '../../services/imageCache.js';
+import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from '../../services/imageCache.js';
 
 // Helper function to determine the correct article ("a" or "an")
 const getArticleFor = (word) => {
@@ -1337,9 +1337,11 @@ const SharedPanelContent = ({
 
     onNodeUpdate(updates);
 
-    // Clear from image cache to update canvas immediately
+    // Clear from image cache to update canvas immediately. Cancel rather than
+    // plain-clear so an enrichment fetch still in flight can't repopulate it a
+    // moment after the delete.
     if (nodeData?.id) {
-      useImageCache.getState().clearImage(nodeData.id);
+      cancelThumbnailFetch(nodeData.id);
     }
   };
 

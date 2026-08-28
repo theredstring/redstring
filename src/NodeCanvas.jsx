@@ -75,7 +75,7 @@ import useGraphStore, {
   getNodePrototypeById, // New selector for prototypes
 } from "./store/graphStore.js";
 import useHistoryStore from './store/historyStore.js';
-import useImageCache, { queueThumbnailFetch } from './services/imageCache.js';
+import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from './services/imageCache.js';
 
 import { getAppViewportSize, getFixedOverlayOrigin } from './utils/appViewport.js';
 import {
@@ -1190,11 +1190,22 @@ function NodeCanvas() {
     }).filter(Boolean);
   }, [activeGraphId, activeGraphInstances, nodePrototypesMap, imageCacheMap]);
 
-  // Populate image cache for auto-enriched nodes loaded from file
-  // (imageCache is never saved, so we re-fetch from Wikipedia URLs in semanticMetadata)
-  // Only runs on mount + when activeGraphId changes (NOT on every nodePrototypesMap change,
-  // which would cause an infinite loop: setImage → imageCacheMap change → re-render → useEffect)
-  // OPTIMIZED: Only fetch images for prototypes actually used in the active graph
+  // Reconcile the image cache against the prototypes of the active graph.
+  //
+  // imageCache is never saved, so the Wikipedia URL in semanticMetadata is the
+  // source of truth and the cache is derived from it. This keeps the two in
+  // sync in BOTH directions:
+  //   - URL present, nothing cached  → fetch it (file load, undo of a deletion)
+  //   - URL gone, something cached   → drop it (redo of a deletion)
+  // Running this only on activeGraphId meant undo restored the URL but nothing
+  // re-fetched, so a deleted image stayed missing from the canvas until reload.
+  // Driving it off nodePrototypesMap instead catches every path that changes an
+  // image — undo, redo, jumpTo, wizard edits — rather than enumerating them.
+  //
+  // Depending on nodePrototypesMap does NOT loop the way depending on
+  // imageCacheMap would: setImage changes only the cache, which this effect no
+  // longer reads reactively, so the write cannot retrigger the effect.
+  // OPTIMIZED: Only touch prototypes actually used in the active graph.
   useEffect(() => {
     if (!nodePrototypesMap || !activeGraphInstances) return;
     const cache = useImageCache.getState();
@@ -1203,16 +1214,26 @@ function NodeCanvas() {
     for (const instance of activeGraphInstances.values()) {
       activeProtoIds.add(instance.prototypeId);
     }
-    // Only queue fetches for prototypes used in this graph
     for (const protoId of activeProtoIds) {
       const proto = nodePrototypesMap.get(protoId);
-      if (proto && !proto.thumbnailSrc && !cache.getImage(protoId) && proto.semanticMetadata?.wikipediaThumbnail) {
+      if (!proto) continue;
+      // A user-uploaded image lives in the main store and wins outright; the
+      // cache is not involved, so leave whatever it holds alone.
+      if (proto.thumbnailSrc) continue;
+
+      const thumbUrl = proto.semanticMetadata?.wikipediaThumbnail;
+      const cached = cache.getImage(protoId);
+
+      if (thumbUrl && !cached) {
         const ratio = proto.semanticMetadata.imageAspectRatio || 1;
-        queueThumbnailFetch(protoId, proto.semanticMetadata.wikipediaThumbnail, ratio, proto.name || '');
+        queueThumbnailFetch(protoId, thumbUrl, ratio, proto.name || '');
+      } else if (!thumbUrl && cached) {
+        // The graph no longer references an image, but the canvas renders
+        // whatever the cache holds — without this the image survives the redo.
+        cancelThumbnailFetch(protoId);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeGraphId]);
+  }, [nodePrototypesMap, activeGraphInstances]);
 
   // <<< Derive active graph data directly >>>
   // OPTIMIZED: Use activeGraph directly instead of re-querying graphsMap
