@@ -30,6 +30,25 @@
   outline: none;
 }
 
+/* Fluid variant: the button fills whatever it is given instead of standing on
+ * its own 140px.
+ *
+ * That floor is fine for a dropdown sitting beside other things in a toolbar,
+ * and wrong for one that is the full width of a panel card — it looked
+ * unfinished at ordinary widths and simply overflowed once the panel was dragged
+ * narrower than the floor, taking the menu (which stretches to the container)
+ * with it. Opt-in via className so no existing caller changes. */
+.dropdown-control.fluid .dropdown-container {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dropdown-control.fluid .dropdown-button {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .dropdown-button:hover {
   background-color: var(--canvas-hover);
   border-color: var(--canvas-border);

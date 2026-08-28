@@ -4,7 +4,9 @@ import {
   NODE_PADDING,
   EXPANDED_NODE_WIDTH,
   NODE_CORNER_RADIUS,
-  NAME_AREA_FACTOR
+  NAME_AREA_FACTOR,
+  IMAGE_MAX_ASPECT,
+  IMAGE_MIN_ASPECT
 } from './constants.js'; // Import necessary constants
 import useGraphStore from './store/graphStore.js'; // Import store for textSettings
 import { measureTextBlockHeight, measureTextWidth, buildNodeFontString } from './services/textMeasurement.js';
@@ -106,6 +108,12 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // Use getters to access node properties
   const nodeName = node.getName ? node.getName() : (node.name || 'Unnamed Node'); // Handle potential plain objects gracefully for now?
   const thumbnailSrc = node.getThumbnailSrc ? node.getThumbnailSrc() : node.thumbnailSrc; // Use getter
+  // Aspect ratio (height / width) of the image, driving how tall the node gets.
+  // The plain-property fallback is load-bearing: nothing on the canvas is a `Node`
+  // class instance any more (hydration spreads prototype + instance into a plain
+  // object), so a getter-only read silently degraded to a hard-coded 1 and made
+  // every image node square. Same shape as the two getters above it.
+  const rawAspectRatio = node.getImageAspectRatio ? node.getImageAspectRatio() : node.imageAspectRatio;
   // A user upload being read/decoded reserves the image slot (square placeholder)
   // so the shimmer has somewhere to render before the real thumbnail exists.
   const imageLoading = node.imageLoading === true;
@@ -133,7 +141,10 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   const nodeScale = globalNodeScale * instanceSizeMul;
   // Effective nodeScale already encodes instanceScale, so it distinguishes two
   // instances of the same prototype at different sizes in the dimension cache.
-  const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${imageLoading ? 'loading' : 'idle'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}-${nodeScale}-${lineHeightBase}`;
+  // rawAspectRatio is in the key because it can land AFTER the thumbnail does —
+  // imageCache resolves its fetch asynchronously, and a file load re-queues from
+  // semanticMetadata — so a key without it would serve stale square dims forever.
+  const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${rawAspectRatio ?? 'noar'}-${imageLoading ? 'loading' : 'idle'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}-${nodeScale}-${lineHeightBase}`;
 
   const cached = dimensionCache.get(cacheKey);
   if (cached) {
@@ -255,11 +266,18 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     // Calculate image dimensions
     imageWidth = currentWidth - 2 * sP;
     if (hasValidImageDimensions) {
-      // Get stored aspect ratio or use a default (e.g., 1 for square)
-      const aspectRatio = node.getImageAspectRatio ? node.getImageAspectRatio() : 1;
+      // Square is the fallback, not the rule: an upload still being decoded has no
+      // ratio yet, so its reserved slot stays square and settles once the image lands.
+      const aspectRatio = (typeof rawAspectRatio === 'number' && rawAspectRatio > 0)
+        ? rawAspectRatio
+        : 1;
 
-      // Calculate height based on width and aspect ratio
-      calculatedImageHeight = aspectRatio ? imageWidth * aspectRatio : 0;
+      // Inside [IMAGE_MIN_ASPECT, IMAGE_MAX_ASPECT] the slot IS the image's shape, so
+      // nothing is cropped. Past either bound the node stops growing/shrinking and the
+      // image center-crops within the bound instead — free, because Node.jsx already
+      // draws it with preserveAspectRatio="xMidYMid slice".
+      const slotAspect = Math.min(Math.max(aspectRatio, IMAGE_MIN_ASPECT), IMAGE_MAX_ASPECT);
+      calculatedImageHeight = imageWidth * slotAspect;
 
       // Adjust overall node height to accommodate image
       // Height = Text Area + Image Area + Bottom Padding

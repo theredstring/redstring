@@ -71,6 +71,15 @@ export const KEYBOARD_ZOOM_SPEED = 0.15;               // for keyboard zooming
 // Image Processing
 export const THUMBNAIL_MAX_DIMENSION = 500; // Max width/height for canvas node thumbnails
 
+// Bounds on a node's image slot aspect (height / width — the same convention as
+// the stored `imageAspectRatio`). Inside this range the node's height follows the
+// image exactly; outside it the node stops growing and Node.jsx's
+// preserveAspectRatio="xMidYMid slice" center-crops within the bound instead.
+// At the default scale the image area is 504px wide, so this is a slot between
+// 202px and 1008px tall — 4:3, 3:2, 16:9, 3:4 and 2:3 all render uncropped.
+export const IMAGE_MAX_ASPECT = 2.0; // tall portraits/posters, up to double-height
+export const IMAGE_MIN_ASPECT = 0.4; // 2.5:1 cinematic band; wider panoramas crop
+
 // UI Icon Sizes
 export const PANEL_CLOSE_ICON_SIZE = 16; // Standard size for X/close icons in panels
 export const MODAL_CLOSE_ICON_SIZE = 20; // Standard size for X/close icons in modal dialogs

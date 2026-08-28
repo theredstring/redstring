@@ -1534,6 +1534,11 @@ function NodeCanvas() {
       const effectiveThumb = (cached && !prototype.thumbnailSrc)
         ? cached.thumbnailSrc
         : (prototype.thumbnailSrc || null);
+      // Mirrors the imageOverrides rule below, so the reuse check compares the same
+      // ratio the node will actually be built with.
+      const effectiveAspect = (cached && !prototype.thumbnailSrc)
+        ? cached.imageAspectRatio
+        : prototype.imageAspectRatio;
       // Show the shimmer only while there's no image to show yet.
       const imageLoading = Boolean(loadingImagesMap[instance.prototypeId]) && !effectiveThumb;
 
@@ -1547,6 +1552,10 @@ function NodeCanvas() {
         prev.name === prototype.name &&
         prev.color === prototype.color &&
         prev.thumbnailSrc === effectiveThumb &&
+        // The ratio drives node height and can arrive after the thumbnail does
+        // (async imageCache fetch), so reusing the old object here would pin the
+        // node at its square placeholder height until something else invalidated it.
+        prev.imageAspectRatio === effectiveAspect &&
         prev.imageLoading === imageLoading &&
         prev.description === prototype.description &&
         prev.definitionGraphIds === prototype.definitionGraphIds) {
@@ -1607,11 +1616,16 @@ function NodeCanvas() {
     const tsLineSpacing = textSettings?.lineSpacing || 1;
     const tsNodeScale = textSettings?.nodeScale || 1;
 
+    // A stable key over only the properties that affect dimensions (not position
+    // x/y or scale, which change during drag). sizeMul IS included: it's the
+    // persistent per-instance size, so different sizes get distinct dims. So is
+    // imageAspectRatio, which drives node height and can arrive after the thumbnail.
+    // One builder because the eviction sweep below has to produce the identical
+    // string — two hand-written copies would silently drift.
+    const keyFor = (n) => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${n.imageAspectRatio ?? 'noar'}-${n.imageLoading ? 'loading' : 'idle'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}-${n.sizeMul || 1}`;
+
     for (const n of nodes) {
-      // Create a stable key based only on properties that affect dimensions
-      // (not position x/y or scale which change during drag). sizeMul IS included:
-      // it's the persistent per-instance size, so different sizes get distinct dims.
-      const cacheKey = `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${n.imageLoading ? 'loading' : 'idle'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}-${n.sizeMul || 1}`;
+      const cacheKey = keyFor(n);
 
       // Check if we have cached dimensions for this node's dimensional properties
       let dims = cache.get(cacheKey);
@@ -1626,7 +1640,7 @@ function NodeCanvas() {
     }
 
     // Clean up cache entries for nodes that no longer exist
-    const currentCacheKeys = new Set(nodes.map(n => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${n.imageLoading ? 'loading' : 'idle'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}-${n.sizeMul || 1}`));
+    const currentCacheKeys = new Set(nodes.map(keyFor));
     for (const key of cache.keys()) {
       if (!currentCacheKeys.has(key)) {
         cache.delete(key);

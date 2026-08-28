@@ -2,6 +2,7 @@ import useGraphStore from '../store/graphStore.js';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from './graphLayoutService.js';
 import { resolveEdgeLabelFontSize } from './layoutGeometry.js';
 import { getNodeDimensions } from '../utils.js';
+import useImageCache from './imageCache.js';
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 
 /**
@@ -28,7 +29,18 @@ export function applyOffscreenLayout(graphId) {
       // sizeMul must ride along: a resized instance occupies a different
       // footprint, and omitting it here lays out an XL node as if it were
       // medium, so its neighbors get packed underneath it.
-      const dims = getNodeDimensions({ name: proto?.name || '', thumbnailSrc: proto?.thumbnailSrc, sizeMul: inst.sizeMul }, false, null);
+      // So must imageAspectRatio — it drives node height, so omitting it lays a
+      // graph out against square nodes that then render tall or short. An
+      // auto-enriched prototype carries no thumbnailSrc of its own, so fall back
+      // to the image cache the same way NodeCanvas's hydration does.
+      const cached = useImageCache.getState().getImage(inst.prototypeId);
+      const useCached = cached && !proto?.thumbnailSrc;
+      const dims = getNodeDimensions({
+        name: proto?.name || '',
+        thumbnailSrc: useCached ? cached.thumbnailSrc : proto?.thumbnailSrc,
+        imageAspectRatio: useCached ? cached.imageAspectRatio : proto?.imageAspectRatio,
+        sizeMul: inst.sizeMul,
+      }, false, null);
       if (dims) {
         labelWidth = dims.currentWidth ?? nodeSpacing;
         labelHeight = dims.currentHeight ?? nodeSpacing;

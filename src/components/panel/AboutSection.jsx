@@ -273,7 +273,7 @@ const IdentifierPicker = ({ anchor, kind, authority, initialTerm, currentUrl, on
  * without a legend, and gives the row's action group back the slot the search
  * button needed.
  */
-const StateChip = forwardRef(({ label, isOpen, onToggle, tokens }, ref) => {
+const StateChip = forwardRef(({ label, isOpen, onToggle, tokens, style = {} }, ref) => {
   const [isHovered, setIsHovered] = useState(false);
   const lit = isHovered || isOpen;
 
@@ -301,16 +301,26 @@ const StateChip = forwardRef(({ label, isOpen, onToggle, tokens }, ref) => {
         fontFamily: FONT,
         fontSize: '11px',
         cursor: 'pointer',
-        transition: 'color 0.15s ease, border-color 0.15s ease'
+        // Truncates rather than stretching its row: in the low-width layout the
+        // chip shares a line with the action buttons, and it is the half that
+        // can afford to give.
+        minWidth: 0,
+        maxWidth: '100%',
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
+        transition: 'color 0.15s ease, border-color 0.15s ease',
+        ...style
       }}
     >
-      {label}
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
       {/* Points at the menu while it's open, so the chip reads as the thing
-          that closes it and not as a second way to open it. */}
+          that closes it and not as a second way to open it. Never the part
+          that gets clipped — a chip with no chevron is just a label. */}
       <ChevronDown
         size={11}
         strokeWidth={2.5}
         style={{
+          flexShrink: 0,
           transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
           transition: 'transform 0.15s ease'
         }}
@@ -336,6 +346,7 @@ const IdentifierRow = ({
   state,
   nodeName,
   isLast,
+  isUltraSlim,
   tokens,
   openMenu,
   onToggleMenu,
@@ -379,6 +390,66 @@ const IdentifierRow = ({
     const rect = event.currentTarget?.getBoundingClientRect?.();
     onToggleMenu({ key: rowKey, type, anchor: rect ? { x: rect.right, y: rect.bottom } : null });
   };
+
+  /**
+   * The state chip and the action group, held as values because where they go
+   * changes with the width.
+   *
+   * Wide, the actions sit to the right of the text and the chip hangs under it.
+   * Narrow, a three-button group and an identifier competing for the same line
+   * leaves the identifier about forty pixels, so the two swap axes: the text
+   * gets the full width and the chip and the actions share a footer line under
+   * it. Same parts, same order, one fewer column.
+   */
+  const stateChip = url ? (
+    <StateChip
+      ref={chipRef}
+      label={stateLabel}
+      tokens={tokens}
+      isOpen={openHere === 'state'}
+      onToggle={toggle('state')}
+      style={isUltraSlim ? { marginTop: 0 } : undefined}
+    />
+  ) : null;
+
+  const actions = (
+    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+      {/* Only the three standing authorities can be searched. A DOI or a
+          bare URL has no directory to look it up in, so that row keeps the
+          two buttons that do mean something. */}
+      {STANDARD_KINDS.includes(kind) && (
+        <PanelIconButton
+          ref={searchRef}
+          icon={Binoculars}
+          size={14}
+          active={openHere === 'picker'}
+          onClick={toggle('picker')}
+          title={url ? `Find a different ${authority} match` : `Find this on ${authority}`}
+          ariaExpanded={openHere === 'picker'}
+          ariaHasPopup="dialog"
+        />
+      )}
+      {url && (
+        <PanelIconButton
+          icon={ExternalLink}
+          size={14}
+          onClick={() => window.open(href, '_blank')}
+          title={`Open in ${derivedAuthority}`}
+        />
+      )}
+      {/* Plain ghost variant, like every other remove button in the panel.
+          `danger` swaps the hover ring to #F44336, a colour this panel uses
+          nowhere else. */}
+      {url && (
+        <PanelIconButton
+          icon={X}
+          size={14}
+          onClick={() => onRemove(url)}
+          title="Remove this identifier"
+        />
+      )}
+    </div>
+  );
 
   return (
     <div
@@ -455,54 +526,26 @@ const IdentifierRow = ({
             </div>
           )}
 
-          {url && (
-            <StateChip
-              ref={chipRef}
-              label={stateLabel}
-              tokens={tokens}
-              isOpen={openHere === 'state'}
-              onToggle={toggle('state')}
-            />
-          )}
+          {!isUltraSlim && stateChip}
         </div>
 
-        <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-          {/* Only the three standing authorities can be searched. A DOI or a
-              bare URL has no directory to look it up in, so that row keeps the
-              two buttons that do mean something. */}
-          {STANDARD_KINDS.includes(kind) && (
-            <PanelIconButton
-              ref={searchRef}
-              icon={Binoculars}
-              size={14}
-              active={openHere === 'picker'}
-              onClick={toggle('picker')}
-              title={url ? `Find a different ${authority} match` : `Find this on ${authority}`}
-              ariaExpanded={openHere === 'picker'}
-              ariaHasPopup="dialog"
-            />
-          )}
-          {url && (
-            <PanelIconButton
-              icon={ExternalLink}
-              size={14}
-              onClick={() => window.open(href, '_blank')}
-              title={`Open in ${derivedAuthority}`}
-            />
-          )}
-          {/* Plain ghost variant, like every other remove button in the panel.
-              `danger` swaps the hover ring to #F44336, a colour this panel uses
-              nowhere else. */}
-          {url && (
-            <PanelIconButton
-              icon={X}
-              size={14}
-              onClick={() => onRemove(url)}
-              title="Remove this identifier"
-            />
-          )}
-        </div>
+        {!isUltraSlim && actions}
       </div>
+
+      {isUltraSlim && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          marginTop: 6
+        }}>
+          {/* An empty span rather than a conditional, so the actions stay
+              pinned right on an unfilled slot instead of sliding left. */}
+          {stateChip || <span />}
+          {actions}
+        </div>
+      )}
 
       {openHere === 'state' && (
         <StateChooser
@@ -534,7 +577,7 @@ const IdentifierRow = ({
  * One field, no type dropdown. What was pasted decides what it is, and a live
  * preview shows the reading back before anything is committed.
  */
-const AddIdentifier = ({ onAdd, tokens }) => {
+const AddIdentifier = ({ onAdd, tokens, isUltraSlim }) => {
   const [value, setValue] = useState('');
 
   const parsed = useMemo(() => {
@@ -562,7 +605,9 @@ const AddIdentifier = ({ onAdd, tokens }) => {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && parsed) commit(); }}
-          placeholder="Paste a link, or a DOI"
+          // The long form is a sentence and reads as one; at low width it would
+          // be clipped mid-word, which is worse than the short form.
+          placeholder={isUltraSlim ? 'Link or DOI' : 'Paste a link, or a DOI'}
           style={{
             flex: 1,
             minWidth: 0,
@@ -599,16 +644,34 @@ const AddIdentifier = ({ onAdd, tokens }) => {
 };
 
 /** Where the thing came from: the evidence for the identifiers above. */
-const ProvenanceRows = ({ nodeData, isHomeTab, graphData, tokens }) => {
+const ProvenanceRows = ({ nodeData, isHomeTab, graphData, tokens, isUltraSlim }) => {
   const sm = nodeData?.semanticMetadata;
   const origin = sm?.originMetadata;
   const from = resolveOrigin(nodeData);
 
+  /**
+   * Label and value, side by side or stacked.
+   *
+   * The 74px label gutter is what makes these read as a table, and it is also
+   * 74px that isn't the answer. Below the threshold the value is what's left
+   * after the gutter, the padding and the panel's own margin — not enough for a
+   * date, let alone a prototype id — so the label moves above it and the value
+   * gets the width.
+   */
   const row = (label, value, title) => value ? (
-    <div style={{ display: 'flex', gap: 10, marginBottom: 4 }} title={title}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: isUltraSlim ? 'column' : 'row',
+        gap: isUltraSlim ? 1 : 10,
+        minWidth: 0,
+        marginBottom: 4
+      }}
+      title={title}
+    >
       <div style={{
         flexShrink: 0,
-        width: 74,
+        width: isUltraSlim ? 'auto' : 74,
         fontFamily: FONT,
         fontSize: '11px',
         color: tokens.brand,
@@ -641,6 +704,7 @@ const ProvenanceRows = ({ nodeData, isHomeTab, graphData, tokens }) => {
     <PanelCard
       title="Where This Came From"
       icon={History}
+      compact={isUltraSlim}
       rightEl={
         <InfoPopover label="About provenance" size={13}>
           {PROVENANCE_INTRO}
@@ -670,16 +734,24 @@ const ProvenanceRows = ({ nodeData, isHomeTab, graphData, tokens }) => {
         sm.autoEnrichConfidence != null ? `${Math.round(sm.autoEnrichConfidence * 100)}% match` : undefined
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, marginTop: 10 }}>
         {row('ID', nodeData?.id)}
-        <InfoPopover label="About this ID" size={13}>{ID_INTRO}</InfoPopover>
+        <span style={{ display: 'inline-flex', flexShrink: 0 }}>
+          <InfoPopover label="About this ID" size={13}>{ID_INTRO}</InfoPopover>
+        </span>
       </div>
       {isHomeTab && graphData?.id && row('Graph ID', graphData.id)}
     </PanelCard>
   );
 };
 
-const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = null }) => {
+/**
+ * `isUltraSlim` is the panel's own measure of "dragged narrow" (Panel.jsx), and
+ * the same flag the header and the component grids already lay themselves out
+ * against. Threaded rather than measured here so the whole right panel changes
+ * shape at one width instead of each section picking its own moment.
+ */
+const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = null, isUltraSlim = false }) => {
   const tokens = usePanelCardTokens();
 
   // One menu for the whole section: {key, type, anchor} or null. Held here
@@ -823,6 +895,7 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
       <PanelCard
         title="Known Elsewhere As"
         icon={Link2}
+        compact={isUltraSlim}
         rightEl={
           <InfoPopover label="About identifiers" size={13}>
             {IDENTIFIERS_INTRO}
@@ -843,6 +916,7 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
               state={stateOf(row.url)}
               nodeName={nodeData?.name || ''}
               tokens={tokens}
+              isUltraSlim={isUltraSlim}
               isLast={index === rows.length - 1}
               openMenu={openMenu}
               onToggleMenu={setOpenMenu}
@@ -854,7 +928,7 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
           );
         })}
 
-        <AddIdentifier onAdd={handleAdd} tokens={tokens} />
+        <AddIdentifier onAdd={handleAdd} tokens={tokens} isUltraSlim={isUltraSlim} />
       </PanelCard>
 
       <ProvenanceRows
@@ -862,6 +936,7 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
         isHomeTab={isHomeTab}
         graphData={graphData}
         tokens={tokens}
+        isUltraSlim={isUltraSlim}
       />
     </div>
   );

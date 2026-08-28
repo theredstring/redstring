@@ -47,7 +47,15 @@ export const usePanelCardTokens = () => {
  * Lives in shared/ because both Semantic Web and About are built from it, and
  * the two sections sitting in the same container language is the point.
  */
-const PanelCard = ({ title, icon: Icon, rightEl = null, children, style = {} }) => {
+/**
+ * `compact` is the low-width form: the same card with less of itself.
+ *
+ * Only the padding changes, which is the part that costs content width rather
+ * than the part that says what the card is. 12px a side is 24px of the ~40px a
+ * panel dragged to its minimum has left over; giving 6 of them back is the
+ * difference between an identifier row that can show its id and one that can't.
+ */
+const PanelCard = ({ title, icon: Icon, rightEl = null, compact = false, children, style = {} }) => {
   const tokens = usePanelCardTokens();
   return (
     <div
@@ -55,20 +63,32 @@ const PanelCard = ({ title, icon: Icon, rightEl = null, children, style = {} }) 
         border: `1px solid ${tokens.hairline}`,
         background: tokens.surface,
         borderRadius: '8px',
-        padding: '12px',
+        padding: compact ? '9px' : '12px',
         marginBottom: '10px',
         ...style
       }}
     >
       {(title || rightEl) && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 10 }}>
+          {/* The title gives way before the info button does. The button is the
+              only way to find out what the card is for, so it survives every
+              width; the heading it explains can afford to be clipped. */}
           {title ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: tokens.text }}>
-              {Icon && <Icon size={15} />}
-              <div style={{ fontFamily: FONT, fontSize: '0.9rem', fontWeight: 'bold' }}>{title}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, color: tokens.text }}>
+              {Icon && <Icon size={15} style={{ flexShrink: 0 }} />}
+              <div style={{
+                fontFamily: FONT,
+                fontSize: '0.9rem',
+                fontWeight: 'bold',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}>
+                {title}
+              </div>
             </div>
           ) : <span />}
-          {rightEl}
+          {rightEl && <span style={{ display: 'inline-flex', flexShrink: 0 }}>{rightEl}</span>}
         </div>
       )}
       {children}

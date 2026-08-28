@@ -29,19 +29,28 @@ const CollapsibleSection = ({
           marginBottom: isExpanded ? '15px' : '0'
         }}
       >
+        {/* Truncates rather than pushing the chevron off the edge. A section
+            heading is long enough ("Semantic Web", "Component Of") to outrun a
+            panel dragged down near its minimum width, and the control that
+            opens the section has to stay reachable at every width. */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
+          minWidth: 0,
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+          textOverflow: 'ellipsis',
           color: theme.canvas.textPrimary,
           fontSize: '1.1rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
-          {Icon && <Icon size={18} />}
-          {title}
+          {Icon && <Icon size={18} style={{ flexShrink: 0 }} />}
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
           {count !== undefined && (
             <span style={{
+              flexShrink: 0,
               color: theme.canvas.textSecondary,
               fontSize: '0.9rem',
               fontWeight: 'normal'
@@ -50,7 +59,7 @@ const CollapsibleSection = ({
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', color: theme.canvas.textPrimary }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0, color: theme.canvas.textPrimary }}>
           {rightAdornment && (
             <div
               onClick={(e) => e.stopPropagation()}

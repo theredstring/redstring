@@ -359,7 +359,11 @@ const ItemTypes = {
  * - Image is scaled horizontally with "objectFit: contain."
  * - The circle around X has a fade‑in transition on hover.
  */
-const MIN_PANEL_WIDTH = 80;
+// How narrow the user is allowed to drag a panel. Lowered from 80 now that the
+// right panel's sections have a low-width layout to fall back on — the floor
+// existed to stop the panel reaching widths its contents couldn't survive, and
+// that's less of what it is protecting against than it was.
+const MIN_PANEL_WIDTH = 64;
 const INITIAL_PANEL_WIDTH = 250; // Match NodeCanvas default
 // EXCLUSIVE_PANEL_MODE_THRESHOLD imported from ./constants (shared with NodeCanvas.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
