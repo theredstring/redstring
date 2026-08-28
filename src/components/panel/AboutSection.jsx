@@ -438,8 +438,8 @@ const IdentifierRow = ({
         />
       )}
       {/* Plain ghost variant, like every other remove button in the panel.
-          `danger` swaps the hover ring to #F44336, a colour this panel uses
-          nowhere else. */}
+          Destructive actions are not colour-coded here; the maroon accent is
+          the only hover ring in the panel. */}
       {url && (
         <PanelIconButton
           icon={X}

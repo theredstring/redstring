@@ -90,7 +90,7 @@ const PanelIconButton = forwardRef(({
   const isSolid = variant === 'solid';
   const actualColor = color || (isSolid ? theme.canvas.bg : theme.canvas.textPrimary);
   const actualFillColor = fillColor || theme.accent.primary;
-  const hoverStrokeColor = variant === 'danger' ? '#F44336' : theme.accent.primary;
+  const hoverStrokeColor = theme.accent.primary;
   const actualHoverFillColor = hoverFillColor || hoverStrokeColor;
 
   const handleClick = (e) => {
@@ -207,7 +207,7 @@ const PanelIconButton = forwardRef(({
       {IconComponent && (
         <IconComponent
           size={size}
-          color={showActiveState ? (variant === 'danger' ? '#F44336' : actualHoverFillColor) : actualColor}
+          color={showActiveState ? actualHoverFillColor : actualColor}
           fill={filled ? (showActiveState ? actualHoverFillColor : actualFillColor) : 'none'}
           strokeWidth={currentStrokeWidth}
           style={{

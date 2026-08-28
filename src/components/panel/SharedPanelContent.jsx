@@ -1663,24 +1663,12 @@ const SharedPanelContent = ({
               </span>
             )}
             rightAdornment={hasImage ? (
-              <button
+              <PanelIconButton
+                icon={Trash2}
+                size={14}
                 onClick={handleImageDelete}
-                onMouseDown={(e) => e.stopPropagation()}
                 title="Delete image"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: '4px 8px',
-                  cursor: 'pointer',
-                  color: 'inherit',
-                  display: 'flex',
-                  alignItems: 'center',
-                  marginRight: '0',
-                  outline: 'none'
-                }}
-              >
-                <Trash2 size={14} />
-              </button>
+              />
             ) : undefined}
             defaultExpanded={true}
           >
@@ -1785,6 +1773,7 @@ const SharedPanelContent = ({
           onNodeUpdate={onNodeUpdate}
           isHomeTab={isHomeTab}
           graphData={graphData}
+          isUltraSlim={isUltraSlim}
         />
       </CollapsibleSection>
 
@@ -1932,6 +1921,7 @@ const SharedPanelContent = ({
         <SemanticEditor
           nodeData={nodeData}
           onUpdate={onNodeUpdate}
+          isUltraSlim={isUltraSlim}
         />
       </CollapsibleSection>
 

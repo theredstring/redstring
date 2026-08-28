@@ -3837,7 +3837,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                   <PanelIconButton
                     icon={Trash2}
                     label="Delete"
-                    variant="danger"
                     size={12}
                     onClick={() => handleDeleteUniverse(universe.slug, universe.name)}
                   />

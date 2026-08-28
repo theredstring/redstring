@@ -86,7 +86,6 @@ const SourcesSection = ({
                     size={18}
                     onClick={() => onDetach(source)}
                     label="Remove"
-                    variant="danger"
                   />
                 </div>
               </div>

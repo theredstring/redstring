@@ -44,13 +44,14 @@ const FieldLabel = ({ children, tokens, style = {} }) => (
   </div>
 );
 
-const RDFSchemaPropertiesSection = ({ nodeData }) => {
+const RDFSchemaPropertiesSection = ({ nodeData, isUltraSlim }) => {
   const tokens = usePanelCardTokens();
 
   return (
     <PanelCard
       title="RDF Schema"
       icon={Tags}
+      compact={isUltraSlim}
       rightEl={
         <InfoPopover label="About RDF Schema" size={13}>
           {RDF_SCHEMA_INTRO}
@@ -77,9 +78,12 @@ const RDFSchemaPropertiesSection = ({ nodeData }) => {
         </div>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 4, marginTop: 8,
+          // Wraps under its own icon rather than overflowing the card when the
+          // panel is narrower than the sentence.
+          flexWrap: 'wrap', minWidth: 0,
           color: tokens.muted, fontSize: '12px', fontFamily: FONT
         }}>
-          <CheckCircle size={13} style={{ color: tokens.muted }} /> Kept in sync with this Thing
+          <CheckCircle size={13} style={{ color: tokens.muted, flexShrink: 0 }} /> Kept in sync with this Thing
         </div>
       </div>
 
@@ -118,7 +122,7 @@ const splitClassUri = (uri = '') => {
   return { prefix: 'term', local: uri };
 };
 
-const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
+const SemanticClassificationSection = ({ nodeData, onUpdate, isUltraSlim }) => {
   const tokens = usePanelCardTokens();
   // Store access for types
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
@@ -212,6 +216,7 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
     <PanelCard
       title="Semantic Classification"
       icon={Search}
+      compact={isUltraSlim}
       rightEl={
         <InfoPopover label="About semantic classification" size={13}>
           {CLASSIFICATION_INTRO}
@@ -228,7 +233,11 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
       {availableOntologies.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           <FieldLabel tokens={tokens}>Add Equivalent Class</FieldLabel>
+          {/* Fluid: the dropdown's own 140px floor is both wider than a
+              narrow panel and narrower than this card, so it fills the card
+              instead of standing at a fixed size inside it. */}
           <Dropdown
+            className="fluid"
             options={availableOntologies.map(onto => {
               const { prefix, local } = splitClassUri(onto.id);
               return { value: onto.id, label: `${local} · ${prefix}` };
@@ -260,9 +269,14 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
                 key={index}
                 style={{
                   display: 'flex',
-                  alignItems: 'center',
+                  // Narrow, the two buttons drop under the term instead of
+                  // squeezing it: a vocabulary prefix and a class name are
+                  // what the row is for, and they lose to ~56px of controls on
+                  // a shared line.
+                  flexDirection: isUltraSlim ? 'column' : 'row',
+                  alignItems: isUltraSlim ? 'stretch' : 'center',
                   justifyContent: 'space-between',
-                  gap: 8,
+                  gap: isUltraSlim ? 4 : 8,
                   padding: '6px 0',
                   borderTop: index === 0 ? 'none' : `1px solid ${tokens.hairline}`
                 }}
@@ -288,7 +302,12 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
                     </div>
                   )}
                 </div>
-                <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                <div style={{
+                  display: 'flex',
+                  gap: 2,
+                  flexShrink: 0,
+                  justifyContent: isUltraSlim ? 'flex-end' : undefined
+                }}>
                   {!isPrimary && (
                     // Not ArrowUpFromDot — that glyph means "generalise"
                     // everywhere else in the app.
@@ -301,8 +320,8 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
                   )}
                   {!isPrimary && (
                     // Plain ghost variant, like every other remove button in
-                    // the panel. `danger` swaps the hover ring to #F44336, a
-                    // colour this panel uses nowhere else.
+                    // the panel. Destructive actions are not colour-coded here;
+                    // the maroon accent is the only hover ring in the panel.
                     <PanelIconButton
                       icon={X}
                       size={14}
@@ -347,15 +366,16 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
  * commented out, so `showAdvanced` was permanently false and roughly 1,100
  * lines of this file could not execute.
  */
-const SemanticEditor = ({ nodeData, onUpdate }) => {
+const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
   if (!nodeData) return null;
 
   return (
     <div style={{ padding: '0 0 10px 0', fontFamily: FONT }}>
-      <RDFSchemaPropertiesSection nodeData={nodeData} />
+      <RDFSchemaPropertiesSection nodeData={nodeData} isUltraSlim={isUltraSlim} />
       <SemanticClassificationSection
         nodeData={nodeData}
         onUpdate={onUpdate}
+        isUltraSlim={isUltraSlim}
       />
     </div>
   );
