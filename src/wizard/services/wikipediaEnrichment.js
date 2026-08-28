@@ -122,6 +122,18 @@ export async function getWikidataIdFromWikipedia(pageTitle) {
  * Lightweight Wikipedia summary fetch — 1 API call.
  * Returns { type, page? { title, description, url, thumbnail, originalImage }, options? }
  */
+/**
+ * Exported so callers that already KNOW the article can skip the search.
+ *
+ * A concept dragged in from discovery carries the exact Wikipedia URL the user
+ * picked off a described list. Searching by its name again would re-open the
+ * ambiguity they already resolved — the name "Symptoms" finds an Ashley Tisdale
+ * album — so those callers pass the title straight in.
+ */
+export async function fetchWikipediaPage(title) {
+  return fetchWikipediaSummary(title);
+}
+
 async function fetchWikipediaSummary(query) {
   try {
     const response = await fetch(

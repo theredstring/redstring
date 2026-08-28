@@ -137,6 +137,7 @@ import NodeSelectionGrid from './NodeSelectionGrid'; // Import the new node sele
 import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
 import { candidateToConcept, conceptToPrototypeFields, backfillConceptLinks } from './services/candidates.js';
+import { enrichPrototypeFromLinks } from './services/conceptEnrichment.js';
 import { formatPredicate } from './utils/predicateFormatter.js';
 import StorageSetupModal from './components/StorageSetupModal.jsx';
 import HelpModal from './components/HelpModal.jsx';
@@ -7196,6 +7197,10 @@ function NodeCanvas() {
           // Auto-save semantic nodes to Library
           storeActions.toggleSavedNode(prototypeId);
 
+          // Description and picture arrive a moment later, from the article
+          // this concept already names — no second search, no guessing.
+          enrichPrototypeFromLinks(prototypeId, fields.externalLinks);
+
 
         }
 
@@ -12008,6 +12013,7 @@ function NodeCanvas() {
       });
 
       storeActions.toggleSavedNode(prototypeId);
+      enrichPrototypeFromLinks(prototypeId, fields.externalLinks);
     }
 
     // --- 2. Calculate position (centre → top-left) ---

@@ -8,6 +8,7 @@ import { enhancedSemanticSearch } from '../../../services/semanticWebQuery.js';
 import { knowledgeFederation } from '../../../services/knowledgeFederation.js';
 import { searchConcepts } from '../../../services/identifierSearch.js';
 import { normalizeToCandidate, candidateToConcept, conceptToPrototypeFields, backfillConceptLinks } from '../../../services/candidates.js';
+import { enrichPrototypeFromLinks } from '../../../services/conceptEnrichment.js';
 import { ingestOrbitIndexEntries } from '../../../services/orbitLocalIndex.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { markPrototypesProtected } from '../../../services/prototypeProtection.js';
@@ -1016,6 +1017,10 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
       // Auto-save semantic nodes to Library
       storeActions?.toggleSavedNode(newNodeId);
+
+      // Fill in the description and picture from the article this concept
+      // already names. Fire and forget so the node appears immediately.
+      enrichPrototypeFromLinks(newNodeId, fields.externalLinks);
     } else {
       console.error('[SemanticDiscovery] storeActions.addNodePrototype is not available');
     }

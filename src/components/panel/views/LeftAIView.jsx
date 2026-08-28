@@ -39,6 +39,7 @@ import { runWizardInProcess, isAbortError } from '../../../wizard/runWizardInPro
 import { getToolDefinitions, executeTool } from '../../../wizard/tools/index.js';
 import { callLLM } from '../../../wizard/LLMClient.js';
 import { enrichBatch, enrichSingle } from '../../../wizard/services/wikipediaEnrichment.js';
+import { buildEnrichmentUpdates } from '../../../services/conceptEnrichment.js';
 
 // Shared Components
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
@@ -78,66 +79,6 @@ function readWizardIterations(key, def) {
   } catch {
     return def;
   }
-}
-
-/**
- * Build the update object for a node from a server enrichment match.
- * Shared between single and batch enrichment.
- */
-function buildEnrichmentUpdates(nodeProto, searchResult, confidence, { overwriteDescription = false } = {}) {
-  const hasExistingDescription = !overwriteDescription && nodeProto.description && nodeProto.description.trim().length > 10;
-
-  // Compute aspect ratio from API-provided thumbnail dimensions (survives save/load)
-  const tw = searchResult.page.thumbnailWidth;
-  const th = searchResult.page.thumbnailHeight;
-  const imageAspectRatio = (tw && th) ? (th / tw) : undefined;
-
-  // The Wikidata item is the thing this article is ABOUT — an entity IRI,
-  // where the article URL is a document. fetchWikipediaSummary already resolves
-  // it via pageprops/wikibase_item; it was simply being thrown away. Capturing
-  // it is what lets About anchor on Wikidata and show the article as that
-  // entity's readable face rather than as an identity claim of its own.
-  const wikidataId = searchResult.page.wikidataId;
-  const wikidataUrl = wikidataId ? `https://www.wikidata.org/wiki/${wikidataId}` : undefined;
-
-  const updates = {
-    ...(hasExistingDescription ? {} : { description: searchResult.page.description }),
-    semanticMetadata: {
-      ...nodeProto.semanticMetadata,
-      wikipediaUrl: searchResult.page.url,
-      wikipediaTitle: searchResult.page.title,
-      wikipediaThumbnail: searchResult.page.thumbnail,
-      wikipediaEnriched: true,
-      wikipediaEnrichedAt: new Date().toISOString(),
-      autoEnriched: true,
-      autoEnrichConfidence: confidence,
-      ...(wikidataUrl ? { wikidataUrl } : {}),
-      ...(imageAspectRatio ? { imageAspectRatio } : {})
-    }
-  };
-
-  const currentLinks = nodeProto.externalLinks || [];
-  const added = [];
-  if (!currentLinks.some(link => String(link).includes('wikipedia.org'))) {
-    added.push(searchResult.page.url);
-  }
-  if (wikidataUrl && !currentLinks.some(link => String(link).includes('wikidata.org'))) {
-    added.push(wikidataUrl);
-  }
-  if (added.length > 0) {
-    updates.externalLinks = [...added, ...currentLinks];
-    // Redstring found these; nobody has confirmed them. Recording the rung per
-    // link keeps the export honest and stops a later image upload from
-    // promoting them — the exporter used to read the rung off `autoEnriched`,
-    // which is cleared when a user replaces the enriched picture.
-    let sm = updates.semanticMetadata;
-    for (const link of added) {
-      sm = setLinkState(sm, link, LINK_STATES.AUTO, 'auto');
-    }
-    updates.semanticMetadata = sm;
-  }
-
-  return updates;
 }
 
 /**
