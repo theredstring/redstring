@@ -78,6 +78,23 @@ export class KnowledgeFederation {
         queryFn: this.queryDBpedia.bind(this),
         relationshipFn: this.getDBpediaRelationships.bind(this)
       }],
+      // Registered but no longer requested by anything. Nothing asks for it in
+      // `includeSources`, so this adapter is dormant rather than deleted: one
+      // word re-enables it if ConceptNet is ever worth having back.
+      //
+      // Three reasons it isn't now:
+      //  - Wrong unit. ConceptNet nodes are WORDS, not entities. /c/en/dog is
+      //    the lexical item, conflating every sense of it. Nothing here can be
+      //    a skos:exactMatch target for a Thing, because it doesn't denote one.
+      //    It has essentially no proper nouns either, which is most of what
+      //    people build graphs out of.
+      //  - queryConceptNet returns a RELATIVE uri ('/c/en/dog') straight into
+      //    entityData.externalLinks, plus a templated description that carries
+      //    no information. On success it pollutes a materialized node with a
+      //    broken link; the failure mode was better than the success mode.
+      //  - api.conceptnet.io answers 502 as of this writing and the data is
+      //    ConceptNet 5.8 (2019). Sources are queried SERIALLY in
+      //    importSingleEntity, so every entity waited on it for nothing.
       ['conceptnet', {
         name: 'ConceptNet',
         endpoint: '/api/conceptnet',

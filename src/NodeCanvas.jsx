@@ -136,7 +136,7 @@ import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status d
 import NodeSelectionGrid from './NodeSelectionGrid'; // Import the new node selection grid
 import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
-import { candidateToConcept } from './services/candidates.js';
+import { candidateToConcept, conceptToPrototypeFields, backfillConceptLinks } from './services/candidates.js';
 import { formatPredicate } from './utils/predicateFormatter.js';
 import StorageSetupModal from './components/StorageSetupModal.jsx';
 import HelpModal from './components/HelpModal.jsx';
@@ -7162,22 +7162,23 @@ function NodeCanvas() {
         let prototypeId;
 
         if (existingPrototype) {
-          // Use existing prototype
+          // Use existing prototype, topping up any links it predates.
           prototypeId = existingPrototype.id;
+          const patch = backfillConceptLinks(existingPrototype, item.conceptData);
+          if (patch) {
+            storeActions.updateNodePrototype(prototypeId, (draft) => {
+              draft.externalLinks = patch.externalLinks;
+              draft.semanticMetadata = patch.semanticMetadata;
+            });
+          }
 
         } else {
           // Create new prototype
           prototypeId = `semantic-node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-          // Build origin metadata
-          const originInfo = {
-            source: item.conceptData.source,
-            discoveredAt: item.conceptData.discoveredAt,
-            searchQuery: item.conceptData.searchQuery || '',
-            confidence: item.conceptData.semanticMetadata?.confidence || 0.8,
-            originalUri: item.conceptData.semanticMetadata?.originalUri,
-            relationships: item.conceptData.relationships || []
-          };
+          // Carries the concept's own URI onto the prototype as a real
+          // externalLinks entry, not just into the semanticMetadata blob.
+          const fields = conceptToPrototypeFields(item.conceptData);
 
           // Add the prototype to the store
           storeActions.addNodePrototype({
@@ -7187,13 +7188,9 @@ function NodeCanvas() {
             color: item.conceptData.color,
             typeNodeId: 'base-thing-prototype',
             definitionGraphIds: [],
-            semanticMetadata: {
-              ...item.conceptData.semanticMetadata,
-              relationships: item.conceptData.relationships,
-              originMetadata: originInfo,
-              isSemanticNode: true
-            },
-            originalDescription: item.conceptData.description
+            externalLinks: fields.externalLinks,
+            semanticMetadata: fields.semanticMetadata,
+            originalDescription: fields.originalDescription
           });
 
           // Auto-save semantic nodes to Library
@@ -11433,22 +11430,19 @@ function NodeCanvas() {
 
   const shouldPanelsBeExclusive = (windowSize?.width ?? window.innerWidth) <= EXCLUSIVE_PANEL_MODE_THRESHOLD;
 
+  // The store's toggles close the opposite panel themselves in exclusive mode,
+  // so every open path (toggle buttons, node double-click/double-tap, pie menu)
+  // behaves the same way.
   const handleToggleRightPanel = useCallback(() => {
-    const next = !rightPanelExpanded;
-    storeActions.setRightPanelExpanded(next);
-    if (next && shouldPanelsBeExclusive) {
-      storeActions.setLeftPanelExpanded(false);
-    }
-  }, [rightPanelExpanded, shouldPanelsBeExclusive, storeActions]);
+    storeActions.toggleRightPanel();
+  }, [storeActions]);
 
   const handleToggleLeftPanel = useCallback(() => {
-    const next = !leftPanelExpanded;
-    storeActions.setLeftPanelExpanded(next);
-    if (next && shouldPanelsBeExclusive) {
-      storeActions.setRightPanelExpanded(false);
-    }
-  }, [leftPanelExpanded, shouldPanelsBeExclusive, storeActions]);
+    storeActions.toggleLeftPanel();
+  }, [storeActions]);
 
+  // Only reachable by resizing into exclusive mode with both panels already
+  // open — opening a panel below the threshold closes the other in the store.
   useEffect(() => {
     if (shouldPanelsBeExclusive && leftPanelExpanded && rightPanelExpanded) {
       storeActions.setRightPanelExpanded(false);
@@ -11990,16 +11984,17 @@ function NodeCanvas() {
     let prototypeId;
     if (existingPrototype) {
       prototypeId = existingPrototype.id;
+      const patch = backfillConceptLinks(existingPrototype, conceptData);
+      if (patch) {
+        storeActions.updateNodePrototype(prototypeId, (draft) => {
+          draft.externalLinks = patch.externalLinks;
+          draft.semanticMetadata = patch.semanticMetadata;
+        });
+      }
     } else {
       prototypeId = `semantic-node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-      const originInfo = {
-        source: conceptData.source,
-        discoveredAt: conceptData.discoveredAt,
-        confidence: conceptData.semanticMetadata?.confidence || 0.8,
-        originalUri: conceptData.semanticMetadata?.originalUri,
-        relationships: conceptData.relationships || []
-      };
+      const fields = conceptToPrototypeFields(conceptData);
 
       storeActions.addNodePrototype({
         id: prototypeId,
@@ -12008,12 +12003,8 @@ function NodeCanvas() {
         color: conceptData.color,
         typeNodeId: 'base-thing-prototype',
         definitionGraphIds: [],
-        semanticMetadata: {
-          ...conceptData.semanticMetadata,
-          relationships: conceptData.relationships,
-          originMetadata: originInfo,
-          isSemanticNode: true
-        }
+        externalLinks: fields.externalLinks,
+        semanticMetadata: fields.semanticMetadata
       });
 
       storeActions.toggleSavedNode(prototypeId);

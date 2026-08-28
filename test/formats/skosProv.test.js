@@ -63,8 +63,22 @@ describe('SKOS emission (P2.4)', () => {
 describe('Sameness ladder (P2.5)', () => {
   const LINKS = ['https://www.wikidata.org/wiki/Q144', 'https://dbpedia.org/page/Dog'];
 
-  it('user links export skos:exactMatch, never owl:sameAs', () => {
+  it('exports an unvouched link as skos:closeMatch', () => {
+    // No linkConfirmations record means nobody confirmed these, whoever added
+    // them. Understating is recoverable in one click; overstating travels.
     const ex = exportToRedstring(buildState({ externalLinks: LINKS }));
+    const dog = ex.prototypeSpace.prototypes.dog;
+    expect(dog['skos:closeMatch']).toEqual(LINKS.map((u) => ({ '@id': u })));
+    expect(dog['skos:exactMatch']).toBeUndefined();
+  });
+
+  it('exports a confirmed link as skos:exactMatch, never owl:sameAs', () => {
+    const ex = exportToRedstring(buildState({
+      externalLinks: LINKS,
+      semanticMetadata: {
+        linkConfirmations: Object.fromEntries(LINKS.map((u) => [u, { state: 'exact', by: 'user' }]))
+      }
+    }));
     const dog = ex.prototypeSpace.prototypes.dog;
     expect(dog['skos:exactMatch']).toEqual(LINKS.map((u) => ({ '@id': u })));
     expect(dog['skos:closeMatch']).toBeUndefined();

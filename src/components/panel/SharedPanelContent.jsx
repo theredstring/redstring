@@ -14,6 +14,7 @@ import PanelIconButton from '../shared/PanelIconButton.jsx';
 import InfoPopover from '../shared/InfoPopover.jsx';
 import AboutSection from './AboutSection.jsx';
 import { ABOUT_INTRO } from './aboutCopy.js';
+import { WIZARD_DEFINE_INTRO } from './panelCopy.js';
 import useAutoEnrichIdentifiers from '../../hooks/useAutoEnrichIdentifiers.js';
 import useGraphStore from "../../store/graphStore.js";
 import useImageCache, { queueThumbnailFetch } from '../../services/imageCache.js';
@@ -1774,7 +1775,7 @@ const SharedPanelContent = ({
         title="About"
         defaultExpanded={true}
         rightAdornment={
-          <InfoPopover title="About" label="What is this section?" size={14}>
+          <InfoPopover label="What is this section?" size={14}>
             {ABOUT_INTRO}
           </InfoPopover>
         }
@@ -1826,28 +1827,37 @@ const SharedPanelContent = ({
               No components in this {isHomeTab ? 'graph' : 'definition'}.
             </div>
             {!isHomeTab && wizardEnabled && nodeData?.id && (
-              <PanelIconButton
-                icon={Sparkles}
-                size={12}
-                label="Ask The Wizard"
-                labelFontSize={11}
-                variant="outline"
-                color={accentColor}
-                onClick={() => {
-                  try {
-                    window.dispatchEvent(new CustomEvent('rs-ask-wizard-define-node', {
-                      detail: { prototypeId: nodeData.id }
-                    }));
-                  } catch (err) {
-                    console.error('[SharedPanelContent] Failed to dispatch ask-wizard-define-node:', err);
-                  }
-                }}
-                style={{
-                  borderColor: accentColor,
-                  marginLeft: '15px',
-                  marginBottom: '10px'
-                }}
-              />
+              // The margins live on the row rather than the button so the info
+              // button sits on the same baseline instead of below it.
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '15px',
+                marginBottom: '10px'
+              }}>
+                <PanelIconButton
+                  icon={Sparkles}
+                  size={12}
+                  label="Ask The Wizard"
+                  labelFontSize={11}
+                  variant="outline"
+                  color={accentColor}
+                  onClick={() => {
+                    try {
+                      window.dispatchEvent(new CustomEvent('rs-ask-wizard-define-node', {
+                        detail: { prototypeId: nodeData.id }
+                      }));
+                    } catch (err) {
+                      console.error('[SharedPanelContent] Failed to dispatch ask-wizard-define-node:', err);
+                    }
+                  }}
+                  style={{ borderColor: accentColor }}
+                />
+                <InfoPopover label="About Ask The Wizard" size={13}>
+                  {WIZARD_DEFINE_INTRO}
+                </InfoPopover>
+              </div>
             )}
           </>
         )}

@@ -21,6 +21,29 @@ import './AnchoredPopoverBox.css';
 // should never outrank a right-click menu.
 export const POPOVER_Z_INDEX = 20300;
 
+/**
+ * At most one of these on screen at a time, across the whole app.
+ *
+ * Each popover's open/closed state belongs to whatever opened it — an
+ * InfoPopover keeps its own, About's rows share one between the search and
+ * match menus — so none of them can see the others. Opening a second box left
+ * the first sitting there, and two of these overlapping is genuinely confusing:
+ * they look identical, so nothing on screen says which trigger either belongs
+ * to.
+ *
+ * Coordinating here rather than at the call sites means every popover is
+ * covered by construction, including ones written later.
+ */
+let openPopover = null;
+
+const claimPopover = (close) => {
+  if (openPopover && openPopover !== close) openPopover();
+  openPopover = close;
+  // Guarded: by the time a displaced popover unmounts, `openPopover` is already
+  // the one that displaced it, and clearing unconditionally would forget it.
+  return () => { if (openPopover === close) openPopover = null; };
+};
+
 const AnchoredPopoverBox = ({
   position,
   direction = 'down-left',
@@ -39,6 +62,13 @@ const AnchoredPopoverBox = ({
   const boxRef = useRef(null);
   const mobileState = useMobileDetection();
   const [openedAt] = useState(() => performance.now());
+
+  // Take the single open slot, closing whoever held it. Read through a ref so
+  // this runs once on mount: callers often pass an inline arrow for onDismiss,
+  // and depending on its identity would re-claim on every render.
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
+  useEffect(() => claimPopover(() => dismissRef.current?.()), []);
 
   // Dismiss on outside click. Two guards, both load-bearing:
   //
@@ -79,9 +109,10 @@ const AnchoredPopoverBox = ({
     return () => document.removeEventListener('keydown', handle);
   }, [onDismiss, triggerRef]);
 
-  const boxWidth = mobileState.isMobile
-    ? Math.min(width, window.innerWidth - 24)
-    : width;
+  // Clamped on every viewport, not just mobile. The positioner needs the real
+  // rendered width to place the box, and a desktop window narrower than the
+  // requested width would otherwise be positioned as if it had room it doesn't.
+  const boxWidth = Math.min(width, window.innerWidth - 24);
 
   const style = getAnchoredStyle({
     position,

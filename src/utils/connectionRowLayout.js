@@ -56,6 +56,12 @@ const PANEL_LIST_NODE_BOX_RATIO = 2.8;
 // Below this the label stops being worth reading, so clip the text instead of
 // shrinking it further.
 const MIN_LABEL_FONT_PX = 13;
+// The Connections list's row is fit-scaled down so two node boxes fit a panel
+// column, and letting the label ride that scale left it drawing at the renderer's
+// 8px floor in a narrow panel. It gets a size of its own instead — a step up from
+// the surrounding panel text (12–13px) without taking over the row the way the
+// control panel's full 24px did in a column this narrow. Tune here.
+const PANEL_LIST_LABEL_FONT_PX = 16;
 // The renderer stacks a wrapped label's lines at max(fontSize * 1.1, 26 * scale)
 // — see ConnectionText in UniversalNodeRenderer.jsx. The first term wins at
 // every size the base font produces, so line height is 1.1× the drawn font.
@@ -143,10 +149,11 @@ const fitLabelToSpan = (text, fontString, maxWidth) => {
  * @param {{min:number,max:number}} [params.spanRatio] - share of the row the gaps take
  * @param {number} [params.nodeBoxRatio] - how far past the floor a box may grow
  *   before its name is truncated
- * @param {boolean} [params.labelKeepsBaseFont] - draw the connection label at the
- *   base font size instead of at the row's fit scale. For rows that had to scale
- *   down to fit a fixed-width column (the right panel's Connections list), which
- *   would otherwise shrink the label along with the boxes.
+ * @param {number} [params.labelFontPx] - target font size for the label, instead
+ *   of letting it ride the row's fit scale. For rows that had to scale down to fit
+ *   a fixed-width column (the right panel's Connections list), which would
+ *   otherwise shrink the label along with the boxes. Still subject to the width
+ *   and height budgets below.
  * @returns {{nodes:Array<object>, spacing:number, labelFontScale:number,
  *   labels:string[]}} — node names and labels already truncated to their budgets,
  *   spacing for the renderer's `horizontalSpacing`, and the label font scale for
@@ -163,7 +170,7 @@ export function layoutConnectionRow({
   hasArrows = true,
   spanRatio = CONTROL_PANEL_SPAN,
   nodeBoxRatio = CONTROL_PANEL_NODE_BOX_RATIO,
-  labelKeepsBaseFont = false
+  labelFontPx = null
 }) {
   const availableWidth = Math.max(1, containerWidth - padding * 2);
   const boxCount = Math.max(1, sourceNodes.length + duplicateNodeIds.length);
@@ -204,10 +211,11 @@ export function layoutConnectionRow({
   // The label's font normally rides the row's fit scale, because that is what the
   // renderer derives it from. In a row that had to scale down to fit its column
   // that drags the label along with the boxes — the failure this module exists to
-  // prevent, just applied to the label instead. labelKeepsBaseFont holds the label
-  // at the base size so it reads the same as the wider representations' do; the
-  // budget below still bounds it, so nothing overflows.
-  const labelFitScale = labelKeepsBaseFont ? 1 : nodeScale;
+  // prevent, just applied to the label instead. labelFontPx pins the label to a
+  // size of its own instead; the budgets below still bound it, so nothing overflows.
+  const labelFitScale = labelFontPx != null
+    ? labelFontPx / CONNECTION_LABEL_BASE_FONT_SIZE
+    : nodeScale;
   const naturalFontSize = Math.max(8, CONNECTION_LABEL_BASE_FONT_SIZE * labelFitScale);
   const budget = Math.max(
     0,
@@ -273,11 +281,7 @@ export function layoutPanelConnection({ nodes, predicate, containerWidth, hasArr
     hasArrows,
     spanRatio: PANEL_LIST_SPAN,
     nodeBoxRatio: PANEL_LIST_NODE_BOX_RATIO,
-    // This row is fit-scaled down to ~0.6–0.85× so two node boxes fit a panel
-    // column. The label doesn't have to pay for that: the connection is what the
-    // list is there to show, so it reads at the same size as it does in the
-    // canvas control panel and hover aid.
-    labelKeepsBaseFont: true
+    labelFontPx: PANEL_LIST_LABEL_FONT_PX
   });
   return {
     nodes: row.nodes,

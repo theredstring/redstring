@@ -149,9 +149,14 @@ describe('link state', () => {
       .toBe('https://en.wikipedia.org/wiki/Dog');
   });
 
-  it('falls back to the old whole-array signal when nothing is recorded', () => {
-    expect(resolveLinkState(WD, undefined)).toBe(LINK_STATES.EXACT);
+  it('treats a link with no record as auto-populated, whatever the image flag says', () => {
+    // A record is the only evidence anybody vouched for a link. `autoEnriched`
+    // is a node-level flag about images and must not move the ladder: only one
+    // enrichment path ever set it, and uploading a picture clears it.
+    expect(resolveLinkState(WD, undefined)).toBe(LINK_STATES.AUTO);
     expect(resolveLinkState(WD, { autoEnriched: true })).toBe(LINK_STATES.AUTO);
+    expect(resolveLinkState(WD, { autoEnriched: false })).toBe(LINK_STATES.AUTO);
+    expect(resolveLinkState(WD, { wikipediaUrl: WD })).toBe(LINK_STATES.AUTO);
   });
 
   it('reads records written under the retired state names', () => {

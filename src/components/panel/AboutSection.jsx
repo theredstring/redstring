@@ -626,7 +626,7 @@ const ProvenanceRows = ({ nodeData, isHomeTab, graphData, tokens }) => {
       title="Where This Came From"
       icon={History}
       rightEl={
-        <InfoPopover title="Where this came from" label="About provenance" size={13}>
+        <InfoPopover label="About provenance" size={13}>
           {PROVENANCE_INTRO}
         </InfoPopover>
       }
@@ -656,7 +656,7 @@ const ProvenanceRows = ({ nodeData, isHomeTab, graphData, tokens }) => {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 10 }}>
         {row('ID', nodeData?.id)}
-        <InfoPopover title="Internal ID" label="About this ID" size={13}>{ID_INTRO}</InfoPopover>
+        <InfoPopover label="About this ID" size={13}>{ID_INTRO}</InfoPopover>
       </div>
       {isHomeTab && graphData?.id && row('Graph ID', graphData.id)}
     </PanelCard>
@@ -808,7 +808,7 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
         title="Known Elsewhere As"
         icon={Link2}
         rightEl={
-          <InfoPopover title="Known elsewhere as" label="About identifiers" size={13}>
+          <InfoPopover label="About identifiers" size={13}>
             {IDENTIFIERS_INTRO}
           </InfoPopover>
         }

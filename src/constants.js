@@ -6,6 +6,11 @@ export const HEADER_HEIGHT = 50;
 // At or below this viewport width, opening one panel closes the other and the
 // header consolidates its inline action buttons into a single hamburger menu.
 export const EXCLUSIVE_PANEL_MODE_THRESHOLD = 1100;
+// True when the viewport is narrow enough that only one side panel may be open
+// at a time. Guarded for non-browser contexts (tests, MCP server) that import
+// the store without a `window`.
+export const isExclusivePanelMode = () =>
+  typeof window !== 'undefined' && window.innerWidth <= EXCLUSIVE_PANEL_MODE_THRESHOLD;
 // Allow effectively unbounded zoom; keep a very high cap to avoid numeric overflow
 export const MAX_ZOOM = 1000;
 export const MOVEMENT_THRESHOLD = 3;

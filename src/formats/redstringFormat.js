@@ -964,11 +964,11 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     // could tell apart from "confirmed". Import still reads it (see the rung
     // chain below) — other tools write it, and older Redstring files carry it.
     //
-    // The rung is per-link, from semanticMetadata.linkConfirmations. It used to
-    // be chosen for the whole array from semanticMetadata.autoEnriched — but
-    // that flag is about images (it gates thumbnail stripping and is cleared
-    // when the user uploads their own picture), so uploading a photo promoted
-    // every matched link a full rung.
+    // The rung is per-link, from semanticMetadata.linkConfirmations, and a link
+    // with no record is closeMatch. It used to be chosen for the whole array
+    // from semanticMetadata.autoEnriched — that flag is about images (it gates
+    // thumbnail stripping and is cleared when the user uploads their own
+    // picture), so uploading a photo promoted every link on the node a rung.
     const externalLinks = Array.isArray(prototype.externalLinks) ? prototype.externalLinks : [];
     if (externalLinks.length > 0) {
       const asRef = (url) => ({ "@id": url });

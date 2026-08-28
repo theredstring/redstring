@@ -6,7 +6,8 @@ import GhostSemanticNode from '../items/GhostSemanticNode.jsx';
 import ConceptDetailView from './ConceptDetailView.jsx';
 import { enhancedSemanticSearch } from '../../../services/semanticWebQuery.js';
 import { knowledgeFederation } from '../../../services/knowledgeFederation.js';
-import { normalizeToCandidate, candidateToConcept } from '../../../services/candidates.js';
+import { searchConcepts } from '../../../services/identifierSearch.js';
+import { normalizeToCandidate, candidateToConcept, conceptToPrototypeFields, backfillConceptLinks } from '../../../services/candidates.js';
 import { ingestOrbitIndexEntries } from '../../../services/orbitLocalIndex.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { markPrototypesProtected } from '../../../services/prototypeProtection.js';
@@ -122,6 +123,16 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   const [focusedConcept, setFocusedConcept] = useState(null);
   const [navigationStack, setNavigationStack] = useState([]);
   const [viewMode, setViewMode] = useState('discover'); // 'discover', 'history', 'catalog'
+  // What a search means. 'concepts' asks each authority's own search index what
+  // this word could refer to and answers in one round trip. 'related' is the
+  // federation crawl, which walks relationships out from the term and is the
+  // right tool when you want a Thing's neighbourhood rather than the Thing.
+  const [searchMode, setSearchMode] = useState('concepts');
+  // Whether Load More has anything left to give. Cleared when a load returns
+  // nothing new, so the button stops offering work it can't do.
+  const [canLoadMore, setCanLoadMore] = useState(true);
+  // How many hits per authority the current concept search has asked for.
+  const conceptLimitRef = useRef(8);
   const [showViewMenu, setShowViewMenu] = useState(false);
   const viewMenuRef = useRef(null);
   const [manualQuery, setManualQuery] = useState('');
@@ -492,7 +503,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         maxDepth: 1, // Focus on immediate relationships for expansion
         maxEntitiesPerLevel: 20, // Get focused results for expansion
         includeRelationships: true,
-        includeSources: ['wikidata', 'dbpedia', 'conceptnet'],
+        includeSources: ['wikidata', 'dbpedia'],
         onProgress: (progress) => {
           console.log(`[SemanticExpansion] Progress: ${progress.stage} - ${progress.entity} (level ${progress.level})`);
         }
@@ -665,7 +676,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       maxDepth: maxDepth ?? 1,
       maxEntitiesPerLevel: maxEntitiesPerLevel ?? 15,
       includeRelationships: true,
-      includeSources: ['wikidata', 'dbpedia', 'conceptnet'],
+      includeSources: ['wikidata', 'dbpedia'],
       onProgress: (progress) => {
         // Throttle logs implicitly by federation impl; keep lightweight here
       }
@@ -701,9 +712,38 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     setDiscoveredConcepts([]);
     setSelectedConcept(null);
     setSearchProgress('Initializing search...');
+    setCanLoadMore(true);
+    conceptLimitRef.current = 8;
 
     try {
-      console.log(`[SemanticDiscovery] Starting search for "${rawQuery}" (token: ${token})`);
+      console.log(`[SemanticDiscovery] Starting ${searchMode} search for "${rawQuery}" (token: ${token})`);
+
+      // Concept search: one round trip per authority against its own search
+      // index, no variants and no ranking pass of ours. The authorities already
+      // rank their own hits better than a name-similarity score can, and
+      // filterRankDedup would collapse same-named concepts into one — which is
+      // the distinction this mode exists to show.
+      if (searchMode === 'concepts') {
+        setSearchProgress('Asking Wikidata, Wikipedia and DBpedia...');
+        const hits = await searchConcepts(rawQuery, { limit: 8 });
+        if (latestSearchTokenRef.current !== token) return;
+
+        const normalized = hits.map(hit => {
+          const concept = candidateToConcept(normalizeToCandidate(hit));
+          return { ...concept, category: hit.authority, searchQuery: rawQuery };
+        });
+        console.log(`[SemanticDiscovery] ${normalized.length} concepts from direct lookup`);
+        setDiscoveredConcepts(normalized);
+        setSearchHistory(prev => [{
+          id: token,
+          query: normalizeQuery(rawQuery),
+          timestamp: new Date(),
+          resultCount: normalized.length,
+          concepts: normalized.slice(0, 10)
+        }, ...prev].slice(0, 20));
+        return;
+      }
+
       setSearchProgress('Pulling strings...');
 
       // Shallow, fast searches for all variants in parallel
@@ -744,6 +784,66 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         setIsSearching(false);
         setSearchProgress('');
       }
+    }
+  };
+
+  /**
+   * Load more, in whichever mode the results came from.
+   *
+   * This used to always run the federation crawl, so pressing it after a
+   * concept search stalled on DBpedia's SPARQL endpoint (503) and a ConceptNet
+   * proxy route that isn't mounted (404) — nothing to do with the results on
+   * screen, which came from the lookup APIs.
+   */
+  const handleLoadMore = async () => {
+    const lastSearch = searchHistory[0];
+    if (!lastSearch) return;
+
+    setIsSearching(true);
+    try {
+      if (searchMode === 'concepts') {
+        // The lookup APIs page by asking for more, not by offset, so widen the
+        // limit and keep only what wasn't already on screen.
+        const next = Math.min(conceptLimitRef.current * 2, 50);
+        conceptLimitRef.current = next;
+        const hits = await searchConcepts(lastSearch.query, { limit: next });
+        const shown = new Set(discoveredConcepts.map(c => c.id));
+        const additions = hits
+          .filter(hit => !shown.has(hit.uri))
+          .map(hit => ({
+            ...candidateToConcept(normalizeToCandidate(hit)),
+            category: hit.authority,
+            searchQuery: lastSearch.query
+          }));
+        console.log(`[SemanticDiscovery] Loaded ${additions.length} more concepts (limit ${next})`);
+        if (additions.length === 0) setCanLoadMore(false);
+        else setDiscoveredConcepts(prev => [...prev, ...additions]);
+        return;
+      }
+
+      console.log(`[SemanticDiscovery] Loading more results for "${lastSearch.query}" with staged deeper search`);
+      const variants = generateQueryVariants(lastSearch.query);
+      const promises = variants.map(v => fetchFederatedConcepts(v, { maxDepth: 2, maxEntitiesPerLevel: 35 }));
+      const settled = await Promise.allSettled(promises);
+      let combined = [];
+      settled.forEach((res) => { if (res.status === 'fulfilled') combined = combined.concat(res.value || []); });
+      const ranked = filterRankDedup(combined, lastSearch.query);
+      const existingKeys = new Set(discoveredConcepts.map(c => canonicalKey(c.name)));
+      const normalizedAdditions = ranked
+        .filter(c => !existingKeys.has(canonicalKey(c.name)))
+        .slice(0, 40)
+        .map(r => candidateToConcept(normalizeToCandidate(r)));
+      console.log(`[SemanticDiscovery] Loaded ${normalizedAdditions.length} additional concepts (from ${combined.length} raw)`);
+      // Every source can fail independently behind allSettled, so "nothing came
+      // back" is the common failure and it used to look identical to a click
+      // that did nothing at all.
+      if (normalizedAdditions.length === 0) setCanLoadMore(false);
+      else setDiscoveredConcepts(prev => [...prev, ...normalizedAdditions]);
+    } catch (error) {
+      console.error('[SemanticDiscovery] Load more failed:', error);
+      setCanLoadMore(false);
+    } finally {
+      setIsSearching(false);
     }
   };
 
@@ -878,7 +978,15 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     );
 
     if (existingPrototype) {
-      // Use existing prototype
+      // Reuse it, but top up any links it predates.
+      const patch = backfillConceptLinks(existingPrototype, concept);
+      if (patch && storeActions?.updateNodePrototype) {
+        storeActions.updateNodePrototype(existingPrototype.id, (draft) => {
+          draft.externalLinks = patch.externalLinks;
+          draft.semanticMetadata = patch.semanticMetadata;
+        });
+        console.log(`[SemanticDiscovery] Backfilled links on existing prototype: ${concept.name}`);
+      }
       console.log(`[SemanticDiscovery] Reusing existing semantic prototype: ${concept.name} (ID: ${existingPrototype.id})`);
       return existingPrototype.id;
     }
@@ -886,15 +994,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     // Create new prototype
     const newNodeId = `semantic-node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Build origin metadata for the bio section
-    const originInfo = {
-      source: concept.source,
-      discoveredAt: concept.discoveredAt,
-      searchQuery: concept.searchQuery || '',
-      confidence: concept.semanticMetadata?.confidence || 0.8,
-      originalUri: concept.semanticMetadata?.originalUri,
-      relationships: concept.relationships || []
-    };
+    const fields = conceptToPrototypeFields(concept);
 
     // Use regular addNodePrototype since addNodePrototypeWithDeduplication may not be available
     if (storeActions?.addNodePrototype) {
@@ -905,15 +1005,13 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         color: concept.color,
         typeNodeId: 'base-thing-prototype',
         definitionGraphIds: [],
+        externalLinks: fields.externalLinks,
         semanticMetadata: {
-          ...concept.semanticMetadata,
-          relationships: concept.relationships,
-          originMetadata: originInfo,
-          isSemanticNode: true,
+          ...fields.semanticMetadata,
           generatedColor: concept.color // Store the generated color for consistency
         },
         // Store the original description for potential use
-        originalDescription: concept.description
+        originalDescription: fields.originalDescription
       });
 
       // Auto-save semantic nodes to Library
@@ -1503,6 +1601,42 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
               <div style={{ fontSize: '11px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
                 Search Semantic Web
               </div>
+
+              {/* What the search is FOR. Concepts is the default because it
+                  answers the question people actually arrive with — what could
+                  this word mean — and answers it in one round trip. */}
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
+                {[
+                  { mode: 'concepts', label: 'Concepts', hint: 'What this could refer to' },
+                  { mode: 'related', label: 'Related', hint: 'Things connected to it' }
+                ].map(({ mode, label, hint }) => {
+                  const isActive = searchMode === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setSearchMode(mode)}
+                      title={hint}
+                      aria-pressed={isActive}
+                      style={{
+                        padding: '3px 10px',
+                        borderRadius: '20px',
+                        border: `1px solid ${isActive ? theme.canvas.brandText : theme.canvas.border}`,
+                        background: 'transparent',
+                        color: isActive ? theme.canvas.brandText : theme.canvas.textSecondary,
+                        fontSize: '10px',
+                        fontWeight: isActive ? 'bold' : 'normal',
+                        fontFamily: "'EmOne', sans-serif",
+                        cursor: 'pointer',
+                        transition: 'color 0.15s ease, border-color 0.15s ease'
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
               <div style={{ display: 'flex', gap: '6px' }}>
                 <input
                   type="text"
@@ -1575,36 +1709,10 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 </div>
 
                 {/* Load More Button */}
-                {discoveredConcepts.length >= 10 && (
+                {discoveredConcepts.length >= 10 && canLoadMore && (
                   <div style={{ marginTop: '12px', textAlign: 'center' }}>
                     <button
-                      onClick={async () => {
-                        const lastSearch = searchHistory[0];
-                        if (!lastSearch) return;
-                        try {
-                          setIsSearching(true);
-                          console.log(`[SemanticDiscovery] Loading more results for "${lastSearch.query}" with staged deeper search`);
-                          const variants = generateQueryVariants(lastSearch.query);
-                          const promises = variants.map(v => fetchFederatedConcepts(v, { maxDepth: 2, maxEntitiesPerLevel: 35 }));
-                          const settled = await Promise.allSettled(promises);
-                          let combined = [];
-                          settled.forEach((res) => { if (res.status === 'fulfilled') combined = combined.concat(res.value || []); });
-                          // Rank and dedup globally
-                          const ranked = filterRankDedup(combined, lastSearch.query);
-                          // Remove concepts already shown
-                          const existingKeys = new Set(discoveredConcepts.map(c => canonicalKey(c.name)));
-                          const normalizedAdditions = ranked
-                            .filter(c => !existingKeys.has(canonicalKey(c.name)))
-                            .slice(0, 40)
-                            .map(r => candidateToConcept(normalizeToCandidate(r)));
-                          console.log(`[SemanticDiscovery] Loaded ${normalizedAdditions.length} additional concepts (from ${combined.length} raw)`);
-                          setDiscoveredConcepts(prev => [...prev, ...normalizedAdditions]);
-                        } catch (error) {
-                          console.error('[SemanticDiscovery] Load more failed:', error);
-                        } finally {
-                          setIsSearching(false);
-                        }
-                      }}
+                      onClick={handleLoadMore}
                       disabled={isSearching}
                       style={{
                         padding: '8px 16px',

@@ -89,12 +89,25 @@ export const canonicalizeLink = (uri) => {
 /**
  * The rung this link sits on.
  *
- * A link with no record resolves by the old whole-array signal: auto-enriched
- * prototypes matched, everything else confirmed. That fallback used to answer
- * `same`, which is how untouched files came to export owl:sameAs — off a flag
- * that is really about images. Nobody chose that claim, so folding it down to
- * CONFIRMED weakens an assertion the user never made rather than losing one
- * they did.
+ * A link with no record is AUTO. A record is the only evidence anybody vouched
+ * for a link, so its absence means nobody did — which is what AUTO says.
+ *
+ * This deliberately ignores `semanticMetadata.autoEnriched`. Earlier versions
+ * used it as the fallback signal (auto-enriched → weak, everything else →
+ * strong) and it is the wrong flag twice over:
+ *
+ *  - It is a node-level flag about IMAGES. It gates thumbnail stripping and is
+ *    cleared when a user uploads their own picture, so replacing a photo
+ *    silently promoted every link on the node a full rung.
+ *  - Only one of the two enrichment paths ever set it. Links added by the
+ *    panel's own lookup carried no flag at all, so a Wikipedia article
+ *    Redstring found by itself resolved to the STRONGEST rung — reported from
+ *    the running app as "auto populated wikipedia entries are in there as exact
+ *    match", which is exactly this.
+ *
+ * Defaulting down rather than up is the safe direction: understating a claim is
+ * visible in the panel and one click from being fixed, while overstating one
+ * looks correct and travels into everyone else's data on export.
  *
  * @param {string} url
  * @param {object} [semanticMetadata] - the prototype's semanticMetadata blob
@@ -106,7 +119,7 @@ export const resolveLinkState = (url, semanticMetadata) => {
     if (Object.values(LINK_STATES).includes(record.state)) return record.state;
     if (LEGACY_STATES[record.state]) return LEGACY_STATES[record.state];
   }
-  return semanticMetadata?.autoEnriched ? LINK_STATES.AUTO : LINK_STATES.EXACT;
+  return LINK_STATES.AUTO;
 };
 
 /**

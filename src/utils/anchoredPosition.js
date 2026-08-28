@@ -15,7 +15,10 @@
 /**
  * @param {object} params
  * @param {{x: number, y: number}} params.position - client coords of the anchor
- * @param {'down-left'|'down-right'} [params.direction] - which edge aligns to position.x
+ * @param {'down-left'|'down-right'|'down-center'} [params.direction] - which
+ *   part of the box aligns to position.x. 'down-center' is the safe default for
+ *   anything whose trigger can sit anywhere; the edge-aligned ones are for
+ *   triggers with a known side, like a row's trailing action buttons.
  * @param {number} params.width - the box's width
  * @param {number} params.height - the height the box would like. Only a
  *   preference: the returned `maxHeight` is what actually fits, so content
@@ -51,7 +54,23 @@ export function getAnchoredStyle({
   let left;
   let right;
 
-  if (direction === 'down-right') {
+  if (direction === 'down-center') {
+    // Centred on the anchor, clamped to the viewport.
+    //
+    // The edge-aligned directions below make the box's placement depend on
+    // where its trigger happens to sit: 'down-left' hangs the whole box to the
+    // LEFT of the anchor, which reads correctly for a trigger near the right
+    // edge of a panel and badly for one at the left edge, where the box swings
+    // out over the canvas. Same call, different-looking result, which is what
+    // makes it feel inconsistent. Centring removes the dependence.
+    //
+    // It also makes the box immune to the trigger's hover-grow: PanelIconButton
+    // scales 1.1 on hover about its own centre, so a rect measured mid-hover
+    // has a different left/right edge but the same centre.
+    left = position.x - width / 2;
+    if (left + width > window.innerWidth - offset) left = window.innerWidth - width - offset;
+    if (left < offset) left = offset;
+  } else if (direction === 'down-right') {
     // Left edge of the box aligns with the anchor.
     left = position.x;
     if (left + width > window.innerWidth) {

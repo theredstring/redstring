@@ -16,15 +16,24 @@ import AnchoredPopoverBox from './AnchoredPopoverBox.jsx';
  * state, and anywhere else a term is doing more work than its label admits.
  *
  * Usage:
- *   <InfoPopover title="Identifiers" label="What are identifiers?">
+ *   <InfoPopover label="What are identifiers?">
  *     {ABOUT_INTRO}
  *   </InfoPopover>
+ *
+ * `title` is optional and usually wrong to pass. The button sits beside the
+ * heading it explains, so a title inside the box repeats the words an inch away
+ * from it. Pass one only when the trigger is far from any heading, or when the
+ * box explains something narrower than the section it sits in. `label` is the
+ * button's tooltip and its accessible name either way.
  */
 const InfoPopover = ({
   title,
   children,
   label = 'More information',
-  direction = 'down-left',
+  // Centred, because an info button can sit anywhere: in a section header at
+  // the panel's right edge, or beside a button at its left. An edge-aligned
+  // box swings out over the canvas from one of those and not the other.
+  direction = 'down-center',
   width = 280,
   estimatedHeight = 180,
   size = 14,

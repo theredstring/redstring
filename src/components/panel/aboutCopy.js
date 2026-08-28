@@ -15,9 +15,9 @@ export const ABOUT_INTRO =
   'What other systems call this subject, and where it came from.';
 
 export const IDENTIFIERS_INTRO =
-  'Other systems\' names for this subject. The top three always show, even when ' +
-  'empty. Search to fill or swap one, and read the grey line: the same word ' +
-  'often names a different thing.';
+  'Other systems\' names for this subject. ' +
+  'Search to fill or swap one. ' +
+  'The same word often names a different thing.';
 
 /**
  * One line on purpose. This sits above a list whose length isn't knowable in

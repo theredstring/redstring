@@ -17,9 +17,10 @@
  * key, no proxy, no server hop.
  */
 import { identifierFromUrl } from '../utils/externalIdentifiers.js';
+import { canonicalizeLink } from '../formats/linkState.js';
 
 const WIKIDATA_API = 'https://www.wikidata.org/w/api.php';
-const WIKIPEDIA_REST = 'https://en.wikipedia.org/w/rest.php/v1';
+const WIKIPEDIA_API = 'https://en.wikipedia.org/w/api.php';
 const WIKIPEDIA_SUMMARY = 'https://en.wikipedia.org/api/rest_v1/page/summary';
 const DBPEDIA_LOOKUP = 'https://lookup.dbpedia.org/api/search';
 const DBPEDIA_SPARQL = 'https://dbpedia.org/sparql';
@@ -90,19 +91,31 @@ const searchWikidata = async (term, { limit, signal }) => {
   }));
 };
 
+/**
+ * The action API rather than rest.php/v1/search/page.
+ *
+ * The REST search endpoint answers 429 to clients Wikimedia can't identify,
+ * which is most of them, and it does so for the whole endpoint rather than per
+ * query. `action=query` with `origin=*` is the CORS-declared path the rest of
+ * this codebase already uses, and `generator=search` + `prop=description` gets
+ * the ranked titles and their short glosses in the same single call.
+ */
 const searchWikipedia = async (term, { limit, signal }) => {
-  const url = `${WIKIPEDIA_REST}/search/page?q=${encodeURIComponent(term)}&limit=${limit}`;
+  const url = `${WIKIPEDIA_API}?action=query&generator=search`
+    + `&gsrsearch=${encodeURIComponent(term)}&gsrlimit=${limit}`
+    + '&prop=description&format=json&origin=*';
   const resp = await fetch(url, { signal });
   if (!resp.ok) throw new Error(`Wikipedia HTTP ${resp.status}`);
   const data = await resp.json();
-  return (data?.pages || []).map(page => ({
-    url: `https://en.wikipedia.org/wiki/${encodeURIComponent(page.key || page.title)}`,
-    identifier: page.title,
-    label: page.title,
-    // `description` is the short gloss; the excerpt is the search snippet with
-    // <span class="searchmatch"> wrappers, so it needs stripping.
-    description: page.description || stripHtml(page.excerpt)
-  }));
+  // Keyed by page id, so `index` is the only thing carrying search rank.
+  return Object.values(data?.query?.pages || {})
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+    .map(page => ({
+      url: `https://en.wikipedia.org/wiki/${encodeURIComponent(page.title.replace(/ /g, '_'))}`,
+      identifier: page.title,
+      label: page.title,
+      description: stripHtml(page.description)
+    }));
 };
 
 const searchDBpedia = async (term, { limit, signal }) => {
@@ -194,6 +207,76 @@ export const searchIdentifiers = async (kind, term, { limit = 6, signal } = {}) 
   if (kind === 'wikipedia') return searchWikipedia(query, { limit, signal });
   if (kind === 'dbpedia') return searchDBpedia(query, { limit, signal });
   return [];
+};
+
+const normalizeLabel = (value) => String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+/**
+ * Every authority at once, as concepts you could drag onto a canvas.
+ *
+ * The same primitive as the identifier picker, aimed at discovery instead of at
+ * one slot. It is fast for a structural reason worth keeping in mind before
+ * anyone routes it back through SPARQL: these are search indexes
+ * (wbsearchentities, the Wikipedia REST search, the DBpedia Lookup service),
+ * answering in one round trip from a prebuilt index. The federation path this
+ * sits beside queries live SPARQL endpoints — query.wikidata.org and DBpedia's
+ * Virtuoso — with exact-label matches, which is both slower per call and the
+ * wrong shape for "what might this word mean".
+ *
+ * Deliberately does NOT merge hits that share a label. Wikidata's "Symptoms" is
+ * a work of art and Wikipedia's is the medical concept; folding them into one
+ * card because the words match would hide exactly the distinction a person
+ * needs to make. Each hit stays its own concept, carrying its own description,
+ * and the description is what tells them apart.
+ *
+ * Results interleave by rank — every authority's best hit, then every
+ * authority's second — so no single source owns the top of the list.
+ *
+ * @param {string} term
+ * @param {{limit?: number, signal?: AbortSignal}} [options]
+ * @returns {Promise<Array<object>>} shaped for normalizeToCandidate
+ */
+export const searchConcepts = async (term, { limit = 8, signal } = {}) => {
+  const query = String(term ?? '').trim();
+  if (!query) return [];
+
+  const settled = await Promise.allSettled(
+    STANDARD_AUTHORITIES.map(authority =>
+      searchIdentifiers(authority.kind, query, { limit, signal })
+        .then(rows => ({ ...authority, rows }))
+    )
+  );
+  const found = settled.filter(r => r.status === 'fulfilled').map(r => r.value);
+
+  const wanted = normalizeLabel(query);
+  const seen = new Set();
+  const out = [];
+
+  for (let rank = 0; rank < limit; rank++) {
+    for (const { kind, authority, rows } of found) {
+      const hit = rows[rank];
+      if (!hit) continue;
+      const key = canonicalizeLink(hit.url);
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      out.push({
+        id: hit.url,
+        name: hit.label,
+        uri: hit.url,
+        source: kind,
+        authority,
+        description: hit.description,
+        externalLinks: [hit.url],
+        // The authority's own ranking is the real signal here; an exact label
+        // match on top of it is the strongest this layer can honestly claim.
+        sourceTrust: normalizeLabel(hit.label) === wanted ? 0.95 : 0.8,
+        contextFit: Math.max(0.4, 1 - rank * 0.1)
+      });
+    }
+  }
+
+  return out;
 };
 
 /**

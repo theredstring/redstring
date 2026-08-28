@@ -143,7 +143,7 @@
        few px each keeps it intact far longer. See .piemenu-button below. */
     flex-wrap: nowrap;
     justify-content: center;
-    gap: 6px;
+    gap: 4px;
     padding: 0 4px;
   }
 
@@ -151,7 +151,7 @@
   .unified-bottom-panel.mode-decompose .piemenu-buttons {
     width: 100%;
     padding: 0;
-    gap: 6px;
+    gap: 4px;
   }
 
   .unified-bottom-panel.mode-nodes .arrow-group {
@@ -159,21 +159,16 @@
   }
 
   .piemenu-button {
-    /* Shrinkable on mobile only. `width` is the flex basis the row starts from
-       and `min-width` is where the squeeze stops — between them a crowded strip
-       gives up a few px per bubble instead of wrapping. `height: auto` +
-       aspect-ratio is what keeps them circles while flex takes the width; a
-       fixed height here would flatten them into ovals as they compressed. */
+    /* A lower floor than the base rule: a phone-width strip of eight bubbles and
+       two arrows has to give up more per bubble to stay on one line, and holding
+       the desktop floor here is what pushed the row past the segment. */
     width: 46px;
-    height: auto;
-    aspect-ratio: 1;
-    min-width: 34px;
-    flex-shrink: 1;
+    min-width: 24px;
     border-width: 2px;
   }
 
   .piemenu-chevron {
-    height: 52px;
+    height: clamp(32px, 10vw, 48px);
   }
 
   .node-pill {
@@ -196,14 +191,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 
 .piemenu-buttons {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -211,8 +206,17 @@
   background: #DEDADA;
   border: 3px solid maroon;
   border-radius: 50%;
+  /* Sized to fit the segment rather than to a fixed number. `width` is where the
+     row starts, `min-width` is where the squeeze stops, and flex spends the
+     difference when the strip is crowded — which it now routinely is, since a
+     page of Thing actions is eight bubbles flanked by two arrows.
+     height:auto + aspect-ratio is what keeps them circles while flex takes only
+     the width; a fixed height flattens them into ovals as they compress. */
   width: clamp(42px, 5.2vw, 52px);
-  height: clamp(42px, 5.2vw, 52px);
+  height: auto;
+  aspect-ratio: 1;
+  min-width: 30px;
+  flex-shrink: 1;
   box-sizing: border-box;
   padding: 0;
   cursor: pointer;
@@ -226,6 +230,17 @@
   align-items: center;
   justify-content: center;
   color: maroon;
+}
+
+/* The glyph tracks the bubble instead of a JS breakpoint, so it stays in
+   proportion at every step of the shrink — a fixed 22px icon in a squeezed 30px
+   bubble reads as a glyph that outgrew its circle. The percentage resolves
+   against the content box, landing near the canvas menu's icon-to-diameter
+   ratio (ICON_SIZE 60 / BUBBLE_SIZE 120). The `size` prop on the Lucide element
+   still sets the intrinsic size; this takes over from it. */
+.piemenu-button svg {
+  width: 55%;
+  height: 55%;
   flex-shrink: 0;
 }
 
@@ -235,10 +250,12 @@
 
 /* Page-turn arrows. Taller than the bubbles they flank, the way the canvas
    menu's chevrons stand taller than its ring — they read as edges of the set
-   rather than as another item in it. Never shrinks: on a cramped row the
-   bubbles give up their px first, since losing the arrows loses a whole page. */
+   rather than as another item in it.
+   Scales down with the viewport like the bubbles do, but via the clamp rather
+   than flex-shrink: width here is derived from height through the viewBox
+   aspect, so letting flex take the width alone would just squash the arrow. */
 .piemenu-chevron {
-  height: clamp(48px, 5.9vw, 58px);
+  height: clamp(38px, 5.9vw, 58px);
   width: auto;
   flex-shrink: 0;
   cursor: pointer;

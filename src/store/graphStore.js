@@ -27,7 +27,7 @@ const produce = (arg1, arg2) => {
   }
 };
 import { v4 as uuidv4 } from 'uuid';
-import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR } from '../constants.js';
+import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR, isExclusivePanelMode } from '../constants.js';
 import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from './fileStorage.js';
 import { importFromRedstring } from '../formats/redstringFormat.js';
 import { MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
@@ -1554,17 +1554,39 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // --- Actions --- (Operating on plain data)
 
     // ─── PANEL LAYOUT ────────────────────────────────────────────────────────────
+    // Opening a panel below EXCLUSIVE_PANEL_MODE_THRESHOLD closes the other one
+    // here, in the store, so every open path gets it — not just the toggle
+    // buttons. Callers like the node double-tap/double-click only ask for the
+    // right panel; without this the two panels end up open together and
+    // NodeCanvas's exclusivity effect closes the right one right back.
     /**
-     * Sets whether the left panel is expanded.
+     * Sets whether the left panel is expanded. In exclusive panel mode, opening
+     * it closes the right panel.
      * @param {boolean} expanded
      */
-    setLeftPanelExpanded: (expanded) => set({ leftPanelExpanded: expanded }),
+    setLeftPanelExpanded: (expanded) => set(
+      expanded && isExclusivePanelMode()
+        ? { leftPanelExpanded: true, rightPanelExpanded: false }
+        : { leftPanelExpanded: expanded }
+    ),
     /** @param {boolean} expanded */
-    setRightPanelExpanded: (expanded) => set({ rightPanelExpanded: expanded }),
+    setRightPanelExpanded: (expanded) => set(
+      expanded && isExclusivePanelMode()
+        ? { rightPanelExpanded: true, leftPanelExpanded: false }
+        : { rightPanelExpanded: expanded }
+    ),
     /** Toggles the left panel open/closed. */
-    toggleLeftPanel: () => set(state => ({ leftPanelExpanded: !state.leftPanelExpanded })),
+    toggleLeftPanel: () => set(state => (
+      !state.leftPanelExpanded && isExclusivePanelMode()
+        ? { leftPanelExpanded: true, rightPanelExpanded: false }
+        : { leftPanelExpanded: !state.leftPanelExpanded }
+    )),
     /** Toggles the right panel open/closed. */
-    toggleRightPanel: () => set(state => ({ rightPanelExpanded: !state.rightPanelExpanded })),
+    toggleRightPanel: () => set(state => (
+      !state.rightPanelExpanded && isExclusivePanelMode()
+        ? { rightPanelExpanded: true, leftPanelExpanded: false }
+        : { rightPanelExpanded: !state.rightPanelExpanded }
+    )),
 
     // ─── GROUP MANAGEMENT ────────────────────────────────────────────────────────
 

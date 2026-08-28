@@ -52,7 +52,7 @@ const RDFSchemaPropertiesSection = ({ nodeData }) => {
       title="RDF Schema"
       icon={Tags}
       rightEl={
-        <InfoPopover title="RDF Schema" label="About RDF Schema" size={13}>
+        <InfoPopover label="About RDF Schema" size={13}>
           {RDF_SCHEMA_INTRO}
         </InfoPopover>
       }
@@ -213,7 +213,7 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
       title="Semantic Classification"
       icon={Search}
       rightEl={
-        <InfoPopover title="Semantic Classification" label="About semantic classification" size={13}>
+        <InfoPopover label="About semantic classification" size={13}>
           {CLASSIFICATION_INTRO}
         </InfoPopover>
       }
