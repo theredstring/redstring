@@ -127,20 +127,19 @@ const StateChooser = ({ anchor, current, onPick, onDismiss, triggerRef }) => (
   <AnchoredPopoverBox
     position={anchor}
     direction="down-left"
-    width={240}
-    estimatedHeight={150}
+    width={220}
+    estimatedHeight={160}
     onDismiss={onDismiss}
     triggerRef={triggerRef}
     ariaLabel="Match"
   >
-    {/* Title only. Three labelled options are self-explaining, and a paragraph
-        above them just pushes the choice further from the cursor. */}
+    {/* Title and three labels, nothing else. Anything more turns a one-click
+        decision into something to read. */}
     <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Match</div>
     {MATCH_STATES.map(option => (
       <PopoverOption
         key={option.state}
         label={option.label}
-        blurb={option.blurb}
         isCurrent={option.state === current}
         onClick={() => onPick(option.state)}
       />
@@ -699,7 +698,7 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
       externalLinks: [...existing, url],
       // Typing a link is a deliberate assertion, but not yet the strong identity
       // claim. The user escalates to that explicitly.
-      semanticMetadata: setLinkState(nodeData?.semanticMetadata, url, LINK_STATES.CONFIRMED, 'user')
+      semanticMetadata: setLinkState(nodeData?.semanticMetadata, url, LINK_STATES.EXACT, 'user')
     });
   }, [nodeData, onNodeUpdate]);
 
@@ -787,7 +786,7 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
     onNodeUpdate?.({
       ...nodeData,
       externalLinks: links,
-      semanticMetadata: setLinkState(sm, nextUrl, LINK_STATES.CONFIRMED, 'user')
+      semanticMetadata: setLinkState(sm, nextUrl, LINK_STATES.EXACT, 'user')
     });
   }, [nodeData, onNodeUpdate, detachUrl]);
 

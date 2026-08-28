@@ -15,31 +15,53 @@
  */
 
 /**
- * Two rungs, in ascending strength. Plain-language names, because these strings
- * surface directly in the panel — the user should never have to read
- * "skos:exactMatch" to say what they mean.
+ * Three rungs, in ascending strength.
  *
- * There used to be a third, `same` → owl:sameAs, above CONFIRMED. It is gone.
- * The distinction it drew is real in OWL (exactMatch aligns two records about
- * one subject; sameAs fuses them, so a reasoner pools every claim on both sides
- * and the other record's mistakes become claims about your Thing) but it is not
- * a distinction anyone can act on from a panel row. Redstring's own author
- * couldn't tell the two options apart, which is the end of the argument: a
- * control nobody can use correctly is worse than no control, and the failure
- * lands on the side of asserting MORE than the user meant.
+ * Two of the three are named after the predicate they export to, because those
+ * names go straight onto the panel and the real terms turned out to be clearer
+ * than the plain-language ones invented to replace them ("matched
+ * automatically", "confirmed", "same thing"). A parallel vocabulary also meant
+ * the panel, the file and this module said the same thing three ways.
  *
- * So Redstring no longer authors owl:sameAs. It still READS it on import —
- * other tools write it, and older files carry it — but nothing here emits it.
+ * AUTO is the exception, named for how the row got filled rather than for its
+ * predicate, because that is what a reader needs from it: not how near the
+ * match is, but that nobody has vouched for it. It shares skos:closeMatch with
+ * CLOSE — they are the same strength of claim, and who made it is recorded in
+ * the record's `by` field, not by picking a weaker predicate. (relatedMatch
+ * would be the weaker one, but it asserts "associated, NOT equivalent", which
+ * is a positive claim the matcher never made.)
+ *
+ * CLOSE is a real destination, not a way station: "Signs and symptoms" on
+ * Wikipedia genuinely IS a close match for a Thing called Symptoms and never an
+ * exact one. Being able to say so is the point of having the rung.
+ *
+ * There is no rung above EXACT. owl:sameAs used to sit there. The distinction
+ * is real in OWL — exactMatch aligns two records about one subject; sameAs
+ * fuses them, so a reasoner pools every claim on both sides and the other
+ * record's mistakes become claims about your Thing — but it is not one anyone
+ * can act on from a panel row, and getting it wrong asserts MORE than the user
+ * meant. Redstring no longer authors it. It still READS it on import; other
+ * tools write it, and older files carry it.
  */
 export const LINK_STATES = {
   /** Redstring found it; nobody has checked. → skos:closeMatch */
-  MATCHED: 'matched',
-  /** A person looked and said yes. → skos:exactMatch */
-  CONFIRMED: 'confirmed'
+  AUTO: 'auto',
+  /** A person looked: related, but not the same subject. → skos:closeMatch */
+  CLOSE: 'close',
+  /** A person looked: the same subject. → skos:exactMatch */
+  EXACT: 'exact'
 };
 
-/** Recognised in stored records, folded into CONFIRMED. See LINK_STATES. */
-const RETIRED_SAME = 'same';
+/**
+ * States written under earlier names, and what they resolve to now. `same` was
+ * the retired owl:sameAs rung; it folds down into EXACT rather than resolving
+ * to nothing.
+ */
+const LEGACY_STATES = {
+  matched: LINK_STATES.AUTO,
+  confirmed: LINK_STATES.EXACT,
+  same: LINK_STATES.EXACT
+};
 
 /**
  * Normalize a URL so the same resource written two ways compares equal.
@@ -82,9 +104,9 @@ export const resolveLinkState = (url, semanticMetadata) => {
   const record = semanticMetadata?.linkConfirmations?.[canonicalizeLink(url)];
   if (record?.state) {
     if (Object.values(LINK_STATES).includes(record.state)) return record.state;
-    if (record.state === RETIRED_SAME) return LINK_STATES.CONFIRMED;
+    if (LEGACY_STATES[record.state]) return LEGACY_STATES[record.state];
   }
-  return semanticMetadata?.autoEnriched ? LINK_STATES.MATCHED : LINK_STATES.CONFIRMED;
+  return semanticMetadata?.autoEnriched ? LINK_STATES.AUTO : LINK_STATES.EXACT;
 };
 
 /**
@@ -122,13 +144,18 @@ export const clearLinkState = (semanticMetadata, url) => {
  *
  * @param {string[]} links
  * @param {object} [semanticMetadata]
- * @returns {{confirmed: string[], matched: string[]}}
+ * Two rungs out, three states in: AUTO and CLOSE both land on skos:closeMatch.
+ * Who made the claim lives in the record's `by` field, which is the honest
+ * place for it — a weaker predicate would say something weaker about the
+ * subjects, not about the checking.
+ *
+ * @returns {{close: string[], exact: string[]}}
  */
 export const partitionLinksByState = (links, semanticMetadata) => {
-  const out = { confirmed: [], matched: [] };
+  const out = { close: [], exact: [] };
   for (const url of links) {
-    if (resolveLinkState(url, semanticMetadata) === LINK_STATES.MATCHED) out.matched.push(url);
-    else out.confirmed.push(url);
+    if (resolveLinkState(url, semanticMetadata) === LINK_STATES.EXACT) out.exact.push(url);
+    else out.close.push(url);
   }
   return out;
 };

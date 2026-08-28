@@ -113,7 +113,7 @@ describe('Per-link sameness (linkConfirmations)', () => {
   });
 
   it('splits one prototype across both rungs', () => {
-    const ex = exportToRedstring(withStates({ [WD]: 'confirmed', [WP]: 'matched', [DB]: 'confirmed' }));
+    const ex = exportToRedstring(withStates({ [WD]: 'exact', [WP]: 'close', [DB]: 'exact' }));
     const dog = ex.prototypeSpace.prototypes.dog;
 
     expect(dog['skos:exactMatch']).toEqual([{ '@id': WD }, { '@id': DB }]);
@@ -121,8 +121,8 @@ describe('Per-link sameness (linkConfirmations)', () => {
     expect(dog['owl:sameAs']).toBeUndefined();
   });
 
-  it('folds a record left on the retired "same" rung down to confirmed', () => {
-    const ex = exportToRedstring(withStates({ [WD]: 'same', [WP]: 'matched', [DB]: 'confirmed' }));
+  it('folds a record left on the retired "same" rung down to exact', () => {
+    const ex = exportToRedstring(withStates({ [WD]: 'same', [WP]: 'close', [DB]: 'exact' }));
     const dog = ex.prototypeSpace.prototypes.dog;
 
     expect(dog['owl:sameAs']).toBeUndefined();
@@ -130,7 +130,7 @@ describe('Per-link sameness (linkConfirmations)', () => {
   });
 
   it('restores every link, in order, when the rungs are split', () => {
-    const state = withStates({ [WD]: 'confirmed', [WP]: 'matched', [DB]: 'confirmed' });
+    const state = withStates({ [WD]: 'exact', [WP]: 'close', [DB]: 'exact' });
     const rt = importFromRedstring(exportToRedstring(state), {});
     // The single-rung reader used to drop the closeMatch link entirely here.
     expect(rt.storeState.nodePrototypes.get('dog').externalLinks).toEqual([WD, WP, DB]);
@@ -141,7 +141,7 @@ describe('Per-link sameness (linkConfirmations)', () => {
       externalLinks: [WD, WP],
       semanticMetadata: {
         autoEnriched: true,
-        linkConfirmations: { [WD]: { state: 'confirmed', by: 'user' } }
+        linkConfirmations: { [WD]: { state: 'exact', by: 'user' } }
       }
     }));
     const dog = ex.prototypeSpace.prototypes.dog;

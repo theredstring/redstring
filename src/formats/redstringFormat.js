@@ -972,12 +972,12 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     const externalLinks = Array.isArray(prototype.externalLinks) ? prototype.externalLinks : [];
     if (externalLinks.length > 0) {
       const asRef = (url) => ({ "@id": url });
-      const { confirmed, matched } = partitionLinksByState(externalLinks, prototype.semanticMetadata);
-      if (confirmed.length > 0) {
-        prototypeSpace[id]["skos:exactMatch"] = confirmed.map(asRef);
+      const { close, exact } = partitionLinksByState(externalLinks, prototype.semanticMetadata);
+      if (exact.length > 0) {
+        prototypeSpace[id]["skos:exactMatch"] = exact.map(asRef);
       }
-      if (matched.length > 0) {
-        prototypeSpace[id]["skos:closeMatch"] = matched.map(asRef);
+      if (close.length > 0) {
+        prototypeSpace[id]["skos:closeMatch"] = close.map(asRef);
       }
     }
 

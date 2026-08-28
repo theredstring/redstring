@@ -150,44 +150,51 @@ describe('link state', () => {
   });
 
   it('falls back to the old whole-array signal when nothing is recorded', () => {
-    expect(resolveLinkState(WD, undefined)).toBe(LINK_STATES.CONFIRMED);
-    expect(resolveLinkState(WD, { autoEnriched: true })).toBe(LINK_STATES.MATCHED);
+    expect(resolveLinkState(WD, undefined)).toBe(LINK_STATES.EXACT);
+    expect(resolveLinkState(WD, { autoEnriched: true })).toBe(LINK_STATES.AUTO);
   });
 
-  it('folds a stored "same" record down to confirmed', () => {
-    // The rung above confirmed is retired. A record still carrying it resolves
-    // to the strongest rung that survives rather than to nothing.
-    const sm = { linkConfirmations: { [canonicalizeLink(WD)]: { state: 'same', by: 'user' } } };
-    expect(resolveLinkState(WD, sm)).toBe(LINK_STATES.CONFIRMED);
+  it('reads records written under the retired state names', () => {
+    // 'same' was the rung above exact and is retired; it folds down rather than
+    // resolving to nothing. 'matched'/'confirmed' were the names these rungs
+    // carried before they were named for what they mean.
+    const stored = (state) => ({ linkConfirmations: { [canonicalizeLink(WD)]: { state, by: 'user' } } });
+    expect(resolveLinkState(WD, stored('same'))).toBe(LINK_STATES.EXACT);
+    expect(resolveLinkState(WD, stored('confirmed'))).toBe(LINK_STATES.EXACT);
+    expect(resolveLinkState(WD, stored('matched'))).toBe(LINK_STATES.AUTO);
     expect(LINK_STATES.SAME).toBeUndefined();
   });
 
   it('lets a per-link record win over the image flag', () => {
-    const sm = setLinkState({ autoEnriched: true }, WD, LINK_STATES.CONFIRMED);
-    expect(resolveLinkState(WD, sm)).toBe(LINK_STATES.CONFIRMED);
+    const sm = setLinkState({ autoEnriched: true }, WD, LINK_STATES.EXACT);
+    expect(resolveLinkState(WD, sm)).toBe(LINK_STATES.EXACT);
     // An unrecorded link still falls back.
-    expect(resolveLinkState(WP, sm)).toBe(LINK_STATES.MATCHED);
+    expect(resolveLinkState(WP, sm)).toBe(LINK_STATES.AUTO);
   });
 
   it('matches a record written with a differently-spelled URL', () => {
-    const sm = setLinkState({}, `${WD}/?utm_campaign=x`, LINK_STATES.CONFIRMED);
-    expect(resolveLinkState(WD, sm)).toBe(LINK_STATES.CONFIRMED);
+    const sm = setLinkState({}, `${WD}/?utm_campaign=x`, LINK_STATES.EXACT);
+    expect(resolveLinkState(WD, sm)).toBe(LINK_STATES.EXACT);
   });
 
   it('clears a record without disturbing the others', () => {
-    let sm = setLinkState({}, WD, LINK_STATES.CONFIRMED);
-    sm = setLinkState(sm, DB, LINK_STATES.MATCHED);
+    let sm = setLinkState({}, WD, LINK_STATES.EXACT);
+    sm = setLinkState(sm, DB, LINK_STATES.CLOSE);
     sm = clearLinkState(sm, WD);
     expect(sm.linkConfirmations[canonicalizeLink(WD)]).toBeUndefined();
     expect(sm.linkConfirmations[canonicalizeLink(DB)]).toBeDefined();
   });
 
-  it('partitions a mixed set into the two rungs', () => {
-    let sm = setLinkState({}, WD, LINK_STATES.CONFIRMED);
-    sm = setLinkState(sm, WP, LINK_STATES.MATCHED);
-    sm = setLinkState(sm, DB, LINK_STATES.CONFIRMED);
+  it('folds three states onto two export rungs, auto alongside close', () => {
+    // AUTO and CLOSE are the same strength of claim about the subjects. What
+    // separates them is who made it, which the record's `by` field carries.
+    let sm = setLinkState({}, WD, LINK_STATES.AUTO, 'auto');
+    sm = setLinkState(sm, WP, LINK_STATES.CLOSE);
+    sm = setLinkState(sm, DB, LINK_STATES.EXACT);
     expect(partitionLinksByState([WD, WP, DB], sm)).toEqual({
-      matched: [WP], confirmed: [WD, DB]
+      close: [WD, WP], exact: [DB]
     });
+    expect(sm.linkConfirmations[canonicalizeLink(WD)].by).toBe('auto');
+    expect(sm.linkConfirmations[canonicalizeLink(WP)].by).toBe('user');
   });
 });

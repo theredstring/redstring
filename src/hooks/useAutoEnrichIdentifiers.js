@@ -91,7 +91,7 @@ export function useAutoEnrichIdentifiers(nodeData, onNodeUpdate) {
 
         let semanticMetadata = current.semanticMetadata;
         for (const link of added) {
-          semanticMetadata = setLinkState(semanticMetadata, link, LINK_STATES.MATCHED, 'auto');
+          semanticMetadata = setLinkState(semanticMetadata, link, LINK_STATES.AUTO, 'auto');
         }
 
         // { ignore: true }: this is a background lookup, not a user edit. Without

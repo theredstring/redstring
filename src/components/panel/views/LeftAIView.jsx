@@ -132,7 +132,7 @@ function buildEnrichmentUpdates(nodeProto, searchResult, confidence, { overwrite
     // which is cleared when a user replaces the enriched picture.
     let sm = updates.semanticMetadata;
     for (const link of added) {
-      sm = setLinkState(sm, link, LINK_STATES.MATCHED, 'auto');
+      sm = setLinkState(sm, link, LINK_STATES.AUTO, 'auto');
     }
     updates.semanticMetadata = sm;
   }

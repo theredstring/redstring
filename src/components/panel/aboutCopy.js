@@ -29,27 +29,16 @@ export const PICKER_INTRO = 'Each description is that system\'s own.';
 export const EMPTY_SLOT_TEXT = 'Not linked';
 
 /**
- * The two rungs, in the order they appear in the chooser. `state` matches
+ * The three rungs, in the order they appear in the chooser. `state` matches
  * LINK_STATES in src/formats/linkState.js.
  *
- * There was a third, "Same Thing" → owl:sameAs, above Confirmed. It's gone. The
- * distinction is real in OWL — exactMatch aligns two records about one subject,
- * sameAs fuses them so a reasoner pools every claim on both sides — but it
- * isn't one a person can act on from a panel row, and getting it wrong asserts
- * more than they meant. Only the question that has an answer is asked now: has
- * anybody checked this?
+ * Labels only, no explanation under them. Names this plain don't need a gloss,
+ * and the ones they used to carry made a short menu read like a form.
  */
 export const MATCH_STATES = [
-  {
-    state: 'matched',
-    label: 'Auto-Populated',
-    blurb: 'Redstring found it. Nobody has checked.'
-  },
-  {
-    state: 'confirmed',
-    label: 'Confirmed',
-    blurb: 'You checked it. It\'s the same subject.'
-  }
+  { state: 'auto', label: 'Auto-Populated' },
+  { state: 'close', label: 'Close Match' },
+  { state: 'exact', label: 'Exact Match' }
 ];
 
 export const PROVENANCE_INTRO =
