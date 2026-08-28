@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, forwardRef } from 'react';
 import { useTheme } from '../../hooks/useTheme.js';
 
 /**
@@ -42,7 +42,7 @@ const PIE_HOVER_TRANSITION = '0.15s ease';
  * @param {Object} [props.style] - Additional inline styles
  * @param {string} [props.className] - Additional CSS class
  */
-const PanelIconButton = ({
+const PanelIconButton = forwardRef(({
   icon: IconComponent,
   size = 16,
   color,
@@ -67,7 +67,11 @@ const PanelIconButton = ({
   // About row's state chooser) so assistive tech knows it toggles a surface.
   ariaExpanded,
   ariaHasPopup
-}) => {
+// Forwarded so a caller that opens a popover can hand the node to
+// AnchoredPopoverBox as its `triggerRef`. Without it the box's outside-click
+// dismiss can't tell the trigger apart from anywhere else, and a second click
+// closes and reopens in the same gesture instead of toggling.
+}, ref) => {
   const theme = useTheme();
   const [isHovered, setIsHovered] = useState(false);
 
@@ -163,6 +167,7 @@ const PanelIconButton = ({
 
   return (
     <button
+      ref={ref}
       className={`panel-icon-button ${variant} ${active ? 'active' : ''} ${className}`}
       style={{ ...buttonStyle, ...hoverStyles }}
       type="button"
@@ -213,6 +218,8 @@ const PanelIconButton = ({
       )}
     </button>
   );
-};
+});
+
+PanelIconButton.displayName = 'PanelIconButton';
 
 export default PanelIconButton;

@@ -63,12 +63,14 @@ describe('SKOS emission (P2.4)', () => {
 describe('Sameness ladder (P2.5)', () => {
   const LINKS = ['https://www.wikidata.org/wiki/Q144', 'https://dbpedia.org/page/Dog'];
 
-  it('user links export owl:sameAs AND skos:exactMatch (cumulative rule)', () => {
+  it('user links export skos:exactMatch, never owl:sameAs', () => {
     const ex = exportToRedstring(buildState({ externalLinks: LINKS }));
     const dog = ex.prototypeSpace.prototypes.dog;
-    expect(dog['owl:sameAs']).toEqual(LINKS);
     expect(dog['skos:exactMatch']).toEqual(LINKS.map((u) => ({ '@id': u })));
     expect(dog['skos:closeMatch']).toBeUndefined();
+    // Redstring doesn't author owl:sameAs. It licenses a reasoner to pool every
+    // claim on both sides, and no gesture in this interface asserts that much.
+    expect(dog['owl:sameAs']).toBeUndefined();
   });
 
   it('auto-enriched links export skos:closeMatch only (alignment, not identity)', () => {
@@ -110,18 +112,25 @@ describe('Per-link sameness (linkConfirmations)', () => {
     }
   });
 
-  it('splits one prototype across all three rungs', () => {
+  it('splits one prototype across both rungs', () => {
+    const ex = exportToRedstring(withStates({ [WD]: 'confirmed', [WP]: 'matched', [DB]: 'confirmed' }));
+    const dog = ex.prototypeSpace.prototypes.dog;
+
+    expect(dog['skos:exactMatch']).toEqual([{ '@id': WD }, { '@id': DB }]);
+    expect(dog['skos:closeMatch']).toEqual([{ '@id': WP }]);
+    expect(dog['owl:sameAs']).toBeUndefined();
+  });
+
+  it('folds a record left on the retired "same" rung down to confirmed', () => {
     const ex = exportToRedstring(withStates({ [WD]: 'same', [WP]: 'matched', [DB]: 'confirmed' }));
     const dog = ex.prototypeSpace.prototypes.dog;
 
-    expect(dog['owl:sameAs']).toEqual([WD]);
-    // Cumulative: owl:sameAs co-emits skos:exactMatch alongside confirmed links.
+    expect(dog['owl:sameAs']).toBeUndefined();
     expect(dog['skos:exactMatch']).toEqual([{ '@id': WD }, { '@id': DB }]);
-    expect(dog['skos:closeMatch']).toEqual([{ '@id': WP }]);
   });
 
   it('restores every link, in order, when the rungs are split', () => {
-    const state = withStates({ [WD]: 'same', [WP]: 'matched', [DB]: 'confirmed' });
+    const state = withStates({ [WD]: 'confirmed', [WP]: 'matched', [DB]: 'confirmed' });
     const rt = importFromRedstring(exportToRedstring(state), {});
     // The single-rung reader used to drop the closeMatch link entirely here.
     expect(rt.storeState.nodePrototypes.get('dog').externalLinks).toEqual([WD, WP, DB]);
@@ -142,19 +151,24 @@ describe('Per-link sameness (linkConfirmations)', () => {
     expect(dog['owl:sameAs']).toBeUndefined();
   });
 
-  it('confirming a link does not promote it to owl:sameAs', () => {
-    const ex = exportToRedstring(withStates({ [WD]: 'confirmed', [WP]: 'confirmed', [DB]: 'confirmed' }));
-    const dog = ex.prototypeSpace.prototypes.dog;
-    expect(dog['owl:sameAs']).toBeUndefined();
-    expect(dog['skos:exactMatch']).toHaveLength(3);
-  });
-
   it('falls back to the rung chain for documents with no rdfs:seeAlso', () => {
     // Older exporters didn't carry the complete list on rdfs:seeAlso. Simulate
     // one by exporting normally and stripping that key back off.
     const legacy = exportToRedstring(buildState({ externalLinks: [WD, DB] }));
     delete legacy.prototypeSpace.prototypes.dog['rdfs:seeAlso'];
-    expect(legacy.prototypeSpace.prototypes.dog['owl:sameAs']).toEqual([WD, DB]);
+
+    const rt = importFromRedstring(legacy, {});
+    expect(rt.storeState.nodePrototypes.get('dog').externalLinks).toEqual([WD, DB]);
+  });
+
+  it('still reads owl:sameAs written by an older Redstring or another tool', () => {
+    // Export stopped emitting this rung; import must not stop understanding it,
+    // or every link in a file written before the change vanishes on load.
+    const legacy = exportToRedstring(buildState({ externalLinks: [WD, DB] }));
+    const dog = legacy.prototypeSpace.prototypes.dog;
+    delete dog['rdfs:seeAlso'];
+    delete dog['skos:exactMatch'];
+    dog['owl:sameAs'] = [WD, DB];
 
     const rt = importFromRedstring(legacy, {});
     expect(rt.storeState.nodePrototypes.get('dog').externalLinks).toEqual([WD, DB]);

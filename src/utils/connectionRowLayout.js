@@ -56,6 +56,10 @@ const PANEL_LIST_NODE_BOX_RATIO = 2.8;
 // Below this the label stops being worth reading, so clip the text instead of
 // shrinking it further.
 const MIN_LABEL_FONT_PX = 13;
+// The renderer stacks a wrapped label's lines at max(fontSize * 1.1, 26 * scale)
+// — see ConnectionText in UniversalNodeRenderer.jsx. The first term wins at
+// every size the base font produces, so line height is 1.1× the drawn font.
+const LABEL_LINE_HEIGHT_RATIO = 1.1;
 // Arrowhead length at full scale, plus a little air, so the label never collides
 // with the arrow it sits between.
 const ARROW_TIP_LENGTH = 24;
@@ -139,6 +143,10 @@ const fitLabelToSpan = (text, fontString, maxWidth) => {
  * @param {{min:number,max:number}} [params.spanRatio] - share of the row the gaps take
  * @param {number} [params.nodeBoxRatio] - how far past the floor a box may grow
  *   before its name is truncated
+ * @param {boolean} [params.labelKeepsBaseFont] - draw the connection label at the
+ *   base font size instead of at the row's fit scale. For rows that had to scale
+ *   down to fit a fixed-width column (the right panel's Connections list), which
+ *   would otherwise shrink the label along with the boxes.
  * @returns {{nodes:Array<object>, spacing:number, labelFontScale:number,
  *   labels:string[]}} — node names and labels already truncated to their budgets,
  *   spacing for the renderer's `horizontalSpacing`, and the label font scale for
@@ -154,7 +162,8 @@ export function layoutConnectionRow({
   duplicateNodeIds = [],
   hasArrows = true,
   spanRatio = CONTROL_PANEL_SPAN,
-  nodeBoxRatio = CONTROL_PANEL_NODE_BOX_RATIO
+  nodeBoxRatio = CONTROL_PANEL_NODE_BOX_RATIO,
+  labelKeepsBaseFont = false
 }) {
   const availableWidth = Math.max(1, containerWidth - padding * 2);
   const boxCount = Math.max(1, sourceNodes.length + duplicateNodeIds.length);
@@ -192,33 +201,55 @@ export function layoutConnectionRow({
     availableHeight / Math.max(1, ...nodes.map(n => n.height))
   );
 
-  const naturalFontSize = Math.max(8, CONNECTION_LABEL_BASE_FONT_SIZE * nodeScale);
+  // The label's font normally rides the row's fit scale, because that is what the
+  // renderer derives it from. In a row that had to scale down to fit its column
+  // that drags the label along with the boxes — the failure this module exists to
+  // prevent, just applied to the label instead. labelKeepsBaseFont holds the label
+  // at the base size so it reads the same as the wider representations' do; the
+  // budget below still bounds it, so nothing overflows.
+  const labelFitScale = labelKeepsBaseFont ? 1 : nodeScale;
+  const naturalFontSize = Math.max(8, CONNECTION_LABEL_BASE_FONT_SIZE * labelFitScale);
   const budget = Math.max(
     0,
     spacing - 2 * ((hasArrows ? ARROW_TIP_LENGTH * nodeScale : 0) + LABEL_END_CLEARANCE)
   );
 
-  // Shrink the labels toward the legibility floor before clipping them — a 13px
-  // label that reads in full beats a 24px one cut down to two words.
   const naturalWidth = labels.reduce(
     (max, text) => Math.max(max, widestLabelLine(text, labelFont(naturalFontSize))),
     0
   );
-  const labelFontScale = naturalWidth > budget
-    ? Math.max(
-      Math.min(1, MIN_LABEL_FONT_PX / naturalFontSize),
-      Math.min(1, budget / Math.max(1, naturalWidth))
-    )
+  const widthShrink = naturalWidth > budget
+    ? Math.min(1, budget / Math.max(1, naturalWidth))
     : 1;
+
+  // A label that wraps into several short lines clears the width budget untouched,
+  // so its height is a constraint of its own: the block is centred on the
+  // connection, and whatever runs past the row's half-height the SVG viewport
+  // simply clips away.
+  const lineCount = labels.reduce((max, text) => Math.max(max, wrapConnectionLabel(text).length), 1);
+  const heightShrink = Math.min(
+    1,
+    availableHeight / ((lineCount - 1) * LABEL_LINE_HEIGHT_RATIO + 1) / naturalFontSize
+  );
+
+  // Shrink the labels toward the legibility floor before clipping them — a 13px
+  // label that reads in full beats a 24px one cut down to two words.
+  const labelShrink = Math.max(
+    Math.min(1, MIN_LABEL_FONT_PX / naturalFontSize),
+    Math.min(widthShrink, heightShrink)
+  );
 
   // Mirror the renderer's own 8px floor, or a label would be measured smaller
   // than it draws and clipped too late to help.
-  const renderedFontSize = Math.max(8, naturalFontSize * labelFontScale);
+  const renderedFontSize = Math.max(8, naturalFontSize * labelShrink);
 
   return {
     nodes,
     spacing,
-    labelFontScale,
+    // The renderer multiplies the base font by its own fit scale before applying
+    // this, so divide that scale back out — otherwise holding the label at the
+    // base size above would just be undone there.
+    labelFontScale: labelShrink * (labelFitScale / Math.max(nodeScale, 0.01)),
     labels: labels.map(text => fitLabelToSpan(text, labelFont(renderedFontSize), budget))
   };
 }
@@ -241,7 +272,12 @@ export function layoutPanelConnection({ nodes, predicate, containerWidth, hasArr
     floors: PANEL_FLOORS,
     hasArrows,
     spanRatio: PANEL_LIST_SPAN,
-    nodeBoxRatio: PANEL_LIST_NODE_BOX_RATIO
+    nodeBoxRatio: PANEL_LIST_NODE_BOX_RATIO,
+    // This row is fit-scaled down to ~0.6–0.85× so two node boxes fit a panel
+    // column. The label doesn't have to pay for that: the connection is what the
+    // list is there to show, so it reads at the same size as it does in the
+    // canvas control panel and hover aid.
+    labelKeepsBaseFont: true
   });
   return {
     nodes: row.nodes,

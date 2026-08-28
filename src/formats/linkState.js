@@ -15,18 +15,31 @@
  */
 
 /**
- * The three rungs, in ascending strength. Plain-language names, because these
- * strings surface directly in the panel — the user should never have to read
+ * Two rungs, in ascending strength. Plain-language names, because these strings
+ * surface directly in the panel — the user should never have to read
  * "skos:exactMatch" to say what they mean.
+ *
+ * There used to be a third, `same` → owl:sameAs, above CONFIRMED. It is gone.
+ * The distinction it drew is real in OWL (exactMatch aligns two records about
+ * one subject; sameAs fuses them, so a reasoner pools every claim on both sides
+ * and the other record's mistakes become claims about your Thing) but it is not
+ * a distinction anyone can act on from a panel row. Redstring's own author
+ * couldn't tell the two options apart, which is the end of the argument: a
+ * control nobody can use correctly is worse than no control, and the failure
+ * lands on the side of asserting MORE than the user meant.
+ *
+ * So Redstring no longer authors owl:sameAs. It still READS it on import —
+ * other tools write it, and older files carry it — but nothing here emits it.
  */
 export const LINK_STATES = {
   /** Redstring found it; nobody has checked. → skos:closeMatch */
   MATCHED: 'matched',
   /** A person looked and said yes. → skos:exactMatch */
-  CONFIRMED: 'confirmed',
-  /** Asserted identity, with the entailment that implies. → owl:sameAs */
-  SAME: 'same'
+  CONFIRMED: 'confirmed'
 };
+
+/** Recognised in stored records, folded into CONFIRMED. See LINK_STATES. */
+const RETIRED_SAME = 'same';
 
 /**
  * Normalize a URL so the same resource written two ways compares equal.
@@ -54,9 +67,12 @@ export const canonicalizeLink = (uri) => {
 /**
  * The rung this link sits on.
  *
- * The fallback is the compatibility contract: a file with no
- * `linkConfirmations` resolves to exactly what the old whole-array branch
- * produced, so re-exporting an untouched universe is byte-identical.
+ * A link with no record resolves by the old whole-array signal: auto-enriched
+ * prototypes matched, everything else confirmed. That fallback used to answer
+ * `same`, which is how untouched files came to export owl:sameAs — off a flag
+ * that is really about images. Nobody chose that claim, so folding it down to
+ * CONFIRMED weakens an assertion the user never made rather than losing one
+ * they did.
  *
  * @param {string} url
  * @param {object} [semanticMetadata] - the prototype's semanticMetadata blob
@@ -64,10 +80,11 @@ export const canonicalizeLink = (uri) => {
  */
 export const resolveLinkState = (url, semanticMetadata) => {
   const record = semanticMetadata?.linkConfirmations?.[canonicalizeLink(url)];
-  if (record?.state && Object.values(LINK_STATES).includes(record.state)) {
-    return record.state;
+  if (record?.state) {
+    if (Object.values(LINK_STATES).includes(record.state)) return record.state;
+    if (record.state === RETIRED_SAME) return LINK_STATES.CONFIRMED;
   }
-  return semanticMetadata?.autoEnriched ? LINK_STATES.MATCHED : LINK_STATES.SAME;
+  return semanticMetadata?.autoEnriched ? LINK_STATES.MATCHED : LINK_STATES.CONFIRMED;
 };
 
 /**
@@ -105,15 +122,13 @@ export const clearLinkState = (semanticMetadata, url) => {
  *
  * @param {string[]} links
  * @param {object} [semanticMetadata]
- * @returns {{same: string[], confirmed: string[], matched: string[]}}
+ * @returns {{confirmed: string[], matched: string[]}}
  */
 export const partitionLinksByState = (links, semanticMetadata) => {
-  const out = { same: [], confirmed: [], matched: [] };
+  const out = { confirmed: [], matched: [] };
   for (const url of links) {
-    const state = resolveLinkState(url, semanticMetadata);
-    if (state === LINK_STATES.MATCHED) out.matched.push(url);
-    else if (state === LINK_STATES.CONFIRMED) out.confirmed.push(url);
-    else out.same.push(url);
+    if (resolveLinkState(url, semanticMetadata) === LINK_STATES.MATCHED) out.matched.push(url);
+    else out.confirmed.push(url);
   }
   return out;
 };

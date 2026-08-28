@@ -23,6 +23,9 @@ const WIKIPEDIA_REST = 'https://en.wikipedia.org/w/rest.php/v1';
 const WIKIPEDIA_SUMMARY = 'https://en.wikipedia.org/api/rest_v1/page/summary';
 const DBPEDIA_LOOKUP = 'https://lookup.dbpedia.org/api/search';
 const DBPEDIA_SPARQL = 'https://dbpedia.org/sparql';
+const CROSSREF_API = 'https://api.crossref.org/works';
+const DATACITE_API = 'https://api.datacite.org/dois';
+const PUBMED_API = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi';
 
 /**
  * The authorities that get a permanent slot in About.
@@ -123,6 +126,60 @@ const searchDBpedia = async (term, { limit, signal }) => {
 };
 
 /**
+ * A DOI's registered title, from whichever agency registered it.
+ *
+ * Crossref covers journal articles and books; DataCite covers datasets,
+ * preprints and software. A DOI belongs to exactly one of them, so the fallback
+ * is a second lookup rather than a merge. Both are CORS-open and keyless.
+ *
+ * doi.org's own content negotiation would resolve either in one request, but it
+ * answers with a redirect chain that browsers can't always follow with a custom
+ * Accept header, so two direct calls are the reliable version.
+ */
+const describeDOI = async (doi, { signal }) => {
+  try {
+    const resp = await fetch(`${CROSSREF_API}/${encodeURIComponent(doi)}`, { signal });
+    if (resp.ok) {
+      const work = (await resp.json())?.message;
+      const title = Array.isArray(work?.title) ? work.title[0] : work?.title;
+      if (title) {
+        const authors = (work.author || [])
+          .slice(0, 2)
+          .map(a => a.family || a.name)
+          .filter(Boolean);
+        const year = work.issued?.['date-parts']?.[0]?.[0];
+        const journal = Array.isArray(work['container-title']) ? work['container-title'][0] : null;
+        const parts = [
+          authors.length ? `${authors.join(', ')}${(work.author || []).length > 2 ? ' et al.' : ''}` : null,
+          journal,
+          year
+        ].filter(Boolean);
+        return { label: stripHtml(title), description: parts.join(' · ') };
+      }
+    }
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error;
+  }
+
+  const resp = await fetch(`${DATACITE_API}/${encodeURIComponent(doi)}`, { signal });
+  if (!resp.ok) return null;
+  const attributes = (await resp.json())?.data?.attributes;
+  const title = attributes?.titles?.[0]?.title;
+  if (!title) return null;
+  const parts = [attributes.publisher, attributes.publicationYear].filter(Boolean);
+  return { label: stripHtml(title), description: parts.join(' · ') };
+};
+
+const describePubMed = async (pmid, { signal }) => {
+  const resp = await fetch(`${PUBMED_API}?db=pubmed&id=${encodeURIComponent(pmid)}&retmode=json`, { signal });
+  if (!resp.ok) return null;
+  const record = (await resp.json())?.result?.[pmid];
+  if (!record?.title) return null;
+  const parts = [record.sortfirstauthor, record.source, record.pubdate].filter(Boolean);
+  return { label: stripHtml(record.title), description: parts.join(' · ') };
+};
+
+/**
  * Candidate entries for `term` at one authority.
  *
  * @param {'wikidata'|'wikipedia'|'dbpedia'} kind
@@ -142,10 +199,12 @@ export const searchIdentifiers = async (kind, term, { limit = 6, signal } = {}) 
 /**
  * What the authority says the thing at `url` is.
  *
- * This is the "tell it's wrong without travelling to it" half. Returns null for
- * anything not one of the three searchable authorities, and for any failure —
- * a missing description is cosmetic, and the identifier still reads fine
- * without it.
+ * This is the "tell it's wrong without travelling to it" half. Covers more than
+ * the searchable three: a DOI can't be searched by name here, but it can
+ * certainly say what paper it is, and a row reading "10.1038/nature12373" alone
+ * is an identifier nobody can check. Returns null for anything unrecognised,
+ * and for any failure — a missing description is cosmetic, and the identifier
+ * still reads fine without it.
  *
  * @returns {Promise<{label: string, description: string}|null>}
  */
@@ -153,6 +212,9 @@ export const describeIdentifier = async (url, { signal } = {}) => {
   const { kind, identifier, href } = identifierFromUrl(url);
 
   try {
+    if (kind === 'doi') return await describeDOI(identifier, { signal });
+    if (kind === 'pubmed') return await describePubMed(identifier, { signal });
+
     if (kind === 'wikidata') {
       const qid = identifier;
       if (!/^Q\d+$/i.test(qid)) return null;

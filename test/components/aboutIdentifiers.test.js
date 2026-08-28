@@ -149,9 +149,17 @@ describe('link state', () => {
       .toBe('https://en.wikipedia.org/wiki/Dog');
   });
 
-  it('reproduces the old whole-array behavior when nothing is recorded', () => {
-    expect(resolveLinkState(WD, undefined)).toBe(LINK_STATES.SAME);
+  it('falls back to the old whole-array signal when nothing is recorded', () => {
+    expect(resolveLinkState(WD, undefined)).toBe(LINK_STATES.CONFIRMED);
     expect(resolveLinkState(WD, { autoEnriched: true })).toBe(LINK_STATES.MATCHED);
+  });
+
+  it('folds a stored "same" record down to confirmed', () => {
+    // The rung above confirmed is retired. A record still carrying it resolves
+    // to the strongest rung that survives rather than to nothing.
+    const sm = { linkConfirmations: { [canonicalizeLink(WD)]: { state: 'same', by: 'user' } } };
+    expect(resolveLinkState(WD, sm)).toBe(LINK_STATES.CONFIRMED);
+    expect(LINK_STATES.SAME).toBeUndefined();
   });
 
   it('lets a per-link record win over the image flag', () => {
@@ -168,18 +176,18 @@ describe('link state', () => {
 
   it('clears a record without disturbing the others', () => {
     let sm = setLinkState({}, WD, LINK_STATES.CONFIRMED);
-    sm = setLinkState(sm, DB, LINK_STATES.SAME);
+    sm = setLinkState(sm, DB, LINK_STATES.MATCHED);
     sm = clearLinkState(sm, WD);
     expect(sm.linkConfirmations[canonicalizeLink(WD)]).toBeUndefined();
     expect(sm.linkConfirmations[canonicalizeLink(DB)]).toBeDefined();
   });
 
-  it('partitions a mixed set into the three rungs', () => {
-    let sm = setLinkState({}, WD, LINK_STATES.SAME);
+  it('partitions a mixed set into the two rungs', () => {
+    let sm = setLinkState({}, WD, LINK_STATES.CONFIRMED);
     sm = setLinkState(sm, WP, LINK_STATES.MATCHED);
     sm = setLinkState(sm, DB, LINK_STATES.CONFIRMED);
     expect(partitionLinksByState([WD, WP, DB], sm)).toEqual({
-      same: [WD], matched: [WP], confirmed: [DB]
+      matched: [WP], confirmed: [WD, DB]
     });
   });
 });

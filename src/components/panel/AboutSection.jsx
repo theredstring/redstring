@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, X, ChevronDown, Plus, Link2, History, Check, Binoculars } from 'lucide-react';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import PanelCard, { usePanelCardTokens } from '../shared/PanelCard.jsx';
@@ -78,12 +78,16 @@ const useIdentifierDescription = (url) => {
  *
  * Outlined in the same maroon as its text, because the popover's fill is the
  * PieMenu's flat #DEDADA and an unoutlined row on it reads as a paragraph, not
- * a choice. The current one is filled rather than outlined differently, so a
- * set still scans as a set of equal options.
+ * a choice.
+ *
+ * Hover lifts to white, which is the app's usual pairing said in reverse: a
+ * panel button goes from the page colour to #DEDADA-and-maroon, and here the
+ * page colour already IS #DEDADA, so white is the only direction left that
+ * still reads as the same gesture. The selected one keeps a maroon wash so
+ * hovering a different option never makes it look like the choice moved.
  */
 const PopoverOption = ({ label, blurb, isCurrent, onClick }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const raised = isHovered || isCurrent;
 
   return (
     <button
@@ -97,7 +101,7 @@ const PopoverOption = ({ label, blurb, isCurrent, onClick }) => {
         display: 'block',
         width: '100%',
         textAlign: 'left',
-        background: raised ? 'rgba(128,0,0,0.12)' : 'transparent',
+        background: isHovered ? '#FFFFFF' : (isCurrent ? 'rgba(128,0,0,0.12)' : 'transparent'),
         border: '1.5px solid maroon',
         borderRadius: 8,
         padding: '6px 9px',
@@ -119,18 +123,19 @@ const PopoverOption = ({ label, blurb, isCurrent, onClick }) => {
 };
 
 /** The three rungs of the sameness ladder, as a small anchored menu. */
-const StateChooser = ({ anchor, current, onPick, onDismiss }) => (
+const StateChooser = ({ anchor, current, onPick, onDismiss, triggerRef }) => (
   <AnchoredPopoverBox
     position={anchor}
     direction="down-left"
     width={240}
-    estimatedHeight={190}
+    estimatedHeight={150}
     onDismiss={onDismiss}
-    ariaLabel="Confidence"
+    triggerRef={triggerRef}
+    ariaLabel="Match"
   >
     {/* Title only. Three labelled options are self-explaining, and a paragraph
         above them just pushes the choice further from the cursor. */}
-    <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Confidence</div>
+    <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Match</div>
     {MATCH_STATES.map(option => (
       <PopoverOption
         key={option.state}
@@ -151,7 +156,7 @@ const StateChooser = ({ anchor, current, onPick, onDismiss }) => (
  * pre-searched on the Thing's own name, which is right often enough that the
  * common case is one click.
  */
-const IdentifierPicker = ({ anchor, kind, authority, initialTerm, currentUrl, onPick, onDismiss }) => {
+const IdentifierPicker = ({ anchor, kind, authority, initialTerm, currentUrl, onPick, onDismiss, triggerRef }) => {
   const [term, setTerm] = useState(initialTerm || '');
   const [results, setResults] = useState([]);
   const [status, setStatus] = useState('idle');
@@ -190,6 +195,7 @@ const IdentifierPicker = ({ anchor, kind, authority, initialTerm, currentUrl, on
       width={330}
       estimatedHeight={340}
       onDismiss={onDismiss}
+      triggerRef={triggerRef}
       ariaLabel={`Find this on ${authority}`}
       scrollable={false}
     >
@@ -252,20 +258,21 @@ const IdentifierPicker = ({ anchor, kind, authority, initialTerm, currentUrl, on
  * without a legend, and gives the row's action group back the slot the search
  * button needed.
  */
-const StateChip = ({ label, isOpen, onOpen, tokens }) => {
+const StateChip = forwardRef(({ label, isOpen, onToggle, tokens }, ref) => {
   const [isHovered, setIsHovered] = useState(false);
   const lit = isHovered || isOpen;
 
   return (
     <button
+      ref={ref}
       type="button"
-      onClick={onOpen}
+      onClick={onToggle}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onBlur={() => setIsHovered(false)}
       aria-haspopup="dialog"
       aria-expanded={isOpen}
-      title="Confidence"
+      title="Match"
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -283,10 +290,21 @@ const StateChip = ({ label, isOpen, onOpen, tokens }) => {
       }}
     >
       {label}
-      <ChevronDown size={11} strokeWidth={2.5} />
+      {/* Points at the menu while it's open, so the chip reads as the thing
+          that closes it and not as a second way to open it. */}
+      <ChevronDown
+        size={11}
+        strokeWidth={2.5}
+        style={{
+          transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+          transition: 'transform 0.15s ease'
+        }}
+      />
     </button>
   );
-};
+});
+
+StateChip.displayName = 'StateChip';
 
 /**
  * One identifier, filled or not.
@@ -296,6 +314,7 @@ const StateChip = ({ label, isOpen, onOpen, tokens }) => {
  * or "nothing has grounded this yet" reads as an absence rather than a fact.
  */
 const IdentifierRow = ({
+  rowKey,
   kind,
   authority,
   url,
@@ -303,23 +322,47 @@ const IdentifierRow = ({
   nodeName,
   isLast,
   tokens,
+  openMenu,
+  onToggleMenu,
+  onCloseMenu,
   onSetState,
   onRemove,
   onPick
 }) => {
   const info = useIdentifierDescription(url);
-  const [chooserAnchor, setChooserAnchor] = useState(null);
-  const [pickerAnchor, setPickerAnchor] = useState(null);
+  const chipRef = useRef(null);
+  const searchRef = useRef(null);
 
-  const { authority: derivedAuthority, identifier, href } = url
+  const { authority: derivedAuthority, identifier, href, isEntity } = url
     ? identifierFromUrl(url)
-    : { authority, identifier: null, href: null };
+    : { authority, identifier: null, href: null, isEntity: false };
 
   const stateLabel = MATCH_STATES.find(s => s.state === state)?.label || '';
 
-  const anchorFrom = (event) => {
+  /**
+   * Where the authority's own name for this goes.
+   *
+   * An entity's label is a name — "dog" — and sits inline after the id, where
+   * "Q144 · dog" reads as one fact. A document's label is a title, which is a
+   * sentence, and hanging it off the end of a line that can't wrap truncated
+   * every DOI at about its third word. `isEntity` already draws exactly this
+   * line, so the layout follows it rather than guessing from length.
+   */
+  const hasOwnName = !!info?.label && info.label !== identifier;
+  const titleOnOwnRow = hasOwnName && !isEntity;
+
+  // Which menu is open is one piece of state for the whole section, so opening
+  // any menu closes whichever was open. Two search popovers on screen at once
+  // is two lists of results with nothing saying which row either belongs to.
+  const openHere = openMenu?.key === rowKey ? openMenu.type : null;
+
+  const toggle = (type) => (event) => {
+    // PanelIconButton already stops its own clicks; the state chip is a plain
+    // button, and its click would otherwise reach the row and the panel behind.
+    event.stopPropagation?.();
+    if (openHere === type) { onCloseMenu(); return; }
     const rect = event.currentTarget?.getBoundingClientRect?.();
-    return rect ? { x: rect.right, y: rect.bottom } : null;
+    onToggleMenu({ key: rowKey, type, anchor: rect ? { x: rect.right, y: rect.bottom } : null });
   };
 
   return (
@@ -343,6 +386,9 @@ const IdentifierRow = ({
             {derivedAuthority}
           </div>
 
+          {/* The id itself stays on one clipped line: a DOI or a long article
+              slug has no good wrap point, and its exact text is rarely what
+              you're reading the row for. */}
           <div style={{
             fontFamily: FONT,
             fontSize: '13px',
@@ -353,10 +399,28 @@ const IdentifierRow = ({
             whiteSpace: 'nowrap'
           }}>
             {url ? identifier : EMPTY_SLOT_TEXT}
-            {info?.label && info.label !== identifier && (
+            {hasOwnName && !titleOnOwnRow && (
               <span style={{ color: tokens.muted }}> · {info.label}</span>
             )}
           </div>
+
+          {titleOnOwnRow && (
+            <div style={{
+              fontFamily: FONT,
+              fontSize: '13px',
+              // Same tone as the description below it, and as the inline `· dog`
+              // an entity row shows. It's the authority's words either way; the
+              // id above is the only part that's this Thing's own claim.
+              color: tokens.muted,
+              marginTop: 2,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden'
+            }}>
+              {info.label}
+            </div>
+          )}
 
           {/* The authority's own words about what it is holding. Two lines is
               enough to catch a wrong match and short enough not to turn a list
@@ -378,10 +442,11 @@ const IdentifierRow = ({
 
           {url && (
             <StateChip
+              ref={chipRef}
               label={stateLabel}
               tokens={tokens}
-              isOpen={!!chooserAnchor}
-              onOpen={(e) => setChooserAnchor(anchorFrom(e))}
+              isOpen={openHere === 'state'}
+              onToggle={toggle('state')}
             />
           )}
         </div>
@@ -392,12 +457,13 @@ const IdentifierRow = ({
               two buttons that do mean something. */}
           {STANDARD_KINDS.includes(kind) && (
             <PanelIconButton
+              ref={searchRef}
               icon={Binoculars}
               size={14}
-              active={!!pickerAnchor}
-              onClick={(e) => setPickerAnchor(anchorFrom(e))}
+              active={openHere === 'picker'}
+              onClick={toggle('picker')}
               title={url ? `Find a different ${authority} match` : `Find this on ${authority}`}
-              ariaExpanded={!!pickerAnchor}
+              ariaExpanded={openHere === 'picker'}
               ariaHasPopup="dialog"
             />
           )}
@@ -423,24 +489,26 @@ const IdentifierRow = ({
         </div>
       </div>
 
-      {chooserAnchor && (
+      {openHere === 'state' && (
         <StateChooser
-          anchor={chooserAnchor}
+          anchor={openMenu.anchor}
           current={state}
-          onPick={(next) => { onSetState(url, next); setChooserAnchor(null); }}
-          onDismiss={() => setChooserAnchor(null)}
+          triggerRef={chipRef}
+          onPick={(next) => { onSetState(url, next); onCloseMenu(); }}
+          onDismiss={onCloseMenu}
         />
       )}
 
-      {pickerAnchor && (
+      {openHere === 'picker' && (
         <IdentifierPicker
-          anchor={pickerAnchor}
+          anchor={openMenu.anchor}
           kind={kind}
           authority={authority}
           initialTerm={nodeName}
           currentUrl={url}
-          onPick={(next) => { onPick(kind, url, next); setPickerAnchor(null); }}
-          onDismiss={() => setPickerAnchor(null)}
+          triggerRef={searchRef}
+          onPick={(next) => { onPick(kind, url, next); onCloseMenu(); }}
+          onDismiss={onCloseMenu}
         />
       )}
     </div>
@@ -599,6 +667,15 @@ const ProvenanceRows = ({ nodeData, isHomeTab, graphData, tokens }) => {
 const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = null }) => {
   const tokens = usePanelCardTokens();
 
+  // One menu for the whole section: {key, type, anchor} or null. Held here
+  // rather than per-row so opening any one closes any other.
+  const [openMenu, setOpenMenu] = useState(null);
+  const closeMenu = useCallback(() => setOpenMenu(null), []);
+
+  // Slot keys are stable across Things, so a menu left open on one node would
+  // reopen itself over the next one's matching row.
+  useEffect(() => { setOpenMenu(null); }, [nodeData?.id]);
+
   const { slots, extras } = useMemo(() => partitionIdentifiers(nodeData), [nodeData]);
 
   const stateOf = useCallback(
@@ -716,10 +793,10 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
 
   // The three standing slots first, then anything else the Thing carries.
   const rows = useMemo(() => [
-    ...slots,
+    ...slots.map(slot => ({ ...slot, isSlot: true })),
     ...extras.map(url => {
       const { kind, authority } = identifierFromUrl(url);
-      return { kind, authority, url };
+      return { kind, authority, url, isSlot: false };
     })
   ], [slots, extras]);
 
@@ -737,21 +814,30 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
           </InfoPopover>
         }
       >
-        {rows.map((row, index) => (
-          <IdentifierRow
-            key={row.url || `slot-${row.kind}`}
-            kind={row.kind}
-            authority={row.authority}
-            url={row.url}
-            state={stateOf(row.url)}
-            nodeName={nodeData?.name || ''}
-            tokens={tokens}
-            isLast={index === rows.length - 1}
-            onSetState={handleSetState}
-            onRemove={handleRemove}
-            onPick={handlePick}
-          />
-        ))}
+        {rows.map((row, index) => {
+          // Keyed by slot, not by URL: swapping a Wikidata match would
+          // otherwise remount the row and close the menu that did the swapping.
+          const rowKey = row.isSlot ? `slot-${row.kind}` : `extra-${row.url}`;
+          return (
+            <IdentifierRow
+              key={rowKey}
+              rowKey={rowKey}
+              kind={row.kind}
+              authority={row.authority}
+              url={row.url}
+              state={stateOf(row.url)}
+              nodeName={nodeData?.name || ''}
+              tokens={tokens}
+              isLast={index === rows.length - 1}
+              openMenu={openMenu}
+              onToggleMenu={setOpenMenu}
+              onCloseMenu={closeMenu}
+              onSetState={handleSetState}
+              onRemove={handleRemove}
+              onPick={handlePick}
+            />
+          );
+        })}
 
         <AddIdentifier onAdd={handleAdd} tokens={tokens} />
       </PanelCard>

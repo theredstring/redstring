@@ -29,28 +29,26 @@ export const PICKER_INTRO = 'Each description is that system\'s own.';
 export const EMPTY_SLOT_TEXT = 'Not linked';
 
 /**
- * The sameness ladder, in the order it appears in the chooser. `state` matches
+ * The two rungs, in the order they appear in the chooser. `state` matches
  * LINK_STATES in src/formats/linkState.js.
  *
- * Each blurb is one short line. Three rungs read as three rungs; a paragraph
- * under each turns a quick decision into homework, and the label already
- * carries most of the meaning.
+ * There was a third, "Same Thing" → owl:sameAs, above Confirmed. It's gone. The
+ * distinction is real in OWL — exactMatch aligns two records about one subject,
+ * sameAs fuses them so a reasoner pools every claim on both sides — but it
+ * isn't one a person can act on from a panel row, and getting it wrong asserts
+ * more than they meant. Only the question that has an answer is asked now: has
+ * anybody checked this?
  */
 export const MATCH_STATES = [
   {
     state: 'matched',
-    label: 'Matched Automatically',
-    blurb: 'Nobody has checked it.'
+    label: 'Auto-Populated',
+    blurb: 'Redstring found it. Nobody has checked.'
   },
   {
     state: 'confirmed',
     label: 'Confirmed',
-    blurb: 'You checked it.'
-  },
-  {
-    state: 'same',
-    label: 'Same Thing',
-    blurb: 'Anything true of one is true of the other.'
+    blurb: 'You checked it. It\'s the same subject.'
   }
 ];
 

@@ -954,28 +954,27 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     // Sameness ladder (decision D8/P2.5). External links climb the ladder by how
     // strong the claim is. An automatic match (e.g. a Wikipedia article matched
     // to a concept) is alignment, not identity → skos:closeMatch. A link the
-    // user confirmed is interchangeable → skos:exactMatch. An asserted identity
-    // → owl:sameAs, which per the cumulative rule co-emits skos:exactMatch.
-    // rdfs:seeAlso (above) keeps the complete ordered list of raw URLs.
+    // user confirmed is interchangeable → skos:exactMatch. rdfs:seeAlso (above)
+    // keeps the complete ordered list of raw URLs.
+    //
+    // owl:sameAs is deliberately never emitted. It says two IRIs denote one
+    // individual, which licenses a reasoner to pool every claim made on either
+    // side; nothing in this interface is a strong enough act of assertion to
+    // license that, and the UI control that used to offer it was one nobody
+    // could tell apart from "confirmed". Import still reads it (see the rung
+    // chain below) — other tools write it, and older Redstring files carry it.
     //
     // The rung is per-link, from semanticMetadata.linkConfirmations. It used to
     // be chosen for the whole array from semanticMetadata.autoEnriched — but
     // that flag is about images (it gates thumbnail stripping and is cleared
     // when the user uploads their own picture), so uploading a photo promoted
-    // every matched link to owl:sameAs. resolveLinkState still falls back to it
-    // for links with no record, which is what keeps older files exporting
-    // byte-identically.
+    // every matched link a full rung.
     const externalLinks = Array.isArray(prototype.externalLinks) ? prototype.externalLinks : [];
     if (externalLinks.length > 0) {
       const asRef = (url) => ({ "@id": url });
-      const { same, confirmed, matched } = partitionLinksByState(externalLinks, prototype.semanticMetadata);
-      if (same.length > 0) {
-        prototypeSpace[id]["owl:sameAs"] = same;
-      }
-      // Cumulative: owl:sameAs implies skos:exactMatch, so both rungs land here.
-      const exact = [...same, ...confirmed];
-      if (exact.length > 0) {
-        prototypeSpace[id]["skos:exactMatch"] = exact.map(asRef);
+      const { confirmed, matched } = partitionLinksByState(externalLinks, prototype.semanticMetadata);
+      if (confirmed.length > 0) {
+        prototypeSpace[id]["skos:exactMatch"] = confirmed.map(asRef);
       }
       if (matched.length > 0) {
         prototypeSpace[id]["skos:closeMatch"] = matched.map(asRef);

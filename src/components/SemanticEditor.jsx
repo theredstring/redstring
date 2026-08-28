@@ -300,10 +300,12 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
                     />
                   )}
                   {!isPrimary && (
+                    // Plain ghost variant, like every other remove button in
+                    // the panel. `danger` swaps the hover ring to #F44336, a
+                    // colour this panel uses nowhere else.
                     <PanelIconButton
                       icon={X}
                       size={14}
-                      variant="danger"
                       onClick={() => removeEquivalentClass(uri)}
                       title="Remove this classification"
                     />
