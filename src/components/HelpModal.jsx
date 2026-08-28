@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import CanvasModal from './CanvasModal';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme.js';
+import PanelIconButton from './shared/PanelIconButton.jsx';
 
 /**
  * Help Modal
@@ -323,34 +324,19 @@ const HelpModal = ({ isVisible, onClose }) => {
       <style>{theme.darkMode ? scrollbarDark : scrollbarLight}</style>
 
       {/* Close button */}
-      <button
+      <PanelIconButton
+        icon={X}
+        size={18}
+        title="Close"
         onClick={onClose}
-        onTouchEnd={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onClose();
-        }}
         style={{
           position: 'absolute',
           top: isCompactLayout ? '12px' : '16px',
           right: isCompactLayout ? '32px' : '40px',
-          background: 'none',
-          border: 'none',
-          color: theme.canvas.textSecondary,
-          cursor: 'pointer',
-          padding: '6px',
-          borderRadius: '4px',
-          fontSize: '16px',
-          fontWeight: 'bold',
-          fontFamily: "'EmOne', sans-serif",
           zIndex: 10,
           touchAction: 'manipulation'
         }}
-        onMouseEnter={(e) => e.currentTarget.style.color = theme.canvas.textPrimary}
-        onMouseLeave={(e) => e.currentTarget.style.color = theme.canvas.textSecondary}
-      >
-        ✕
-      </button>
+      />
 
       {/* Sidebar Navigation */}
       {!isCompactLayout && (
@@ -470,6 +456,7 @@ const HelpModal = ({ isVisible, onClose }) => {
       height={modalHeight}
       position="center"
       margin={isCompactLayout ? 12 : 20}
+      fullScreenOverlay={true}
     >
       {modalContent}
     </CanvasModal>

@@ -3,8 +3,9 @@ import CanvasModal from './CanvasModal';
 import MaroonSlider from './MaroonSlider.jsx';
 import useGraphStore from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
-import { Monitor, Grid3x3, Cable, Keyboard, Scaling, PanelBottom, Brain, Info } from 'lucide-react';
+import { Monitor, Grid3x3, Cable, Keyboard, Scaling, PanelBottom, Brain, Info, X } from 'lucide-react';
 import AISection from './settings/AISection.jsx';
+import PanelIconButton from './shared/PanelIconButton.jsx';
 import './SettingsModal.css';
 
 /**
@@ -832,34 +833,19 @@ const SettingsModal = ({ isVisible, onClose }) => {
       }}
     >
       {/* Close button */}
-      <button
+      <PanelIconButton
+        icon={X}
+        size={18}
+        title="Close"
         onClick={onClose}
-        onTouchEnd={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onClose();
-        }}
         style={{
           position: 'absolute',
           top: isCompactLayout ? '12px' : '16px',
           right: isCompactLayout ? '32px' : '40px',
-          background: 'none',
-          border: 'none',
-          color: theme.canvas.textSecondary,
-          cursor: 'pointer',
-          padding: '6px',
-          borderRadius: '4px',
-          fontSize: '16px',
-          fontWeight: 'bold',
-          fontFamily: "'EmOne', sans-serif",
           zIndex: 10,
           touchAction: 'manipulation'
         }}
-        onMouseEnter={(e) => e.currentTarget.style.color = theme.canvas.textPrimary}
-        onMouseLeave={(e) => e.currentTarget.style.color = theme.canvas.textSecondary}
-      >
-        ✕
-      </button>
+      />
 
       {/* Sidebar Navigation */}
       {!isCompactLayout && (

@@ -77,7 +77,7 @@ import useGraphStore, {
 import useHistoryStore from './store/historyStore.js';
 import useImageCache, { queueThumbnailFetch } from './services/imageCache.js';
 
-import { getAppViewportSize } from './utils/appViewport.js';
+import { getAppViewportSize, getFixedOverlayOrigin } from './utils/appViewport.js';
 import {
   NODE_WIDTH,
   NODE_HEIGHT,
@@ -2258,6 +2258,65 @@ function NodeCanvas() {
     viewportBoundsRef.current = viewportBounds;
   }, [viewportBounds]);
 
+  // How much canvas an open overlay panel has to leave behind before framing
+  // bothers aiming at the gap rather than at the whole region — see
+  // getFramingRegion. Below this a phone-sized window with a near-full-width
+  // panel would zoom out to nothing chasing a sliver.
+  const FRAMING_MIN_REGION_PX = 320;
+  const FRAMING_MIN_REGION_FRACTION = 0.45;
+
+  // The rect every framing animation (focus-on-select, the abstraction carousel,
+  // decompose, the semantic orbit, search navigation) should aim at, in CONTAINER
+  // coordinates — the space panOffset actually lives in.
+  //
+  // Two corrections on top of viewportBounds:
+  //
+  // 1. Space. viewportBounds is app-box space: its `x` IS the left panel's width
+  //    and its `y` IS the header's height. The canvas container is a full-width
+  //    flex child sitting below the header (the panels are position:fixed overlays
+  //    and take no flow space), so its own origin is already (0, HEADER_HEIGHT).
+  //    Panning to `vb.y + vb.height / 2` therefore counts the header twice and
+  //    lands the content a full HEADER_HEIGHT below the centre of the region it
+  //    was meant to be centred in — straight down toward the TypeList bar, which
+  //    is exactly where a pie menu can least afford the extra 50px. Subtracting
+  //    the container's own offset is the same conversion useGraphLayout's
+  //    zoom-to-fit already does; doing it via the app-box origin (rather than the
+  //    raw client rect) keeps it exact under viewport-fit=cover, where the client
+  //    rect starts one safe-area inset in from the app box.
+  //
+  // 2. Occlusion. Exclusive panel mode (narrow windows — see
+  //    EXCLUSIVE_PANEL_MODE_THRESHOLD) deliberately reports the FULL window width,
+  //    because a panel there may cover nearly all of it and framing into the
+  //    remaining sliver is worse than ignoring it. That's the right call at 390px
+  //    and the wrong one at 1000px with a 300px panel open — the node ends up
+  //    centred behind the panel. So subtract the open overlays here whenever doing
+  //    so still leaves a region worth framing into.
+  const getFramingRegion = useCallback(() => {
+    const vb = viewportBounds;
+    let x = vb.x;
+    let width = vb.width;
+
+    if (vb.isExclusiveMode) {
+      const openLeft = leftPanelExpanded ? leftPanelWidth : 0;
+      const openRight = rightPanelExpanded ? rightPanelWidth : 0;
+      if (openLeft || openRight) {
+        const remaining = width - openLeft - openRight;
+        const floor = Math.max(FRAMING_MIN_REGION_PX, width * FRAMING_MIN_REGION_FRACTION);
+        if (remaining >= floor) {
+          x += openLeft;
+          width = remaining;
+        }
+      }
+    }
+
+    const rect = containerRef.current?.getBoundingClientRect();
+    const origin = getFixedOverlayOrigin();
+    const containerX = rect ? rect.left - origin.x : 0;
+    const containerY = rect ? rect.top - origin.y : vb.y;
+
+    return { ...vb, x: x - containerX, y: vb.y - containerY, width, height: vb.height };
+  }, [viewportBounds, leftPanelExpanded, rightPanelExpanded, leftPanelWidth, rightPanelWidth]);
+
   const mousePositionRef = useRef({ x: 0, y: 0 });
 
   // RAF-based position update batching for smooth 60/120/144Hz-aligned rendering
@@ -2627,15 +2686,18 @@ function NodeCanvas() {
       const nodesWidth = Math.max(1, maxX - minX);
       const nodesHeight = Math.max(1, maxY - minY);
 
+      // Fit and centre against the usable region rather than the raw window, so
+      // open panels don't park the instances behind themselves.
+      const vb = getFramingRegion();
       const padding = 180; // slightly more padding for less aggressive zoom
-      const targetZoomX = viewportSize.width / (nodesWidth + padding * 2);
-      const targetZoomY = viewportSize.height / (nodesHeight + padding * 2);
+      const targetZoomX = vb.width / (nodesWidth + padding * 2);
+      const targetZoomY = vb.height / (nodesHeight + padding * 2);
       const rawZoom = Math.min(targetZoomX, targetZoomY);
       const maxSearchZoom = 0.6; // cap zoom-in for search navigation
       const targetZoom = Math.min(MAX_ZOOM, Math.max(0.05, Math.min(rawZoom, maxSearchZoom)));
 
-      const targetPanX = viewportSize.width / 2 - nodesCenterX * targetZoom + canvasSize.offsetX * targetZoom;
-      const targetPanY = viewportSize.height / 2 - nodesCenterY * targetZoom + canvasSize.offsetY * targetZoom;
+      const targetPanX = (vb.x + vb.width / 2) - nodesCenterX * targetZoom + canvasSize.offsetX * targetZoom;
+      const targetPanY = (vb.y + vb.height / 2) - nodesCenterY * targetZoom + canvasSize.offsetY * targetZoom;
 
       const maxPanX = 0;
       const maxPanY = 0;
@@ -2646,7 +2708,7 @@ function NodeCanvas() {
 
       transform.jumpTo({ x: finalPanX, y: finalPanY }, targetZoom);
     } catch { }
-  }, [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
+  }, [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM, getFramingRegion]);
 
   // Function to move out-of-bounds nodes back into canvas while preserving relative positions
   // Integrated graph layout logic via custom hook
@@ -5877,10 +5939,10 @@ function NodeCanvas() {
       const dims = getNodeDimensions(node, false, null);
       const centerX = node.x + dims.currentWidth / 2;
       const centerY = node.y + dims.currentHeight / 2;
-      // Frame against the usable canvas region (panels/header/typelist excluded) —
-      // the same bounds the edge glow uses — so the node centers in what's actually
-      // visible rather than the full window when panels/typelist are open.
-      const vb = viewportBounds;
+      // Frame against the usable canvas region (panels/header/typelist excluded),
+      // in container coordinates — so the node centers in what's actually visible
+      // rather than the full window when panels/typelist are open.
+      const vb = getFramingRegion();
       const regionCenterX = vb.x + vb.width / 2;
       const regionCenterY = vb.y + vb.height / 2;
       // 0 on wide regions → 1 on narrow regions, interpolated by usable width.
@@ -5916,7 +5978,7 @@ function NodeCanvas() {
       };
       animateCanvasView(finalPan, tz);
     }
-  }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, carouselFocusedNodeScale]);
+  }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, carouselFocusedNodeScale]);
 
   // Frame the orbit when it opens, out to a limit.
   //
@@ -5939,7 +6001,7 @@ function NodeCanvas() {
     }
     if (!orbitFrame || !(orbitFrame.radius > 0)) return;
 
-    const vb = viewportBounds;
+    const vb = getFramingRegion();
     const usable = Math.min(
       vb.width * (1 - 2 * ORBIT_FIT_PADDING),
       vb.height * (1 - 2 * ORBIT_FIT_PADDING)
@@ -5970,7 +6032,7 @@ function NodeCanvas() {
     }, tz);
 
     orbitFitRef.current = { fitted: true, zoom: tz };
-  }, [semanticOrbitActive, orbitFrame, viewportBounds, viewportSize, canvasSize, animateCanvasView, zoomLevelRef, MIN_ZOOM, MAX_ZOOM]);
+  }, [semanticOrbitActive, orbitFrame, getFramingRegion, viewportSize, canvasSize, animateCanvasView, zoomLevelRef, MIN_ZOOM, MAX_ZOOM]);
 
   // Animation states for carousel
   const [carouselAnimationState, setCarouselAnimationState] = useState('hidden'); // 'hidden', 'entering', 'visible', 'exiting'
@@ -6244,10 +6306,10 @@ function NodeCanvas() {
     const centerX = node.x + dims.currentWidth / 2;
     const centerY = node.y + dims.currentHeight / 2;
 
-    // Fit against the usable canvas region (panels/header/typelist excluded) — the
-    // same bounds the edge glow uses — so the expanded node fits and centers within
-    // what's actually visible rather than the full window when panels are open.
-    const vb = viewportBounds;
+    // Fit against the usable canvas region (panels/header/typelist excluded), in
+    // container coordinates — so the expanded node fits and centers within what's
+    // actually visible rather than the full window when panels are open.
+    const vb = getFramingRegion();
     const regionCenterX = vb.x + vb.width / 2;
     const regionCenterY = vb.y + vb.height / 2;
 
@@ -6276,7 +6338,7 @@ function NodeCanvas() {
       y: Math.min(Math.max(targetPanY, minPanY), 0),
     };
     animateCanvasView(finalPan, tz);
-  }, [previewingNodeId, nodes, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM]);
+  }, [previewingNodeId, nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM]);
 
   // When a node is selected (single click), gently frame it on the canvas so the
   // PieMenu buttons and page chevrons have room — the same animated zoom used by the
@@ -6332,7 +6394,7 @@ function NodeCanvas() {
     const centerX = node.x + dims.currentWidth / 2;
     const centerY = node.y + dims.currentHeight / 2;
 
-    const vb = viewportBounds;
+    const vb = getFramingRegion();
     const regionCenterX = vb.x + vb.width / 2;
     const regionCenterY = vb.y + vb.height / 2;
 
@@ -6378,7 +6440,7 @@ function NodeCanvas() {
     if (zoomClose && panClose) return;
 
     animateCanvasView(finalPan, tz);
-  }, [nodes, animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, mobileLandscapeShell]);
+  }, [nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, mobileLandscapeShell]);
 
   // Frame the connection (edge) pie menu the same way focusNodeInView frames a node:
   // fit the menu's own bounds into the usable region. The edge menu is a single row
@@ -6445,7 +6507,7 @@ function NodeCanvas() {
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
 
-    const vb = viewportBounds;
+    const vb = getFramingRegion();
     const regionCenterX = vb.x + vb.width / 2;
     const regionCenterY = vb.y + vb.height / 2;
     const narrowness = Math.max(0, Math.min(1,
@@ -6482,7 +6544,7 @@ function NodeCanvas() {
     if (zoomClose && panClose) return;
 
     animateCanvasView(finalPan, tz);
-  }, [animateCanvasView, viewportSize, viewportBounds, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings]);
+  }, [animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings]);
 
   useEffect(() => {
     const was = prevFocusPieNodeIdRef.current;

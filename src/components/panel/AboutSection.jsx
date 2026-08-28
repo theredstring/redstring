@@ -85,6 +85,17 @@ const useIdentifierDescription = (url) => {
  * page colour already IS #DEDADA, so white is the only direction left that
  * still reads as the same gesture. The selected one keeps a maroon wash so
  * hovering a different option never makes it look like the choice moved.
+ *
+ * On top of the fill, the pie-menu ring and a drop shadow, so the option leaves
+ * the popover under the cursor. The ring is stated as a 1.5px box-shadow rather
+ * than the usual 3px because the option already carries a 1.5px maroon border:
+ * the two read together as one 3px ring, and doing it this way means the ring
+ * appears without the border thickening and shifting the text inside it.
+ *
+ * The scale is 1.02, well under the 1.04 PanelIconButton gives its pills. These
+ * options are full-width rows, so the same proportion would be ~5px of growth
+ * at the sides — enough to collide with the popover's padding and, in the
+ * identifier picker's scrolling list, to clip against the scroll box.
  */
 const PopoverOption = ({ label, blurb, isCurrent, onClick }) => {
   const [isHovered, setIsHovered] = useState(false);
@@ -105,12 +116,14 @@ const PopoverOption = ({ label, blurb, isCurrent, onClick }) => {
         border: '1.5px solid maroon',
         borderRadius: 8,
         padding: '6px 9px',
-        marginBottom: 6,
+        marginBottom: 8,
         cursor: 'pointer',
         color: 'maroon',
         fontFamily: FONT,
         fontSize: '0.8rem',
-        transition: 'background-color 0.15s ease'
+        transform: isHovered ? 'scale(1.02)' : 'scale(1)',
+        boxShadow: isHovered ? '0 0 0 1.5px maroon, 0 4px 12px rgba(0,0,0,0.3)' : 'none',
+        transition: 'background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease'
       }}
     >
       <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontWeight: 'bold' }}>
@@ -228,7 +241,10 @@ const IdentifierPicker = ({ anchor, kind, authority, initialTerm, currentUrl, on
         />
       </div>
 
-      <div className="anchored-popover-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      {/* The 6px of horizontal padding is room for a hovered option's ring and
+          shadow. A scroll box clips on both axes once either one scrolls, so
+          without it the hover would be sliced off flush at the sides. */}
+      <div className="anchored-popover-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 6px' }}>
         {status === 'loading' && <div style={{ opacity: 0.8 }}>Searching {authority}…</div>}
         {status === 'error' && <div style={{ opacity: 0.8 }}>Could not reach {authority}.</div>}
         {status === 'done' && results.length === 0 && (

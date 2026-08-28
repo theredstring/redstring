@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Loader2, X, RotateCcw, ChevronDown, Circle, Compass, BookOpen, Clock, Waypoints } from 'lucide-react';
+import { Search, Loader2, X, RotateCcw, ChevronDown, Circle, Compass, BookOpen, Clock, Waypoints, Trash2 } from 'lucide-react';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
+import { usePanelCardTokens } from '../../shared/PanelCard.jsx';
 import DraggableConceptCard from '../items/DraggableConceptCard.jsx';
 import GhostSemanticNode from '../items/GhostSemanticNode.jsx';
 import ConceptDetailView from './ConceptDetailView.jsx';
@@ -14,9 +15,28 @@ import useGraphStore from '../../../store/graphStore.js';
 import { markPrototypesProtected } from '../../../services/prototypeProtection.js';
 import { generateConceptColor, getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
+import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
+import { HEADER_HEIGHT } from '../../../constants.js';
 import { formatPredicate } from '../../../utils/predicateFormatter.js';
 
 // Left Semantic Discovery View - Concept Discovery Engine
+
+// The Catalog view is sealed off pending a rewrite of how it seeds.
+//
+// Its SPARQL seed matches `?item rdfs:label "Person"@en` — an exact,
+// case-sensitive label match — so it returns homonyms (albums, villages,
+// disambiguation pages) instead of concepts, and can never reach the classes it
+// is after, whose labels are lowercase ("human", "organization"). Worse, both
+// empty-result fallbacks below (STARTER_PACK and generateRandomCatalog) write
+// example.org fixture prototypes into the universe as *protected* nodes, so a
+// failed load permanently dirties All Things and the save file.
+//
+// Everything below is left intact: flip this to true to bring the view back.
+// Nothing else reads the catalog — the Orbit index it feeds
+// (services/orbitLocalIndex.js) is an in-memory Map that is already empty on
+// every page load, and findLocalOrbitCandidates degrades to [] on an empty
+// index, so sealing this changes no other behavior.
+const CATALOG_ENABLED = false;
 
 const STARTER_PACK = [
   {
@@ -113,9 +133,184 @@ const STARTER_PACK = [
   }
 ];
 
+/**
+ * One row of the Quick Search block: a node-coloured pill you click to search
+ * for that node's name, and a note on the right saying where the name came from.
+ *
+ * Hover is PanelIconButton's, whole: the #DEDADA fill, maroon icon and label,
+ * the ring, and the pill's scale, plus the popover's drop shadow so the chip
+ * lifts off the page under the cursor. The node's colour is what the chip
+ * rests as, not what it hovers as — same as every other button in the panel,
+ * which is the point.
+ *
+ * The one departure is that hover fires from the whole row rather than the
+ * pill, because the whole row is the click target, including the "from Panel"
+ * note. Lighting only the pill would leave the rest of the row silently
+ * clickable.
+ */
+const QuickSearchChip = ({ color, label, note, noteColor, onClick, busy, title }) => {
+  const theme = useTheme();
+  const [isHovered, setIsHovered] = useState(false);
+  const textColor = isHovered ? theme.accent.primary : getTextColor(color, theme.darkMode);
+
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        padding: '2px 0',
+        cursor: busy ? 'wait' : 'pointer',
+        userSelect: 'none'
+      }}
+      title={title}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '6px 10px',
+          borderRadius: '12px',
+          background: isHovered ? '#DEDADA' : color,
+          // Timing and scale lifted from PanelIconButton's pill branch so this
+          // grows like every other hoverable thing in the panel.
+          transition: 'transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease',
+          transform: isHovered ? 'scale(1.04)' : 'scale(1)',
+          boxShadow: isHovered
+            ? `0 0 0 3px ${theme.accent.primary}, 0 4px 12px rgba(0,0,0,0.3)`
+            : 'none'
+        }}>
+          <Search size={14} style={{ color: textColor, transition: 'color 0.15s ease' }} />
+          <span style={{
+            color: textColor,
+            transition: 'color 0.15s ease',
+            fontFamily: "'EmOne', sans-serif",
+            fontSize: 12,
+            fontWeight: 'bold',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            maxWidth: 220
+          }}>
+            {label}
+          </span>
+        </div>
+      </div>
+      <div style={{ fontSize: 11, color: noteColor, fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>
+        {note}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * One past search, as a card you click to get its results back.
+ *
+ * The whole card is the click target rather than a "View Results" button inside
+ * it, which is both the pattern the Quick Search chips use and half the height:
+ * a history list is scanned, so every row that spends a line on its own button
+ * is a row you fit fewer of on screen.
+ *
+ * The card itself never animates. Nothing else in the panel lights a whole
+ * container under the cursor — the hover always belongs to a control. So the
+ * query is drawn as an outline pill, the same one the Concepts and Related
+ * toggles use, and hovering anywhere on the card lights THAT. `active` is how
+ * PanelIconButton is told to paint its hover from the outside, so the pill gets
+ * the real thing rather than a copy of it, and the moving part stays the size
+ * of a button.
+ */
+const HistoryItem = ({ item, onOpen, onDelete }) => {
+  const tokens = usePanelCardTokens();
+  const [isHovered, setIsHovered] = useState(false);
+  // The delete button sits inside the card's hover region, so without this the
+  // pill lights up while the cursor is over the X — the card promising to open
+  // the search at the moment you are about to throw it away.
+  const [isOverDelete, setIsOverDelete] = useState(false);
+  const open = () => onOpen(item);
+
+  return (
+    <div
+      onClick={open}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        padding: '10px 12px',
+        marginBottom: '8px',
+        background: tokens.surface,
+        border: `1px solid ${tokens.hairline}`,
+        borderRadius: '8px',
+        cursor: 'pointer',
+        userSelect: 'none'
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minWidth: 0 }}>
+        <PanelIconButton
+          icon={Search}
+          size={14}
+          label={(
+            <span style={{ display: 'block', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {item.query}
+            </span>
+          )}
+          labelFontSize={12}
+          variant="outline"
+          active={isHovered && !isOverDelete}
+          onClick={open}
+          title={`Show the ${item.resultCount} concepts this search found`}
+          style={{ minWidth: 0, maxWidth: '100%' }}
+        />
+        {/* Wrapped because PanelIconButton owns its hover state and exposes no
+            mouse handlers; the wrapper is what the card watches. */}
+        <span
+          style={{ display: 'inline-flex', flexShrink: 0 }}
+          onMouseEnter={() => setIsOverDelete(true)}
+          onMouseLeave={() => setIsOverDelete(false)}
+        >
+          <PanelIconButton
+            icon={X}
+            size={14}
+            onClick={() => onDelete(item.id)}
+            title="Remove from history"
+          />
+        </span>
+      </div>
+      <div style={{
+        fontFamily: "'EmOne', sans-serif",
+        fontSize: '11px',
+        color: tokens.muted,
+        marginTop: '6px'
+      }}>
+        {item.resultCount} concepts · {item.timestamp.toLocaleString()}
+      </div>
+    </div>
+  );
+};
+
 // Left Semantic Discovery View - Concept Discovery Engine
 const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightPanelNodeTab, rightPanelTabs, activeDefinitionNodeId, selectedInstanceIds = new Set(), hydratedNodes = [], onLoadWikidataCatalog }) => {
   const theme = useTheme();
+  // Bottom clearance for the results lists.
+  //
+  // These lists are their own `overflow: auto` boxes inside the panel, so the
+  // last card and the Load More button end flush against whatever the app
+  // paints along the bottom of the panel. Two different things sit there
+  // depending on the TypeList's mode, and exactly one of them at a time:
+  // the TypeList footer bar itself, which Panel.jsx already reserves for on
+  // `.panel-content`; or, when the TypeList is closed, the bottom-left toggle
+  // that reopens it, which nothing reserves for at all. The landscape shell
+  // renders neither. Same value either way, matching Panel.jsx:693 and
+  // LeftAIView.jsx:3077, plus a constant breathing gap the way UniverseManager
+  // does it at :3857 so the last row never touches the reserve.
+  const typeListMode = useGraphStore(state => state.typeListMode);
+  const mobileLandscapeShell = useMobileLandscapeShell();
+  const resultsBottomClearance = 20 + (
+    (typeListMode === 'closed' && !mobileLandscapeShell) ? HEADER_HEIGHT + 10 : 0
+  );
   const [isSearching, setIsSearching] = useState(false);
   const [isFetchingDetails, setIsFetchingDetails] = useState(false);
   const [discoveredConcepts, setDiscoveredConcepts] = useState([]);
@@ -1146,7 +1341,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
               }}>
                 {[
                   { value: 'discover', label: 'Discover', icon: Compass },
-                  { value: 'catalog', label: 'Catalog', icon: BookOpen },
+                  ...(CATALOG_ENABLED ? [{ value: 'catalog', label: 'Catalog', icon: BookOpen }] : []),
                   { value: 'history', label: `History${searchHistory.length ? ` (${searchHistory.length})` : ''}`, icon: Clock }
                 ].map(opt => (
                   <button
@@ -1178,7 +1373,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           </div>
         </div>
 
-        {viewMode === 'catalog' && (
+        {CATALOG_ENABLED && viewMode === 'catalog' && (
           <div
             style={{
               border: '1px solid rgba(38,0,0,0.18)',
@@ -1485,117 +1680,54 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 {/* Enhanced Action Grid - node-style representations */}
                 <div style={{ display: 'grid', gap: '6px', marginBottom: '12px' }}>
                   {contexts.panel && (
-                    <div
+                    <QuickSearchChip
+                      color={contexts.panel.nodeData?.color || theme.accent.primary}
+                      label={contexts.panel.nodeName}
+                      note="from Panel"
+                      noteColor={theme.canvas.textPrimary}
+                      busy={isSearching}
+                      title="Quick search from Panel context"
                       onClick={() => {
                         const query = contexts.panel.nodeName;
                         if (query.trim()) {
                           performSearch(query);
                         }
                       }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        flexWrap: 'wrap',
-                        padding: '2px 0',
-                        cursor: isSearching ? 'wait' : 'pointer',
-                        userSelect: 'none'
-                      }}
-                      title="Quick search from Panel context"
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '6px 10px',
-                          borderRadius: '12px',
-                          background: contexts.panel.nodeData?.color || theme.accent.primary
-                        }}>
-                          <Search size={14} style={{ color: getTextColor(contexts.panel.nodeData?.color || theme.accent.primary, theme.darkMode) }} />
-                          <span style={{ color: getTextColor(contexts.panel.nodeData?.color || theme.accent.primary, theme.darkMode), fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
-                            {contexts.panel.nodeName}
-                          </span>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 11, color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Panel</div>
-                    </div>
+                    />
                   )}
 
                   {contexts.graph && (
-                    <div
+                    <QuickSearchChip
+                      color={contexts.graph.nodeData?.color || '#4B0082'}
+                      label={contexts.graph.nodeName}
+                      note="from Active Web"
+                      noteColor={theme.canvas.textSecondary}
+                      busy={isSearching}
+                      title="Quick search from Graph context"
                       onClick={() => {
                         const query = contexts.graph.nodeName;
                         if (query.trim()) {
                           performSearch(query);
                         }
                       }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        flexWrap: 'wrap',
-                        padding: '2px 0',
-                        cursor: isSearching ? 'wait' : 'pointer',
-                        userSelect: 'none'
-                      }}
-                      title="Quick search from Graph context"
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '6px 10px',
-                          borderRadius: '12px',
-                          background: contexts.graph.nodeData?.color || '#4B0082'
-                        }}>
-                          <Search size={14} style={{ color: getTextColor(contexts.graph.nodeData?.color || '#4B0082', theme.darkMode) }} />
-                          <span style={{ color: getTextColor(contexts.graph.nodeData?.color || '#4B0082', theme.darkMode), fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
-                            {contexts.graph.nodeName}
-                          </span>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 11, color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Active Web</div>
-                    </div>
+                    />
                   )}
 
                   {selectedNode && (
-                    <div
+                    <QuickSearchChip
+                      color={(nodePrototypesMap.get(selectedNode.prototypeId)?.color) || '#228B22'}
+                      label={nodePrototypesMap.get(selectedNode.prototypeId)?.name || 'Selected'}
+                      note="from Selected"
+                      noteColor={theme.canvas.textSecondary}
+                      busy={isSearching}
+                      title="Quick search from Selected"
                       onClick={() => {
                         const nodePrototype = nodePrototypesMap.get(selectedNode.prototypeId);
                         if (nodePrototype?.name) {
                           performSearch(nodePrototype.name);
                         }
                       }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        flexWrap: 'wrap',
-                        padding: '2px 0',
-                        cursor: isSearching ? 'wait' : 'pointer',
-                        userSelect: 'none'
-                      }}
-                      title="Quick search from Selected"
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '6px 10px',
-                          borderRadius: '12px',
-                          background: (nodePrototypesMap.get(selectedNode.prototypeId)?.color) || '#228B22'
-                        }}>
-                          <Search size={14} style={{ color: getTextColor((nodePrototypesMap.get(selectedNode.prototypeId)?.color) || '#228B22', theme.darkMode) }} />
-                          <span style={{ color: getTextColor((nodePrototypesMap.get(selectedNode.prototypeId)?.color) || '#228B22', theme.darkMode), fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
-                            {nodePrototypesMap.get(selectedNode.prototypeId)?.name || 'Selected'}
-                          </span>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 11, color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Selected</div>
-                    </div>
+                    />
                   )}
                 </div>
               </div>
@@ -1642,7 +1774,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   onChange={(e) => setManualQuery(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleManualSearch()}
                   // Says what the current mode will actually do with it.
-                  placeholder={searchMode === 'concepts' ? 'What could this mean?' : 'What connects to this?'}
+                  placeholder={searchMode === 'concepts' ? 'Search Anything' : 'Search Related'}
                   style={{
                     flex: 1,
                     minWidth: 0,
@@ -1672,7 +1804,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
             {/* Concept Results - Regular Search */}
             {discoveredConcepts.length > 0 && !semanticExpansionResults.length && (
-              <div className="discovered-concepts" style={{ flex: 1, overflow: 'auto' }}>
+              <div className="discovered-concepts" style={{ flex: 1, overflow: 'auto', paddingBottom: resultsBottomClearance }}>
                 <div style={{ marginBottom: '12px', fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
                   Discovered Concepts ({discoveredConcepts.length})
                 </div>
@@ -1778,7 +1910,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
             {/* Semantic Expansion Results - Ghost Node Halo */}
             {semanticExpansionResults.length > 0 && expandingNodeId && (
-              <div className="semantic-expansion-halo" style={{ flex: 1, overflow: 'auto' }}>
+              <div className="semantic-expansion-halo" style={{ flex: 1, overflow: 'auto', paddingBottom: resultsBottomClearance }}>
                 <div style={{ marginBottom: '12px', fontSize: '12px', color: '#228B22', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
                   ⭐ Semantic Expansion ({semanticExpansionResults.length} related concepts)
                 </div>
@@ -1870,87 +2002,35 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
 
         {viewMode === 'history' && (
-          <div className="search-history-view" style={{ flex: 1, overflow: 'auto' }}>
+          <div className="search-history-view" style={{ flex: 1, overflow: 'auto', paddingBottom: resultsBottomClearance }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
               <div style={{ fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
                 Discovery History ({searchHistory.length})
               </div>
               {searchHistory.length > 0 && (
-                <button
-                  title="Clear all history"
+                <PanelIconButton
+                  icon={Trash2}
+                  size={15}
                   onClick={handleClearHistory}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: theme.canvas.textSecondary,
-                    width: '24px',
-                    height: '24px',
-                    lineHeight: 1,
-                    cursor: 'pointer',
-                    fontSize: '18px',
-                    outline: 'none',
-                    padding: 0
-                  }}
-                >
-                  ×
-                </button>
+                  title="Clear all history"
+                />
               )}
             </div>
             {searchHistory.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: theme.canvas.textSecondary, fontSize: '11px', fontFamily: "'EmOne', sans-serif" }}>
+              <div style={{ padding: '20px', textAlign: 'center', color: theme.canvas.textSecondary, fontSize: '12px', fontFamily: "'EmOne', sans-serif" }}>
                 No discoveries yet. Open a node and search for related concepts.
               </div>
             ) : (
               searchHistory.map(historyItem => (
-                <div key={historyItem.id} style={{
-                  padding: '8px',
-                  marginBottom: '8px',
-                  background: 'rgba(128,128,128,0.05)',
-                  border: `1px solid ${theme.canvas.border}`,
-                  borderRadius: '6px'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ fontSize: '11px', color: theme.canvas.textPrimary, fontWeight: 'bold' }}>{historyItem.query}</div>
-                    <button
-                      title="Remove from history"
-                      onClick={() => handleDeleteHistoryItem(historyItem.id)}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: theme.canvas.textSecondary,
-                        cursor: 'pointer',
-                        padding: 0,
-                        lineHeight: 1,
-                        fontSize: '20px'
-                      }}
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <div style={{ fontSize: '9px', color: theme.canvas.textSecondary, marginTop: '2px' }}>
-                    {historyItem.timestamp.toLocaleString()} • {historyItem.resultCount} concepts
-                  </div>
-                  <button
-                    onClick={() => {
-                      setDiscoveredConcepts(historyItem.concepts);
-                      setViewMode('discover');
-                    }}
-                    style={{
-                      marginTop: '6px',
-                      padding: '6px 10px',
-                      border: 'none',
-                      borderRadius: '12px',
-                      background: theme.accent.primary,
-                      color: getTextColor(theme.accent.primary, theme.darkMode),
-                      fontSize: '10px',
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      fontFamily: "'EmOne', sans-serif"
-                    }}
-                  >
-                    View Results
-                  </button>
-                </div>
+                <HistoryItem
+                  key={historyItem.id}
+                  item={historyItem}
+                  onDelete={handleDeleteHistoryItem}
+                  onOpen={(item) => {
+                    setDiscoveredConcepts(item.concepts);
+                    setViewMode('discover');
+                  }}
+                />
               ))
             )}
           </div>
