@@ -26,6 +26,92 @@ const getArticleFor = (word) => {
   return ['a', 'e', 'i', 'o', 'u'].includes(firstLetter) ? 'an' : 'a';
 };
 
+/**
+ * The shimmer shown while a panel image is still decoding.
+ *
+ * Same treatment the upload path uses for its placeholder, pulled out so a tab
+ * switch and an upload read as the same "working on it" state.
+ */
+const PanelImageShimmer = () => (
+  <>
+    <style>{`@keyframes panelImgShimmer { 0% { transform: translateY(100%); } 100% { transform: translateY(-100%); } }`}</style>
+    <div style={{
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      height: '60%',
+      background: 'linear-gradient(to top, rgba(255,255,255,0) 0%, rgba(255,255,255,0.55) 50%, rgba(255,255,255,0) 100%)',
+      animation: 'panelImgShimmer 1.2s ease-in-out infinite'
+    }} />
+  </>
+);
+
+/**
+ * A panel image that tracks its own decode state.
+ *
+ * Switching right-panel tabs used to show the PREVIOUS node's image for a beat
+ * before flipping to the new one. Two causes, both handled here:
+ *
+ *  - React reuses one <img> across tabs and only swaps `src`. The browser keeps
+ *    painting the old frame until the new bytes decode, so the wrong image is
+ *    on screen the whole time. Callers mount this with `key={src}`, so a new
+ *    source is a new element with `isLoaded` false — the stale frame is never
+ *    shown at all.
+ *  - Nothing reserved the image's height, so everything below it jumped once
+ *    the new image landed. The aspect ratio is known for uploads and Wikipedia
+ *    thumbnails alike, so the box is sized before the bytes arrive.
+ *
+ * `loading="lazy"` is deliberately absent: it defers the very fetch being
+ * waited on, which lengthened the blank state it was meant to help.
+ *
+ * @param {string} src - Resolved image URL.
+ * @param {string} alt - Alt text (the node's name).
+ * @param {number} [aspectRatio] - height/width, as stored on the prototype.
+ */
+const PanelImage = ({ src, alt, aspectRatio }) => {
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // An image already in the browser cache can be `complete` before React
+  // attaches onLoad, and that load event never fires — without this the
+  // shimmer would sit there forever on a tab you have already visited.
+  const measureRef = (node) => {
+    if (node?.complete && node.naturalWidth > 0) setIsLoaded(true);
+  };
+
+  return (
+    <div style={{
+      width: '100%',
+      overflow: 'hidden',
+      borderRadius: '6px',
+      position: 'relative',
+      // Held only until the image can size the box itself.
+      background: isLoaded ? 'transparent' : '#cfcfcf',
+      aspectRatio: isLoaded ? undefined : (aspectRatio ? `1 / ${aspectRatio}` : '1 / 1')
+    }}>
+      <img
+        ref={measureRef}
+        src={src}
+        alt={alt}
+        decoding="async"
+        // Treat a failed load as settled: a broken image should fall back to
+        // the empty box, not shimmer indefinitely.
+        onLoad={() => setIsLoaded(true)}
+        onError={() => setIsLoaded(true)}
+        style={{
+          display: 'block',
+          width: '100%',
+          height: 'auto',
+          objectFit: 'contain',
+          borderRadius: '6px',
+          opacity: isLoaded ? 1 : 0,
+          transition: 'opacity 0.18s ease'
+        }}
+      />
+      {!isLoaded && <PanelImageShimmer />}
+    </div>
+  );
+};
+
 // Wikipedia enrichment functions
 const searchWikipedia = async (query) => {
   console.log(`[Wikipedia Images] 🔎 searchWikipedia called with query: "${query}"`);
@@ -1657,6 +1743,18 @@ const SharedPanelContent = ({
       {/* Image Section — always visible; shows image or empty state */}
       {(() => {
         const hasImage = !!(nodeData.imageSrc || nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail);
+        const resolvedImageSrc =
+          nodeData.imageSrc ||
+          nodeData.semanticMetadata?.wikipediaOriginalImage ||
+          cachedImage?.thumbnailSrc ||
+          nodeData.semanticMetadata?.wikipediaThumbnail;
+        // Same precedence as the src above: whichever source wins should size
+        // the box, or the reserved space is wrong and the panel still jumps.
+        const resolvedAspectRatio =
+          nodeData.imageAspectRatio ||
+          cachedImage?.imageAspectRatio ||
+          nodeData.semanticMetadata?.imageAspectRatio ||
+          null;
         return (
           <CollapsibleSection
             title={(
@@ -1674,30 +1772,16 @@ const SharedPanelContent = ({
             ) : undefined}
             defaultExpanded={true}
           >
-            {hasImage && (
-              <div style={{
-                width: '100%',
-                overflow: 'hidden',
-                borderRadius: '6px'
-              }}>
-                <img
-                  src={
-                    nodeData.imageSrc ||
-                    nodeData.semanticMetadata?.wikipediaOriginalImage ||
-                    cachedImage?.thumbnailSrc ||
-                    nodeData.semanticMetadata?.wikipediaThumbnail
-                  }
-                  alt={nodeData.name}
-                  loading="lazy"
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    height: 'auto',
-                    objectFit: 'contain',
-                    borderRadius: '6px'
-                  }}
-                />
-              </div>
+            {hasImage && resolvedImageSrc && (
+              // Keyed on the src so a different image is a different element:
+              // see PanelImage for why reusing one <img> shows the outgoing
+              // node's picture until the incoming one decodes.
+              <PanelImage
+                key={resolvedImageSrc}
+                src={resolvedImageSrc}
+                alt={nodeData.name}
+                aspectRatio={resolvedAspectRatio}
+              />
             )}
             {!hasImage && imageLoading && (
               <div style={{
@@ -1708,15 +1792,7 @@ const SharedPanelContent = ({
                 position: 'relative',
                 background: '#cfcfcf'
               }}>
-                <style>{`@keyframes panelImgShimmer { 0% { transform: translateY(100%); } 100% { transform: translateY(-100%); } }`}</style>
-                <div style={{
-                  position: 'absolute',
-                  left: 0,
-                  right: 0,
-                  height: '60%',
-                  background: 'linear-gradient(to top, rgba(255,255,255,0) 0%, rgba(255,255,255,0.55) 50%, rgba(255,255,255,0) 100%)',
-                  animation: 'panelImgShimmer 1.2s ease-in-out infinite'
-                }} />
+                <PanelImageShimmer />
               </div>
             )}
             {!hasImage && !imageLoading && (
