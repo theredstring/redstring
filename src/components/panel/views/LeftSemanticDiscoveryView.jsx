@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Loader2, X, RotateCcw, ChevronDown, Compass, BookOpen, Clock } from 'lucide-react';
+import { Search, Loader2, X, RotateCcw, ChevronDown, Circle, Compass, BookOpen, Clock, Waypoints } from 'lucide-react';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import DraggableConceptCard from '../items/DraggableConceptCard.jsx';
 import GhostSemanticNode from '../items/GhostSemanticNode.jsx';
@@ -1609,81 +1609,62 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
               {/* What the search is FOR. Concepts is the default because it
                   answers the question people actually arrive with — what could
-                  this word mean — and answers it in one round trip. */}
-              <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
-                {[
-                  { mode: 'concepts', label: 'Concepts', hint: 'What this could refer to' },
-                  { mode: 'related', label: 'Related', hint: 'Things connected to it' }
-                ].map(({ mode, label, hint }) => {
-                  const isActive = searchMode === mode;
-                  return (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setSearchMode(mode)}
-                      title={hint}
-                      aria-pressed={isActive}
-                      style={{
-                        padding: '3px 10px',
-                        borderRadius: '20px',
-                        border: `1px solid ${isActive ? theme.canvas.brandText : theme.canvas.border}`,
-                        background: 'transparent',
-                        color: isActive ? theme.canvas.brandText : theme.canvas.textSecondary,
-                        fontSize: '10px',
-                        fontWeight: isActive ? 'bold' : 'normal',
-                        fontFamily: "'EmOne', sans-serif",
-                        cursor: 'pointer',
-                        transition: 'color 0.15s ease, border-color 0.15s ease'
-                      }}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
+                  this word mean — and answers it in one round trip.
+                  `active` on the chosen one borrows the pie-menu lit state, so
+                  selected and hovered read as the same visual language. */}
+              <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
+                <PanelIconButton
+                  icon={Circle}
+                  size={15}
+                  label="Concepts"
+                  labelFontSize={11}
+                  variant="outline"
+                  active={searchMode === 'concepts'}
+                  onClick={() => setSearchMode('concepts')}
+                  title="What this could refer to"
+                />
+                <PanelIconButton
+                  icon={Waypoints}
+                  size={15}
+                  label="Related"
+                  labelFontSize={11}
+                  variant="outline"
+                  active={searchMode === 'related'}
+                  onClick={() => setSearchMode('related')}
+                  title="Things connected to it"
+                />
               </div>
 
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 <input
                   type="text"
                   value={manualQuery}
                   onChange={(e) => setManualQuery(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleManualSearch()}
-                  placeholder="Search semantic web..."
+                  // Says what the current mode will actually do with it.
+                  placeholder={searchMode === 'concepts' ? 'What could this mean?' : 'What connects to this?'}
                   style={{
                     flex: 1,
-                    padding: '6px 8px',
+                    minWidth: 0,
+                    padding: '9px 16px',
                     border: `1px solid ${theme.canvas.border}`,
-                    borderRadius: '4px',
-                    fontSize: '11px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
                     fontFamily: "'EmOne', sans-serif",
-                    background: 'transparent',
-                    color: theme.canvas.textPrimary
-                  }}
-                />
-                <button
-                  onClick={handleManualSearch}
-                  disabled={isSearching || !manualQuery?.trim()}
-                  style={{
-                    padding: '6px 12px',
-                    border: `1px solid ${theme.canvas.border}`,
-                    borderRadius: '4px',
                     background: 'transparent',
                     color: theme.canvas.textPrimary,
-                    fontSize: '11px',
-                    fontFamily: "'EmOne', sans-serif",
-                    cursor: isSearching ? 'wait' : 'pointer',
-                    fontWeight: 'bold',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
+                    boxSizing: 'border-box',
+                    outline: 'none'
                   }}
-                >
-                  {isSearching ? (
-                    <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
-                  ) : (
-                    <Search size={14} />
-                  )}
-                </button>
+                />
+                <PanelIconButton
+                  icon={isSearching ? Loader2 : Search}
+                  size={16}
+                  onClick={handleManualSearch}
+                  disabled={isSearching || !manualQuery?.trim()}
+                  title="Search"
+                  className={isSearching ? 'rs-spin' : ''}
+                />
               </div>
             </div>
 
@@ -1715,36 +1696,18 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
                 {/* Load More Button */}
                 {discoveredConcepts.length >= 10 && canLoadMore && (
-                  <div style={{ marginTop: '12px', textAlign: 'center' }}>
-                    <button
+                  <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center' }}>
+                    <PanelIconButton
+                      icon={isSearching ? Loader2 : ChevronDown}
+                      size={14}
+                      label={isSearching ? 'Loading…' : 'Load More'}
+                      labelPosition="left"
+                      labelFontSize={11}
+                      variant="outline"
                       onClick={handleLoadMore}
                       disabled={isSearching}
-                      style={{
-                        padding: '8px 16px',
-                        border: `1px solid ${theme.canvas.border}`,
-                        borderRadius: '6px',
-                        background: isSearching ? theme.canvas.inactive : 'transparent',
-                        color: theme.canvas.textSecondary,
-                        fontSize: '10px',
-                        cursor: isSearching ? 'wait' : 'pointer',
-                        fontFamily: "'EmOne', sans-serif",
-                        transition: 'all 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isSearching) {
-                          e.target.style.background = theme.canvas.hover;
-                          e.target.style.borderColor = theme.canvas.border;
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isSearching) {
-                          e.target.style.background = 'transparent';
-                          e.target.style.borderColor = theme.canvas.textSecondary;
-                        }
-                      }}
-                    >
-                      {isSearching ? 'Loading...' : 'Load More'}
-                    </button>
+                      className={isSearching ? 'rs-spin' : ''}
+                    />
                   </div>
                 )}
               </div>

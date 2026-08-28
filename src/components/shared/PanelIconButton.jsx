@@ -12,6 +12,17 @@ import { useTheme } from '../../hooks/useTheme.js';
  * button and a pie bubble grow the same way under the cursor.
  */
 const PIE_HOVER_SCALE = 1.1;
+/**
+ * Pills grow less.
+ *
+ * A single proportional scale reads very differently at the two shapes this
+ * button takes. On a ~28px circle, 1.1 is under 3px of growth. On a 110px pill
+ * it is 11px — wider than the gap most callers leave between two of them, so
+ * hovering one made it collide with its neighbour. Keeping the growth roughly
+ * constant in PIXELS rather than in proportion is what makes the two shapes
+ * feel like the same gesture.
+ */
+const PIE_HOVER_SCALE_PILL = 1.04;
 const PIE_HOVER_TRANSITION = '0.15s ease';
 
 /**
@@ -158,7 +169,7 @@ const PanelIconButton = forwardRef(({
     boxShadow: `0 0 0 3px ${hoverStrokeColor}`,
     borderColor: 'transparent',
     color: hoverTextColor || hoverStrokeColor,
-    transform: `scale(${PIE_HOVER_SCALE})`
+    transform: `scale(${isPill ? PIE_HOVER_SCALE_PILL : PIE_HOVER_SCALE})`
   } : {
     transform: 'scale(1)'
   };

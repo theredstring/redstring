@@ -71,6 +71,17 @@ body.rs-fullscreen-landscape {
   }
 }
 
+/*
+ * Spin a PanelIconButton's icon while it's working.
+ *
+ * Targets the svg rather than the button, because the button carries its own
+ * hover transform (the pie-menu scale) and a label that must stay upright —
+ * animating the button would fight the one and rotate the other.
+ */
+.rs-spin svg {
+  animation: spin 1s linear infinite;
+}
+
 /* Main application container using Flexbox */
 .app-container {
   display: flex;
