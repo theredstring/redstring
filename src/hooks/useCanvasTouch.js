@@ -104,9 +104,9 @@ export const useCanvasTouch = ({
     nodeLiftDelay,
     tryToggleConnectionOrbAtPoint,
     trySelectConnectionAtPoint,
-    // Closes the abstraction carousel the way the Back button does, and reports
-    // whether there was one open to close. Idempotent — see NodeCanvas.
-    requestCarouselClose,
+    // Live mirror of abstractionCarouselVisible. While the carousel is open it owns
+    // single-finger touch across the whole viewport — see yieldsToCarousel below.
+    abstractionCarouselVisibleRef,
 }) => {
     // --- Refs moved to hook ---
     const lastTouchRef = useRef({ x: 0, y: 0 });
@@ -296,6 +296,34 @@ export const useCanvasTouch = ({
         return false;
     };
 
+    // While the abstraction carousel is open it owns single-finger touch over the
+    // whole viewport, the same way it already owns the wheel.
+    //
+    // The carousel's own listeners are on `document`. React 18 delegates at #root,
+    // and SyntheticEvent.stopPropagation() calls the native one — so the
+    // preventDefault/stopPropagation the canvas handlers below do would kill the
+    // event at #root and it would never reach those listeners. That left the
+    // carousel receiving touches ONLY when the finger happened to land on one of
+    // its own node <g> elements (which fail isCanvasSurfaceTarget, so the canvas
+    // returns before stopping propagation) — a drag surface one node tall.
+    //
+    // handleWheel gets this right by accident of ordering: NodeCanvas's carousel
+    // bail-out sits BEFORE its stopPropagation, so wheel events keep bubbling to
+    // the document. This is the touch equivalent, and it must likewise be checked
+    // before any preventDefault/stopPropagation.
+    //
+    // Nothing is lost by yielding: handleMouseDown already refuses to pan while the
+    // carousel is open, so the canvas was suppressing the input and then discarding
+    // it. Two-or-more fingers stay with the canvas so pinch-to-zoom keeps working,
+    // and an in-flight pinch keeps its own 2→1→0 teardown rather than being
+    // orphaned mid-gesture.
+    const yieldsToCarousel = (e) => {
+        if (!abstractionCarouselVisibleRef?.current) return false;
+        if (pinchRef.current?.active) return false;
+        const touchCount = e.touches?.length ?? 0;
+        return touchCount <= 1;
+    };
+
     const normalizeTouchEvent = (e) => {
         // For touch end events, changedTouches has the final position where finger lifted
         const t = e.touches?.[0] || e.changedTouches?.[0];
@@ -313,6 +341,9 @@ export const useCanvasTouch = ({
     // --- Handlers ---
 
     const handleTouchStartCanvas = (e) => {
+        // Must precede the preventDefault/stopPropagation below — see yieldsToCarousel.
+        if (yieldsToCarousel(e)) return;
+
         // Don't intercept touches on UI overlays (panels, modals, buttons)
         if (!isCanvasSurfaceTarget(e.target)) return;
 
@@ -463,6 +494,11 @@ export const useCanvasTouch = ({
     };
 
     const handleTouchMoveCanvas = (e) => {
+        // See yieldsToCarousel. Bail before the dedup tag too — tagging a move the
+        // canvas isn't handling would make the tag meaningless if a later gesture
+        // (a pinch starting mid-carousel) did want it.
+        if (yieldsToCarousel(e)) return;
+
         // Every canvas touchmove arrives twice: React onTouchMove AND the
         // document moveListener attached in handleTouchStartCanvas. Without
         // dedup the entire move pipeline (pinch math, setPanAndZoom, velocity
@@ -628,6 +664,13 @@ export const useCanvasTouch = ({
         // Don't intercept touches on UI overlays (panels, modals, buttons)
         // But always process if a canvas gesture (pan/pinch/drag) is active
         const hasActiveGesture = isMouseDown.current || pinchRef.current.active || touchState.current.isDragging;
+
+        // See yieldsToCarousel. Gated on hasActiveGesture so a gesture that began
+        // before the carousel opened still tears down through the canvas — the
+        // carousel's touchstart guard means its own gestures never set these flags,
+        // so this only ever catches a genuinely in-flight canvas gesture.
+        if (!hasActiveGesture && yieldsToCarousel(e)) return;
+
         if (!hasActiveGesture && !isCanvasSurfaceTarget(e.target)) return;
 
         if (e && e.cancelable) {
@@ -770,27 +813,10 @@ export const useCanvasTouch = ({
             touchMultiPanRef.current = false;
             return;
         }
-        // A tap anywhere on the canvas while the abstraction carousel is open
-        // closes the carousel, and does nothing else.
-        //
-        // This is the touch half of the carousel's own click-away, which is a
-        // document `mousedown` listener and so never fires here: both
-        // touchstart and touchend call preventDefault(), which suppresses the
-        // compatibility mouse events. Without it the tap ran the ordinary
-        // tap-off path below, and clearing the selection / nulling
-        // selectedNodeIdForPieMenu while the carousel is up unmounts the pie
-        // menu before its exit animation — so the carousel-exit chain that
-        // hangs off it never runs and the carousel is stuck over a hidden node.
-        //
-        // Returns before the selection and plus-sign work because the mouse
-        // path effectively does too: closing raises justCompletedCarouselExit,
-        // which is what makes handleCanvasClick skip its own deselect on the
-        // click that follows a mouse click-away.
-        if (isTap && requestCarouselClose?.()) {
-            if (ignoreCanvasClick) ignoreCanvasClick.current = true;
-            touchMultiPanRef.current = false;
-            return;
-        }
+        // NOTE: tap-to-close-the-carousel used to live here. It now belongs to the
+        // carousel's own touch state machine, which is the only place that can tell
+        // a tap from a drag release — and, since yieldsToCarousel hands it every
+        // single-finger touch, the only place that still sees them.
 
         // If an edge / node / UI element handled this tap, it raised
         // ignoreCanvasClick.current to claim the tap. Bail before touching

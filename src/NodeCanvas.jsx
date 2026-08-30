@@ -5939,6 +5939,11 @@ function NodeCanvas() {
   const CAROUSEL_ZOOM_WIDTH_WIDE = 1200;   // px: at/above this, use WIDE
   const CAROUSEL_ZOOM_WIDTH_NARROW = 480;  // px: at/below this, use NARROW
   const CAROUSEL_VERTICAL_BIAS = 0.10; // fraction of viewport height to nudge the node above center
+  // Screen px reserved above and below the focused node for the "More Specific" /
+  // "Less Specific" hints. Those are drawn at a FIXED size (30px text, 40px chevron,
+  // 60px margin off the node box — see AbstractionCarousel's hint block), so the
+  // allowance is in screen px and is NOT scaled into canvas units.
+  const CAROUSEL_HINT_BAND = 140;
   const prevCarouselVisibleRef = useRef(false);
   const carouselViewAnimRef = useRef(null);
   // Live ref mirror so closures (gesture handlers) can read the current value.
@@ -6012,10 +6017,28 @@ function NodeCanvas() {
       // Fraction of the usable region half-width the cluster should occupy (fuller on narrow).
       const fillFrac = CAROUSEL_FILL_WIDE + (CAROUSEL_FILL_NARROW - CAROUSEL_FILL_WIDE) * narrowness;
       const referenceZoom = (vb.width * 0.5 * fillFrac) / clusterHalfReach;
-      const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
       // Frame the node slightly above the region's vertical center so the carousel
       // stack (and the control panel below it) has room to breathe.
       const verticalBias = vb.height * CAROUSEL_VERTICAL_BIAS;
+      // Vertical fit. The derivation above knows only the node's WIDTH, and an image
+      // node grows in height ALONE — getNodeDimensions gives it a fixed
+      // EXPANDED_NODE_WIDTH and then adds imageWidth * aspect (up to
+      // IMAGE_MAX_ASPECT = 2.0) to its height, so a portrait image node is ~8.5x the
+      // height of a text node at the same width-derived zoom. Framed horizontally it
+      // overflowed the region vertically and took the More/Less Specific hints
+      // off-screen with it.
+      //
+      // Sized to the focused node alone, not its neighbours: a chain of portrait
+      // image nodes puts ~1150 canvas units between adjacent centres, so demanding a
+      // neighbour fit would drive the zoom to ~0.09 and render the focused node
+      // barely 100px tall. The stack is built to overlap and fade (LEVEL_SPACING is
+      // negative), so neighbours peeking in is the intended read.
+      //
+      // verticalBias pushes the node up, so the TOP half is the binding one.
+      const availableHalfHeight = Math.max(1, vb.height * 0.5 - verticalBias - CAROUSEL_HINT_BAND);
+      const nodeHalfHeight = Math.max(1, (dims.currentHeight * focusScale) / 2);
+      const verticalZoom = availableHalfHeight / nodeHalfHeight;
+      const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(referenceZoom, verticalZoom)));
       const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
       const targetPanY = (regionCenterY - verticalBias) - (centerY - canvasSize.offsetY) * tz;
       const minPanX = viewportSize.width - canvasSize.width * tz;
@@ -6157,22 +6180,24 @@ function NodeCanvas() {
     setIsTransitioningPieMenu(true);
   }, []);
 
-  // Touch's way in to the same exit.
+  // Touch's way in to the same exit, handed to the carousel as onRequestClose.
   //
   // The carousel dismisses itself on a click outside — but it listens for
-  // `mousedown`, and the canvas calls preventDefault() on both touchstart and
-  // touchend, which suppresses the compatibility mouse events entirely. So on a
-  // touch device that listener never fires, and the tap fell through to the
-  // canvas's own tap handling, which cleared the selection and nulled
-  // selectedNodeIdForPieMenu — the exact thing onCarouselClose documents above
-  // as fatal. The pie menu unmounted before it could animate out, so
-  // onExitAnimationComplete never ran: the carousel stayed up over a node the
-  // canvas was already hiding, with the pie menu permanently disabled. That is
-  // the frozen node.
+  // `mousedown`, and its own touchstart calls preventDefault(), which suppresses
+  // the compatibility mouse events entirely. So on a touch device that listener
+  // never fires; the carousel's touch state machine resolves the tap itself and
+  // calls this instead.
   //
-  // Idempotent because handleTouchEndCanvas runs twice per touchend (React
-  // onTouchEnd plus the document listener attached on touchstart), and a second
-  // request part-way through the exit would restart the transition.
+  // It can't simply call onCarouselClose. That routes the exit through the pie
+  // menu's shrink animation, and when no pie menu is up there is nothing to
+  // animate — so the exit chain hanging off it never runs and the carousel stays
+  // up for good, over a node the canvas is already hiding, with the pie menu
+  // permanently disabled. That is the frozen node. The mouse is covered by
+  // handleCanvasClick's own defensive branch; touch has no equivalent, which is
+  // what the no-pie-menu teardown below is for.
+  //
+  // Idempotent because a second request part-way through the exit would restart
+  // the transition.
   const carouselCloseRequestedRef = useRef(false);
   useEffect(() => {
     if (!abstractionCarouselVisible) carouselCloseRequestedRef.current = false;
@@ -9952,7 +9977,7 @@ function NodeCanvas() {
     nodeLiftDelay,
     tryToggleConnectionOrbAtPoint,
     trySelectConnectionAtPoint,
-    requestCarouselClose,
+    abstractionCarouselVisibleRef,
   });
 
   // Prevent native long-press context menu on touch devices (iOS/Android)
@@ -18010,6 +18035,7 @@ function NodeCanvas() {
             animationState={carouselAnimationState}
             onAnimationStateChange={onCarouselAnimationStateChange}
             onClose={onCarouselClose}
+            onRequestClose={requestCarouselClose}
             onReplaceNode={onCarouselReplaceNode}
             onScaleChange={setCarouselFocusedNodeScale}
             onFocusedNodeDimensions={setCarouselFocusedNodeDimensions}

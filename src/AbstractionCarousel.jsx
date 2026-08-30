@@ -20,6 +20,11 @@ import './AbstractionCarousel.css';
 
 const LEVEL_SPACING = -30; // Overlapping spacing to create a stacked effect
 const PHYSICS_DAMPING = 0.75; // Much lower damping for less friction/stickiness
+// A flick is ONE impulse, where a wheel is a stream of them. At 0.75 per 60fps frame
+// velocity is 99% gone in ~16 frames (~0.27s) — which reads as responsive when fresh
+// impulses keep arriving, and as "the flick did nothing" when they don't. Touch gets
+// its own decay so a released flick actually coasts (~1s) before the snap takes over.
+const PHYSICS_DAMPING_TOUCH = 0.94;
 const BASE_SCROLL_SENSITIVITY = 0.0003; // Reduced from 0.0008 for less sensitive quick scrolls
 const PRECISION_SCROLL_SENSITIVITY = 0.0008; // Increased from 0.0010 for better slow start gain
 const SNAP_THRESHOLD = 0.25; // Higher threshold to prevent premature snapping
@@ -33,8 +38,8 @@ const CONTINUOUS_SCROLL_THRESHOLD = 0.12; // Lowered threshold to detect continu
 const physicsReducer = (state, action) => {
   switch (action.type) {
     case 'UPDATE_PHYSICS': {
-      const { frameMultiplier } = action.payload;
-      const dampedVelocity = state.velocity * Math.pow(PHYSICS_DAMPING, frameMultiplier);
+      const { frameMultiplier, damping = PHYSICS_DAMPING } = action.payload;
+      const dampedVelocity = state.velocity * Math.pow(damping, frameMultiplier);
 
       let nextVelocity = dampedVelocity;
       let nextPosition = state.realPosition;
@@ -184,6 +189,10 @@ const AbstractionCarousel = ({
   onAnimationStateChange,
   onExitAnimationComplete,
   onClose,
+  // Idempotent close that also handles the no-pie-menu case (NodeCanvas's
+  // requestCarouselClose). The touch tap path uses it because, unlike the mouse
+  // click-away, there is no handleCanvasClick defensive branch behind it.
+  onRequestClose,
   onReplaceNode,
   onScaleChange, // New callback to report the focused node's current scale
   onFocusedNodeDimensions, // New callback to report the focused node's dimensions
@@ -458,6 +467,15 @@ const AbstractionCarousel = ({
   // travels past, the same as scrolling there by hand.
   const detentRef = useRef(createDetentTrack('carouselDetent', 1));
 
+  // Which input last moved the carousel, so the physics loop can pick the matching
+  // decay. 'wheel' | 'touch' — see PHYSICS_DAMPING_TOUCH.
+  const lastInputRef = useRef('wheel');
+
+  const requestClose = useCallback(() => {
+    if (onRequestClose) onRequestClose();
+    else onClose?.();
+  }, [onRequestClose, onClose]);
+
   // Every physics action must go through here, never useReducer's dispatch
   // directly. updatePhysics (the rAF loop body) dispatches an action, then
   // synchronously reads physicsStateRef.current to decide whether to keep
@@ -708,7 +726,8 @@ const AbstractionCarousel = ({
       payload: {
         frameMultiplier,
         minLevel: physicsMinLevel,
-        maxLevel: physicsMaxLevel
+        maxLevel: physicsMaxLevel,
+        damping: lastInputRef.current === 'touch' ? PHYSICS_DAMPING_TOUCH : PHYSICS_DAMPING
       }
     });
 
@@ -816,6 +835,8 @@ const AbstractionCarousel = ({
 
     if (!isVisible) return;
 
+    lastInputRef.current = 'wheel';
+
     // Mark that user has started scrolling
     runPhysicsAction({ type: 'SET_USER_SCROLLED', payload: true });
     // Dismiss hints on first scroll with fade-out
@@ -890,177 +911,8 @@ const AbstractionCarousel = ({
     }
   }, [isVisible]); // Removed handleWheel from dependencies to prevent infinite loop
 
-  // Touch support: drag to scroll, flick for momentum, tap still synthesizes click
-  const TOUCH_DRAG_THRESHOLD = 8; // px before a touch is treated as a drag
-  const touchStateRef = useRef({
-    identifier: null,
-    startY: 0,
-    startTime: 0,
-    lastY: 0,
-    lastTime: 0,
-    velocity: 0,
-    isDragging: false
-  });
-
-  const handleTouchStart = useCallback((e) => {
-    if (!isVisible) return;
-    // These listeners live on the document, so they also see touches that
-    // belong to overlays rendered above the carousel — the Add-Above/Add-Below
-    // UnifiedSelector in particular. Claiming those would drag the carousel
-    // underneath the dialog and, worse, handleTouchMove's preventDefault would
-    // kill native scrolling inside the dialog's own node grid. The wheel path
-    // is already immune because UnifiedSelector stops wheel propagation before
-    // it reaches the document; touch has no such guard, so filter here.
-    if (e.target?.closest?.('.unified-selector-overlay')) {
-      touchStateRef.current.identifier = null;
-      touchStateRef.current.isDragging = false;
-      return;
-    }
-    if (e.touches.length !== 1) {
-      // Cancel any in-progress touch tracking for multi-touch
-      touchStateRef.current.identifier = null;
-      touchStateRef.current.isDragging = false;
-      return;
-    }
-    const touch = e.touches[0];
-    // Stop physics so the drag starts from rest
-    runPhysicsAction({ type: 'SET_VELOCITY', payload: 0 });
-    runPhysicsAction({ type: 'INTERRUPT_SNAPPING' });
-    touchStateRef.current = {
-      identifier: touch.identifier,
-      startY: touch.clientY,
-      startTime: performance.now(),
-      lastY: touch.clientY,
-      lastTime: performance.now(),
-      velocity: 0,
-      isDragging: false
-    };
-  }, [isVisible]);
-
-  const handleTouchMove = useCallback((e) => {
-    if (!isVisible) return;
-    const ts = touchStateRef.current;
-    if (ts.identifier === null) return;
-
-    let touch = null;
-    for (let i = 0; i < e.touches.length; i++) {
-      if (e.touches[i].identifier === ts.identifier) {
-        touch = e.touches[i];
-        break;
-      }
-    }
-    if (!touch) return;
-
-    const currentY = touch.clientY;
-    const currentTime = performance.now();
-    const deltaY = currentY - ts.lastY;
-    const deltaTime = currentTime - ts.lastTime;
-
-    if (!ts.isDragging) {
-      const totalDistance = Math.abs(currentY - ts.startY);
-      if (totalDistance <= TOUCH_DRAG_THRESHOLD) return; // still might be a tap
-      ts.isDragging = true;
-      runPhysicsAction({ type: 'SET_USER_SCROLLED', payload: true });
-      if (!hintsDismissed) {
-        setHintsDismissed(true);
-        setHintOpacity(0);
-      }
-    }
-
-    // Block page scroll while dragging the carousel
-    if (e.cancelable) e.preventDefault();
-
-    // Drag finger up to reveal nodes below (higher level index) — opposite of wheel deltaY sign convention
-    // TOUCH_SENSITIVITY > 1 means MORE finger travel per level (less sensitive).
-    const TOUCH_SENSITIVITY = 5;
-    const pixelsPerLevel = (NODE_HEIGHT * 1.4 * nodeScaleGlobal + LEVEL_SPACING) * zoomLevel * TOUCH_SENSITIVITY;
-    const safePixels = Math.max(Math.abs(pixelsPerLevel), 1) * Math.sign(pixelsPerLevel || 1);
-    const levelDelta = -deltaY / safePixels;
-
-    runPhysicsAction({
-      type: 'MOVE_BY',
-      payload: { delta: levelDelta, minLevel: physicsMinLevel, maxLevel: physicsMaxLevel }
-    });
-
-    // Track velocity in physics units (levels per 1/60s) for momentum on release
-    if (deltaTime > 0) {
-      const instantVelocity = levelDelta / (deltaTime / 1000) / 60;
-      ts.velocity = 0.6 * instantVelocity + 0.4 * ts.velocity;
-    }
-
-    ts.lastY = currentY;
-    ts.lastTime = currentTime;
-
-    // Kick the physics loop so onFocusedNode* callbacks fire as the user drags
-    if (!animationFrameRef.current) {
-      lastFrameTimeRef.current = performance.now();
-      animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
-    }
-  }, [isVisible, zoomLevel, physicsMinLevel, physicsMaxLevel, hintsDismissed]);
-
-  const handleTouchEnd = useCallback((e) => {
-    const ts = touchStateRef.current;
-    if (ts.identifier === null) return;
-
-    // Make sure our tracked touch actually ended
-    let stillActive = false;
-    for (let i = 0; i < e.touches.length; i++) {
-      if (e.touches[i].identifier === ts.identifier) {
-        stillActive = true;
-        break;
-      }
-    }
-    if (stillActive) return;
-
-    const wasDragging = ts.isDragging;
-    const releaseVelocity = ts.velocity;
-    ts.identifier = null;
-    ts.isDragging = false;
-    ts.velocity = 0;
-
-    if (!wasDragging) return; // tap — let the synthesized click reach handleNodeClick
-
-    // Stale flicks shouldn't apply: ignore velocity if the last move was long ago
-    const sinceLast = performance.now() - ts.lastTime;
-    const usableVelocity = sinceLast < 80 ? releaseVelocity : 0;
-    const clamped = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, usableVelocity));
-    runPhysicsAction({
-      type: 'SET_VELOCITY_WITH_HISTORY',
-      payload: { velocity: clamped, deltaY: 0 }
-    });
-
-    if (!animationFrameRef.current) {
-      lastFrameTimeRef.current = performance.now();
-      animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
-    }
-  }, []);
-
-  // Stable proxies so the global listeners don't have to rebind on every state change
-  const touchStartRef = useRef(handleTouchStart);
-  const touchMoveRef = useRef(handleTouchMove);
-  const touchEndRef = useRef(handleTouchEnd);
-  useEffect(() => { touchStartRef.current = handleTouchStart; }, [handleTouchStart]);
-  useEffect(() => { touchMoveRef.current = handleTouchMove; }, [handleTouchMove]);
-  useEffect(() => { touchEndRef.current = handleTouchEnd; }, [handleTouchEnd]);
-
-  useEffect(() => {
-    if (!isVisible) return;
-    const onStart = (e) => touchStartRef.current?.(e);
-    const onMove = (e) => touchMoveRef.current?.(e);
-    const onEnd = (e) => touchEndRef.current?.(e);
-    document.addEventListener('touchstart', onStart, { passive: false });
-    document.addEventListener('touchmove', onMove, { passive: false });
-    document.addEventListener('touchend', onEnd, { passive: false });
-    document.addEventListener('touchcancel', onEnd, { passive: false });
-    return () => {
-      document.removeEventListener('touchstart', onStart);
-      document.removeEventListener('touchmove', onMove);
-      document.removeEventListener('touchend', onEnd);
-      document.removeEventListener('touchcancel', onEnd);
-    };
-  }, [isVisible]);
-
-  // Handle clicks on abstraction nodes
+  // Handle clicks on abstraction nodes. Shared by the mouse (<g onClick>) and the
+  // touch tap path in handleTouchEnd, so both resolve a tap identically.
   const handleNodeClick = useCallback((item) => {
     if (!isVisible) return;
 
@@ -1092,6 +944,266 @@ const AbstractionCarousel = ({
     if (!isVisible) return;
     onOpenNodeInPanel && onOpenNodeInPanel(item);
   }, [isVisible, onOpenNodeInPanel]);
+
+  // Touch support: drag to scroll, flick for momentum, tap to focus / close.
+  //
+  // The canvas yields every single-finger touch to these document listeners while
+  // the carousel is open (useCanvasTouch's yieldsToCarousel), so this is the whole
+  // touch model — it has to resolve taps itself, not lean on synthesized clicks.
+  const TOUCH_DRAG_THRESHOLD = 8; // px before a touch is treated as a drag
+  // Matches the canvas's NODE_DOUBLE_TAP_MS rather than adding a fifth interval.
+  const TOUCH_DOUBLE_TAP_MS = 250;
+  // Overlays that sit ON the canvas but own their own touch handling. Claiming one of
+  // these would drag the carousel underneath the dialog AND — because a claimed
+  // gesture calls preventDefault — kill both native scrolling inside it and the
+  // synthesized clicks its buttons rely on. The wheel path is already immune because
+  // UnifiedSelector stops wheel propagation before it reaches the document.
+  const TOUCH_EXCLUDE_SELECTOR = '.unified-selector-overlay, .pie-menu, .abstraction-control-panel, .unified-bottom-panel';
+  const touchStateRef = useRef({
+    identifier: null,
+    startX: 0,
+    startY: 0,
+    startTime: 0,
+    lastY: 0,
+    lastTime: 0,
+    velocity: 0,
+    isDragging: false
+  });
+  // Last tap's timestamp + level, for double-tap-to-open-in-panel.
+  const lastTapRef = useRef({ level: null, ts: 0 });
+
+  // Only touches on the canvas SURFACE (or on the carousel's own nodes) belong to the
+  // carousel. An allow-list rather than a deny-list, because a claimed gesture calls
+  // preventDefault and that would kill scrolling and synthesized clicks anywhere it
+  // reached by mistake.
+  //
+  // Deliberately NOT `containerRef.current.contains(target)`: the panels, the type
+  // list and the modals are all DOM children of the canvas-area div, just positioned
+  // fixed/absolute over it. This mirrors useCanvasTouch's isCanvasSurfaceTarget —
+  // the container itself, or something inside the canvas <svg> — which is the same
+  // line the canvas draws for its own handlers.
+  const claimsTouch = useCallback((target) => {
+    if (!target?.closest) return false;
+    if (target.closest(TOUCH_EXCLUDE_SELECTOR)) return false;
+    if (carouselRef.current?.contains(target)) return true;
+    const container = containerRef.current;
+    if (!container) return false;
+    if (target === container) return true;
+    const canvasSvg = container.querySelector('svg');
+    return Boolean(canvasSvg && (target === canvasSvg || canvasSvg.contains(target)));
+  }, [containerRef]);
+
+  const handleTouchStart = useCallback((e) => {
+    if (!isVisible) return;
+    if (!claimsTouch(e.target)) {
+      touchStateRef.current.identifier = null;
+      touchStateRef.current.isDragging = false;
+      return;
+    }
+    if (e.touches.length !== 1) {
+      // Cancel any in-progress touch tracking for multi-touch — two fingers are a
+      // canvas pinch, which useCanvasTouch keeps.
+      touchStateRef.current.identifier = null;
+      touchStateRef.current.isDragging = false;
+      return;
+    }
+    const touch = e.touches[0];
+
+    // Claim the gesture. preventDefault here is load-bearing, not hygiene: it
+    // suppresses the compatibility mouse events for the whole sequence. Now that the
+    // canvas no longer preventDefaults on the carousel's behalf, the browser would
+    // otherwise synthesize a mousedown after every touchend — and handleClickAway
+    // below is a document mousedown listener, so every drag release would close the
+    // carousel. Doing it on touchstart is the only deterministic option: the spec
+    // only guarantees suppression from touchstart or the FIRST touchmove, and a drag
+    // isn't recognised until it passes TOUCH_DRAG_THRESHOLD several moves later.
+    //
+    // The cost is that the node <g>'s onClick/onDoubleClick never fire on touch,
+    // which is why handleTouchEnd resolves taps itself.
+    if (e.cancelable) e.preventDefault();
+
+    lastInputRef.current = 'touch';
+    // Stop physics so the drag starts from rest
+    runPhysicsAction({ type: 'SET_VELOCITY', payload: 0 });
+    runPhysicsAction({ type: 'INTERRUPT_SNAPPING' });
+    touchStateRef.current = {
+      identifier: touch.identifier,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      startTime: performance.now(),
+      lastY: touch.clientY,
+      lastTime: performance.now(),
+      velocity: 0,
+      isDragging: false
+    };
+  }, [isVisible, claimsTouch]);
+
+  const handleTouchMove = useCallback((e) => {
+    if (!isVisible) return;
+    const ts = touchStateRef.current;
+    if (ts.identifier === null) return;
+
+    let touch = null;
+    for (let i = 0; i < e.touches.length; i++) {
+      if (e.touches[i].identifier === ts.identifier) {
+        touch = e.touches[i];
+        break;
+      }
+    }
+    if (!touch) return;
+
+    const currentY = touch.clientY;
+    const currentTime = performance.now();
+    const deltaY = currentY - ts.lastY;
+    const deltaTime = currentTime - ts.lastTime;
+
+    if (!ts.isDragging) {
+      const totalDistance = Math.abs(currentY - ts.startY);
+      if (totalDistance <= TOUCH_DRAG_THRESHOLD) return; // still might be a tap
+      ts.isDragging = true;
+      // A drag is never a tap, so it can't leave a double-tap half-armed.
+      lastTapRef.current = { level: null, ts: 0 };
+      runPhysicsAction({ type: 'SET_USER_SCROLLED', payload: true });
+      if (!hintsDismissed) {
+        setHintsDismissed(true);
+        setHintOpacity(0);
+      }
+    }
+
+    // Block page scroll while dragging the carousel
+    if (e.cancelable) e.preventDefault();
+
+    // Drag finger up to reveal nodes below (higher level index) — opposite of wheel deltaY sign convention.
+    //
+    // 1:1 with what's on screen: levelOffsets steps by exactly this amount per level
+    // and getStackOffset multiplies it by zoom, so the stack tracks the finger. This
+    // used to carry a TOUCH_SENSITIVITY = 5 multiplier, which put ~490 * zoom px of
+    // finger travel between adjacent nodes — more than a phone screen for one level,
+    // so no single swipe could reach the neighbour.
+    //
+    // getLiveZoom() rather than the zoomLevel prop, which lags ~150ms behind: a drag
+    // begun during the open-framing animation would otherwise be calibrated against
+    // the pre-animation zoom. Everything else in this component already reads live.
+    const pixelsPerLevel = (NODE_HEIGHT * 1.4 * nodeScaleGlobal + LEVEL_SPACING) * getLiveZoom();
+    const safePixels = Math.max(Math.abs(pixelsPerLevel), 1) * Math.sign(pixelsPerLevel || 1);
+    const levelDelta = -deltaY / safePixels;
+
+    runPhysicsAction({
+      type: 'MOVE_BY',
+      payload: { delta: levelDelta, minLevel: physicsMinLevel, maxLevel: physicsMaxLevel }
+    });
+
+    // Track velocity in physics units (levels per 1/60s) for momentum on release
+    if (deltaTime > 0) {
+      const instantVelocity = levelDelta / (deltaTime / 1000) / 60;
+      ts.velocity = 0.6 * instantVelocity + 0.4 * ts.velocity;
+    }
+
+    ts.lastY = currentY;
+    ts.lastTime = currentTime;
+
+    // Kick the physics loop so onFocusedNode* callbacks fire as the user drags
+    if (!animationFrameRef.current) {
+      lastFrameTimeRef.current = performance.now();
+      animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
+    }
+  }, [isVisible, getLiveZoom, physicsMinLevel, physicsMaxLevel, hintsDismissed]);
+
+  const handleTouchEnd = useCallback((e) => {
+    const ts = touchStateRef.current;
+    if (ts.identifier === null) return;
+
+    // Make sure our tracked touch actually ended
+    let stillActive = false;
+    for (let i = 0; i < e.touches.length; i++) {
+      if (e.touches[i].identifier === ts.identifier) {
+        stillActive = true;
+        break;
+      }
+    }
+    if (stillActive) return;
+
+    const wasDragging = ts.isDragging;
+    const releaseVelocity = ts.velocity;
+    const lastMoveTime = ts.lastTime;
+    ts.identifier = null;
+    ts.isDragging = false;
+    ts.velocity = 0;
+
+    if (!wasDragging) {
+      // A tap. touchstart suppressed the compatibility mouse events, so neither the
+      // node <g>'s onClick nor handleClickAway will fire — resolve it here instead.
+      // The lift position comes from changedTouches; touches[] is empty by now.
+      const lift = e.changedTouches?.[0];
+      const x = lift?.clientX ?? ts.startX;
+      const y = lift?.clientY ?? ts.startY;
+      const hit = document.elementFromPoint(x, y)?.closest?.('[data-carousel-level]');
+
+      if (!hit) {
+        // Tap on empty space closes, mirroring the mouse click-away.
+        lastTapRef.current = { level: null, ts: 0 };
+        requestClose();
+        return;
+      }
+
+      const level = Number(hit.getAttribute('data-carousel-level'));
+      const item = abstractionChainWithDims.find(n => n.level === level);
+      if (!item) return;
+
+      const now = performance.now();
+      const prev = lastTapRef.current;
+      if (prev.level === level && (now - prev.ts) < TOUCH_DOUBLE_TAP_MS) {
+        lastTapRef.current = { level: null, ts: 0 };
+        handleNodeDoubleClick(item);
+      } else {
+        lastTapRef.current = { level, ts: now };
+        handleNodeClick(item);
+      }
+      return;
+    }
+
+    // Stale flicks shouldn't apply: ignore velocity if the last move was long ago.
+    // 120ms rather than 80 — fingers routinely decelerate for a frame or two before
+    // lifting, and the tighter window threw away flicks that clearly meant to throw.
+    // Matches the canvas's own PINCH_ZOOM_STATIONARY_GAP_MS of 110.
+    const sinceLast = performance.now() - lastMoveTime;
+    const usableVelocity = sinceLast < 120 ? releaseVelocity : 0;
+    const clamped = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, usableVelocity));
+    runPhysicsAction({
+      type: 'SET_VELOCITY_WITH_HISTORY',
+      payload: { velocity: clamped, deltaY: 0 }
+    });
+
+    if (!animationFrameRef.current) {
+      lastFrameTimeRef.current = performance.now();
+      animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
+    }
+  }, [abstractionChainWithDims, handleNodeClick, handleNodeDoubleClick, requestClose]);
+
+  // Stable proxies so the global listeners don't have to rebind on every state change
+  const touchStartRef = useRef(handleTouchStart);
+  const touchMoveRef = useRef(handleTouchMove);
+  const touchEndRef = useRef(handleTouchEnd);
+  useEffect(() => { touchStartRef.current = handleTouchStart; }, [handleTouchStart]);
+  useEffect(() => { touchMoveRef.current = handleTouchMove; }, [handleTouchMove]);
+  useEffect(() => { touchEndRef.current = handleTouchEnd; }, [handleTouchEnd]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    const onStart = (e) => touchStartRef.current?.(e);
+    const onMove = (e) => touchMoveRef.current?.(e);
+    const onEnd = (e) => touchEndRef.current?.(e);
+    document.addEventListener('touchstart', onStart, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd, { passive: false });
+    document.addEventListener('touchcancel', onEnd, { passive: false });
+    return () => {
+      document.removeEventListener('touchstart', onStart);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onEnd);
+      document.removeEventListener('touchcancel', onEnd);
+    };
+  }, [isVisible]);
 
   // Handle external requests to move focus up/down one level
   useEffect(() => {
@@ -1206,14 +1318,9 @@ const AbstractionCarousel = ({
       .map(n => n.level);
   }, [abstractionChainWithDims]);
 
-  const chainLevelStats = useMemo(() => {
-    if (!reachableChainLevels.length) return null;
-    return {
-      min: Math.min(...reachableChainLevels),
-      max: Math.max(...reachableChainLevels),
-      count: reachableChainLevels.length
-    };
-  }, [reachableChainLevels]);
+  // The hints only need to know the chain HAS somewhere to scroll to; their
+  // placement is derived from the focused level, not the chain's extremes.
+  const hasReachableLevels = reachableChainLevels.length > 0;
 
   const computeNodeCenterYForLevel = useCallback((level) => {
     const levelOffset = levelOffsets[level] ?? (level * (NODE_HEIGHT * 1.4 * nodeScaleGlobal + LEVEL_SPACING));
@@ -1222,14 +1329,19 @@ const AbstractionCarousel = ({
 
   let topHintPos = null;
   let bottomHintPos = null;
-  if (chainLevelStats) {
+  if (hasReachableLevels) {
+    // Anchored to the FOCUSED node, not the chain's extremes.
+    //
+    // The open-framing zoom (NodeCanvas's CAROUSEL_HINT_BAND) reserves a fixed band
+    // above and below the focused node for these hints, and that is the only band it
+    // can guarantee — a chain of image nodes puts ~1150 canvas units between adjacent
+    // centres, so anchoring even one level out already pushes them off-screen. They
+    // are a directional affordance that fades on the first scroll ("scroll this way
+    // for more specific"), so hugging the focused node reads correctly and is the
+    // only placement that survives a tall node.
     const centerLevel = Math.round(physicsState.realPosition);
-    const topLevel = chainLevelStats.count < 7
-      ? chainLevelStats.min
-      : Math.max(chainLevelStats.min, centerLevel - 3);
-    const bottomLevel = chainLevelStats.count < 7
-      ? chainLevelStats.max
-      : Math.min(chainLevelStats.max, centerLevel + 3);
+    const topLevel = centerLevel;
+    const bottomLevel = centerLevel;
 
     const topItem = abstractionChainWithDims.find(i => i.level === topLevel);
     const bottomItem = abstractionChainWithDims.find(i => i.level === bottomLevel);
@@ -1499,6 +1611,11 @@ const AbstractionCarousel = ({
               return (
                 <g
                   key={item.id}
+                  // How the touch path identifies which node a tap landed on:
+                  // touchstart suppresses compatibility mouse events, so onClick
+                  // below never fires on touch and handleTouchEnd hit-tests with
+                  // document.elementFromPoint() instead.
+                  data-carousel-level={item.level}
                   style={{
                     ...opacityStyle,
                     cursor: 'pointer',

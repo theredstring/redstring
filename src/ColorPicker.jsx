@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Palette, Trash2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Pipette } from 'lucide-react';
 import { useTheme } from './hooks/useTheme.js';
 import useMobileDetection from './hooks/useMobileDetection';
 import { cssColorToHex } from './utils/colorUtils';
+import { sampleColorAt } from './utils/screenColorSample.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 
 const ColorPicker = ({
@@ -156,6 +158,92 @@ const ColorPicker = ({
     }
   };
 
+  // ---- Eyedropper ----------------------------------------------------------
+  // One path on every platform — window.EyeDropper (real screen pixels) exists
+  // only on Chromium desktop, so leaning on it would mean the picker behaving
+  // one way in the desktop app and another in Safari and on iOS. This reads the
+  // document's own paint instead; see utils/screenColorSample.js.
+  const [isPicking, setIsPicking] = useState(false);
+  const [sample, setSample] = useState(null); // { x, y, color, touch }
+  const overlayRef = useRef(null);
+
+  const applySampledColor = useCallback((hex) => {
+    const hsv = hexToHsv(hex);
+    setSelectedHue(hsv.h);
+    setSelectedSaturation(Math.round(hsv.s * 100));
+    setSelectedBrightness(Math.round(hsv.v * 100));
+    setHexInput(hex);
+    onColorChange(hex);
+  }, [hexToHsv, onColorChange]);
+
+  useEffect(() => {
+    if (!isPicking) return;
+
+    const read = (e) => sampleColorAt(e.clientX, e.clientY, [overlayRef.current, pickerRef.current]);
+
+    // Sampling walks the tree under the pointer, so it runs at most once a frame
+    // rather than once per pointermove — a trackpad emits several per frame.
+    let frame = 0;
+    let pending = null;
+    const track = (e) => {
+      pending = { x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', event: e };
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const p = pending;
+        if (p) setSample({ x: p.x, y: p.y, touch: p.touch, color: read(p.event) });
+      });
+    };
+    // Everything between pressing and lifting is swallowed in the capture phase,
+    // before the canvas (or the picker's own click-away) can act on a pointer
+    // that is only here to be sampled.
+    const swallow = (e) => { e.preventDefault(); e.stopPropagation(); };
+    const start = (e) => { swallow(e); track(e); };
+    const commit = (e) => {
+      swallow(e);
+      const hex = read(e);
+      if (hex) applySampledColor(hex);
+      setIsPicking(false);
+      setSample(null);
+    };
+    // Escape leaves picking mode without also closing the picker — you're
+    // backing out of the eyedropper, not out of the colour you were choosing.
+    const onKeyDown = (e) => {
+      if (e.key !== 'Escape') return;
+      swallow(e);
+      setIsPicking(false);
+      setSample(null);
+    };
+
+    window.addEventListener('pointermove', track, true);
+    window.addEventListener('pointerdown', start, true);
+    window.addEventListener('pointerup', commit, true);
+    window.addEventListener('mousedown', swallow, true);
+    window.addEventListener('mouseup', swallow, true);
+    window.addEventListener('click', swallow, true);
+    window.addEventListener('contextmenu', onKeyDown, true);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('pointermove', track, true);
+      window.removeEventListener('pointerdown', start, true);
+      window.removeEventListener('pointerup', commit, true);
+      window.removeEventListener('mousedown', swallow, true);
+      window.removeEventListener('mouseup', swallow, true);
+      window.removeEventListener('click', swallow, true);
+      window.removeEventListener('contextmenu', onKeyDown, true);
+      window.removeEventListener('keydown', onKeyDown, true);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [isPicking, applySampledColor]);
+
+  // A picker that goes away mid-pick leaves no listeners behind.
+  useEffect(() => {
+    if (!isVisible && isPicking) {
+      setIsPicking(false);
+      setSample(null);
+    }
+  }, [isVisible, isPicking]);
+
   // Handle click away
   useEffect(() => {
     const handleClickAway = (e) => {
@@ -168,12 +256,13 @@ const ColorPicker = ({
       }
     };
 
-    if (isVisible) {
+    // While picking, every click outside the picker is a sample, not a dismissal.
+    if (isVisible && !isPicking) {
       // Use 'click' instead of 'mousedown' to avoid conflicts with palette button handlers
       document.addEventListener('click', handleClickAway);
       return () => document.removeEventListener('click', handleClickAway);
     }
-  }, [isVisible, onClose]);
+  }, [isVisible, isPicking, onClose]);
 
   // Handle escape key
   useEffect(() => {
@@ -183,11 +272,13 @@ const ColorPicker = ({
       }
     };
 
-    if (isVisible) {
+    // Escape cancels the eyedropper first (handled above); it only closes the
+    // whole picker once you're out of picking mode.
+    if (isVisible && !isPicking) {
       document.addEventListener('keydown', handleKeyDown);
       return () => document.removeEventListener('keydown', handleKeyDown);
     }
-  }, [isVisible, onClose]);
+  }, [isVisible, isPicking, onClose]);
 
   if (!isVisible) return null;
 
@@ -292,27 +383,65 @@ const ColorPicker = ({
         borderRadius: '8px',
         padding: '16px',
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-        minWidth: '240px'
+        minWidth: '240px',
+        // Stand aside while picking: the panel usually sits right on top of the
+        // Things you want to sample. On the fallback path sampling reads through
+        // it either way (it's in sampleColorAt's ignore list), and on the native
+        // path the loupe is reading real pixels — so the panel genuinely has to
+        // get out of the light.
+        opacity: isPicking ? 0.2 : 1,
+        transition: 'opacity 0.15s ease'
       }}
     >
-      {/* Decorative palette icon */}
-      <PanelIconButton
-        icon={Palette}
-        size={16}
-        title="Color Picker"
-        onClick={(e) => e.stopPropagation()}
-        disabled
-        style={{
-          position: 'absolute',
-          top: '8px',
-          right: '8px',
-          padding: '4px',
-          opacity: 0.6,
-          cursor: 'default'
-        }}
-      />
+      {isPicking && createPortal(
+        <>
+          {/* Capture layer. It keeps the app underneath from reacting to a
+              pointer that is only passing through; the sample itself reads the
+              element stack beneath it (sampleColorAt skips this layer and the
+              picker). The system cursor is hidden because the swatch below IS
+              the cursor. */}
+          <div
+            ref={overlayRef}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 1000001,
+              cursor: 'none',
+              touchAction: 'none',
+              background: 'transparent'
+            }}
+          />
+          {/* The cursor: a square of whatever is under the pointer, nothing else.
+              It sits off the point rather than on it — down-right of a mouse, so
+              the hotspot reads as its top-left corner the way a cursor's does,
+              and up-left of a finger, which would otherwise be covering it. */}
+          {sample && (
+            <div
+              style={{
+                position: 'fixed',
+                left: sample.x,
+                top: sample.y,
+                zIndex: 1000002,
+                pointerEvents: 'none',
+                width: '26px',
+                height: '26px',
+                boxSizing: 'border-box',
+                transform: sample.touch
+                  ? 'translate(calc(-100% - 14px), calc(-100% - 14px))'
+                  : 'translate(12px, 12px)',
+                backgroundColor: sample.color || 'transparent',
+                border: '1px solid #cfcfcf'
+              }}
+            />
+          )}
+        </>,
+        document.body
+      )}
 
-      {/* Color preview */}
+      {/* Header: swatch, title, and the eyedropper. The palette icon that used to
+          float in the corner said nothing the title didn't already say; the
+          eyedropper earns the spot and sits on the header's own baseline
+          instead of over the padding. */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -325,12 +454,35 @@ const ColorPicker = ({
             height: '24px',
             backgroundColor: currentPreviewColor,
             border: `2px solid ${theme.canvas.textPrimary}`,
-            borderRadius: '4px'
+            borderRadius: '4px',
+            flexShrink: 0
           }}
         />
-        <span style={{ color: theme.canvas.textPrimary, fontWeight: 'bold', fontSize: '14px' }}>
+        <span style={{
+          color: theme.canvas.textPrimary,
+          fontWeight: 'bold',
+          fontSize: '14px',
+          marginRight: 'auto'
+        }}>
           Color Your Thing
         </span>
+        {/* Same button the right panel uses everywhere: a bare icon at rest that
+            grows into the pie-bubble fill and ring under the cursor. `active`
+            holds that state while picking, so the button looks pressed with the
+            app's own vocabulary rather than a second one invented here. */}
+        <PanelIconButton
+          icon={Pipette}
+          size={20}
+          active={isPicking}
+          title={isPicking
+            ? 'Picking — click a color, or Esc to cancel'
+            : 'Pick a color from anywhere in Redstring'}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSample(null);
+            setIsPicking(p => !p);
+          }}
+        />
       </div>
 
       {/* Hue slider */}
