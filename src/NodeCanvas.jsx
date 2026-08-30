@@ -6018,7 +6018,9 @@ function NodeCanvas() {
   const CAROUSEL_FILL_NARROW = 0.9;  // mobile: fill nearly the whole half-width
   const CAROUSEL_ZOOM_WIDTH_WIDE = 1200;   // px: at/above this, use WIDE
   const CAROUSEL_ZOOM_WIDTH_NARROW = 480;  // px: at/below this, use NARROW
-  const CAROUSEL_VERTICAL_BIAS = 0.10; // fraction of viewport height to nudge the node above center
+  // No vertical bias here either, for the same reason as focus-on-select below: the 10%
+  // nudge was standing in for the control panel under the stack, and that is measured
+  // now, so the region already stops where the panel starts.
   // Screen px reserved above and below the focused node for the "More Specific" /
   // "Less Specific" hints. Those are drawn at a FIXED size (30px text, 40px chevron,
   // 60px margin off the node box — see AbstractionCarousel's hint block), so the
@@ -6100,11 +6102,6 @@ function NodeCanvas() {
       // Fraction of the usable region half-width the cluster should occupy (fuller on narrow).
       const fillFrac = CAROUSEL_FILL_WIDE + (CAROUSEL_FILL_NARROW - CAROUSEL_FILL_WIDE) * narrowness;
       const referenceZoom = (vb.width * 0.5 * fillFrac) / clusterHalfReach;
-      // Frame the node slightly above the region's vertical center so the carousel
-      // stack has room to breathe. Skipped once the control panel has been reserved
-      // for: leaving room for that panel is half of what this nudge was doing, and
-      // the region now excludes it exactly, so both together lift the node twice.
-      const verticalBias = vb.reservedBottom > 0 ? 0 : vb.height * CAROUSEL_VERTICAL_BIAS;
       // Vertical fit. The derivation above knows only the node's WIDTH, and an image
       // node grows in height ALONE — getNodeDimensions gives it a fixed
       // EXPANDED_NODE_WIDTH and then adds imageWidth * aspect (up to
@@ -6118,14 +6115,12 @@ function NodeCanvas() {
       // neighbour fit would drive the zoom to ~0.09 and render the focused node
       // barely 100px tall. The stack is built to overlap and fade (LEVEL_SPACING is
       // negative), so neighbours peeking in is the intended read.
-      //
-      // verticalBias pushes the node up, so the TOP half is the binding one.
-      const availableHalfHeight = Math.max(1, vb.height * 0.5 - verticalBias - CAROUSEL_HINT_BAND);
+      const availableHalfHeight = Math.max(1, vb.height * 0.5 - CAROUSEL_HINT_BAND);
       const nodeHalfHeight = Math.max(1, (dims.currentHeight * focusScale) / 2);
       const verticalZoom = availableHalfHeight / nodeHalfHeight;
       const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(referenceZoom, verticalZoom)));
       const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
-      const targetPanY = (regionCenterY - verticalBias) - (centerY - canvasSize.offsetY) * tz;
+      const targetPanY = regionCenterY - (centerY - canvasSize.offsetY) * tz;
       const minPanX = viewportSize.width - canvasSize.width * tz;
       const minPanY = viewportSize.height - canvasSize.height * tz;
       const finalPan = {
@@ -6517,23 +6512,18 @@ function NodeCanvas() {
   const FOCUS_FILL_NARROW = 1.1; // mobile
   const FOCUS_WIDTH_WIDE = 1200;  // px: at/above this usable width, use WIDE
   const FOCUS_WIDTH_NARROW = 480; // px: at/below this usable width, use NARROW
-  const FOCUS_VERTICAL_BIAS = 0.1; // fraction of region height to lift the node above center
-                                   // (matches the carousel/decompose framings — a dead-center
-                                   // node + radial menu reads as sitting too low)
-                                   //
-                                   // Dropped to 0 in the fullscreen landscape shell. The lift
-                                   // exists to offset the chrome above the canvas; that shell
-                                   // has no header and no TypeList, so the usable region IS the
-                                   // screen and the same 10% just parks the node high with dead
-                                   // space under it — in the one layout with the least vertical
-                                   // room to spare. See useMobileLandscapeShell.js.
+  // There is deliberately no vertical bias here. A 10% lift used to stand in for the
+  // bottom control panel — the node was nudged up so the panel had somewhere to be —
+  // and that proxy is now measured for real (see getBottomPanelReserve), so the region
+  // this centres in already ends where the panel begins. Keeping the nudge as well put
+  // the node visibly high in the far more common case where NO panel is up and nothing
+  // fills the space it was making. Centre of the visible gap, nothing else.
+  //
   // Vertical fill for the tall-node bound below. Deliberately NOT the 1.1 overfill:
   // that exists to claw back the slack in the 3-ring WIDTH bound, and the vertical
   // bound has no slack to claw back — PieMenu draws its north/south bubbles exactly
   // where that bound says they are.
   const FOCUS_TALL_FILL = 0.95;
-  // Region kept clear above the menu's top edge when applying FOCUS_VERTICAL_BIAS.
-  const FOCUS_BIAS_TOP_MARGIN = 24; // px
   // Skip the animation when the node is already essentially framed, so we don't yank
   // the view on every click — only re-frame when the menu would otherwise be clipped
   // or the node is small/off to the side.
@@ -6605,21 +6595,8 @@ function NodeCanvas() {
     const referenceZoom = Math.min(referenceZoomH, referenceZoomV, tallZoomV);
     const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
 
-    // Lift the node above the region centre — but only into space the framing actually
-    // left over. A tall node's menu can fill nearly the whole region height, and a blind
-    // 10% lift then puts its top back off-screen, re-creating the very clipping the
-    // bound above just fixed; headroom goes to 0 there and the node frames dead-centre
-    // instead. Ordinary nodes clear the margin comfortably and keep the full lift.
-    //
-    // The lift is also skipped outright once the control panel has been reserved for:
-    // making room for the panel is what it was for, and the region now excludes the
-    // panel exactly, so keeping the nudge on top would lift the node twice.
-    const biasHeadroom = Math.max(0, vb.height / 2 - menuHalfHeight * tz - FOCUS_BIAS_TOP_MARGIN);
-    const verticalBias = (mobileLandscapeShell || vb.reservedBottom > 0)
-      ? 0
-      : Math.min(vb.height * FOCUS_VERTICAL_BIAS, biasHeadroom);
     const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
-    const targetPanY = (regionCenterY - verticalBias) - (centerY - canvasSize.offsetY) * tz;
+    const targetPanY = regionCenterY - (centerY - canvasSize.offsetY) * tz;
     const minPanX = viewportSize.width - canvasSize.width * tz;
     const minPanY = viewportSize.height - canvasSize.height * tz;
     const finalPan = {
@@ -6637,7 +6614,7 @@ function NodeCanvas() {
 
     animateCanvasView(finalPan, tz);
     });
-  }, [nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, mobileLandscapeShell, runFramingAfterCommit]);
+  }, [nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, runFramingAfterCommit]);
 
   // Frame the connection (edge) pie menu the same way focusNodeInView frames a node:
   // fit the menu's own bounds into the usable region. The edge menu is one or more
