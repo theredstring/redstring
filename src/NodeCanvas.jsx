@@ -2307,12 +2307,59 @@ function NodeCanvas() {
   // panel would zoom out to nothing chasing a sliver.
   const FRAMING_MIN_REGION_PX = 320;
   const FRAMING_MIN_REGION_FRACTION = 0.45;
+  // Same idea on the vertical axis, for the bottom control panel. No px floor to go with
+  // it: a landscape phone's whole region is shorter than the one above, so a px floor
+  // would switch the reserve off in the layout that needs it most. And unlike the width
+  // rule this one clamps rather than gives up — an unusually tall panel still gets what
+  // room there is, instead of being ignored outright.
+  const FRAMING_MIN_HEIGHT_FRACTION = 0.5;
+
+  // How much of the framing region's bottom the bottom control panel is covering, in px,
+  // or 0 when none is up.
+  //
+  // All four bottom panels (node, connection, abstraction, group) render the same
+  // `.unified-bottom-panel` strip — position:fixed, centred, floating over the canvas.
+  // Framing has to treat it as chrome: a pie menu centred in the full region lands
+  // half-behind it.
+  //
+  // Measured, never assumed. There is no one number to assume — the strip's height
+  // depends on its mode AND its content (a connection's triple preview is taller than a
+  // node's pill, both scale with the node-size settings, and mobile lays the whole thing
+  // out differently), and most of the time no panel is up at all: the single-Thing panel
+  // is off by default (showNodeControlPanel). So this reads whatever is actually on
+  // screen, and reserves nothing when that is nothing.
+  //
+  // Both reads are transform-free on purpose. The panel flies in on a translateY, so
+  // getBoundingClientRect() reports it ~100px low for the 300ms that animation runs —
+  // exactly the window in which framing fires. Computed `bottom` + offsetHeight is where
+  // it will actually sit. #root carries an identity transform (see appViewport.js) and is
+  // therefore the containing block for these fixed panels, so that `bottom` is measured
+  // from the app box — the same space viewportBounds lives in, no safe-area correction.
+  const getBottomPanelReserve = useCallback(() => {
+    if (typeof document === 'undefined') return 0;
+    let band = 0;
+    document.querySelectorAll('.unified-bottom-panel').forEach((el) => {
+      // Mid-exit it is about to stop occluding anything, so it doesn't get to hold space
+      // — otherwise deselecting one Thing and picking another reserves for a panel that
+      // is already flying out.
+      if (el.classList.contains('exiting')) return;
+      const height = el.offsetHeight;
+      if (!height) return;
+      const bottom = parseFloat(window.getComputedStyle(el).bottom) || 0;
+      band = Math.max(band, bottom + height);
+    });
+    if (band <= 0) return 0;
+    // `band` runs up from the bottom of the app box, and the region already stops short
+    // of that by the TypeList bar, so only the remainder actually eats into it.
+    const belowRegion = Math.max(0, getAppViewportSize().height - (viewportBounds.y + viewportBounds.height));
+    return Math.max(0, band - belowRegion);
+  }, [viewportBounds]);
 
   // The rect every framing animation (focus-on-select, the abstraction carousel,
   // decompose, the semantic orbit, search navigation) should aim at, in CONTAINER
   // coordinates — the space panOffset actually lives in.
   //
-  // Two corrections on top of viewportBounds:
+  // Three corrections on top of viewportBounds:
   //
   // 1. Space. viewportBounds is app-box space: its `x` IS the left panel's width
   //    and its `y` IS the header's height. The canvas container is a full-width
@@ -2334,10 +2381,27 @@ function NodeCanvas() {
   //    and the wrong one at 1000px with a 300px panel open — the node ends up
   //    centred behind the panel. So subtract the open overlays here whenever doing
   //    so still leaves a region worth framing into.
-  const getFramingRegion = useCallback(() => {
+  //
+  // 3. The bottom control panel, for callers that ask for it (`reserveBottomPanel`).
+  //    Same occlusion argument as the side panels, one axis down — see
+  //    getBottomPanelReserve. Opt-in because it is only right for the framings whose
+  //    subject the panel is about to sit under; `reservedBottom` on the result reports
+  //    how much was actually taken, so those callers can drop their own hand-tuned
+  //    "lift it a bit so the panel has room" nudge rather than double-compensating.
+  const getFramingRegion = useCallback(({ reserveBottomPanel = false } = {}) => {
     const vb = viewportBounds;
     let x = vb.x;
     let width = vb.width;
+    let height = vb.height;
+    let reservedBottom = 0;
+
+    if (reserveBottomPanel) {
+      const reserve = getBottomPanelReserve();
+      if (reserve > 0) {
+        reservedBottom = Math.min(reserve, height * (1 - FRAMING_MIN_HEIGHT_FRACTION));
+        height -= reservedBottom;
+      }
+    }
 
     if (vb.isExclusiveMode) {
       const openLeft = leftPanelExpanded ? leftPanelWidth : 0;
@@ -2357,8 +2421,24 @@ function NodeCanvas() {
     const containerX = rect ? rect.left - origin.x : 0;
     const containerY = rect ? rect.top - origin.y : vb.y;
 
-    return { ...vb, x: x - containerX, y: vb.y - containerY, width, height: vb.height };
-  }, [viewportBounds, leftPanelExpanded, rightPanelExpanded, leftPanelWidth, rightPanelWidth]);
+    return { ...vb, x: x - containerX, y: vb.y - containerY, width, height, reservedBottom };
+  }, [viewportBounds, leftPanelExpanded, rightPanelExpanded, leftPanelWidth, rightPanelWidth, getBottomPanelReserve]);
+
+  // Framing fires from the same effect flush that switches the bottom control panel on,
+  // so on a fresh selection the panel React is about to mount is not in the DOM yet —
+  // and measuring it is the entire point. One frame puts React's commit in front of the
+  // measurement; the eased animation that follows swallows the 16ms. Any pending frame
+  // is cancelled first, so clicking through Things quickly can't leave two framings
+  // racing each other.
+  const framingFrameRef = useRef(0);
+  const runFramingAfterCommit = useCallback((fn) => {
+    if (typeof requestAnimationFrame !== 'function') { fn(); return; }
+    cancelAnimationFrame(framingFrameRef.current);
+    framingFrameRef.current = requestAnimationFrame(fn);
+  }, []);
+  useEffect(() => () => {
+    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(framingFrameRef.current);
+  }, []);
 
   const mousePositionRef = useRef({ x: 0, y: 0 });
 
@@ -5989,13 +6069,16 @@ function NodeCanvas() {
       // Opening: frame the node.
       const node = abstractionCarouselNode;
       if (!node) return;
+      runFramingAfterCommit(() => {
       const dims = getNodeDimensions(node, false, null);
       const centerX = node.x + dims.currentWidth / 2;
       const centerY = node.y + dims.currentHeight / 2;
       // Frame against the usable canvas region (panels/header/typelist excluded),
       // in container coordinates — so the node centers in what's actually visible
-      // rather than the full window when panels/typelist are open.
-      const vb = getFramingRegion();
+      // rather than the full window when panels/typelist are open. The abstraction
+      // control panel comes up with the carousel (showAbstractionControlPanel, on by
+      // default) and sits right under the stack, so it's excluded too when present.
+      const vb = getFramingRegion({ reserveBottomPanel: true });
       const regionCenterX = vb.x + vb.width / 2;
       const regionCenterY = vb.y + vb.height / 2;
       // 0 on wide regions → 1 on narrow regions, interpolated by usable width.
@@ -6018,8 +6101,10 @@ function NodeCanvas() {
       const fillFrac = CAROUSEL_FILL_WIDE + (CAROUSEL_FILL_NARROW - CAROUSEL_FILL_WIDE) * narrowness;
       const referenceZoom = (vb.width * 0.5 * fillFrac) / clusterHalfReach;
       // Frame the node slightly above the region's vertical center so the carousel
-      // stack (and the control panel below it) has room to breathe.
-      const verticalBias = vb.height * CAROUSEL_VERTICAL_BIAS;
+      // stack has room to breathe. Skipped once the control panel has been reserved
+      // for: leaving room for that panel is half of what this nudge was doing, and
+      // the region now excludes it exactly, so both together lift the node twice.
+      const verticalBias = vb.reservedBottom > 0 ? 0 : vb.height * CAROUSEL_VERTICAL_BIAS;
       // Vertical fit. The derivation above knows only the node's WIDTH, and an image
       // node grows in height ALONE — getNodeDimensions gives it a fixed
       // EXPANDED_NODE_WIDTH and then adds imageWidth * aspect (up to
@@ -6048,8 +6133,9 @@ function NodeCanvas() {
         y: Math.min(Math.max(targetPanY, minPanY), 0),
       };
       animateCanvasView(finalPan, tz);
+      });
     }
-  }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, carouselFocusedNodeScale]);
+  }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, carouselFocusedNodeScale, runFramingAfterCommit]);
 
   // Frame the orbit when it opens, out to a limit.
   //
@@ -6470,11 +6556,15 @@ function NodeCanvas() {
     if (!FOCUS_ON_SELECT_ENABLED || !nodeId) return;
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
+    runFramingAfterCommit(() => {
     const dims = getNodeDimensions(node, false, null);
     const centerX = node.x + dims.currentWidth / 2;
     const centerY = node.y + dims.currentHeight / 2;
 
-    const vb = getFramingRegion();
+    // Aim at the gap above the node control panel when one is up — it sits directly
+    // under the node it belongs to, and the pie menu's south bubbles are what lands
+    // behind it. Nothing is reserved when the panel is off, which is the default.
+    const vb = getFramingRegion({ reserveBottomPanel: true });
     const regionCenterX = vb.x + vb.width / 2;
     const regionCenterY = vb.y + vb.height / 2;
 
@@ -6520,8 +6610,12 @@ function NodeCanvas() {
     // 10% lift then puts its top back off-screen, re-creating the very clipping the
     // bound above just fixed; headroom goes to 0 there and the node frames dead-centre
     // instead. Ordinary nodes clear the margin comfortably and keep the full lift.
+    //
+    // The lift is also skipped outright once the control panel has been reserved for:
+    // making room for the panel is what it was for, and the region now excludes the
+    // panel exactly, so keeping the nudge on top would lift the node twice.
     const biasHeadroom = Math.max(0, vb.height / 2 - menuHalfHeight * tz - FOCUS_BIAS_TOP_MARGIN);
-    const verticalBias = mobileLandscapeShell
+    const verticalBias = (mobileLandscapeShell || vb.reservedBottom > 0)
       ? 0
       : Math.min(vb.height * FOCUS_VERTICAL_BIAS, biasHeadroom);
     const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
@@ -6542,7 +6636,8 @@ function NodeCanvas() {
     if (zoomClose && panClose) return;
 
     animateCanvasView(finalPan, tz);
-  }, [nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, mobileLandscapeShell]);
+    });
+  }, [nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, mobileLandscapeShell, runFramingAfterCommit]);
 
   // Frame the connection (edge) pie menu the same way focusNodeInView frames a node:
   // fit the menu's own bounds into the usable region. The edge menu is one or more
@@ -6558,6 +6653,7 @@ function NodeCanvas() {
   // cost more than FOCUS_EDGE_LABEL_MAX_GROWTH of extra box.
   const focusEdgePieMenuInView = useCallback((anchor, buttonCount, labelRect = null) => {
     if (!FOCUS_ON_SELECT_ENABLED || !anchor || !buttonCount) return;
+    runFramingAfterCommit(() => {
 
     // Framed against the layout PieMenu actually draws (utils/pieMenuLayout.js),
     // rather than a second copy of the geometry here — the row wraps now, and two
@@ -6601,7 +6697,11 @@ function NodeCanvas() {
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
 
-    const vb = getFramingRegion();
+    // Selecting a single connection puts up the connection control panel as well as
+    // this menu (showConnectionControlPanel, on by default), and the panel is wide and
+    // tall enough to swallow a button row framed into the full region — so aim at the
+    // gap above it when it's there.
+    const vb = getFramingRegion({ reserveBottomPanel: true });
     const regionCenterX = vb.x + vb.width / 2;
     const regionCenterY = vb.y + vb.height / 2;
     const narrowness = Math.max(0, Math.min(1,
@@ -6638,7 +6738,8 @@ function NodeCanvas() {
     if (zoomClose && panClose) return;
 
     animateCanvasView(finalPan, tz);
-  }, [animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings]);
+    });
+  }, [animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, runFramingAfterCommit]);
 
   useEffect(() => {
     const was = prevFocusPieNodeIdRef.current;

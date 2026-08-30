@@ -212,6 +212,47 @@ export const searchIdentifiers = async (kind, term, { limit = 6, signal } = {}) 
 const normalizeLabel = (value) => String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /**
+ * The English Wikipedia article each of these Wikidata items is about.
+ *
+ * This one extra call is what makes consolidating results honest. DBpedia
+ * resources are minted from Wikipedia article titles, so those two can be
+ * matched on the title alone — but a Wikidata QID says nothing about which
+ * article it belongs to, and matching Wikidata on its *label* instead is
+ * exactly the mistake worth avoiding: Wikidata's "Symptoms" is a work of art
+ * and Wikipedia's "Symptom" is the medical concept. The sitelink is the
+ * assertion, made by Wikidata itself, that two entries denote one subject.
+ *
+ * Batched (the API takes 50 ids per call) and failure-tolerant: an item with no
+ * answer simply never merges, which is the safe direction to fail in.
+ *
+ * @returns {Promise<Map<string, string>>} QID → article title
+ */
+const enwikiSitelinks = async (qids, { signal } = {}) => {
+  const out = new Map();
+  const unique = Array.from(new Set(qids.filter(id => /^Q\d+$/i.test(id || ''))));
+
+  for (let i = 0; i < unique.length; i += 50) {
+    const batch = unique.slice(i, i + 50);
+    try {
+      const url = `${WIKIDATA_API}?action=wbgetentities&ids=${batch.join('|')}`
+        + '&props=sitelinks&sitefilter=enwiki&format=json&origin=*';
+      const resp = await fetch(url, { signal });
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      for (const [qid, entity] of Object.entries(data?.entities || {})) {
+        const title = entity?.sitelinks?.enwiki?.title;
+        if (title) out.set(qid, title);
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError') throw error;
+      console.warn('[identifierSearch] sitelink lookup failed:', error?.message || error);
+    }
+  }
+
+  return out;
+};
+
+/**
  * Every authority at once, as concepts you could drag onto a canvas.
  *
  * The same primitive as the identifier picker, aimed at discovery instead of at
@@ -223,18 +264,29 @@ const normalizeLabel = (value) => String(value ?? '').toLowerCase().replace(/\s+
  * Virtuoso — with exact-label matches, which is both slower per call and the
  * wrong shape for "what might this word mean".
  *
- * Deliberately does NOT merge hits that share a label. Wikidata's "Symptoms" is
- * a work of art and Wikipedia's is the medical concept; folding them into one
- * card because the words match would hide exactly the distinction a person
- * needs to make. Each hit stays its own concept, carrying its own description,
- * and the description is what tells them apart.
+ * Hits describing the SAME SUBJECT collapse into one concept carrying all three
+ * links. Searching "dog" otherwise returned the Wikidata item, the Wikipedia
+ * article and the DBpedia resource for the same animal as three near-identical
+ * cards, and dragging any one of them in linked the new Thing to only that one
+ * authority. Merged, the card is a subject rather than a search hit, and it
+ * lands with all three identifiers attached at once.
  *
- * Results interleave by rank — every authority's best hit, then every
- * authority's second — so no single source owns the top of the list.
+ * The merge is on identity, never on a matching name — the distinction the
+ * older comment here was defending. Wikipedia and DBpedia join on the article
+ * title, which is what a DBpedia resource IRI is made of; Wikidata joins by its
+ * own enwiki sitelink (see `enwikiSitelinks`). So an item whose sitelink is a
+ * different article, or that has none, stays its own card no matter how well
+ * its label matches — which is what keeps "Symptoms" the artwork apart from
+ * "Symptom" the medical concept.
+ *
+ * Groups order by their best member's rank, so no single source owns the top of
+ * the list, and a subject three authorities agree on rises above one only found
+ * in a single index.
  *
  * @param {string} term
  * @param {{limit?: number, signal?: AbortSignal}} [options]
- * @returns {Promise<Array<object>>} shaped for normalizeToCandidate
+ * @returns {Promise<Array<object>>} shaped for normalizeToCandidate, plus
+ *   `authorities` — the display names of every source folded into the row
  */
 export const searchConcepts = async (term, { limit = 8, signal } = {}) => {
   const query = String(term ?? '').trim();
@@ -248,35 +300,93 @@ export const searchConcepts = async (term, { limit = 8, signal } = {}) => {
   );
   const found = settled.filter(r => r.status === 'fulfilled').map(r => r.value);
 
-  const wanted = normalizeLabel(query);
+  const sitelinks = await enwikiSitelinks(
+    found.flatMap(({ kind, rows }) => (kind === 'wikidata' ? rows.map(row => row.identifier) : [])),
+    { signal }
+  );
+
+  // Bucket every hit under the subject it denotes. `rank` and `authorityRank`
+  // track the best position any member reached, which is what the groups sort
+  // on afterwards.
+  const groups = new Map();
   const seen = new Set();
-  const out = [];
 
-  for (let rank = 0; rank < limit; rank++) {
-    for (const { kind, authority, rows } of found) {
-      const hit = rows[rank];
-      if (!hit) continue;
-      const key = canonicalizeLink(hit.url);
-      if (seen.has(key)) continue;
-      seen.add(key);
+  found.forEach(({ kind, authority, rows }, authorityRank) => {
+    rows.forEach((hit, rank) => {
+      if (!hit?.url) return;
+      const linkKey = canonicalizeLink(hit.url);
+      if (seen.has(linkKey)) return;
+      seen.add(linkKey);
 
-      out.push({
-        id: hit.url,
-        name: hit.label,
-        uri: hit.url,
-        source: kind,
-        authority,
-        description: hit.description,
-        externalLinks: [hit.url],
-        // The authority's own ranking is the real signal here; an exact label
-        // match on top of it is the strongest this layer can honestly claim.
-        sourceTrust: normalizeLabel(hit.label) === wanted ? 0.95 : 0.8,
-        contextFit: Math.max(0.4, 1 - rank * 0.1)
-      });
+      // Wikipedia and DBpedia both carry the article title as their identifier;
+      // Wikidata has to be told. No article means no subject key, so the hit
+      // gets one nothing else can collide with.
+      const article = kind === 'wikidata' ? sitelinks.get(hit.identifier) : hit.identifier;
+      const key = article ? `enwiki:${normalizeLabel(article)}` : `${kind}:${linkKey}`;
+
+      const member = { ...hit, kind, authority };
+      const group = groups.get(key);
+      if (group) {
+        group.members.push(member);
+        group.rank = Math.min(group.rank, rank);
+        group.authorityRank = Math.min(group.authorityRank, authorityRank);
+      } else {
+        groups.set(key, { members: [member], rank, authorityRank });
+      }
+    });
+  });
+
+  const kindOrder = STANDARD_AUTHORITIES.map(a => a.kind);
+  const preferring = (members, kinds, read) => {
+    for (const kind of kinds) {
+      const value = read(members.find(m => m.kind === kind) || {});
+      if (value) return value;
     }
-  }
+    return read(members[0]) || '';
+  };
 
-  return out;
+  const wanted = normalizeLabel(query);
+
+  return Array.from(groups.values())
+    .sort((a, b) => a.rank - b.rank || a.authorityRank - b.authorityRank)
+    .map(({ members, rank }) => {
+      members.sort((a, b) => kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind));
+
+      // Wikipedia's article title is the readable canonical name: Wikidata
+      // labels common nouns in lowercase and DBpedia hands back whatever the
+      // resource is called, underscores and all.
+      const name = preferring(members, ['wikipedia', 'wikidata', 'dbpedia'], m => m.label);
+      // Wikipedia's short description first, for the same reason as the name,
+      // plus one of its own: it is written for readers, where a Wikidata gloss
+      // is written for editors and sometimes says how to model the item rather
+      // than what it is ("to be used as P31 values for all symptoms"). Taking
+      // both from one source also keeps the title and the line under it talking
+      // about the same thing. DBpedia's first sentence is the last resort.
+      const description = preferring(members, ['wikipedia', 'wikidata', 'dbpedia'], m => m.description);
+      // The URI that denotes the subject rather than a document about it, in
+      // the order other tools resolve them.
+      const primary = ['wikidata', 'dbpedia', 'wikipedia']
+        .map(kind => members.find(m => m.kind === kind))
+        .find(Boolean);
+      const exact = members.some(m => normalizeLabel(m.label) === wanted);
+
+      return {
+        id: primary.url,
+        name,
+        uri: primary.url,
+        source: primary.kind,
+        authority: primary.authority,
+        authorities: members.map(m => m.authority),
+        description,
+        externalLinks: members.map(m => m.url),
+        // The authority's own ranking is the real signal here; an exact label
+        // match on top of it is the strongest this layer can honestly claim,
+        // and independent authorities landing on one subject is corroboration
+        // worth a nudge rather than a leap.
+        sourceTrust: Math.min(0.98, (exact ? 0.95 : 0.8) + 0.03 * (members.length - 1)),
+        contextFit: Math.max(0.4, 1 - rank * 0.1)
+      };
+    });
 };
 
 /**

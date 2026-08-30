@@ -2682,7 +2682,7 @@ export const useNodeDrag = ({
       const { x: mouseX, y: mouseY } = mousePositionRef.current;
       const bounds = viewportBoundsRef.current;
       const margin = 75;
-      const maxSpeed = 15;
+      const maxSpeed = 10;
 
       let dx = 0;
       let dy = 0;

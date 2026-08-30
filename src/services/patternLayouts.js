@@ -37,7 +37,9 @@ import {
   circumRadius,
   estimateEdgeLabelWidth,
   labelSpanOf,
-  requiredEdgeLength
+  requiredEdgeLength,
+  clusterGapFor,
+  condenseBlocks
 } from './layoutGeometry.js';
 import {
   TOPOLOGY,
@@ -94,8 +96,13 @@ export const PATTERN_LAYOUT_DEFAULTS = {
   // See the note in treeLayoutCentered; 'top' keeps the general term above.
   rootPlacement: 'top',
 
-  // Gap between independently laid-out connected components.
-  componentGap: 460,
+  // Clear space between independently laid-out connected components, node box
+  // to node box. Like labelPadding above this is the value for the base font;
+  // resolveConfig re-derives it from the size labels are actually drawn at, via
+  // the same clusterGapFor the force solver quotes — the two pipelines have to
+  // agree on this one or the same graph reads as cramped under straight routing
+  // and scattered under Lombardi.
+  componentGap: clusterGapFor(EDGE_LABEL_BASE_FONT_SIZE),
 
   // Fallback for components with no clean structure.
   fallbackAlgorithm: 'force',
@@ -1142,6 +1149,13 @@ const ARC_CHAIN_OPENING = 1.25;
  * Roughly ten node-widths — about as much as is legible at one glance. Short
  * chains never reach it and come out as gentle horizontal arcs; long ones curl
  * until they close into the near-complete circuit a long sequence wants.
+ *
+ * Deliberately NOT the component's own width allowance, though every other
+ * threshold in this file is. Tying it to the allowance makes a short chain in a
+ * small slot curl, and a chain with only three or four chords cannot reach a
+ * full winding — so it lands in the open C this function exists to avoid, which
+ * is wider than the coil and taller than the bow at once. A short sequence drawn
+ * wide is the better of the two bad options.
  */
 const ARC_CHAIN_TARGET_WIDTH = 4000;
 
@@ -1671,7 +1685,7 @@ function shelfPack(blocks, rowLimit, cfg) {
  * one fixed limit, try every break point the block widths actually allow and
  * keep the arrangement that needs the least zooming out to see whole.
  */
-function packComponents(blocks, cfg) {
+function packComponents(blocks, cfg, nodeById) {
   const widest = Math.max(0, ...blocks.map(b => b.bbox.width));
 
   // Candidate limits: the prefix sums are the only widths at which the
@@ -1695,10 +1709,32 @@ function packComponents(blocks, cfg) {
     if (score < bestScore) { bestScore = score; best = packed; }
   });
 
+  const placements = best?.placements || [];
+
+  // Shelf-packing leaves `componentGap` between BOUNDING BOXES, which is the
+  // right amount of space only for components that fill theirs. A Lombardi
+  // component doesn't: rings and radial fans occupy an annulus inside a square,
+  // so two of them placed a gap apart present each other with their empty
+  // corners and read as a canyon — the gap the eye sees is several times the
+  // one that was asked for. Draw them back together until `componentGap` of
+  // real, node-to-node space is all that's left. Rectangular components (trees,
+  // serpentines) already fill their boxes, so this barely moves them.
+  const shifts = condenseBlocks(
+    placements.map(({ block, x, y }) => ({
+      rects: [...block.positions].map(([id, pos]) => {
+        const { w, h } = boxOf(nodeById?.get(id));
+        const cx = pos.x + (x - block.bbox.minX);
+        const cy = pos.y + (y - block.bbox.minY);
+        return { minX: cx - w / 2, minY: cy - h / 2, maxX: cx + w / 2, maxY: cy + h / 2 };
+      })
+    })),
+    cfg.componentGap
+  );
+
   const merged = new Map();
-  (best?.placements || []).forEach(({ block, x, y }) => {
-    const offsetX = x - block.bbox.minX;
-    const offsetY = y - block.bbox.minY;
+  placements.forEach(({ block, x, y }, index) => {
+    const offsetX = x - block.bbox.minX + shifts[index].dx;
+    const offsetY = y - block.bbox.minY + shifts[index].dy;
     block.positions.forEach((pos, id) => {
       merged.set(id, { x: pos.x + offsetX, y: pos.y + offsetY });
     });
@@ -1745,6 +1781,9 @@ export const resolvePatternConfig = (options = {}) => {
   // force solver passes its own `edgeLabelGap` through as an explicit one.
   if (options.labelPadding === undefined) {
     cfg.labelPadding = Math.round(cfg.edgeLabelFontSize * LABEL_PADDING_EM);
+  }
+  if (options.componentGap === undefined) {
+    cfg.componentGap = Math.round(clusterGapFor(cfg.edgeLabelFontSize));
   }
 
   // The user's spacing controls. The force solver reads layoutScale through
@@ -1934,6 +1973,39 @@ function seedClearance(positions, nodes) {
 // Smallest leash worth applying — below this the refinement may as well not run.
 const cfgFloorClearance = 60;
 
+/**
+ * How much bigger than a tidy tree a radial drawing may be and still be worth
+ * having.
+ *
+ * Concentric rings are the Lombardi-native way to draw a hierarchy, but they
+ * are not free, and what they cost depends on the tree. A ring pays the
+ * parent-to-child label constraint in RADIUS, and a radius is spent in every
+ * direction at once — so a drawing that is d levels deep spans 2·d steps across
+ * AND 2·d steps down, where the same tree in rows spends d steps down and packs
+ * its leaves across. Deep and bushy, the rings win: later rings have far more
+ * circumference to share out than a row has width. Shallow, they lose badly,
+ * and measured on ordinary hierarchies with real relation names on the edges
+ * they lose by a factor of four or so — which is most of what "Lombardi is too
+ * spread out" turns out to mean.
+ *
+ * So decide it the way the arc chain decides bow-versus-coil: build both and
+ * measure, rather than declaring by topology kind. The tolerance is the
+ * thumb on the scale for the native shape — radial keeps the seed whenever it
+ * is anywhere close, and only loses when it is plainly extravagant.
+ */
+const LOMBARDI_RADIAL_TOLERANCE = 1.25;
+
+function radialOrTreeSeed(nodes, edges, cfg, meta) {
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const score = (positions) => {
+    const box = bboxOfCenters(positions, nodeById);
+    return Math.max(box.width / Math.max(1, cfg.width), box.height / Math.max(1, cfg.height));
+  };
+  const radial = radialLayoutCentered(nodes, edges, cfg, meta);
+  const tidy = treeLayoutCentered(nodes, edges, cfg, meta);
+  return score(radial) <= score(tidy) * LOMBARDI_RADIAL_TOLERANCE ? radial : tidy;
+}
+
 export function lombardiPatternLayout(nodes, edges, cfg, options = {}) {
   const nodeById = new Map(nodes.map(n => [n.id, n]));
   const { components } = detectTopology(nodes, edges || [], options);
@@ -1978,7 +2050,7 @@ export function lombardiPatternLayout(nodes, edges, cfg, options = {}) {
     } else {
       switch (layoutPlanFor(kind, 'lombardi')) {
         case 'radial':
-          positions = radialLayoutCentered(component.nodes, component.edges, componentCfg, component.topology.meta);
+          positions = radialOrTreeSeed(component.nodes, component.edges, componentCfg, component.topology.meta);
           break;
         case 'arc-chain':
           positions = arcChainLayoutCentered(component.nodes, component.edges, componentCfg, component.topology.meta);
@@ -2039,7 +2111,7 @@ export function lombardiPatternLayout(nodes, edges, cfg, options = {}) {
     });
   }
 
-  return centersToTopLeft(packComponents(blocks, cfg), nodeById);
+  return centersToTopLeft(packComponents(blocks, cfg, nodeById), nodeById);
 }
 
 /**
@@ -2181,7 +2253,7 @@ export function orthogonalPatternLayout(nodes, edges, cfg, options = {}) {
     });
   }
 
-  return centersToTopLeft(packComponents(blocks, cfg), nodeById);
+  return centersToTopLeft(packComponents(blocks, cfg, nodeById), nodeById);
 }
 
 /**
@@ -2295,7 +2367,7 @@ export function patternLayout(nodes, edges, options = {}) {
     });
   }
 
-  return centersToTopLeft(packComponents(blocks, cfg), nodeById);
+  return centersToTopLeft(packComponents(blocks, cfg, nodeById), nodeById);
 }
 
 /**

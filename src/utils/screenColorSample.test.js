@@ -5,7 +5,8 @@ const SVG = 'http://www.w3.org/2000/svg';
 const svgTags = new Set(['svg','g','rect','line','path','image','text']);
 const BOX = { left: 0, top: 0, right: 100, bottom: 100 };
 
-const make = (tag, { styles = {}, rect = BOX, hit } = {}, parent) => {
+const make = (tag, opts = {}, parent) => {
+  const { styles = {}, rect = BOX, hit } = opts;
   const el = svgTags.has(tag)
     ? document.createElementNS(SVG, tag)
     : document.createElement(tag);
@@ -18,6 +19,13 @@ const make = (tag, { styles = {}, rect = BOX, hit } = {}, parent) => {
     el.getScreenCTM = () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) });
     el.isPointInStroke = () => hit === 'stroke';
     el.isPointInFill = () => hit === 'fill';
+  }
+  // A horizontal stroke of half-width `halfWidth` centred on y=50: models a real
+  // connection, so the tolerance ring in svgHitKind is actually exercised.
+  if (typeof opts.halfWidth === 'number') {
+    el.getScreenCTM = () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) });
+    el.isPointInStroke = (p) => Math.abs(p.y - 50) <= opts.halfWidth;
+    el.isPointInFill = () => false;
   }
   (parent || document.body).appendChild(el);
   return el;
@@ -96,6 +104,40 @@ describe('what the canvas actually renders', () => {
     const svg = make('svg');
     const t = make('text', { styles: { fill: 'rgb(38, 0, 0)' }, hit: 'fill' }, svg);
     expect(at([t])).toBe('#260000');
+  });
+});
+
+describe('connections: visible stroke vs the wider transparent hit path', () => {
+  // NodeCanvas draws a 27-wide coloured stroke, then lays a transparent
+  // data-edge-hit path of >=50 over it. The browser reports you as "on the
+  // connection" across the wider one.
+  const edge = (pointerY) => {
+    const svg = make('svg');
+    const g = make('g', {}, svg);
+    const visible = make('path', { styles: { fill: 'none', stroke: 'rgb(0, 100, 200)' }, halfWidth: 13.5 }, g);
+    const hitPath = make('path', { styles: { fill: 'none', stroke: 'rgba(0, 0, 0, 0)' }, halfWidth: 25 }, g);
+    hitPath.setAttribute('data-edge-hit', '');
+    const bg = make('rect', { styles: { fill: 'rgb(189, 181, 181)' }, hit: 'fill' }, svg);
+    // Stack as the browser reports it: the transparent hit path is on top.
+    return withStack([hitPath, g, bg, svg], () => sampleColorAt(50, pointerY));
+  };
+
+  it('dead centre on the line', () => {
+    expect(edge(50)).toBe('#0064c8');
+  });
+
+  it('inside the visible stroke, off centre', () => {
+    expect(edge(60)).toBe('#0064c8');
+  });
+
+  it('in the band the hit path covers but the visible stroke does not', () => {
+    // 19px off: outside the 13.5 stroke, inside the 25 hit path. This is what
+    // used to come back as the canvas background.
+    expect(edge(69)).toBe('#0064c8');
+  });
+
+  it('well outside the connection falls through to the canvas', () => {
+    expect(edge(95)).toBe('#bdb5b5');
   });
 });
 

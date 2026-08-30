@@ -433,6 +433,13 @@ const UnifiedBottomControlPanel = ({
 
   const runPieMenuButton = useCallback((button, e, targetId) => {
     if (!targetId || typeof button?.action !== 'function') return;
+    // Same first move PieMenu makes before running a button's action, and for the
+    // same reason: an action that opens a popover (Palette) installs a
+    // document-level click-away listener, and this very click would otherwise
+    // carry on to document and dismiss the thing it just opened. On the canvas
+    // the menu stopped propagation and Palette worked; here it did not, and
+    // Palette looked dead in both the Thing and connection panels.
+    e.stopPropagation();
     // Palette (and anything else that anchors a popover) is handed the button's
     // top-centre in client coords — the same shape PieMenu passes from a touch.
     const rect = e.currentTarget.getBoundingClientRect();
@@ -1162,6 +1169,9 @@ const UnifiedBottomControlPanel = ({
                 <div
                   className="piemenu-button"
                   onClick={(e) => {
+                    // See runPieMenuButton: the click must not reach document,
+                    // or the picker's click-away closes it as it opens.
+                    e.stopPropagation();
                     if (onPalette) {
                       const rect = e.currentTarget.getBoundingClientRect();
                       const activeNode = selectedNodes?.[0];

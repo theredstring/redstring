@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowLeft, ExternalLink, Plus, Network, Info } from 'lucide-react';
 import { getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
+import { identifierFromUrl } from '../../../utils/externalIdentifiers.js';
 import DraggableConceptCard from '../items/DraggableConceptCard';
 
 // Detail view for a focused semantic concept
@@ -99,17 +100,21 @@ const ConceptDetailView = ({
                         fontSize: '11px',
                         color: theme.canvas.textSecondary
                     }}>
-                        {concept.semanticMetadata?.externalLinks?.length > 0 && (
+                        {/* Every authority this concept was consolidated from, not
+                            just the first. A merged result is one subject with an
+                            entry in each, and each entry is worth opening. */}
+                        {(concept.semanticMetadata?.externalLinks || []).map(url => (
                             <a
-                                href={concept.semanticMetadata.externalLinks[0]}
+                                key={url}
+                                href={url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 style={{ display: 'flex', alignItems: 'center', gap: '4px', color: theme.canvas.textSecondary, textDecoration: 'none' }}
                             >
                                 <ExternalLink size={10} />
-                                {concept.source}
+                                {identifierFromUrl(url).authority}
                             </a>
-                        )}
+                        ))}
                         {concept.semanticMetadata?.confidence && (
                             <span title="Confidence score">
                                 ★ {Math.round(concept.semanticMetadata.confidence * 100)}%

@@ -399,3 +399,183 @@ export function polylineBoxMTV(points, center, box, pad = 0) {
   }
   return best;
 }
+
+// ============================================================================
+// CLUSTER SPACING — how far apart two disconnected clusters stand
+// ============================================================================
+
+/**
+ * Clear space between two clusters that share no edge, node box to node box,
+ * as a multiple of the connection-label font size.
+ *
+ * Why it is a label measurement and not a node measurement: the thing crowded
+ * when two clusters sit close is not the boxes, it is the TEXT. Edges near a
+ * cluster's boundary carry labels drawn along them, and a foreign node parked
+ * at the node-collision minimum lands on that text. So two clusters have to
+ * stand further apart than two nodes inside one cluster do, and the amount is
+ * set by how big labels are, not by how big nodes are.
+ *
+ * 6.5em reproduces the 460 that PATTERN_LAYOUT_DEFAULTS.componentGap has always
+ * used at the base font — this is that number, expressed so it tracks the
+ * connection-label setting and so both layout pipelines can quote it.
+ */
+export const CLUSTER_GAP_EM = 6.5;
+
+export const clusterGapFor = (edgeLabelFontSize = EDGE_LABEL_BASE_FONT_SIZE) =>
+  Math.max(0, edgeLabelFontSize) * CLUSTER_GAP_EM;
+
+/** Axis-aligned bounds of a list of rects. */
+export const boundsOfRects = (rects) => {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const r of rects) {
+    if (r.minX < minX) minX = r.minX;
+    if (r.minY < minY) minY = r.minY;
+    if (r.maxX > maxX) maxX = r.maxX;
+    if (r.maxY > maxY) maxY = r.maxY;
+  }
+  if (!Number.isFinite(minX)) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  return { minX, minY, maxX, maxY };
+};
+
+/** Gap between two axis-aligned rects; 0 when they touch or overlap. */
+const rectGap = (a, b) => {
+  const dx = Math.max(0, a.minX - b.maxX, b.minX - a.maxX);
+  const dy = Math.max(0, a.minY - b.maxY, b.minY - a.maxY);
+  return Math.hypot(dx, dy);
+};
+
+/**
+ * Smallest gap between any rect of A and any rect of B, given each block's
+ * current translation. Short-circuits on the bounding boxes: a block's bounds
+ * contain its rects, so `boundsGap >= gap` already proves every pair is clear
+ * and the quadratic scan can be skipped. That early-out is what keeps this
+ * affordable — the full scan only runs for blocks that are actually near.
+ */
+const blockGap = (A, B, ceiling) => {
+  const boundsDistance = rectGap(
+    { minX: A.bounds.minX + A.dx, minY: A.bounds.minY + A.dy, maxX: A.bounds.maxX + A.dx, maxY: A.bounds.maxY + A.dy },
+    { minX: B.bounds.minX + B.dx, minY: B.bounds.minY + B.dy, maxX: B.bounds.maxX + B.dx, maxY: B.bounds.maxY + B.dy }
+  );
+  if (boundsDistance >= ceiling) return boundsDistance;
+
+  let min = Infinity;
+  for (const a of A.rects) {
+    const ax0 = a.minX + A.dx, ax1 = a.maxX + A.dx;
+    const ay0 = a.minY + A.dy, ay1 = a.maxY + A.dy;
+    for (const b of B.rects) {
+      const dx = Math.max(0, ax0 - (b.maxX + B.dx), (b.minX + B.dx) - ax1);
+      const dy = Math.max(0, ay0 - (b.maxY + B.dy), (b.minY + B.dy) - ay1);
+      const d = Math.hypot(dx, dy);
+      if (d < min) {
+        min = d;
+        if (min === 0) return 0;
+      }
+    }
+  }
+  return min;
+};
+
+/**
+ * Draw rigidly laid-out clusters together without letting them crowd, and
+ * return the translation each one needs.
+ *
+ * Only whole-block translation happens here, so every cluster's interior — and
+ * therefore every edge, label and clearance its own solver established — comes
+ * through untouched. Two passes alternate: PULL steps each block toward the
+ * common centre, SEPARATE pushes apart any pair closer than `gap`. Separation
+ * runs last and hardest, so the invariant it enforces is the one that holds.
+ *
+ * The reason this measures RECTANGLES rather than bounding boxes is that a
+ * bounding box is a bad proxy for a cluster's visual mass, and how bad depends
+ * on the routing style — which is exactly how the same nominal spacing came to
+ * look wrong in two opposite directions. A Lombardi component is a ring or a
+ * radial fan filling maybe a third of its box, so leaving a gap between boxes
+ * leaves two sets of empty corners facing each other and reads as a canyon. A
+ * force-solved cluster is a blob whose box swallows its neighbours' entirely,
+ * so a box-blind condensation lets foreign nodes settle at the node-collision
+ * minimum and reads as suffocation. Measured rect to rect, one number means the
+ * same thing for both.
+ *
+ * @param {Array<{rects: Array, movable?: boolean}>} blocks
+ * @param {number} gap required clear space between any two blocks
+ * @param {{center?: {x,y}, iterations?: number, pullRate?: number}} options
+ * @returns {Array<{dx: number, dy: number}>} translations, parallel to `blocks`
+ */
+export function condenseBlocks(blocks, gap, options = {}) {
+  const state = blocks.map(block => {
+    const rects = block.rects || [];
+    const bounds = boundsOfRects(rects);
+    return {
+      rects,
+      bounds,
+      movable: block.movable !== false && rects.length > 0,
+      cx: (bounds.minX + bounds.maxX) / 2,
+      cy: (bounds.minY + bounds.maxY) / 2,
+      dx: 0,
+      dy: 0
+    };
+  });
+
+  const result = () => state.map(({ dx, dy }) => ({ dx, dy }));
+  if (state.length < 2) return result();
+
+  const center = options.center || {
+    x: state.reduce((sum, b) => sum + b.cx, 0) / state.length,
+    y: state.reduce((sum, b) => sum + b.cy, 0) / state.length
+  };
+  const iterations = options.iterations ?? 24;
+  const pullRate = options.pullRate ?? 0.12;
+
+  // One separation sweep: push every too-close pair apart along the line
+  // between their centres. Both blocks share the correction when both may
+  // move, so a pair converges without either one doing all the travelling.
+  const separate = () => {
+    let worst = 0;
+    for (let i = 0; i < state.length; i++) {
+      for (let j = i + 1; j < state.length; j++) {
+        const A = state[i];
+        const B = state[j];
+        if (!A.movable && !B.movable) continue;
+        const distance = blockGap(A, B, gap);
+        const deficit = gap - distance;
+        if (deficit <= SEPARATION_EPSILON) continue;
+        worst = Math.max(worst, deficit);
+
+        let ux = (B.cx + B.dx) - (A.cx + A.dx);
+        let uy = (B.cy + B.dy) - (A.cy + A.dy);
+        const length = Math.hypot(ux, uy);
+        if (length < SEPARATION_EPSILON) {
+          // Concentric blocks have no meaningful axis; pick a deterministic one
+          // so the pair still comes apart instead of sitting on top of itself.
+          ux = 1; uy = 0;
+        } else {
+          ux /= length; uy /= length;
+        }
+
+        const share = (A.movable && B.movable) ? 0.5 : 1;
+        if (B.movable) { B.dx += ux * deficit * share; B.dy += uy * deficit * share; }
+        if (A.movable) { A.dx -= ux * deficit * share; A.dy -= uy * deficit * share; }
+      }
+    }
+    return worst;
+  };
+
+  for (let iter = 0; iter < iterations; iter++) {
+    for (const block of state) {
+      if (!block.movable) continue;
+      block.dx += (center.x - (block.cx + block.dx)) * pullRate;
+      block.dy += (center.y - (block.cy + block.dy)) * pullRate;
+    }
+    for (let pass = 0; pass < 3; pass++) {
+      if (separate() <= SEPARATION_EPSILON) break;
+    }
+  }
+
+  // The pull above is unconditional, so the last thing that touched the layout
+  // has to be the constraint, not the objective.
+  for (let pass = 0; pass < 12; pass++) {
+    if (separate() <= SEPARATION_EPSILON) break;
+  }
+
+  return result();
+}

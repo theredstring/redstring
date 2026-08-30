@@ -19,7 +19,9 @@ import {
   getPointSegmentDistSq,
   densify,
   boxMTV,
-  polylineBoxMTV
+  polylineBoxMTV,
+  clusterGapFor,
+  condenseBlocks
 } from './layoutGeometry.js';
 import {
   clearPathsOfNodes,
@@ -1600,8 +1602,16 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       const reach = corridor + Math.abs(ux) * halfW + Math.abs(uy) * halfH;
       const desired = { x: exit.x + ux * reach, y: exit.y + uy * reach };
 
-      // Only ever pull closer, never push a component further out.
-      if (Math.hypot(desired.x - anchor.centerX, desired.y - anchor.centerY) >= uLen) continue;
+      // One corridor off the anchor, in whichever direction that is — this used
+      // to pull only. Reeling a stranded satellite back in was the original job,
+      // but the same target is also the FLOOR, and only the ceiling was being
+      // enforced: Phase 3's springs pull an attached component in against the
+      // group it hangs off, the outward correction was skipped as "pushing it
+      // further out", and the component stayed where the springs left it — which
+      // measured about a tenth of the corridor two groups get between each
+      // other, with a labelled connection drawn through it. The move is capped
+      // at the corridor by construction, so allowing it outward can only undo a
+      // squeeze; it cannot strand anything.
       const moveX = desired.x - cx;
       const moveY = desired.y - cy;
 
@@ -3611,7 +3621,16 @@ function separateGroupBoxes(positions, groups, nodeGroupsMap, nodeById, nestedGr
 function enforceGroupBoundsExclusion(positions, nodes, groups, nodeGroupsMap, nodeById, getSize, config, nestedGroupPairs = new Set(), passes = 3) {
   if (!groups || groups.length === 0) return;
   const pad = config.groupBoundaryPadding || 100;
-  const clearance = 30;
+  // How far outside a group's RENDERED rect an ejected non-member is parked.
+  // Containment is read straight off the drawing, so this is what makes
+  // non-membership unambiguous — and a flat 30px, which is what it used to be,
+  // does not: against a 2px stroke and a 32px inner border it reads as touching,
+  // and a node touching a group's edge reads as being in it. A node gap is the
+  // smallest separation this file considers legible anywhere else, so it is the
+  // floor here too. It stays deliberately modest: a groupless component is
+  // placed as a rigid whole by reelAttachedComponents, and ejecting its members
+  // individually by a whole corridor would pull that arrangement apart.
+  const clearance = Math.max(30, config.nodeGap ?? 140);
   const isPeerSharedWith = makePeerSharedChecker(nodeGroupsMap, nestedGroupPairs);
 
   const ungrouped = nodes.filter(n => {
@@ -4058,71 +4077,92 @@ function enforceEdgeLabelClearance(positions, edges, nodeById, getNodeRadius, co
 }
 
 /**
- * Pull clusters closer to center after layout so we undo overly distant placement.
- * When user-defined groups exist, skip clusters that span multiple groups
- * to avoid collapsing separated groups toward center.
+ * Draw the clusters together, but no closer than a cluster gap.
+ *
+ * The force sim has no cluster-level term: repulsion is per node and decays
+ * with distance, so where two clusters end up relative to each other is a
+ * leftover of the seeding, not something the physics decided. This pass is what
+ * decides it — condense toward the centre so the drawing is compact, and hold a
+ * real corridor open between clusters so it stays readable.
+ *
+ * That second half used to be missing. The old version translated every
+ * cluster's centroid to within 90px of the canvas centre and left the rest to
+ * `resolveOverlaps`, which knows only about node boxes — so disconnected
+ * clusters interleaved and settled at the node-collision minimum, and an edge
+ * near a cluster's boundary had a foreign node sitting on the label drawn along
+ * it. `clusterGapFor` is that missing number, and it's the same one the pattern
+ * pipeline packs components with, so straight and Lombardi routing no longer
+ * disagree about how far apart two unrelated clusters stand.
+ *
+ * When user-defined groups exist, clusters spanning several groups are pinned
+ * rather than moved: condensing those would undo the group separation the
+ * stages above just established.
  */
 function condenseClusters(positions, clusters, centerX, centerY, config, nodeGroupsMap = null) {
   if (clusters.length <= 1) return;
 
-  // Use gentler condensation when user-defined groups exist to preserve group separation
-  const shrinkFactor = 0.97;
-  const minDistanceFromCenter = 90;
+  const gap = config.clusterGap ?? clusterGapFor(config.edgeLabelFontSize);
 
-  clusters.forEach(cluster => {
-    if (!cluster || cluster.length === 0) return;
-
-    // Skip clusters that contain nodes from multiple user-defined groups
-    // Condensing these would undo group separation
-    if (nodeGroupsMap && config._hasUserGroups) {
-      const groupsInCluster = new Set();
-      cluster.forEach(node => {
-        const gs = nodeGroupsMap.get(node.id);
-        if (gs) gs.forEach(g => groupsInCluster.add(g));
-      });
-      if (groupsInCluster.size > 1) return;
-    }
-
-    let sumX = 0;
-    let sumY = 0;
-    let count = 0;
+  const spansMultipleGroups = (cluster) => {
+    if (!nodeGroupsMap || !config._hasUserGroups) return false;
+    const groupsInCluster = new Set();
     cluster.forEach(node => {
-      const pos = positions.get(node.id);
-      if (pos) {
-        sumX += pos.x;
-        sumY += pos.y;
-        count += 1;
-      }
+      const gs = nodeGroupsMap.get(node.id);
+      if (gs) gs.forEach(g => groupsInCluster.add(g));
     });
+    return groupsInCluster.size > 1;
+  };
 
-    if (count === 0) return;
-
-    const centroidX = sumX / count;
-    const centroidY = sumY / count;
-    const dx = centroidX - centerX;
-    const dy = centroidY - centerY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist <= minDistanceFromCenter) return;
-
-    const maxShrink = Math.min(dist - minDistanceFromCenter, dist * shrinkFactor);
-    if (maxShrink <= 0) return;
-
-    const shiftDistance = maxShrink;
-    const ux = dx / dist;
-    const uy = dy / dist;
-
-    const shiftX = ux * shiftDistance;
-    const shiftY = uy * shiftDistance;
-
-    cluster.forEach(node => {
+  // Blocks carry the DRAWN rectangles, not collision radii: the gap being held
+  // open is visible space, so it has to be measured against what is visible.
+  const blocks = clusters.map(cluster => {
+    const rects = [];
+    (cluster || []).forEach(node => {
       const pos = positions.get(node.id);
       if (!pos) return;
-      pos.x -= shiftX;
-      pos.y -= shiftY;
-      pos.x = clamp(pos.x, config.padding, config.width - config.padding);
-      pos.y = clamp(pos.y, config.padding, config.height - config.padding);
+      const { w, h } = boxOf(node);
+      rects.push({
+        minX: pos.x - w / 2, minY: pos.y - h / 2,
+        maxX: pos.x + w / 2, maxY: pos.y + h / 2
+      });
+    });
+    return { rects, movable: !spansMultipleGroups(cluster || []) };
+  });
+
+  const shifts = condenseBlocks(blocks, gap, { center: { x: centerX, y: centerY } });
+
+  clusters.forEach((cluster, index) => {
+    const { dx, dy } = shifts[index];
+    if (dx === 0 && dy === 0) return;
+    (cluster || []).forEach(node => {
+      const pos = positions.get(node.id);
+      if (!pos) return;
+      pos.x += dx;
+      pos.y += dy;
     });
   });
+
+  // The frame `resolveOverlaps` clamps into is origin-anchored and sized by
+  // `config`, and the stages after this one all use it. Separating clusters can
+  // push content past it, so grow the box to the result and slide anything that
+  // went negative back inside — clamping instead would undo the corridor this
+  // pass exists to open. No-ops when the condensed layout already fits.
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  positions.forEach((pos) => {
+    if (pos.x < minX) minX = pos.x;
+    if (pos.y < minY) minY = pos.y;
+    if (pos.x > maxX) maxX = pos.x;
+    if (pos.y > maxY) maxY = pos.y;
+  });
+  if (!Number.isFinite(minX)) return;
+
+  const shiftX = Math.max(0, config.padding - minX);
+  const shiftY = Math.max(0, config.padding - minY);
+  if (shiftX > 0 || shiftY > 0) {
+    positions.forEach((pos) => { pos.x += shiftX; pos.y += shiftY; });
+  }
+  config.width = Math.max(config.width, maxX + shiftX + config.padding);
+  config.height = Math.max(config.height, maxY + shiftY + config.padding);
 }
 
 // ============================================================================

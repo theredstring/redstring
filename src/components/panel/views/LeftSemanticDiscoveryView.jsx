@@ -134,21 +134,17 @@ const STARTER_PACK = [
 ];
 
 /**
- * One row of the Quick Search block: a node-coloured pill you click to search
- * for that node's name, and a note on the right saying where the name came from.
+ * One quick-search entry: a node-coloured pill you click to search for that
+ * node's name. Several sit side by side in a wrapping row, so the chip is only
+ * as wide as its label.
  *
  * Hover is PanelIconButton's, whole: the #DEDADA fill, maroon icon and label,
  * the ring, and the pill's scale, plus the popover's drop shadow so the chip
  * lifts off the page under the cursor. The node's colour is what the chip
  * rests as, not what it hovers as — same as every other button in the panel,
  * which is the point.
- *
- * The one departure is that hover fires from the whole row rather than the
- * pill, because the whole row is the click target, including the "from Panel"
- * note. Lighting only the pill would leave the rest of the row silently
- * clickable.
  */
-const QuickSearchChip = ({ color, label, note, noteColor, onClick, busy, title }) => {
+const QuickSearchChip = ({ color, label, onClick, busy, title }) => {
   const theme = useTheme();
   const [isHovered, setIsHovered] = useState(false);
   const textColor = isHovered ? theme.accent.primary : getTextColor(color, theme.darkMode);
@@ -159,50 +155,46 @@ const QuickSearchChip = ({ color, label, note, noteColor, onClick, busy, title }
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={{
-        display: 'flex',
+        display: 'inline-flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
+        maxWidth: '100%',
+        minWidth: 0,
         padding: '2px 0',
         cursor: busy ? 'wait' : 'pointer',
         userSelect: 'none'
       }}
       title={title}
     >
-      <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '6px 10px',
-          borderRadius: '12px',
-          background: isHovered ? '#DEDADA' : color,
-          // Timing and scale lifted from PanelIconButton's pill branch so this
-          // grows like every other hoverable thing in the panel.
-          transition: 'transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease',
-          transform: isHovered ? 'scale(1.04)' : 'scale(1)',
-          boxShadow: isHovered
-            ? `0 0 0 3px ${theme.accent.primary}, 0 4px 12px rgba(0,0,0,0.3)`
-            : 'none'
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        minWidth: 0,
+        padding: '6px 10px',
+        borderRadius: '12px',
+        background: isHovered ? '#DEDADA' : color,
+        // Timing and scale lifted from PanelIconButton's pill branch so this
+        // grows like every other hoverable thing in the panel.
+        transition: 'transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease',
+        transform: isHovered ? 'scale(1.04)' : 'scale(1)',
+        boxShadow: isHovered
+          ? `0 0 0 3px ${theme.accent.primary}, 0 4px 12px rgba(0,0,0,0.3)`
+          : 'none'
+      }}>
+        <Search size={14} style={{ color: textColor, flexShrink: 0, transition: 'color 0.15s ease' }} />
+        <span style={{
+          color: textColor,
+          transition: 'color 0.15s ease',
+          fontFamily: "'EmOne', sans-serif",
+          fontSize: 12,
+          fontWeight: 'bold',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          maxWidth: 180
         }}>
-          <Search size={14} style={{ color: textColor, transition: 'color 0.15s ease' }} />
-          <span style={{
-            color: textColor,
-            transition: 'color 0.15s ease',
-            fontFamily: "'EmOne', sans-serif",
-            fontSize: 12,
-            fontWeight: 'bold',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            maxWidth: 220
-          }}>
-            {label}
-          </span>
-        </div>
-      </div>
-      <div style={{ fontSize: 11, color: noteColor, fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>
-        {note}
+          {label}
+        </span>
       </div>
     </div>
   );
@@ -331,6 +323,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   const conceptLimitRef = useRef(8);
   const [showViewMenu, setShowViewMenu] = useState(false);
   const viewMenuRef = useRef(null);
+  // Whether the header has room to hold the title and the view dropdown on one
+  // line. The panel is user-resizable, so this is measured rather than assumed:
+  // below the threshold the dropdown drops under the title, above it it sits
+  // right-aligned beside it and the header costs a row less.
+  const headerRef = useRef(null);
+  const [isHeaderWide, setIsHeaderWide] = useState(false);
   const [manualQuery, setManualQuery] = useState('');
   const [expandingNodeId, setExpandingNodeId] = useState(null);
   const [semanticExpansionResults, setSemanticExpansionResults] = useState([]);
@@ -609,6 +607,19 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showViewMenu]);
+
+  // Watch the header's own width so the title/dropdown row reflows as the user
+  // drags the panel. 300px is where "Semantic Discovery" plus the Discover pill
+  // stop crowding each other.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setIsHeaderWide(el.clientWidth >= 300);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const handleDeleteHistoryItem = (id) => {
     setSearchHistory((prev) => prev.filter((h) => h.id !== id));
@@ -917,8 +928,10 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       // Concept search: one round trip per authority against its own search
       // index, no variants and no ranking pass of ours. The authorities already
       // rank their own hits better than a name-similarity score can, and
-      // filterRankDedup would collapse same-named concepts into one — which is
-      // the distinction this mode exists to show.
+      // filterRankDedup would collapse same-NAMED concepts into one — which is
+      // the distinction this mode exists to show. searchConcepts does its own
+      // consolidation, on subject identity rather than on the name, so what
+      // arrives here is already one row per subject.
       if (searchMode === 'concepts') {
         setSearchProgress('Asking Wikidata, Wikipedia and DBpedia...');
         const hits = await searchConcepts(rawQuery, { limit: 8 });
@@ -926,7 +939,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
         const normalized = hits.map(hit => {
           const concept = candidateToConcept(normalizeToCandidate(hit));
-          return { ...concept, category: hit.authority, searchQuery: rawQuery };
+          return {
+            ...concept,
+            sources: hit.authorities,
+            category: hit.authorities.join(' · '),
+            searchQuery: rawQuery
+          };
         });
         console.log(`[SemanticDiscovery] ${normalized.length} concepts from direct lookup`);
         setDiscoveredConcepts(normalized);
@@ -999,21 +1017,23 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     try {
       if (searchMode === 'concepts') {
         // The lookup APIs page by asking for more, not by offset, so widen the
-        // limit and keep only what wasn't already on screen.
+        // limit and take the whole answer rather than appending the tail of it.
+        // A wider search is a superset that also RE-GROUPS: a subject shown as
+        // a Wikipedia-only card can pick up its Wikidata and DBpedia entries at
+        // the deeper limit, which changes that row rather than adding one.
+        // Appending only what looked new used to leave both versions on screen.
         const next = Math.min(conceptLimitRef.current * 2, 50);
         conceptLimitRef.current = next;
         const hits = await searchConcepts(lastSearch.query, { limit: next });
-        const shown = new Set(discoveredConcepts.map(c => c.id));
-        const additions = hits
-          .filter(hit => !shown.has(hit.uri))
-          .map(hit => ({
-            ...candidateToConcept(normalizeToCandidate(hit)),
-            category: hit.authority,
-            searchQuery: lastSearch.query
-          }));
-        console.log(`[SemanticDiscovery] Loaded ${additions.length} more concepts (limit ${next})`);
-        if (additions.length === 0) setCanLoadMore(false);
-        else setDiscoveredConcepts(prev => [...prev, ...additions]);
+        const all = hits.map(hit => ({
+          ...candidateToConcept(normalizeToCandidate(hit)),
+          sources: hit.authorities,
+          category: hit.authorities.join(' · '),
+          searchQuery: lastSearch.query
+        }));
+        console.log(`[SemanticDiscovery] ${all.length} concepts at limit ${next} (was ${discoveredConcepts.length})`);
+        if (all.length <= discoveredConcepts.length) setCanLoadMore(false);
+        if (all.length > 0) setDiscoveredConcepts(all);
         return;
       }
 
@@ -1309,11 +1329,22 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
       <div className="panel-content-inner semantic-discovery-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         {/* Header */}
-        <div className="semantic-discovery-header" style={{ marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif", marginBottom: '12px' }}>
+        <div
+          ref={headerRef}
+          className="semantic-discovery-header"
+          style={{
+            marginBottom: '16px',
+            display: 'flex',
+            flexDirection: isHeaderWide ? 'row' : 'column',
+            alignItems: isHeaderWide ? 'center' : 'flex-start',
+            justifyContent: isHeaderWide ? 'space-between' : undefined,
+            gap: isHeaderWide ? '12px' : 0
+          }}
+        >
+          <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif", marginBottom: isHeaderWide ? 0 : '12px' }}>
             Semantic Discovery
           </h2>
-          <div ref={viewMenuRef} style={{ position: 'relative' }}>
+          <div ref={viewMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
             <PanelIconButton
               icon={viewMode === 'catalog' ? BookOpen : viewMode === 'history' ? Clock : Compass}
               size={18}
@@ -1330,7 +1361,9 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
               <div style={{
                 position: 'absolute',
                 top: '100%',
-                left: 0,
+                // Anchored to whichever edge the button sits against, so the
+                // popover never hangs off the panel when the header is one row.
+                ...(isHeaderWide ? { right: 0 } : { left: 0 }),
                 marginTop: 4,
                 backgroundColor: theme.canvas.bg,
                 border: `1px solid ${theme.canvas.border}`,
@@ -1673,18 +1706,14 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
             {/* Enhanced Context Display */}
             {(contexts.panel || contexts.graph || selectedNode) && (
               <div className="contexts-display" style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '11px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
-                  Quick Search
-                </div>
-
-                {/* Enhanced Action Grid - node-style representations */}
-                <div style={{ display: 'grid', gap: '6px', marginBottom: '12px' }}>
+                {/* One wrapping row of chips. Each is only as wide as its label,
+                    so two short names sit side by side and a long one takes the
+                    row to itself. */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
                   {contexts.panel && (
                     <QuickSearchChip
                       color={contexts.panel.nodeData?.color || theme.accent.primary}
                       label={contexts.panel.nodeName}
-                      note="from Panel"
-                      noteColor={theme.canvas.textPrimary}
                       busy={isSearching}
                       title="Quick search from Panel context"
                       onClick={() => {
@@ -1700,8 +1729,6 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     <QuickSearchChip
                       color={contexts.graph.nodeData?.color || '#4B0082'}
                       label={contexts.graph.nodeName}
-                      note="from Active Web"
-                      noteColor={theme.canvas.textSecondary}
                       busy={isSearching}
                       title="Quick search from Graph context"
                       onClick={() => {
@@ -1717,8 +1744,6 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     <QuickSearchChip
                       color={(nodePrototypesMap.get(selectedNode.prototypeId)?.color) || '#228B22'}
                       label={nodePrototypesMap.get(selectedNode.prototypeId)?.name || 'Selected'}
-                      note="from Selected"
-                      noteColor={theme.canvas.textSecondary}
                       busy={isSearching}
                       title="Quick search from Selected"
                       onClick={() => {

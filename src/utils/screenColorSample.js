@@ -36,6 +36,16 @@ const RASTER_TAGS = new Set(['image', 'img', 'canvas', 'video']);
 // pointermove.
 const MAX_VISITS = 4000;
 
+// How far off a shape the pointer may be and still count as on it, in screen px,
+// and the directions tried. Sized against the gap between a connection's visible
+// stroke and its transparent hit path — see svgHitKind.
+const TOLERANCE_PX = 8;
+const TOLERANCE_RING = [
+  [TOLERANCE_PX, 0], [-TOLERANCE_PX, 0], [0, TOLERANCE_PX], [0, -TOLERANCE_PX],
+  [TOLERANCE_PX, TOLERANCE_PX], [-TOLERANCE_PX, TOLERANCE_PX],
+  [TOLERANCE_PX, -TOLERANCE_PX], [-TOLERANCE_PX, -TOLERANCE_PX],
+];
+
 /** Parse a CSS colour string to #rrggbb, or null if it isn't a usable paint. */
 function paintToHex(value) {
   if (!value) return null;
@@ -107,10 +117,11 @@ function samplePixel(el, clientX, clientY) {
   }
 }
 
-/** Cheap reject: is the point outside this element's box entirely? */
-function outsideBox(rect, x, y) {
+/** Cheap reject: is the point outside this element's box, allowing `pad` slack? */
+function outsideBox(rect, x, y, pad = 0) {
   return rect.width <= 0 || rect.height <= 0
-    || x < rect.left || x > rect.right || y < rect.top || y > rect.bottom;
+    || x < rect.left - pad || x > rect.right + pad
+    || y < rect.top - pad || y > rect.bottom + pad;
 }
 
 /**
@@ -136,12 +147,31 @@ function svgHitKind(el, x, y) {
     // `new DOMPoint(...).matrixTransform(...)` would drag in two more APIs for
     // no gain, and both are missing in enough environments to matter.
     const inv = ctm.inverse();
-    const point = {
-      x: inv.a * x + inv.c * y + inv.e,
-      y: inv.b * x + inv.d * y + inv.f,
-    };
-    if (el.isPointInStroke(point)) return 'stroke';
-    if (el.isPointInFill(point)) return 'fill';
+    const toLocal = (sx, sy) => ({
+      x: inv.a * sx + inv.c * sy + inv.e,
+      y: inv.b * sx + inv.d * sy + inv.f,
+    });
+
+    const exact = toLocal(x, y);
+    if (el.isPointInStroke(exact)) return 'stroke';
+    if (el.isPointInFill(exact)) return 'fill';
+
+    // Nothing exactly under the pointer — try again a few pixels out.
+    //
+    // This is what makes connections pickable. A connection draws a 27-wide
+    // stroke and then lays a TRANSPARENT hit path of at least 50 over it
+    // (data-edge-hit in NodeCanvas), so the browser reports you as "on the
+    // connection" across a 25px half-width while the visible stroke only
+    // accepts 13.5. In the ~11px band between the two, the exact test failed
+    // and sampling fell through to the canvas background — the connection was
+    // reported as the colour of the space behind it. The ring closes most of
+    // that gap, and being a fallback it cannot change any answer that the exact
+    // test already had.
+    for (const [dx, dy] of TOLERANCE_RING) {
+      const p = toLocal(x + dx, y + dy);
+      if (el.isPointInStroke(p)) return 'stroke';
+      if (el.isPointInFill(p)) return 'fill';
+    }
     return 'none';
   } catch {
     return 'unknown';
@@ -201,8 +231,12 @@ function topmostPaintAt(root, x, y, ignored, budget) {
   const rect = root.getBoundingClientRect?.();
   // A zero-size box is not evidence of absence (an SVG <g> of nothing, a
   // wrapper whose children are absolutely positioned), so only prune on a real
-  // box that misses.
-  if (rect && (rect.width > 0 || rect.height > 0) && outsideBox(rect, x, y)) return null;
+  // box that misses. Pruning allows the same slack svgHitKind does, or a thin
+  // shape the pointer is beside would be discarded before its geometry ever got
+  // a say — which is precisely the connection case.
+  if (rect && (rect.width > 0 || rect.height > 0) && outsideBox(rect, x, y, TOLERANCE_PX)) {
+    return null;
+  }
 
   const kids = root.children;
   for (let i = kids.length - 1; i >= 0; i -= 1) {
@@ -210,7 +244,10 @@ function topmostPaintAt(root, x, y, ignored, budget) {
     if (hex) return hex;
   }
 
-  if (rect && outsideBox(rect, x, y)) return null;
+  // The slack above is for descending, not for painting. SVG shapes settle it
+  // exactly in svgHitKind; an HTML box has no such test, so it has to actually
+  // contain the point — otherwise a panel would colour the air beside it.
+  if (rect && !root.ownerSVGElement && outsideBox(rect, x, y)) return null;
   return paintAt(root, x, y);
 }
 

@@ -10,6 +10,19 @@ const ItemTypes = {
   SPAWNABLE_NODE: 'spawnable_node'
 };
 
+const SOURCE_LABELS = { wikidata: 'Wikidata', wikipedia: 'Wikipedia', dbpedia: 'DBpedia' };
+
+/**
+ * Who says so. A consolidated result names every authority folded into it,
+ * because that IS the card's claim: one subject with an entry in each, and
+ * dragging it in links the new Thing to all of them at once.
+ */
+const sourceLabel = (concept) => (
+  concept.sources?.length
+    ? concept.sources.join(' · ')
+    : (SOURCE_LABELS[concept.source] || concept.source)
+);
+
 const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onSelect, onFocus, isSelected }) => {
   const theme = useTheme();
   const [{ isDragging }, drag, preview] = useDrag(() => ({
@@ -256,7 +269,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
           {concept.semanticMetadata?.confidence && (
             <span>• {Math.round(concept.semanticMetadata.confidence * 100)}%</span>
           )}
-          <span>• {concept.source === 'wikidata' ? 'Wikidata' : concept.source === 'dbpedia' ? 'DBpedia' : concept.source}</span>
+          <span>• {sourceLabel(concept)}</span>
         </div>
       </div>
     </div>

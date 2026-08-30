@@ -185,15 +185,24 @@ const ColorPicker = ({
     // rather than once per pointermove — a trackpad emits several per frame.
     let frame = 0;
     let pending = null;
-    const track = (e) => {
-      pending = { x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', event: e };
+    const schedule = () => {
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
         const p = pending;
-        if (p) setSample({ x: p.x, y: p.y, touch: p.touch, color: read(p.event) });
+        if (p) setSample({ x: p.x, y: p.y, touch: p.touch, color: read(p) });
       });
     };
+    const track = (e) => {
+      pending = { clientX: e.clientX, clientY: e.clientY, x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch' };
+      schedule();
+    };
+    // Pan and zoom stay live while picking — the colour you want is often not on
+    // screen yet. Wheel is deliberately NOT swallowed, and the overlay is
+    // pointer-events: none so it reaches the canvas's own onWheel at all. The
+    // pointer hasn't moved, but the canvas under it has, so re-read on the next
+    // frame (by which time the transform has been applied).
+    const onWheel = () => { if (pending) schedule(); };
     // Everything between pressing and lifting is swallowed in the capture phase,
     // before the canvas (or the picker's own click-away) can act on a pointer
     // that is only here to be sampled.
@@ -223,7 +232,9 @@ const ColorPicker = ({
     window.addEventListener('click', swallow, true);
     window.addEventListener('contextmenu', onKeyDown, true);
     window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('wheel', onWheel, { capture: true, passive: true });
     return () => {
+      window.removeEventListener('wheel', onWheel, { capture: true });
       window.removeEventListener('pointermove', track, true);
       window.removeEventListener('pointerdown', start, true);
       window.removeEventListener('pointerup', commit, true);
@@ -395,18 +406,28 @@ const ColorPicker = ({
     >
       {isPicking && createPortal(
         <>
-          {/* Capture layer. It keeps the app underneath from reacting to a
-              pointer that is only passing through; the sample itself reads the
-              element stack beneath it (sampleColorAt skips this layer and the
-              picker). The system cursor is hidden because the swatch below IS
-              the cursor. */}
+          {/* The system cursor is hidden globally rather than on a capture layer,
+              because there is no capture layer any more: clicks are already
+              swallowed in the capture phase on window, and a full-screen div was
+              additionally eating `wheel` — which is what pans and zooms the
+              canvas — before it could reach the canvas's own onWheel. The
+              overlay below is inert (pointer-events: none) and exists only so a
+              touch drag has something under the finger that won't scroll. */}
+          {/* NodeCanvas.css forces `cursor: pointer !important` on .node, .node *
+              and .edge-interact ("Force pointer cursor on nodes and
+              connections"). Those are class selectors — (0,1,0) and (0,1,1) —
+              and !important on both sides is a tie broken by specificity, so a
+              plain `* { cursor: none !important }` loses on exactly the things
+              you spend this mode hovering over. The repeated :root buys (0,3,0)
+              and does nothing else; it is here only to outrank them. */}
+          <style>{':root:root:root, :root:root:root * { cursor: none !important; }'}</style>
           <div
             ref={overlayRef}
             style={{
               position: 'fixed',
               inset: 0,
               zIndex: 1000001,
-              cursor: 'none',
+              pointerEvents: 'none',
               touchAction: 'none',
               background: 'transparent'
             }}
@@ -423,12 +444,12 @@ const ColorPicker = ({
                 top: sample.y,
                 zIndex: 1000002,
                 pointerEvents: 'none',
-                width: '26px',
-                height: '26px',
+                width: '16px',
+                height: '16px',
                 boxSizing: 'border-box',
                 transform: sample.touch
                   ? 'translate(calc(-100% - 14px), calc(-100% - 14px))'
-                  : 'translate(12px, 12px)',
+                  : 'translate(9px, 9px)',
                 backgroundColor: sample.color || 'transparent',
                 border: '1px solid #cfcfcf'
               }}
