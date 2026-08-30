@@ -256,6 +256,12 @@ export const useNodeDrag = ({
   // snapped forward again on release. See ANCHORS in edgeLabelPlacement.js.
   const dragLabelAnchorsRef = useRef(new Map());  // edgeId → {t, offset}
   const dragGroupMetaRef = useRef(new Map());     // groupId → { memberIds, elements[] }
+  // Last grid cell the drag's anchor node occupied, for the snap detent haptic.
+  // null means "not seeded yet" — the first frame of a drag records without
+  // ticking. Deliberately NOT derived from appliedPositionsRef: that one is
+  // cleared on every mid-drag React commit (see the post-commit re-apply
+  // effect), which would read as a crossing on a frame where nothing snapped.
+  const gridDetentRef = useRef(null);             // {x, y} | null
 
   // ---------------------------------------------------------------------------
   // Grid Snapping Helpers
@@ -1555,6 +1561,25 @@ export const useNodeDrag = ({
     });
     if (movedNodeIds.size === 0) return;
 
+    // Grid detent: one tick per grid line crossed. Read off positionUpdates[0]
+    // — the single node, the multi-drag primary, or the group's first member —
+    // rather than off movedNodeIds, since that set is also non-empty on the
+    // re-apply frame after a React commit, when nothing has actually snapped
+    // anywhere new. Both coordinates share one detent so a diagonal crossing
+    // is one tick, not two the rate limit would fuse anyway.
+    if (gridMode !== 'off') {
+      const anchor = positionUpdates[0];
+      const prevCell = gridDetentRef.current;
+      if (!prevCell) {
+        // Seed silently: the drag's first snap lands on the heels of the
+        // nodeLift tick, and two haptics that close fuse into one buzz.
+        gridDetentRef.current = { x: anchor.x, y: anchor.y };
+      } else if (prevCell.x !== anchor.x || prevCell.y !== anchor.y) {
+        gridDetentRef.current = { x: anchor.x, y: anchor.y };
+        haptic('gridSnap');
+      }
+    }
+
     // Clear label placement cache only when something actually moved
     placedLabelsRef.current = new Map();
 
@@ -1608,7 +1633,7 @@ export const useNodeDrag = ({
       resizedAnchorIds.forEach(id => edgeUpdateIds.add(id));
     }
     updateEdgesInDOM(edgeUpdateIds);
-  }, [containerRef, canvasSizeRef, placedLabelsRef, computePositionUpdates, nodeByIdRef, baseDimsByIdRef, updateEdgesInDOM, updateGroupBoundsInDOM]);
+  }, [containerRef, canvasSizeRef, placedLabelsRef, computePositionUpdates, gridMode, nodeByIdRef, baseDimsByIdRef, updateEdgesInDOM, updateGroupBoundsInDOM]);
 
   // ---------------------------------------------------------------------------
   // Lift-on-grab animation
@@ -1968,6 +1993,9 @@ export const useNodeDrag = ({
 
     dragPositionsRef.current.clear();
     appliedPositionsRef.current.clear();
+    // Back to unseeded, so the next drag's first snap doesn't tick off this
+    // drag's last cell.
+    gridDetentRef.current = null;
     dragNodeElsRef.current.clear();
     dragEdgeElsRef.current.clear();
     dragEdgeDataRef.current.clear();

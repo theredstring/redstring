@@ -29,6 +29,26 @@
   transform: translate(0,0) scale(1);
 }
 
+/* A button that turned up under an already-open menu (Copy making Paste
+   available; pasting a definition making Palette and Copy available). It grows
+   from nothing in place, while the bubbles it displaced slide to their new slots
+   — see the reflow transition in PieMenu.jsx's line-mode placement. Deliberately
+   NOT the pop keyframes: those fly in from the anchor, which reads as the whole
+   menu opening rather than as one button arriving in a menu already on screen.
+   Listed after .is-visible-steady so the fill-mode end state wins the cascade. */
+.pie-menu-bubble-inner.is-entering {
+  animation-name: pie-bubble-enter;
+  animation-duration: 240ms; /* matches BUBBLE_ENTER_MS in PieMenu.jsx */
+  animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation-fill-mode: both;
+}
+
+@keyframes pie-bubble-enter {
+  0% { opacity: 0; transform: translate(0, 0) scale(0); }
+  70% { opacity: 1; transform: translate(0, 0) scale(1.06); }
+  100% { opacity: 1; transform: translate(0, 0) scale(1); }
+}
+
 /* Class to apply the shrink-out animation */
 .pie-menu-bubble-inner.is-shrinking {
   /* Should start from the steady visible state */

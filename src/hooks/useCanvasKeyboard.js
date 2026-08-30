@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import useGraphStore from '../store/graphStore.js';
 import { performUndo, performRedo } from '../store/historyActions.js';
-import { copySelection, pasteClipboard } from '../utils/clipboard';
+import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from '../utils/clipboard';
 import { getNodeDimensions } from '../utils';
 import { NODE_DEFAULT_COLOR } from '../constants'; // Assumed constant exists
 
@@ -23,6 +23,10 @@ export const useCanvasKeyboard = ({
     selectedEdgeId,
     selectedEdgeIds,
     clipboardRef,
+    // Fired after every write to clipboardRef. A ref write re-renders nothing,
+    // and the connection menu's Paste button only exists while the clipboard
+    // holds something a connection can use — so it has to be told.
+    onClipboardChange,
     keysPressed,
     mousePositionRef, // {x, y} in client coords
     panOffset,
@@ -76,6 +80,7 @@ export const useCanvasKeyboard = ({
         selectedEdgeId,
         selectedEdgeIds,
         clipboardRef,
+        onClipboardChange,
         keysPressed,
         mousePositionRef, // {x, y} in client coords
         panOffset,
@@ -445,6 +450,7 @@ export const useCanvasKeyboard = ({
                     if (currentGraph) {
                         const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
                         clipboardRef.current = copied;
+                        onClipboardChange?.();
                         console.log(`[useCanvasKeyboard] Copied ${selectedInstanceIds.size} nodes to clipboard`);
                     }
                     return;
@@ -452,15 +458,10 @@ export const useCanvasKeyboard = ({
                     e.preventDefault();
                     const edgeIdToCopy = selectedEdgeId || Array.from(selectedEdgeIds)[0];
                     const edgeToCopy = edgesMap.get(edgeIdToCopy);
-                    if (edgeToCopy) {
-                        clipboardRef.current = {
-                            type: 'edge_definitions',
-                            definitions: {
-                                color: edgeToCopy.color,
-                                typeNodeId: edgeToCopy.typeNodeId,
-                                definitionNodeIds: [...(edgeToCopy.definitionNodeIds || [])]
-                            }
-                        };
+                    const copiedDefinition = copyEdgeDefinition(edgeToCopy);
+                    if (copiedDefinition) {
+                        clipboardRef.current = copiedDefinition;
+                        onClipboardChange?.();
                         console.log(`[useCanvasKeyboard] Copied edge definitions to clipboard`);
                     }
                     return;
@@ -475,6 +476,7 @@ export const useCanvasKeyboard = ({
                     // First copy
                     const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
                     clipboardRef.current = copied;
+                    onClipboardChange?.();
 
                     // Then remove
                     storeActions.removeMultipleNodeInstances(activeGraphId, selectedInstanceIds);
@@ -492,23 +494,21 @@ export const useCanvasKeyboard = ({
                 e.preventDefault();
                 const currentGraph = graphsMap.get(activeGraphId);
                 if (currentGraph) {
-                    if (clipboardRef.current.type === 'edge_definitions') {
-                        // Paste edge definitions onto selected edges
-                        const edgesToUpdate = new Set();
-                        if (selectedEdgeId) edgesToUpdate.add(selectedEdgeId);
-                        selectedEdgeIds.forEach(id => edgesToUpdate.add(id));
+                    // With connections selected, paste means "define these" — from
+                    // another connection's definition or from a single copied
+                    // Thing. readConnectionClipboard decides which payloads qualify,
+                    // and it is the same call the connection menu's Paste button is
+                    // built from, so the button and the shortcut can't disagree.
+                    const edgesToUpdate = new Set();
+                    if (selectedEdgeId) edgesToUpdate.add(selectedEdgeId);
+                    selectedEdgeIds.forEach(id => edgesToUpdate.add(id));
+                    const connectionPayload = edgesToUpdate.size > 0
+                        ? readConnectionClipboard(clipboardRef.current, nodePrototypesMap)
+                        : null;
 
-                        if (edgesToUpdate.size > 0) {
-                            const defs = clipboardRef.current.definitions;
-                            edgesToUpdate.forEach(edgeId => {
-                                storeActions.updateEdge(edgeId, (draft) => {
-                                    if (defs.color) draft.color = defs.color;
-                                    draft.typeNodeId = defs.typeNodeId;
-                                    draft.definitionNodeIds = [...defs.definitionNodeIds];
-                                });
-                            });
-                            console.log(`[useCanvasKeyboard] Pasted edge definitions to ${edgesToUpdate.size} edges`);
-                        }
+                    if (connectionPayload) {
+                        applyConnectionClipboard(connectionPayload, edgesToUpdate, storeActions);
+                        console.log(`[useCanvasKeyboard] Pasted "${connectionPayload.name}" onto ${edgesToUpdate.size} connections`);
                     } else if (clipboardRef.current.nodes) {
                         // Determine target position
                         let targetPos;
@@ -611,6 +611,7 @@ export const useCanvasKeyboard = ({
         zoomLevel,
         canvasSize,
         clipboardRef,
+        onClipboardChange,
         mousePositionRef, // Ensure ref is up to date (it is stable)
         setSelectedInstanceIds,
         onDeleteNodes,

@@ -604,10 +604,10 @@ const RedstringMenu = ({
                               </div>
                               <div
                                 className="submenu-item"
-                                onClick={() => onSetGridMode?.('hover')}
-                                style={{ opacity: gridMode === 'hover' ? 1 : 0.8, cursor: 'pointer' }}
+                                onClick={() => onSetGridMode?.('move')}
+                                style={{ opacity: gridMode === 'move' ? 1 : 0.8, cursor: 'pointer' }}
                               >
-                                On Move {gridMode === 'hover' ? '✓' : ''}
+                                On Move {gridMode === 'move' ? '✓' : ''}
                               </div>
                               <div
                                 className="submenu-item"

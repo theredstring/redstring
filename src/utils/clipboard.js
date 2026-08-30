@@ -80,6 +80,99 @@ export function copySelection(selectedInstanceIds, graph, nodePrototypes, edges)
 }
 
 /**
+ * Copy a connection's definition — the Thing that says what the connection means,
+ * not the connection itself, which has no life away from its two endpoints.
+ *
+ * Same payload Cmd/Ctrl+C writes for a selected edge, so the Copy button on a
+ * connection menu and the keyboard shortcut fill one clipboard, not two.
+ *
+ * @param {Object} edge
+ * @returns {Object|null} clipboard payload, or null if there's nothing to copy
+ */
+export function copyEdgeDefinition(edge) {
+  if (!edge) return null;
+  return {
+    type: 'edge_definitions',
+    definitions: {
+      color: edge.color,
+      typeNodeId: edge.typeNodeId,
+      definitionNodeIds: [...(edge.definitionNodeIds || [])]
+    }
+  };
+}
+
+/**
+ * What, if anything, the clipboard can contribute to a connection.
+ *
+ * Two payloads qualify, which is what "paste a definition" means in practice:
+ *   - another connection's definition (copyEdgeDefinition, above)
+ *   - a single copied Thing, whose prototype becomes the connection's definition
+ *     — the same move as picking that Thing in the Define dialog
+ * Anything else (several nodes, a web) has no single answer to "what does this
+ * connection mean", so it reads as nothing and the Paste button stays away.
+ *
+ * @param {Object} clipboardData
+ * @param {Map} nodePrototypes
+ * @returns {{name: string, color: ?string, definitions: Object}|null}
+ */
+export function readConnectionClipboard(clipboardData, nodePrototypes) {
+  if (!clipboardData) return null;
+
+  if (clipboardData.type === 'edge_definitions') {
+    const defs = clipboardData.definitions || {};
+    const protoId = defs.definitionNodeIds?.[0] || null;
+    const proto = protoId ? nodePrototypes?.get(protoId) : null;
+    // A copied bare connection carries no definition and no type worth moving.
+    if (!proto && !defs.typeNodeId) return null;
+    return {
+      name: proto?.name || 'Connection',
+      color: proto?.color || defs.color || null,
+      definitions: {
+        color: defs.color,
+        typeNodeId: defs.typeNodeId,
+        definitionNodeIds: [...(defs.definitionNodeIds || [])]
+      }
+    };
+  }
+
+  if (Array.isArray(clipboardData.nodes) && clipboardData.nodes.length === 1) {
+    const protoId = clipboardData.nodes[0]?.prototypeId;
+    const proto = protoId ? nodePrototypes?.get(protoId) : null;
+    if (!proto) return null;
+    return {
+      name: proto.name || 'Thing',
+      color: proto.color || null,
+      // typeNodeId is left alone: the edge keeps whatever kind of connection it
+      // is and gains a definition, exactly as choosing this Thing in the Define
+      // dialog would (see UnifiedSelector's onNodeSelect in NodeCanvas).
+      definitions: { definitionNodeIds: [protoId] }
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Apply a readConnectionClipboard payload to one or more edges.
+ *
+ * @param {Object} payload - from readConnectionClipboard
+ * @param {Iterable<string>} edgeIds
+ * @param {Object} storeActions
+ */
+export function applyConnectionClipboard(payload, edgeIds, storeActions) {
+  if (!payload) return;
+  const { definitions } = payload;
+  for (const edgeId of edgeIds) {
+    if (!edgeId) continue;
+    storeActions.updateEdge(edgeId, (draft) => {
+      if (definitions.color) draft.color = definitions.color;
+      if (definitions.typeNodeId !== undefined) draft.typeNodeId = definitions.typeNodeId;
+      draft.definitionNodeIds = [...(definitions.definitionNodeIds || [])];
+    });
+  }
+}
+
+/**
  * Check if any nodes in the proposed positions collide with existing nodes
  * @param {Array} positions - Array of {x, y, width, height} for proposed nodes
  * @param {Array} existingNodes - Array of existing node instances

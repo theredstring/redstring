@@ -157,7 +157,7 @@ import {
  * @property {boolean} showConnectionControlPanel - Whether the connection control panel is visible.
  * @property {boolean} showGroupControlPanel - Whether the group control panel is visible.
  * @property {boolean} showAbstractionControlPanel - Whether the abstraction chain control panel is visible.
- * @property {Object} gridSettings - `{ mode: 'off'|'hover'|'always', size: number, snapMode: 'if-enabled'|'always'|'never', appearance: 'lattice'|'dot' }`.
+ * @property {Object} gridSettings - `{ mode: 'off'|'move'|'always', size: number, snapMode: 'if-enabled'|'always'|'never', appearance: 'lattice'|'dot' }`.
  * @property {Object} dragZoomSettings - `{ enabled: boolean, zoomAmount: number }`.
  * @property {Object} autoLayoutSettings - Force-directed layout parameters.
  * @property {Object} forceTunerSettings - Advanced force tuner parameters (mirrors autoLayoutSettings structure).
@@ -1363,10 +1363,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const sizeRaw = localStorage.getItem('redstring_grid_size');
         const snapRaw = localStorage.getItem('redstring_grid_snap');
         const appearanceRaw = localStorage.getItem('redstring_grid_appearance');
-        const allowed = new Set(['off', 'hover', 'always']);
+        const allowed = new Set(['off', 'move', 'always']);
         const snapAllowed = new Set(['if-enabled', 'always', 'never']);
         const appearanceAllowed = new Set(['lattice', 'dot']);
-        const mode = allowed.has(modeRaw) ? modeRaw : 'off';
+        // 'hover' was this mode's name before the rename. It never tracked the
+        // cursor — it showed the grid while a node was being dragged — so the
+        // menu already called it "On Move" and only the stored value lagged.
+        // Map it forward; without this the allow-list below would silently
+        // reset an existing preference to 'off'.
+        const modeStored = modeRaw === 'hover' ? 'move' : modeRaw;
+        const mode = allowed.has(modeStored) ? modeStored : 'off';
         const snapMode = snapAllowed.has(snapRaw) ? snapRaw : 'if-enabled';
         const appearance = appearanceAllowed.has(appearanceRaw) ? appearanceRaw : 'lattice';
         let size = Number.parseInt(sizeRaw, 10);
@@ -5609,10 +5615,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     /**
      * Sets the grid visualization mode. Persists to localStorage.
-     * @param {'off'|'hover'|'always'} mode
+     * @param {'off'|'move'|'always'} mode
      */
     setGridMode: (mode) => set(produce((draft) => {
-      const allowed = ['off', 'hover', 'always'];
+      const allowed = ['off', 'move', 'always'];
       if (!draft.gridSettings) draft.gridSettings = { mode: 'off', size: 200 };
       if (allowed.includes(mode)) {
         draft.gridSettings.mode = mode;

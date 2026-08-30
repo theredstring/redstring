@@ -237,6 +237,15 @@ const UnifiedBottomControlPanel = ({
   pieMenuPages = null,
   pieMenuTargetInstanceId = null,
 
+  // The same arrangement for a single connection: the canvas connection menu's
+  // own buttons (see edgePieMenuButtons in NodeCanvas), handed over whole. That
+  // list grows and shrinks with the connection's state and the clipboard's, so
+  // transcribing it here would mean this panel silently offering a different set
+  // from the one on the canvas. Null (or a null target) falls back to the
+  // hand-written connection buttons below, which multi-select still uses.
+  connectionPieMenuButtons = null,
+  connectionPieMenuTargetEdgeId = null,
+
   // Optional navigations (shown on node mode)
   onLeftNav,
   onRightNav,
@@ -422,16 +431,23 @@ const UnifiedBottomControlPanel = ({
     setPieMenuPageIndex(prev => (prev + delta + pieMenuPageCount) % pieMenuPageCount);
   }, [pieMenuPageCount]);
 
-  const runPieMenuButton = useCallback((button, e) => {
-    if (!pieMenuTargetInstanceId || typeof button?.action !== 'function') return;
+  const runPieMenuButton = useCallback((button, e, targetId) => {
+    if (!targetId || typeof button?.action !== 'function') return;
     // Palette (and anything else that anchors a popover) is handed the button's
     // top-centre in client coords — the same shape PieMenu passes from a touch.
     const rect = e.currentTarget.getBoundingClientRect();
-    button.action(pieMenuTargetInstanceId, {
+    button.action(targetId, {
       x: rect.left + rect.width / 2,
       y: rect.top
     });
-  }, [pieMenuTargetInstanceId]);
+  }, []);
+
+  // Connections have no pages — the whole set fits one strip here, and the
+  // canvas menu wraps it into rows rather than paging it.
+  const useConnectionPieMenuButtons = mode === 'connections'
+    && Array.isArray(connectionPieMenuButtons)
+    && connectionPieMenuButtons.length > 0
+    && !!connectionPieMenuTargetEdgeId;
 
   const nodeDimensionEntries = useMemo(() => {
     if (!(isNodes || isDecompose) || !Array.isArray(selectedNodes)) {
@@ -1056,7 +1072,7 @@ const UnifiedBottomControlPanel = ({
                     <div
                       key={button.id}
                       className="piemenu-button"
-                      onClick={(e) => runPieMenuButton(button, e)}
+                      onClick={(e) => runPieMenuButton(button, e, pieMenuTargetInstanceId)}
                       title={button.label}
                       onMouseEnter={() => triggerActionHover(`control-${button.id}`, button.label)}
                       onMouseLeave={clearActionHover}
@@ -1340,8 +1356,30 @@ const UnifiedBottomControlPanel = ({
                   <Trash2 size={iconSize} />
                 </div>
               </>
+            ) : useConnectionPieMenuButtons ? (
+              // Single connection: render the canvas connection menu's own
+              // buttons. Nothing about which buttons exist is decided here —
+              // see the connectionPieMenuButtons prop.
+              connectionPieMenuButtons.map((button) => {
+                const Icon = button.icon;
+                return (
+                  <div
+                    key={button.id}
+                    className="piemenu-button"
+                    onClick={(e) => runPieMenuButton(button, e, connectionPieMenuTargetEdgeId)}
+                    title={button.label}
+                    onMouseEnter={() => triggerActionHover(`control-${button.id}`, button.label)}
+                    onMouseLeave={clearActionHover}
+                  >
+                    {Icon && <Icon size={iconSize} />}
+                  </div>
+                );
+              })
             ) : (
-              // Connection mode: Show connection actions
+              // Multi-select (and the panel's exit animation, where the target
+              // edge id is already gone): the connection menu has no form for
+              // this, so these stay hand-written and keep their selection-wide
+              // handlers.
               <>
                 <div
                   className="piemenu-button"

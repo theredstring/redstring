@@ -3,6 +3,7 @@ import { NODE_CORNER_RADIUS } from './constants'; // Import node corner radius
 import './PieMenu.css'; // Animation styles
 import useGraphStore from './store/graphStore.js';
 import { haptic } from './services/haptics.js';
+import { lineModeLayout } from './utils/pieMenuLayout.js';
 
 const BUBBLE_SIZE = 120; // Diameter of the bubble
 const BUBBLE_PADDING = 32; // Gap between node edge and bubble
@@ -15,6 +16,16 @@ const POP_ANIMATION_DURATION = 200; // ms, matches CSS
 const SHRINK_ANIMATION_DURATION = 100; // ms, matches CSS (FASTER)
 const STAGGER_DELAY = 20; // ms, slightly reduced
 const EXIT_ANIMATION_BUFFER = 50; // ms, extra buffer for animation to complete visually
+
+// A menu that's already open can gain a button — Copy puts a connection's
+// definition on the clipboard, which is what makes Paste available, and pasting
+// a definition onto a bare connection is what makes Palette and Copy available.
+// Those arrivals reflow the row (and can grow a second one), so the bubbles
+// glide to their new places rather than teleporting, and the newcomer pops in
+// on its own rather than blinking into existence.
+const REFLOW_MS = 280;                     // matches .pie-bubble-reflow in PieMenu.css
+const BUBBLE_ENTER_MS = 240;               // matches .is-entering in PieMenu.css
+const EMPTY_ID_SET = new Set();
 
 const PieMenu = ({
   node,
@@ -118,6 +129,38 @@ const PieMenu = ({
 
   const animationsEndedCountRef = useRef(0);
   const autoCloseTimerRef = useRef(null);
+
+  // Buttons that arrived after the menu had already settled, so they can pop in
+  // instead of appearing fully formed. Only tracked once the menu is steady:
+  // during the open/close/page animations every bubble is already animating and
+  // a second animation on top of that would fight it.
+  const [enteringIds, setEnteringIds] = useState(EMPTY_ID_SET);
+  const knownButtonIdsRef = useRef(null);
+  useEffect(() => {
+    const ids = displayedButtons.map((b, i) => b.id ?? i);
+    const known = knownButtonIdsRef.current;
+    knownButtonIdsRef.current = new Set(ids);
+
+    // First settle after mount: the pop-in covers everything.
+    if (!known) return;
+    if (animationState !== 'visible_steady' || pagePhase !== 'steady') return;
+
+    const arrived = ids.filter(id => !known.has(id));
+    if (arrived.length === 0) return;
+
+    setEnteringIds(new Set(arrived));
+    const t = setTimeout(() => setEnteringIds(EMPTY_ID_SET), BUBBLE_ENTER_MS);
+    return () => clearTimeout(t);
+  }, [displayedButtons, animationState, pagePhase]);
+
+  // A fresh menu (different node, or a full close) re-baselines: everything the
+  // next open renders is "already known", so nothing pops twice.
+  useEffect(() => {
+    if (animationState === null) {
+      knownButtonIdsRef.current = null;
+      setEnteringIds(EMPTY_ID_SET);
+    }
+  }, [animationState]);
 
   // Primary effect to react to visibility changes from parent
   useEffect(() => {
@@ -299,7 +342,20 @@ const PieMenu = ({
   
   // Check if this is a carousel mode (buttons have position property)
   const isCarouselMode = !hasAnchorMode && displayedButtons.some(button => button.position);
-  const isLineMode = hasAnchorMode; // anchor mode = horizontal line of buttons
+  const isLineMode = hasAnchorMode; // anchor mode = row(s) of buttons alongside the edge
+
+  // Line mode wraps past LINE_MODE_MAX_PER_ROW — see utils/pieMenuLayout.js, which
+  // NodeCanvas's focusEdgePieMenuInView also frames against, so the two agree on
+  // where the menu is by construction rather than by both being kept up to date.
+  const lineLayout = isLineMode
+    ? lineModeLayout({
+      count: displayedButtons.length,
+      angle: anchorAngle,
+      step: bSize + bPad,
+      perpOffset: bSize + bPad * 2,
+      rowGap: bSize + bPad,
+    })
+    : null;
 
   // Page-switching chevrons: bare < / > arrows (stroked, no surrounding shape)
   // flanking the outer bounds of the circular menu. The hitbox is an invisible
@@ -437,23 +493,11 @@ const PieMenu = ({
         let bubbleX, bubbleY;
 
         if (isLineMode) {
-          // Line mode: buttons along the edge slope, offset perpendicular (upward side)
-          const step = bSize + bPad;
-          const n = displayedButtons.length;
-          const t = index - (n - 1) / 2; // centered index: -1.5, -0.5, 0.5, 1.5 for n=4
-
-          // Along-edge unit vector
-          const alongX = Math.cos(anchorAngle);
-          const alongY = Math.sin(anchorAngle);
-
-          // Perpendicular unit vector pointing upward (angle is always in [-π/2, π/2] so this is guaranteed)
-          const perpX = Math.sin(anchorAngle);
-          const perpY = -Math.cos(anchorAngle);
-
-          const PERP_OFFSET = bSize + bPad * 2; // perpendicular offset from edge
-
-          bubbleX = nodeCenterX + t * step * alongX + PERP_OFFSET * perpX;
-          bubbleY = nodeCenterY + t * step * alongY + PERP_OFFSET * perpY;
+          // Line mode: row(s) along the edge slope, offset perpendicular (upward side)
+          const slot = lineLayout[index];
+          if (!slot) return null;
+          bubbleX = nodeCenterX + slot.x;
+          bubbleY = nodeCenterY + slot.y;
         } else if (isCarouselMode) {
           // Carousel mode: position buttons based on actual current node dimensions
           // nodeDimensions now contains the actual current scaled dimensions from AbstractionCarousel
@@ -557,6 +601,7 @@ const PieMenu = ({
         }
 
         const IconComponent = button.icon;
+        const isEntering = enteringIds.has(button.id ?? index);
 
         // Distance from bubble final position back to node center (for animation start)
         const startDX = nodeCenterX - bubbleX;
@@ -575,15 +620,37 @@ const PieMenu = ({
           animationDelayMs = index * STAGGER_DELAY;
         }
 
-        return (
-          <g
-            key={button.id || index}
-            transform={`translate(${bubbleX}, ${bubbleY})`}
-            style={{ 
+        // Line mode positions through the CSS transform rather than the SVG
+        // attribute so the move is transitionable: when the button set changes
+        // the surviving bubbles slide to their new slots (and into a new row)
+        // instead of jumping. Every other mode keeps the attribute — their
+        // layouts don't reflow under a live menu, and a transition there would
+        // only fight the carousel's own animations.
+        const placement = isLineMode
+          ? {
+            style: {
+              cursor: 'pointer',
+              WebkitTapHighlightColor: 'transparent',
+              touchAction: 'manipulation',
+              transform: `translate(${bubbleX}px, ${bubbleY}px)`,
+              transition: animationState === 'visible_steady'
+                ? `transform ${REFLOW_MS}ms cubic-bezier(0.34, 1.4, 0.64, 1)`
+                : 'none',
+            },
+          }
+          : {
+            transform: `translate(${bubbleX}, ${bubbleY})`,
+            style: {
               cursor: 'pointer',
               WebkitTapHighlightColor: 'transparent',
               touchAction: 'manipulation'
-            }}
+            },
+          };
+
+        return (
+          <g
+            key={button.id || index}
+            {...placement}
             onTouchStart={(e) => { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }}
             onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
             onMouseEnter={() => onHoverChange({ id: button.id, label: button.label })}
@@ -660,12 +727,14 @@ const PieMenu = ({
             >
               {/* Inner wrapper so CSS transform does not conflict with outer absolute positioning */}
               <g
-                className={dynamicClassName}
+                className={`${dynamicClassName}${isEntering ? ' is-entering' : ''}`}
                 style={{
                   // Custom properties used by CSS keyframes to calculate initial offset
                   '--start-x': `${startDX}px`,
                   '--start-y': `${startDY}px`,
-                  animationDelay: `${animationDelayMs}ms`,
+                  // A newcomer pops immediately — the open-stagger belongs to the
+                  // sweep across a whole menu, not to one button turning up.
+                  animationDelay: isEntering ? '0ms' : `${animationDelayMs}ms`,
                 }}
                 ref={bubbleRefs.current[index]} // Assign ref to the inner g
               >

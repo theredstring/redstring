@@ -23,7 +23,8 @@ import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances } f
 import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
-import { copySelection, pasteClipboard } from './utils/clipboard.js';
+import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from './utils/clipboard.js';
+import { lineModeBounds } from './utils/pieMenuLayout.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
 import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, Globe, RefreshCw } from 'lucide-react'; // Icons for PieMenu
@@ -1779,6 +1780,13 @@ function NodeCanvas() {
 
   // Clipboard ref for copy/paste operations
   const clipboardRef = useRef(null);
+  // A ref write re-renders nothing, which was fine while the clipboard was only
+  // ever read at the moment of a paste. The connection menu now offers Paste only
+  // when the clipboard holds something a connection can use, so it has to know
+  // when that changes — Copy on a connection is what makes Paste appear. Every
+  // write to clipboardRef goes through markClipboardChanged.
+  const [clipboardVersion, setClipboardVersion] = useState(0);
+  const markClipboardChanged = useCallback(() => setClipboardVersion(v => v + 1), []);
 
   // Onboarding / Storage Setup state
   const [showStorageSetupModal, setShowStorageSetupModal] = useState(false);
@@ -2799,7 +2807,6 @@ function NodeCanvas() {
     };
   }, [moveOutOfBoundsNodesInBounds]);
 
-  // Hover state for grid when mode is 'hover'
 
   /**
    * Transforms client/screen coordinates to canvas coordinates.
@@ -5628,6 +5635,12 @@ function NodeCanvas() {
   const [pieMenuColorPickerVisible, setPieMenuColorPickerVisible] = useState(false);
   const [pieMenuColorPickerPosition, setPieMenuColorPickerPosition] = useState({ x: 0, y: 0 });
   const [activePieMenuColorNodeId, setActivePieMenuColorNodeId] = useState(null);
+  // Connection color picker. Kept separate from the node one above because it
+  // targets a prototype directly: a connection has no instance to look a
+  // prototypeId up from, it just points at the Thing that defines it.
+  const [edgeColorPickerVisible, setEdgeColorPickerVisible] = useState(false);
+  const [edgeColorPickerPosition, setEdgeColorPickerPosition] = useState({ x: 0, y: 0 });
+  const [activeEdgeColorPrototypeId, setActiveEdgeColorPrototypeId] = useState(null);
   const [nodeSelectionGrid, setNodeSelectionGrid] = useState({ visible: false, position: { x: 0, y: 0 } });
   // Pie-menu "Swap": UnifiedSelector prompt to re-point this instance at an existing
   // prototype or a brand-new Thing.
@@ -6403,6 +6416,13 @@ function NodeCanvas() {
                                    // screen and the same 10% just parks the node high with dead
                                    // space under it — in the one layout with the least vertical
                                    // room to spare. See useMobileLandscapeShell.js.
+  // Vertical fill for the tall-node bound below. Deliberately NOT the 1.1 overfill:
+  // that exists to claw back the slack in the 3-ring WIDTH bound, and the vertical
+  // bound has no slack to claw back — PieMenu draws its north/south bubbles exactly
+  // where that bound says they are.
+  const FOCUS_TALL_FILL = 0.95;
+  // Region kept clear above the menu's top edge when applying FOCUS_VERTICAL_BIAS.
+  const FOCUS_BIAS_TOP_MARGIN = 24; // px
   // Skip the animation when the node is already essentially framed, so we don't yank
   // the view on every click — only re-frame when the menu would otherwise be clipped
   // or the node is small/off to the side.
@@ -6453,10 +6473,32 @@ function NodeCanvas() {
     // the TypeList bar when it's open, since vb.height already excludes it.
     const referenceZoomH = (vb.width * 0.5 * fillFrac) / clusterHalfReach;
     const referenceZoomV = (vb.height * 0.5 * fillFrac) / clusterHalfReach;
-    const referenceZoom = Math.min(referenceZoomH, referenceZoomV);
+    // ...but clusterHalfReach is derived from the node's WIDTH, and using it on the
+    // vertical axis too quietly assumes every node is wider than it is tall. An image
+    // node isn't: its height is the text area plus an image slot of up to
+    // IMAGE_MAX_ASPECT times the expanded width (see getNodeDimensions), so a portrait
+    // node runs ~2x taller than it is wide and the fit above came out ~1.4x too loose —
+    // zooming in until the node's name, which on an image node sits at the TOP, was
+    // above the region entirely. So bound the vertical axis by the node's own extent as
+    // well: PieMenu hugs the node's box, putting the north/south bubble centres at
+    // halfH + bPad + bSize/2 and their outer edges half a bubble past that. Exact, so
+    // it takes FOCUS_TALL_FILL rather than the width bound's overfill. For a node that
+    // is wider than it is tall this lands far outside the two fits above and never
+    // binds, which is why ordinary selection framing is unchanged.
+    const menuHalfHeight = dims.currentHeight / 2 + bSize + bPad;
+    const tallZoomV = (vb.height * 0.5 * FOCUS_TALL_FILL) / menuHalfHeight;
+    const referenceZoom = Math.min(referenceZoomH, referenceZoomV, tallZoomV);
     const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
 
-    const verticalBias = mobileLandscapeShell ? 0 : vb.height * FOCUS_VERTICAL_BIAS;
+    // Lift the node above the region centre — but only into space the framing actually
+    // left over. A tall node's menu can fill nearly the whole region height, and a blind
+    // 10% lift then puts its top back off-screen, re-creating the very clipping the
+    // bound above just fixed; headroom goes to 0 there and the node frames dead-centre
+    // instead. Ordinary nodes clear the margin comfortably and keep the full lift.
+    const biasHeadroom = Math.max(0, vb.height / 2 - menuHalfHeight * tz - FOCUS_BIAS_TOP_MARGIN);
+    const verticalBias = mobileLandscapeShell
+      ? 0
+      : Math.min(vb.height * FOCUS_VERTICAL_BIAS, biasHeadroom);
     const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
     const targetPanY = (regionCenterY - verticalBias) - (centerY - canvasSize.offsetY) * tz;
     const minPanX = viewportSize.width - canvasSize.width * tz;
@@ -6478,9 +6520,9 @@ function NodeCanvas() {
   }, [nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, mobileLandscapeShell]);
 
   // Frame the connection (edge) pie menu the same way focusNodeInView frames a node:
-  // fit the menu's own bounds into the usable region. The edge menu is a single row
-  // of buttons laid out along the connection's slope and pushed to one side of it
-  // (PieMenu's line mode) — so its bounds are the row's extent, not a radial ring.
+  // fit the menu's own bounds into the usable region. The edge menu is one or more
+  // rows of buttons laid out along the connection's slope and pushed to one side of
+  // it (PieMenu's line mode) — so its bounds are the block's extent, not a radial ring.
   // This replaces the old "..." compact fallback: rather than collapsing the row when
   // it would be clipped, we zoom out until the whole row fits.
   //
@@ -6492,32 +6534,24 @@ function NodeCanvas() {
   const focusEdgePieMenuInView = useCallback((anchor, buttonCount, labelRect = null) => {
     if (!FOCUS_ON_SELECT_ENABLED || !anchor || !buttonCount) return;
 
-    // Mirror PieMenu's line-mode geometry exactly (BUBBLE_SIZE / BUBBLE_PADDING,
-    // scaled by the same node + pie menu scale settings).
+    // Framed against the layout PieMenu actually draws (utils/pieMenuLayout.js),
+    // rather than a second copy of the geometry here — the row wraps now, and two
+    // hand-kept copies of where it wraps would only agree until one of them moved.
+    // BUBBLE_SIZE / BUBBLE_PADDING, scaled by the same node + pie menu settings.
     const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
     const bSize = 120 * pieScale;
     const bPad = 32 * pieScale;
-    const step = bSize + bPad;
-    const perpOffset = bSize + bPad * 2;
-    const angle = anchor.angle ?? 0;
-    const alongX = Math.cos(angle), alongY = Math.sin(angle);
-    const perpX = Math.sin(angle), perpY = -Math.cos(angle);
-    const half = (buttonCount - 1) / 2;
 
-    // Extremes of the row (both ends) plus the anchor itself, so the connection the
-    // menu belongs to stays framed alongside its buttons.
-    const pts = [{ x: anchor.x, y: anchor.y }];
-    for (const t of [-half, half]) {
-      pts.push({
-        x: anchor.x + t * step * alongX + perpOffset * perpX,
-        y: anchor.y + t * step * alongY + perpOffset * perpY,
-      });
-    }
-    const r = bSize / 2; // bubble radius around each center
-    let minX = Math.min(...pts.map(p => p.x)) - r;
-    let maxX = Math.max(...pts.map(p => p.x)) + r;
-    let minY = Math.min(...pts.map(p => p.y)) - r;
-    let maxY = Math.max(...pts.map(p => p.y)) + r;
+    // Includes the anchor itself, so the connection the menu belongs to stays
+    // framed alongside its buttons.
+    const bounds = lineModeBounds(anchor.x, anchor.y, bSize / 2, {
+      count: buttonCount,
+      angle: anchor.angle ?? 0,
+      step: bSize + bPad,
+      perpOffset: bSize + bPad * 2,
+      rowGap: bSize + bPad,
+    });
+    let { minX, maxX, minY, maxY } = bounds;
 
     // Fold in the label if it doesn't blow the frame out. A very long connection
     // name would otherwise dominate the box and zoom the buttons down to nothing,
@@ -7521,6 +7555,50 @@ function NodeCanvas() {
     storeActions.flushHistory?.();
   }, [storeActions]);
 
+  // Connection color picker. Recolours the Thing that defines the connection, so
+  // every connection of that kind changes together — the same relationship a
+  // node's Palette has with its prototype, and the reason a connection with no
+  // definition yet has no Palette button to press (see edgePieMenuButtons).
+  const handleEdgeColorPickerOpen = useCallback((prototypeId, position) => {
+    if (!prototypeId) return;
+    if (edgeColorPickerVisible && activeEdgeColorPrototypeId === prototypeId) {
+      setEdgeColorPickerVisible(false);
+      setActiveEdgeColorPrototypeId(null);
+      return;
+    }
+    setEdgeColorPickerPosition(position || { x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    setEdgeColorPickerVisible(true);
+    setActiveEdgeColorPrototypeId(prototypeId);
+  }, [edgeColorPickerVisible, activeEdgeColorPrototypeId]);
+
+  const handleEdgeColorPickerClose = useCallback(() => {
+    setEdgeColorPickerVisible(false);
+    setActiveEdgeColorPrototypeId(null);
+  }, []);
+
+  const handleEdgeColorChange = useCallback((color) => {
+    if (!activeEdgeColorPrototypeId) return;
+    // Coalesced across the drag; committed by handleEdgeColorCommit, so a whole
+    // picker session is one undo step.
+    storeActions.updateNodePrototype(activeEdgeColorPrototypeId, draft => {
+      draft.color = color;
+    }, { coalesce: `node-color:${activeEdgeColorPrototypeId}` });
+  }, [activeEdgeColorPrototypeId, storeActions]);
+
+  const handleEdgeColorCommit = useCallback(() => {
+    storeActions.flushHistory?.();
+  }, [storeActions]);
+
+  // Deselecting the connection takes its picker with it — both menus that can
+  // open it are gone by then, so it would otherwise be left floating with
+  // nothing on screen explaining what it's colouring.
+  useEffect(() => {
+    if (!edgeColorPickerVisible) return;
+    if (selectedEdgeId || selectedEdgeIds.size > 0) return;
+    setEdgeColorPickerVisible(false);
+    setActiveEdgeColorPrototypeId(null);
+  }, [edgeColorPickerVisible, selectedEdgeId, selectedEdgeIds]);
+
   // Re-point an existing instance at a different prototype (pie-menu "Swap").
   // Edges reference instance IDs, so every connection stays attached — only the
   // instance's prototypeId changes. Position is nudged so the node keeps its
@@ -7782,7 +7860,10 @@ function NodeCanvas() {
           const currentGraph = graphsMap.get(activeGraphId);
           if (!currentGraph || !instanceId) return;
           const copied = copySelection(new Set([instanceId]), currentGraph, nodePrototypesMap, edgesMap);
-          if (copied) clipboardRef.current = copied;
+          if (copied) {
+            clipboardRef.current = copied;
+            markClipboardChanged();
+          }
         }
       },
       {
@@ -7892,7 +7973,7 @@ function NodeCanvas() {
     ];
 
     return [primaryPage, secondaryPage];
-  }, [singleSelectedInstanceId, storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, graphsMap, edgesMap, nodePrototypesMap, clipboardRef, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, CopyPlus, Sparkles, Scaling, TextSearch, ImagePlus, SendToBack, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+  }, [singleSelectedInstanceId, storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, graphsMap, edgesMap, nodePrototypesMap, clipboardRef, markClipboardChanged, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, CopyPlus, Sparkles, Scaling, TextSearch, ImagePlus, SendToBack, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
 
   // Pie Menu Button Configuration - now targetPieMenuButtons and dynamic
   const targetPieMenuButtons = useMemo(() => {
@@ -11637,6 +11718,7 @@ function NodeCanvas() {
     selectedEdgeId,
     selectedEdgeIds,
     clipboardRef,
+    onClipboardChange: markClipboardChanged,
     keysPressed,
     mousePositionRef, // {x, y} in client coords
     panOffset,
@@ -12399,7 +12481,19 @@ function NodeCanvas() {
     runHurtleAnimation(animationData);
   }, [containerRef, runHurtleAnimation]);
 
-  // Edge pie menu button definitions
+  /**
+   * The connection menu's buttons, in display order.
+   *
+   * One list, two consumers, exactly as nodePieMenuPages is: PieMenu draws it on
+   * the canvas (wrapping it into rows once it outgrows one — see
+   * utils/pieMenuLayout.js) and the bottom control panel renders the same
+   * buttons in its own strip. The panel used to hand-transcribe a subset, which
+   * is how the two drifted apart in the first place.
+   *
+   * Half of these come and go: Palette and Copy need a definition to act on,
+   * Paste needs a clipboard that holds one. That's what makes the row's length a
+   * layout problem rather than a constant.
+   */
   const edgePieMenuButtons = useMemo(() => {
     const edge = edgesMap.get(selectedEdgeId);
     if (!edge) return [];
@@ -12409,6 +12503,19 @@ function NodeCanvas() {
       return edge.typeNodeId || null;
     };
 
+    // The prototype a Palette press would recolour. A connection nobody has
+    // defined yet points at the built-in base connection, which lives in
+    // edgePrototypes and renders black for every undefined connection there is —
+    // not something one connection's menu gets to change. Define it first.
+    const definitionPrototypeId = (() => {
+      const id = getDefinitionNodeId();
+      return id && nodePrototypesMap.has(id) ? id : null;
+    })();
+
+    // What (if anything) the clipboard can hand this connection. Recomputed on
+    // clipboardVersion, which every write to clipboardRef bumps.
+    const pastePayload = readConnectionClipboard(clipboardRef.current, nodePrototypesMap);
+
     const buttons = [
       {
         id: 'edge-delete',
@@ -12417,6 +12524,10 @@ function NodeCanvas() {
         action: () => {
           storeActions.removeEdge(edge.id);
           storeActions.setSelectedEdgeId(null);
+          // Also clears the multi-select set: this same button is what the bottom
+          // control panel presses, and there a stale id would keep the panel up
+          // pointing at a connection that no longer exists.
+          storeActions.setSelectedEdgeIds(new Set());
           setEdgePieMenuVisible(false);
         },
       },
@@ -12429,6 +12540,20 @@ function NodeCanvas() {
           setConnectionNamePrompt({ visible: true, name: '', color: CONNECTION_DEFAULT_COLOR, edgeId: edge.id });
         },
       },
+    ];
+
+    if (definitionPrototypeId) {
+      buttons.push({
+        id: 'edge-palette',
+        label: 'Palette',
+        icon: Palette,
+        action: (_edgeId, buttonPosition) => {
+          handleEdgeColorPickerOpen(definitionPrototypeId, buttonPosition);
+        },
+      });
+    }
+
+    buttons.push(
       {
         id: 'edge-open-def',
         label: 'Open Definition',
@@ -12466,8 +12591,36 @@ function NodeCanvas() {
           }
           setEdgePieMenuVisible(false);
         },
-      },
-    ];
+      }
+    );
+
+    if (definitionPrototypeId) {
+      buttons.push({
+        id: 'edge-copy',
+        label: 'Copy',
+        icon: ClipboardCopy,
+        action: () => {
+          // Copies what the connection MEANS, not the connection — an edge away
+          // from its two endpoints is nothing. Same payload as Cmd/Ctrl+C on a
+          // selected connection, so both fill one clipboard.
+          const copied = copyEdgeDefinition(edge);
+          if (!copied) return;
+          clipboardRef.current = copied;
+          markClipboardChanged();
+        },
+      });
+    }
+
+    if (pastePayload) {
+      buttons.push({
+        id: 'edge-paste',
+        label: `Paste ${pastePayload.name.length > 22 ? 'Definition' : pastePayload.name}`,
+        icon: ClipboardPaste,
+        action: () => {
+          applyConnectionClipboard(pastePayload, [edge.id], storeActions);
+        },
+      });
+    }
 
     if (wizardEnabled) {
       buttons.push({
@@ -12485,7 +12638,8 @@ function NodeCanvas() {
     }
 
     return buttons;
-  }, [selectedEdgeId, edgesMap, nodePrototypesMap, wizardEnabled, storeActions, startHurtleAnimationFromPanel, openWizardWithPrompt, rightPanelExpanded]);
+  }, [selectedEdgeId, edgesMap, nodePrototypesMap, wizardEnabled, storeActions, startHurtleAnimationFromPanel, openWizardWithPrompt, rightPanelExpanded,
+    handleEdgeColorPickerOpen, clipboardRef, clipboardVersion, markClipboardChanged]);
 
   // Freeze edge pie menu buttons when visible so they survive edge deselection during exit animation
   useEffect(() => {
@@ -14212,26 +14366,32 @@ function NodeCanvas() {
                   {/* Grid overlay — rendered before groups/nodes/edges so it
                     sits underneath them in z-order. SVG <pattern> tiles in the
                     GPU paint layer (ONE <rect> instead of thousands of lines). */}
-                  {(gridMode === 'always' || (gridMode === 'hover' && !!draggingNodeInfo)) && (() => {
+                  {(gridMode === 'always' || (gridMode === 'move' && !!draggingNodeInfo)) && (() => {
                     const dotR = Math.min(6, Math.max(3, gridSize * 0.06));
                     const lineColor = theme.darkMode ? "#716C6C" : "#979090";
                     const dotColor = theme.canvas.textPrimary;
-                    // Drag/hover always shows dots. In 'always' mode the appearance
-                    // setting picks the look: 'lattice' → lines, 'dot' → the same dots.
-                    const useDots = gridMode === 'hover' || gridAppearance === 'dot';
+                    // The appearance setting picks the look in both modes —
+                    // 'lattice' → lines, 'dot' → dots. Hover mode used to force
+                    // dots regardless, which meant the grid that appeared under
+                    // a drag didn't match the one the setting describes.
+                    const useDots = gridAppearance === 'dot';
                     return (
                       <g className="grid-overlay" pointerEvents="none">
                         <defs>
                           {useDots ? (
                             <pattern
                               id="grid-dots-pattern"
-                              x={0}
-                              y={0}
+                              // Tile origin shifted back half a cell so the centered
+                              // circle lands on the lattice points (multiples of
+                              // gridSize) that snapping uses, without being clipped
+                              // by the tile bounds.
+                              x={-gridSize / 2}
+                              y={-gridSize / 2}
                               width={gridSize}
                               height={gridSize}
                               patternUnits="userSpaceOnUse"
                             >
-                              <circle cx={0} cy={0} r={dotR} fill={dotColor} opacity={0.3} />
+                              <circle cx={gridSize / 2} cy={gridSize / 2} r={dotR} fill={dotColor} opacity={0.3} />
                             </pattern>
                           ) : (
                             <pattern
@@ -16837,14 +16997,19 @@ function NodeCanvas() {
                         {/* Edge pie menu — rendered inline at the edge midpoint */}
                         {(() => {
                           const anchor = edgePieMenuAnchorRef.current;
-                          // Prefer the frozen ref (survives edge deselection during exit animation),
-                          // but fall back to the live buttons on first show — the ref is populated by a
-                          // separate effect that runs after visibility flips, and a ref write triggers no
-                          // re-render, so without this fallback the menu wouldn't appear until the next
-                          // unrelated render (e.g. a mouse move).
-                          const frozenButtons = (edgePieMenuButtonsRef.current && edgePieMenuButtonsRef.current.length > 0)
-                            ? edgePieMenuButtonsRef.current
-                            : edgePieMenuButtons;
+                          // Live buttons win whenever there are any; the frozen ref only stands in once
+                          // the list empties out, which is exactly the case it exists for — the edge is
+                          // deselected while the menu is still animating away, and the bubbles have to
+                          // finish shrinking on the set they were showing.
+                          //
+                          // Deliberately not the other way round: this list changes under an open menu
+                          // (Copy makes Paste available, pasting a definition makes Palette and Copy
+                          // available), and a ref write re-renders nothing — so preferring the ref would
+                          // pin the menu to whatever it had when it opened until some unrelated render
+                          // happened to come along.
+                          const frozenButtons = edgePieMenuButtons.length > 0
+                            ? edgePieMenuButtons
+                            : edgePieMenuButtonsRef.current;
                           if (!edgePieMenuRendered || !anchor || !frozenButtons || frozenButtons.length === 0) return null;
 
                           // Hide (outro) while a node this edge is attached to is being dragged —
@@ -17778,6 +17943,8 @@ function NodeCanvas() {
             isVisible={connectionControlPanelVisible}
             typeListOpen={typeListVisible}
             onAnimationComplete={handleConnectionControlPanelAnimationComplete}
+            pieMenuButtons={edgePieMenuButtons}
+            pieMenuTargetEdgeId={selectedEdgeId}
             onClose={() => {
               storeActions.setSelectedEdgeId(null);
               storeActions.setSelectedEdgeIds(new Set());
@@ -17906,6 +18073,21 @@ function NodeCanvas() {
               return node?.color || 'maroon';
             })()}
             position={pieMenuColorPickerPosition}
+            direction="down-left"
+          />
+        )
+      }
+
+      {/* Connection Color Picker — recolours the Thing that defines the connection */}
+      {
+        edgeColorPickerVisible && activeEdgeColorPrototypeId && (
+          <ColorPicker
+            isVisible={edgeColorPickerVisible}
+            onClose={handleEdgeColorPickerClose}
+            onColorChange={handleEdgeColorChange}
+            onColorCommit={handleEdgeColorCommit}
+            currentColor={nodePrototypesMap.get(activeEdgeColorPrototypeId)?.color || CONNECTION_DEFAULT_COLOR}
+            position={edgeColorPickerPosition}
             direction="down-left"
           />
         )

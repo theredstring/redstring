@@ -181,7 +181,7 @@ export function snapPositionToGrid(x, y, nodeWidth, nodeHeight, gridSize) {
  * @param {number} mouseY - Mouse Y in canvas coordinates
  * @param {number} nodeWidth - Width of node being snapped
  * @param {number} nodeHeight - Height of node being snapped
- * @param {string} gridMode - Grid mode ('off', 'hover', 'always')
+ * @param {string} gridMode - Grid mode ('off', 'move', 'always')
  * @param {number} gridSize - Grid cell size
  * @returns {{x: number, y: number}} Snapped coordinates
  */
@@ -212,7 +212,7 @@ export function snapToGrid(mouseX, mouseY, nodeWidth, nodeHeight, gridMode, grid
  * @param {number} nodeWidth - Width of node being snapped
  * @param {number} nodeHeight - Height of node being snapped
  * @param {Object|null} currentPos - Current position for animation {x, y}
- * @param {string} gridMode - Grid mode ('off', 'hover', 'always')
+ * @param {string} gridMode - Grid mode ('off', 'move', 'always')
  * @param {number} gridSize - Grid cell size
  * @returns {{x: number, y: number}} Snapped coordinates (possibly animated)
  */
@@ -224,7 +224,7 @@ export function snapToGridAnimated(mouseX, mouseY, nodeWidth, nodeHeight, curren
   const snapped = snapToGrid(mouseX, mouseY, nodeWidth, nodeHeight, gridMode, gridSize);
 
   // In grid mode, always snap instantly for precise positioning
-  if (gridMode === 'hover' || gridMode === 'always') {
+  if (gridMode === 'move' || gridMode === 'always') {
     return snapped;
   }
 

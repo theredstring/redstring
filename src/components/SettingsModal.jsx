@@ -354,7 +354,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <OptionGroup
               options={[
                 { label: 'Off', value: 'off' },
-                { label: 'On Move', value: 'hover' },
+                { label: 'On Move', value: 'move' },
                 { label: 'Always', value: 'always' }
               ]}
               value={gridMode || 'off'}

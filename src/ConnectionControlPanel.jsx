@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useRef } from 'react';
 import UnifiedBottomControlPanel from './UnifiedBottomControlPanel';
 import useGraphStore from './store/graphStore.js';
 import { CONNECTION_DEFAULT_COLOR } from './constants';
@@ -15,7 +15,15 @@ const ConnectionControlPanel = ({
   onStartHurtleAnimationFromPanel,
   onActionHoverChange,
   onAskWizard,
-  wizardEnabled = false
+  wizardEnabled = false,
+  // The canvas connection menu's own buttons, handed over verbatim so this panel
+  // renders the same set rather than a transcription of it — see
+  // edgePieMenuButtons in NodeCanvas, and the identical arrangement
+  // pieMenuPages already uses for a single Thing. Only usable for one
+  // connection: every action in that list is written against exactly one edge,
+  // so multi-select still falls back to the hand-written buttons below.
+  pieMenuButtons = null,
+  pieMenuTargetEdgeId = null
 }) => {
   const edgePrototypesMap = useGraphStore((state) => state.edgePrototypes);
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
@@ -278,6 +286,22 @@ const ConnectionControlPanel = ({
     onAskWizard(edges);
   };
 
+  // One connection selected — the shape every pie-menu action is written for.
+  const singleEdgeSelected = Boolean(selectedEdge) && (selectedEdges?.length ?? 0) <= 1;
+  const nothingSelected = !selectedEdge && (selectedEdges?.length ?? 0) === 0;
+
+  // Deselecting empties the button list a beat before the panel finishes flying
+  // out, and without this the row would visibly swap to the multi-select
+  // fallback on its way off screen — a different, shorter set of buttons, mid
+  // animation. Hold the last real set for exactly that window.
+  const lastPieMenuButtonsRef = useRef(null);
+  if (singleEdgeSelected && pieMenuButtons?.length) {
+    lastPieMenuButtonsRef.current = { buttons: pieMenuButtons, edgeId: pieMenuTargetEdgeId };
+  }
+  const heldPieMenu = (singleEdgeSelected && pieMenuButtons?.length)
+    ? { buttons: pieMenuButtons, edgeId: pieMenuTargetEdgeId }
+    : (nothingSelected ? lastPieMenuButtonsRef.current : null);
+
   return (
     <UnifiedBottomControlPanel
       mode="connections"
@@ -291,6 +315,10 @@ const ConnectionControlPanel = ({
       onToggleLeftArrow={handleToggleLeftArrow}
       onToggleRightArrow={handleToggleRightArrow}
       onPredicateClick={handlePredicateClick}
+
+      // Shared canvas menu buttons (single connection only)
+      connectionPieMenuButtons={heldPieMenu?.buttons ?? null}
+      connectionPieMenuTargetEdgeId={heldPieMenu?.edgeId ?? null}
 
       // Pie menu button handlers
       onDelete={handleDelete}

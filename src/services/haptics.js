@@ -321,6 +321,28 @@ const RECIPES = {
     [HapticTier.TAPTIC]: { impact: 'LIGHT' },
     [HapticTier.BASIC]: { vibrate: 8 }
   },
+  /**
+   * A dragged node crosses into the next grid cell and snaps to it — one
+   * detent per grid line, driven by useNodeDrag's per-frame snap.
+   *
+   * A tick rather than the light impact carouselDetent uses, even though both
+   * are "a node box settling into a slot". Two reasons, and they point the same
+   * way. First, this track is genuinely unbounded: the carousel's physics cap it
+   * at ~3 detents per flick, while a grid drag has no such governor — with
+   * drag-zoom engaged a 200px cell is 20 screen px, so an ordinary 500px/s drag
+   * already saturates the rate limit, and a run of impacts at that rate reads as
+   * pounding. Second, the gesture's terminal event is nodeDrop, a LIGHT impact;
+   * if the crossings were also impacts, the landing would be indistinguishable
+   * from the last crossing before it. Same tick-then-impact split that keeps
+   * connectionMade legible against connectionStretch.
+   *
+   * Taptic-only, on the rule the other streams here follow: a single vibration
+   * motor renders a stream as a continuous rattle, not a texture. The absent
+   * BASIC entry IS the routing — haptic() finds no recipe and returns.
+   */
+  gridSnap: {
+    [HapticTier.TAPTIC]: { tick: true }
+  },
   /** An edge is selected. A tick — the same class of act as tapping a node. */
   edgeSelect: {
     [HapticTier.TAPTIC]: { tick: true },
