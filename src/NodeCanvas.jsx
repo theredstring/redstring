@@ -1030,6 +1030,7 @@ function NodeCanvas() {
   const imageCacheMap = useImageCache(state => state.images);
   // Per-prototype "upload in progress" flags — drive the shimmer placeholder.
   const loadingImagesMap = useImageCache(state => state.loading);
+  const failedImagesMap = useImageCache(state => state.failed);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
   const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
@@ -1558,11 +1559,26 @@ function NodeCanvas() {
         : (prototype.thumbnailSrc || null);
       // Mirrors the imageOverrides rule below, so the reuse check compares the same
       // ratio the node will actually be built with.
+      // The semanticMetadata fallback matters when the image is EXPECTED but not
+      // in hand: an auto-enriched node keeps its ratio there (it survives save,
+      // where the image data does not), so a slot reserved for an unfetchable
+      // image is still the right shape rather than defaulting to square.
       const effectiveAspect = (cached && !prototype.thumbnailSrc)
         ? cached.imageAspectRatio
-        : prototype.imageAspectRatio;
+        : (prototype.imageAspectRatio ?? prototype.semanticMetadata?.imageAspectRatio);
       // Show the shimmer only while there's no image to show yet.
       const imageLoading = Boolean(loadingImagesMap[instance.prototypeId]) && !effectiveThumb;
+      // The graph says this node HAS an image and every attempt to get it
+      // failed. Without this the node renders identically to one that never had
+      // an image — the layout collapses and the viewer has no way to tell a
+      // missing picture from an absent one. `wikipediaThumbnail` (a URL we
+      // could not fetch) and `imageRef` (a blob we could not read) are both
+      // statements that an image is expected.
+      const expectsImage = Boolean(
+        prototype.semanticMetadata?.wikipediaThumbnail || prototype.imageRef
+      );
+      const imageMissing = expectsImage && !effectiveThumb &&
+        Boolean(failedImagesMap[instance.prototypeId]);
 
       const prev = prevMap.get(id);
       // Reuse old reference if nothing meaningful changed
@@ -1579,6 +1595,7 @@ function NodeCanvas() {
         // node at its square placeholder height until something else invalidated it.
         prev.imageAspectRatio === effectiveAspect &&
         prev.imageLoading === imageLoading &&
+        prev.imageMissing === imageMissing &&
         prev.description === prototype.description &&
         prev.definitionGraphIds === prototype.definitionGraphIds) {
         result.push(prev);
@@ -1592,7 +1609,9 @@ function NodeCanvas() {
           ...imageOverrides,
           ...instance,
           name: prototype.name,
+          imageAspectRatio: effectiveAspect,
           imageLoading,
+          imageMissing,
         };
         result.push(node);
         newMap.set(id, node);
@@ -1611,7 +1630,7 @@ function NodeCanvas() {
     }
 
     return result;
-  }, [instances, nodePrototypesMap, imageCacheMap, loadingImagesMap]);
+  }, [instances, nodePrototypesMap, imageCacheMap, loadingImagesMap, failedImagesMap]);
 
   const edges = useMemo(() => {
     if (!graphEdgeIds || !edgesMap) return [];
@@ -1644,7 +1663,7 @@ function NodeCanvas() {
     // imageAspectRatio, which drives node height and can arrive after the thumbnail.
     // One builder because the eviction sweep below has to produce the identical
     // string — two hand-written copies would silently drift.
-    const keyFor = (n) => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${n.imageAspectRatio ?? 'noar'}-${n.imageLoading ? 'loading' : 'idle'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}-${n.sizeMul || 1}`;
+    const keyFor = (n) => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${n.imageAspectRatio ?? 'noar'}-${n.imageLoading ? 'loading' : 'idle'}-${n.imageMissing ? 'missing' : 'ok'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}-${n.sizeMul || 1}`;
 
     for (const n of nodes) {
       const cacheKey = keyFor(n);
@@ -8008,7 +8027,9 @@ function NodeCanvas() {
               const aspectRatio = (width > 0 && height > 0) ? (height / width) : 1;
               const thumbSrc = await generateThumbnail(dataUrl, THUMBNAIL_MAX_DIMENSION);
               storeActions.updateNodePrototype(prototypeId, draft => {
-                Object.assign(draft, { imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
+                // imageRef cleared: it addresses the PREVIOUS image, and leaving
+                // it would have the panel resolve the old picture from the repo.
+                Object.assign(draft, { imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio, imageRef: null, imageRefExt: null });
                 // User image replaces any auto-enriched Wikipedia thumbnail — clear
                 // the flag so the save system persists it in-file.
                 if (draft.semanticMetadata?.autoEnriched) {

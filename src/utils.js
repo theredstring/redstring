@@ -117,6 +117,11 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // A user upload being read/decoded reserves the image slot (square placeholder)
   // so the shimmer has somewhere to render before the real thumbnail exists.
   const imageLoading = node.imageLoading === true;
+  // An image the graph says exists that we could not fetch. It reserves the slot
+  // for the same reason the loading state does — collapsing the layout would
+  // make an unreachable image indistinguishable from a node that never had one,
+  // and would reflow the whole canvas the moment a connection drops.
+  const imageMissing = node.imageMissing === true;
   // const imageSrc = node.getImageSrc ? node.getImageSrc() : node.imageSrc; // If needed for dimensions
 
   // PERFORMANCE: Check cache first
@@ -144,14 +149,14 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // rawAspectRatio is in the key because it can land AFTER the thumbnail does —
   // imageCache resolves its fetch asynchronously, and a file load re-queues from
   // semanticMetadata — so a key without it would serve stale square dims forever.
-  const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${rawAspectRatio ?? 'noar'}-${imageLoading ? 'loading' : 'idle'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}-${nodeScale}-${lineHeightBase}`;
+  const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${rawAspectRatio ?? 'noar'}-${imageLoading ? 'loading' : 'idle'}-${imageMissing ? 'missing' : 'ok'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}-${nodeScale}-${lineHeightBase}`;
 
   const cached = dimensionCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
-  const hasImage = Boolean(thumbnailSrc) || imageLoading; // Check based on thumbnail (or a pending upload)
+  const hasImage = Boolean(thumbnailSrc) || imageLoading || imageMissing; // thumbnail, a pending upload, or a reserved slot for one we couldn't fetch
   // We can't easily get naturalWidth/Height from a src string here.
   // We might need to pass pre-calculated image dimensions into the node data itself,
   // or adjust the logic to not rely on naturalWidth/Height if possible.

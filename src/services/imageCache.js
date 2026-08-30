@@ -25,14 +25,40 @@ import { create } from 'zustand';
 const useImageCache = create((set, get) => ({
   images: {}, // { [protoId]: { thumbnailSrc: string, imageAspectRatio: number } }
   loading: {}, // { [protoId]: true } — a user upload is being read/decoded (drives the shimmer placeholder)
+  // { [protoId]: true } — every fetch attempt for an EXPECTED image failed.
+  // Distinct from "no image": the graph says this node has one and we could not
+  // get it, which the canvas must render differently from a node that never had
+  // an image at all. Without this the two are indistinguishable and a failed
+  // fetch silently looks like an imageless node.
+  failed: {},
 
   /** Store a thumbnail for a node prototype */
-  setImage: (protoId, data) => set(state => ({
-    images: { ...state.images, [protoId]: data }
-  })),
+  setImage: (protoId, data) => set(state => {
+    // Success clears any prior failure so the node stops rendering its
+    // missing-image state.
+    if (!state.failed[protoId]) {
+      return { images: { ...state.images, [protoId]: data } };
+    }
+    const failed = { ...state.failed };
+    delete failed[protoId];
+    return { images: { ...state.images, [protoId]: data }, failed };
+  }),
 
   /** Get cached image data for a node prototype */
   getImage: (protoId) => get().images[protoId] || null,
+
+  /** Mark an expected image as unobtainable (drives the missing-image state) */
+  setFailed: (protoId) => set(state => (
+    state.failed[protoId] ? state : { failed: { ...state.failed, [protoId]: true } }
+  )),
+
+  /** Clear the failed flag (a retry is starting, or the image was removed) */
+  clearFailed: (protoId) => set(state => {
+    if (!state.failed[protoId]) return state;
+    const failed = { ...state.failed };
+    delete failed[protoId];
+    return { failed };
+  }),
 
   /** Remove cached image for a node prototype */
   clearImage: (protoId) => set(state => {
@@ -64,7 +90,7 @@ const useImageCache = create((set, get) => ({
   }),
 
   /** Clear all cached images */
-  clearAll: () => set({ images: {}, loading: {} })
+  clearAll: () => set({ images: {}, loading: {}, failed: {} })
 }));
 
 /**
@@ -103,27 +129,66 @@ function _bumpEpoch(protoId) {
   return next;
 }
 
+// A single fetch used to be the whole story: one failure and the node showed no
+// image until a full reload. On mobile — the primary git surface — a transient
+// failure is the common case, not the edge case, so a bounded retry is what
+// makes the difference between "the image loads a second late" and "this node
+// has no picture any more".
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_MS = 800; // 800ms, 1.6s
+
+/**
+ * Is this failure worth retrying?
+ *
+ * 4xx means the URL is wrong or the file is gone — retrying re-asks a question
+ * already answered, forever. Network errors and 5xx are the transient ones.
+ */
+const _isRetryable = (status) => status == null || status >= 500 || status === 429;
+
 async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName, epoch) {
   // Skip if already cached
   if (useImageCache.getState().getImage(protoId)) return;
 
-  try {
-    const url = resizeWikipediaThumbUrl(thumbUrl, 500);
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      console.warn(`[ImageCache] "${nodeName}": HTTP ${resp.status} from ${url}`);
-      return;
-    }
+  const url = resizeWikipediaThumbUrl(thumbUrl, 500);
+  let lastStatus = null;
 
-    const blob = await resp.blob();
-    // Superseded while in flight — the node no longer wants this image.
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // Superseded between attempts — the node no longer wants this image.
     if (_epochs.get(protoId) !== epoch) return;
 
-    const blobUrl = URL.createObjectURL(blob);
-    useImageCache.getState().setImage(protoId, { thumbnailSrc: blobUrl, imageAspectRatio });
-    console.log(`[ImageCache] Cached "${nodeName}" (blob ${(blob.size / 1024).toFixed(0)}KB)`);
-  } catch (err) {
-    console.warn(`[ImageCache] Failed "${nodeName}":`, err?.message || err);
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        lastStatus = resp.status;
+        if (!_isRetryable(resp.status)) {
+          console.warn(`[ImageCache] "${nodeName}": HTTP ${resp.status} from ${url} (permanent)`);
+          break;
+        }
+        throw new Error(`HTTP ${resp.status}`);
+      }
+
+      const blob = await resp.blob();
+      if (_epochs.get(protoId) !== epoch) return;
+
+      const blobUrl = URL.createObjectURL(blob);
+      useImageCache.getState().setImage(protoId, { thumbnailSrc: blobUrl, imageAspectRatio });
+      console.log(`[ImageCache] Cached "${nodeName}" (blob ${(blob.size / 1024).toFixed(0)}KB)`);
+      return;
+    } catch (err) {
+      if (attempt === MAX_ATTEMPTS) {
+        console.warn(`[ImageCache] Failed "${nodeName}" after ${attempt} attempts:`, err?.message || err);
+        break;
+      }
+      const delay = RETRY_BASE_MS * Math.pow(2, attempt - 1);
+      console.warn(`[ImageCache] "${nodeName}" attempt ${attempt} failed (${err?.message || err}), retrying in ${delay}ms`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  // Out of attempts. Record it so the node can render a missing-image state
+  // instead of silently pretending it never had one.
+  if (_epochs.get(protoId) === epoch) {
+    useImageCache.getState().setFailed(protoId);
   }
 }
 
@@ -153,6 +218,27 @@ async function _processQueue() {
 export function queueThumbnailFetch(protoId, thumbUrl, imageAspectRatio = 1, nodeName = '') {
   if (!thumbUrl) return;
   if (useImageCache.getState().getImage(protoId)) return;
+  // A queued fetch supersedes a previous verdict — otherwise a node that failed
+  // once keeps rendering its missing-image state through an explicit retry.
+  useImageCache.getState().clearFailed(protoId);
+  _queue.push({ protoId, thumbUrl, imageAspectRatio, nodeName, epoch: _bumpEpoch(protoId) });
+  _processQueue();
+}
+
+/**
+ * Re-attempt a previously failed image, discarding the failed verdict.
+ *
+ * The automatic bounded retry above handles a flaky moment; this is the manual
+ * escape hatch for "my connection came back an hour later", which currently
+ * needs a reload. No UI calls it yet — placing that affordance on a node means
+ * putting a click target inside a shape that already handles select and drag,
+ * which is a design call, not a plumbing one.
+ */
+export function retryThumbnailFetch(protoId, thumbUrl, imageAspectRatio = 1, nodeName = '') {
+  if (!thumbUrl) return;
+  useImageCache.getState().clearFailed(protoId);
+  useImageCache.getState().clearImage(protoId);
+  _queue = _queue.filter((job) => job.protoId !== protoId);
   _queue.push({ protoId, thumbUrl, imageAspectRatio, nodeName, epoch: _bumpEpoch(protoId) });
   _processQueue();
 }
@@ -170,6 +256,9 @@ export function cancelThumbnailFetch(protoId) {
   _bumpEpoch(protoId);
   _queue = _queue.filter(job => job.protoId !== protoId);
   useImageCache.getState().clearImage(protoId);
+  // The graph no longer expects an image here, so there is nothing left to
+  // report as missing.
+  useImageCache.getState().clearFailed(protoId);
 }
 
 export default useImageCache;

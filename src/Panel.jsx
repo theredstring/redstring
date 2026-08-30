@@ -1596,7 +1596,9 @@ const Panel = memo(forwardRef(
           // Not recorded: the patch and its inverse would each carry a full
           // base64 data URL, pinning megabytes per entry in a 500-entry ring.
           storeActions.updateNodePrototype(nodeId, draft => {
-            Object.assign(draft, { imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
+            // imageRef cleared: it addresses the PREVIOUS image, and leaving it
+            // would have the panel resolve the old picture from the repo.
+            Object.assign(draft, { imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio, imageRef: null, imageRefExt: null });
             if (draft.semanticMetadata?.autoEnriched) {
               draft.semanticMetadata = { ...draft.semanticMetadata, autoEnriched: false, wikipediaThumbnail: null };
             }

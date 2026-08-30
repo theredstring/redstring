@@ -186,6 +186,14 @@ const Node = ({
   // exists yet — reserve the image slot and render a shimmer placeholder.
   const isImageLoading = node.imageLoading === true && !hasThumbnail;
 
+  // The graph says this node has an image and we could not get it: the
+  // Wikipedia URL didn't answer, or the content-addressed blob isn't in the
+  // repo. The slot stays reserved and says so. Previously this rendered as a
+  // plain text node, which is the same thing the canvas draws for a node that
+  // never had an image — so a failed fetch was invisible, and the viewer had no
+  // way to know anything was supposed to be there.
+  const isImageMissing = node.imageMissing === true && !hasThumbnail && !isImageLoading;
+
   // Calculate image position based on dynamic textAreaHeight
   const contentAreaY = nodeY + textAreaHeight;
 
@@ -651,6 +659,52 @@ const Node = ({
           </rect>
         </g>
       )}
+
+      {/* Unreachable image — the slot the layout reserved, filled with a quiet
+          statement that something is meant to be here. Deliberately the same
+          neutral as the loading shimmer and NOT an error color: an image that
+          didn't load is a condition, not a fault, and colouring it red would
+          both misattribute blame and break the panel's maroon-only palette. */}
+      {isImageMissing && imageWidth > 0 && imageHeight > 0 && (() => {
+        // Glyph scales with the slot but is clamped so it stays legible on a
+        // small node and doesn't dominate a large one.
+        const g = Math.max(12, Math.min(44, Math.min(imageWidth, imageHeight) * 0.3));
+        const cx = nodeX + effPadding + imageWidth / 2;
+        const cy = contentAreaY + imageHeight / 2;
+        return (
+          <g clipPath={`url(#${clipPathId})`} style={{ pointerEvents: 'none' }}>
+            <rect
+              x={nodeX + effPadding}
+              y={contentAreaY}
+              width={imageWidth}
+              height={imageHeight}
+              fill="#cfcfcf"
+            />
+            {/* Frame + horizon + sun: the conventional "image" mark, drawn as
+                strokes so it reads at any size without a raster asset. */}
+            <g
+              stroke="#9a9a9a"
+              strokeWidth={Math.max(1.25, g * 0.075)}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+            >
+              <rect
+                x={cx - g / 2}
+                y={cy - g / 2}
+                width={g}
+                height={g}
+                rx={g * 0.14}
+              />
+              <path d={`M ${cx - g * 0.36} ${cy + g * 0.22} L ${cx - g * 0.08} ${cy - g * 0.1} L ${cx + g * 0.14} ${cy + g * 0.12} L ${cx + g * 0.26} ${cy + g * 0.02} L ${cx + g * 0.36} ${cy + g * 0.22} Z`} />
+              <circle cx={cx + g * 0.16} cy={cy - g * 0.2} r={g * 0.075} />
+              {/* Slash: distinguishes "absent" from "still arriving", so this is
+                  never mistaken for a slow load. */}
+              <path d={`M ${cx - g * 0.56} ${cy + g * 0.56} L ${cx + g * 0.56} ${cy - g * 0.56}`} />
+            </g>
+          </g>
+        );
+      })()}
       {/* </g> */}
 
       {/* --- Network Preview Container --- */}

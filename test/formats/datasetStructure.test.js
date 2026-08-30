@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { exportToRedstring, importFromRedstring } from '../../src/formats/redstringFormat.js';
+import { exportToRedstring, importFromRedstring, CURRENT_FORMAT_VERSION } from '../../src/formats/redstringFormat.js';
 import { MIGRATIONS } from '../../src/formats/migrations.js';
 
 /**
@@ -56,9 +56,13 @@ describe('P3.1 — v4 export shape (emitV4: true)', () => {
   const state = buildState();
   const ex = exportToRedstring(state, null, { emitV4: true });
 
-  it('emits format redstring-v4.1.0', () => {
-    expect(ex.format).toBe('redstring-v4.1.0');
-    expect(ex.metadata.version).toBe('4.1.0');
+  // Tracks CURRENT_FORMAT_VERSION rather than pinning a literal: what this
+  // asserts is that export stamps the current version in BOTH places and that
+  // the two agree, which is what actually breaks. A hard-coded string only
+  // means every additive minor bump has to be hand-edited here.
+  it('stamps the current format version in format and metadata', () => {
+    expect(ex.format).toBe(`redstring-v${CURRENT_FORMAT_VERSION}`);
+    expect(ex.metadata.version).toBe(CURRENT_FORMAT_VERSION);
   });
 
   it('has NO top-level relationships section', () => {

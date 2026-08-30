@@ -92,6 +92,13 @@ export const KNOWN_PROTOTYPE_KEYS = new Set([
   'redstring:abstractionChains', 'redstring:agentConfig', 'redstring:semanticMetadata',
   'redstring:isSpecificityChainNode', 'redstring:hasSpecificityChain', 'redstring:createdAt',
   'isSpecificityChainNode', 'hasSpecificityChain', 'createdAt',
+  // Content-addressed full-resolution image (4.2.0). Deliberately top-level
+  // rather than inside redstring:visualProperties — see the long note at the
+  // emission site in redstringFormat.js. Being listed here is what stops a
+  // CURRENT build from quarantining its own field; being top-level at all is
+  // what lets an OLDER build quarantine it into _preserved instead of dropping
+  // it, so the ref survives a round trip through a client that predates it.
+  'redstring:imageRef', 'redstring:imageRefExt', 'imageRef', 'imageRefExt',
   // SKOS + PROV emitted by Phase 2 (P2.4/P2.5/P2.6) — recognized, not quarantined
   'skos:prefLabel', 'skos:altLabel', 'skos:inScheme', 'skos:broader',
   'skos:closeMatch', 'skos:exactMatch',
@@ -254,6 +261,19 @@ export const quarantineUnknownFields = (data, version) => {
  * lacks it → the reader leaves sizeMul undefined → the node renders at Medium (1.0).
  * So a 4.0.0 file takes the runMigrations fast path unchanged and re-stamps to 4.1.0
  * on the next save.
+ *
+ * Note on 4.1.0 → 4.2.0 (content-addressed images): also NO ledger step, for the
+ * same reason. It adds two optional top-level prototype fields (redstring:imageRef,
+ * redstring:imageRefExt) and never removes the inline redstring:imageSrc it can
+ * stand in for — both forms stay readable indefinitely, so a 4.1.0 file with inline
+ * base64 images is already a valid 4.2.0 file and takes the fast path untouched.
+ *
+ * The actual 4.2.0 work is a CONTENT migration, not a format one: existing inline
+ * base64 has to be uploaded as blobs and swapped for refs. That cannot live here —
+ * this module is pure, synchronous JSON→JSON, and the migration needs network
+ * writes. It runs instead in GitSyncEngine._externalizeImages, lazily and
+ * per-prototype on each commit, so a universe can sit half-migrated indefinitely
+ * with no ill effect and a failure only leaves that one image inline.
  */
 export const MIGRATIONS = [
   {

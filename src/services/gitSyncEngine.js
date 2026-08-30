@@ -4,6 +4,8 @@
  */
 
 import { exportToRedstring } from '../formats/redstringFormat.js';
+import { computeImageRef, isDataUrl, refToBlobPath } from '../formats/imageRefs.js';
+import { registerBlobSource, primeImageRef } from './imageBlobStore.js';
 
 // Source of truth modes
 const SOURCE_OF_TRUTH = {
@@ -180,6 +182,142 @@ class GitSyncEngine {
     return `universes/${this.universeFolder}/${this.fileBaseName}.redstring`;
   }
 
+  /**
+   * Move full-resolution image bytes out of the JSON and into content-addressed
+   * blobs beside it, leaving a `redstring:imageRef` on each prototype.
+   *
+   * WHY THIS IS HERE AND NOT IN THE FORMAT LAYER
+   * --------------------------------------------
+   * A `.redstring` on local disk holding a base64 photograph is merely large.
+   * The same file over git is broken: this engine writes ONE file, so every
+   * autosave re-uploads every image and git stores a fresh multi-megabyte blob
+   * per commit. The problem is git-shaped, so the fix is git-shaped — local
+   * single-file saves keep their images inline and need no directory handle.
+   *
+   * It also operates on the EXPORTED JSON, never on the store. The in-memory
+   * prototype keeps its data URL, so the panel keeps rendering instantly for
+   * the rest of the session, undo history stays clean, and nothing has to be
+   * fetched back from a remote the user may not have pushed to yet.
+   *
+   * Properties worth preserving if this is ever touched:
+   *   - Idempotent. The address IS the content hash, so re-running produces the
+   *     same paths; an already-uploaded blob is skipped.
+   *   - Resumable. Per-prototype. A failure leaves THAT image inline and valid,
+   *     and the next commit retries it. A universe may sit half-migrated
+   *     indefinitely with no ill effect, because both forms are readable.
+   *   - Lossless on failure. Every bail-out path keeps the inline image. The
+   *     inline copy is only cleared after the blob write has resolved.
+   *
+   * @param {Object} redstringData - freshly exported document (mutated in place;
+   *   it is a throwaway built for this commit)
+   * @returns {Promise<Object>} the same document, with images externalized
+   * @private
+   */
+  async _externalizeImages(redstringData) {
+    const prototypes = redstringData?.prototypeSpace?.prototypes;
+    if (!prototypes || typeof prototypes !== 'object') return redstringData;
+    if (typeof this.provider?.writeFileRaw !== 'function') return redstringData;
+
+    // Refs this engine has already written in this session. Saves a probe per
+    // image per commit, which is the difference between one API call on the
+    // commit that introduces an image and one on every commit thereafter.
+    if (!this._uploadedRefs) this._uploadedRefs = new Set();
+    // The store keeps its inline data URL for the whole session (we transform
+    // the exported copy, never the store), so without a memo every autosave
+    // would re-hash every image — megabytes of SHA-256 every few seconds just
+    // to rediscover an address we already know. Keys are strings the store
+    // already retains; values are 71 characters.
+    if (!this._refByDataUrl) this._refByDataUrl = new Map();
+
+    let externalized = 0;
+    let failed = 0;
+
+    for (const proto of Object.values(prototypes)) {
+      if (!proto || typeof proto !== 'object') continue;
+
+      const visual = proto['redstring:visualProperties'];
+      const inline = visual?.['redstring:imageSrc'];
+
+      // An inline data URL is always the truth, even when a ref is also present.
+      // Replacing a node's image leaves the OLD ref on the prototype alongside
+      // the NEW base64, so skipping on "has a ref" would both refuse to
+      // externalize the new image and keep publishing a ref to the old one.
+      // Deciding it here rather than trusting every upload site to clear the
+      // ref keeps the invariant in one place.
+      if (!isDataUrl(inline)) continue;
+
+      try {
+        const memo = this._refByDataUrl.get(inline);
+        const computed = memo || await computeImageRef(inline);
+        // No WebCrypto (non-secure context) or unparseable base64: keep it
+        // inline. Wasteful, but the user's photograph survives, which is the
+        // only acceptable outcome.
+        if (!computed) continue;
+        if (!memo) {
+          this._refByDataUrl.set(inline, computed);
+          // Bound the memo. Insertion-ordered, so the oldest entry goes first —
+          // a user who replaces one node's image repeatedly can't grow this
+          // without limit.
+          if (this._refByDataUrl.size > 64) {
+            this._refByDataUrl.delete(this._refByDataUrl.keys().next().value);
+          }
+        }
+
+        const { ref, bytes, ext } = computed;
+        const path = refToBlobPath(ref, this.universeFolder, ext);
+
+        if (!this._uploadedRefs.has(ref)) {
+          // Blobs are immutable, so an existing one at this path already holds
+          // exactly these bytes — skip the upload rather than rewriting it.
+          let exists = false;
+          try {
+            exists = !!(await this.provider.readBinaryFile(path));
+          } catch (_) {
+            exists = false;
+          }
+          if (!exists) {
+            await this.provider.writeFileRaw(path, bytes);
+          }
+          this._uploadedRefs.add(ref);
+        }
+
+        // Only now is it safe to drop the inline copy.
+        proto['redstring:imageRef'] = ref;
+        proto['redstring:imageRefExt'] = ext;
+        visual['redstring:imageSrc'] = null;
+
+        // The bytes are already in hand — seed the read cache so viewing this
+        // image in the panel this session does not round-trip the remote.
+        primeImageRef(ref, inline);
+        externalized++;
+      } catch (err) {
+        // Leave this prototype fully inline and carry on. The commit still
+        // succeeds with a valid (larger) file, and the next one retries.
+        failed++;
+        console.warn('[GitSyncEngine] Image externalization failed, keeping inline:', err?.message || err);
+      }
+    }
+
+    if (externalized > 0) {
+      console.log(`[GitSyncEngine] Externalized ${externalized} image(s) to content-addressed blobs`);
+    }
+    if (failed > 0) {
+      console.warn(`[GitSyncEngine] ${failed} image(s) stayed inline this commit; will retry next commit`);
+    }
+
+    return redstringData;
+  }
+
+  /**
+   * Build the JSON payload for a commit: export, then externalize images.
+   * The single place both commit paths agree on what gets written.
+   * @private
+   */
+  async _buildCommitPayload(storeState) {
+    const redstringData = await this._externalizeImages(exportToRedstring(storeState));
+    return JSON.stringify(redstringData, null, 2);
+  }
+
   // Backup paths removed for rate limit efficiency
   // getBackupPath() {
   //   const ts = new Date();
@@ -332,6 +470,11 @@ class GitSyncEngine {
 
     this.isRunning = true;
     console.log('[GitSyncEngine] Starting commit loop (every', this.commitInterval, 'ms)');
+
+    // Let the panel resolve this universe's content-addressed image blobs.
+    // Registered on start rather than in the constructor so the LAST engine to
+    // actually start — the active universe — is the one that owns resolution.
+    registerBlobSource(this.provider, this.universeFolder);
 
     // Auto-commit loop with aggressive conflict prevention
     console.log('[GitSyncEngine] Auto-commit enabled with conflict prevention - every', this.commitInterval, 'ms');
@@ -941,9 +1084,9 @@ class GitSyncEngine {
         return;
       }
 
-      // Export to Redstring format (raw JSON write, not TTL)
-      const redstringData = exportToRedstring(latestState);
-      const jsonString = JSON.stringify(redstringData, null, 2);
+      // Export to Redstring format (raw JSON write, not TTL), moving
+      // full-resolution images out to content-addressed blobs on the way.
+      const jsonString = await this._buildCommitPayload(latestState);
 
       // Track API call for circuit breaker
       this.recentApiCalls.push(Date.now());
@@ -1111,9 +1254,8 @@ class GitSyncEngine {
         return false;
       }
 
-      // Check for redundant commits - don't commit identical content
-      const redstringData = exportToRedstring(storeState);
-      const jsonString = JSON.stringify(redstringData, null, 2);
+      // Check for redundant commits - don't commit identical content.
+      // Hash first: no point externalizing images for a commit we then skip.
       const currentHash = this.generateStateHash(storeState);
 
       if (this.lastCommittedHash === currentHash) {
@@ -1143,6 +1285,10 @@ class GitSyncEngine {
         await new Promise(r => setTimeout(r, 100));
       }
       this.isCommitInProgress = true;
+
+      // Export + externalize images. Done after the redundancy check and inside
+      // the in-progress guard so blob uploads can't overlap another commit.
+      const jsonString = await this._buildCommitPayload(storeState);
 
       // Track API call for circuit breaker
       this.recentApiCalls.push(Date.now());

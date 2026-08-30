@@ -18,6 +18,7 @@ import { WIZARD_DEFINE_INTRO } from './panelCopy.js';
 import useAutoEnrichIdentifiers from '../../hooks/useAutoEnrichIdentifiers.js';
 import useGraphStore from "../../store/graphStore.js";
 import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from '../../services/imageCache.js';
+import { resolveImageRef, canResolveRefs } from '../../services/imageBlobStore.js';
 
 // Helper function to determine the correct article ("a" or "an")
 const getArticleFor = (word) => {
@@ -700,9 +701,13 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
 
       // Store the Wikipedia URL in semanticMetadata (not a data URL in the main store).
       // Clear any legacy imageSrc/thumbnailSrc so NodeCanvas's imageCache override activates.
+      // imageRef goes too: a Wikipedia image replaces whatever was here, and a
+      // surviving ref would keep pointing the panel at the previous picture.
       await onUpdateNode({
         imageSrc: null,
         thumbnailSrc: null,
+        imageRef: null,
+        imageRefExt: null,
         imageAspectRatio: aspectRatio,
         semanticMetadata: {
           ...(nodeData.semanticMetadata || {}),
@@ -1334,6 +1339,41 @@ const SharedPanelContent = ({
   const cachedImage = useImageCache(state => (nodeData?.id ? state.images[nodeData.id] : null));
   const imageLoading = useImageCache(state => (nodeData?.id ? !!state.loading[nodeData.id] : false));
 
+  // Full-resolution images committed to git live in content-addressed blobs
+  // beside the .redstring file rather than as base64 inside it, so a prototype
+  // may carry only a `sha256:…` ref. Resolve it on demand — this is the ONLY
+  // place a ref has to be fetched, because the canvas renders thumbnailSrc,
+  // which stays inline.
+  const [resolvedRefSrc, setResolvedRefSrc] = useState(null);
+  // Tracked separately from "not resolved yet" so the section can tell a fetch
+  // in flight (shimmer) from one that came back empty (say so). Collapsing the
+  // two would leave a permanently spinning placeholder for an image that is
+  // never going to arrive.
+  const [refResolutionFailed, setRefResolutionFailed] = useState(false);
+  const imageRef = nodeData?.imageRef || null;
+  const imageRefExt = nodeData?.imageRefExt || null;
+  useEffect(() => {
+    // A stale resolution must never paint over the node the user has since
+    // navigated to, so drop the previous result before starting a new fetch.
+    setResolvedRefSrc(null);
+    setRefResolutionFailed(false);
+    if (!imageRef) return;
+    // No git source registered (a local-only universe holding a file that was
+    // authored against a repo) — there is nothing to fetch from, and saying so
+    // immediately beats an indefinite shimmer.
+    if (!canResolveRefs()) {
+      setRefResolutionFailed(true);
+      return;
+    }
+    let cancelled = false;
+    resolveImageRef(imageRef, imageRefExt).then((url) => {
+      if (cancelled) return;
+      if (url) setResolvedRefSrc(url);
+      else setRefResolutionFailed(true);
+    });
+    return () => { cancelled = true; };
+  }, [imageRef, imageRefExt]);
+
   // Look up what the world calls this thing. Lives here rather than inside
   // AboutSection because CollapsibleSection only renders children while
   // expanded, which would gate enrichment on the section being open.
@@ -1409,10 +1449,15 @@ const SharedPanelContent = ({
     }
     console.log('[ImageDelete] Calling onNodeUpdate to remove image');
 
-    // Clear all image-related fields including Wikipedia semantic metadata
+    // Clear all image-related fields including Wikipedia semantic metadata.
+    // imageRef is cleared but its BLOB is deliberately left in the repo: git
+    // keeps it in history regardless, so deleting reclaims nothing, and an undo
+    // of this delete restores a ref that still resolves.
     const updates = {
       imageSrc: null,
       thumbnailSrc: null,
+      imageRef: null,
+      imageRefExt: null,
       imageAspectRatio: null,
       semanticMetadata: {
         ...(nodeData.semanticMetadata || {}),
@@ -1742,11 +1787,19 @@ const SharedPanelContent = ({
 
       {/* Image Section — always visible; shows image or empty state */}
       {(() => {
-        const hasImage = !!(nodeData.imageSrc || nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail);
+        // An imageRef counts as having an image even before its blob has been
+        // fetched: the section must reserve space and show the loading state
+        // rather than flashing the "no image" empty state on every panel open.
+        const hasImage = !!(nodeData.imageSrc || nodeData.imageRef || nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail);
+        // A resolved blob outranks the inline thumbnail: both may be present
+        // mid-migration, and the full-resolution original is what this section
+        // is for.
         const resolvedImageSrc =
           nodeData.imageSrc ||
+          resolvedRefSrc ||
           nodeData.semanticMetadata?.wikipediaOriginalImage ||
           cachedImage?.thumbnailSrc ||
+          nodeData.thumbnailSrc ||
           nodeData.semanticMetadata?.wikipediaThumbnail;
         // Same precedence as the src above: whichever source wins should size
         // the box, or the reserved space is wrong and the panel still jumps.
@@ -1782,6 +1835,39 @@ const SharedPanelContent = ({
                 alt={nodeData.name}
                 aspectRatio={resolvedAspectRatio}
               />
+            )}
+            {/* An image the graph says exists but that we have nothing to draw
+                yet: a ref whose blob is still being fetched, or one that could
+                not be fetched at all. Without this branch the section renders
+                EMPTY — no image, no explanation, and not even the "no image"
+                empty state, because hasImage is true. */}
+            {hasImage && !resolvedImageSrc && (
+              imageRef && !refResolutionFailed ? (
+                <div style={{
+                  width: '100%',
+                  aspectRatio: resolvedAspectRatio ? `1 / ${resolvedAspectRatio}` : '1 / 1',
+                  borderRadius: '6px',
+                  overflow: 'hidden',
+                  position: 'relative',
+                  background: '#cfcfcf'
+                }}>
+                  <PanelImageShimmer />
+                </div>
+              ) : (
+                <div style={{
+                  marginRight: '15px',
+                  color: theme.canvas.textSecondary,
+                  fontSize: '0.9rem',
+                  fontFamily: "'EmOne', sans-serif",
+                  textAlign: 'left',
+                  padding: '20px 0 20px 15px'
+                }}>
+                  This image couldn't be loaded.<br />
+                  {imageRef
+                    ? 'Its file is missing from the connected repository.'
+                    : 'The source it points to is unreachable.'}
+                </div>
+              )
             )}
             {!hasImage && imageLoading && (
               <div style={{

@@ -247,7 +247,9 @@ const PanelContentWrapper = memo(({
         const aspectRatio = (width > 0 && height > 0) ? (height / width) : 1;
         const thumbSrc = await generateThumbnail(dataUrl, THUMBNAIL_MAX_DIMENSION);
         storeActions.updateNodePrototype(nodeId, draft => {
-          Object.assign(draft, { imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
+          // imageRef cleared: it addresses the PREVIOUS image, and leaving it
+          // would have the panel resolve the old picture from the repo.
+          Object.assign(draft, { imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio, imageRef: null, imageRefExt: null });
           // User image replaces any auto-enriched Wikipedia thumbnail —
           // clear the flag so the save system persists it in-file instead
           // of stripping it as re-fetchable.

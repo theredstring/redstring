@@ -15,7 +15,7 @@ import { safeJsonParse, stripDangerousKeys } from '../utils/safeJson.js';
 import { partitionLinksByState } from './linkState.js';
 
 // Current format version
-export const CURRENT_FORMAT_VERSION = '4.1.0';
+export const CURRENT_FORMAT_VERSION = '4.2.0';
 
 // v4 dataset structure gate (D10). All phases 3–6 complete; v4 is live.
 export const EMIT_V4 = true;
@@ -25,6 +25,19 @@ export const MIN_SUPPORTED_VERSION = '1.0.0';
 
 // Version history and breaking changes
 export const VERSION_HISTORY = {
+  '4.2.0': {
+    date: '2026-08',
+    changes: [
+      'Content-addressed images: new optional top-level prototype fields redstring:imageRef ("sha256:<hex>") and redstring:imageRefExt point at a blob under universes/<folder>/images/, written by the git sync engine',
+      'Only the full-resolution redstring:imageSrc is externalized; redstring:thumbnailSrc stays inline so the canvas renders with no network and older builds still draw a correct graph',
+      'Inline base64 imageSrc remains fully valid on read — the two forms coexist and locally-saved files stay single-file',
+      'Fields sit at the prototype top level so quarantineUnknownFields banks them into _preserved for builds that predate them, instead of being silently dropped from a rebuilt visualProperties block'
+    ],
+    // Non-breaking: both fields are optional and additive, and a 4.1.0 file
+    // (inline images, no refs) loads unchanged. No ledger step — see the note
+    // above MIGRATIONS in migrations.js.
+    breaking: false
+  },
   '4.1.0': {
     date: '2026-07',
     changes: [
@@ -948,8 +961,35 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
 
       // Semantic enrichment metadata (Wikipedia URLs, confidence, auto-enrich flag, etc.)
       // Critical for image re-fetching on reload and OOM prevention
-      "redstring:semanticMetadata": prototype.semanticMetadata || null
+      "redstring:semanticMetadata": prototype.semanticMetadata || null,
+
+      // Content-addressed reference to the full-resolution image (4.2.0), when
+      // the git sync engine has externalized it to a blob beside this file.
+      // See the note below on why this sits at the TOP LEVEL of the prototype
+      // rather than inside redstring:visualProperties with its siblings.
+      ...(prototype.imageRef ? { "redstring:imageRef": prototype.imageRef } : {}),
+      ...(prototype.imageRefExt ? { "redstring:imageRefExt": prototype.imageRefExt } : {})
     };
+
+    // WHY imageRef IS NOT INSIDE redstring:visualProperties
+    // ------------------------------------------------------
+    // It belongs there by kinship — imageSrc/thumbnailSrc/imageAspectRatio all
+    // live in that block. But `visualProperties` is rebuilt from scratch on
+    // every export out of explicitly named store fields, so an older build that
+    // reads a 4.2.0 file, then saves, would reconstruct that block WITHOUT the
+    // ref it never knew to read: the blob is orphaned in the repo and the node
+    // loses its image for good.
+    //
+    // At the top level, `quarantineUnknownFields` catches it instead — unknown
+    // top-level prototype keys are banked into `_preserved[version]`, and
+    // `_preserved` round-trips verbatim through export (see below). So a ref
+    // survives a full read/write pass through a client that has never heard of
+    // it, which is the normal case whenever a laptop upgrades before a phone.
+    //
+    // The quarantine only inspects the top level; it does not walk into a known
+    // block. Adding this field one level down would look tidier and silently
+    // give up that protection. Keep it here, and keep it listed in
+    // KNOWN_PROTOTYPE_KEYS in migrations.js.
 
     // Sameness ladder (decision D8/P2.5). External links climb the ladder by how
     // strong the claim is. An automatic match (e.g. a Wikipedia article matched
@@ -1693,6 +1733,31 @@ export const importFromRedstring = (redstringData, storeActions) => {
           if (hasOwn(prototype, 'imageAspectRatio') || hasOwn(visual, 'redstring:imageAspectRatio')) {
             convertedPrototype.imageAspectRatio = coalesce(prototype.imageAspectRatio, visual['redstring:imageAspectRatio']);
           }
+
+          // Content-addressed full-resolution image (4.2.0). Coexists with an
+          // inline imageSrc rather than replacing it: a file may hold either
+          // form (or, mid-migration, both), and the reader must keep accepting
+          // inline data URLs forever — .redstring is a format other people's
+          // files are written in, not just ours.
+          //
+          // Also recovered from _preserved: an older build that read this file
+          // quarantined the ref there, and dropping it on the way back in would
+          // undo exactly the protection that quarantine provides.
+          const preservedProto = prototype._preserved || {};
+          const fromPreserved = (key) => {
+            for (const bucket of Object.values(preservedProto)) {
+              if (bucket && typeof bucket === 'object' && bucket[key] != null) return bucket[key];
+            }
+            return undefined;
+          };
+
+          const imageRef =
+            prototype['redstring:imageRef'] ?? prototype.imageRef ?? fromPreserved('redstring:imageRef');
+          if (imageRef != null) convertedPrototype.imageRef = imageRef;
+
+          const imageRefExt =
+            prototype['redstring:imageRefExt'] ?? prototype.imageRefExt ?? fromPreserved('redstring:imageRefExt');
+          if (imageRefExt != null) convertedPrototype.imageRefExt = imageRefExt;
 
           // Semantic enrichment metadata (Wikipedia URLs, confidence, auto-enrich flag)
           if (hasOwn(prototype, 'redstring:semanticMetadata') || hasOwn(prototype, 'semanticMetadata')) {

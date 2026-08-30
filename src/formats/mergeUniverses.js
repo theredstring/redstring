@@ -20,7 +20,12 @@
  */
 
 // Scalar fields on a prototype that can conflict during merge.
-const SCALAR_FIELDS = ['name', 'description', 'color', 'imageSrc', 'thumbnailSrc', 'imageAspectRatio'];
+// imageRef/imageRefExt merge as scalars like the image fields they stand in
+// for. This is where content-addressing pays off twice: a conflicting image
+// used to bank a SECOND full base64 copy into _preserved.merge (and concat
+// another on every re-merge), whereas two conflicting refs bank 71 characters
+// and both blobs already exist in the repo, addressed by their own content.
+const SCALAR_FIELDS = ['name', 'description', 'color', 'imageSrc', 'thumbnailSrc', 'imageAspectRatio', 'imageRef', 'imageRefExt'];
 
 // Build externalLink-URL → Set<prototypeId> reverse index.
 function buildSameAsIndex(prototypes) {

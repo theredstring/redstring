@@ -8,6 +8,24 @@ import githubRateLimiter from './githubRateLimiter.js';
 import { githubAPI } from './GitHubAPIWrapper.js';
 
 /**
+ * Base64-encode raw bytes.
+ *
+ * Chunked because `String.fromCharCode(...bytes)` blows the argument limit and
+ * throws RangeError on anything past a few hundred KB — which is precisely the
+ * size range of the image blobs this exists to write.
+ */
+const bytesToBase64 = (bytes) => {
+  const CHUNK = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  if (typeof btoa !== 'undefined') return btoa(binary);
+  // eslint-disable-next-line no-undef
+  return Buffer.from(bytes).toString('base64');
+};
+
+/**
  * Universal Semantic Provider Interface
  * All Git providers must implement this interface
  */
@@ -195,6 +213,54 @@ export class SemanticProvider {
    */
   async readFileRaw(path) {
     throw new Error('readFileRaw() must be implemented by provider');
+  }
+
+  /**
+   * Raw byte read, for content-addressed image blobs.
+   * @returns {Promise<Uint8Array>}
+   */
+  async readBinaryFile(path) {
+    throw new Error('readBinaryFile() must be implemented by provider');
+  }
+
+  /**
+   * Base64-encode write content that may be either text or raw bytes.
+   *
+   * Every write path funnels through here so binary payloads (content-addressed
+   * image blobs) reuse each provider's existing SHA/conflict/retry machinery
+   * unchanged. Handing a Uint8Array to utf8ToBase64 would stringify it to
+   * "137,80,78,71,…" and commit that text as though it were the image.
+   */
+  contentToBase64(content) {
+    if (content instanceof Uint8Array) return bytesToBase64(content);
+    if (content instanceof ArrayBuffer) return bytesToBase64(new Uint8Array(content));
+    return this.utf8ToBase64(content);
+  }
+
+  /**
+   * Cheap content hash used by providers to suppress duplicate writes.
+   *
+   * Hoisted to the base class from the two identical per-provider copies, so
+   * the byte-payload handling below only had to be got right once.
+   */
+  generateContentHash(content) {
+    // Byte payloads (image blobs) have no charCodeAt; index them directly.
+    const isBytes = content instanceof Uint8Array;
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = isBytes ? content[i] : content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return hash.toString(36);
+  }
+
+  /**
+   * UTF-8 safe base64 encode. Subclasses override with their own copy; this is
+   * the fallback so `contentToBase64` above is never left dangling.
+   */
+  utf8ToBase64(str) {
+    return bytesToBase64(new TextEncoder().encode(str));
   }
 }
 
@@ -817,7 +883,7 @@ This repository was automatically initialized by Redstring UI React. You can now
 
       const body = {
         message: `Update ${safePath}`,
-        content: this.utf8ToBase64(content)
+        content: this.contentToBase64(content)
       };
 
       // Only include SHA if we have a valid existing file
@@ -983,7 +1049,7 @@ This repository was automatically initialized by Redstring UI React. You can now
 
     const body = {
       message: `Update ${safePath}`,
-      content: this.utf8ToBase64(content)
+      content: this.contentToBase64(content)
     };
     if (typeof expectedSha === 'string' && expectedSha) {
       body.sha = expectedSha;
@@ -1025,15 +1091,44 @@ This repository was automatically initialized by Redstring UI React. You can now
     throw new Error(`GitHub write failed: ${response.status} ${text}`);
   }
 
-  // Helper to generate content hash for redundancy prevention
-  generateContentHash(content) {
-    let hash = 0;
-    for (let i = 0; i < content.length; i++) {
-      const char = content.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
+  /**
+   * Read a file as raw bytes.
+   *
+   * Uses the raw media type rather than the contents API's base64 field: it
+   * sidesteps the 1MB JSON cliff entirely (full-resolution photographs are
+   * routinely past it) and skips a base64 decode we'd only have to undo.
+   *
+   * @param {string} path
+   * @returns {Promise<Uint8Array>}
+   * @throws {Error} with `code: 'FILE_NOT_FOUND'` on 404
+   */
+  async readBinaryFile(path) {
+    const { displayPath: safePath, apiPath } = this.resolvePathInput(path, { trimTrailing: false });
+    if (!apiPath) throw new Error('Invalid path provided to readBinaryFile');
+
+    await githubRateLimiter.waitForAvailability(this.authMethod);
+    githubRateLimiter.recordRequest(this.authMethod);
+
+    const response = await fetch(`${this.rootUrl}/${apiPath}`, {
+      headers: {
+        'Authorization': this.getAuthHeader(),
+        'Accept': 'application/vnd.github.raw'
+      }
+    });
+
+    if (response.status === 404) {
+      const err = new Error(`File not found: ${safePath}`);
+      err.code = 'FILE_NOT_FOUND';
+      err.status = 404;
+      throw err;
     }
-    return hash.toString(36);
+    if (!response.ok) {
+      const err = new Error(`GitHub binary read failed for ${safePath}: ${response.status}`);
+      err.status = response.status;
+      throw err;
+    }
+
+    return new Uint8Array(await response.arrayBuffer());
   }
 
   /**
@@ -1441,7 +1536,7 @@ export class GiteaSemanticProvider extends SemanticProvider {
       const method = fileInfo?.sha ? 'PUT' : 'POST';
       const body = {
         message: `Update ${safePath}`,
-        content: this.utf8ToBase64(content),
+        content: this.contentToBase64(content),
         branch: 'main'
       };
 
@@ -1534,15 +1629,59 @@ export class GiteaSemanticProvider extends SemanticProvider {
     }
   }
 
-  // Helper to generate content hash for redundancy prevention
-  generateContentHash(content) {
-    let hash = 0;
-    for (let i = 0; i < content.length; i++) {
-      const char = content.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
+  /**
+   * Read a file as raw bytes.
+   *
+   * Gitea's contents API returns base64 in JSON like GitHub's, but it also
+   * serves the bytes directly from `/raw/`, which avoids decoding a
+   * multi-megabyte base64 string just to re-encode it into a Blob.
+   *
+   * @param {string} path
+   * @returns {Promise<Uint8Array>}
+   * @throws {Error} with `code: 'FILE_NOT_FOUND'` on 404
+   */
+  async readBinaryFile(path) {
+    const { displayPath: safePath, apiPath } = this.resolvePathInput(path, { trimTrailing: false });
+    if (!apiPath) throw new Error('Invalid path provided to readBinaryFile');
+
+    const response = await fetch(`${this.rootUrl}/${apiPath}`, {
+      headers: {
+        'Authorization': `token ${this.token}`,
+        'Accept': 'application/octet-stream'
+      }
+    });
+
+    if (response.status === 404) {
+      const err = new Error(`File not found: ${safePath}`);
+      err.code = 'FILE_NOT_FOUND';
+      err.status = 404;
+      throw err;
     }
-    return hash.toString(36);
+    if (!response.ok) {
+      const err = new Error(`Gitea binary read failed for ${safePath}: ${response.status}`);
+      err.status = response.status;
+      throw err;
+    }
+
+    const buffer = await response.arrayBuffer();
+    // Gitea may answer the contents endpoint with the JSON envelope rather than
+    // the bytes; detect that and take the base64 field instead of handing a
+    // JSON document to the image decoder.
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const info = JSON.parse(new TextDecoder().decode(buffer));
+      if (!info?.content) {
+        const err = new Error(`File not found: ${safePath}`);
+        err.code = 'FILE_NOT_FOUND';
+        throw err;
+      }
+      const binary = atob(info.content.replace(/\s/g, ''));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes;
+    }
+
+    return new Uint8Array(buffer);
   }
 
   async readFileRaw(path) {
