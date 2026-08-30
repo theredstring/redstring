@@ -172,7 +172,7 @@ describe('imageRef round-trip through the .redstring format', () => {
   });
 
   it('recovers a ref that an older build quarantined into _preserved', () => {
-    // What a build predating 4.2.0 leaves behind: it did not recognize the
+    // What a build predating the imageRef fields leaves behind: it did not recognize the
     // top-level field, so quarantineUnknownFields banked it. Recovering it on
     // the way back in is the other half of that protection — without this the
     // ref is lost on the first round trip through an out-of-date client, the

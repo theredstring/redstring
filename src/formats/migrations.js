@@ -92,7 +92,7 @@ export const KNOWN_PROTOTYPE_KEYS = new Set([
   'redstring:abstractionChains', 'redstring:agentConfig', 'redstring:semanticMetadata',
   'redstring:isSpecificityChainNode', 'redstring:hasSpecificityChain', 'redstring:createdAt',
   'isSpecificityChainNode', 'hasSpecificityChain', 'createdAt',
-  // Content-addressed full-resolution image (4.2.0). Deliberately top-level
+  // Content-addressed full-resolution image. Deliberately top-level
   // rather than inside redstring:visualProperties — see the long note at the
   // emission site in redstringFormat.js. Being listed here is what stops a
   // CURRENT build from quarantining its own field; being top-level at all is
@@ -262,13 +262,15 @@ export const quarantineUnknownFields = (data, version) => {
  * So a 4.0.0 file takes the runMigrations fast path unchanged and re-stamps to 4.1.0
  * on the next save.
  *
- * Note on 4.1.0 → 4.2.0 (content-addressed images): also NO ledger step, for the
- * same reason. It adds two optional top-level prototype fields (redstring:imageRef,
- * redstring:imageRefExt) and never removes the inline redstring:imageSrc it can
- * stand in for — both forms stay readable indefinitely, so a 4.1.0 file with inline
- * base64 images is already a valid 4.2.0 file and takes the fast path untouched.
+ * Note on content-addressed images (redstring:imageRef): no ledger step AND no
+ * version bump. It adds two optional top-level prototype fields and never removes
+ * the inline redstring:imageSrc they can stand in for — both forms stay readable
+ * indefinitely, so a file carrying refs is still a valid 4.1.0 file and takes the
+ * fast path untouched. The version stayed put on purpose: validateFormatVersion
+ * hard-throws on a file newer than the reading app, so bumping would have locked
+ * every already-deployed build out of the file entirely.
  *
- * The actual 4.2.0 work is a CONTENT migration, not a format one: existing inline
+ * The real work there is a CONTENT migration, not a format one: existing inline
  * base64 has to be uploaded as blobs and swapped for refs. That cannot live here —
  * this module is pure, synchronous JSON→JSON, and the migration needs network
  * writes. It runs instead in GitSyncEngine._externalizeImages, lazily and

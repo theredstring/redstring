@@ -14,8 +14,19 @@ import { runMigrations } from './migrations.js';
 import { safeJsonParse, stripDangerousKeys } from '../utils/safeJson.js';
 import { partitionLinksByState } from './linkState.js';
 
-// Current format version
-export const CURRENT_FORMAT_VERSION = '4.2.0';
+// Current format version.
+//
+// Deliberately NOT bumped for content-addressed images (redstring:imageRef).
+// `validateFormatVersion` below hard-throws on any file stamped newer than the
+// reading app, so a 4.2.0 stamp would make every already-deployed build refuse
+// to OPEN the file — failing long before the prototype parsing where the
+// quarantine would have protected the unknown field. A device one release
+// behind would simply fail to load the universe.
+//
+// Since the new fields are additive and optional, a file carrying them IS a
+// valid 4.1.0 file, and nothing keys any behavior off the version number. So
+// not bumping costs nothing and keeps mixed-version devices working.
+export const CURRENT_FORMAT_VERSION = '4.1.0';
 
 // v4 dataset structure gate (D10). All phases 3–6 complete; v4 is live.
 export const EMIT_V4 = true;
@@ -25,25 +36,19 @@ export const MIN_SUPPORTED_VERSION = '1.0.0';
 
 // Version history and breaking changes
 export const VERSION_HISTORY = {
-  '4.2.0': {
-    date: '2026-08',
-    changes: [
-      'Content-addressed images: new optional top-level prototype fields redstring:imageRef ("sha256:<hex>") and redstring:imageRefExt point at a blob under universes/<folder>/images/, written by the git sync engine',
-      'Only the full-resolution redstring:imageSrc is externalized; redstring:thumbnailSrc stays inline so the canvas renders with no network and older builds still draw a correct graph',
-      'Inline base64 imageSrc remains fully valid on read — the two forms coexist and locally-saved files stay single-file',
-      'Fields sit at the prototype top level so quarantineUnknownFields banks them into _preserved for builds that predate them, instead of being silently dropped from a rebuilt visualProperties block'
-    ],
-    // Non-breaking: both fields are optional and additive, and a 4.1.0 file
-    // (inline images, no refs) loads unchanged. No ledger step — see the note
-    // above MIGRATIONS in migrations.js.
-    breaking: false
-  },
   '4.1.0': {
     date: '2026-07',
     changes: [
       'Per-instance node size: new optional instance field redstring:sizeMultiplier (in visualProperties) drives visual node dimensions and label size, layered on top of the global node-size scope',
       'Distinct from redstring:spatialScale, which remains the transient drag-lift register',
-      'Same v4 dataset shape as 4.0.0 — additive, optional field only, no structural change'
+      'Same v4 dataset shape as 4.0.0 — additive, optional field only, no structural change',
+      // Added later within 4.1.0, deliberately without a version bump — see the
+      // note on CURRENT_FORMAT_VERSION for why stamping a new minor would lock
+      // already-deployed builds out of the file entirely.
+      'Content-addressed images (additive, no version bump): optional top-level prototype fields redstring:imageRef ("sha256:<hex>") and redstring:imageRefExt point at a blob under universes/<folder>/images/, written by the git sync engine',
+      'Only the full-resolution redstring:imageSrc is externalized; redstring:thumbnailSrc stays inline so the canvas renders with no network and builds that ignore the ref still draw a correct graph',
+      'Inline base64 imageSrc remains fully valid on read — the two forms coexist indefinitely and locally-saved files stay single-file',
+      'The image fields sit at the prototype top level so quarantineUnknownFields banks them into _preserved for builds that predate them, instead of being silently dropped from a rebuilt visualProperties block'
     ],
     // Non-breaking: the field is optional and defaults to 1.0 (Medium), so 4.0.0 files
     // (which lack it) load unchanged and render at Medium.
@@ -172,18 +177,46 @@ export const validateFormatVersion = (redstringData) => {
     };
   }
   
-  // Check if version is from the future
+  // Check if version is from the future.
+  //
+  // Only a newer MAJOR is genuinely unreadable. Within a major, this format's
+  // contract is additive-and-optional — minor bumps add fields that an older
+  // reader either recognizes or quarantines into `_preserved`, and `stageOf`
+  // in the migration ledger already keys on major alone for exactly this
+  // reason. Refusing a newer minor was stricter than the format itself, and it
+  // is a one-way trap: any build that ever writes a higher minor produces
+  // files that a rolled-back or slightly older build cannot open at all, even
+  // though every byte in them is understood.
+  //
+  // A newer major still hard-fails. That is where structural change lives, and
+  // guessing at it would be worse than refusing.
   const compareToCurrent = compareVersions(fileVersion, CURRENT_FORMAT_VERSION);
   if (compareToCurrent === 1) {
+    if (fileParsed.major > currentParsed.major) {
+      return {
+        valid: false,
+        version: fileVersion,
+        error: `File version ${fileVersion} is newer than the current app version ${CURRENT_FORMAT_VERSION}. Please update Redstring.`,
+        needsMigration: false,
+        tooNew: true
+      };
+    }
+
+    console.warn(
+      `[Format] File version ${fileVersion} is newer than this build's ${CURRENT_FORMAT_VERSION}, ` +
+      `but shares major version ${fileParsed.major} — reading it. Fields this build does not ` +
+      `recognize are preserved rather than dropped.`
+    );
     return {
-      valid: false,
+      valid: true,
       version: fileVersion,
-      error: `File version ${fileVersion} is newer than the current app version ${CURRENT_FORMAT_VERSION}. Please update Redstring.`,
+      currentVersion: CURRENT_FORMAT_VERSION,
       needsMigration: false,
-      tooNew: true
+      canAutoMigrate: false,
+      newerMinor: true
     };
   }
-  
+
   // Check if migration is needed
   const needsMigration = compareToCurrent === -1;
   
@@ -963,8 +996,9 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       // Critical for image re-fetching on reload and OOM prevention
       "redstring:semanticMetadata": prototype.semanticMetadata || null,
 
-      // Content-addressed reference to the full-resolution image (4.2.0), when
-      // the git sync engine has externalized it to a blob beside this file.
+      // Content-addressed reference to the full-resolution image, when the git
+      // sync engine has externalized it to a blob beside this file. Additive
+      // and optional — no version bump, see CURRENT_FORMAT_VERSION.
       // See the note below on why this sits at the TOP LEVEL of the prototype
       // rather than inside redstring:visualProperties with its siblings.
       ...(prototype.imageRef ? { "redstring:imageRef": prototype.imageRef } : {}),
@@ -976,9 +1010,9 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     // It belongs there by kinship — imageSrc/thumbnailSrc/imageAspectRatio all
     // live in that block. But `visualProperties` is rebuilt from scratch on
     // every export out of explicitly named store fields, so an older build that
-    // reads a 4.2.0 file, then saves, would reconstruct that block WITHOUT the
-    // ref it never knew to read: the blob is orphaned in the repo and the node
-    // loses its image for good.
+    // reads a file carrying a ref, then saves, would reconstruct that block
+    // WITHOUT the ref it never knew to read: the blob is orphaned in the repo
+    // and the node loses its image for good.
     //
     // At the top level, `quarantineUnknownFields` catches it instead — unknown
     // top-level prototype keys are banked into `_preserved[version]`, and
@@ -1734,7 +1768,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
             convertedPrototype.imageAspectRatio = coalesce(prototype.imageAspectRatio, visual['redstring:imageAspectRatio']);
           }
 
-          // Content-addressed full-resolution image (4.2.0). Coexists with an
+          // Content-addressed full-resolution image. Coexists with an
           // inline imageSrc rather than replacing it: a file may hold either
           // form (or, mid-migration, both), and the reader must keep accepting
           // inline data URLs forever — .redstring is a format other people's
