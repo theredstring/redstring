@@ -268,10 +268,12 @@ const LABEL_ANGLE_QUANTUM_MIN_COUNT = 48;
 // it rather than a cliff-edge one.
 //
 // Raised from 40. At 40 it was the thing deciding that NOTHING curves on any
-// real graph: it is fed the WHOLE graph's edge count (culling is disabled, see
-// ENABLE_CULLING), so a 41-edge Lombardi graph rendered every label as a
-// straight chord — and a straight chord additionally angle-snapped by the
-// canvas-wide quantum, which is the "quantized and never bent" look.
+// real graph: with culling off it was fed the WHOLE graph's edge count, so a
+// 41-edge Lombardi graph rendered every label as a straight chord — and a
+// straight chord additionally angle-snapped by the canvas-wide quantum, which is
+// the "quantized and never bent" look. (Culling is back on, so this and the
+// other count budgets are once again counting what is on screen — see
+// ENABLE_CULLING.)
 //
 // The cost model that justified 40 is gone. Curved glyphs snap into
 // CURVED_GLYPH_ANGLE_QUANTUM buckets, so the atlas keys they can mint are
@@ -3475,12 +3477,20 @@ function NodeCanvas() {
       const canvas = canvasSizeRef.current;
       if (!viewport || !canvas) return;
 
-      // PERF: Skip visibility recalculation during drag movement — visibility barely changes
-      // when moving a node. But DO allow updates during zoom animations (drag zoom-out).
-      if (draggingNodeInfoRef.current && !isAnimatingZoomRef.current) return;
-
-      // Skip expensive culling during pinch zoom animation to prevent jitter
-      if (pinchSmoothingRef.current?.isAnimating) return;
+      // Interactions that may not lose mounted content mid-flight: a node drag
+      // (whose edge auto-pan reveals new canvas while the dragged node's own
+      // position is DOM-bypassed and must not be re-culled from under it), and
+      // pinch-zoom smoothing (a lerp-follow loop that runs for the whole
+      // gesture). Both used to skip culling outright, which under a moving
+      // viewport means staring at blank canvas until the finger lifts. Under the
+      // grow-only policy below there is nothing left for them to jitter, so they
+      // only forbid the prune half — and when the viewport ISN'T moving the
+      // containment gate below costs one rect test and returns.
+      //
+      // Drag-zoom-out (`isAnimatingZoomRef`) is deliberately not included, so it
+      // still gets full culling exactly as before.
+      const holdRemovals = (draggingNodeInfoRef.current && !isAnimatingZoomRef.current)
+        || !!pinchSmoothingRef.current?.isAnimating;
 
       // Read live pan/zoom directly from refs — this is the whole point of the fix.
       const pan = panOffsetRef.current;
@@ -3506,8 +3516,11 @@ function NodeCanvas() {
       // flicker — while removals are by definition invisible and can wait for
       // the settle prune. In-motion commits are therefore bounded by how much
       // content the gesture reveals, not by how often membership oscillates.
-      const prune = cullPruneRef.current || !isViewMovingRef.current;
-      cullPruneRef.current = false;
+      // A pending prune request survives until a tick can actually honour it —
+      // clearing it on a tick that isn't allowed to prune (mid-drag, mid-pinch)
+      // would silently drop the recompute a deletion or resize asked for.
+      const prune = !holdRemovals && (cullPruneRef.current || !isViewMovingRef.current);
+      if (prune) cullPruneRef.current = false;
 
       // Containment gate. The last computed cull mounted everything inside its
       // inner rect, and content is only actually on screen once it enters the

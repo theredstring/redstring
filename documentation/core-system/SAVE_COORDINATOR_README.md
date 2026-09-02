@@ -45,7 +45,7 @@ The SaveCoordinator is a centralized system that intelligently manages saving ac
 3. **GitFederationBootstrap**: Initializes the system at app startup
 4. **GitNativeFederation**: Uses SaveCoordinator for manual saves
 
-### Micro-Batching Middleware (graphStore.jsx)
+### Micro-Batching Middleware (graphStore.js)
 
 The middleware batches rapid state changes to reduce load on SaveCoordinator:
 
@@ -199,7 +199,7 @@ this.scheduleSave();
 // SaveCoordinator.js
 const DEBOUNCE_MS = 500; // Wait 500ms after last change before saving
 
-// graphStore.jsx - viewport updates
+// graphStore.js - viewport updates
 const saveDelay = 300; // Debounce viewport saves by 300ms
 ```
 
@@ -303,7 +303,7 @@ Prior to these optimizations, the system exhibited performance issues during int
 ### Solutions Implemented
 
 #### 1. Micro-Batching Middleware
-**Location:** `src/store/graphStore.jsx:104-155`
+**Location:** `src/store/graphStore.js` — the `pendingNotification` / `batchedContext` closure in the SaveCoordinator middleware (grep `pendingNotification`)
 
 Batches multiple rapid state changes within the same event loop tick:
 ```javascript
@@ -319,7 +319,7 @@ pendingNotification = setTimeout(() => {
 **Impact:** Reduces hash calculations by ~90% during rapid operations
 
 #### 2. FNV-1a Hash Algorithm
-**Location:** `src/services/SaveCoordinator.js:255-262`
+**Location:** `src/services/SaveCoordinator.js` — grep `FNV-1a` (the same hashing logic as `save.worker.js`)
 
 Replaced simple multiplicative hash with FNV-1a for better performance:
 ```javascript
@@ -332,7 +332,7 @@ for (let i = 0; i < stateString.length; i++) {
 ```
 
 #### 3. Context Options for Group Operations
-**Location:** `src/store/graphStore.jsx:346-531`
+**Location:** `src/store/graphStore.js` — grep `createGroup:`
 
 Added `contextOptions` parameter to all group operations:
 - `createGroup(..., contextOptions)`

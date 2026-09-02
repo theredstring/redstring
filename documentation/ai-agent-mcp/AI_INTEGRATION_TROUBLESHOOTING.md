@@ -67,7 +67,7 @@ import('./src/services/mcpClient.js').then(module => {
 **Debug Commands**:
 ```javascript
 // Check graph store state
-import('./src/store/graphStore.jsx').then(module => {
+import('./src/store/graphStore.js').then(module => {
   const store = module.default;
   const state = store.getState();
   console.log('Graph Store State:', {
@@ -109,7 +109,7 @@ document.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
 import('./src/services/mcpClient.js').then(m => m.default.initialize());
 
 // Test 3: Graph Store Access
-import('./src/store/graphStore.jsx').then(m => console.log(m.default.getState()));
+import('./src/store/graphStore.js').then(m => console.log(m.default.getState()));
 
 // Test 4: AI Operations
 import('./src/services/mcpClient.js').then(async m => {

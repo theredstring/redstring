@@ -105,7 +105,7 @@ This plan implements a comprehensive set of improvements to make the semantic we
   - Sync queue management
 
 ### 4.2 Store Integration
-- **File**: `src/store/graphStore.jsx` (update)
+- **File**: `src/store/graphStore.js` (update)
 - **Features**:
   - Automatic sync triggers on data changes
   - Sync status indicators in UI

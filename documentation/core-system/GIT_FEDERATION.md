@@ -201,16 +201,16 @@ const preservedSourceOfTruth = universe.raw.sourceOfTruth ||
 
 **Problem**: When loading a local `.redstring` file, the system would crash with error: `TypeError: Cannot read properties of undefined (reading 'getState')`.
 
-**Root Cause**: `graphStore.jsx` exports `useGraphStore` as a default export, but several files were attempting to use named import syntax:
+**Root Cause**: `graphStore.js` exports `useGraphStore` as a default export, but several files were attempting to use named import syntax:
 ```javascript
 // BROKEN - Named import from default export
-const { useGraphStore } = await import('./store/graphStore.jsx');
+const { useGraphStore } = await import('./store/graphStore.js');
 ```
 
 **Solution**: Fixed all dynamic imports to use correct default export syntax:
 ```javascript
 // FIXED - Proper default import
-const useGraphStore = (await import('./store/graphStore.jsx')).default;
+const useGraphStore = (await import('./store/graphStore.js')).default;
 ```
 
 **Files Updated**:
@@ -231,7 +231,7 @@ const useGraphStore = (await import('./store/graphStore.jsx')).default;
 const storeState = importFromRedstring(parsedData);
 console.log('[GitNativeFederation] Parsed file data:', { nodeCount: ... });
 
-const useGraphStore = (await import('./store/graphStore.jsx')).default;
+const useGraphStore = (await import('./store/graphStore.js')).default;
 const storeActions = useGraphStore.getState();
 storeActions.loadUniverseFromFile(storeState);  // Load directly
 

@@ -10,7 +10,7 @@ last_reviewed: 2026-08-27
 
 These documents describe what Redstring fundamentally is: its data model (prototype/instance/graph/edge), its state management layer (Zustand store), its save coordination system, and the philosophical vocabulary used throughout the codebase. Read these before starting any task. `CLAUDE.md` is the highest-priority read for any AI agent.
 
-Key code paths this category maps to: `src/store/graphStore.jsx`, `src/core/Graph.js`, `src/core/Node.js`, `src/core/Edge.js`, `src/services/SaveCoordinator.js`, `src/services/gitNativeFederation.js`.
+Key code paths this category maps to: `src/store/graphStore.js`, `src/core/Graph.js`, `src/core/Node.js`, `src/core/Edge.js`, `src/services/SaveCoordinator.js`, `src/services/gitNativeProvider.js`, `src/services/gitSyncEngine.js`.
 
 ---
 

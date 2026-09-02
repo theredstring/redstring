@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Core Technologies
 - **React 18** with functional components and hooks
-- **Zustand** for state management (`src/store/graphStore.jsx`)
+- **Zustand** for state management (`src/store/graphStore.js`)
 - **React DnD** for drag-and-drop interactions
 - **Vite** for build tooling with hot reload
 - **Vitest** for testing
@@ -39,7 +39,7 @@ The main orchestration component handling:
 - PieMenu system for contextual actions
 - Drag-and-drop operations
 
-### Store Management (src/store/graphStore.jsx)
+### Store Management (src/store/graphStore.js)
 Zustand store with SaveCoordinator middleware managing:
 - Graph and node prototype data (using Maps for performance)
 - UI state (active graph, expanded nodes, saved nodes)
@@ -122,7 +122,7 @@ Tests are located in `test/` directory:
 ## Key Files to Understand
 
 - `src/NodeCanvas.jsx`: Main rendering and interaction logic
-- `src/store/graphStore.jsx`: State management and data model with SaveCoordinator middleware
+- `src/store/graphStore.js`: State management and data model with SaveCoordinator middleware
 - `src/services/SaveCoordinator.js`: Centralized save coordination with performance optimizations
 - `src/core/Graph.js`: Core graph data structure
 - `src/Panel.jsx`: Right panel interface

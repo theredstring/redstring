@@ -15,6 +15,33 @@ enabled. Line numbers refer to the working tree as of this date (including the u
 > untouched and still live** — culling is still off, the detent-zoom forced
 > layout is still there, and the glow update is still uncoalesced.
 
+> **Status update (2026-09-01): culling is back on** — treatment item 3.
+> `ENABLE_CULLING` is now a module-level constant defaulting to true, with
+> `localStorage.setItem('redstring_disable_culling','true')` + reload as the A/B
+> escape hatch. `runCulling` grew the zoom-aware membership policy this document
+> asked for, in the shape suggested under item 3:
+>
+> - **Grow-only while the view is moving.** Additions commit on the tick they
+>   appear (an unmounted node that entered the viewport IS the flicker);
+>   removals are invisible and wait. So in-motion commits are bounded by what
+>   the gesture reveals, not by how often membership oscillates across the
+>   screen-space band — which is mechanism 4.
+> - **One prune when the gesture settles**, driven off `settledPan`/`settledZoom`
+>   (i.e. inside the render the settle was going to cost anyway).
+> - **A containment gate** in front of the O(nodes+edges) pass: the last cull
+>   mounted everything inside its inner rect, so while moving, skip the pass
+>   entirely until the viewport has eaten half that padding. Zooming *in* never
+>   leaves the guard, so an in-zoom now costs zero culling work and zero commits.
+> - Node drag and pinch smoothing no longer skip culling outright (that left a
+>   moving viewport looking at blank canvas); they only forbid the prune half.
+>
+> Knock-on effects: **mechanism 1** is now O(visible) instead of O(entire graph),
+> **mechanism 3** is fixed as a side effect (the glow update rides `runCulling`'s
+> RAF again, so it is coalesced once more — `EdgeGlowIndicator.jsx:77-79` is
+> accurate again), and the count budgets under the "bonus finding" are counting
+> what is on screen again. **Mechanism 2 (the per-detent forced layout) and
+> treatment item 4 (memoize per-edge routing) are still open.**
+
 ## TL;DR
 
 The collapse is not one bug. It is **four live mechanisms layered on top of each other**, all

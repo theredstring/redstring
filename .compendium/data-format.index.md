@@ -8,7 +8,7 @@ last_reviewed: 2026-08-27
 
 ## Summary
 
-These documents define the `.redstring` file format (JSON with JSON-LD semantic overlay), its version history, and the migration system that keeps old files readable. The current format is **v3.0.0**. The migration code in `src/services/formatMigration.js` (or equivalent) was written directly from `../documentation/data-format/redstring-format-spec.md` — that spec is legacy-canonical and must remain consistent with the migration logic even as the format evolves. Key code paths: format spec, `formatMigration.js`, `SaveCoordinator.js` (serialization), `graphStore.jsx` (deserialization on file load).
+These documents define the `.redstring` file format (JSON with JSON-LD semantic overlay), its version history, and the migration system that keeps old files readable. The current format is **v3.0.0**. The migration code in `src/formats/migrations.js` was written directly from `../documentation/data-format/redstring-format-spec.md` — that spec is legacy-canonical and must remain consistent with the migration logic even as the format evolves. Key code paths: format spec, `src/formats/migrations.js` (the append-only migration ledger), `src/formats/redstringFormat.js` (import/export), `SaveCoordinator.js` (serialization), `graphStore.js` (deserialization on file load).
 
 ---
 
