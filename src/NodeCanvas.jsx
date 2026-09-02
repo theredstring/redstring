@@ -17,6 +17,7 @@ import ConnectionControlPanel from './ConnectionControlPanel.jsx';
 import UnifiedBottomControlPanel from './UnifiedBottomControlPanel.jsx';
 import EdgeGlowIndicator from './components/EdgeGlowIndicator.jsx'; // Import the EdgeGlowIndicator component
 import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToCivilization component
+import DownloadAppPill from './DownloadAppPill.jsx';
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances } from './services/textMeasurement.js';
@@ -17841,6 +17842,20 @@ function NodeCanvas() {
             viewportSize={viewportSize}
             clusteringEnabled={enableClustering}
             clusterInfo={clusterAnalysis.statistics}
+          />
+
+          {/* One-time desktop-app nudge (web only). Held back while first-run
+              setup is up — nobody needs a download offer before they have a
+              universe — and while a bottom control panel is showing, since both
+              center on the same strip of canvas above the TypeList. The pill is
+              in no hurry: it waits and pops once the way is clear. */}
+          <DownloadAppPill
+            suppressed={
+              showStorageSetupModal ||
+              nodeControlPanelShouldShow || nodeControlPanelVisible ||
+              connectionControlPanelShouldShow || connectionControlPanelVisible ||
+              abstractionControlPanelShouldShow || abstractionControlPanelVisible
+            }
           />
 
           {/* Overlay panel resizers (outside panels) */}

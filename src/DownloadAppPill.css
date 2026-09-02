@@ -1,0 +1,99 @@
+/* DownloadAppPill.css
+ *
+ * The bottom-of-canvas twin of BackToCivilization: same #DEDADA-on-maroon
+ * bubble the pie menu paints, same pop/shrink lifecycle. It differs only in
+ * being anchored from the bottom, so every transform here is translateX(-50%)
+ * where that component's is translate(-50%, -50%). */
+
+.download-app-pill-wrapper {
+  /* Default state: hidden, before pop or after shrink */
+  opacity: 0;
+  transform: translateX(-50%) scale(0);
+  will-change: transform, opacity;
+}
+
+.download-app-pill-wrapper.is-popping {
+  animation-name: download-app-pill-pop;
+  animation-duration: 400ms;
+  animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation-fill-mode: forwards;
+}
+
+.download-app-pill-wrapper.is-visible-steady {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+}
+
+.download-app-pill-wrapper.is-shrinking {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+  animation-name: download-app-pill-shrink;
+  animation-duration: 150ms;
+  animation-timing-function: cubic-bezier(0.6, -0.28, 0.735, 0.045);
+  animation-fill-mode: forwards;
+}
+
+@keyframes download-app-pill-pop {
+  0% {
+    transform: translateX(-50%) scale(0);
+    opacity: 0;
+  }
+  70% {
+    transform: translateX(-50%) scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-50%) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes download-app-pill-shrink {
+  0% {
+    transform: translateX(-50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-50%) scale(0);
+    opacity: 0;
+  }
+}
+
+.download-app-pill {
+  display: flex;
+  align-items: center;
+  /* Tighter on the right than the left: the dismiss button carries its own
+     padding, and matching the two visually means giving it less. */
+  padding: 6px 8px 6px 16px;
+  gap: 10px;
+  background-color: #DEDADA;
+  border: 2px solid maroon;
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+/* Grows less than Back to Civilization's 1.05. That pill is a bare label; this
+   one holds a button that grows on its own hover, and two compounding scales
+   read as the pill lurching rather than lifting. */
+.download-app-pill:hover {
+  background-color: #D0CACA;
+  transform: scale(1.03);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.download-app-pill-icon {
+  color: maroon;
+  flex-shrink: 0;
+}
+
+.download-app-pill-text {
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 14px;
+  font-weight: bold;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  user-select: none;
+  white-space: nowrap;
+}
