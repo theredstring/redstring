@@ -337,14 +337,19 @@ const PAN_MOMENTUM_MIN_SPEED = 0.01;            // px/ms threshold before moment
 const TOUCH_MOMENTUM_VELOCITY_WINDOW_MS = 80;   // how far back from the last touchmove to sample for release velocity
 const TOUCH_MOMENTUM_STATIONARY_GAP_MS = 60;    // if the gap between last touchmove and touchend exceeds this, treat the finger as held still — no momentum
 const TOUCH_MOMENTUM_LAUNCH_MIN_SPEED = 0.25;   // px/ms — touch must be moving this fast at release to launch momentum (prevents slip when finger slows to a stop)
-// px/ms — while the pan glide is still travelling at least this fast, a finger
-// landing anywhere on the canvas *catches* the view instead of pressing what
-// happens to be under it (see isPanGlideCatchable / handleNodeTouchStart).
-// Deliberately close to PAN_MOMENTUM_MIN_SPEED: anything visibly moving should
-// be catchable, so the catch window covers nearly the whole glide. 0.05 px/ms
-// is ~50px/s — under a finger's reaction time that's still ~20px of travel,
-// while below it the view reads as parked and nodes take their taps normally.
-const PAN_GLIDE_CATCH_MIN_SPEED = 0.05;
+// --- "Is the view moving?" (touch catch) ---
+// While the view is moving, a finger coming down is catching it, not pressing
+// what happens to be under it (see isViewMoving / handleNodeTouchStart).
+// Measured from the transform itself rather than from momentum state, because
+// every way the view moves matters equally to that finger: a launched glide, a
+// pinch settling, an animated navigation, and — the common one — the tail of a
+// drag the user is about to continue with the next plant. Momentum only exists
+// above TOUCH_MOMENTUM_LAUNCH_MIN_SPEED, so a drag-lift-replant traversal has
+// none, which is exactly when nodes were stealing the gesture.
+const VIEW_MOTION_MIN_SPEED = 0.001;        // px/ms — a standstill is the only thing this excludes
+const VIEW_MOTION_STALE_MS = 120;           // no transform write in this long = the view is parked
+const VIEW_MOTION_SAMPLE_MAX_GAP_MS = 120;  // a longer gap between writes restarts the measurement rather than averaging across the pause
+const VIEW_MOTION_MIN_SAMPLES = 2;          // consecutive moving frames before the view counts as moving, so a one-off jump (a viewport clamp, a graph-switch restore) doesn't swallow the next tap
 const TOUCH_PAN_FRICTION = 0.92;                // per-frame retention for touch glide (higher = longer glide)
 const TOUCH_PAN_FRICTION_HIGH_VELOCITY = 0.955; // higher retention for fast flicks — extends glide for "throws" without affecting low/mid precision
 const TOUCH_HIGH_VELOCITY_THRESHOLD = 1.2;      // px/ms — speed above which the high-velocity friction starts ramping in
@@ -2814,15 +2819,34 @@ function NodeCanvas() {
     return () => stopPanMomentum();
   }, [stopPanMomentum]);
 
-  // True while the view is still coasting fast enough that a fresh touch reads
-  // as "catch the glide", not "press the thing under my finger". The touch layer
-  // uses this to route those touches to the canvas pan pipeline even when they
-  // land on a node — with large nodes, a traversal across the graph otherwise
-  // dies the moment a finger comes down to continue the flick.
-  const isPanGlideCatchable = useCallback(() => {
-    const m = panMomentumRef.current;
-    if (!m.active) return false;
-    return Math.hypot(m.vx, m.vy) > PAN_GLIDE_CATCH_MIN_SPEED;
+  // Live view-motion sample, fed by every transform write (see the
+  // onTransformChangeRef effect). Speed is screen px/ms of pan travel.
+  const viewMotionRef = useRef({ x: 0, y: 0, t: 0, movingSamples: 0 });
+  const sampleViewMotion = useCallback(() => {
+    const p = panOffsetRef.current;
+    const m = viewMotionRef.current;
+    const now = performance.now();
+    const dt = now - m.t;
+    // A gap longer than the sample window means the view was parked and has
+    // just started moving again — measure from here rather than dividing this
+    // frame's travel by the length of the pause.
+    const speed = (dt > 0 && dt <= VIEW_MOTION_SAMPLE_MAX_GAP_MS)
+      ? Math.hypot(p.x - m.x, p.y - m.y) / dt
+      : 0;
+    m.movingSamples = speed > VIEW_MOTION_MIN_SPEED ? m.movingSamples + 1 : 0;
+    m.x = p.x;
+    m.y = p.y;
+    m.t = now;
+  }, [panOffsetRef]);
+
+  // True while the view is moving — the touch layer routes touches that land
+  // during it to the canvas pan pipeline even when they land on a node, so a
+  // traversal isn't killed by whatever large node the finger comes down on.
+  // Stale-checked, so a parked view (no transform writes) always reads false.
+  const isViewMoving = useCallback(() => {
+    const m = viewMotionRef.current;
+    if (performance.now() - m.t > VIEW_MOTION_STALE_MS) return false;
+    return m.movingSamples >= VIEW_MOTION_MIN_SAMPLES;
   }, []);
 
   // Center view on instances of a prototype within the active graph
@@ -3598,6 +3622,9 @@ function NodeCanvas() {
   useEffect(() => {
     const base = ENABLE_CULLING ? runCulling : () => { glowUpdateRef.current?.(); };
     onTransformChangeRef.current = () => {
+      // Every pan/zoom write funnels through here, whatever drove it — the one
+      // place that can answer "is the view moving right now?" for touch.
+      sampleViewMotion();
       base();
       // Notify fixed-position overlays that anchor to live on-screen node
       // coordinates (e.g. AbstractionCarousel). Pan/zoom write the DOM transform
@@ -3616,7 +3643,7 @@ function NodeCanvas() {
       }
     };
     return () => { onTransformChangeRef.current = null; };
-  }, [onTransformChangeRef, runCulling, ENABLE_CULLING]);
+  }, [onTransformChangeRef, runCulling, ENABLE_CULLING, sampleViewMotion]);
 
   // Unmount cleanup for any in-flight culling RAF.
   useEffect(() => {
@@ -9451,9 +9478,9 @@ function NodeCanvas() {
   const EDGE_TAP_SLOP_PX = 10;
 
   const beginEdgeTouch = useCallback((edgeId, e) => {
-    // A finger landing on a coasting view is catching the glide — it selects
+    // A finger landing while the view is moving is catching it — it selects
     // nothing, the same rule nodes and group titles follow.
-    if (isPanGlideCatchable()) { pendingEdgeTouchRef.current = null; return; }
+    if (isViewMoving()) { pendingEdgeTouchRef.current = null; return; }
     const x = e?.clientX ?? e?.touches?.[0]?.clientX;
     const y = e?.clientY ?? e?.touches?.[0]?.clientY;
     if (typeof x !== 'number' || typeof y !== 'number') { pendingEdgeTouchRef.current = null; return; }
@@ -9462,7 +9489,7 @@ function NodeCanvas() {
       x, y,
       additive: Boolean(e?.ctrlKey || e?.metaKey),
     };
-  }, [resolveTouchEdgeTarget, isPanGlideCatchable]);
+  }, [resolveTouchEdgeTarget, isViewMoving]);
 
   const moveEdgeTouch = useCallback((e) => {
     const pending = pendingEdgeTouchRef.current;
@@ -10046,7 +10073,7 @@ function NodeCanvas() {
     setZoomLevel,
     setPanAndZoom,
     stopPanMomentum,
-    isPanGlideCatchable,
+    isViewMoving,
     startZoomMomentum,
     stopZoomMomentum,
     storeActions,
@@ -14853,15 +14880,16 @@ function NodeCanvas() {
                             // group title only triggers canvas pan — the long-press
                             // group-drag path never runs.
                             //
-                            // Unless the view is still coasting: that finger is catching
-                            // the glide, not grabbing this title. Yield without stopping
-                            // propagation so the touch reaches the canvas pan pipeline,
-                            // and drop the tap origin so this gesture's touchend can't
-                            // read as a title tap (see handleNodeTouchStart for the same
-                            // rule on nodes).
-                            if (isPanGlideCatchable()) {
+                            // Unless the view is moving: that finger is catching it, not
+                            // grabbing this title. Hand the gesture to the canvas pan
+                            // pipeline and drop the tap origin, so this gesture's
+                            // touchend can't read as a title tap (see
+                            // handleNodeTouchStart for the same rule on nodes).
+                            if (isViewMoving()) {
                               clearTimeout(groupLongPressTimeout.current);
                               groupTouchStartRef.current = null;
+                              touch.handleTouchStartCanvas(e, { claimed: true });
+                              e.stopPropagation();
                               return;
                             }
                             e.stopPropagation();

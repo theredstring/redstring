@@ -54,7 +54,7 @@ export const useCanvasTouch = ({
     stopPanMomentum,
     // () => boolean — the pan glide is still moving fast enough that a fresh
     // touch means "catch the view", not "press what's under the finger".
-    isPanGlideCatchable,
+    isViewMoving,
     startZoomMomentum,
     stopZoomMomentum,
     storeActions,
@@ -358,12 +358,16 @@ export const useCanvasTouch = ({
 
     // --- Handlers ---
 
-    const handleTouchStartCanvas = (e) => {
+    // `claimed` is set when an element handed this gesture over deliberately (a
+    // node or group title yielding a view-catch), which skips the surface test —
+    // the target is that element, and a bail there would leave the gesture owned
+    // by nobody.
+    const handleTouchStartCanvas = (e, { claimed = false } = {}) => {
         // Must precede the preventDefault/stopPropagation below — see yieldsToCarousel.
         if (yieldsToCarousel(e)) return;
 
         // Don't intercept touches on UI overlays (panels, modals, buttons)
-        if (!isCanvasSurfaceTarget(e.target)) return;
+        if (!claimed && !isCanvasSurfaceTarget(e.target)) return;
 
         // Reset stale ignoreCanvasClick from a previous tap/pan. Edge & node
         // touchstart handlers stopPropagation before this fires, so this
@@ -380,7 +384,7 @@ export const useCanvasTouch = ({
         // moment ago; re-reading here is consistent because nothing in between
         // stops the momentum.
         if (e.touches && e.touches.length === 1) {
-            panCatchRef.current = isPanGlideCatchable?.() === true;
+            panCatchRef.current = isViewMoving?.() === true;
         }
 
         // Connection endpoint orbs take priority over a bare-canvas tap: if this
@@ -969,23 +973,26 @@ export const useCanvasTouch = ({
         // older document-level touchmove/touchend listeners that used to be
         // attached here are redundant and have been removed.
 
-        // A finger landing while the view is still coasting is catching the glide,
-        // the way a finger on a scrolling list is — it must not press the node it
-        // happened to land on. Nodes are the whole reason this exists: they paint
-        // on top of the canvas and stopPropagation() their touches, so before this
-        // check a large node under the finger killed the momentum AND ate the
-        // gesture, leaving the traversal dead (and 12px of movement away from
-        // drawing an unwanted connection). Yield instead: no stopPropagation, so
-        // the touch bubbles to handleTouchStartCanvas and continues as a pan.
-        // Runs before everything, orb hit-testing included — while the view moves,
-        // nothing under the finger activates.
-        if (e.touches?.length === 1 && isPanGlideCatchable?.()) {
-            panCatchRef.current = true;
-            // Wipe any node state a duplicate entry left behind. pointerdown fires
-            // before touchstart and routes here too (handleNodePointerDown), so the
-            // first pass may already have armed a long-press timer — which would
-            // otherwise fire mid-pan and start dragging the node out from under the
-            // gesture. Clearing dragNodeId also matters for the pan itself:
+        // A finger landing while the view is moving is catching it, the way a
+        // finger on a scrolling list is — it must not press the node it happened
+        // to land on. Nodes are the whole reason this exists: they paint on top of
+        // the canvas and stopPropagation() their touches, so before this check a
+        // large node under the finger killed the momentum AND ate the gesture,
+        // leaving the traversal dead (and 12px of movement away from drawing an
+        // unwanted connection). Runs before everything, orb hit-testing included —
+        // while the view moves, nothing under the finger activates.
+        //
+        // The canvas may already own this gesture: pointerdown and touchstart both
+        // route here for the same finger, in whichever order the browser sends
+        // them, and by the second one the view has stopped — the catch itself
+        // stopped it. Re-asking "is the view moving?" would then answer no and
+        // hand the node a gesture the canvas is already panning with, so the first
+        // pass's verdict stands for as long as that gesture is down.
+        const canvasOwnsGesture = panCatchRef.current && isMouseDown.current;
+        if (e.touches?.length === 1 && (canvasOwnsGesture || isViewMoving?.())) {
+            // Wipe any node state an earlier pass left behind: a long-press timer
+            // would otherwise fire mid-pan and drag the node out from under the
+            // gesture. Clearing dragNodeId also matters for the pan itself —
             // handleTouchMoveCanvas bails outright while it is set.
             if (touchState.current.longPressTimer) {
                 clearTimeout(touchState.current.longPressTimer);
@@ -1009,6 +1016,21 @@ export const useCanvasTouch = ({
             mouseInsideNode.current = false;
             setLongPressingInstanceId(null);
             cancelPendingNodeTap();
+            // Hand the gesture to the canvas by calling its touchstart directly
+            // rather than by declining to stopPropagation and hoping it bubbles:
+            // that path runs the orb hit-test and the canvas-surface test against
+            // a node target first, and one silent bail there leaves the gesture
+            // owned by nobody — the glide stops and the finger drags nothing.
+            // handleTouchStartCanvas is what arms the pan (handleMouseDown) and
+            // attaches the document-level move/end listeners that carry it. Only
+            // the first pass does this — a second one would attach a second set of
+            // those listeners and pan twice per move.
+            if (!canvasOwnsGesture) {
+                handleTouchStartCanvas(e, { claimed: true });
+                panCatchRef.current = true;
+            }
+            // ...and stop here, so the same event can't reach it again by bubbling.
+            e.stopPropagation();
             return;
         }
         panCatchRef.current = false;
