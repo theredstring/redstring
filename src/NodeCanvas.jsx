@@ -477,6 +477,35 @@ const ORBIT_FIT_PADDING = 0.06;
 // `window.__orbitZoom = 0.18` overrides it live.
 const ORBIT_FIT_MIN_ZOOM = 0.22;
 
+// Viewport culling for nodes and edges.
+//
+// Off since April (`6f25434`, bundled into a self-loop refactor, which is how it
+// escaped the suspect list for months). The reason it went off is mechanism 4 in
+// documentation/graph-layout/ZOOM_PERF_DIAGNOSIS.md: the hysteresis band is
+// screen-space, which a pan cannot cross (it translates the viewport rigidly)
+// but a zoom crosses in a single frame (it SCALES screen space about the cursor,
+// so content at radius r moves r·Δz/z px per frame). Membership churned, every
+// churn was a synchronous setState, and those mid-gesture renders were the
+// flicker. The cost of leaving it off is that every settle render is O(entire
+// graph) — 143ms with labels on — and that every count budget (curveLabels,
+// labelAngleQuantum, the crossing cutoff) is silently keyed to universe size
+// instead of to what's on screen.
+//
+// It is back on with a motion-aware commit policy — see runCulling: grow-only
+// while the view is moving, one prune when it settles, and a containment gate
+// that skips the recompute entirely until the viewport has eaten into its own
+// padding.
+//
+// `localStorage.setItem('redstring_disable_culling', 'true')` + reload turns it
+// back off without a rebuild, for A/B against a real universe.
+const ENABLE_CULLING = (() => {
+  try {
+    return globalThis.localStorage?.getItem('redstring_disable_culling') !== 'true';
+  } catch {
+    return true;
+  }
+})();
+
 /**
  * Root canvas component for Redstring's graph interface.
  *
@@ -494,9 +523,6 @@ const ORBIT_FIT_MIN_ZOOM = 0.22;
  * - Context-aware definition navigation
  */
 function NodeCanvas() {
-  // CULLING FLAG - viewport culling for nodes and edges
-  const ENABLE_CULLING = false;
-
   // ORBIT DIM — the scrim behind the orbit overlay. Set false to drop it
   // entirely (the rect stays, transparent and static at full canvas size, so
   // orbit's click-anywhere-to-exit keeps working at no paint cost).
@@ -2311,6 +2337,11 @@ function NodeCanvas() {
   // Settled values used where React re-renders are acceptable (child props, culling, view persistence)
   const panOffset = transform.settledPan;
   const zoomLevel = transform.settledZoom;
+  // True from the first mutation of a gesture until SETTLE_DELAY after the last
+  // one. Read ONLY from refs (never as a dependency) — see the note below on why
+  // reading the state form re-renders the whole canvas twice per gesture.
+  // runCulling uses it to decide whether it may remove things or only add them.
+  const isViewMovingRef = transform.isMovingRef;
   // NOTE: transform.isMoving is deliberately NOT read here. Reading it makes
   // every gesture's start and end a full canvas re-render — see labelAngleQuantum.
 
@@ -3371,6 +3402,17 @@ function NodeCanvas() {
   // pan/zoom mutation) without waiting for settled-state debounce. RAF-coalesced
   // so multiple calls within the same frame produce at most one compute.
   const cullingRafIdRef = useRef(null);
+  // Set by the callers that are allowed to SHRINK the visible set (settle, data
+  // change, resize). Every other tick may only grow it — see the commit policy
+  // inside runCulling. Consumed (and cleared) by the next tick that gets past
+  // the early-out guards.
+  const cullPruneRef = useRef(true);
+  // Canvas-space region the viewport may roam inside before the last computed
+  // membership stops being sufficient. It is the last cull's inner rect deflated
+  // by half its own padding, so it says "everything on screen is already mounted,
+  // with margin to spare" — a containment test cheap enough to run per frame in
+  // place of the O(nodes + edges) pass.
+  const cullGuardRectRef = useRef(null);
   // Event-driven glow update: EdgeGlowIndicator registers a callback here so it
   // can react to pan/zoom transform changes in lockstep with culling (one
   // RAF-coalesced tick per frame), without running its own free-running RAF loop.
@@ -3450,6 +3492,39 @@ function NodeCanvas() {
       const maxX = minX + viewport.width / zoom;
       const maxY = minY + viewport.height / zoom;
 
+      // COMMIT POLICY — this is what makes culling survivable during a zoom.
+      //
+      // Every membership change is a synchronous setState, i.e. a full canvas
+      // render mid-gesture. Pan barely produces any (the viewport translates
+      // rigidly and the hysteresis band absorbs the rest), but zoom scales
+      // screen space about the cursor, so distant content crosses the whole band
+      // between two frames and membership oscillates. That churn is what got
+      // culling switched off.
+      //
+      // So while the view is in motion the set may only GROW. Additions have to
+      // be prompt — a node that entered the viewport but isn't mounted IS the
+      // flicker — while removals are by definition invisible and can wait for
+      // the settle prune. In-motion commits are therefore bounded by how much
+      // content the gesture reveals, not by how often membership oscillates.
+      const prune = cullPruneRef.current || !isViewMovingRef.current;
+      cullPruneRef.current = false;
+
+      // Containment gate. The last computed cull mounted everything inside its
+      // inner rect, and content is only actually on screen once it enters the
+      // true viewport rect — so there is a whole padding band of slack between
+      // "covered" and "visible". While the view is moving, spend it: skip the
+      // O(nodes + edges) pass entirely until the viewport has eaten half of it.
+      // Zooming IN never leaves the guard at all (the viewport only shrinks), so
+      // an in-zoom costs zero culling work and zero commits.
+      if (!prune) {
+        const guard = cullGuardRectRef.current;
+        if (guard
+          && minX >= guard.minX && minY >= guard.minY
+          && maxX <= guard.maxX && maxY <= guard.maxY) {
+          return;
+        }
+      }
+
       // Two-zone hysteresis: `inner` is the threshold to ADD a node/edge to
       // the visible set; `outer` (= inner + HYSTERESIS_BAND) is the threshold
       // to REMOVE one that's already visible.
@@ -3475,6 +3550,18 @@ function NodeCanvas() {
         minY: minY - outerPadding,
         maxX: maxX + outerPadding,
         maxY: maxY + outerPadding,
+      };
+
+      // Half the padding is the roaming allowance for the gate above: from here
+      // the viewport can grow or slide by innerPadding/2 (250 screen px at the
+      // unclamped default, at any zoom, since innerPadding is 500/zoom) before
+      // anything it might reveal could reach the screen unmounted.
+      const guardMargin = innerPadding / 2;
+      cullGuardRectRef.current = {
+        minX: innerRect.minX + guardMargin,
+        minY: innerRect.minY + guardMargin,
+        maxX: innerRect.maxX - guardMargin,
+        maxY: innerRect.maxY - guardMargin,
       };
 
       const currentNodes = nodesRef.current;
@@ -3543,6 +3630,40 @@ function NodeCanvas() {
         }
       }
 
+      // Grow-only merge (see COMMIT POLICY). Anything the previous tick had
+      // stays for this one; only a prune tick is allowed to drop it. Entities
+      // deleted from the graph can't be resurrected by this: nodes are re-checked
+      // against nodeMap, and the edge list is rebuilt by filtering the CURRENT
+      // edges array, which also keeps edge order stable for the identity-compare
+      // bail-out below.
+      let commitNodeIds = nextVisibleNodeIds;
+      let commitEdges = nextVisibleEdges;
+      if (!prune) {
+        let grewNodes = false;
+        for (const id of prevVisibleNodeIds) {
+          if (!nextVisibleNodeIds.has(id) && nodeMap.has(id)) {
+            if (!grewNodes) { commitNodeIds = new Set(nextVisibleNodeIds); grewNodes = true; }
+            commitNodeIds.add(id);
+          }
+        }
+
+        const nextEdgeIds = new Set();
+        for (let i = 0; i < nextVisibleEdges.length; i++) nextEdgeIds.add(nextVisibleEdges[i].id);
+        let grewEdges = false;
+        for (let i = 0; i < prevVisibleEdgesArr.length; i++) {
+          if (!nextEdgeIds.has(prevVisibleEdgesArr[i].id)) {
+            nextEdgeIds.add(prevVisibleEdgesArr[i].id);
+            grewEdges = true;
+          }
+        }
+        if (grewEdges) {
+          commitEdges = [];
+          for (const edge of currentEdges) {
+            if (nextEdgeIds.has(edge.id)) commitEdges.push(edge);
+          }
+        }
+      }
+
       // Update refs synchronously — these are the hysteresis "previous visible
       // set" for the NEXT runCulling tick. The useEffect sync at the bottom of
       // the component is too late because passive effects can lag behind
@@ -3550,8 +3671,8 @@ function NodeCanvas() {
       // commits are expensive), causing hysteresis to evaluate against a stale
       // prev and flicker edges at viewport edges. These refs are read only
       // inside runCulling itself, so owning them here is safe.
-      visibleNodeIdsRef.current = nextVisibleNodeIds;
-      visibleEdgesRef.current = nextVisibleEdges;
+      visibleNodeIdsRef.current = commitNodeIds;
+      visibleEdgesRef.current = commitEdges;
 
       // TEMPORARY DIAGNOSTIC — zoom flicker investigation
       if (DIAGNOSE_ZOOM_FLICKER) {
@@ -3562,7 +3683,7 @@ function NodeCanvas() {
         if (!dimsMap || dimsMap.size === 0) {
           reasons.push(`dimsMap empty (size=${dimsMap?.size})`);
         }
-        if (nextVisibleNodeIds.size === 0 && currentNodes && currentNodes.length > 0) {
+        if (commitNodeIds.size === 0 && currentNodes && currentNodes.length > 0) {
           reasons.push(`visible EMPTY with ${currentNodes.length} nodes in graph`);
         }
         if (reasons.length) {
@@ -3573,7 +3694,7 @@ function NodeCanvas() {
             viewport: { w: viewport.width, h: viewport.height },
             innerRect,
             prevVisibleSize: prevVisibleNodeIds.size,
-            nextVisibleSize: nextVisibleNodeIds.size,
+            nextVisibleSize: commitNodeIds.size,
             nodesLen: currentNodes?.length,
             dimsMapSize: dimsMap?.size,
           });
@@ -3587,28 +3708,28 @@ function NodeCanvas() {
       // Functional updaters bail out (return prev) when membership is unchanged,
       // skipping the render entirely during steady-state pans.
       setVisibleNodeIds(prev => {
-        if (prev.size === nextVisibleNodeIds.size) {
+        if (prev.size === commitNodeIds.size) {
           let same = true;
-          for (const id of nextVisibleNodeIds) {
+          for (const id of commitNodeIds) {
             if (!prev.has(id)) { same = false; break; }
           }
           if (same) return prev;
         }
-        return nextVisibleNodeIds;
+        return commitNodeIds;
       });
       setVisibleEdges(prev => {
-        if (prev.length === nextVisibleEdges.length) {
+        if (prev.length === commitEdges.length) {
           let same = true;
           for (let i = 0; i < prev.length; i++) {
-            if (prev[i] !== nextVisibleEdges[i]) { same = false; break; }
+            if (prev[i] !== commitEdges[i]) { same = false; break; }
           }
           if (same) return prev;
         }
-        return nextVisibleEdges;
+        return commitEdges;
       });
       } finally { perfDone(); }
     });
-  }, []); // Empty deps — everything is read from refs; identity stays stable forever.
+  }, [isViewMovingRef]); // Refs only — the one dep is a ref OBJECT, so identity stays stable forever.
 
   // Wire runCulling into the transform hook so pan/zoom mutations trigger culling
   // synchronously (without waiting for settled-state debounce).
@@ -3643,7 +3764,7 @@ function NodeCanvas() {
       }
     };
     return () => { onTransformChangeRef.current = null; };
-  }, [onTransformChangeRef, runCulling, ENABLE_CULLING, sampleViewMotion]);
+  }, [onTransformChangeRef, runCulling, sampleViewMotion]);
 
   // Unmount cleanup for any in-flight culling RAF.
   useEffect(() => {
@@ -3659,9 +3780,25 @@ function NodeCanvas() {
   // resize, drag end), schedule a culling recompute. Transform-driven updates
   // (pan, zoom) flow through onTransformChangeRef → runCulling directly and
   // bypass this effect entirely.
+  //
+  // These all invalidate membership in ways the containment gate can't see — a
+  // node can be deleted, resized, or dropped somewhere else without the viewport
+  // moving at all — so they ask for a full recompute rather than a grow-only one.
   useEffect(() => {
+    cullPruneRef.current = true;
     runCulling();
   }, [nodes, edges, viewportSize, canvasSize, baseDimsById, nodeById, draggingNodeInfo, runCulling]);
+
+  // Settle prune. The in-motion policy only ever grows the visible set, so the
+  // one recompute allowed to remove has to be scheduled when the gesture stops —
+  // and settledPan/settledZoom updating IS that moment (they commit SETTLE_DELAY
+  // ms after the last transform mutation). Everything the gesture over-mounted
+  // gets dropped here, in the same render the settle was going to cost anyway.
+  useEffect(() => {
+    if (!ENABLE_CULLING) return;
+    cullPruneRef.current = true;
+    runCulling();
+  }, [panOffset, zoomLevel, runCulling]);
 
 
 
