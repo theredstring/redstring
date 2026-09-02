@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Bot, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, Link as LinkIcon } from 'lucide-react';
+import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Bot, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, MonitorDown, Link as LinkIcon } from 'lucide-react';
 import './RedstringMenu.css';
+import { isElectron, isCapacitor } from './utils/fileAccessAdapter.js';
+import { getDeviceInfo } from './utils/deviceDetection.js';
 import DebugOverlay from './DebugOverlay';
 import * as fileStorage from './store/fileStorage.js';
 import { debugConfig } from './utils/debugConfig.js';
@@ -83,7 +85,16 @@ const RedstringMenu = ({
   // Track timeout for nested submenu closing only
   const nestedCloseTimeoutRef = useRef(null);
   const [debugSettings, setDebugSettings] = useState(debugConfig.getConfig());
-  const menuItems = ['File', 'Edit', 'View', 'Connections', ...(showDebugMenu || showDebugOption ? ['Debug'] : []), 'Help'];
+  // "Download" only makes sense in a plain desktop browser: the packaged shells
+  // (Electron, Capacitor) already *are* the app, and the desktop build is not
+  // what a phone or tablet needs.
+  const showDownload = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    if (isElectron() || isCapacitor()) return false;
+    const { isMobile, isTablet } = getDeviceInfo();
+    return !isMobile && !isTablet;
+  }, []);
+  const menuItems = [...(showDownload ? ['Download'] : []), 'File', 'Edit', 'View', 'Connections', ...(showDebugMenu || showDebugOption ? ['Debug'] : []), 'Help'];
   const menuRef = useRef(null);
 
   const topLevelMenus = ['File', 'Edit', 'View', 'Connections', ...(showDebugMenu || showDebugOption ? ['Debug'] : []), 'Help'];
@@ -267,7 +278,25 @@ const RedstringMenu = ({
         <div ref={menuRef} className={`menu-container ${isExiting ? 'exiting' : 'entering'}`}>
           <div className="menu-items">
             {menuItems.map((item, index) => {
-              if (item === 'File') {
+              if (item === 'Download') {
+                // Leaf action, not a menu: no submenu, and hovering it dismisses
+                // whichever top-level submenu is currently open so it doesn't
+                // hang open alongside an item that has none.
+                return (
+                  <button
+                    key={index}
+                    className="menu-item"
+                    onMouseEnter={closeAllMenus}
+                    onClick={() => {
+                      window.open('https://redstring.net/#download', '_blank', 'noopener,noreferrer');
+                      onHoverView?.(false);
+                    }}
+                  >
+                    <span>{item}</span>
+                    <MonitorDown size={16} className="menu-item-chevron" />
+                  </button>
+                );
+              } else if (item === 'File') {
                 return (
                   <div
                     key={index}

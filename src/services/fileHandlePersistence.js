@@ -142,7 +142,7 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
         const parts = candidate.split('/');
         fileName = parts[parts.length - 1];
       } else if (typeof fileHandle === 'string') {
-        console.warn(`[FileHandles] ✗ Refusing to persist non-Capacitor handle on iOS for ${universeSlug}:`, fileHandle);
+        console.warn(`[FileHandles] ✗ Refusing to persist non-Capacitor handle on native mobile for ${universeSlug}:`, fileHandle);
         const parts = fileHandle.split('/');
         fileName = parts[parts.length - 1];
         resolvedHandle = null; // needs reconnect — not a usable location

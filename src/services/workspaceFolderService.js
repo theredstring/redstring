@@ -1,6 +1,6 @@
 
 import { isElectron } from '../utils/fileAccessAdapter.js';
-import { isCapacitor, UNIVERSES_FOLDER_HANDLE, ensureUniversesFolder } from '../utils/capacitorAdapter.js';
+import { isCapacitor, universesFolderHandle, ensureUniversesFolder } from '../utils/capacitorAdapter.js';
 
 const WORKSPACE_DB_NAME = 'redstring-workspace';
 const WORKSPACE_STORE_NAME = 'folder-handles';
@@ -105,7 +105,7 @@ export async function getWorkspaceHandle() {
         } catch (error) {
             console.warn('[WorkspaceFolderService] Could not ensure Universes folder:', error?.message || error);
         }
-        _cachedHandle = UNIVERSES_FOLDER_HANDLE;
+        _cachedHandle = universesFolderHandle();
         return _cachedHandle;
     }
 

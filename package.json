@@ -39,6 +39,9 @@
     "build:cap": "vite build --mode capacitor",
     "cap:sync": "npm run build:cap && npx cap sync ios",
     "cap:ios": "npm run cap:sync && npx cap open ios",
+    "cap:sync:android": "npm run build:cap && npx cap sync android",
+    "cap:android": "./scripts/android-run.sh",
+    "cap:android:fast": "./scripts/android-run.sh --no-web",
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "node deployment/app-semantic-server.js",
@@ -93,6 +96,7 @@
     "cf:tail:staging": "wrangler pages deployment tail --project-name=redstring-staging"
   },
   "dependencies": {
+    "@capacitor/android": "^7.6.9",
     "@capacitor/app": "^7.1.2",
     "@capacitor/browser": "^7.0.5",
     "@capacitor/core": "^7.6.8",

@@ -62,8 +62,7 @@ import {
   usesPathHandles,
   usesDeviceFlowAuth,
   universeFileHandle,
-  ensureUniversesFolder,
-  UNIVERSES_FOLDER_HANDLE
+  ensureUniversesFolder
 } from '../utils/capacitorAdapter.js';
 
 const { log: __umNativeLog, warn: __umNativeWarn, error: __umNativeError } = console;

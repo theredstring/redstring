@@ -52,6 +52,9 @@ export const useCanvasTouch = ({
     setZoomLevel,
     setPanAndZoom,
     stopPanMomentum,
+    // () => boolean — the pan glide is still moving fast enough that a fresh
+    // touch means "catch the view", not "press what's under the finger".
+    isPanGlideCatchable,
     startZoomMomentum,
     stopZoomMomentum,
     storeActions,
@@ -165,6 +168,21 @@ export const useCanvasTouch = ({
     // lifts and both runs; deliberate taps are unaffected because their own
     // touchstart resets it.
     const multiTouchGestureRef = useRef(false);
+
+    // True when the current single-finger gesture began while the view was still
+    // coasting — the finger came down to catch the glide (scroll-view semantics).
+    // Two consequences, both here:
+    //   1. Nodes don't claim the touch (handleNodeTouchStart yields to the canvas
+    //      pan pipeline), so a traversal isn't killed by whatever large node the
+    //      finger happens to land on.
+    //   2. The release carries no tap semantics — catching a glide is navigation,
+    //      exactly like a pinch (see multiTouchGestureRef), so it must not spawn a
+    //      plus sign, clear selection or dismiss panels.
+    // Assigned by every fresh single-finger touchstart (canvas or node) *before*
+    // anything stops the momentum, and deliberately NOT cleared at touchend:
+    // handleTouchEndCanvas runs twice per release (React + the document listener)
+    // and the second run must see the same value as the first.
+    const panCatchRef = useRef(false);
 
     // Mirror selectedInstanceIds in a ref so the deferred single-tap selection
     // (fires 300ms after touchend) reads the latest value, not a stale closure.
@@ -355,10 +373,21 @@ export const useCanvasTouch = ({
             ignoreCanvasClick.current = false;
         }
 
+        // Record whether this gesture is catching a glide. MUST be read before the
+        // stopPanMomentum() below zeroes the velocity, and before the orb check,
+        // which the catch outranks. A node touchstart that yielded
+        // (handleNodeTouchStart) already set this from the same glide state a
+        // moment ago; re-reading here is consistent because nothing in between
+        // stops the momentum.
+        if (e.touches && e.touches.length === 1) {
+            panCatchRef.current = isPanGlideCatchable?.() === true;
+        }
+
         // Connection endpoint orbs take priority over a bare-canvas tap: if this
         // single-finger touch lands on a visible orb, toggle the arrow and swallow
-        // the gesture (no pan / no deselect).
-        if (e.touches && e.touches.length === 1 && tryToggleConnectionOrbAtPoint) {
+        // the gesture (no pan / no deselect). Skipped while catching a glide —
+        // that finger is stopping the view, not aiming at the orb it landed on.
+        if (!panCatchRef.current && e.touches && e.touches.length === 1 && tryToggleConnectionOrbAtPoint) {
             const t = e.touches[0];
             if (tryToggleConnectionOrbAtPoint(t.clientX, t.clientY)) {
                 orbTapConsumedRef.current = true;
@@ -813,6 +842,18 @@ export const useCanvasTouch = ({
             touchMultiPanRef.current = false;
             return;
         }
+        // Same reasoning for a gesture that began by catching a coasting view: the
+        // finger came down to stop the glide, not to press anything. If it never
+        // moved, that lift reads as a tap here and would deselect, dismiss panels
+        // and spawn a plus sign — over whatever node the finger landed on, since
+        // nodes yield their touches while the glide is catchable. Catching is
+        // navigation; leave the graph as it was. handleMouseUp above already
+        // finalized the pan (and relaunched momentum if the finger flicked).
+        if (isTap && panCatchRef.current) {
+            if (ignoreCanvasClick) ignoreCanvasClick.current = true;
+            touchMultiPanRef.current = false;
+            return;
+        }
         // NOTE: tap-to-close-the-carousel used to live here. It now belongs to the
         // carousel's own touch state machine, which is the only place that can tell
         // a tap from a drag release — and, since yieldsToCarousel hands it every
@@ -927,6 +968,51 @@ export const useCanvasTouch = ({
         // Both fire regardless of which element the finger is over, so the
         // older document-level touchmove/touchend listeners that used to be
         // attached here are redundant and have been removed.
+
+        // A finger landing while the view is still coasting is catching the glide,
+        // the way a finger on a scrolling list is — it must not press the node it
+        // happened to land on. Nodes are the whole reason this exists: they paint
+        // on top of the canvas and stopPropagation() their touches, so before this
+        // check a large node under the finger killed the momentum AND ate the
+        // gesture, leaving the traversal dead (and 12px of movement away from
+        // drawing an unwanted connection). Yield instead: no stopPropagation, so
+        // the touch bubbles to handleTouchStartCanvas and continues as a pan.
+        // Runs before everything, orb hit-testing included — while the view moves,
+        // nothing under the finger activates.
+        if (e.touches?.length === 1 && isPanGlideCatchable?.()) {
+            panCatchRef.current = true;
+            // Wipe any node state a duplicate entry left behind. pointerdown fires
+            // before touchstart and routes here too (handleNodePointerDown), so the
+            // first pass may already have armed a long-press timer — which would
+            // otherwise fire mid-pan and start dragging the node out from under the
+            // gesture. Clearing dragNodeId also matters for the pan itself:
+            // handleTouchMoveCanvas bails outright while it is set.
+            if (touchState.current.longPressTimer) {
+                clearTimeout(touchState.current.longPressTimer);
+            }
+            if (touchState.current.nodeElement) {
+                try { touchState.current.nodeElement.classList.remove('touch-active', 'long-press-active'); } catch { }
+            }
+            touchState.current = {
+                isDragging: false,
+                dragNodeId: null,
+                startTime: 0,
+                startPosition: { x: 0, y: 0 },
+                currentPosition: { x: 0, y: 0 },
+                hasMovedPastThreshold: false,
+                longPressTimer: null,
+                nodeElement: null,
+                longPressReady: false,
+                dragOffset: null
+            };
+            startedOnNode.current = false;
+            mouseInsideNode.current = false;
+            setLongPressingInstanceId(null);
+            cancelPendingNodeTap();
+            return;
+        }
+        panCatchRef.current = false;
+
         e.stopPropagation();
         if (isPaused || !activeGraphId) return;
 
@@ -1064,6 +1150,10 @@ export const useCanvasTouch = ({
     };
 
     const handleNodeTouchMove = (nodeData, e) => {
+        // This gesture was handed to the canvas at touchstart (glide catch) —
+        // the pan is driven by handleTouchMoveCanvas, which sees the same event
+        // once it bubbles. Nothing node-level may run against it.
+        if (panCatchRef.current) return;
         if (isPaused || !activeGraphId || !touchState.current.dragNodeId) {
             return;
         }
@@ -1186,6 +1276,9 @@ export const useCanvasTouch = ({
     };
 
     const handleNodeTouchCancel = (nodeData, e) => {
+        // Same as handleNodeTouchEnd: the canvas owns a glide-catch gesture, and
+        // its own touchcancel path has to see the event.
+        if (panCatchRef.current) return;
         if (orbTapConsumedRef.current) {
             orbTapConsumedRef.current = false;
         }
@@ -1245,6 +1338,15 @@ export const useCanvasTouch = ({
     };
 
     const handleNodeTouchEnd = (nodeData, e) => {
+        // Yielded at touchstart (glide catch): the canvas owns this gesture. Return
+        // *without* stopPropagation — handleNodeTouchEnd normally stops the event,
+        // and React's stopPropagation calls the native one, which would keep the
+        // release from ever reaching handleTouchEndCanvas or the document touchend
+        // listener. That would leave the pan unfinalized (no momentum relaunch) and
+        // leak the listeners handleTouchStartCanvas attached for this gesture.
+        // panCatchRef stays set: handleTouchEndCanvas reads it to know this release
+        // carries no tap.
+        if (panCatchRef.current) return;
         // The matching touchstart toggled a connection orb over this node — swallow
         // the end so it doesn't toggle node selection.
         if (orbTapConsumedRef.current) {

@@ -27,7 +27,6 @@ import {
   capWriteTextFile,
   capFileExists,
   capListFiles,
-  UNIVERSES_FOLDER_HANDLE,
   UNIVERSES_FOLDER
 } from './capacitorAdapter.js';
 
@@ -73,10 +72,10 @@ export const hasFileSystemAccess = () => {
  */
 export const pickFile = async (options = {}) => {
   if (isCapacitor()) {
-    // iOS has no open-picker in this flow: universes live in the app-managed
-    // Universes folder, and external files come in via the <input type="file">
-    // upload path (universeBackend.uploadLocalFile).
-    throw new Error('File picking is not used on iOS — universes are managed automatically. Use import to bring in an external .redstring file.');
+    // Native mobile (iOS and Android) has no open-picker in this flow: universes
+    // live in the app-managed Universes folder, and external files come in via
+    // the <input type="file"> upload path (universeBackend.uploadLocalFile).
+    throw new Error('File picking is not used on mobile — universes are managed automatically. Use import to bring in an external .redstring file.');
   }
   if (isElectron()) {
     const filePath = await window.electron.fileSystem.pickFile(options);
@@ -108,8 +107,8 @@ export const pickFile = async (options = {}) => {
  */
 export const pickSaveLocation = async (options = {}) => {
   if (isCapacitor()) {
-    // No save dialog on iOS — resolve deterministically inside the managed
-    // Universes folder so universe creation never prompts.
+    // No save dialog on native mobile — resolve deterministically inside the
+    // managed Universes folder so universe creation never prompts.
     await ensureUniversesFolder();
     return universeFileHandle(sanitizeFileBaseName(options.suggestedName || 'universe'));
   }

@@ -951,6 +951,39 @@ const AbstractionCarousel = ({
   // the carousel is open (useCanvasTouch's yieldsToCarousel), so this is the whole
   // touch model — it has to resolve taps itself, not lean on synthesized clicks.
   const TOUCH_DRAG_THRESHOLD = 8; // px before a touch is treated as a drag
+  // Floor on how little finger travel a level may cost. Pure direct manipulation is
+  // right only while the stack is big enough on screen to grab: the carousel's
+  // framing zoom is routinely well under 1 (a text node lands ~74px tall on a wide
+  // region, ~44px on a phone), which puts a true-to-scale level at ~30-50px — close
+  // enough to a stray thumb-roll to feel hair-trigger. Below this the mapping is
+  // deliberately geared down. This is the one number to turn if the drag still feels
+  // too fast or too slow.
+  const TOUCH_MIN_PIXELS_PER_LEVEL = 110;
+
+  // Finger pixels per abstraction level at the current scroll position.
+  //
+  // Read off the REAL stack geometry, not a constant: levelOffsets walks the chain
+  // accumulating (hCurrent/2 + hNeighbour/2 + LEVEL_SPACING) from each node's ACTUAL
+  // height, and getStackOffset multiplies that by zoom to place the stack. Deriving
+  // the drag from NODE_HEIGHT instead only matched a default-height text node — an
+  // image node's true spacing is ~1150 canvas units against that constant's 98, so
+  // an image chain scrolled about twelve levels for the travel it should have taken
+  // one. Spacing is per-bracket because a chain can mix node heights.
+  const getTouchPixelsPerLevel = useCallback((position) => {
+    const floorLevel = Math.floor(position);
+    const fallback = NODE_HEIGHT * 1.4 * nodeScaleGlobal + LEVEL_SPACING;
+    const at = (lvl) => levelOffsets[lvl];
+    // Prefer the bracket the drag is inside; at the ends of the chain the far side
+    // has no offset, so fall back to the bracket behind it.
+    let spacing = fallback;
+    if (at(floorLevel) !== undefined && at(floorLevel + 1) !== undefined) {
+      spacing = Math.abs(at(floorLevel + 1) - at(floorLevel));
+    } else if (at(floorLevel) !== undefined && at(floorLevel - 1) !== undefined) {
+      spacing = Math.abs(at(floorLevel) - at(floorLevel - 1));
+    }
+    if (!Number.isFinite(spacing) || spacing <= 0) spacing = Math.abs(fallback) || 1;
+    return Math.max(spacing * getLiveZoom(), TOUCH_MIN_PIXELS_PER_LEVEL);
+  }, [levelOffsets, nodeScaleGlobal, getLiveZoom, LEVEL_SPACING]);
   // Matches the canvas's NODE_DOUBLE_TAP_MS rather than adding a fifth interval.
   const TOUCH_DOUBLE_TAP_MS = 250;
   // Overlays that sit ON the canvas but own their own touch handling. Claiming one of
@@ -1075,18 +1108,11 @@ const AbstractionCarousel = ({
 
     // Drag finger up to reveal nodes below (higher level index) — opposite of wheel deltaY sign convention.
     //
-    // 1:1 with what's on screen: levelOffsets steps by exactly this amount per level
-    // and getStackOffset multiplies it by zoom, so the stack tracks the finger. This
-    // used to carry a TOUCH_SENSITIVITY = 5 multiplier, which put ~490 * zoom px of
-    // finger travel between adjacent nodes — more than a phone screen for one level,
-    // so no single swipe could reach the neighbour.
-    //
     // getLiveZoom() rather than the zoomLevel prop, which lags ~150ms behind: a drag
     // begun during the open-framing animation would otherwise be calibrated against
     // the pre-animation zoom. Everything else in this component already reads live.
-    const pixelsPerLevel = (NODE_HEIGHT * 1.4 * nodeScaleGlobal + LEVEL_SPACING) * getLiveZoom();
-    const safePixels = Math.max(Math.abs(pixelsPerLevel), 1) * Math.sign(pixelsPerLevel || 1);
-    const levelDelta = -deltaY / safePixels;
+    const pixelsPerLevel = getTouchPixelsPerLevel(physicsStateRef.current.realPosition);
+    const levelDelta = -deltaY / pixelsPerLevel;
 
     runPhysicsAction({
       type: 'MOVE_BY',
@@ -1107,7 +1133,7 @@ const AbstractionCarousel = ({
       lastFrameTimeRef.current = performance.now();
       animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
     }
-  }, [isVisible, getLiveZoom, physicsMinLevel, physicsMaxLevel, hintsDismissed]);
+  }, [isVisible, getTouchPixelsPerLevel, physicsMinLevel, physicsMaxLevel, hintsDismissed]);
 
   const handleTouchEnd = useCallback((e) => {
     const ts = touchStateRef.current;
