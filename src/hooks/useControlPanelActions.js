@@ -133,10 +133,16 @@ export function useControlPanelActions({
   }, [selectedNodePrototypes, storeActions, rightPanelExpanded, setRightPanelExpanded, nodes, setEditingNodeIdOnCanvas]);
 
   const handleNodePanelSave = useCallback(() => {
-    const first = selectedNodePrototypes[0];
-    if (!first) return;
-    // Toggle saved state
-    storeActions.toggleSavedNode(first.id);
+    if (selectedNodePrototypes.length === 0) return;
+    // Toggle saved state across the whole selection. Toggling each one
+    // independently would split a mixed selection rather than resolve it, so the
+    // majority state decides: if anything in the selection is unsaved, save all
+    // of them; only an already-fully-saved selection unsaves.
+    const savedNodeIds = useGraphStore.getState().savedNodeIds;
+    const allSaved = selectedNodePrototypes.every(p => savedNodeIds?.has(p.id));
+    selectedNodePrototypes.forEach(p => {
+      if (allSaved || !savedNodeIds?.has(p.id)) storeActions.toggleSavedNode(p.id);
+    });
   }, [selectedNodePrototypes, storeActions]);
 
   const handleNodePanelOrbit = useCallback(() => {
@@ -146,15 +152,17 @@ export function useControlPanelActions({
   }, [onActivateSemanticOrbit]);
 
   const handleNodePanelPalette = useCallback((buttonPosition) => {
-    const first = selectedNodePrototypes[0];
-    if (!first) return;
-    // Find the first instance of this prototype
-    const instance = nodes.find(n => n.prototypeId === first.id);
-    if (instance && onOpenColorPicker) {
-      // Use the button position passed from the control panel
-      onOpenColorPicker(instance.id, buttonPosition);
-    }
-  }, [selectedNodePrototypes, nodes, onOpenColorPicker]);
+    if (!onOpenColorPicker) return;
+    // Anchor the picker on a *selected* instance. Looking the instance up by
+    // prototype instead would happily land on one outside the selection, and with
+    // several Things selected that instance is also what tells the colour change
+    // it is acting on a selection (see handlePieMenuColorChange).
+    const anchorId = Array.from(selectedInstanceIds)[0]
+      ?? nodes.find(n => n.prototypeId === selectedNodePrototypes[0]?.id)?.id;
+    if (!anchorId) return;
+    // Use the button position passed from the control panel
+    onOpenColorPicker(anchorId, buttonPosition);
+  }, [selectedInstanceIds, selectedNodePrototypes, nodes, onOpenColorPicker]);
 
   const handleNodePanelGroup = useCallback(() => {
     if (!activeGraphId) return;

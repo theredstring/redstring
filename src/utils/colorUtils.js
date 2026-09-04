@@ -122,6 +122,35 @@ export const hslToHex = (h, s, l) => {
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 };
 
+const hexToRgb = (hex) => {
+  hex = cssColorToHex(hex).replace('#', '');
+  if (hex.length === 3) {
+    hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+  }
+  return {
+    r: parseInt(hex.substr(0, 2), 16),
+    g: parseInt(hex.substr(2, 2), 16),
+    b: parseInt(hex.substr(4, 2), 16),
+  };
+};
+
+/**
+ * Mixes a tint into a base color in RGB space. Used where a surface needs to
+ * carry a trace of another color without going translucent — an opaque result
+ * keeps stacking predictable when tinted surfaces overlap.
+ * @param {string} baseColor - Hex color string (the surface)
+ * @param {string} tintColor - Hex color string (what to mix in)
+ * @param {number} amount - 0 = untouched base, 1 = pure tint
+ * @returns {string} - Hex color string
+ */
+export const blendColors = (baseColor, tintColor, amount) => {
+  const t = Math.max(0, Math.min(1, amount));
+  const base = hexToRgb(baseColor);
+  const tint = hexToRgb(tintColor);
+  const mix = (a, b) => Math.round(a + (b - a) * t).toString(16).padStart(2, '0');
+  return `#${mix(base.r, tint.r)}${mix(base.g, tint.g)}${mix(base.b, tint.b)}`;
+};
+
 const LIGHT_TEXT_LIGHTNESS = 95;
 
 /**

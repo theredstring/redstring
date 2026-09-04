@@ -5291,6 +5291,51 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     /**
+     * Closes every node tab except the one for `nodeIdToKeep`.
+     * The home tab (index 0) is always preserved; if the active tab was one of
+     * the closed ones, the kept tab becomes active.
+     *
+     * @param {string} nodeIdToKeep - Prototype ID of the tab to keep open.
+     */
+    closeOtherRightPanelTabs: (nodeIdToKeep) => navSet('tab_close', produce((draft) => {
+      const index = draft.rightPanelTabs.findIndex(tab => tab.nodeId === nodeIdToKeep);
+      if (index <= 0) {
+        console.warn(`closeOtherRightPanelTabs: Tab with node ID ${nodeIdToKeep} not found or is home tab.`);
+        return;
+      }
+
+      // Trim to [home, kept] — everything after the kept tab, then everything
+      // between home and it.
+      const removed = draft.rightPanelTabs.splice(index + 1);
+      removed.push(...draft.rightPanelTabs.splice(1, index - 1));
+
+      // An active home tab stays active; otherwise the survivor takes over.
+      if (removed.some(tab => tab.isActive)) {
+        draft.rightPanelTabs.forEach(tab => { tab.isActive = false; });
+        draft.rightPanelTabs[1].isActive = true;
+      }
+    })),
+
+    /**
+     * Closes every node tab positioned after the tab for `nodeId`.
+     * If the active tab was among those closed, the anchor tab becomes active.
+     *
+     * @param {string} nodeId - Prototype ID of the anchor tab.
+     */
+    closeRightPanelTabsToRight: (nodeId) => navSet('tab_close', produce((draft) => {
+      const index = draft.rightPanelTabs.findIndex(tab => tab.nodeId === nodeId);
+      if (index <= 0 || index === draft.rightPanelTabs.length - 1) {
+        return;
+      }
+
+      const removed = draft.rightPanelTabs.splice(index + 1);
+      if (removed.some(tab => tab.isActive)) {
+        draft.rightPanelTabs.forEach(tab => { tab.isActive = false; });
+        draft.rightPanelTabs[index].isActive = true;
+      }
+    })),
+
+    /**
      * Reorders right panel tabs via drag-and-drop.
      * Indices are 0-based from the drag layer (the home tab at position 0 is excluded).
      *

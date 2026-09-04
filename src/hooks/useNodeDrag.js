@@ -1493,11 +1493,18 @@ export const useNodeDrag = ({
             sub.directRects[0].setAttribute('width', rectW);
             sub.directRects[0].setAttribute('height', nodeGroupRect.h);
           }
-          if (sub.directRects[1]) {
-            sub.directRects[1].setAttribute('x', rectX + innerCanvasBorder);
-            sub.directRects[1].setAttribute('y', innerCanvasY);
-            sub.directRects[1].setAttribute('width', rectW - innerCanvasBorder * 2);
-            sub.directRects[1].setAttribute('height', (rectY + rectH) - innerCanvasY - innerCanvasBorder);
+          // rect[1] is the interior fill, rect[2] the grid repainted over it —
+          // same geometry, so resize them together or the grid patch detaches
+          // from the interior it's meant to cover.
+          const innerX = rectX + innerCanvasBorder;
+          const innerW = rectW - innerCanvasBorder * 2;
+          const innerH = (rectY + rectH) - innerCanvasY - innerCanvasBorder;
+          for (let i = 1; i <= 2; i++) {
+            if (!sub.directRects[i]) continue;
+            sub.directRects[i].setAttribute('x', innerX);
+            sub.directRects[i].setAttribute('y', innerCanvasY);
+            sub.directRects[i].setAttribute('width', innerW);
+            sub.directRects[i].setAttribute('height', innerH);
           }
         } else if (sub.type === 'title') {
           if (sub.labelRect) {

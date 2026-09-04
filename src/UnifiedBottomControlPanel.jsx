@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { Trash2, Plus, ArrowUpFromDot, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles, NotebookText, Save, RefreshCw } from 'lucide-react';
+import { Trash2, Plus, ArrowUpFromDot, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles, NotebookText, Save, RefreshCw, ClipboardCopy, CopyPlus } from 'lucide-react';
 import UniversalNodeRenderer from './UniversalNodeRenderer';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
@@ -227,6 +227,8 @@ const UnifiedBottomControlPanel = ({
   onPalette,
   onOrbit,
   onGroup,
+  onCopy,
+  onDuplicate,
 
   // The canvas pie menu's own pages for a single Thing, handed over verbatim so
   // this panel renders the same buttons rather than a transcription of them.
@@ -257,6 +259,7 @@ const UnifiedBottomControlPanel = ({
 }) => {
   const theme = useTheme();
   const inputMode = useGraphStore(state => state.inputMode);
+  const savedNodeIds = useGraphStore(state => state.savedNodeIds);
   const [animationState, setAnimationState] = useState('entering');
   const [shouldRender, setShouldRender] = useState(true);
   const nodeGroupPreviewRef = useRef(null);
@@ -733,6 +736,15 @@ const UnifiedBottomControlPanel = ({
 
   const multipleSelected = isNodes && Array.isArray(selectedNodes) && selectedNodes.length > 1;
 
+  // The Bookmark fills only once the *whole* selection is saved — with one Thing
+  // selected that's just its own saved state. A partially saved selection reads as
+  // unsaved, which is also what pressing the button then does (see
+  // handleNodePanelSave: anything unsaved means "save them all").
+  const allSelectedSaved = isNodes
+    && Array.isArray(selectedNodes)
+    && selectedNodes.length > 0
+    && selectedNodes.every(n => savedNodeIds?.has(n.id));
+
   return (
     <div
       className={`unified-bottom-panel mode-${mode} ${typeListOpen ? 'with-typelist' : ''} ${animationState} ${className}`}
@@ -1096,10 +1108,84 @@ const UnifiedBottomControlPanel = ({
                   />
                 )}
               </>
+            ) : isNodes && multipleSelected ? (
+              // Multi-select: only the actions that mean something for a *set* of
+              // Things. Everything else the panel can offer (Open Web, Decompose,
+              // Abstraction, Edit, Orbit) is written against a single instance and
+              // would silently act on whichever Thing sorted first, so it stays out
+              // of this row entirely rather than lying about its scope.
+              <>
+                <div
+                  className="piemenu-button"
+                  onClick={onGroup}
+                  title="Group Selection"
+                  onMouseEnter={() => triggerActionHover('control-group-selection', 'Group Selection')}
+                  onMouseLeave={clearActionHover}
+                >
+                  <Group size={iconSize} />
+                </div>
+                <div
+                  className="piemenu-button"
+                  onClick={onCopy}
+                  title="Copy"
+                  onMouseEnter={() => triggerActionHover('control-copy', 'Copy')}
+                  onMouseLeave={clearActionHover}
+                >
+                  <ClipboardCopy size={iconSize} />
+                </div>
+                <div
+                  className="piemenu-button"
+                  onClick={onDuplicate}
+                  title="Duplicate"
+                  onMouseEnter={() => triggerActionHover('control-duplicate', 'Duplicate')}
+                  onMouseLeave={clearActionHover}
+                >
+                  <CopyPlus size={iconSize} />
+                </div>
+                <div
+                  className="piemenu-button"
+                  onClick={(e) => {
+                    // See runPieMenuButton: the click must not reach document,
+                    // or the picker's click-away closes it as it opens.
+                    e.stopPropagation();
+                    if (!onPalette) return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const activeNode = selectedNodes?.[0];
+                    onPalette({
+                      x: rect.left + rect.width / 2,
+                      y: rect.top,
+                      color: getTextColor(activeNode?.color || '#800000', theme.darkMode),
+                    });
+                  }}
+                  title="Palette"
+                  onMouseEnter={() => triggerActionHover('control-palette', 'Palette')}
+                  onMouseLeave={clearActionHover}
+                >
+                  <Palette size={iconSize} />
+                </div>
+                <div
+                  className="piemenu-button"
+                  onClick={onSave}
+                  title={allSelectedSaved ? 'Unsave' : 'Save'}
+                  onMouseEnter={() => triggerActionHover('control-save', allSelectedSaved ? 'Unsave' : 'Save')}
+                  onMouseLeave={clearActionHover}
+                >
+                  <Bookmark size={iconSize} fill={allSelectedSaved ? 'maroon' : 'none'} />
+                </div>
+                <div
+                  className="piemenu-button"
+                  onClick={onDelete}
+                  title="Delete"
+                  onMouseEnter={() => triggerActionHover('control-delete', 'Delete')}
+                  onMouseLeave={clearActionHover}
+                >
+                  <Trash2 size={iconSize} />
+                </div>
+              </>
             ) : isNodes ? (
-              // Multi-select (and the panel's exit animation, where the target id is
-              // already gone): the pie menu has no form for this, so these stay
-              // hand-written and keep their selection-wide handlers.
+              // Single Thing with no pie-menu pages to render (and the panel's exit
+              // animation, where the target id is already gone): the pie menu has no
+              // form for this, so these stay hand-written.
               <>
                 <div
                   className="piemenu-button"
@@ -1110,17 +1196,6 @@ const UnifiedBottomControlPanel = ({
                 >
                   <ArrowUpFromDot size={iconSize} />
                 </div>
-                {multipleSelected && (
-                  <div
-                    className="piemenu-button"
-                    onClick={onGroup}
-                    title="Group Selection"
-                    onMouseEnter={() => triggerActionHover('control-group-selection', 'Group Selection')}
-                    onMouseLeave={clearActionHover}
-                  >
-                    <Group size={iconSize} />
-                  </div>
-                )}
                 <div
                   className="piemenu-button"
                   onClick={onDecompose || onAdd}
@@ -1160,11 +1235,11 @@ const UnifiedBottomControlPanel = ({
                 <div
                   className="piemenu-button"
                   onClick={onSave || onAdd}
-                  title="Save"
-                  onMouseEnter={() => triggerActionHover('control-save', 'Save')}
+                  title={allSelectedSaved ? 'Unsave' : 'Save'}
+                  onMouseEnter={() => triggerActionHover('control-save', allSelectedSaved ? 'Unsave' : 'Save')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Bookmark size={iconSize} />
+                  <Bookmark size={iconSize} fill={allSelectedSaved ? 'maroon' : 'none'} />
                 </div>
                 <div
                   className="piemenu-button"

@@ -1180,6 +1180,23 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     setShowRepositoryManager(true);
   };
 
+  // The switched-to universe floats to the top of the list (UniversesList orders
+  // most-recently-opened first), so without this you are left looking at
+  // whichever universe slid into the row you just clicked. containerRef is the
+  // panel's scroll box.
+  //
+  // Two frames: the first lets React commit the reordered list, the second runs
+  // after layout so the scroll lands on final positions rather than the old
+  // ones. Instant, not smooth — the list content changes underneath, so
+  // animating across it reads as noise.
+  const scrollPanelToTop = () => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (containerRef.current) containerRef.current.scrollTop = 0;
+      });
+    });
+  };
+
   const handleSwitchUniverse = async (slug) => {
     if (slug === serviceState.activeUniverseSlug) return;
 
@@ -1187,6 +1204,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     const attemptSwitch = async () => {
       await universeManagerService.switchUniverse(slug);
       await refreshState();
+      scrollPanelToTop();
     };
 
     const promptForPermissionIfNeeded = async () => {
@@ -1276,6 +1294,19 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         }
       } : null
     });
+  };
+
+  // No setLoading here, unlike handleDeleteUniverse: `loading` swaps the whole
+  // universes list for a spinner, and a rename is a localStorage write plus a
+  // refresh — fast enough that flashing the list away reads as a glitch.
+  const handleRenameUniverse = async (slug, nextName) => {
+    try {
+      await universeManagerService.renameUniverse(slug, nextName);
+      await refreshState();
+    } catch (err) {
+      umError('[UniverseManager] Rename failed:', err);
+      setError(`Failed to rename universe: ${err.message}`);
+    }
   };
 
   const handleSetPrimarySlot = async (slug, slot) => {
@@ -3931,6 +3962,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onCreateUniverse={handleCreateUniverse}
         onSwitchUniverse={handleSwitchUniverse}
         onDeleteUniverse={handleDeleteUniverse}
+        onRenameUniverse={handleRenameUniverse}
         onLinkRepo={handleAttachRepo}
         onLinkLocalFile={handleLinkLocalFile}
         onCreateLocalFile={handleCreateLocalFile}

@@ -21,7 +21,7 @@ import DownloadAppPill from './DownloadAppPill.jsx';
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances } from './services/textMeasurement.js';
-import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, hexToHsl, hslToHex } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from './utils/clipboard.js';
@@ -368,6 +368,12 @@ const CONNECTION_DETENT_PX = 44;
 // the fastest pair of crossings lands ~58ms apart. Halving it to 1/6 would put
 // the middle crossings ~37ms apart and silently drop one.
 const HURTLE_DETENT_STEP = 0.25;
+// How much of a thing-group's defining prototype color bleeds into its interior
+// surface. Just enough that the inside of a group reads as belonging to its
+// Thing without competing with the nodes sitting on it — the colored band above
+// carries the identity, this is a whisper of it. Mixed opaquely rather than laid
+// on as alpha so nested groups don't compound into mud.
+const NODE_GROUP_INTERIOR_TINT = 0.07;
 // How long a tapped button's vision-aid label stays up on a no-hover device
 // before it starts retracting. See handlePieMenuHoverChange.
 const VISION_AID_TOUCH_HOLD_MS = 1000;
@@ -2210,7 +2216,21 @@ function NodeCanvas() {
       // ignore sessionStorage errors
     }
   }, []);
-  const [drawingConnectionFrom, setDrawingConnectionFrom] = useState(null); // Structure might change (store source ID)
+  const [drawingConnectionFrom, _setDrawingConnectionFromState] = useState(null); // Structure might change (store source ID)
+  // Set when a draw is abandoned rather than completed, so the release that
+  // follows knows not to build anything out of it. One-way: only a genuinely new
+  // draw clears it, which is why it can never suppress a legitimate edge.
+  const connectionDrawAbandonedRef = useRef(false);
+  // Wrapped so that beginning a draw synchronously clears the "abandoned" mark a
+  // previous pinch may have left (see connectionDrawAbandonedRef). Doing it in an
+  // effect instead would leave the mark standing for one commit, and a release
+  // landing in that gap would silently drop a legitimate edge.
+  // Functional updates pass straight through: the only one moves an existing
+  // draw's endpoint, it never starts a draw.
+  const setDrawingConnectionFrom = useCallback((next) => {
+    if (next && typeof next !== 'function') connectionDrawAbandonedRef.current = false;
+    _setDrawingConnectionFromState(next);
+  }, []);
   // True once the pointer has moved >=10px (in canvas coords) outside the source node's
   // bounds during a connection draw. Used to gate the self-loop gesture: the user must
   // exit the source node and return to it before releasing.
@@ -2613,6 +2633,15 @@ function NodeCanvas() {
   const startDragForNode = nodeDrag.startDragForNode;
   const startDragForNodeRef = nodeDrag.startDragForNodeRef;
 
+  // Whether the background grid is painted right now, and which <pattern> the
+  // grid overlay is publishing under that setting. Hoisted out of the overlay
+  // because thing-group interiors repaint the same pattern over their own
+  // opaque fill (see the shell in the groups phase) — the grid sits at the
+  // bottom of the z-stack, so an opaque group would otherwise punch a hole in
+  // it. Both places have to agree on the id or the interior renders unfilled.
+  const gridActive = gridMode === 'always' || (gridMode === 'move' && !!draggingNodeInfo);
+  const gridPatternId = gridAppearance === 'dot' ? 'grid-dots-pattern' : 'grid-lines-pattern';
+
   // Invalidate the connection-label placement cache when a drag ends. The
   // cache (placedLabelsRef) is consulted in the !draggingNodeInfo branch and
   // can hold stale placements based on pre-snap positions when grid snap is on
@@ -2640,6 +2669,19 @@ function NodeCanvas() {
   // ---------------------------------------------------------------------------
   const drawingConnectionFromRef = useRef(null);
   useEffect(() => { drawingConnectionFromRef.current = drawingConnectionFrom; }, [drawingConnectionFrom]);
+
+  // End an in-flight connection draw without building anything from it: no edge,
+  // and no self-loop dialog even if the gesture is sitting over its own source.
+  // The touch layer calls this when a second finger arrives, which makes the
+  // gesture a pinch — drawing is a one-finger interaction, so there is no reading
+  // of two fingers that should still produce a connection.
+  const cancelConnectionDraw = useCallback(() => {
+    connectionDrawAbandonedRef.current = true;
+    connectionExitedSourceRef.current = false;
+    connectionHoverTargetRef.current = null;
+    setLongPressingInstanceId(null); // don't let the mouse path re-arm a draw
+    setDrawingConnectionFrom(null);
+  }, [setLongPressingInstanceId, setDrawingConnectionFrom]);
   useEffect(() => {
     if (!drawingConnectionFrom) return;
     let animationFrameId;
@@ -7859,16 +7901,25 @@ function NodeCanvas() {
   }, []);
 
   const handlePieMenuColorChange = useCallback((color) => {
-    if (activePieMenuColorNodeId) {
-      const node = nodes.find(n => n.id === activePieMenuColorNodeId);
-      if (node) {
-        // Coalesced across the drag; committed by handlePieMenuColorCommit.
-        storeActions.updateNodePrototype(node.prototypeId, draft => {
-          draft.color = color;
-        }, { coalesce: `node-color:${node.prototypeId}` });
-      }
-    }
-  }, [activePieMenuColorNodeId, nodes, storeActions]);
+    if (!activePieMenuColorNodeId) return;
+    // The picker was opened from a multi-selection (the control panel anchors it
+    // on a selected instance), so it recolours the whole selection — otherwise
+    // Palette silently repainted one Thing out of the several that were selected.
+    const targetIds = selectedInstanceIds.size > 1 && selectedInstanceIds.has(activePieMenuColorNodeId)
+      ? Array.from(selectedInstanceIds)
+      : [activePieMenuColorNodeId];
+    // Two instances can share a prototype; recolouring it twice would be a no-op
+    // with a second history entry attached.
+    const prototypeIds = new Set(
+      targetIds.map(id => nodes.find(n => n.id === id)?.prototypeId).filter(Boolean)
+    );
+    prototypeIds.forEach(prototypeId => {
+      // Coalesced across the drag; committed by handlePieMenuColorCommit.
+      storeActions.updateNodePrototype(prototypeId, draft => {
+        draft.color = color;
+      }, { coalesce: `node-color:${prototypeId}` });
+    });
+  }, [activePieMenuColorNodeId, selectedInstanceIds, nodes, storeActions]);
 
   const handlePieMenuColorCommit = useCallback(() => {
     storeActions.flushHistory?.();
@@ -10225,6 +10276,7 @@ function NodeCanvas() {
     setPanAndZoom,
     stopPanMomentum,
     isViewMoving,
+    cancelConnectionDraw,
     startZoomMomentum,
     stopZoomMomentum,
     storeActions,
@@ -10877,7 +10929,7 @@ function NodeCanvas() {
 
       // Finalize drawing connection. Re-entry already guarded at top of
       // handleMouseUp by handleMouseUpInProgressRef.
-      if (drawingConnectionFrom) {
+      if (drawingConnectionFrom && !connectionDrawAbandonedRef.current) {
         wasDrawingConnection.current = true; // Prevent PlusSign from appearing
         // Check nodes first, then fall back to group title areas
         let targetNodeData = nodes.find(n => !n.isGroupAnchor && isInsideNode(n, e.clientX, e.clientY));
@@ -13068,6 +13120,47 @@ function NodeCanvas() {
     onActivateSemanticOrbit: activateSemanticOrbit
   });
 
+  // Copy the whole selection (and any edges running between its members) to the
+  // clipboard — same path as Ctrl/Cmd+C and the single-Thing pie menu's Copy, so
+  // a multi-selection pastes back as one shape rather than a pile of loose Things.
+  const handleNodePanelCopy = useCallback(() => {
+    const currentGraph = graphsMap.get(activeGraphId);
+    if (!currentGraph || selectedInstanceIds.size === 0) return;
+    const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
+    if (copied) {
+      clipboardRef.current = copied;
+      markClipboardChanged();
+    }
+  }, [activeGraphId, selectedInstanceIds, graphsMap, nodePrototypesMap, edgesMap, markClipboardChanged]);
+
+  // Duplicate the selection in place. Built from copy+paste rather than a loop of
+  // addNodeInstance so the edges running between the selected Things come along —
+  // duplicating a shape and getting back a pile of disconnected Things isn't a
+  // duplicate. Deliberately does NOT touch clipboardRef: duplicating shouldn't
+  // silently overwrite whatever the user has copied.
+  const handleNodePanelDuplicate = useCallback(() => {
+    const currentGraph = graphsMap.get(activeGraphId);
+    if (!currentGraph || selectedInstanceIds.size === 0) return;
+    const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
+    if (!copied) return;
+    // Same down-right offset the single-Thing Duplicate uses, so the copy reads as
+    // a copy. pasteClipboard spirals further out if that lands on something.
+    const offset = 40;
+    const result = pasteClipboard(
+      copied,
+      activeGraphId,
+      { x: copied.originalCenter.x + offset, y: copied.originalCenter.y + offset },
+      storeActions,
+      currentGraph,
+      getNodeDimensions
+    );
+    // Move the selection to the new copies, matching the single-Thing Duplicate
+    // and paste — the panel stays up, now acting on what was just made.
+    if (result?.newInstanceIds?.length) {
+      setSelectedInstanceIds(new Set(result.newInstanceIds));
+    }
+  }, [activeGraphId, selectedInstanceIds, graphsMap, nodePrototypesMap, edgesMap, storeActions, setSelectedInstanceIds]);
+
   // Node-group control panel action handlers
   const handleNodeGroupDiveIntoDefinition = useCallback((startRect = null) => {
     if (!activeGraphId || !selectedGroup?.linkedNodePrototypeId) return;
@@ -14691,7 +14784,7 @@ function NodeCanvas() {
                   {/* Grid overlay — rendered before groups/nodes/edges so it
                     sits underneath them in z-order. SVG <pattern> tiles in the
                     GPU paint layer (ONE <rect> instead of thousands of lines). */}
-                  {(gridMode === 'always' || (gridMode === 'move' && !!draggingNodeInfo)) && (() => {
+                  {gridActive && (() => {
                     const dotR = Math.min(6, Math.max(3, gridSize * 0.06));
                     const lineColor = theme.darkMode ? "#716C6C" : "#979090";
                     const dotColor = theme.canvas.textPrimary;
@@ -14742,7 +14835,7 @@ function NodeCanvas() {
                           y={canvasSize.offsetY}
                           width={canvasSize.width}
                           height={canvasSize.height}
-                          fill={`url(#${useDots ? 'grid-dots-pattern' : 'grid-lines-pattern'})`}
+                          fill={`url(#${gridPatternId})`}
                         />
                       </g>
                     );
@@ -15315,6 +15408,7 @@ function NodeCanvas() {
                       );
 
                       if (isNodeGroup) {
+                        const innerCanvasFill = blendColors(theme.canvas.bg, nodeGroupColor, NODE_GROUP_INTERIOR_TINT);
                         const innerCanvasRect = {
                           x: rectX + GROUP_SPACING.innerCanvasBorder,
                           y: innerCanvasY,
@@ -15337,7 +15431,7 @@ function NodeCanvas() {
                               x={innerCanvasRect.x} y={innerCanvasRect.y}
                               width={innerCanvasRect.w}
                               height={innerCanvasRect.h}
-                              rx={innerCanvasRect.r} ry={innerCanvasRect.r} fill={theme.canvas.bg} stroke="none"
+                              rx={innerCanvasRect.r} ry={innerCanvasRect.r} fill={innerCanvasFill} stroke="none"
                               style={{ cursor: 'default', pointerEvents: 'auto' }}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -15362,6 +15456,24 @@ function NodeCanvas() {
                                   storeActions.setSelectedEdgeId(null); storeActions.clearSelectedEdgeIds(); return;
                                 }
                               }}
+                            />
+                            {/* The base grid is painted at the bottom of the z-stack, so this
+                                opaque interior would otherwise cut a blank hole in it. Repaint
+                                the same <pattern> on top: it's patternUnits="userSpaceOnUse" in
+                                world coordinates and this rect carries no transform of its own,
+                                so the tiling lines up continuously with the grid outside the
+                                group — and with every other group's, at any nesting depth.
+                                Always rendered (fill="none" when the grid is off) so the drag
+                                path's cached rect list keeps a stable shape. */}
+                            <rect
+                              className="node-group-grid"
+                              x={innerCanvasRect.x} y={innerCanvasRect.y}
+                              width={innerCanvasRect.w}
+                              height={innerCanvasRect.h}
+                              rx={innerCanvasRect.r} ry={innerCanvasRect.r}
+                              fill={gridActive ? `url(#${gridPatternId})` : 'none'}
+                              stroke="none"
+                              pointerEvents="none"
                             />
                           </g>
                         );
@@ -18247,6 +18359,8 @@ function NodeCanvas() {
             onPalette={handleNodePanelPalette}
             onOrbit={handleNodePanelOrbit}
             onGroup={handleNodePanelGroup}
+            onCopy={handleNodePanelCopy}
+            onDuplicate={handleNodePanelDuplicate}
             pieMenuPages={/* Decomposition builds its own single-page button set, so it
                               opts out and keeps the hand-written decompose buttons. */
               decomposePanelInfo ? null : nodePieMenuPages}

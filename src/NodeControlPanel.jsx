@@ -19,6 +19,8 @@ const NodeControlPanel = ({
   onPalette,
   onOrbit,
   onGroup,
+  onCopy,
+  onDuplicate,
   onCompose,
   decompHasDefinitions = false,
   onLeftNav,
@@ -54,6 +56,8 @@ const NodeControlPanel = ({
       onPalette={onPalette}
       onOrbit={onOrbit}
       onGroup={onGroup}
+      onCopy={onCopy}
+      onDuplicate={onDuplicate}
       onLeftNav={onLeftNav}
       onRightNav={onRightNav}
       hasLeftNav={hasLeftNav}

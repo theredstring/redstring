@@ -5,12 +5,13 @@ import { XCircle } from 'lucide-react';
 import { PANEL_CLOSE_ICON_SIZE } from '../../constants';
 import { useTheme } from '../../hooks/useTheme.js';
 import { getTextColor, hexToHsl, hslToHex } from '../../utils/colorUtils';
+import { showContextMenu } from '../GlobalContextMenu.jsx';
 
 const ItemTypes = {
   TAB: 'tab'
 };
 
-const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, activateTabAction, closeTabAction, nodeColor }) => {
+const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, activateTabAction, closeTabAction, nodeColor, getContextMenuOptions }) => {
   const ref = useRef(null);
   const theme = useTheme();
 
@@ -84,6 +85,7 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
     <div
       ref={ref}
       className="panel-tab"
+      data-has-context-menu="true"
       style={{
         opacity,
         backgroundColor: bg,
@@ -108,6 +110,12 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
         transition: 'background-color 0.2s ease, color 0.2s ease, opacity 0.1s ease'
       }}
       onClick={() => activateTabAction(index)}
+      onContextMenu={(e) => {
+        if (typeof getContextMenuOptions !== 'function') return;
+        e.preventDefault();
+        e.stopPropagation();
+        showContextMenu(e.clientX, e.clientY, getContextMenuOptions(tab.nodeId));
+      }}
     >
       <span style={{
         whiteSpace: 'nowrap',

@@ -55,6 +55,10 @@ export const useCanvasTouch = ({
     // () => boolean — the pan glide is still moving fast enough that a fresh
     // touch means "catch the view", not "press what's under the finger".
     isViewMoving,
+    // Abandons an in-flight connection draw without creating anything — no edge,
+    // no self-loop dialog. Called when a second finger turns the gesture into a
+    // pinch (see yieldGestureToPinch).
+    cancelConnectionDraw,
     startZoomMomentum,
     stopZoomMomentum,
     storeActions,
@@ -356,6 +360,51 @@ export const useCanvasTouch = ({
         longPressingInstanceIdRef.current = id;
     };
 
+    /**
+     * Drop everything a node has armed for the current touch, so the gesture can
+     * be handed to the canvas cleanly. Clearing dragNodeId matters for the canvas
+     * gesture itself, not just for tidiness: handleTouchMoveCanvas refuses to
+     * touch a gesture while a node has one armed.
+     */
+    const releaseNodeTouchState = () => {
+        if (touchState.current.longPressTimer) {
+            clearTimeout(touchState.current.longPressTimer);
+        }
+        if (touchState.current.nodeElement) {
+            try { touchState.current.nodeElement.classList.remove('touch-active', 'long-press-active'); } catch { }
+        }
+        touchState.current = {
+            isDragging: false,
+            dragNodeId: null,
+            startTime: 0,
+            startPosition: { x: 0, y: 0 },
+            currentPosition: { x: 0, y: 0 },
+            hasMovedPastThreshold: false,
+            longPressTimer: null,
+            nodeElement: null,
+            longPressReady: false,
+            dragOffset: null
+        };
+        startedOnNode.current = false;
+        mouseInsideNode.current = false;
+        setLongPressingInstanceId(null);
+        cancelPendingNodeTap();
+    };
+
+    /**
+     * The above, plus abandoning any connection draw in flight.
+     *
+     * Drawing a connection is explicitly a one-finger interaction — you pan while
+     * drawing by taking the line to the screen edge, not with a second finger — so
+     * two fingers on the glass always mean "pinch", never "draw". The draw ends
+     * outright: no edge, and no self-loop dialog if the fingers happen to be over
+     * its source node.
+     */
+    const yieldGestureToPinch = () => {
+        releaseNodeTouchState();
+        cancelConnectionDraw?.();
+    };
+
     // --- Handlers ---
 
     // `claimed` is set when an element handed this gesture over deliberately (a
@@ -419,6 +468,9 @@ export const useCanvasTouch = ({
             // Pinch-to-zoom setup
             // Stop any momentum first
             stopPanMomentum();
+            // The first finger may have been mid-connection-draw on a node. Two
+            // fingers mean pinch, so that draw ends here without making anything.
+            yieldGestureToPinch();
 
             const t1 = e.touches[0];
             const t2 = e.touches[1];
@@ -544,14 +596,25 @@ export const useCanvasTouch = ({
 
         // Avoid per-move preventDefault/stopPropagation; rely on CSS `touch-action: none`
 
+        const isMultiTouch = (e.touches?.length ?? 0) >= 2;
+
         // CRITICAL: If a node drag is active, let the document listener handle it exclusively
-        if (touchState.current.isDragging || draggingNodeInfo || touchState.current.dragNodeId) {
+        if (touchState.current.isDragging || draggingNodeInfo) {
             return; // Don't interfere with node drag
         }
+        // dragNodeId on its own only means a node has a touch armed — nothing has
+        // committed to a drag yet. That must not block a pinch from initializing:
+        // a node touchstart stopPropagation()s, so when both fingers land on nodes
+        // this move handler is the only place the pinch can still come up, and
+        // bailing here left two fingers spreading with no zoom at all.
+        if (!isMultiTouch && touchState.current.dragNodeId) {
+            return;
+        }
 
-        if (e.touches && e.touches.length >= 2) {
+        if (isMultiTouch) {
             // Initialize pinch if not already active
             if (!pinchRef.current.active) {
+                yieldGestureToPinch();
                 const t1 = e.touches[0];
                 const t2 = e.touches[1];
                 const dx = t2.clientX - t1.clientX;
@@ -973,6 +1036,27 @@ export const useCanvasTouch = ({
         // older document-level touchmove/touchend listeners that used to be
         // attached here are redundant and have been removed.
 
+        // A node never claims a multi-touch gesture. Both node interactions —
+        // connection draw and drag — are one-finger by definition, so a touchstart
+        // carrying a second finger is the opening of a pinch. Hand it to the
+        // canvas: a node touchstart stopPropagation()s, so without this the canvas
+        // never sees the second finger and the pinch never starts at all when both
+        // fingers happen to land on nodes. handleTouchStartCanvas ends any
+        // in-flight draw on the way through (yieldGestureToPinch).
+        if ((e.touches?.length ?? 0) >= 2) {
+            // Except while a drag is in flight. A drag already owns the gesture and
+            // suppresses pinch downstream, so the only thing left to do with the
+            // second finger is swallow it — handing it over would wipe the drag's
+            // touch bookkeeping out from under it.
+            if (touchState.current.isDragging || draggingNodeInfoRef?.current || draggingNodeInfo) {
+                e.stopPropagation();
+                return;
+            }
+            handleTouchStartCanvas(e, { claimed: true });
+            e.stopPropagation();
+            return;
+        }
+
         // A finger landing while the view is moving is catching it, the way a
         // finger on a scrolling list is — it must not press the node it happened
         // to land on. Nodes are the whole reason this exists: they paint on top of
@@ -992,30 +1076,10 @@ export const useCanvasTouch = ({
         if (e.touches?.length === 1 && (canvasOwnsGesture || isViewMoving?.())) {
             // Wipe any node state an earlier pass left behind: a long-press timer
             // would otherwise fire mid-pan and drag the node out from under the
-            // gesture. Clearing dragNodeId also matters for the pan itself —
-            // handleTouchMoveCanvas bails outright while it is set.
-            if (touchState.current.longPressTimer) {
-                clearTimeout(touchState.current.longPressTimer);
-            }
-            if (touchState.current.nodeElement) {
-                try { touchState.current.nodeElement.classList.remove('touch-active', 'long-press-active'); } catch { }
-            }
-            touchState.current = {
-                isDragging: false,
-                dragNodeId: null,
-                startTime: 0,
-                startPosition: { x: 0, y: 0 },
-                currentPosition: { x: 0, y: 0 },
-                hasMovedPastThreshold: false,
-                longPressTimer: null,
-                nodeElement: null,
-                longPressReady: false,
-                dragOffset: null
-            };
-            startedOnNode.current = false;
-            mouseInsideNode.current = false;
-            setLongPressingInstanceId(null);
-            cancelPendingNodeTap();
+            // gesture. No connection draw can be in flight here — this is the
+            // first finger of a fresh gesture — so this releases the node without
+            // going through yieldGestureToPinch.
+            releaseNodeTouchState();
             // Hand the gesture to the canvas by calling its touchstart directly
             // rather than by declining to stopPropagation and hoping it bubbles:
             // that path runs the orb hit-test and the canvas-surface test against
@@ -1176,6 +1240,12 @@ export const useCanvasTouch = ({
         // the pan is driven by handleTouchMoveCanvas, which sees the same event
         // once it bubbles. Nothing node-level may run against it.
         if (panCatchRef.current) return;
+        // Same for a pinch. Bailing before every node branch is what keeps a
+        // second finger from being read as node input: no connection starting on
+        // the threshold crossing, no drag starting from the cleared long-press
+        // arm, and no handleMouseMove dragging a connection tip around under the
+        // zoom.
+        if (pinchRef.current.active || (e.touches?.length ?? 0) >= 2) return;
         if (isPaused || !activeGraphId || !touchState.current.dragNodeId) {
             return;
         }
@@ -1301,6 +1371,12 @@ export const useCanvasTouch = ({
         // Same as handleNodeTouchEnd: the canvas owns a glide-catch gesture, and
         // its own touchcancel path has to see the event.
         if (panCatchRef.current) return;
+        // Likewise for a pinch, which would otherwise never be torn down.
+        if (pinchRef.current.active) {
+            handleTouchEndCanvas(e);
+            e.stopPropagation();
+            return;
+        }
         if (orbTapConsumedRef.current) {
             orbTapConsumedRef.current = false;
         }
@@ -1369,6 +1445,16 @@ export const useCanvasTouch = ({
         // panCatchRef stays set: handleTouchEndCanvas reads it to know this release
         // carries no tap.
         if (panCatchRef.current) return;
+        // A pinch that began on nodes ends on them too, and this handler stops
+        // propagation — so without handing the release over, nothing would ever
+        // reach the canvas teardown and pinchRef would stay active for good,
+        // silently killing panning from then on. handleTouchEndCanvas owns the
+        // teardown, the zoom glide, and the two-fingers-to-one handoff.
+        if (pinchRef.current.active) {
+            handleTouchEndCanvas(e);
+            e.stopPropagation();
+            return;
+        }
         // The matching touchstart toggled a connection orb over this node — swallow
         // the end so it doesn't toggle node selection.
         if (orbTapConsumedRef.current) {

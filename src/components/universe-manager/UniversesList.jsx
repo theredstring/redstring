@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
 import PanelSegment from './shared/PanelSegment.jsx';
@@ -38,6 +38,7 @@ const UniversesList = ({
   liveMetrics,
   onSwitchUniverse,
   onDeleteUniverse,
+  onRenameUniverse,
   onLinkRepo,
   onLinkLocalFile,
   onCreateLocalFile,
@@ -66,6 +67,8 @@ const UniversesList = ({
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [showLocalFileMenu, setShowLocalFileMenu] = useState(null); // Track which universe's menu is open
   const [copiedSlug, setCopiedSlug] = useState(null); // Slug whose public link was just copied (for icon feedback)
+  const [renamingSlug, setRenamingSlug] = useState(null); // Slug whose name is being edited inline
+  const [tempName, setTempName] = useState('');
   const [isHeaderSlim, setIsHeaderSlim] = useState(false); // Track if header should stack at < 480px
   const [isVerySlim, setIsVerySlim] = useState(false); // Track if container is < 320px for aggressive space-saving
   const [workspaceFolder, setWorkspaceFolder] = useState(() => {
@@ -81,6 +84,9 @@ const UniversesList = ({
   const newMenuRef = useRef(null);
   const localFileMenuRef = useRef(null);
   const containerRef = useRef(null);
+  // Set by Escape so the blur that follows unmounting the input doesn't commit
+  // the very edit Escape just abandoned.
+  const skipRenameBlurRef = useRef(false);
 
   // Try to restore workspace folder handle from IndexedDB on mount
   useEffect(() => {
@@ -241,6 +247,72 @@ const UniversesList = ({
     if (onLoadFromRepo) {
       onLoadFromRepo();
     }
+  };
+
+  // Most-recently-opened first. `lastOpenedAt` is already stamped by
+  // switchActiveUniverse on every successful load, so this needs no state of
+  // its own — switching a universe in floats it to the top and pushes the one
+  // you came from to second.
+  //
+  // The active universe is pinned first rather than left to its timestamp: a
+  // universe restored at boot isn't re-stamped, so on a fresh session its
+  // timestamp is merely the newest, and that stops being true if any other
+  // record is ever touched out of band. Never-opened universes sort last and
+  // keep their incoming order.
+  const orderedUniverses = useMemo(() => {
+    const rank = new Map(universes.map((u, i) => [u.slug, i]));
+    return universes.slice().sort((a, b) => {
+      if (a.slug === activeUniverseSlug) return -1;
+      if (b.slug === activeUniverseSlug) return 1;
+      const aOpened = a.lastOpenedAt ? Date.parse(a.lastOpenedAt) : NaN;
+      const bOpened = b.lastOpenedAt ? Date.parse(b.lastOpenedAt) : NaN;
+      const aValid = Number.isFinite(aOpened);
+      const bValid = Number.isFinite(bOpened);
+      if (aValid && bValid && aOpened !== bOpened) return bOpened - aOpened;
+      if (aValid !== bValid) return aValid ? -1 : 1;
+      return rank.get(a.slug) - rank.get(b.slug);
+    });
+  }, [universes, activeUniverseSlug]);
+
+  // Inline rename of the active universe's name. Mirrors the node-title editor
+  // in SharedPanelContent: double-click or pencil to enter, Enter/blur commits,
+  // Escape reverts. Only the display name changes — the slug and the on-disk
+  // file name were snapshotted at creation and deliberately stay put.
+  const beginRename = (universe) => {
+    skipRenameBlurRef.current = false;
+    setTempName(universe.name || '');
+    setRenamingSlug(universe.slug);
+  };
+
+  const commitRename = () => {
+    const slug = renamingSlug;
+    const nextName = tempName.trim();
+    setRenamingSlug(null);
+    if (!slug || !nextName) return;
+    const current = universes.find(u => u.slug === slug);
+    if (current && current.name === nextName) return;
+    onRenameUniverse?.(slug, nextName);
+  };
+
+  const cancelRename = () => {
+    skipRenameBlurRef.current = true;
+    setRenamingSlug(null);
+  };
+
+  const handleRenameKeyDown = (e) => {
+    // Canvas and panel key handlers listen up-tree; without this, Enter and
+    // Escape reach them while the caret is in this field.
+    e.stopPropagation();
+    if (e.key === 'Enter') commitRename();
+    else if (e.key === 'Escape') cancelRename();
+  };
+
+  const handleRenameBlur = () => {
+    if (skipRenameBlurRef.current) {
+      skipRenameBlurRef.current = false;
+      return;
+    }
+    commitRename();
   };
 
   // Helper function for responsive sizing
@@ -557,7 +629,7 @@ const UniversesList = ({
               No universes found.<br />Create one to get started.
             </div>
           ) : (
-            universes.map((universe) => {
+            orderedUniverses.map((universe) => {
               const isActive = universe.slug === activeUniverseSlug;
               const resolvedSource = universe.sourceOfTruth || universe.raw?.sourceOfTruth || universe.storage?.primary?.type || null;
               // `??`, not `||`: a genuine 0 is an answer, and falling through it
@@ -581,6 +653,12 @@ const UniversesList = ({
               );
               const isEmpty = hasExplicitCounts && nodeCount === 0 && graphCount === 0 && connectionCount === 0;
 
+              const isRenaming = renamingSlug === universe.slug;
+              // Named while editing so a rename doesn't silently imply the file
+              // moved: the on-disk name was fixed at creation and never tracks
+              // the display name.
+              const linkedFilePath = (universe.raw?.localFile?.enabled && universe.raw?.localFile?.path) || null;
+
               return (
                 <div
                   key={universe.slug}
@@ -603,9 +681,43 @@ const UniversesList = ({
                     alignItems: isVerySlim ? 'flex-start' : 'center',
                     gap: isVerySlim ? 8 : 0
                   }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>{universe.name}</span>
+                        {isRenaming ? (
+                          <input
+                            type="text"
+                            value={tempName}
+                            onChange={(e) => setTempName(e.target.value)}
+                            onKeyDown={handleRenameKeyDown}
+                            onBlur={handleRenameBlur}
+                            autoFocus
+                            onFocus={(e) => e.target.select()}
+                            aria-label="Universe name"
+                            style={{
+                              // flex rather than the node editor's ch-based width
+                              // math: this row is already a flex container, so the
+                              // field shrinks with it instead of overflowing.
+                              flex: 1,
+                              minWidth: 0,
+                              fontWeight: 600,
+                              fontSize: 'inherit',
+                              fontFamily: "'EmOne', sans-serif",
+                              color: theme.canvas.textPrimary,
+                              backgroundColor: theme.canvas.bg,
+                              border: `1px solid ${theme.canvas.brand}`,
+                              borderRadius: 4,
+                              padding: '2px 6px',
+                              outline: 'none'
+                            }}
+                          />
+                        ) : (
+                          <span
+                            style={{ fontWeight: 600, color: theme.canvas.textPrimary }}
+                            onDoubleClick={isActive ? () => beginRename(universe) : undefined}
+                          >
+                            {universe.name}
+                          </span>
+                        )}
                         {isActive && (
                           <span style={{
                             fontSize: '0.6rem',
@@ -633,6 +745,17 @@ const UniversesList = ({
                           </span>
                         )}
                       </div>
+                      {isRenaming && linkedFilePath && !isVerySlim && (
+                        <div style={{
+                          fontSize: '0.65rem',
+                          color: theme.canvas.textSecondary,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          File stays {linkedFilePath}
+                        </div>
+                      )}
                       <div style={{
                         fontSize: isSlim ? '0.65rem' : '0.7rem',
                         color: theme.canvas.textSecondary,
@@ -652,33 +775,45 @@ const UniversesList = ({
                       </div>
                     </div>
                     {/* Action buttons - on right in normal mode, below in very-slim mode */}
-                    {(!isActive || universes.length > 1) && (
-                      <div style={{
-                        display: 'flex',
-                        gap: isVerySlim ? 2 : (isSlim ? 4 : 6),
-                        alignItems: 'center',
-                        flexShrink: 0
-                      }}>
-                        {!isActive && (
-                          <PanelIconButton
-                            icon={ArrowRightLeft}
-                            size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
-                            style={isVerySlim ? { padding: '5px' } : {}}
-                            onClick={() => onSwitchUniverse(universe.slug)}
-                            title="Switch to this universe"
-                          />
-                        )}
-                        {universes.length > 1 && (
-                          <PanelIconButton
-                            icon={X}
-                            size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
-                            style={isVerySlim ? { padding: '5px' } : {}}
-                            onClick={() => onDeleteUniverse(universe.slug, universe.name)}
-                            title="Delete universe"
-                          />
-                        )}
-                      </div>
-                    )}
+                    {/* No wrapper guard: the active row always has the rename pencil,
+                        and an inactive row always has the switch button. */}
+                    <div style={{
+                      display: 'flex',
+                      gap: isVerySlim ? 2 : (isSlim ? 4 : 6),
+                      alignItems: 'center',
+                      flexShrink: 0
+                    }}>
+                      {!isActive && (
+                        <PanelIconButton
+                          icon={ArrowRightLeft}
+                          size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                          style={isVerySlim ? { padding: '5px' } : {}}
+                          onClick={() => onSwitchUniverse(universe.slug)}
+                          title="Switch to this universe"
+                        />
+                      )}
+                      {isActive && (
+                        <PanelIconButton
+                          icon={Pencil}
+                          size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                          style={isVerySlim ? { padding: '5px' } : {}}
+                          // Clicking the pencil mid-edit reads as "done": the
+                          // input's blur has already committed by the time this
+                          // fires, so skipping the reopen closes the editor.
+                          onClick={() => { if (!isRenaming) beginRename(universe); }}
+                          title="Rename universe"
+                        />
+                      )}
+                      {universes.length > 1 && (
+                        <PanelIconButton
+                          icon={X}
+                          size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                          style={isVerySlim ? { padding: '5px' } : {}}
+                          onClick={() => onDeleteUniverse(universe.slug, universe.name)}
+                          title="Delete universe"
+                        />
+                      )}
+                    </div>
                   </div>
 
                   {/* Expanded Content - Only for Active Universe */}

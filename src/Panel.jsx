@@ -2,7 +2,7 @@ import React, { useState, useEffect, forwardRef, useImperativeHandle, useRef, us
 import { useDrag, useDrop, useDragLayer } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend'; // Import for hiding default preview
 import { HEADER_HEIGHT, NODE_CORNER_RADIUS, THUMBNAIL_MAX_DIMENSION, NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE, EXCLUSIVE_PANEL_MODE_THRESHOLD } from './constants';
-import { ArrowLeftFromLine, ArrowRightFromLine, Info, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch, Sparkles, History } from 'lucide-react';
+import { ArrowLeftFromLine, ArrowRightFromLine, ArrowRightToLine, Info, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch, Sparkles, History } from 'lucide-react';
 import ToggleSlider from './components/ToggleSlider.jsx';
 import { v4 as uuidv4 } from 'uuid';
 import './Panel.css'
@@ -564,6 +564,8 @@ const Panel = memo(forwardRef(
     const setActiveGraph = storeActions?.setActiveGraph;
     const openRightPanelNodeTab = storeActions?.openRightPanelNodeTab;
     const closeRightPanelTab = storeActions?.closeRightPanelTab;
+    const closeOtherRightPanelTabs = storeActions?.closeOtherRightPanelTabs;
+    const closeRightPanelTabsToRight = storeActions?.closeRightPanelTabsToRight;
     const activateRightPanelTab = storeActions?.activateRightPanelTab;
     const moveRightPanelTab = storeActions?.moveRightPanelTab;
     const updateNode = storeActions?.updateNode;
@@ -1969,6 +1971,33 @@ const Panel = memo(forwardRef(
       setIsNodeHoveringTabBar(isOver);
     }, [isOver]);
 
+    // Right-click menu options for a node tab, disabled when nothing to act on.
+    // Index 0 is the locked home tab, so only tabs after it participate.
+    const getTabContextMenuOptions = useCallback((nodeId) => {
+      const idx = rightPanelTabs.findIndex(tab => tab.nodeId === nodeId);
+      const hasOthers = rightPanelTabs.length > 2;
+      const hasRight = idx > 0 && idx < rightPanelTabs.length - 1;
+      return [
+        {
+          label: 'Close tab',
+          icon: <X size={14} />,
+          action: () => closeRightPanelTab?.(nodeId)
+        },
+        {
+          label: 'Close all others',
+          icon: <XCircle size={14} />,
+          disabled: !hasOthers,
+          action: () => closeOtherRightPanelTabs?.(nodeId)
+        },
+        {
+          label: 'Close all to the right',
+          icon: <ArrowRightToLine size={14} />,
+          disabled: !hasRight,
+          action: () => closeRightPanelTabsToRight?.(nodeId)
+        }
+      ];
+    }, [rightPanelTabs, closeRightPanelTab, closeOtherRightPanelTabs, closeRightPanelTabsToRight]);
+
     // Show loading state if store is not ready
     return (
       <>
@@ -2188,6 +2217,7 @@ const Panel = memo(forwardRef(
                             moveTabAction={moveRightPanelTab}
                             activateTabAction={activateRightPanelTab}
                             closeTabAction={closeRightPanelTab}
+                            getContextMenuOptions={getTabContextMenuOptions}
                             nodeColor={nodeProto?.color}
                           />
                         );
