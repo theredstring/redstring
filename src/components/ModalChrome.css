@@ -1,0 +1,400 @@
+/**
+ * Modal chrome — the shared surface language for the full-screen modals that
+ * sit over the canvas (Settings, Help).
+ *
+ * None of the colours below are chosen here. They are the panel's tokens from
+ * utils/themeColors.js, restated as custom properties so the two modals stop
+ * carrying a hand-tuned light palette (#333 / #888 / #ccc / #fff) that then had
+ * to be restated rule-for-rule in a dark block:
+ *
+ *   --rs-modal-text        canvas.textPrimary
+ *   --rs-modal-text-muted  canvas.textSecondary
+ *   --rs-modal-brand       canvas.brandText   (subtitles, active nav)
+ *   --rs-modal-accent      accent.primary     (the one maroon: toggles, focus)
+ *   --rs-modal-border      canvas.border      (inputs, selects)
+ *   --rs-modal-hairline    the panel card's hairline, from shared/PanelCard.jsx
+ *
+ * Buttons are deliberately almost absent from this sheet: every button in these
+ * modals is a <PanelIconButton>, which is where the panel's icon/pill hover
+ * language lives. The lone exception is .settings-option-btn at the bottom,
+ * kept only for ForceSimulationModal.
+ *
+ * The properties sit on :root rather than on a wrapper class because
+ * ForceSimulationModal reaches for .settings-option-btn and
+ * .settings-section-subtitle with no modal wrapper above it.
+ */
+
+:root {
+  --rs-modal-surface: #bdb5b5;
+  --rs-modal-text: #260000;
+  --rs-modal-text-muted: #3F3A3A;
+  --rs-modal-brand: #7A0000;
+  --rs-modal-accent: #8B0000;
+  --rs-modal-border: #979090;
+  --rs-modal-hairline: rgba(38, 0, 0, 0.1);
+
+  --rs-modal-scroll-track: rgba(38, 0, 0, 0.05);
+  --rs-modal-scroll-thumb: rgba(38, 0, 0, 0.1);
+  --rs-modal-scroll-thumb-hover: #260000;
+
+  --rs-modal-toggle-track: #ccc;
+  --rs-modal-toggle-thumb: #fff;
+
+  /* The slider's value chip is the one place a solid dark fill is wanted, so it
+     keeps its own pair rather than borrowing the text token. */
+  --rs-modal-slider-chip-bg: #260000;
+  --rs-modal-slider-chip-fg: #fff;
+
+  /* Nav rows tint with the accent rather than with a grey, so the sidebar reads
+     as the same maroon family as everything else in the modal. */
+  --rs-modal-nav-hover: rgba(139, 0, 0, 0.05);
+  --rs-modal-nav-active: rgba(139, 0, 0, 0.1);
+}
+
+.modal-dark {
+  --rs-modal-surface: #2E2A2A;
+  --rs-modal-text: #DEDADA;
+  --rs-modal-text-muted: #BDB5B5;
+  --rs-modal-brand: #CCAAA8;
+  --rs-modal-border: #6a6464;
+  --rs-modal-hairline: rgba(255, 255, 255, 0.1);
+
+  --rs-modal-scroll-track: rgba(222, 218, 218, 0.05);
+  --rs-modal-scroll-thumb: rgba(222, 218, 218, 0.15);
+  --rs-modal-scroll-thumb-hover: rgba(222, 218, 218, 0.4);
+
+  --rs-modal-toggle-track: #6a6464;
+  --rs-modal-toggle-thumb: #DEDADA;
+
+  --rs-modal-slider-chip-bg: #6a6464;
+  --rs-modal-slider-chip-fg: #DEDADA;
+
+  --rs-modal-nav-hover: rgba(139, 0, 0, 0.12);
+  --rs-modal-nav-active: rgba(139, 0, 0, 0.25);
+}
+
+/* ========== Scrollable regions ========== */
+
+/* One class for every scrolling region in these modals. Help used to inject
+   this same block twice as a <style> string, once per theme. */
+.modal-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rs-modal-scroll-thumb) var(--rs-modal-scroll-track);
+}
+
+.modal-scroll::-webkit-scrollbar {
+  width: 20px;
+}
+
+.modal-scroll::-webkit-scrollbar-track {
+  background: var(--rs-modal-scroll-track);
+  border-radius: 4px;
+}
+
+.modal-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--rs-modal-scroll-thumb);
+  border-radius: 4px;
+  border: 6px solid transparent;
+  background-clip: padding-box;
+}
+
+.modal-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: var(--rs-modal-scroll-thumb-hover);
+  border-width: 4px;
+}
+
+/* ========== Sidebar navigation ========== */
+
+.modal-nav-heading {
+  margin: 0 0 16px 0;
+  font-size: 1.1rem;
+  color: var(--rs-modal-text);
+}
+
+/* A real <button>, not a clickable <div>: these are the only way to reach five
+   of the six Help topics, and they were unreachable by keyboard. */
+.modal-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border: none;
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--rs-modal-text-muted);
+  font-family: 'EmOne', sans-serif;
+  font-size: 0.85rem;
+  font-weight: normal;
+  text-align: left;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  /* Same 0.15s as PanelIconButton's hover, so the sidebar and the buttons in
+     the pane next to it settle on the same beat. */
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.modal-nav-item:hover {
+  background-color: var(--rs-modal-nav-hover);
+}
+
+.modal-nav-item:focus-visible {
+  outline: 2px solid var(--rs-modal-accent);
+  outline-offset: -2px;
+}
+
+.modal-nav-item.active,
+.modal-nav-item.active:hover {
+  background-color: var(--rs-modal-nav-active);
+  color: var(--rs-modal-brand);
+  font-weight: bold;
+}
+
+/* ========== Rows ========== */
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rs-modal-hairline);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+/* Header row that owns the bar directly beneath it — no divider line between them */
+.settings-row--attached {
+  border-bottom: none;
+  padding-bottom: 2px;
+}
+
+.settings-row--attached + .settings-slider-row {
+  padding-top: 2px;
+}
+
+.settings-row-label {
+  font-size: 0.85rem;
+  color: var(--rs-modal-text);
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-row-description {
+  font-size: 0.75rem;
+  color: var(--rs-modal-text-muted);
+  margin-top: 2px;
+}
+
+/* ========== Toggle switch ========== */
+
+.settings-toggle {
+  position: relative;
+  width: 42px;
+  height: 22px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.settings-toggle-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--rs-modal-toggle-track);
+  border-radius: 11px;
+  transition: background-color 0.2s ease;
+}
+
+.settings-toggle input:checked + .settings-toggle-track {
+  background-color: var(--rs-modal-accent);
+}
+
+.settings-toggle input:focus-visible + .settings-toggle-track {
+  outline: 2px solid var(--rs-modal-accent);
+  outline-offset: 2px;
+}
+
+.settings-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background-color: var(--rs-modal-toggle-thumb);
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.settings-toggle input:checked ~ .settings-toggle-thumb {
+  transform: translateX(20px);
+}
+
+/* ========== Option group ========== */
+
+/* Base is left as ForceSimulationModal has it — see the legacy note at the
+   bottom of this file. */
+.settings-option-group {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* In Settings the group is a row of PanelIconButton pills standing in for a
+   radio group. It wraps because Routing Style has four of them and the modal
+   narrows to 320px, and it right-aligns because it sits opposite a label.
+   The gap has to clear the pill's 1.04 hover growth, which is ~2px a side. */
+.settings-modal-content .settings-option-group {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Vertical form, for option groups whose labels are phrases rather than words.
+   Stretched so the pills share an edge and read as one group. */
+.settings-modal-content .settings-option-group--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 170px;
+}
+
+/* ========== Sliders ========== */
+
+.settings-slider-row {
+  padding: 8px 0 12px 0;
+}
+
+.settings-slider-row .maroon-slider {
+  width: 100%;
+}
+
+.settings-modal-content .maroon-slider {
+  color: var(--rs-modal-text);
+}
+
+.settings-modal-content .maroon-slider__label {
+  color: var(--rs-modal-text);
+  font-weight: bold;
+}
+
+.settings-modal-content .maroon-slider__value {
+  color: var(--rs-modal-slider-chip-fg);
+  background: var(--rs-modal-slider-chip-bg);
+  font-weight: bold;
+}
+
+/* ========== Section structure ========== */
+
+.settings-section-divider {
+  margin: 16px 0 12px 0;
+  border: none;
+  border-top: 1px solid var(--rs-modal-hairline);
+}
+
+.settings-section-subtitle {
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: var(--rs-modal-brand);
+  margin: 16px 0 8px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.settings-section-subtitle:first-child {
+  margin-top: 0;
+}
+
+/* ========== Inputs ========== */
+
+/* The panel's input: a transparent pill outlined in canvas.border, not a white
+   box on a coloured surface. Matches the search field in the Semantic
+   Discovery view. */
+.modal-input {
+  width: 100%;
+  padding: 8px 14px;
+  border: 1px solid var(--rs-modal-border);
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-family: 'EmOne', sans-serif;
+  background: transparent;
+  color: var(--rs-modal-text);
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.modal-input::placeholder {
+  color: var(--rs-modal-text-muted);
+  opacity: 0.7;
+}
+
+.modal-input:focus {
+  border-color: var(--rs-modal-accent);
+  box-shadow: 0 0 0 2px var(--rs-modal-nav-active);
+}
+
+.modal-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* A <select> keeps the same outline but a 6px corner — a pill reads as a field
+   you can type into, and this isn't one. It also keeps an opaque fill: the
+   option list is drawn by the OS, and a transparent control hands it no
+   background to compute readable option text against. */
+select.modal-input {
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  background: var(--rs-modal-surface);
+}
+
+select.modal-input option {
+  background: var(--rs-modal-surface);
+  color: var(--rs-modal-text);
+}
+
+/* ========== Legacy option buttons ========== */
+
+/*
+ * ForceSimulationModal is the only remaining consumer of this style — Settings
+ * and Help now use PanelIconButton pills (see .settings-option-group above).
+ * It is kept verbatim, including its literal colours, so that modal is
+ * unchanged; it reaches these rules through the global stylesheet rather than
+ * an import of its own, and pairs them with .force-sim-dark overrides in
+ * ForceSimulationModal.css. Convert that modal and this block can go.
+ */
+.settings-option-btn {
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  font-family: 'EmOne', sans-serif;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.settings-option-btn:hover {
+  border-color: #8B0000;
+  color: #8B0000;
+}
+
+.settings-option-btn.active {
+  background-color: #8B0000;
+  border-color: #8B0000;
+  color: #fff;
+}

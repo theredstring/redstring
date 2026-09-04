@@ -61,7 +61,7 @@ const DialogButton = ({ onClick, children, tone = 'neutral', disabled = false })
 };
 
 /** One side of the "which one survives" choice. */
-const SideCard = ({ universe, role, recommended, selected, onSelect }) => {
+const SideCard = ({ universe, recommended, selected, onSelect }) => {
   const theme = useTheme();
   const accent = theme.accent.secondary;
   const borderColor = selected ? accent : theme.canvas.textPrimary;
@@ -81,46 +81,53 @@ const SideCard = ({ universe, role, recommended, selected, onSelect }) => {
         backgroundColor: theme.canvas.bg,
         padding: '10px 12px',
         display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
+        alignItems: 'center',
+        gap: 12,
         minWidth: 0,
         overflow: 'hidden',
         cursor: 'pointer',
         transition: 'border-color 0.15s ease'
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <div style={{ color: selected ? accent : theme.canvas.textPrimary, display: 'flex', alignItems: 'center' }}>
-          {selected ? <Check size={14} /> : <Globe size={14} />}
-        </div>
-        <span style={{
-          fontSize: '0.75rem',
-          fontWeight: 700,
-          color: selected ? accent : theme.canvas.textPrimary,
-          letterSpacing: '0.04em'
-        }}>
-          {role}
-        </span>
-        {recommended && (
-          <span style={{ fontSize: '0.65rem', color: theme.canvas.textSecondary, letterSpacing: '0.04em' }}>
-            RECOMMENDED
-          </span>
-        )}
-      </div>
-
+      {/* Fixed width so the two cards' text starts on the same line. */}
       <div style={{
-        fontSize: '0.85rem',
-        fontWeight: 600,
-        color: theme.canvas.textPrimary,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap'
+        width: 30,
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: selected ? accent : theme.canvas.textPrimary
       }}>
-        {universe?.name}
+        {selected ? <Check size={26} /> : <Globe size={26} />}
       </div>
 
-      <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
-        {countsLine(universe)}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+          <span style={{
+            fontSize: '0.85rem',
+            fontWeight: 600,
+            color: theme.canvas.textPrimary,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}>
+            {universe?.name}
+          </span>
+          {recommended && (
+            <span style={{
+              fontSize: '0.65rem',
+              color: theme.canvas.textSecondary,
+              letterSpacing: '0.04em',
+              flexShrink: 0
+            }}>
+              RECOMMENDED
+            </span>
+          )}
+        </div>
+
+        <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
+          {countsLine(universe)}
+        </div>
       </div>
     </div>
   );
@@ -140,9 +147,13 @@ const MergeUniverseDialog = ({
   isOpen,
   phase = 'choose',           // 'choose' | 'working' | 'result'
   activeUniverse,
-  sourceUniverse,
-  activeWins = true,
-  onActiveWinsChange,
+  otherUniverse,
+  destSlug,
+  onDestChange,
+  foldSameAs = true,
+  onFoldSameAsChange,
+  destination,
+  incomingUniverse,
   report = null,
   error = null,
   onConfirm,
@@ -152,12 +163,13 @@ const MergeUniverseDialog = ({
   const theme = useTheme();
   if (!isOpen) return null;
 
-  const sourceName = sourceUniverse?.name || 'that universe';
-  const activeName = activeUniverse?.name || 'this universe';
+  const destName = destination?.name || 'the destination';
+  const incomingName = incomingUniverse?.name || 'the other universe';
+  const switched = destination && activeUniverse && destination.slug !== activeUniverse.slug;
 
   const heading = phase === 'result'
     ? (error ? 'Merge failed' : 'Merge complete')
-    : `Merge into ${activeName}`;
+    : 'Merge universes';
 
   return (
     <div
@@ -207,7 +219,8 @@ const MergeUniverseDialog = ({
             </h2>
             {phase === 'choose' && (
               <p style={{ margin: 0, fontSize: '0.85rem', color: theme.canvas.textPrimary, lineHeight: 1.4 }}>
-                Everything in "{sourceName}" is copied into "{activeName}". "{sourceName}" is left as it is.
+                Both universes are combined. The one you pick keeps everything; the
+                other is left as it is.
               </p>
             )}
           </div>
@@ -218,29 +231,46 @@ const MergeUniverseDialog = ({
           {phase === 'choose' && (
             <>
               <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
-                If both universes describe the same thing differently, which name and
-                description should win?
+                Which universe should the result live in?
               </div>
               <div role="radiogroup" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <SideCard
                   universe={activeUniverse}
-                  role="KEEP THIS ONE'S WORDING"
                   recommended
-                  selected={activeWins}
-                  onSelect={() => onActiveWinsChange?.(true)}
+                  selected={destSlug === activeUniverse?.slug}
+                  onSelect={() => onDestChange?.(activeUniverse?.slug)}
                 />
                 <SideCard
-                  universe={sourceUniverse}
-                  role="KEEP THE OTHER ONE'S WORDING"
-                  selected={!activeWins}
-                  onSelect={() => onActiveWinsChange?.(false)}
+                  universe={otherUniverse}
+                  selected={destSlug === otherUniverse?.slug}
+                  onSelect={() => onDestChange?.(otherUniverse?.slug)}
                 />
               </div>
-              <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
-                The losing wording is never thrown away — it is kept on the thing it
-                belonged to. Things that only share a <em>name</em> stay separate, and are
-                listed afterwards. This cannot be undone with Cmd+Z.
-              </div>
+
+              <label style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 8,
+                cursor: 'pointer',
+                fontSize: '0.8rem',
+                color: theme.canvas.textPrimary,
+                lineHeight: 1.4,
+                marginTop: 2
+              }}>
+                <input
+                  type="checkbox"
+                  checked={foldSameAs}
+                  onChange={(e) => onFoldSameAsChange?.(e.target.checked)}
+                  style={{ accentColor: theme.accent.primary, marginTop: 2, flexShrink: 0 }}
+                />
+                <span>
+                  Combine things that share an external link
+                  <span style={{ display: 'block', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
+                    Same Wikidata or DBpedia link means the same thing. Everything else
+                    comes through as-is, duplicates included, to sort out later.
+                  </span>
+                </span>
+              </label>
             </>
           )}
 
@@ -257,7 +287,7 @@ const MergeUniverseDialog = ({
                 borderRadius: '50%',
                 animation: 'spin 1s linear infinite'
               }} />
-              <span style={{ fontSize: '0.9rem' }}>Reading "{sourceName}" and merging…</span>
+              <span style={{ fontSize: '0.9rem' }}>Reading "{incomingName}" and merging…</span>
               <style>{'@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }'}</style>
             </div>
           )}
@@ -266,7 +296,7 @@ const MergeUniverseDialog = ({
             <div style={{ fontSize: '0.85rem', color: theme.canvas.textPrimary, lineHeight: 1.5 }}>
               {error}
               <div style={{ marginTop: 8, color: theme.canvas.textSecondary, fontSize: '0.8rem' }}>
-                "{activeName}" was not changed.
+                Neither universe was changed.
               </div>
             </div>
           )}
@@ -281,7 +311,7 @@ const MergeUniverseDialog = ({
                 <ReportRow label="Webs combined" value={report.mergedGraphIds?.length ?? 0} />
                 <ReportRow label="Connections added" value={report.addedEdgeIds?.length ?? 0} />
               </div>
-              {report.closeMatchCandidates?.length > 0 && (
+              {(report.closeMatchCandidates?.length > 0 || report.sameAsCandidates?.length > 0) && (
                 <div style={{
                   marginTop: 4,
                   padding: '8px 10px',
@@ -292,14 +322,17 @@ const MergeUniverseDialog = ({
                   lineHeight: 1.5
                 }}>
                   <strong style={{ color: theme.canvas.textPrimary }}>
-                    {report.closeMatchCandidates.length} name {report.closeMatchCandidates.length === 1 ? 'match' : 'matches'} left separate.
+                    {(report.closeMatchCandidates?.length ?? 0) + (report.sameAsCandidates?.length ?? 0)} possible
+                    {' '}{((report.closeMatchCandidates?.length ?? 0) + (report.sameAsCandidates?.length ?? 0)) === 1 ? 'duplicate' : 'duplicates'} came through.
                   </strong>{' '}
-                  Sharing a name isn't proof of being the same thing, so these were kept
-                  apart rather than merged on a guess. Reviewing them comes later.
+                  They were left as they are rather than combined on a guess. Sorting
+                  them out is a separate step.
                 </div>
               )}
               <div style={{ marginTop: 4, fontSize: '0.75rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
-                "{sourceName}" was not changed and is still in your list.
+                Everything now lives in "{destName}". "{incomingName}" was not changed and is
+                still in your list.
+                {switched && ` You're now working in "${destName}".`}
               </div>
             </>
           )}
@@ -328,7 +361,7 @@ const MergeUniverseDialog = ({
                     destructive decision, not the natural end of a merge. */}
                 {!error && (
                   <DialogButton onClick={onDisconnectSource}>
-                    Disconnect {sourceName}…
+                    Disconnect {incomingName}…
                   </DialogButton>
                 )}
                 <DialogButton tone="accent" onClick={onClose}>Done</DialogButton>

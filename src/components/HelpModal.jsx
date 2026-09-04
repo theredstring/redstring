@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import CanvasModal from './CanvasModal';
-import { ChevronRight, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme.js';
 import PanelIconButton from './shared/PanelIconButton.jsx';
+import './ModalChrome.css';
 
 /**
  * Help Modal
@@ -35,7 +36,10 @@ const HelpModal = ({ isVisible, onClose }) => {
     ? Math.min(Math.max(viewportSize.height * 0.85, 400), 600)
     : 600;
 
-  const headingColor = theme.darkMode ? '#ff9a9a' : '#8B0000';
+  // The panel's brand-on-surface token, not a pair of hand-picked reds. In
+  // light mode it is the brand maroon; in dark it lifts to the warm rose the
+  // maroon can't survive as at #2E2A2A.
+  const headingColor = theme.canvas.brandText;
 
   const sections = {
     basics: {
@@ -256,73 +260,16 @@ const HelpModal = ({ isVisible, onClose }) => {
     }
   };
 
-  const scrollbarLight = `
-    .help-modal-sidebar::-webkit-scrollbar,
-    .help-modal-content::-webkit-scrollbar {
-      width: 20px;
-    }
-    .help-modal-sidebar::-webkit-scrollbar-track,
-    .help-modal-content::-webkit-scrollbar-track {
-      background: rgba(38, 0, 0, 0.05);
-      border-radius: 4px;
-    }
-    .help-modal-sidebar::-webkit-scrollbar-thumb,
-    .help-modal-content::-webkit-scrollbar-thumb {
-      background-color: rgba(38, 0, 0, 0.1);
-      border-radius: 4px;
-      border: 6px solid transparent;
-      background-clip: padding-box;
-    }
-    .help-modal-sidebar:hover::-webkit-scrollbar-thumb,
-    .help-modal-content:hover::-webkit-scrollbar-thumb {
-      background-color: #260000;
-      border-width: 4px;
-    }
-    .help-modal-sidebar,
-    .help-modal-content {
-      scrollbar-width: thin;
-      scrollbar-color: rgba(38, 0, 0, 0.1) rgba(38, 0, 0, 0.05);
-    }
-  `;
-
-  const scrollbarDark = `
-    .help-modal-sidebar::-webkit-scrollbar,
-    .help-modal-content::-webkit-scrollbar {
-      width: 20px;
-    }
-    .help-modal-sidebar::-webkit-scrollbar-track,
-    .help-modal-content::-webkit-scrollbar-track {
-      background: rgba(222, 218, 218, 0.05);
-      border-radius: 4px;
-    }
-    .help-modal-sidebar::-webkit-scrollbar-thumb,
-    .help-modal-content::-webkit-scrollbar-thumb {
-      background-color: rgba(222, 218, 218, 0.15);
-      border-radius: 4px;
-      border: 6px solid transparent;
-      background-clip: padding-box;
-    }
-    .help-modal-sidebar:hover::-webkit-scrollbar-thumb,
-    .help-modal-content:hover::-webkit-scrollbar-thumb {
-      background-color: rgba(222, 218, 218, 0.4);
-      border-width: 4px;
-    }
-    .help-modal-sidebar,
-    .help-modal-content {
-      scrollbar-width: thin;
-      scrollbar-color: rgba(222, 218, 218, 0.15) rgba(222, 218, 218, 0.05);
-    }
-  `;
-
   const modalContent = (
-    <div style={{
-      display: 'flex',
-      height: '100%',
-      fontFamily: "'EmOne', sans-serif",
-      fontSize: isCompactLayout ? '0.85rem' : '0.9rem'
-    }}>
-      <style>{theme.darkMode ? scrollbarDark : scrollbarLight}</style>
-
+    <div
+      className={theme.darkMode ? 'modal-dark' : ''}
+      style={{
+        display: 'flex',
+        height: '100%',
+        fontFamily: "'EmOne', sans-serif",
+        fontSize: isCompactLayout ? '0.85rem' : '0.9rem'
+      }}
+    >
       {/* Close button */}
       <PanelIconButton
         icon={X}
@@ -341,7 +288,7 @@ const HelpModal = ({ isVisible, onClose }) => {
       {/* Sidebar Navigation */}
       {!isCompactLayout && (
         <div
-          className="help-modal-sidebar"
+          className="help-modal-sidebar modal-scroll"
           style={{
             width: '160px',
             borderRight: `1px solid ${theme.canvas.border}`,
@@ -350,51 +297,26 @@ const HelpModal = ({ isVisible, onClose }) => {
             flexShrink: 0
           }}
         >
-          <h3 style={{
-            margin: '0 0 16px 0',
-            fontSize: '1.1rem',
-            color: theme.canvas.textPrimary
-          }}>
+          <h3 className="modal-nav-heading">
             Topics
           </h3>
           {Object.keys(sections).map((key) => (
-            <div
+            <button
               key={key}
+              type="button"
+              className={`modal-nav-item ${activeSection === key ? 'active' : ''}`}
+              aria-current={activeSection === key ? 'true' : undefined}
               onClick={() => setActiveSection(key)}
-              style={{
-                padding: '10px 12px',
-                marginBottom: '4px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                backgroundColor: activeSection === key ? (theme.darkMode ? 'rgba(139, 0, 0, 0.25)' : 'rgba(139, 0, 0, 0.1)') : 'transparent',
-                color: activeSection === key ? headingColor : theme.canvas.textSecondary,
-                fontWeight: activeSection === key ? 'bold' : 'normal',
-                fontSize: '0.85rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                transition: 'all 0.2s ease'
-              }}
-              onMouseEnter={(e) => {
-                if (activeSection !== key) {
-                  e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(139, 0, 0, 0.12)' : 'rgba(139, 0, 0, 0.05)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (activeSection !== key) {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }
-              }}
             >
               {sections[key].title}
-            </div>
+            </button>
           ))}
         </div>
       )}
 
       {/* Main Content Area */}
       <div
-        className="help-modal-content"
+        className="help-modal-content modal-scroll"
         style={{
           flex: 1,
           padding: isCompactLayout ? '16px' : '24px',
@@ -407,18 +329,10 @@ const HelpModal = ({ isVisible, onClose }) => {
         {isCompactLayout && (
           <div style={{ marginBottom: '20px' }}>
             <select
+              className="modal-input"
+              aria-label="Help topic"
               value={activeSection}
               onChange={(e) => setActiveSection(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px',
-                borderRadius: '6px',
-                border: `1px solid ${theme.canvas.border}`,
-                backgroundColor: theme.darkMode ? theme.canvas.hover : 'white',
-                fontSize: '0.9rem',
-                fontFamily: "'EmOne', sans-serif",
-                color: theme.canvas.textPrimary
-              }}
             >
               {Object.keys(sections).map((key) => (
                 <option key={key} value={key}>

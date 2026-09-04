@@ -70,35 +70,19 @@ describe('mergeUniverseState', () => {
     expect(report.addedPrototypeIds).toContain('b');
   });
 
-  it('activeWins: true keeps the live store’s wording, banking the incoming one', () => {
+  it('the destination is the source of truth for an unavoidable ID collision', () => {
+    // Two prototypes cannot share one Map key, so this conflict has to resolve.
+    // The live store IS the destination, so it wins — and the loser is banked.
     resetStore({ nodePrototypes: new Map([proto('a', 'Mine')]) });
 
-    useGraphStore.getState().mergeUniverseState(
-      incoming({ protos: [proto('a', 'Theirs')] }),
-      { activeWins: true }
-    );
+    useGraphStore.getState().mergeUniverseState(incoming({ protos: [proto('a', 'Theirs')] }));
 
     const p = useGraphStore.getState().nodePrototypes.get('a');
     expect(p.name).toBe('Mine');
     expect(p._preserved.merge.name).toBe('Theirs');
   });
 
-  it('activeWins: false flips which side wins, without losing the other', () => {
-    resetStore({ nodePrototypes: new Map([proto('a', 'Mine')]) });
-
-    useGraphStore.getState().mergeUniverseState(
-      incoming({ protos: [proto('a', 'Theirs')] }),
-      { activeWins: false }
-    );
-
-    const p = useGraphStore.getState().nodePrototypes.get('a');
-    expect(p.name).toBe('Theirs');
-    expect(p._preserved.merge.name).toBe('Mine');
-  });
-
-  it('keeps the live session state even when the incoming side wins fields', () => {
-    // The incoming universe names a different open graph. Adopting it would
-    // teleport the user mid-merge, so session keys are always the live store's.
+  it('keeps the live session state rather than adopting the incoming one', () => {
     resetStore({
       graphs: new Map([graph('g-mine', 'Mine')]),
       nodePrototypes: new Map([proto('a', 'Alpha')]),
@@ -110,7 +94,7 @@ describe('mergeUniverseState', () => {
     theirs.openGraphIds = ['g-theirs'];
     theirs.activeGraphId = 'g-theirs';
 
-    useGraphStore.getState().mergeUniverseState(theirs, { activeWins: false });
+    useGraphStore.getState().mergeUniverseState(theirs);
 
     const state = useGraphStore.getState();
     expect(state.activeGraphId).toBe('g-mine');
@@ -118,18 +102,44 @@ describe('mergeUniverseState', () => {
     expect(state.graphs.has('g-theirs')).toBe(true); // still merged in, just not jumped to
   });
 
-  it('leaves no instance pointing at a prototype that is not there', () => {
-    const WIKI = 'https://www.wikidata.org/wiki/Q144';
+  const WIKI = 'https://www.wikidata.org/wiki/Q144';
+
+  it('foldSameAs on: shared external link combines, leaving nothing dangling', () => {
     resetStore({ nodePrototypes: new Map([proto('mine-dog', 'Dog', { externalLinks: [WIKI] })]) });
 
-    useGraphStore.getState().mergeUniverseState(incoming({
+    const report = useGraphStore.getState().mergeUniverseState(incoming({
       protos: [proto('their-dog', 'Doggo', { externalLinks: [WIKI] })],
       graphs: [graph('g1', 'Theirs', {
         instances: new Map([['i1', { id: 'i1', prototypeId: 'their-dog', x: 0, y: 0 }]]),
       })],
-    }));
+    }), { foldSameAs: true });
 
     const state = useGraphStore.getState();
+    expect(state.nodePrototypes.has('their-dog')).toBe(false);
+    expect(report.mergedIds).toHaveLength(1);
+    for (const g of state.graphs.values()) {
+      for (const inst of g.instances.values()) {
+        expect(state.nodePrototypes.has(inst.prototypeId)).toBe(true);
+      }
+    }
+  });
+
+  it('foldSameAs off: both survive as duplicates and are reported for later', () => {
+    resetStore({ nodePrototypes: new Map([proto('mine-dog', 'Dog', { externalLinks: [WIKI] })]) });
+
+    const report = useGraphStore.getState().mergeUniverseState(incoming({
+      protos: [proto('their-dog', 'Doggo', { externalLinks: [WIKI] })],
+      graphs: [graph('g1', 'Theirs', {
+        instances: new Map([['i1', { id: 'i1', prototypeId: 'their-dog', x: 0, y: 0 }]]),
+      })],
+    }), { foldSameAs: false });
+
+    const state = useGraphStore.getState();
+    expect(state.nodePrototypes.has('mine-dog')).toBe(true);
+    expect(state.nodePrototypes.has('their-dog')).toBe(true);
+    expect(report.mergedIds).toHaveLength(0);
+    expect(report.sameAsCandidates).toHaveLength(1);
+    // Duplicates are fine; broken references are not.
     for (const g of state.graphs.values()) {
       for (const inst of g.instances.values()) {
         expect(state.nodePrototypes.has(inst.prototypeId)).toBe(true);

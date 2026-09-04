@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, CheckCircle, AlertCircle, Trash2, RefreshCw } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle, AlertCircle, Trash2, RefreshCw, Plug, Save, Pencil, SlidersHorizontal } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
+import PanelIconButton from '../shared/PanelIconButton.jsx';
 import apiKeyManager from '../../services/apiKeyManager.js';
 import { useProviderModels } from '../../hooks/useProviderModels.js';
 import { getProviderLabel } from '../../services/modelCatalog.js';
@@ -22,6 +23,33 @@ function readStoredIterations(key, def) {
     return def;
   }
 }
+
+const WIZARD_PREF_OPTIONS = [
+  { label: 'Ask each time', value: 'ask' },
+  { label: 'New conversation', value: 'new' },
+  { label: 'Add to current', value: 'current' }
+];
+
+/**
+ * The two "what should Ask The Wizard do" choosers, which are the same three
+ * options twice. Stacked rather than in a row because the labels are phrases,
+ * and stretched so the pills share an edge and read as one group.
+ */
+const WizardPrefGroup = ({ value, onChange }) => (
+  <div className="settings-option-group settings-option-group--stacked">
+    {WIZARD_PREF_OPTIONS.map(opt => (
+      <PanelIconButton
+        key={opt.value}
+        label={opt.label}
+        labelFontSize={11}
+        variant="outline"
+        active={value === opt.value}
+        onClick={() => onChange(opt.value)}
+        style={{ padding: '5px 12px' }}
+      />
+    ))}
+  </div>
+);
 
 /**
  * AI Settings Section - Adapted to Settings Modal patterns
@@ -445,9 +473,15 @@ const AISection = () => {
 
           <div className="settings-row">
             <div className="settings-row-label">Test Connection</div>
-            <button className="ai-action-btn ai-btn-primary" onClick={handleTestKey} disabled={isValidating} style={{ minWidth: '100px' }}>
-              {isValidating ? 'Testing...' : 'Test API Key'}
-            </button>
+            <PanelIconButton
+              icon={Plug}
+              size={14}
+              label={isValidating ? 'Testing...' : 'Test API Key'}
+              labelFontSize={11}
+              variant="outline"
+              onClick={handleTestKey}
+              disabled={isValidating}
+            />
           </div>
 
           {/* Test result messages */}
@@ -467,13 +501,27 @@ const AISection = () => {
 
           <div className="settings-row" style={{ borderBottom: 'none', paddingBottom: '0' }}>
             <div className="settings-row-label">Actions</div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <button className="ai-action-btn ai-btn-primary" onClick={beginEditConfiguration}>
-                Update
-              </button>
-              <button className="ai-action-btn ai-btn-danger" onClick={handleRemoveKey} disabled={isLoading}>
-                Remove
-              </button>
+            {/* Remove is not colour-coded. Destructive actions in the panel
+                wear the same ghost/outline as everything else — the maroon
+                hover ring is the only emphasis in this language. */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <PanelIconButton
+                icon={Pencil}
+                size={14}
+                label="Update"
+                labelFontSize={11}
+                variant="solid"
+                onClick={beginEditConfiguration}
+              />
+              <PanelIconButton
+                icon={Trash2}
+                size={14}
+                label="Remove"
+                labelFontSize={11}
+                variant="outline"
+                onClick={handleRemoveKey}
+                disabled={isLoading}
+              />
             </div>
           </div>
         </>
@@ -497,7 +545,7 @@ const AISection = () => {
               value={provider}
               onChange={(e) => handleProviderChange(e.target.value)}
               disabled={isLoading}
-              className="ai-input"
+              className="modal-input"
             >
               {providers.map(p => (
                 <option key={p.id} value={p.id}>
@@ -521,7 +569,7 @@ const AISection = () => {
                 onChange={(e) => setCustomProviderName(e.target.value)}
                 placeholder="My Custom AI"
                 disabled={isLoading}
-                className="ai-input"
+                className="modal-input"
               />
             </div>
           )}
@@ -530,19 +578,24 @@ const AISection = () => {
           {provider === 'local' && (
             <>
               <div className="settings-section-subtitle">Local Server Presets</div>
-              <div className="settings-option-group" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', display: 'grid', gap: '6px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
                 {localPresets.map(preset => (
-                  <button
+                  <PanelIconButton
                     key={preset.id}
-                    type="button"
-                    className={`settings-option-btn ${selectedPreset?.id === preset.id ? 'active' : ''}`}
+                    label={
+                      <>
+                        {preset.name}{' '}
+                        <span style={{ opacity: 0.7 }}>:{preset.defaultPort}</span>
+                      </>
+                    }
+                    labelFontSize={11}
+                    variant="outline"
+                    active={selectedPreset?.id === preset.id}
                     onClick={() => handlePresetSelect(preset)}
                     disabled={isLoading}
-                    style={{ padding: '8px 6px', fontSize: '0.7rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}
-                  >
-                    <div>{preset.name}</div>
-                    <div style={{ opacity: 0.7, fontSize: '0.65rem' }}>:{preset.defaultPort}</div>
-                  </button>
+                    title={`${preset.name} on port ${preset.defaultPort}`}
+                    style={{ padding: '5px 12px' }}
+                  />
                 ))}
               </div>
 
@@ -563,7 +616,7 @@ const AISection = () => {
                   onChange={(e) => setEndpoint(e.target.value)}
                   placeholder="http://localhost:11434/v1/chat/completions"
                   disabled={isLoading}
-                  className="ai-input"
+                  className="modal-input"
                   style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
                 />
               </div>
@@ -579,37 +632,42 @@ const AISection = () => {
                   onChange={(e) => setModel(e.target.value)}
                   placeholder="llama2"
                   disabled={isLoading}
-                  className="ai-input"
+                  className="modal-input"
                 />
               </div>
 
+              {/* Suggestions are choices, so they get pills like every other
+                  choice in the modal rather than a run of underlined text. */}
               {selectedPreset?.commonModels.length > 0 && (
-                <div style={{ fontSize: '0.7rem', color: theme.darkMode ? '#ff9a9a' : '#260000', paddingBottom: '10px', borderBottom: `1px solid ${theme.darkMode ? 'rgba(222,218,218,0.1)' : 'rgba(38,0,0,0.08)'}` }}>
-                  Suggested: {selectedPreset.commonModels.map((m, i) => (
-                    <React.Fragment key={m}>
-                      <button
-                        type="button"
+                <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, paddingBottom: '10px', borderBottom: `1px solid ${theme.canvas.border}` }}>
+                  <div style={{ marginBottom: '6px' }}>Suggested models</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {selectedPreset.commonModels.map(m => (
+                      <PanelIconButton
+                        key={m}
+                        label={m}
+                        labelFontSize={11}
+                        variant="outline"
+                        active={model === m}
                         onClick={() => setModel(m)}
-                        style={{ background: 'none', border: 'none', color: theme.darkMode ? '#ff9a9a' : '#260000', textDecoration: 'underline', cursor: 'pointer', padding: 0, font: 'inherit' }}
-                      >
-                        {m}
-                      </button>
-                      {i < selectedPreset.commonModels.length - 1 ? ', ' : ''}
-                    </React.Fragment>
-                  ))}
+                        style={{ padding: '4px 12px' }}
+                      />
+                    ))}
+                  </div>
                 </div>
               )}
 
               <div className="settings-row" style={{ borderBottom: 'none' }}>
                 <div className="settings-row-label">Test Connection</div>
-                <button
-                  type="button"
+                <PanelIconButton
+                  icon={Plug}
+                  size={14}
+                  label={isTestingConnection ? 'Testing...' : 'Test'}
+                  labelFontSize={11}
+                  variant="outline"
                   onClick={testLocalConnection}
                   disabled={isTestingConnection || !endpoint}
-                  className="ai-action-btn ai-btn-secondary"
-                >
-                  {isTestingConnection ? 'Testing...' : 'Test'}
-                </button>
+                />
               </div>
 
               {connectionTestResult && (
@@ -666,7 +724,7 @@ const AISection = () => {
                         }
                       }}
                       disabled={isLoading}
-                      className="ai-input"
+                      className="modal-input"
                     >
                       {providerModels.map(m => (
                         <option key={m.id} value={m.id}>{m.name}</option>
@@ -674,17 +732,17 @@ const AISection = () => {
                       <option value="custom">Custom...</option>
                     </select>
 
-                    <button
-                      type="button"
+                    <PanelIconButton
+                      icon={RefreshCw}
+                      size={12}
+                      label="Refresh models"
+                      labelFontSize={11}
+                      variant="outline"
                       onClick={refreshModels}
                       disabled={isLoadingModels}
-                      className="ai-action-btn ai-btn-secondary"
                       title="Re-fetch the model list (cached for 24h)"
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px', alignSelf: 'flex-start' }}
-                    >
-                      <RefreshCw size={12} />
-                      Refresh models
-                    </button>
+                      style={{ alignSelf: 'flex-start' }}
+                    />
 
                     {isCustomModel && (
                       <input
@@ -693,7 +751,7 @@ const AISection = () => {
                         onChange={(e) => setModel(e.target.value)}
                         placeholder="gpt-4o"
                         disabled={isLoading}
-                        className="ai-input"
+                        className="modal-input"
                       />
                     )}
                   </>
@@ -704,7 +762,7 @@ const AISection = () => {
                     onChange={(e) => setModel(e.target.value)}
                     placeholder={apiKeyManager.getDefaultModel(provider)}
                     disabled={isLoading}
-                    className="ai-input"
+                    className="modal-input"
                   />
                 )}
               </div>
@@ -721,7 +779,7 @@ const AISection = () => {
               <select
                 value=""
                 onChange={(e) => handleRecentModelSelect(e.target.value)}
-                className="ai-input"
+                className="modal-input"
               >
                 <option value="">Select recent...</option>
                 {recentModels.map((m) => (
@@ -746,7 +804,7 @@ const AISection = () => {
                   onChange={(e) => setEndpoint(e.target.value)}
                   placeholder={apiKeyManager.getDefaultEndpoint(provider)}
                   disabled={isLoading}
-                  className="ai-input"
+                  className="modal-input"
                   style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
                 />
               </div>
@@ -756,22 +814,13 @@ const AISection = () => {
           {provider !== 'local' && !showAdvanced && (
             <div className="settings-row">
               <div className="settings-row-label"></div>
-              <button
-                type="button"
+              <PanelIconButton
+                icon={SlidersHorizontal}
+                size={13}
+                label="Show advanced settings"
+                labelFontSize={11}
                 onClick={() => setShowAdvanced(true)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: theme.darkMode ? '#ff9a9a' : '#260000',
-                  fontSize: '0.75rem',
-                  cursor: 'pointer',
-                  textDecoration: 'underline',
-                  padding: 0,
-                  fontFamily: "'EmOne', sans-serif"
-                }}
-              >
-                Show advanced settings
-              </button>
+              />
             </div>
           )}
 
@@ -797,38 +846,30 @@ const AISection = () => {
                     }}
                     placeholder="sk-..."
                     disabled={isLoading}
-                    className="ai-input"
+                    className="modal-input"
                     style={{ paddingRight: '40px' }}
                   />
-                  <button
-                    type="button"
+                  <PanelIconButton
+                    icon={showKey ? EyeOff : Eye}
+                    size={16}
                     onClick={() => setShowKey(!showKey)}
                     disabled={isLoading}
-                    style={{
-                      position: 'absolute',
-                      right: '8px',
-                      background: 'none',
-                      border: 'none',
-                      color: theme.canvas.textSecondary,
-                      cursor: 'pointer',
-                      padding: '4px',
-                      display: 'flex',
-                      alignItems: 'center'
-                    }}
-                  >
-                    {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
+                    title={showKey ? 'Hide key' : 'Show key'}
+                    style={{ position: 'absolute', right: '6px' }}
+                  />
                 </div>
               ) : (
-                <div style={{ fontSize: '0.75rem', color: theme.canvas.textPrimary, fontStyle: 'italic' }}>
-                  Using existing key •{' '}
-                  <button
-                    type="button"
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
+                  Using existing key
+                  <PanelIconButton
+                    icon={Pencil}
+                    size={13}
+                    label="Edit"
+                    labelFontSize={11}
+                    variant="outline"
                     onClick={() => { setAllowKeyEdit(true); setShowKey(false); }}
-                    style={{ background: 'none', border: 'none', color: theme.darkMode ? '#ff9a9a' : '#260000', textDecoration: 'underline', cursor: 'pointer', padding: 0, font: 'inherit' }}
-                  >
-                    Edit
-                  </button>
+                    style={{ padding: '4px 12px' }}
+                  />
                 </div>
               )}
             </div>
@@ -848,26 +889,16 @@ const AISection = () => {
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder="Optional"
                   disabled={isLoading}
-                  className="ai-input"
+                  className="modal-input"
                   style={{ paddingRight: '40px' }}
                 />
-                <button
-                  type="button"
+                <PanelIconButton
+                  icon={showKey ? EyeOff : Eye}
+                  size={16}
                   onClick={() => setShowKey(!showKey)}
-                  style={{
-                    position: 'absolute',
-                    right: '8px',
-                    background: 'none',
-                    border: 'none',
-                    color: theme.canvas.textSecondary,
-                    cursor: 'pointer',
-                    padding: '4px',
-                    display: 'flex',
-                    alignItems: 'center'
-                  }}
-                >
-                  {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
+                  title={showKey ? 'Hide key' : 'Show key'}
+                  style={{ position: 'absolute', right: '6px' }}
+                />
               </div>
             </div>
           )}
@@ -890,25 +921,18 @@ const AISection = () => {
           {/* Save Button */}
           <div className="settings-row" style={{ borderBottom: 'none', paddingTop: '20px' }}>
             <div className="settings-row-label"></div>
-            <button
+            {/* The section's one primary action, so it takes the solid variant
+                — the same weight the panel gives "New" in the universe list. */}
+            <PanelIconButton
+              icon={Save}
+              size={14}
+              label={isLoading ? 'Saving...' : isEditingExisting ? 'Save' : 'Store API Key'}
+              labelFontSize={12}
+              variant="solid"
               onClick={handleSubmit}
               disabled={isLoading || ((provider !== 'local') && !apiKey.trim() && !(isEditingExisting && !allowKeyEdit))}
-              style={{
-                padding: '10px 24px',
-                backgroundColor: isLoading || ((provider !== 'local') && !apiKey.trim() && !(isEditingExisting && !allowKeyEdit))
-                  ? (theme.darkMode ? 'rgba(222,218,218,0.15)' : 'rgba(38,0,0,0.2)')
-                  : (theme.darkMode ? theme.canvas.border : '#260000'),
-                color: theme.darkMode ? '#DEDADA' : '#fff',
-                border: 'none',
-                borderRadius: '6px',
-                fontSize: '0.85rem',
-                fontWeight: '500',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-                fontFamily: "'EmOne', sans-serif"
-              }}
-            >
-              {isLoading ? 'Saving...' : isEditingExisting ? 'Save' : 'Store API Key'}
-            </button>
+              style={{ padding: '8px 20px' }}
+            />
           </div>
         </div>
       )}
@@ -971,21 +995,7 @@ const AISection = () => {
             What should happen when you click "Ask The Wizard" on a connection
           </div>
         </div>
-        <div className="settings-option-group settings-option-group--stacked">
-          {[
-            { label: 'Ask each time', value: 'ask' },
-            { label: 'New conversation', value: 'new' },
-            { label: 'Add to current', value: 'current' }
-          ].map(opt => (
-            <button
-              key={opt.value}
-              className={`settings-option-btn ${wizardConnectionPref === opt.value ? 'active' : ''}`}
-              onClick={() => handleWizardPrefChange(opt.value)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        <WizardPrefGroup value={wizardConnectionPref} onChange={handleWizardPrefChange} />
       </div>
       <div className="settings-row">
         <div className="settings-row-label">
@@ -994,21 +1004,7 @@ const AISection = () => {
             What should happen when you click "Ask The Wizard" on a node with no components
           </div>
         </div>
-        <div className="settings-option-group settings-option-group--stacked">
-          {[
-            { label: 'Ask each time', value: 'ask' },
-            { label: 'New conversation', value: 'new' },
-            { label: 'Add to current', value: 'current' }
-          ].map(opt => (
-            <button
-              key={opt.value}
-              className={`settings-option-btn ${wizardNodePref === opt.value ? 'active' : ''}`}
-              onClick={() => handleWizardNodePrefChange(opt.value)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        <WizardPrefGroup value={wizardNodePref} onChange={handleWizardNodePrefChange} />
       </div>
     </div>
   );

@@ -199,12 +199,9 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
   };
 
   const handleComponentClick = (component) => {
-    // Select the instance node on the canvas
+    // Select the instance node on the canvas. Don't open the right panel —
+    // double-tapping the node on canvas is how you open it.
     setSelectedNodes(new Set([component.instanceId]));
-
-    // Open it in the right panel
-    const openRightPanelNodeTab = useGraphStore.getState().openRightPanelNodeTab;
-    openRightPanelNodeTab(component.prototypeId);
   };
 
   const handleEdgeTypeClick = (edgeType) => {

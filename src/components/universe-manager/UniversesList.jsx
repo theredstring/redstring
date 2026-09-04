@@ -643,7 +643,7 @@ const UniversesList = ({
                 fontWeight: 600,
                 lineHeight: 1.3
               }}>
-                Choose a universe to merge into "{activeUniverseName}"
+                Choose a universe to merge with "{activeUniverseName}"
               </span>
               <PanelIconButton
                 icon={X}
@@ -865,7 +865,7 @@ const UniversesList = ({
                             size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
                             style={isVerySlim ? { padding: '5px' } : {}}
                             onClick={() => { setIsMergeMode(false); onMergeUniverse?.(universe.slug); }}
-                            title={`Merge into ${activeUniverseName}`}
+                            title={`Merge with ${activeUniverseName}`}
                           />
                         )
                       ) : (
@@ -897,7 +897,7 @@ const UniversesList = ({
                               size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
                               style={isVerySlim ? { padding: '5px' } : {}}
                               onClick={() => setIsMergeMode(true)}
-                              title="Merge another universe into this one"
+                              title="Merge with another universe"
                             />
                           )}
                           {universes.length > 1 && (

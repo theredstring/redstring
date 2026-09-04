@@ -1,15 +1,26 @@
 /**
- * mergeUniverses(base, incoming) → { merged, report }
+ * mergeUniverses(base, incoming, options) → { merged, report }
  *
- * Pure function — no store access. Merges two Redstring store states using
- * three alignment classes for prototypes:
+ * Pure function — no store access. Unions two Redstring store states.
  *
- *   1. Exact ID match         → same entity; fields union; conflicting
- *                               scalars preserved in _preserved.merge.
- *   2. externalLinks overlap  → treated as owl:sameAs / skos:exactMatch
- *                               equivalence; same merge rules as above.
- *   3. Case-insensitive name  → NOT merged; listed in
- *                               report.closeMatchCandidates for the UI.
+ * `base` is the DESTINATION: the universe the result lives in, and the source
+ * of truth wherever a conflict is unavoidable.
+ *
+ * This is deliberately a union, not a reconciliation. Duplicates are allowed to
+ * come through and are resolved later, in one deliberate pass in the things-
+ * merge UI — a merge should not be quietly deciding which of two descriptions
+ * of the world is correct. Three alignment classes for prototypes:
+ *
+ *   1. Exact ID match         → the SAME entity, and two entries cannot share
+ *                               one Map key, so this one must resolve: fields
+ *                               union, base wins conflicting scalars, and the
+ *                               losing value is banked in _preserved.merge.
+ *   2. externalLinks overlap  → owl:sameAs / skos:exactMatch. Folded only when
+ *                               `foldSameAs` is set; otherwise both are kept
+ *                               and reported in report.sameAsCandidates.
+ *   3. Case-insensitive name  → never merged. A shared name is not evidence of
+ *                               a shared referent; listed in
+ *                               report.closeMatchCandidates for review.
  *
  * Edges and edge prototypes are set-unioned by ID (identical IDs → base wins).
  * Graphs with the same ID on both sides have their CONTENTS unioned (instances,
@@ -230,7 +241,8 @@ function mergeGraph(base, incoming) {
 
 // ---------------------------------------------------------------------------
 
-export function mergeUniverses(base, incoming) {
+export function mergeUniverses(base, incoming, options = {}) {
+  const { foldSameAs = true } = options;
   const merged = {
     graphs:               new Map(base.graphs     || new Map()),
     nodePrototypes:       new Map(base.nodePrototypes || new Map()),
@@ -250,8 +262,9 @@ export function mergeUniverses(base, incoming) {
 
   const report = {
     dedupedIds:           [],  // exact-ID dedup
-    mergedIds:            [],  // [{baseId, incomingId}] sameAs merges
-    addedPrototypeIds:    [],  // brought in whole (new, or a name-only match)
+    mergedIds:            [],  // [{baseId, incomingId}] sameAs merges (foldSameAs)
+    sameAsCandidates:     [],  // [{baseId, incomingId, ...}] kept apart (!foldSameAs)
+    addedPrototypeIds:    [],  // brought in whole (new, or a duplicate left standing)
     closeMatchCandidates: [],  // [{baseId, incomingId, baseName, incomingName}]
     addedGraphIds:        [],
     mergedGraphIds:       [],  // same ID on both sides → contents unioned
@@ -287,7 +300,7 @@ export function mergeUniverses(base, incoming) {
       if (hits?.size > 0) { sameAsBaseId = [...hits][0]; break; }
     }
 
-    if (sameAsBaseId) {
+    if (sameAsBaseId && foldSameAs) {
       const winner = mergePrototype(merged.nodePrototypes.get(sameAsBaseId), iproto);
       merged.nodePrototypes.set(sameAsBaseId, winner);
       // Keep the sameAs index current.
@@ -298,6 +311,17 @@ export function mergeUniverses(base, incoming) {
       remap.set(iid, sameAsBaseId);
       report.mergedIds.push({ baseId: sameAsBaseId, incomingId: iid });
       continue;
+    }
+
+    if (sameAsBaseId) {
+      // Folding is off: both survive, and the pairing is handed to the
+      // things-merge UI to settle rather than being decided here.
+      report.sameAsCandidates.push({
+        baseId:       sameAsBaseId,
+        incomingId:   iid,
+        baseName:     merged.nodePrototypes.get(sameAsBaseId)?.name,
+        incomingName: iproto.name,
+      });
     }
 
     // Class 3: case-insensitive name match → candidate, but still add.

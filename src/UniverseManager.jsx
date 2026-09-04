@@ -1314,45 +1314,63 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   // nothing is written back to it, so it survives the merge untouched.
   const [mergeDialog, setMergeDialog] = useState(null);
 
-  const handleMergeUniverse = (sourceSlug) => {
-    const source = serviceState.universes.find(u => u.slug === sourceSlug);
+  const handleMergeUniverse = (otherSlug) => {
+    const other = serviceState.universes.find(u => u.slug === otherSlug);
     const active = serviceState.universes.find(u => u.slug === serviceState.activeUniverseSlug);
-    if (!source || !active) return;
-    setMergeDialog({ phase: 'choose', source, active, activeWins: true, report: null, error: null });
+    if (!other || !active) return;
+    setMergeDialog({
+      phase: 'choose',
+      active,
+      other,
+      destSlug: active.slug,   // default: keep working where you are
+      foldSameAs: true,
+      report: null,
+      error: null
+    });
   };
 
   const runMerge = async () => {
     const dialog = mergeDialog;
     if (!dialog) return;
-    setMergeDialog({ ...dialog, phase: 'working' });
+
+    const destination = dialog.destSlug === dialog.active.slug ? dialog.active : dialog.other;
+    const incomingUniverse = dialog.destSlug === dialog.active.slug ? dialog.other : dialog.active;
+    setMergeDialog({ ...dialog, phase: 'working', destination, incomingUniverse });
 
     try {
-      // Commit the active universe as it stands first. A merge clears the undo
-      // stack, so this saved state is the only way back — real history for a
-      // git-backed universe, the .bak rotation on Electron. It is not an undo,
-      // and the dialog says so.
+      // Commit whatever is live before touching anything. A merge clears the
+      // undo stack, so this saved state is the only way back — real history for
+      // a git-backed universe, the .bak rotation on Electron. Not an undo.
       try {
         await universeBackend.saveActiveUniverse();
       } catch (saveErr) {
         umWarn('[UniverseManager] Could not save before merge (continuing):', saveErr);
       }
 
-      const incomingState = await universeBackend.loadUniverseData(dialog.source.raw || dialog.source);
+      // The merge always writes into the LOADED store, so if the destination
+      // isn't the one that's open, switch to it first rather than trying to
+      // write a merged state into a universe that was never loaded.
+      if (destination.slug !== useGraphStore.getState()._universeSlug &&
+          destination.slug !== serviceState.activeUniverseSlug) {
+        await universeManagerService.switchUniverse(destination.slug);
+      }
+
+      const incomingState = await universeBackend.loadUniverseData(incomingUniverse.raw || incomingUniverse);
       if (!incomingState) {
-        throw new Error(`Could not read "${dialog.source.name}". Check that its file or repository is reachable.`);
+        throw new Error(`Could not read "${incomingUniverse.name}". Check that its file or repository is reachable.`);
       }
 
       const report = useGraphStore.getState().mergeUniverseState(incomingState, {
-        activeWins: dialog.activeWins
+        foldSameAs: dialog.foldSameAs
       });
-      if (!report) throw new Error('The merge could not be applied to the current universe.');
+      if (!report) throw new Error(`The merge could not be applied to "${destination.name}".`);
 
       await universeBackend.saveActiveUniverse();
       await refreshState();
-      setMergeDialog({ ...dialog, phase: 'result', report, error: null });
+      setMergeDialog({ ...dialog, phase: 'result', destination, incomingUniverse, report, error: null });
     } catch (err) {
       umError('[UniverseManager] Merge failed:', err);
-      setMergeDialog({ ...dialog, phase: 'result', report: null, error: err.message });
+      setMergeDialog({ ...dialog, phase: 'result', destination, incomingUniverse, report: null, error: err.message });
     }
   };
 
@@ -4900,16 +4918,20 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           isOpen={true}
           phase={mergeDialog.phase}
           activeUniverse={mergeDialog.active}
-          sourceUniverse={mergeDialog.source}
-          activeWins={mergeDialog.activeWins}
-          onActiveWinsChange={(activeWins) => setMergeDialog({ ...mergeDialog, activeWins })}
+          otherUniverse={mergeDialog.other}
+          destSlug={mergeDialog.destSlug}
+          onDestChange={(destSlug) => setMergeDialog({ ...mergeDialog, destSlug })}
+          foldSameAs={mergeDialog.foldSameAs}
+          onFoldSameAsChange={(foldSameAs) => setMergeDialog({ ...mergeDialog, foldSameAs })}
+          destination={mergeDialog.destination}
+          incomingUniverse={mergeDialog.incomingUniverse}
           report={mergeDialog.report}
           error={mergeDialog.error}
           onConfirm={runMerge}
           onDisconnectSource={() => {
-            const { source } = mergeDialog;
+            const { incomingUniverse } = mergeDialog;
             setMergeDialog(null);
-            handleDeleteUniverse(source.slug, source.name);
+            handleDeleteUniverse(incomingUniverse.slug, incomingUniverse.name);
           }}
           onClose={() => setMergeDialog(null)}
         />

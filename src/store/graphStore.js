@@ -7104,12 +7104,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * (owl:sameAs). Prototypes that merely share a NAME are deliberately kept
      * separate and reported for review rather than being merged on a guess.
      *
-     * Which side wins a conflicting scalar is argument order, not a flag: the
-     * engine always lets `base` win, so `activeWins: false` simply swaps the
-     * two. Session state (which graph is open, which tabs) always comes from
-     * the live store either way — picking "the other side wins" is a statement
-     * about field conflicts, not an instruction to teleport the user into the
-     * incoming universe's open graphs.
+     * The live store is always the DESTINATION, and therefore the source of
+     * truth for the one conflict that cannot be avoided (two prototypes sharing
+     * an ID — a Map has one slot per key). Callers that want to merge into a
+     * different universe switch to it first, so this always writes to a store
+     * that is actually loaded.
+     *
+     * Session state (which graph is open, which tabs) is re-pinned to the live
+     * store afterwards so a merge never relocates the user.
      *
      * History is cleared, exactly as it is on load: patches on the stack were
      * recorded against a state this merge has just changed underneath them.
@@ -7117,11 +7119,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {Object} incomingState - Deserialized store state to merge in.
      * @param {Object} [options]
-     * @param {boolean} [options.activeWins=true] - Whether the live store wins scalar conflicts.
+     * @param {boolean} [options.foldSameAs=true] - Combine prototypes that share an externalLink.
      * @returns {Object|null} The merge report, or null if the merge could not run.
      */
     mergeUniverseState: (incomingState, options = {}) => {
-      const { activeWins = true } = options;
+      const { foldSameAs = true } = options;
       try {
         const currentState = api.getState();
         if (currentState._isLoadingUniverse) {
@@ -7133,11 +7135,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           return null;
         }
 
-        const { merged, report } = activeWins
-          ? mergeUniverses(currentState, incomingState)
-          : mergeUniverses(incomingState, currentState);
+        const { merged, report } = mergeUniverses(currentState, incomingState, { foldSameAs });
 
-        // Session/UI state is the live store's regardless of who won fields.
+        // Session/UI state is the live store's.
         merged.openGraphIds = currentState.openGraphIds;
         merged.activeGraphId = currentState.activeGraphId;
         merged.rightPanelTabs = currentState.rightPanelTabs;

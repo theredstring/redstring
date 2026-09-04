@@ -6,7 +6,7 @@ import { useTheme } from '../hooks/useTheme.js';
 import { Monitor, Grid3x3, Cable, Keyboard, Scaling, PanelBottom, Brain, Info, X } from 'lucide-react';
 import AISection from './settings/AISection.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
-import './SettingsModal.css';
+import './ModalChrome.css';
 
 /**
  * Settings Modal
@@ -107,16 +107,23 @@ const SettingsModal = ({ isVisible, onClose }) => {
   );
 
   // Option group helper
+  //
+  // A radio group built out of the panel's pill button, `active` marking the
+  // chosen one. This is the same construction as the Concepts/Related switch in
+  // the Semantic Discovery view: the selected pill wears the pie menu's lit
+  // state, so "selected" and "hovered" are one visual idea rather than two.
   const OptionGroup = ({ options, value, onChange }) => (
     <div className="settings-option-group">
       {options.map(opt => (
-        <button
+        <PanelIconButton
           key={opt.value}
-          className={`settings-option-btn ${value === opt.value ? 'active' : ''}`}
+          label={opt.label}
+          labelFontSize={11}
+          variant="outline"
+          active={value === opt.value}
           onClick={() => onChange(opt.value)}
-        >
-          {opt.label}
-        </button>
+          style={{ padding: '5px 12px' }}
+        />
       ))}
     </div>
   );
@@ -773,7 +780,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <span style={{
               fontSize: '1.4rem',
               fontWeight: 'bold',
-              color: theme.darkMode ? '#ff9a9a' : (theme.accent?.primary || '#8B0000')
+              color: theme.canvas.brandText
             }}>
               Redstring
             </span>
@@ -824,7 +831,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
 
   const modalContent = (
     <div
-      className={theme.darkMode ? 'settings-dark' : ''}
+      className={theme.darkMode ? 'modal-dark' : ''}
       style={{
         display: 'flex',
         height: '100%',
@@ -850,7 +857,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
       {/* Sidebar Navigation */}
       {!isCompactLayout && (
         <div
-          className="settings-modal-sidebar"
+          className="settings-modal-sidebar modal-scroll"
           style={{
             width: '180px',
             borderRight: `1px solid ${theme.canvas.border}`,
@@ -859,25 +866,27 @@ const SettingsModal = ({ isVisible, onClose }) => {
             flexShrink: 0
           }}
         >
-          <h3 className="settings-nav-heading">
+          <h3 className="modal-nav-heading">
             Settings
           </h3>
           {Object.keys(sections).map((key) => (
-            <div
+            <button
               key={key}
-              className={`settings-nav-item ${activeSection === key ? 'active' : ''}`}
+              type="button"
+              className={`modal-nav-item ${activeSection === key ? 'active' : ''}`}
+              aria-current={activeSection === key ? 'true' : undefined}
               onClick={() => setActiveSection(key)}
             >
               {sectionIcons[key]}
               {sections[key].title}
-            </div>
+            </button>
           ))}
         </div>
       )}
 
       {/* Main Content Area */}
       <div
-        className="settings-modal-content"
+        className="settings-modal-content modal-scroll"
         style={{
           flex: 1,
           padding: isCompactLayout ? '16px' : '24px',
@@ -890,18 +899,10 @@ const SettingsModal = ({ isVisible, onClose }) => {
         {isCompactLayout && (
           <div style={{ marginBottom: '20px' }}>
             <select
+              className="modal-input"
+              aria-label="Settings section"
               value={activeSection}
               onChange={(e) => setActiveSection(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px',
-                borderRadius: '6px',
-                border: `1px solid ${theme.canvas.border}`,
-                backgroundColor: theme.canvas.bg,
-                fontSize: '0.9rem',
-                fontFamily: "'EmOne', sans-serif",
-                color: theme.canvas.textPrimary
-              }}
             >
               {Object.keys(sections).map((key) => (
                 <option key={key} value={key}>

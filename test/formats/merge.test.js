@@ -351,6 +351,50 @@ describe('P5.4 — sameAs fold leaves no dangling prototype references', () => {
 // Shared graphs union their contents
 // ---------------------------------------------------------------------------
 
+describe('P5.4 — foldSameAs: off keeps duplicates for the things-merge step', () => {
+  const base = () => state({ protos: [proto('base-dog', 'Dog', { externalLinks: [WIKI_DOG] })] });
+  const inc = () => state({
+    protos: [proto('inc-dog', 'Doggo', { externalLinks: [WIKI_DOG] })],
+    graphs: [graphWith('g1', { instances: [instance('i1', 'inc-dog')] })],
+  });
+
+  it('both prototypes survive and the pair is reported', () => {
+    const { merged, report } = mergeUniverses(base(), inc(), { foldSameAs: false });
+
+    expect(merged.nodePrototypes.has('base-dog')).toBe(true);
+    expect(merged.nodePrototypes.has('inc-dog')).toBe(true);
+    expect(report.mergedIds).toHaveLength(0);
+    expect(report.sameAsCandidates).toEqual([
+      { baseId: 'base-dog', incomingId: 'inc-dog', baseName: 'Dog', incomingName: 'Doggo' },
+    ]);
+  });
+
+  it('references still resolve — a duplicate is fine, a broken pointer is not', () => {
+    const { merged } = mergeUniverses(base(), inc(), { foldSameAs: false });
+    const inst = merged.graphs.get('g1').instances.get('i1');
+
+    expect(inst.prototypeId).toBe('inc-dog');
+    expect(merged.nodePrototypes.has(inst.prototypeId)).toBe(true);
+  });
+
+  it('an exact ID collision still resolves — base wins, loser banked', () => {
+    // This one cannot be deferred: a Map has one slot per key.
+    const b = state({ protos: [proto('dog', 'Mine')] });
+    const i = state({ protos: [proto('dog', 'Theirs')] });
+    const { merged } = mergeUniverses(b, i, { foldSameAs: false });
+
+    expect(merged.nodePrototypes.size).toBe(1);
+    expect(merged.nodePrototypes.get('dog').name).toBe('Mine');
+    expect(merged.nodePrototypes.get('dog')._preserved.merge.name).toBe('Theirs');
+  });
+
+  it('defaults to folding when no option is passed', () => {
+    const { report } = mergeUniverses(base(), inc());
+    expect(report.mergedIds).toHaveLength(1);
+    expect(report.sameAsCandidates).toHaveLength(0);
+  });
+});
+
 describe('P5.4 — same-ID graphs union their contents', () => {
   it('instances from both sides survive; base wins on a shared instance id', () => {
     const base = state({ graphs: [graphWith('g1', { instances: [instance('i1', 'p1', { x: 10 })] })] });
