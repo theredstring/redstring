@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check } from 'lucide-react';
+import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
 import PanelSegment from './shared/PanelSegment.jsx';
@@ -39,6 +39,7 @@ const UniversesList = ({
   onSwitchUniverse,
   onDeleteUniverse,
   onRenameUniverse,
+  onMergeUniverse,
   onLinkRepo,
   onLinkLocalFile,
   onCreateLocalFile,
@@ -69,6 +70,7 @@ const UniversesList = ({
   const [copiedSlug, setCopiedSlug] = useState(null); // Slug whose public link was just copied (for icon feedback)
   const [renamingSlug, setRenamingSlug] = useState(null); // Slug whose name is being edited inline
   const [tempName, setTempName] = useState('');
+  const [isMergeMode, setIsMergeMode] = useState(false); // Picking a universe to merge into the active one
   const [isHeaderSlim, setIsHeaderSlim] = useState(false); // Track if header should stack at < 480px
   const [isVerySlim, setIsVerySlim] = useState(false); // Track if container is < 320px for aggressive space-saving
   const [workspaceFolder, setWorkspaceFolder] = useState(() => {
@@ -259,6 +261,11 @@ const UniversesList = ({
   // timestamp is merely the newest, and that stops being true if any other
   // record is ever touched out of band. Never-opened universes sort last and
   // keep their incoming order.
+  const activeUniverseName = useMemo(
+    () => universes.find(u => u.slug === activeUniverseSlug)?.name || 'this universe',
+    [universes, activeUniverseSlug]
+  );
+
   const orderedUniverses = useMemo(() => {
     const rank = new Map(universes.map((u, i) => [u.slug, i]));
     return universes.slice().sort((a, b) => {
@@ -273,6 +280,24 @@ const UniversesList = ({
       return rank.get(a.slug) - rank.get(b.slug);
     });
   }, [universes, activeUniverseSlug]);
+
+  // Merge mode is about "merge into the universe I'm working in", so it stops
+  // meaning anything the moment that universe changes. Also drop it when the
+  // list shrinks to one universe — there is then nothing to merge from.
+  useEffect(() => {
+    setIsMergeMode(false);
+  }, [activeUniverseSlug]);
+
+  useEffect(() => {
+    if (universes.length < 2) setIsMergeMode(false);
+  }, [universes.length]);
+
+  useEffect(() => {
+    if (!isMergeMode) return undefined;
+    const onKeyDown = (e) => { if (e.key === 'Escape') setIsMergeMode(false); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isMergeMode]);
 
   // Inline rename of the active universe's name. Mirrors the node-title editor
   // in SharedPanelContent: double-click or pencil to enter, Enter/blur commits,
@@ -593,6 +618,44 @@ const UniversesList = ({
             </div>
           )}
 
+          {isMergeMode && (
+            // Not a StatusBanner: this is a live mode, not a status message, and
+            // the banner's info tone is a stock blue that belongs to no palette
+            // in this app. It borrows the pie-menu white-and-red instead — the
+            // same #DEDADA fill and maroon ring a hovered PanelIconButton uses,
+            // and the same language AnchoredPopoverBox uses for a floating
+            // attention surface. Theme-independent on purpose, like both.
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: isVerySlim ? 6 : 10,
+              padding: isVerySlim ? '6px 6px 6px 10px' : '8px 8px 8px 12px',
+              borderRadius: 8,
+              backgroundColor: '#DEDADA',
+              border: `2px solid ${theme.accent.primary}`,
+              color: theme.accent.primary
+            }}>
+              <Merge size={16} style={{ flexShrink: 0 }} />
+              <span style={{
+                flex: 1,
+                minWidth: 0,
+                fontSize: isVerySlim ? '0.75rem' : '0.8rem',
+                fontWeight: 600,
+                lineHeight: 1.3
+              }}>
+                Choose a universe to merge into "{activeUniverseName}"
+              </span>
+              <PanelIconButton
+                icon={X}
+                size={isVerySlim ? 14 : 18}
+                style={isVerySlim ? { padding: '5px' } : {}}
+                color={theme.accent.primary}
+                onClick={() => setIsMergeMode(false)}
+                title="Cancel merge"
+              />
+            </div>
+          )}
+
           {isLoading ? (
             <div style={{
               display: 'flex',
@@ -783,35 +846,70 @@ const UniversesList = ({
                       alignItems: 'center',
                       flexShrink: 0
                     }}>
-                      {!isActive && (
-                        <PanelIconButton
-                          icon={ArrowRightLeft}
-                          size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
-                          style={isVerySlim ? { padding: '5px' } : {}}
-                          onClick={() => onSwitchUniverse(universe.slug)}
-                          title="Switch to this universe"
-                        />
-                      )}
-                      {isActive && (
-                        <PanelIconButton
-                          icon={Pencil}
-                          size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
-                          style={isVerySlim ? { padding: '5px' } : {}}
-                          // Clicking the pencil mid-edit reads as "done": the
-                          // input's blur has already committed by the time this
-                          // fires, so skipping the reopen closes the editor.
-                          onClick={() => { if (!isRenaming) beginRename(universe); }}
-                          title="Rename universe"
-                        />
-                      )}
-                      {universes.length > 1 && (
-                        <PanelIconButton
-                          icon={X}
-                          size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
-                          style={isVerySlim ? { padding: '5px' } : {}}
-                          onClick={() => onDeleteUniverse(universe.slug, universe.name)}
-                          title="Delete universe"
-                        />
+                      {/* In merge mode every other row collapses to one button, so
+                          there is exactly one thing to do: pick a universe. The
+                          active row keeps only its toggle, which is also the exit. */}
+                      {isMergeMode ? (
+                        isActive ? (
+                          <PanelIconButton
+                            icon={Merge}
+                            size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                            style={isVerySlim ? { padding: '5px' } : {}}
+                            active
+                            onClick={() => setIsMergeMode(false)}
+                            title="Cancel merge"
+                          />
+                        ) : (
+                          <PanelIconButton
+                            icon={Merge}
+                            size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                            style={isVerySlim ? { padding: '5px' } : {}}
+                            onClick={() => { setIsMergeMode(false); onMergeUniverse?.(universe.slug); }}
+                            title={`Merge into ${activeUniverseName}`}
+                          />
+                        )
+                      ) : (
+                        <>
+                          {!isActive && (
+                            <PanelIconButton
+                              icon={ArrowRightLeft}
+                              size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                              style={isVerySlim ? { padding: '5px' } : {}}
+                              onClick={() => onSwitchUniverse(universe.slug)}
+                              title="Switch to this universe"
+                            />
+                          )}
+                          {isActive && (
+                            <PanelIconButton
+                              icon={Pencil}
+                              size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                              style={isVerySlim ? { padding: '5px' } : {}}
+                              // Clicking the pencil mid-edit reads as "done": the
+                              // input's blur has already committed by the time this
+                              // fires, so skipping the reopen closes the editor.
+                              onClick={() => { if (!isRenaming) beginRename(universe); }}
+                              title="Rename universe"
+                            />
+                          )}
+                          {isActive && universes.length > 1 && (
+                            <PanelIconButton
+                              icon={Merge}
+                              size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                              style={isVerySlim ? { padding: '5px' } : {}}
+                              onClick={() => setIsMergeMode(true)}
+                              title="Merge another universe into this one"
+                            />
+                          )}
+                          {universes.length > 1 && (
+                            <PanelIconButton
+                              icon={X}
+                              size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                              style={isVerySlim ? { padding: '5px' } : {}}
+                              onClick={() => onDeleteUniverse(universe.slug, universe.name)}
+                              title="Delete universe"
+                            />
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

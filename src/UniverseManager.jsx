@@ -50,6 +50,7 @@ import RepositorySelectionModal from './components/modals/RepositorySelectionMod
 import ExternalLinkLoadModal from './components/modals/ExternalLinkLoadModal.jsx';
 import ConfirmDialog from './components/shared/ConfirmDialog.jsx';
 import LocalFileConflictDialog from './components/shared/LocalFileConflictDialog.jsx';
+import MergeUniverseDialog from './components/shared/MergeUniverseDialog.jsx';
 import SlotConflictDialog from './components/shared/SlotConflictDialog.jsx';
 import GitHubDeviceFlowModal from './components/modals/GitHubDeviceFlowModal.jsx';
 import { useGitHubDeviceFlow } from './hooks/useGitHubDeviceFlow.js';
@@ -1306,6 +1307,52 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     } catch (err) {
       umError('[UniverseManager] Rename failed:', err);
       setError(`Failed to rename universe: ${err.message}`);
+    }
+  };
+
+  // Merge another universe into the active one. The source is only READ —
+  // nothing is written back to it, so it survives the merge untouched.
+  const [mergeDialog, setMergeDialog] = useState(null);
+
+  const handleMergeUniverse = (sourceSlug) => {
+    const source = serviceState.universes.find(u => u.slug === sourceSlug);
+    const active = serviceState.universes.find(u => u.slug === serviceState.activeUniverseSlug);
+    if (!source || !active) return;
+    setMergeDialog({ phase: 'choose', source, active, activeWins: true, report: null, error: null });
+  };
+
+  const runMerge = async () => {
+    const dialog = mergeDialog;
+    if (!dialog) return;
+    setMergeDialog({ ...dialog, phase: 'working' });
+
+    try {
+      // Commit the active universe as it stands first. A merge clears the undo
+      // stack, so this saved state is the only way back — real history for a
+      // git-backed universe, the .bak rotation on Electron. It is not an undo,
+      // and the dialog says so.
+      try {
+        await universeBackend.saveActiveUniverse();
+      } catch (saveErr) {
+        umWarn('[UniverseManager] Could not save before merge (continuing):', saveErr);
+      }
+
+      const incomingState = await universeBackend.loadUniverseData(dialog.source.raw || dialog.source);
+      if (!incomingState) {
+        throw new Error(`Could not read "${dialog.source.name}". Check that its file or repository is reachable.`);
+      }
+
+      const report = useGraphStore.getState().mergeUniverseState(incomingState, {
+        activeWins: dialog.activeWins
+      });
+      if (!report) throw new Error('The merge could not be applied to the current universe.');
+
+      await universeBackend.saveActiveUniverse();
+      await refreshState();
+      setMergeDialog({ ...dialog, phase: 'result', report, error: null });
+    } catch (err) {
+      umError('[UniverseManager] Merge failed:', err);
+      setMergeDialog({ ...dialog, phase: 'result', report: null, error: err.message });
     }
   };
 
@@ -3963,6 +4010,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onSwitchUniverse={handleSwitchUniverse}
         onDeleteUniverse={handleDeleteUniverse}
         onRenameUniverse={handleRenameUniverse}
+        onMergeUniverse={handleMergeUniverse}
         onLinkRepo={handleAttachRepo}
         onLinkLocalFile={handleLinkLocalFile}
         onCreateLocalFile={handleCreateLocalFile}
@@ -4845,6 +4893,25 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           isOpen={true}
           onClose={() => setConfirmDialog(null)}
           {...confirmDialog}
+        />
+      )}
+      {mergeDialog && (
+        <MergeUniverseDialog
+          isOpen={true}
+          phase={mergeDialog.phase}
+          activeUniverse={mergeDialog.active}
+          sourceUniverse={mergeDialog.source}
+          activeWins={mergeDialog.activeWins}
+          onActiveWinsChange={(activeWins) => setMergeDialog({ ...mergeDialog, activeWins })}
+          report={mergeDialog.report}
+          error={mergeDialog.error}
+          onConfirm={runMerge}
+          onDisconnectSource={() => {
+            const { source } = mergeDialog;
+            setMergeDialog(null);
+            handleDeleteUniverse(source.slug, source.name);
+          }}
+          onClose={() => setMergeDialog(null)}
         />
       )}
       {conflictDialog && (

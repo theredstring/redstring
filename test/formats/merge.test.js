@@ -195,13 +195,14 @@ describe('P5.4 — graphs and edges union', () => {
     expect(report.addedGraphIds).toContain('g2');
   });
 
-  it('duplicate graph IDs keep base graph (silent dedup)', () => {
+  it('duplicate graph IDs keep base graph SCALARS and report the union', () => {
     const base = state({ graphs: [['g1', { id: 'g1', name: 'Base Graph' }]] });
     const inc  = state({ graphs: [['g1', { id: 'g1', name: 'Incoming Graph' }]] });
     const { merged, report } = mergeUniverses(base, inc);
     expect(merged.graphs.size).toBe(1);
     expect(merged.graphs.get('g1').name).toBe('Base Graph');
     expect(report.addedGraphIds).toHaveLength(0);
+    expect(report.mergedGraphIds).toContain('g1');
   });
 
   it('new edges from incoming are added to merged', () => {
@@ -250,5 +251,205 @@ describe('P5.4 — identity and empty cases', () => {
     expect(report.dedupedIds).toHaveLength(0);
     expect(report.mergedIds).toHaveLength(0);
     expect(report.closeMatchCandidates).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Referential integrity after a class-2 (sameAs) fold
+//
+// Class 2 folds an incoming prototype into a base one and never adds the
+// incoming id, so anything still naming that id would point at a prototype
+// that does not exist.
+// ---------------------------------------------------------------------------
+
+const WIKI_DOG = 'https://www.wikidata.org/wiki/Q144';
+
+const graphWith = (id, { instances = [], edgeIds = [], definingNodeIds = [], groups = [], ...rest } = {}) => [id, {
+  id, name: `Graph ${id}`, description: '', nodeIds: [], edgeIds, definingNodeIds,
+  instances: new Map(instances), groups: new Map(groups), ...rest,
+}];
+
+const instance = (instanceId, prototypeId, extras = {}) => [instanceId, { id: instanceId, prototypeId, x: 0, y: 0, ...extras }];
+
+describe('P5.4 — sameAs fold leaves no dangling prototype references', () => {
+  const baseSide = () => state({ protos: [proto('base-dog', 'Dog', { externalLinks: [WIKI_DOG] })] });
+
+  it('instance.prototypeId is rewritten to the surviving prototype', () => {
+    const inc = state({
+      protos: [proto('inc-dog', 'Doggo', { externalLinks: [WIKI_DOG] })],
+      graphs: [graphWith('g1', { instances: [instance('i1', 'inc-dog')] })],
+    });
+    const { merged } = mergeUniverses(baseSide(), inc);
+
+    expect(merged.nodePrototypes.has('inc-dog')).toBe(false);
+    expect(merged.graphs.get('g1').instances.get('i1').prototypeId).toBe('base-dog');
+  });
+
+  it('every instance in the merged result points at a prototype that exists', () => {
+    const inc = state({
+      protos: [proto('inc-dog', 'Doggo', { externalLinks: [WIKI_DOG] }), proto('inc-cat', 'Cat')],
+      graphs: [graphWith('g1', { instances: [instance('i1', 'inc-dog'), instance('i2', 'inc-cat')] })],
+    });
+    const { merged } = mergeUniverses(baseSide(), inc);
+
+    for (const graph of merged.graphs.values()) {
+      for (const inst of graph.instances.values()) {
+        expect(merged.nodePrototypes.has(inst.prototypeId)).toBe(true);
+      }
+    }
+  });
+
+  it('graph.definingNodeIds is rewritten', () => {
+    const inc = state({
+      protos: [proto('inc-dog', 'Doggo', { externalLinks: [WIKI_DOG] })],
+      graphs: [graphWith('g1', { definingNodeIds: ['inc-dog'] })],
+    });
+    const { merged } = mergeUniverses(baseSide(), inc);
+    expect(merged.graphs.get('g1').definingNodeIds).toEqual(['base-dog']);
+  });
+
+  it('edge.typeNodeId is rewritten but sourceId/destinationId are NOT', () => {
+    const inc = state({
+      protos: [proto('inc-dog', 'Doggo', { externalLinks: [WIKI_DOG] })],
+      edges: [['e1', { id: 'e1', sourceId: 'inc-dog', destinationId: 'i2', typeNodeId: 'inc-dog' }]],
+    });
+    const { merged } = mergeUniverses(baseSide(), inc);
+    const e = merged.edges.get('e1');
+
+    expect(e.typeNodeId).toBe('base-dog');
+    // sourceId/destinationId are INSTANCE ids; an instance that happens to share
+    // a prototype's id must not be rewritten out from under the edge.
+    expect(e.sourceId).toBe('inc-dog');
+    expect(e.destinationId).toBe('i2');
+  });
+
+  it('prototype.typeNodeId is rewritten, including a forward reference', () => {
+    // 'inc-thing' is processed BEFORE the fold that retires 'inc-dog', so this
+    // only works because the remap is applied in a pass after the loop.
+    const inc = state({
+      protos: [
+        proto('inc-thing', 'Thing', { typeNodeId: 'inc-dog' }),
+        proto('inc-dog', 'Doggo', { externalLinks: [WIKI_DOG] }),
+      ],
+    });
+    const { merged } = mergeUniverses(baseSide(), inc);
+    expect(merged.nodePrototypes.get('inc-thing').typeNodeId).toBe('base-dog');
+  });
+
+  it('saved sets are unioned and remapped', () => {
+    const base = state({ protos: [proto('base-dog', 'Dog', { externalLinks: [WIKI_DOG] })] });
+    base.savedNodeIds = new Set(['base-dog']);
+    const inc = state({ protos: [proto('inc-dog', 'Doggo', { externalLinks: [WIKI_DOG] }), proto('inc-cat', 'Cat')] });
+    inc.savedNodeIds = new Set(['inc-dog', 'inc-cat']);
+
+    const { merged } = mergeUniverses(base, inc);
+    expect(merged.savedNodeIds).toEqual(new Set(['base-dog', 'inc-cat']));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shared graphs union their contents
+// ---------------------------------------------------------------------------
+
+describe('P5.4 — same-ID graphs union their contents', () => {
+  it('instances from both sides survive; base wins on a shared instance id', () => {
+    const base = state({ graphs: [graphWith('g1', { instances: [instance('i1', 'p1', { x: 10 })] })] });
+    const inc  = state({ graphs: [graphWith('g1', { instances: [instance('i1', 'p1', { x: 99 }), instance('i2', 'p2')] })] });
+    const { merged } = mergeUniverses(base, inc);
+    const g = merged.graphs.get('g1');
+
+    expect([...g.instances.keys()].sort()).toEqual(['i1', 'i2']);
+    expect(g.instances.get('i1').x).toBe(10);
+  });
+
+  it('edgeIds and groups union without duplicates', () => {
+    const base = state({ graphs: [graphWith('g1', { edgeIds: ['e1', 'e2'], groups: [['gr1', { id: 'gr1' }]] })] });
+    const inc  = state({ graphs: [graphWith('g1', { edgeIds: ['e2', 'e3'], groups: [['gr2', { id: 'gr2' }]] })] });
+    const { merged } = mergeUniverses(base, inc);
+    const g = merged.graphs.get('g1');
+
+    expect(g.edgeIds).toEqual(['e1', 'e2', 'e3']);
+    expect([...g.groups.keys()].sort()).toEqual(['gr1', 'gr2']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fields that used to be dropped on the floor
+// ---------------------------------------------------------------------------
+
+describe('P5.4 — edgePrototypes are merged', () => {
+  it('incoming edge prototypes are carried over; base wins on a shared id', () => {
+    const base = state();
+    base.edgePrototypes = new Map([['base-connection-prototype', { id: 'base-connection-prototype', name: 'Connection' }]]);
+    const inc = state();
+    inc.edgePrototypes = new Map([
+      ['base-connection-prototype', { id: 'base-connection-prototype', name: 'Overwritten' }],
+      ['custom-rel', { id: 'custom-rel', name: 'Eats' }],
+    ]);
+
+    const { merged } = mergeUniverses(base, inc);
+    expect(merged.edgePrototypes.get('custom-rel').name).toBe('Eats');
+    expect(merged.edgePrototypes.get('base-connection-prototype').name).toBe('Connection');
+  });
+});
+
+describe('P5.4 — abstractionChains survive a merge', () => {
+  it('a dimension base does not have is taken from incoming', () => {
+    const base = state({ protos: [proto('dog', 'Dog')] });
+    const inc  = state({ protos: [proto('dog', 'Dog', { abstractionChains: { generalization: ['animal', 'dog'] } })] });
+    const { merged } = mergeUniverses(base, inc);
+    expect(merged.nodePrototypes.get('dog').abstractionChains.generalization).toEqual(['animal', 'dog']);
+  });
+
+  it('a conflicting chain keeps base and banks incoming (order is never invented)', () => {
+    const base = state({ protos: [proto('dog', 'Dog', { abstractionChains: { generalization: ['animal', 'dog'] } })] });
+    const inc  = state({ protos: [proto('dog', 'Dog', { abstractionChains: { generalization: ['mammal', 'dog'] } })] });
+    const { merged } = mergeUniverses(base, inc);
+    const p = merged.nodePrototypes.get('dog');
+
+    expect(p.abstractionChains.generalization).toEqual(['animal', 'dog']);
+    expect(p._preserved.merge.abstractionChains.generalization).toEqual([['mammal', 'dog']]);
+  });
+
+  it('prototype ids inside a chain are remapped through a sameAs fold', () => {
+    const base = state({ protos: [proto('base-dog', 'Dog', { externalLinks: [WIKI_DOG] })] });
+    const inc  = state({ protos: [
+      proto('inc-dog', 'Doggo', { externalLinks: [WIKI_DOG] }),
+      proto('pet', 'Pet', { abstractionChains: { generalization: ['inc-dog', 'pet'] } }),
+    ] });
+    const { merged } = mergeUniverses(base, inc);
+    expect(merged.nodePrototypes.get('pet').abstractionChains.generalization).toEqual(['base-dog', 'pet']);
+  });
+});
+
+describe('P5.4 — semanticMetadata survives a merge', () => {
+  const withMeta = (id, meta) => proto(id, 'Dog', { semanticMetadata: meta });
+
+  it('linkConfirmations are kept (they drive the exactMatch/closeMatch ladder)', () => {
+    const base = state({ protos: [withMeta('dog', { linkConfirmations: { [WIKI_DOG]: 'exact' } })] });
+    const inc  = state({ protos: [withMeta('dog', { linkConfirmations: { 'http://dbpedia.org/Dog': 'close' } })] });
+    const { merged } = mergeUniverses(base, inc);
+    expect(merged.nodePrototypes.get('dog').semanticMetadata.linkConfirmations).toEqual({
+      [WIKI_DOG]: 'exact',
+      'http://dbpedia.org/Dog': 'close',
+    });
+  });
+
+  it('externalLinks union, relationships concat, confidence takes the max', () => {
+    const base = state({ protos: [withMeta('dog', { externalLinks: ['a'], relationships: [{ r: 1 }], confidence: 0.4 })] });
+    const inc  = state({ protos: [withMeta('dog', { externalLinks: ['a', 'b'], relationships: [{ r: 2 }], confidence: 0.9 })] });
+    const { merged } = mergeUniverses(base, inc);
+    const m = merged.nodePrototypes.get('dog').semanticMetadata;
+
+    expect(m.externalLinks).toEqual(['a', 'b']);
+    expect(m.relationships).toEqual([{ r: 1 }, { r: 2 }]);
+    expect(m.confidence).toBe(0.9);
+  });
+
+  it('incoming metadata is adopted when base has none', () => {
+    const base = state({ protos: [proto('dog', 'Dog')] });
+    const inc  = state({ protos: [withMeta('dog', { confidence: 0.7 })] });
+    const { merged } = mergeUniverses(base, inc);
+    expect(merged.nodePrototypes.get('dog').semanticMetadata.confidence).toBe(0.7);
   });
 });

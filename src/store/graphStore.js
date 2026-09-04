@@ -30,6 +30,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR, isExclusivePanelMode } from '../constants.js';
 import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from './fileStorage.js';
 import { importFromRedstring } from '../formats/redstringFormat.js';
+import { mergeUniverses } from '../formats/mergeUniverses.js';
 import { MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
 import {
   PLACEHOLDER_ID_PREFIX,
@@ -421,6 +422,113 @@ const normalizeEdgeDirectionality = (directionality) => {
  * @param {number} [params.offsetY=0] - Y offset applied to copied instance positions.
  * @returns {{ instanceIdMap: Map<string,string>, newInstanceIds: string[], droppedCrossEdgeCount: number }}
  */
+/**
+ * Heal a store state that came from outside the running store, MUTATING it in
+ * place: normalize edge directionality, drop UI references to entities that
+ * aren't there, and recover a usable activeGraphId.
+ *
+ * Shared by `loadUniverseFromFile` (a file just parsed off disk) and
+ * `mergeUniverseState` (two states just folded together). Both produce the same
+ * hazard — references that no longer resolve — and both used to need the same
+ * repairs, so they are stated once here rather than drifting apart.
+ *
+ * @param {Object} storeState - Deserialized store state. Mutated.
+ */
+const sanitizeStoreStateReferences = (storeState) => {
+  // Normalize all edge directionality to ensure arrowsToward is always a Set
+  if (storeState.edges) {
+    for (const [edgeId, edgeData] of storeState.edges.entries()) {
+      try {
+        edgeData.directionality = normalizeEdgeDirectionality(edgeData.directionality);
+      } catch (error) {
+        console.warn(`[graphStore] Error normalizing edge ${edgeId} directionality:`, error);
+        edgeData.directionality = { arrowsToward: new Set() };
+      }
+    }
+  }
+
+  // Sanitize UI references: drop node tabs pointing to non-existent prototypes
+  if (Array.isArray(storeState.rightPanelTabs)) {
+    try {
+      const tabs = storeState.rightPanelTabs.filter(tab => {
+        if (!tab || tab.type !== 'node') return true; // keep non-node tabs (e.g., home)
+        return storeState.nodePrototypes?.has?.(tab.nodeId);
+      });
+      // Ensure a home tab exists and is active if none active
+      if (tabs.length === 0 || tabs[0]?.type !== 'home') {
+        tabs.unshift({ type: 'home', isActive: true });
+      }
+      if (!tabs.some(t => t && t.isActive)) {
+        tabs[0].isActive = true;
+      }
+      storeState.rightPanelTabs = tabs;
+    } catch (e) {
+      console.warn('[graphStore] Failed to sanitize rightPanelTabs:', e);
+      storeState.rightPanelTabs = [{ type: 'home', isActive: true }];
+    }
+  }
+
+  // Sanitize saved sets to remove references to missing prototypes
+  try {
+    if (storeState.savedNodeIds instanceof Set) {
+      storeState.savedNodeIds = new Set(Array.from(storeState.savedNodeIds).filter(id => storeState.nodePrototypes?.has?.(id)));
+    }
+    if (storeState.savedGraphIds instanceof Set) {
+      storeState.savedGraphIds = new Set(Array.from(storeState.savedGraphIds).filter(id => storeState.nodePrototypes?.has?.(id)));
+    }
+  } catch (e) {
+    console.warn('[graphStore] Failed to sanitize saved sets:', e);
+  }
+
+  // Sanitize and recover activeGraphId / openGraphIds:
+  //   - drop dangling references to graphs that don't exist
+  //   - drop duplicate entries (a duplicate tab renders two React children
+  //     with the same key, which breaks reconciliation). Every store write
+  //     site guards against this, but a file written by an older build can
+  //     carry duplicates forever unless load heals them.
+  //   - if activeGraphId is missing/dangling but valid open or saved graphs
+  //     remain, pick one so the canvas doesn't render the empty state
+  //     (the "loaded but unlinked" pattern)
+  try {
+    const graphsMap = storeState.graphs;
+    const graphExists = (id) => !!(id && graphsMap && (graphsMap instanceof Map ? graphsMap.has(id) : graphsMap[id]));
+
+    if (Array.isArray(storeState.openGraphIds)) {
+      const deduped = [...new Set(storeState.openGraphIds)];
+      if (deduped.length !== storeState.openGraphIds.length) {
+        console.warn(`[graphStore] openGraphIds contained ${storeState.openGraphIds.length - deduped.length} duplicate entr(ies) — deduplicated.`);
+      }
+      storeState.openGraphIds = deduped.filter(graphExists);
+    } else {
+      storeState.openGraphIds = [];
+    }
+
+    if (!graphExists(storeState.activeGraphId)) {
+      const firstOpen = storeState.openGraphIds[0];
+      if (firstOpen) {
+        storeState.activeGraphId = firstOpen;
+      } else if (graphsMap) {
+        const firstGraphId = graphsMap instanceof Map
+          ? graphsMap.keys().next().value
+          : Object.keys(graphsMap)[0];
+        if (firstGraphId) {
+          storeState.activeGraphId = firstGraphId;
+          if (!storeState.openGraphIds.includes(firstGraphId)) {
+            storeState.openGraphIds = [firstGraphId, ...storeState.openGraphIds];
+          }
+          console.log(`[graphStore] activeGraphId was null/dangling — recovered to ${firstGraphId}`);
+        } else {
+          storeState.activeGraphId = null;
+        }
+      } else {
+        storeState.activeGraphId = null;
+      }
+    }
+  } catch (e) {
+    console.warn('[graphStore] Failed to recover activeGraphId:', e);
+  }
+};
+
 const copySubgraphInto = (draft, { sourceGraph, sourceInstanceIds, targetGraph, offsetX = 0, offsetY = 0 }) => {
   const instanceIdMap = new Map();
   const newInstanceIds = [];
@@ -6947,105 +7055,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           delete storeState.edgePrototypes; // fall back to keeping current
         }
 
-        // Normalize all edge directionality to ensure arrowsToward is always a Set
-        if (storeState.edges) {
-          for (const [edgeId, edgeData] of storeState.edges.entries()) {
-            try {
-              edgeData.directionality = normalizeEdgeDirectionality(edgeData.directionality);
-            } catch (error) {
-              console.warn(`[graphStore] Error normalizing edge ${edgeId} directionality:`, error);
-              // Set a safe default
-              edgeData.directionality = { arrowsToward: new Set() };
-            }
-          }
-        }
-
-        // Sanitize UI references: drop node tabs pointing to non-existent prototypes
-        if (Array.isArray(storeState.rightPanelTabs)) {
-          try {
-            const tabs = storeState.rightPanelTabs.filter(tab => {
-              if (!tab || tab.type !== 'node') return true; // keep non-node tabs (e.g., home)
-              return storeState.nodePrototypes?.has?.(tab.nodeId);
-            });
-            // Ensure a home tab exists and is active if none active
-            if (tabs.length === 0 || tabs[0]?.type !== 'home') {
-              tabs.unshift({ type: 'home', isActive: true });
-            }
-            if (!tabs.some(t => t && t.isActive)) {
-              tabs[0].isActive = true;
-            }
-            storeState.rightPanelTabs = tabs;
-          } catch (e) {
-            console.warn('[graphStore] Failed to sanitize rightPanelTabs during load:', e);
-            storeState.rightPanelTabs = [{ type: 'home', isActive: true }];
-          }
-        }
-
-        // Sanitize saved sets to remove references to missing prototypes
-        try {
-          if (storeState.savedNodeIds instanceof Set) {
-            storeState.savedNodeIds = new Set(Array.from(storeState.savedNodeIds).filter(id => storeState.nodePrototypes?.has?.(id)));
-          }
-          if (storeState.savedGraphIds instanceof Set) {
-            storeState.savedGraphIds = new Set(Array.from(storeState.savedGraphIds).filter(id => storeState.nodePrototypes?.has?.(id)));
-          }
-        } catch (e) {
-          console.warn('[graphStore] Failed to sanitize saved sets during load:', e);
-        }
-
         console.log("[graphStore] Loading universe with", {
           nodes: storeState.nodePrototypes?.size || 0,
           graphs: storeState.graphs?.size || 0,
           edges: storeState.edges?.size || 0
         });
 
-        // Sanitize and recover activeGraphId / openGraphIds:
-        //   - drop dangling references to graphs that don't exist
-        //   - drop duplicate entries (a duplicate tab renders two React children
-        //     with the same key, which breaks reconciliation). Every store write
-        //     site guards against this, but a file written by an older build can
-        //     carry duplicates forever unless load heals them.
-        //   - if activeGraphId is missing/dangling but valid open or saved graphs
-        //     remain, pick one so the canvas doesn't render the empty state
-        //     (the "loaded but unlinked" pattern)
-        try {
-          const graphsMap = storeState.graphs;
-          const graphExists = (id) => !!(id && graphsMap && (graphsMap instanceof Map ? graphsMap.has(id) : graphsMap[id]));
-
-          if (Array.isArray(storeState.openGraphIds)) {
-            const deduped = [...new Set(storeState.openGraphIds)];
-            if (deduped.length !== storeState.openGraphIds.length) {
-              console.warn(`[graphStore] openGraphIds contained ${storeState.openGraphIds.length - deduped.length} duplicate entr(ies) — deduplicated on load.`);
-            }
-            storeState.openGraphIds = deduped.filter(graphExists);
-          } else {
-            storeState.openGraphIds = [];
-          }
-
-          if (!graphExists(storeState.activeGraphId)) {
-            const firstOpen = storeState.openGraphIds[0];
-            if (firstOpen) {
-              storeState.activeGraphId = firstOpen;
-            } else if (graphsMap) {
-              const firstGraphId = graphsMap instanceof Map
-                ? graphsMap.keys().next().value
-                : Object.keys(graphsMap)[0];
-              if (firstGraphId) {
-                storeState.activeGraphId = firstGraphId;
-                if (!storeState.openGraphIds.includes(firstGraphId)) {
-                  storeState.openGraphIds = [firstGraphId, ...storeState.openGraphIds];
-                }
-                console.log(`[graphStore] activeGraphId was null/dangling — recovered to ${firstGraphId}`);
-              } else {
-                storeState.activeGraphId = null;
-              }
-            } else {
-              storeState.activeGraphId = null;
-            }
-          }
-        } catch (e) {
-          console.warn('[graphStore] Failed to recover activeGraphId during load:', e);
-        }
+        sanitizeStoreStateReferences(storeState);
 
         // Mark this as a load operation so SaveCoordinator doesn't treat it as a new edit
         // The incoming universe has entirely different IDs, so every patch on
@@ -7075,6 +7091,86 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           _isLoadingUniverse: false,
         });
         return false;
+      }
+    },
+
+    /**
+     * Folds another universe's state into the live store, additively.
+     *
+     * Unlike `loadUniverseFromFile`, which replaces everything, this unions the
+     * two states via `mergeUniverses` — the pure engine in formats/. Existing
+     * content is never removed; the incoming side is added, deduplicated
+     * against what's here by exact ID and by `externalLinks` overlap
+     * (owl:sameAs). Prototypes that merely share a NAME are deliberately kept
+     * separate and reported for review rather than being merged on a guess.
+     *
+     * Which side wins a conflicting scalar is argument order, not a flag: the
+     * engine always lets `base` win, so `activeWins: false` simply swaps the
+     * two. Session state (which graph is open, which tabs) always comes from
+     * the live store either way — picking "the other side wins" is a statement
+     * about field conflicts, not an instruction to teleport the user into the
+     * incoming universe's open graphs.
+     *
+     * History is cleared, exactly as it is on load: patches on the stack were
+     * recorded against a state this merge has just changed underneath them.
+     * That makes a merge NOT undoable in-app — callers must say so.
+     *
+     * @param {Object} incomingState - Deserialized store state to merge in.
+     * @param {Object} [options]
+     * @param {boolean} [options.activeWins=true] - Whether the live store wins scalar conflicts.
+     * @returns {Object|null} The merge report, or null if the merge could not run.
+     */
+    mergeUniverseState: (incomingState, options = {}) => {
+      const { activeWins = true } = options;
+      try {
+        const currentState = api.getState();
+        if (currentState._isLoadingUniverse) {
+          console.warn('[graphStore] Load in progress, refusing to merge');
+          return null;
+        }
+        if (!incomingState || !(incomingState.graphs instanceof Map)) {
+          console.error('[graphStore] mergeUniverseState: incoming state is not deserialized');
+          return null;
+        }
+
+        const { merged, report } = activeWins
+          ? mergeUniverses(currentState, incomingState)
+          : mergeUniverses(incomingState, currentState);
+
+        // Session/UI state is the live store's regardless of who won fields.
+        merged.openGraphIds = currentState.openGraphIds;
+        merged.activeGraphId = currentState.activeGraphId;
+        merged.rightPanelTabs = currentState.rightPanelTabs;
+        merged.expandedGraphIds = currentState.expandedGraphIds;
+        merged.activeDefinitionNodeId = currentState.activeDefinitionNodeId;
+
+        sanitizeStoreStateReferences(merged);
+
+        console.log('[graphStore] Merged universe:', {
+          things: merged.nodePrototypes?.size || 0,
+          webs: merged.graphs?.size || 0,
+          connections: merged.edges?.size || 0,
+          added: report.addedGraphIds.length + report.addedEdgeIds.length,
+          deduped: report.dedupedIds.length,
+          sameAs: report.mergedIds.length,
+          closeMatches: report.closeMatchCandidates.length
+        });
+
+        useHistoryStore.getState().clearHistory();
+        api.setChangeContext({ type: 'load' });
+
+        set({
+          ...merged,
+          showConnectionNames: currentState.showConnectionNames, // Preserve local view preference
+          isUniverseLoaded: true,
+          isUniverseLoading: false,
+          universeLoadingError: null,
+        });
+
+        return report;
+      } catch (error) {
+        console.error('[graphStore] Critical error in mergeUniverseState:', error);
+        return null;
       }
     },
 

@@ -11,7 +11,17 @@
  *   3. Case-insensitive name  → NOT merged; listed in
  *                               report.closeMatchCandidates for the UI.
  *
- * Named graphs and edges are set-unioned by ID (identical IDs → base wins).
+ * Edges and edge prototypes are set-unioned by ID (identical IDs → base wins).
+ * Graphs with the same ID on both sides have their CONTENTS unioned (instances,
+ * groups, edgeIds) with base winning on graph scalars — dropping the incoming
+ * side outright would throw away half of the case this exists for, two forks of
+ * one universe where the shared graphs are where both sides did their work.
+ *
+ * Because class 2 folds an incoming prototype into a base one, every incoming
+ * reference to a prototype (instance.prototypeId, graph.definingNodeIds,
+ * edge.typeNodeId/definitionNodeIds, proto.typeNodeId, abstractionChains, the
+ * saved sets) is rewritten through a remap. Edge sourceId/destinationId are
+ * INSTANCE ids and are deliberately left alone.
  *
  * No-silent-loss invariant: every scalar value dropped in a conflict is
  * written to the winning prototype's _preserved.merge object.
@@ -37,6 +47,37 @@ function buildSameAsIndex(prototypes) {
     }
   }
   return idx;
+}
+
+/**
+ * Merge semanticMetadata, following the field rules mergeNodePrototypes already
+ * settled on in graphStore (externalLinks union, relationships concat, max
+ * confidence). Dropping this wholesale used to lose linkConfirmations, which is
+ * what drives the skos:exactMatch / skos:closeMatch ladder on the next export —
+ * so a merge silently degraded semantic identity.
+ */
+function mergeSemanticMetadata(base, incoming) {
+  if (!base && !incoming) return undefined;
+  if (!base) return incoming;
+  if (!incoming) return base;
+
+  const result = { ...base, ...incoming, ...base };
+
+  const links = new Set([...(base.externalLinks || []), ...(incoming.externalLinks || [])]);
+  if (links.size) result.externalLinks = [...links];
+
+  const relationships = [...(base.relationships || []), ...(incoming.relationships || [])];
+  if (relationships.length) result.relationships = relationships;
+
+  const bc = typeof base.confidence === 'number' ? base.confidence : null;
+  const ic = typeof incoming.confidence === 'number' ? incoming.confidence : null;
+  if (bc !== null || ic !== null) result.confidence = Math.max(bc ?? -Infinity, ic ?? -Infinity);
+
+  if (base.linkConfirmations || incoming.linkConfirmations) {
+    result.linkConfirmations = { ...(incoming.linkConfirmations || {}), ...(base.linkConfirmations || {}) };
+  }
+
+  return result;
 }
 
 // Merge two prototype objects. Base wins on scalar conflicts; incoming
@@ -65,9 +106,125 @@ function mergePrototype(base, incoming) {
     ...new Set([...(base.definitionGraphIds || []), ...(incoming.definitionGraphIds || [])]),
   ];
 
+  const semantic = mergeSemanticMetadata(base.semanticMetadata, incoming.semanticMetadata);
+  if (semantic !== undefined) result.semanticMetadata = semantic;
+
+  // abstractionChains is { [dimension]: orderedPrototypeIds[] }. The array is a
+  // chain (generic → specific), so a set-union would silently invent an order
+  // neither side asserted. Take incoming's only for a dimension base doesn't
+  // have; where both have one, base wins and incoming's is banked.
+  const bChains = base.abstractionChains;
+  const iChains = incoming.abstractionChains;
+  if (bChains || iChains) {
+    const chains = { ...(bChains || {}) };
+    const bankedChains = { ...(preserved.abstractionChains || {}) };
+    let chainConflict = false;
+    for (const [dimension, chain] of Object.entries(iChains || {})) {
+      if (!chains[dimension]) {
+        chains[dimension] = chain;
+      } else if (JSON.stringify(chains[dimension]) !== JSON.stringify(chain)) {
+        const existing = bankedChains[dimension];
+        bankedChains[dimension] = existing !== undefined ? [].concat(existing, [chain]) : [chain];
+        chainConflict = true;
+      }
+    }
+    result.abstractionChains = chains;
+    if (chainConflict) {
+      preserved.abstractionChains = bankedChains;
+      anyConflict = true;
+    }
+  }
+
   if (anyConflict) {
     result._preserved = { ...(base._preserved || {}), merge: preserved };
   }
+  return result;
+}
+
+/**
+ * Rewrite a prototype ID through the sameAs remap.
+ *
+ * Class-2 folds an incoming prototype into a base one and never adds the
+ * incoming ID, so anything still pointing at that ID would dangle. Every
+ * incoming reference to a PROTOTYPE has to come through here.
+ */
+const remapId = (remap, id) => (id != null && remap.has(id) ? remap.get(id) : id);
+
+const remapIdList = (remap, ids) =>
+  Array.isArray(ids) ? ids.map((id) => remapId(remap, id)) : ids;
+
+// Rewrite prototype references inside one incoming graph. Instances carry a
+// prototypeId; the graph itself carries definingNodeIds.
+function remapGraph(remap, graph) {
+  if (!remap.size) return graph;
+  const result = { ...graph };
+
+  if (graph.instances instanceof Map) {
+    const instances = new Map();
+    for (const [instanceId, instance] of graph.instances) {
+      instances.set(instanceId, instance?.prototypeId != null
+        ? { ...instance, prototypeId: remapId(remap, instance.prototypeId) }
+        : instance);
+    }
+    result.instances = instances;
+  }
+
+  if (Array.isArray(graph.definingNodeIds)) {
+    result.definingNodeIds = remapIdList(remap, graph.definingNodeIds);
+  }
+
+  return result;
+}
+
+// Rewrite prototype references inside one incoming edge. sourceId and
+// destinationId are INSTANCE ids (graphStore.js:4044), not prototype ids —
+// remapping those would corrupt the edge.
+function remapEdge(remap, edge) {
+  if (!remap.size) return edge;
+  const result = { ...edge };
+  if (edge.typeNodeId != null) result.typeNodeId = remapId(remap, edge.typeNodeId);
+  if (Array.isArray(edge.definitionNodeIds)) {
+    result.definitionNodeIds = remapIdList(remap, edge.definitionNodeIds);
+  }
+  return result;
+}
+
+/**
+ * Union two versions of the same graph.
+ *
+ * "Base wins" used to drop the incoming graph outright, which is wrong for the
+ * case this feature exists to serve: two forks of one universe, where the
+ * shared graphs are exactly where both sides did their work. Base still wins on
+ * graph scalars (name, description, colour, viewport) — only the contents union.
+ */
+function mergeGraph(base, incoming) {
+  const result = { ...base };
+
+  if (base.instances instanceof Map || incoming.instances instanceof Map) {
+    const instances = new Map(base.instances instanceof Map ? base.instances : []);
+    if (incoming.instances instanceof Map) {
+      for (const [instanceId, instance] of incoming.instances) {
+        if (!instances.has(instanceId)) instances.set(instanceId, instance);
+      }
+    }
+    result.instances = instances;
+  }
+
+  if (base.groups instanceof Map || incoming.groups instanceof Map) {
+    const groups = new Map(base.groups instanceof Map ? base.groups : []);
+    if (incoming.groups instanceof Map) {
+      for (const [groupId, group] of incoming.groups) {
+        if (!groups.has(groupId)) groups.set(groupId, group);
+      }
+    }
+    result.groups = groups;
+  }
+
+  result.edgeIds = [...new Set([...(base.edgeIds || []), ...(incoming.edgeIds || [])])];
+  result.definingNodeIds = [
+    ...new Set([...(base.definingNodeIds || []), ...(incoming.definingNodeIds || [])]),
+  ];
+
   return result;
 }
 
@@ -78,11 +235,14 @@ export function mergeUniverses(base, incoming) {
     graphs:               new Map(base.graphs     || new Map()),
     nodePrototypes:       new Map(base.nodePrototypes || new Map()),
     edges:                new Map(base.edges      || new Map()),
+    // Unioned below. Leaving this out entirely used to dangle the typeNodeId of
+    // every incoming edge that used a custom connection type.
+    edgePrototypes:       new Map(base.edgePrototypes || new Map()),
     openGraphIds:         base.openGraphIds       || [],
     activeGraphId:        base.activeGraphId      || null,
     expandedGraphIds:     base.expandedGraphIds   || new Set(),
-    savedNodeIds:         base.savedNodeIds       || new Set(),
-    savedGraphIds:        base.savedGraphIds      || new Set(),
+    savedNodeIds:         new Set(base.savedNodeIds || new Set()),
+    savedGraphIds:        new Set(base.savedGraphIds || new Set()),
     rightPanelTabs:       base.rightPanelTabs     || [],
     showConnectionNames:  base.showConnectionNames || false,
     activeDefinitionNodeId: base.activeDefinitionNodeId || null,
@@ -91,10 +251,16 @@ export function mergeUniverses(base, incoming) {
   const report = {
     dedupedIds:           [],  // exact-ID dedup
     mergedIds:            [],  // [{baseId, incomingId}] sameAs merges
+    addedPrototypeIds:    [],  // brought in whole (new, or a name-only match)
     closeMatchCandidates: [],  // [{baseId, incomingId, baseName, incomingName}]
     addedGraphIds:        [],
+    mergedGraphIds:       [],  // same ID on both sides → contents unioned
     addedEdgeIds:         [],
   };
+
+  // incomingPrototypeId → basePrototypeId, populated by class-2 sameAs merges.
+  // Everything incoming that references a prototype is rewritten through this.
+  const remap = new Map();
 
   // Live indexes (updated as prototypes are added).
   const sameAsIdx  = buildSameAsIndex(merged.nodePrototypes);
@@ -129,6 +295,7 @@ export function mergeUniverses(base, incoming) {
         if (!sameAsIdx.has(url)) sameAsIdx.set(url, new Set());
         sameAsIdx.get(url).add(sameAsBaseId);
       }
+      remap.set(iid, sameAsBaseId);
       report.mergedIds.push({ baseId: sameAsBaseId, incomingId: iid });
       continue;
     }
@@ -147,6 +314,7 @@ export function mergeUniverses(base, incoming) {
 
     // Add prototype (either new or name-collision candidate).
     merged.nodePrototypes.set(iid, iproto);
+    report.addedPrototypeIds.push(iid);
     if (ikey && !nameIdx.has(ikey)) nameIdx.set(ikey, iid);
     for (const url of (iproto.externalLinks || [])) {
       if (!sameAsIdx.has(url)) sameAsIdx.set(url, new Set());
@@ -154,10 +322,35 @@ export function mergeUniverses(base, incoming) {
     }
   }
 
-  // -- Graphs: set-union (identical ID → base wins) --
+  // Prototypes reference other prototypes (typeNodeId, abstractionChains), and
+  // a chain can name a prototype that was still unprocessed when the chain was
+  // merged. So the remap is applied in one pass here, after every class-2 fold
+  // is known, rather than inline above.
+  if (remap.size) {
+    for (const [pid, proto] of merged.nodePrototypes) {
+      let next = proto;
+      if (proto?.typeNodeId != null && remap.has(proto.typeNodeId)) {
+        next = { ...next, typeNodeId: remap.get(proto.typeNodeId) };
+      }
+      if (proto?.abstractionChains) {
+        const chains = {};
+        for (const [dimension, chain] of Object.entries(proto.abstractionChains)) {
+          chains[dimension] = remapIdList(remap, chain);
+        }
+        next = { ...next, abstractionChains: chains };
+      }
+      if (next !== proto) merged.nodePrototypes.set(pid, next);
+    }
+  }
+
+  // -- Graphs: new ones added, shared ones unioned (base wins on scalars) --
   for (const [gid, graph] of (incoming.graphs || new Map())) {
-    if (!merged.graphs.has(gid)) {
-      merged.graphs.set(gid, graph);
+    const remapped = remapGraph(remap, graph);
+    if (merged.graphs.has(gid)) {
+      merged.graphs.set(gid, mergeGraph(merged.graphs.get(gid), remapped));
+      report.mergedGraphIds.push(gid);
+    } else {
+      merged.graphs.set(gid, remapped);
       report.addedGraphIds.push(gid);
     }
   }
@@ -165,10 +358,22 @@ export function mergeUniverses(base, incoming) {
   // -- Edges: set-union (identical ID → base wins) --
   for (const [eid, edge] of (incoming.edges || new Map())) {
     if (!merged.edges.has(eid)) {
-      merged.edges.set(eid, edge);
+      merged.edges.set(eid, remapEdge(remap, edge));
       report.addedEdgeIds.push(eid);
     }
   }
+
+  // -- Edge prototypes: set-union (identical ID → base wins) --
+  for (const [epid, edgeProto] of (incoming.edgePrototypes || new Map())) {
+    if (!merged.edgePrototypes.has(epid)) merged.edgePrototypes.set(epid, edgeProto);
+  }
+
+  // -- Saved sets: union. These are the user's own saved items, so a merge that
+  // kept only base's would quietly unsave everything the incoming side had. --
+  for (const id of (incoming.savedNodeIds || new Set())) merged.savedNodeIds.add(remapId(remap, id));
+  // savedGraphIds is keyed by DEFINING PROTOTYPE id, not graph id (graphStore.js:1272),
+  // so it remaps like a prototype reference.
+  for (const id of (incoming.savedGraphIds || new Set())) merged.savedGraphIds.add(remapId(remap, id));
 
   return { merged, report };
 }
