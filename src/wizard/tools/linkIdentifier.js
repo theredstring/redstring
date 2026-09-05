@@ -30,6 +30,7 @@
 import { extractDOI, isValidURL, identifierFromUrl } from '../../utils/externalIdentifiers.js';
 import { describeIdentifier } from '../../services/identifierSearch.js';
 import { rememberVerified, recallVerified } from './utils/verifiedWorks.js';
+import { bestNameMatch } from './utils/nameMatch.js';
 import { withSafeConsole } from './withSafeConsole.js';
 
 // Registered identifiers are checked in parallel, a few at a time — gentle on
@@ -82,24 +83,13 @@ async function mapWithConcurrency(items, limit, fn) {
 /**
  * Identifiers live on the PROTOTYPE, so resolution is prototype-wide rather
  * than scoped to one graph's instances: a Thing can be grounded without being
- * on the canvas you happen to be looking at. Last match wins — prototypes
- * accumulate and the first is the stale one (see MEMORY.md).
+ * on the canvas you happen to be looking at.
+ *
+ * The matching rule itself is in utils/nameMatch.js because the applier has to
+ * use the identical one — the two disagreeing is what silently drops a link.
  */
 function resolvePrototype(name, nodePrototypes) {
-  const queryLower = String(name ?? '').toLowerCase().trim();
-  if (!queryLower) return null;
-
-  let resolved = null;
-  for (const proto of nodePrototypes) {
-    if ((proto.name || '').toLowerCase().trim() === queryLower) resolved = proto;
-  }
-  if (resolved) return resolved;
-
-  for (const proto of nodePrototypes) {
-    const protoName = (proto.name || '').toLowerCase().trim();
-    if (protoName && (protoName.includes(queryLower) || queryLower.includes(protoName))) resolved = proto;
-  }
-  return resolved;
+  return bestNameMatch(name, nodePrototypes, proto => proto.name);
 }
 
 /** Every identifier a predictive prototype already carries. */
@@ -203,6 +193,8 @@ export async function linkIdentifier(args, graphState) {
       skipped.push({ nodeName: entry.proto?.name || entry.nodeName, url: entry.url, authority, identifier: id });
     } else {
       linked.push({
+        // The Thing's OWN name when we found it, so the store resolves the same
+        // subject this tool did rather than re-guessing from the model's wording.
         nodeName: entry.proto?.name || entry.nodeName,
         prototypeId: entry.proto?.id || null,
         url: entry.url,
@@ -210,6 +202,11 @@ export async function linkIdentifier(args, graphState) {
         authority,
         identifier: id,
         kind,
+        // Whether a Thing by this name actually exists. A link that names
+        // nothing still goes through — the node may have been created this turn
+        // and be invisible from here — but saying so is what lets the model
+        // check instead of reporting a success it cannot see.
+        resolved: !!entry.proto,
         // What the authority itself says this is. Carried through so the model
         // reports the paper rather than the number, and so a wrong match shows
         // in the transcript without anyone following the link.
@@ -218,6 +215,8 @@ export async function linkIdentifier(args, graphState) {
       });
     }
   }
+
+  const unresolved = linked.filter(link => !link.resolved).map(link => link.nodeName);
 
   console.error(`[linkIdentifier] ${linked.length} linked, ${skipped.length} already present, ${failures.length} failed`);
 
@@ -235,6 +234,17 @@ export async function linkIdentifier(args, graphState) {
     failures,
     linkedCount: linked.length,
     // Only the successes are the mutation; the rest is for the model to read.
-    linked: linked.length > 0
+    linked: linked.length > 0,
+    ...(unresolved.length > 0 ? {
+      unresolved,
+      // Named as work still to do rather than buried in a flag. This is the
+      // exact spot where a framework ends up nine-tenths grounded and reported
+      // as fully grounded.
+      note: `No Thing found named: ${unresolved.join(', ')}. These links may not have landed. `
+        + 'Check the real names with readGraph, then re-link with the exact name — and if a study still has no DOI, say so instead of reporting it as grounded.'
+    } : {}),
+    ...(failures.length > 0 ? {
+      warning: `${failures.length} identifier(s) did not attach. Tell the user which studies are ungrounded.`
+    } : {})
   };
 }

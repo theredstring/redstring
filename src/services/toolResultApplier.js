@@ -29,6 +29,7 @@ import {
   buildLadderLevels
 } from '../wizard/tools/utils/abstractionSpec.js';
 import { LINK_STATES, canonicalizeLink, setLinkState } from '../formats/linkState.js';
+import { bestNameMatch } from '../wizard/tools/utils/nameMatch.js';
 import { applyOffscreenLayout } from './offscreenLayout.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 import { attachOneShotOutcome } from './oneShot.js';
@@ -2574,14 +2575,22 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
           continue;
         }
 
-        // Predictive ids never match; resolve by name and take the LAST match.
+        // Predictive ids never match, so this resolves by name — using the
+        // SAME rule the tool used (utils/nameMatch.js). When the two disagreed,
+        // the tool matched "Miller 1956" to "Miller (1956) Working Memory" and
+        // reported a success while this side found no exact match and dropped
+        // the write: one study quietly ungrounded in a run that announced
+        // itself complete.
         let realProtoId = link.prototypeId && store.nodePrototypes.has(link.prototypeId)
           ? link.prototypeId
           : null;
         if (!realProtoId) {
-          for (const [protoId, proto] of store.nodePrototypes) {
-            if ((proto.name || '').toLowerCase().trim() === lookupName) realProtoId = protoId;
-          }
+          const match = bestNameMatch(
+            lookupName,
+            store.nodePrototypes.entries(),
+            ([, proto]) => proto.name
+          );
+          realProtoId = match ? match[0] : null;
         }
         if (!realProtoId) {
           console.error('[Wizard] linkIdentifier: Could not find prototype for name:', lookupName);

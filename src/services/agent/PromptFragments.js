@@ -307,6 +307,8 @@ A DOI \`findWork\` just returned is not re-checked, so linking is immediate. Any
 
 Links land as unverified and the user confirms them in the panel, so this proposes an identification; it never asserts one.
 
+**Read the result before you report.** \`linkIdentifier\` answers with \`links\`, \`failures\` and sometimes \`unresolved\` — a study named in \`unresolved\` did not match any Thing, so its DOI probably did not land. Do not summarize a grounding pass from your intent; summarize it from what came back. If anything is unresolved, look up the real names with \`readGraph\` and link those studies again with the exact name — once. Then say which studies carry a DOI and which do not. "Grounded with verified DOIs" when one of nine silently failed is the failure the user cannot see and you can.
+
 ## Editing vs. Expanding
 
 | Intent | Tool | Example |

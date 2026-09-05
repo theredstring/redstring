@@ -208,3 +208,52 @@ describe('linkIdentifier', () => {
     });
   });
 });
+
+describe('linkIdentifier feedback', () => {
+  beforeEach(() => {
+    describeIdentifier.mockReset();
+    clearVerified();
+  });
+
+  it('flags a link whose Thing it could not find', async () => {
+    describeIdentifier.mockResolvedValue({ label: 'A paper', description: '' });
+
+    const result = await linkIdentifier(
+      { nodeName: 'Some Study Nobody Built', identifier: '10.1234/x' },
+      baseState()
+    );
+
+    expect(result.links[0].resolved).toBe(false);
+    expect(result.unresolved).toEqual(['Some Study Nobody Built']);
+    expect(result.note).toMatch(/readGraph/);
+  });
+
+  it('marks a link resolved and uses the Thing\'s own name', async () => {
+    describeIdentifier.mockResolvedValue({ label: 'A paper', description: '' });
+
+    // The model's shorthand; the store calls it "Fitts 1954".
+    const result = await linkIdentifier(
+      { nodeName: 'Fitts', identifier: '10.1037/h0055392' },
+      baseState()
+    );
+
+    expect(result.links[0].resolved).toBe(true);
+    expect(result.links[0].nodeName).toBe('Fitts 1954');
+    expect(result.unresolved).toBeUndefined();
+  });
+
+  it('warns when part of a batch did not attach', async () => {
+    describeIdentifier.mockImplementation(async (url) => (
+      url === 'doi:10.9999/nope' ? null : { label: 'A paper', description: '' }
+    ));
+
+    const result = await linkIdentifier({
+      links: [
+        { nodeName: 'Fitts 1954', identifier: '10.1037/h0055392' },
+        { nodeName: 'Miller 1956', identifier: '10.9999/nope' }
+      ]
+    }, baseState());
+
+    expect(result.warning).toMatch(/did not attach/);
+  });
+});

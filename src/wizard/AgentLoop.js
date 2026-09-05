@@ -248,7 +248,95 @@ function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
     }
   });
 
-  return { nodesAdded: nodeSpecs.length, edgesAdded };
+  // 4. Layers, all the way down.
+  //
+  // A composed build puts every real node INSIDE a layer's definition, and this
+  // function used to read only `spec.nodes` — so after building a framework of
+  // four domains and nine studies, the agent's own view of the world contained
+  // neither. Every tool that resolves a Thing by name (linkIdentifier,
+  // setNodeType, enrichFromWikipedia…) was then working blind: it could not
+  // confirm the study existed, so it passed the name through unchecked, and a
+  // name the model had paraphrased even slightly failed silently at the store.
+  // That is the study that quietly goes unlinked while the run reports success.
+  const layersAdded = mirrorLayersIntoState(graphState, targetGraph, spec.layers);
+
+  return { nodesAdded: nodeSpecs.length + layersAdded, edgesAdded };
+}
+
+/**
+ * Mirror a layer tree into predictive state.
+ *
+ * A layer IS a Thing on the canvas, so it gets a prototype and an instance in
+ * the graph being built. The nodes inside its definition are prototypes too,
+ * but they live in the layer's own web rather than this one — recorded here so
+ * they can be found BY NAME, without claiming they sit on this canvas.
+ *
+ * @returns {number} how many Things were mirrored, at every depth
+ */
+function mirrorLayersIntoState(graphState, targetGraph, layers) {
+  const list = Array.isArray(layers) ? layers : [];
+  if (list.length === 0) return 0;
+
+  graphState.nodePrototypes = graphState.nodePrototypes || [];
+  targetGraph.instances = targetGraph.instances || [];
+
+  const mintId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+  // Reuse a prototype that already carries this name — the same Thing appearing
+  // in two layers is one Thing, and minting a second would make the name
+  // ambiguous for exactly the lookups this exists to serve.
+  const findOrAdd = (spec) => {
+    const nameLower = String(spec?.name || '').toLowerCase().trim();
+    if (!nameLower) return null;
+
+    let found = null;
+    for (const proto of graphState.nodePrototypes) {
+      if ((proto.name || '').toLowerCase().trim() === nameLower) found = proto;
+    }
+    if (found) return found;
+
+    const proto = {
+      id: mintId('proto'),
+      name: spec.name,
+      color: spec.color,
+      description: spec.description || '',
+      definitionGraphIds: []
+    };
+    graphState.nodePrototypes.push(proto);
+    return proto;
+  };
+
+  let count = 0;
+
+  for (const layer of list) {
+    const layerProto = findOrAdd(layer);
+    if (!layerProto) continue;
+    count++;
+
+    // The layer itself is on this canvas; its contents are not.
+    if (!targetGraph.instances.some(inst => inst.prototypeId === layerProto.id)) {
+      targetGraph.instances.push({
+        id: mintId('inst'),
+        prototypeId: layerProto.id,
+        name: layerProto.name
+      });
+    }
+
+    const definition = layer.definition || {};
+    for (const node of (definition.nodes || [])) {
+      if (findOrAdd(node)) count++;
+    }
+
+    // Nested layers are Things inside the layer's web, not this one, so they
+    // are mirrored as prototypes without an instance here.
+    count += mirrorLayersIntoState(
+      graphState,
+      { instances: [] },
+      definition.layers
+    );
+  }
+
+  return count;
 }
 
 /**
