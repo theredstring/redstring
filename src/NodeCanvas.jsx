@@ -3159,6 +3159,11 @@ function NodeCanvas() {
     layoutSolver,
     forceTunerSettings,
     connectionFontSize: resolveEdgeLabelFontSize(textSettings, connectionLabelSize),
+    // The group title tab the solver has to reserve room for, at the size this
+    // canvas actually draws it (see groupLabelFontSize/groupLabelScale in the
+    // group render below). Plain numbers, because the solver runs in a worker.
+    groupLabelScale: textSettings?.nodeScale ?? 1.0,
+    groupLabelFontSize: 45 * (textSettings?.fontSize ?? 1.0) * (textSettings?.nodeScale ?? 1.0),
     setZoomLevel,
     setPanOffset,
     canvasTransform: transform,

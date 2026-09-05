@@ -4,6 +4,7 @@ import { resolveEdgeLabelFontSize } from './layoutGeometry.js';
 import { getNodeDimensions } from '../utils.js';
 import useImageCache from './imageCache.js';
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
+import { withEmptyGroupPlaceholders } from './groupLayout.js';
 
 /**
  * Compute and persist a force-directed layout for any graph, active or not.
@@ -22,7 +23,7 @@ export function applyOffscreenLayout(graphId) {
 
   const nodeSpacing = FORCE_LAYOUT_DEFAULTS.nodeSpacing || 140;
 
-  const layoutNodes = instances.map(inst => {
+  let layoutNodes = instances.map(inst => {
     const proto = st.nodePrototypes.get(inst.prototypeId);
     let labelWidth = nodeSpacing, labelHeight = nodeSpacing, imageHeight = 0;
     try {
@@ -86,11 +87,31 @@ export function applyOffscreenLayout(graphId) {
       };
     });
 
-  const groups = Array.from(graph.groups?.values() || []);
+  // Memberless node-groups get a synthetic body so their shells travel with the
+  // layout rather than stranding at their last dragged position — see
+  // withEmptyGroupPlaceholders.
+  const augmented = withEmptyGroupPlaceholders(
+    layoutNodes,
+    Array.from(graph.groups?.values() || []),
+    (anchorId) => {
+      const node = layoutNodes.find(n => n.id === anchorId);
+      return node ? { width: node.width, height: node.height } : null;
+    }
+  );
+  layoutNodes = augmented.nodes;
+  const groups = augmented.groups;
 
   // Resolve the real rendered label font so labeled edges reserve the space
   // the canvas actually draws (NodeCanvas base × user text settings)
   const edgeLabelFontSize = resolveEdgeLabelFontSize(st.textSettings, st.connectionLabelSize);
+  // Same for a group's title tab, which NodeCanvas draws at
+  // 45 × fontSize × nodeScale (see groupLabelFontSize in its group render).
+  const groupLabelScale = st.textSettings?.nodeScale ?? 1.0;
+  const groupLabelFontSize = 45 * (st.textSettings?.fontSize ?? 1.0) * groupLabelScale;
+  // Member padding inside a group rect is derived from the grid, so the solver
+  // needs the real value or it enforces against a rect narrower than the drawn
+  // one. Only the snapping below used to read this.
+  const gridSize = st.gridSettings?.size || 200;
 
   // Honor the user's chosen layout algorithm here too — otherwise definition
   // graphs built offscreen (AI generation, auto-created definitions) would
@@ -104,6 +125,9 @@ export function applyOffscreenLayout(graphId) {
     useExistingPositions: false,
     groups,
     edgeLabelFontSize,
+    groupLabelFontSize,
+    groupLabelScale,
+    gridSize,
     // Lombardi draws arcs, which changes both which layout fits a shape and how
     // much room each edge needs. The conditional dispatcher reads these.
     routingStyle: st.autoLayoutSettings?.routingStyle || 'straight',
@@ -129,7 +153,6 @@ export function applyOffscreenLayout(graphId) {
 
   // Grid snapping (same resolution as interactive auto-layout): snap when the
   // user's preference is 'always', or 'if-enabled' and the grid isn't off.
-  const gridSize = st.gridSettings?.size || 200;
   const gridMode = st.gridSettings?.mode || 'off';
   const snapMode = st.gridSettings?.snapMode || 'if-enabled';
   const shouldSnap = snapMode === 'always' || (snapMode === 'if-enabled' && gridMode !== 'off');

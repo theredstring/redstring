@@ -4,6 +4,7 @@ import {
   LAYOUT_ITERATION_PRESETS,
   LAYOUT_SCALE_PRESETS,
   MAX_LAYOUT_SCALE_MULTIPLIER,
+  MIN_LAYOUT_SCALE_MULTIPLIER,
   estimateEdgeLabelWidth
 } from '../services/graphLayoutService.js';
 import { EDGE_LABEL_BASE_FONT_SIZE } from '../services/layoutGeometry.js';
@@ -135,7 +136,7 @@ export function useForceSimulation({
   const handleScaleMultiplierChange = useCallback((value) => {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return;
-    const clamped = Math.max(0.2, Math.min(MAX_LAYOUT_SCALE_MULTIPLIER, numeric));
+    const clamped = Math.max(MIN_LAYOUT_SCALE_MULTIPLIER, Math.min(MAX_LAYOUT_SCALE_MULTIPLIER, numeric));
     const rounded = Math.round(clamped * 100) / 100;
     setScaleMultiplier(rounded);
     onLayoutScaleMultiplierChange?.(rounded);

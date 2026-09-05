@@ -517,6 +517,80 @@ export const labelWidthFor = (text, measureLabelWidth, scale = 1) => {
 };
 
 /**
+ * Layout-input transform: give every memberless node-group a body the solver
+ * can actually place.
+ *
+ * An empty node-group's shell is drawn from `emptyPlaceholderOrigin` (see the
+ * zero-member branch of `computeGroupLayoutInner`), which is only written when
+ * the group is DRAGGED. Auto-layout emits instance positions, the group has no
+ * instance, and so its shell stayed at its pre-layout coordinates while its
+ * anchor moved off with everything else — leaving a stranded box, and a parent
+ * whose rect stretched to swallow both positions. Measured at 64x its members'
+ * ink for a single empty child, with the shell painting over every connection
+ * it swept.
+ *
+ * The fix is upstream of the solver rather than inside it: hand the layout a
+ * synthetic node under the group's `__placeholder__` id and list it as a member
+ * of the group and of everything containing it. From there the group is an
+ * ordinary one-member group — it gets a real layout, a real reserved rect, and
+ * its anchor gets pinned to its title tab like any other node-group's. The
+ * output flows back on its own, because `updateMultipleNodeInstancePositions`
+ * already routes `__placeholder__` ids to `emptyPlaceholderOrigin`.
+ *
+ * Groups are copied, never mutated — these come from the store.
+ *
+ * @param {Array<{id: string}>} nodes - layout input nodes
+ * @param {Array<object>} groups - the graph's groups
+ * @param {(instanceId: string) => {width: number, height: number}} [dimsFor]
+ * @returns {{nodes: Array, groups: Array}}
+ */
+export function withEmptyGroupPlaceholders(nodes, groups, dimsFor) {
+  const empties = (groups || []).filter(g =>
+    g?.linkedNodePrototypeId
+    && !(g.memberInstanceIds?.length > 0)
+    && g.emptyPlaceholderOrigin
+  );
+  if (empties.length === 0) return { nodes, groups };
+
+  const groupsById = new Map(groups.map(g => [g.id, g]));
+  const parentGroupIds = buildParentGroupIdsIndex(
+    buildChildGroupIdsIndex(groupsById, buildGroupsByMemberIdIndex(groupsById))
+  );
+
+  const extraMembers = new Map(); // groupId -> placeholder ids to add
+  const addMember = (groupId, id) => {
+    if (!extraMembers.has(groupId)) extraMembers.set(groupId, []);
+    extraMembers.get(groupId).push(id);
+  };
+
+  const placeholderNodes = empties.map(group => {
+    const id = placeholderIdForGroup(group.id);
+    addMember(group.id, id);
+    for (const ancestorId of collectAncestorGroupIds(group.id, parentGroupIds)) {
+      addMember(ancestorId, id);
+    }
+    const dims = (dimsFor && dimsFor(group.anchorInstanceId)) || FALLBACK_DIMS;
+    const width = dims.width ?? dims.currentWidth ?? FALLBACK_DIMS.currentWidth;
+    const height = dims.height ?? dims.currentHeight ?? FALLBACK_DIMS.currentHeight;
+    return {
+      id,
+      x: group.emptyPlaceholderOrigin.x ?? 0,
+      y: group.emptyPlaceholderOrigin.y ?? 0,
+      width, height,
+      labelWidth: width,
+      labelHeight: height,
+    };
+  });
+
+  return {
+    nodes: [...nodes, ...placeholderNodes],
+    groups: groups.map(g => (extraMembers.has(g.id)
+      ? { ...g, memberInstanceIds: [...(g.memberInstanceIds || []), ...extraMembers.get(g.id)] }
+      : g)),
+  };
+}
+
+/**
  * @param {object} group
  * @param {object} context
  * @param {Map<string, {id: string, x: number, y: number}>} context.nodesById

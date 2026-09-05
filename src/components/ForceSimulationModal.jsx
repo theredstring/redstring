@@ -3,7 +3,7 @@ import { X, Play, Pause, RotateCcw, Shuffle, Copy, ChevronDown, ChevronUp, Info 
 import './ForceSimulationModal.css';
 import { useForceSimulation } from '../hooks/useForceSimulation.js';
 import { useTheme } from '../hooks/useTheme.js';
-import { MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
+import { MAX_LAYOUT_SCALE_MULTIPLIER, MIN_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
 import MaroonSlider from './MaroonSlider.jsx';
 
 /**
@@ -235,7 +235,7 @@ const ForceSimulationModal = ({
           <MaroonSlider
             label="Layout Scale"
             value={sim.scaleMultiplier}
-            min={0.2}
+            min={MIN_LAYOUT_SCALE_MULTIPLIER}
             max={MAX_LAYOUT_SCALE_MULTIPLIER}
             step={0.05}
             onChange={(v) => sim.handleScaleMultiplierChange(v)}

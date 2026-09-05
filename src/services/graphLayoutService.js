@@ -205,6 +205,42 @@ function toUpdates(positions) {
   return updates;
 }
 export const MAX_LAYOUT_SCALE_MULTIPLIER = 1.6;
+// The slider and the interactive simulation have always gone down to 0.2. The
+// batch solver clamped at 0.5 and said nothing, so the bottom two thirds of the
+// control's travel did nothing at all on the path that produces auto-layout.
+export const MIN_LAYOUT_SCALE_MULTIPLIER = 0.2;
+
+/**
+ * Scale the spacing constants the group passes read.
+ *
+ * The Layout Scale multiplier used to reach only the force distances, while
+ * every group allowance — boundary padding, node gap, group separation, the
+ * meta padding and corridor below — stayed at an absolute pixel value. On a
+ * nested web, where those allowances are most of the drawing, dialling the
+ * scale DOWN therefore made it bigger: interiors shrank, chrome did not, and
+ * the exclusion passes had proportionally more room to shove things around.
+ * Measured on a four-deep tree, `compact` at 0.5 came out 60% larger than
+ * `balanced` at 1.0.
+ *
+ * Only clear space BETWEEN things scales. Drawn geometry — member padding,
+ * the inner canvas border, title tab width and height — belongs to the
+ * renderer, and scaling it here would desync the rect the solver reserves from
+ * the one that gets painted, which is the failure mode half this pass exists to
+ * fix. `config` is rebuilt from the defaults on every entry, so applying this
+ * to each fresh config is idempotent rather than compounding.
+ */
+function scaleGroupChrome(config) {
+  const target = clamp(
+    config.layoutScaleMultiplier ?? 1,
+    MIN_LAYOUT_SCALE_MULTIPLIER,
+    MAX_LAYOUT_SCALE_MULTIPLIER
+  );
+  if (target === 1) return target;
+  config.nodeGap = (config.nodeGap ?? 140) * target;
+  config.groupBoundaryPadding = (config.groupBoundaryPadding ?? 100) * target;
+  config.minGroupDistance = (config.minGroupDistance ?? 800) * target;
+  return target;
+}
 
 /**
  * Build the implicit group containment hierarchy from member-set subset
@@ -1014,6 +1050,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   if (config.minLinkDistance !== undefined && config.minLinkDistance !== config.minNodeDistance) {
     config.minNodeDistance = config.minLinkDistance;
   }
+  const chromeScale = scaleGroupChrome(config);
 
   const nodeById = new Map(nodes.map(n => [n.id, n]));
   const centerX = config.width / 2;
@@ -1268,14 +1305,15 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     // Note `edges`, not `intraEdges`: the latter routes everything that touches
     // a child through a synthetic `__block__` id, which no body claims. The
     // real list resolves each endpoint to whichever body now owns it.
-    if (options._compactDuringCompose !== false) {
-      compactBodies(composedPositions, bodies, edges, config, (a, b) => {
-        const pad = config.groupBoundaryPadding || 100;
-        if (a.group && b.group) return groupPairGap(a.group, b.group, nodeById, pad);
-        if (a.group || b.group) return Math.max(30, config.nodeGap ?? 140);
-        return config.nodeGap ?? 140;
-      });
-    }
+    compactBodies(composedPositions, bodies, edges, config, (a, b) => {
+      const pad = config.groupBoundaryPadding || 100;
+      if (a.group && b.group) return groupPairGap(a.group, b.group, nodeById, pad);
+      // A loose node beside a group rect: `enforceGroupBoundsExclusion` parks a
+      // non-member exactly this far outside, and the rect already carries the
+      // padding, so this is where that pass would leave it anyway.
+      if (a.group || b.group) return Math.max(30, config.nodeGap ?? 140);
+      return config.nodeGap ?? 140;
+    });
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     composedPositions.forEach((pos, mid) => {
@@ -1395,7 +1433,9 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   // Build meta-nodes sized by each top-level group's *visual* bounds (which
   // include the title-bar overhang for node-groups), plus padding. This
   // prevents node-group titles from intruding into a neighbor's region.
-  const META_NODE_PAD = 200;
+  // Clear space between groups, so it tracks the layout scale — see
+  // scaleGroupChrome.
+  const META_NODE_PAD = 200 * chromeScale;
   const metaNodes = [];
   topLevelLayoutEntries.forEach(([gId, layout]) => {
     metaNodes.push({
@@ -1494,7 +1534,10 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     if (!crosses || !e.name) return widest;
     return Math.max(widest, estimateEdgeLabelWidth(e.name, config.edgeLabelFontSize));
   }, 0);
-  const corridor = Math.max(200, crossGroupLabel + config.nodeGap * 2);
+  // The floor scales with the layout scale; the label term does not — text is
+  // the size it is drawn at, and a corridor too narrow for its own label is not
+  // "compact", it is unreadable.
+  const corridor = Math.max(200 * chromeScale, crossGroupLabel + config.nodeGap * 2);
 
   // Run force-directed on meta-nodes — same engine, group scale. The scale is
   // the GROUPS' average extent (avgGroupDim, measured before the groupless
@@ -2067,7 +2110,10 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     groupAttractionStrength: Math.max(config.groupAttractionStrength, 2.0),
     groupRepulsionStrength: Math.max(config.groupRepulsionStrength, 4.0),
     groupExclusionStrength: Math.max(config.groupExclusionStrength, 3.0),
-    minGroupDistance: config.minGroupDistance,
+    // minGroupDistance deliberately NOT forwarded from `config`: it is one of
+    // the allowances scaleGroupChrome multiplies, and the spread above already
+    // carries the caller's raw value, which that call scales for itself.
+    // Passing the scaled one through would square the multiplier.
     centerStrength: 0.005,
   });
   // Phase 3's group-exclusion force treats an ungrouped node as something to
@@ -2156,9 +2202,13 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   const manualScaleTargetRaw = config.layoutScaleMultiplier ?? 1;
   const manualScaleTarget = clamp(
     manualScaleTargetRaw,
-    0.5,
+    MIN_LAYOUT_SCALE_MULTIPLIER,
     MAX_LAYOUT_SCALE_MULTIPLIER
   );
+  // Group allowances track the multiplier too — see scaleGroupChrome. Without
+  // this the group forces below keep enforcing full-size gaps inside a layout
+  // whose distances have all been dialled down.
+  scaleGroupChrome(config);
   const effectiveScale = clamp(autoScale * manualScaleTarget, 0.4, 3);
   const manualScaleReduction = Math.min(Math.max(manualScaleTarget - 1, 0), 0.6);
 

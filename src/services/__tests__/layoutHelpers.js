@@ -15,6 +15,11 @@
 import { expect } from 'vitest';
 import { PATTERN_LAYOUT_DEFAULTS as D } from '../patternLayouts.js';
 import { estimateEdgeLabelWidth } from '../graphLayoutService.js';
+import {
+  computeGroupLayout,
+  buildGroupsByMemberIdIndex,
+  buildChildGroupIdsIndex,
+} from '../groupLayout.js';
 
 export const FONT = D.edgeLabelFontSize;
 
@@ -29,6 +34,120 @@ export const node = (id, width = 300, height = 100) => ({
 export const edge = (sourceId, destinationId, name = '') => ({
   id: `${sourceId}-${destinationId}`, sourceId, destinationId, name
 });
+
+/**
+ * A balanced tree of node-groups, `depth` levels deep, with `leaves` plain
+ * nodes in every deepest group — the shape a multi-level nested web actually
+ * takes.
+ *
+ * Membership propagates to every ancestor, which is what the store does on
+ * every add (`addMembersWithAncestors` in graphStore.js). Getting that wrong
+ * would make the fixture nest by a rule the real data never uses.
+ *
+ * Every group is a node-group with an anchor, and each child's anchor is a
+ * member of its parent — that is what carries the title tab onto the parent's
+ * canvas, and it is the thing the solver has to keep clear of everything else.
+ */
+export const buildNestedGroupWeb = ({ depth = 3, branch = 2, leaves = 3 } = {}) => {
+  const nodes = [];
+  const edges = [];
+  const groups = [];
+  const push = (id) => { nodes.push(node(id)); return id; };
+
+  const make = (level, path, ancestors) => {
+    const anchor = push(`a${path}`);
+    const group = {
+      id: `G${path}`,
+      name: `Group ${path}`,
+      memberInstanceIds: [],
+      anchorInstanceId: anchor,
+      linkedNodePrototypeId: `proto-${path}`,
+    };
+    groups.push(group);
+    ancestors.forEach(a => a.memberInstanceIds.push(anchor));
+    const chain = [...ancestors, group];
+
+    if (level === depth) {
+      const members = [];
+      for (let i = 0; i < leaves; i++) members.push(push(`n${path}_${i}`));
+      members.forEach(id => chain.forEach(g => g.memberInstanceIds.push(id)));
+      for (let i = 1; i < members.length; i++) {
+        edges.push(edge(members[i - 1], members[i], 'is composed of'));
+      }
+      edges.push(edge(anchor, members[0], 'contains'));
+    } else {
+      for (let b = 0; b < branch; b++) make(level + 1, `${path}${b}`, chain);
+      for (let b = 1; b < branch; b++) {
+        edges.push(edge(`a${path}${b - 1}`, `a${path}${b}`, 'relates to'));
+      }
+      edges.push(edge(anchor, `a${path}0`, 'contains'));
+    }
+    return group.id;
+  };
+
+  make(1, '0', []);
+  return { nodes, edges, groups };
+};
+
+/**
+ * The group rects a RENDERER would paint for a laid-out graph.
+ *
+ * Deliberately routed through `computeGroupLayout` — NodeCanvas's own function,
+ * not the solver's. The solver keeps a parallel copy of this geometry
+ * (`deriveGroupVisualBounds`) precisely so it can reserve the right rect, so
+ * measuring against the renderer's copy is what makes these assertions a check
+ * on the solver rather than a restatement of it. Everything else in this file
+ * stays hand-rolled — see the header.
+ *
+ * @returns {Map<string, {minX, minY, maxX, maxY}>}
+ */
+export const drawnGroupRects = (positions, nodes, groups, labelFontSize = 45) => {
+  const nodesById = new Map();
+  const dimsById = new Map();
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  positions.forEach((pos, id) => {
+    const n = byId.get(id);
+    nodesById.set(id, { id, x: pos.x, y: pos.y });
+    dimsById.set(id, { currentWidth: n?.width ?? 300, currentHeight: n?.height ?? 100 });
+  });
+  const groupsById = new Map(groups.map(g => [g.id, g]));
+  const groupsByMemberId = buildGroupsByMemberIdIndex(groupsById);
+  const context = {
+    nodesById, dimsById, groupsById, groupsByMemberId,
+    childGroupIdsByGroupId: buildChildGroupIdsIndex(groupsById, groupsByMemberId),
+    gridSize: 100,
+    measureLabelWidth: (text) => estimateEdgeLabelWidth(text || 'Group', labelFontSize),
+    // The tab's height comes from the font too, so it has to be handed over
+    // alongside the width measurement — leaving it out drops the renderer back
+    // to the 36px constant and the two rects disagree by the difference.
+    labelFontSize,
+    labelScale: 1,
+    _cache: new Map(),
+    _visiting: new Set(),
+  };
+  const out = new Map();
+  groups.forEach(g => {
+    const result = computeGroupLayout(g, context);
+    if (!result?.ok) return;
+    const vb = result.visualBounds;
+    out.set(g.id, { minX: vb.x, minY: vb.y, maxX: vb.x + vb.w, maxY: vb.y + vb.h });
+  });
+  return out;
+};
+
+/** Area of the box the drawn nodes span. */
+export const contentArea = (positions, nodes) => {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  nodes.forEach(n => {
+    const p = positions.get(n.id);
+    if (!p) return;
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + n.width);
+    maxY = Math.max(maxY, p.y + n.height);
+  });
+  return Number.isFinite(minX) ? (maxX - minX) * (maxY - minY) : 0;
+};
 
 /** Top-left layout output → the node centres every Lombardi routine works in. */
 export const centersOf = (positions, nodes) => new Map(nodes.map(n => {

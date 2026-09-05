@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { FORCE_LAYOUT_DEFAULTS, LAYOUT_ITERATION_PRESETS, deriveGroupVisualBounds } from '../services/graphLayoutService.js';
 import { runLayout, cancelLayout } from '../services/layoutRunner.js';
 import { EDGE_LABEL_BASE_FONT_SIZE } from '../services/layoutGeometry.js';
+import { withEmptyGroupPlaceholders } from '../services/groupLayout.js';
 import { getNodeDimensions } from '../utils'; // Assumed utility
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 import { HEADER_HEIGHT } from '../constants';
@@ -137,6 +138,12 @@ export const useGraphLayout = ({
     // Resolved connection label font (base × textSettings.fontSize ×
     // connectionLabelSize) so layout reserves the space labels actually render at
     connectionFontSize = EDGE_LABEL_BASE_FONT_SIZE,
+    // The group title tab, at the size the canvas draws it. The solver has to
+    // reserve the tab it will actually get: its own fallback used to guess the
+    // width from character count and came out roughly half size, so every
+    // group's name overhung the rect the layout had kept clear for it.
+    groupLabelFontSize = null,
+    groupLabelScale = 1,
     // Zoom/pan control for zoom-to-fit after auto-layout
     setZoomLevel = null,
     setPanOffset = null,
@@ -315,7 +322,7 @@ export const useGraphLayout = ({
 
         const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
 
-        const layoutNodes = nodes.map(node => {
+        let layoutNodes = nodes.map(node => {
             const cachedDims = baseDimsById.get(node.id);
             const realDims = cachedDims && cachedDims.currentWidth && cachedDims.currentHeight
                 ? cachedDims
@@ -361,7 +368,18 @@ export const useGraphLayout = ({
         const layoutHeight = Math.max(2000, canvasSize?.height || 2000);
         const layoutPadding = Math.max(300, Math.min(layoutWidth, layoutHeight) * 0.08);
 
-        const groups = Array.from(graphData?.groups?.values() || []);
+        // Memberless node-groups get a synthetic body so their shells travel
+        // with the layout instead of stranding where they were last dragged —
+        // see withEmptyGroupPlaceholders. `layoutNodes` is reassigned because
+        // everything downstream (the tween's start positions, zoom-to-fit
+        // framing, grid snapping) reads from it.
+        const augmented = withEmptyGroupPlaceholders(
+            layoutNodes,
+            Array.from(graphData?.groups?.values() || []),
+            (anchorId) => baseDimsById.get(anchorId)
+        );
+        layoutNodes = augmented.nodes;
+        const groups = augmented.groups;
 
         const iterPreset = LAYOUT_ITERATION_PRESETS[layoutIterationPreset]
             || LAYOUT_ITERATION_PRESETS.balanced;
@@ -392,6 +410,8 @@ export const useGraphLayout = ({
             useExistingPositions: groups.length === 0,
             groups,
             edgeLabelFontSize: connectionFontSize,
+            groupLabelFontSize,
+            groupLabelScale,
             // Group rects are derived from gridSize (member padding scales with
             // it). Without it the solver enforces exclusion against a rect that
             // isn't the one on screen.
