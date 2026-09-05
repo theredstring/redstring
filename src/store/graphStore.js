@@ -3274,10 +3274,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
       }
 
-      // Merge descriptions (keep the longer one)
+      // Fill a missing description; never replace one that exists.
+      //
+      // This used to keep whichever description was LONGER, which is not the
+      // same thing: it silently threw away a deliberately terse description in
+      // favour of a rambling one, and the user never saw the edit. Length is
+      // not a proxy for quality. If the survivor has said something, that
+      // stands — anything the other side had is offered as an explicit
+      // carry-over choice before the merge instead (see computeCarryOver).
       if (secondary.description && secondary.description.trim() !== '') {
-        if (!primary.description || primary.description.trim() === '' ||
-          secondary.description.length > primary.description.length) {
+        if (!primary.description || primary.description.trim() === '') {
           primary.description = secondary.description;
         }
       }

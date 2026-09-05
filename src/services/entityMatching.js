@@ -128,7 +128,7 @@ function extractExternalIds(entity) {
  * Calculate entity match confidence using multiple factors
  * @param {Object} entity1 - First entity
  * @param {Object} entity2 - Second entity
- * @returns {number} Confidence score (0.0 to 1.0)
+ * @returns {{confidence: number, factors: Array, shouldMerge: boolean, needsReview: boolean}}
  */
 export function calculateEntityMatchConfidence(entity1, entity2) {
   let score = 0.0;
@@ -144,8 +144,18 @@ export function calculateEntityMatchConfidence(entity1, entity2) {
       score += 0.95;
       factors.push({ factor: 'wikidata_id_match', score: 0.95 });
     } else {
-      // Different Wikidata IDs = definitely different entities
-      return 0.0;
+      // Different Wikidata IDs = definitely different entities.
+      //
+      // This returns the same SHAPE as every other path. It used to return a
+      // bare 0.0, which meant the one case this function is most certain about
+      // handed callers `undefined` for .confidence/.shouldMerge/.needsReview —
+      // and NaN to anything sorting on confidence.
+      return {
+        confidence: 0,
+        factors: [{ factor: 'wikidata_id_mismatch', score: 0 }],
+        shouldMerge: false,
+        needsReview: false
+      };
     }
   }
 
