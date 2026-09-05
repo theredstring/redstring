@@ -57,8 +57,13 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     throw new Error('Graph name is required when creating a new graph. Example: createPopulatedGraph({"name": "GTA Locations", "nodes": "[{\\"name\\": \\"Los Santos\\"}]"})');
   }
 
-  if (!nodes || nodes.length === 0) {
-    throw new Error('At least one node is required. Example: createPopulatedGraph({"name": "GTA Locations", "nodes": "[{\\"name\\": \\"Los Santos\\"}]"})');
+  // Nodes OR layers. A layer lands as a Thing with a web inside it, so a build
+  // made entirely of layers is fully populated — and it is the shape this tool
+  // explicitly supports (see the composition block below). Demanding top-level
+  // `nodes` rejected exactly that call, twice in a row, and the two failures
+  // cost enough budget that the run ended before the rest of its plan.
+  if ((!nodes || nodes.length === 0) && (!layers || layers.length === 0)) {
+    throw new Error('At least one node or layer is required. Example: createPopulatedGraph({"name": "GTA Locations", "nodes": [{"name": "Los Santos"}]})');
   }
 
   // Generate a graph ID for the new graph or use targetGraphId
@@ -171,8 +176,18 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
       }))
     : null;
 
-  // Validate edges: strip any that reference nodes not in the nodes array
-  const { validEdges, droppedEdges } = await validateEdgesSmart(nodeSpecs, workingEdges);
+  // Validate edges: strip any that reference nodes not in the nodes array.
+  //
+  // Layer names count as endpoints. A layer IS a Thing on this canvas, so the
+  // cross-domain edges of a composed build — "Interaction & Motor Performance"
+  // → "Cognitive Ergonomics & Mental Models" — name layers rather than
+  // top-level nodes, and validating against `nodes` alone silently dropped
+  // every one of them. Read off the raw layers because normalization happens
+  // further down, after the edges are already settled.
+  const layerNames = (Array.isArray(layers) ? layers : [])
+    .map(layer => layer?.name)
+    .filter(Boolean);
+  const { validEdges, droppedEdges } = await validateEdgesSmart(nodeSpecs, workingEdges, layerNames);
 
   // Validation: each edge needs SOMETHING describing its connection type.
   // Accepted shapes (in order of preference):

@@ -231,7 +231,7 @@ describe('createPopulatedGraph', () => {
     expect(result.graphName).toBe('existing graph');
   });
 
-  it('throws error when nodes array is empty', async () => {
+  it('throws error when there is neither a node nor a layer', async () => {
     const graphState = {
       graphs: [],
       nodePrototypes: []
@@ -244,10 +244,10 @@ describe('createPopulatedGraph', () => {
         mockCid,
         mockEnsureSchedulerStarted
       )
-    ).rejects.toThrow('At least one node is required');
+    ).rejects.toThrow('At least one node or layer is required');
   });
 
-  it('throws error when nodes is missing', async () => {
+  it('throws error when nodes is missing and no layers are given', async () => {
     const graphState = {
       graphs: [],
       nodePrototypes: []
@@ -260,7 +260,76 @@ describe('createPopulatedGraph', () => {
         mockCid,
         mockEnsureSchedulerStarted
       )
-    ).rejects.toThrow('At least one node is required');
+    ).rejects.toThrow('At least one node or layer is required');
+  });
+
+  // A composed build carries everything inside its layers. Requiring top-level
+  // `nodes` rejected it outright, and the retry cost enough budget to end the
+  // run before the rest of its plan.
+  it('builds from layers alone, with no top-level nodes', async () => {
+    const result = await createPopulatedGraph(
+      {
+        name: 'Research Framework',
+        description: 'Landmark studies.',
+        layers: [
+          {
+            name: 'Motor Performance',
+            description: 'Motor capability.',
+            display: 'decomposed',
+            definition: {
+              nodes: [{ name: 'Fitts 1954', description: "Fitts's law." }],
+              edges: [],
+              groups: [],
+              layers: []
+            }
+          }
+        ]
+      },
+      { graphs: [], nodePrototypes: [] },
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+
+    expect(result.layersAdded).toEqual(['Motor Performance']);
+    expect(result.spec.layers).toHaveLength(1);
+  });
+
+  // A layer IS a Thing on the canvas, so an edge naming one is a real
+  // connection. Validating against top-level nodes alone dropped every
+  // cross-domain edge a composed build had.
+  it('keeps top-level edges that name layers', async () => {
+    const result = await createPopulatedGraph(
+      {
+        name: 'Research Framework',
+        description: 'Landmark studies.',
+        edges: [{
+          source: 'Motor Performance',
+          target: 'Cognitive Ergonomics',
+          definitionNode: { name: 'Informs', description: 'Constrains cognitive modeling.' }
+        }],
+        layers: [
+          {
+            name: 'Motor Performance',
+            description: 'Motor capability.',
+            display: 'decomposed',
+            definition: { nodes: [{ name: 'Fitts 1954', description: 'x' }], edges: [], groups: [], layers: [] }
+          },
+          {
+            name: 'Cognitive Ergonomics',
+            description: 'Working memory.',
+            display: 'decomposed',
+            definition: { nodes: [{ name: 'Miller 1956', description: 'x' }], edges: [], groups: [], layers: [] }
+          }
+        ]
+      },
+      { graphs: [], nodePrototypes: [] },
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+
+    expect(result.droppedEdges).toHaveLength(0);
+    expect(result.spec.edges).toHaveLength(1);
+    expect(result.spec.edges[0].source).toBe('Motor Performance');
   });
 
   // Removed ensureSchedulerStarted test as direct UI tools no longer call it

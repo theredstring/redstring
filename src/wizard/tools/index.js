@@ -130,7 +130,16 @@ export async function executeTool(name, args, graphState, cid, ensureSchedulerSt
       args[key] === undefined || args[key] === null || args[key] === ''
     );
     if (missing.length > 0) {
-      throw new Error(`Tool "${name}" requires these arguments: ${missing.join(', ')}. You provided: ${JSON.stringify(args)}`);
+      // Name the keys, don't echo the payload. A composition spec runs to
+      // several thousand characters, and quoting it back verbatim put the whole
+      // thing into the transcript a second time — twice over, on a retry, which
+      // is enough of the per-ask token budget to end a run before it finishes
+      // its plan. The keys are what the model needs to fix the call.
+      const provided = Object.keys(args || {});
+      throw new Error(
+        `Tool "${name}" requires these arguments: ${missing.join(', ')}. `
+        + `You provided: ${provided.length ? provided.join(', ') : '(nothing)'}.`
+      );
     }
   }
 

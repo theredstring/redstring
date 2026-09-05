@@ -431,7 +431,12 @@ export function getToolDefinitions(options = {}) {
                     enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
                     overwriteDescription: { type: 'boolean', description: 'Overwrite description from Wikipedia (default: false).' }
                 },
-                required: ['name', 'description', 'nodes', 'edges']
+                // `nodes` and `edges` are NOT required here: a build made of
+                // `layers` carries its nodes and edges inside them, and the
+                // generic required-args check in index.js rejected that call
+                // before the tool could see it. The tool itself enforces the
+                // real rule — nodes or layers, at least one.
+                required: ['name', 'description']
             }
         },
         {
