@@ -20,6 +20,7 @@
  */
 
 import { NODE_DEFAULT_COLOR } from '../constants.js';
+import { collectIdentifiers } from '../utils/externalIdentifiers.js';
 
 export const MAX_LAYOUT_NODES = 400;
 
@@ -240,7 +241,16 @@ export const buildBridgeState = (state, { fileStatus = null } = {}) => {
       description: prototype.description || '',
       definitionGraphIds: Array.isArray(prototype.definitionGraphIds) ? [...prototype.definitionGraphIds] : [],
       typeNodeId: prototype.typeNodeId || null,
-      abstractionChains: prototype.abstractionChains || {}
+      abstractionChains: prototype.abstractionChains || {},
+      // What this Thing is already grounded to elsewhere, as the union of every
+      // place a link can live (collectIdentifiers is read-only). Sent so the
+      // wizard can see an existing DOI/Wikidata match rather than attaching a
+      // second one; omitted entirely when there are none, which is most
+      // prototypes and would otherwise be an empty array each.
+      ...(() => {
+        const links = collectIdentifiers(prototype);
+        return links.length ? { externalLinks: links } : {};
+      })()
     })),
 
     // UI state

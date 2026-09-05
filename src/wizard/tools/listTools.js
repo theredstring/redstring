@@ -25,6 +25,7 @@ Every node-creating tool also accepts an optional per-node \`size\` ("extra-smal
 - **setNodeType**(nodeName*, typeName*, typeColor, typeDescription) — Assign a type/category
 - **inspectPrototype**(nodeName*) — View full prototype data (definitions, types, metadata)
 - **enrichFromWikipedia**(nodeName*, overwriteDescription) — Pull Wikipedia description and image
+- **linkIdentifier**(nodeName*, identifier*, targetGraphId) — Attach an external identifier: a DOI, a Wikidata/Wikipedia/DBpedia entry, or any URL. DOIs are checked against Crossref/DataCite and rejected if they don't exist — never guess one
 - **getNodeContext**(nodeName*) — Get connections, groups, and compositional context
 
 ## Webs (Graphs)

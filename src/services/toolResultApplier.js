@@ -28,6 +28,7 @@ import {
   findChainOwner,
   buildLadderLevels
 } from '../wizard/tools/utils/abstractionSpec.js';
+import { LINK_STATES, canonicalizeLink, setLinkState } from '../formats/linkState.js';
 import { applyOffscreenLayout } from './offscreenLayout.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 import { attachOneShotOutcome } from './oneShot.js';
@@ -2552,6 +2553,53 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     }).catch(err => {
       console.error(`[Wizard] ❌ Wikipedia enrichment failed for "${nodeName}":`, err);
     });
+  } else if (result.action === 'linkIdentifier') {
+    // Attach an external identifier to a prototype — the panel's AddIdentifier
+    // handler (components/panel/AboutSection.jsx) written against the store.
+    // The tool already validated the URL and checked any DOI against its
+    // registry; this half is the write.
+    const lookupName = (result.nodeName || '').toLowerCase().trim();
+    const url = result.url;
+    console.log('[Wizard] Applying linkIdentifier:', lookupName, '→', url);
+    if (!lookupName || !url) {
+      console.error('[Wizard] linkIdentifier: Missing nodeName or url');
+      dispatchWizardToolFailed('linkIdentifier', 'Missing node name or identifier.', result);
+      return;
+    }
+
+    // Predictive ids never match; resolve by name and take the LAST match.
+    let realProtoId = result.prototypeId && store.nodePrototypes.has(result.prototypeId)
+      ? result.prototypeId
+      : null;
+    if (!realProtoId) {
+      for (const [protoId, proto] of store.nodePrototypes) {
+        if ((proto.name || '').toLowerCase().trim() === lookupName) realProtoId = protoId;
+      }
+    }
+    if (!realProtoId) {
+      console.error('[Wizard] linkIdentifier: Could not find prototype for name:', lookupName);
+      dispatchWizardToolFailed('linkIdentifier', `No Thing named "${result.nodeName}" to link.`, result);
+      return;
+    }
+
+    const canonical = canonicalizeLink(url);
+    store.updateNodePrototype(realProtoId, (prototype) => {
+      const existing = Array.isArray(prototype.externalLinks) ? prototype.externalLinks : [];
+      if (existing.some(link => canonicalizeLink(link) === canonical)) return;
+      prototype.externalLinks = [...existing, url];
+      // AUTO, not EXACT: the wizard found this, nobody has checked it. The panel
+      // is one click from promoting it, and understating a claim is the safe
+      // direction (formats/linkState.js).
+      prototype.semanticMetadata = setLinkState(
+        prototype.semanticMetadata,
+        url,
+        LINK_STATES.AUTO,
+        'auto'
+      );
+    });
+    console.log('[Wizard] Successfully linked', result.authority, result.identifier, 'to', realProtoId);
+    return;
+
   } else if (result.action === 'mergeNodes') {
     // Handle mergeNodes — resolve by ID if available, fall back to name
     const primaryName = (result.primaryName || '').toLowerCase().trim();

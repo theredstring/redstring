@@ -80,5 +80,8 @@ export async function getPrototype(args, graphState) {
     palette: prototype.palette,
     typeNodeId: prototype.typeNodeId,
     definitionGraphIds: prototype.definitionGraphIds || [],
+    // What this Thing is already known as elsewhere (DOIs, Wikidata, …), so a
+    // link can be reported or avoided rather than blindly re-attached.
+    externalLinks: prototype.externalLinks || [],
   };
 }

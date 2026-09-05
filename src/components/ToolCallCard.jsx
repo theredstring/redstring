@@ -56,6 +56,7 @@ const TOOL_DISPLAY_LABELS = {
     inspectWorkspace: 'Inspecting workspace',
     // Enrichment
     enrichFromWikipedia: 'Enriching from Wikipedia',
+    linkIdentifier: 'Linking identifier',
     themeGraph: 'Theming web',
     // Planning
     planTask: 'Planning task',
@@ -249,6 +250,20 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
             let summary = parts.length > 0 ? `Added ${parts.join(', ')}` : 'Expanded web';
             if (result.graphName) summary += ` to "${result.graphName}"`;
             return summary;
+        }
+
+        if (toolName === 'linkIdentifier') {
+            const node = result.nodeName || parsedArgs?.nodeName || 'thing';
+            const id = [result.authority, result.identifier].filter(Boolean).join(' ')
+                || parsedArgs?.identifier
+                || 'identifier';
+            if (result.alreadyLinked) return `"${node}" already carries ${id}`;
+            // The registered title is the reason the tool looks a DOI up at all:
+            // it's what makes a bare number checkable without following it. The
+            // row clips to one line, so a long paper title costs nothing.
+            return result.label
+                ? `Linked ${id} to "${node}" — ${result.label}`
+                : `Linked ${id} to "${node}"`;
         }
 
         if (toolName === 'abstractionChain') {

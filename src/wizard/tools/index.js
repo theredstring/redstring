@@ -41,6 +41,7 @@ import { inspectPrototype } from './inspectPrototype.js';
 import { inspectWorkspace } from './inspectWorkspace.js';
 import { themeGraph } from './themeGraph.js';
 import { enrichFromWikipedia } from './enrichFromWikipedia.js';
+import { linkIdentifier } from './linkIdentifier.js';
 import { planTask } from './planTask.js';
 import { sketchGraph } from './sketchGraph.js';
 import { discoverOrbit } from './discoverOrbit.js';
@@ -89,6 +90,7 @@ const TOOLS = {
   inspectWorkspace,
   themeGraph,
   enrichFromWikipedia,
+  linkIdentifier,
   planTask,
   sketchGraph,
   discoverOrbit,

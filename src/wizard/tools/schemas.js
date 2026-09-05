@@ -904,6 +904,19 @@ export function getToolDefinitions(options = {}) {
             }
         },
         {
+            name: 'linkIdentifier',
+            description: 'Attach an external identifier to a Thing — a DOI (10.xxxx/yyyy or a doi.org URL), a Wikidata/Wikipedia/DBpedia entry, or any URL. Same as pasting one into the panel\'s "Known Elsewhere As" field. DOIs and PubMed ids are checked against their registry first and the call fails if they do not exist, so never guess one — the registered title comes back in the result. The link is recorded as unverified ("found, nobody has checked"); the user promotes it in the panel.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    nodeName: { type: 'string', description: 'Name of the Thing to attach the identifier to.' },
+                    identifier: { type: 'string', description: 'A DOI, a doi.org/PubMed URL, or any full https:// URL.' },
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
+                },
+                required: ['nodeName', 'identifier']
+            }
+        },
+        {
             name: 'themeGraph',
             description: 'Quickly re-color all nodes and connection definitions in a graph conceptually based on a palette or specific color.',
             parameters: {
@@ -1255,6 +1268,7 @@ const TOOL_TIERS = {
     setNodeSize: 'hasNodes',
     inspectPrototype: 'hasNodes',
     getNodeContext: 'hasNodes', enrichFromWikipedia: 'hasNodes',
+    linkIdentifier: 'hasNodes',
     findDuplicates: 'has5PlusNodes', mergeNodes: 'has5PlusNodes',
     mergeGraphs: 'multipleGraphs',
 

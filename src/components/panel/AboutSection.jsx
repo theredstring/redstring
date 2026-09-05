@@ -4,6 +4,7 @@ import PanelIconButton from '../shared/PanelIconButton.jsx';
 import PanelCard, { usePanelCardTokens } from '../shared/PanelCard.jsx';
 import InfoPopover from '../shared/InfoPopover.jsx';
 import AnchoredPopoverBox from '../shared/AnchoredPopoverBox.jsx';
+import { useTheme } from '../../hooks/useTheme.js';
 import {
   identifierFromUrl,
   partitionIdentifiers,
@@ -272,10 +273,17 @@ const IdentifierPicker = ({ anchor, kind, authority, initialTerm, currentUrl, on
  * other actions. Making the text itself the trigger says what the control does
  * without a legend, and gives the row's action group back the slot the search
  * button needed.
+ *
+ * Lit — hovered, or holding its menu open — it takes the same #DEDADA-and-maroon
+ * that PanelIconButton gives its pills, at the same 1.04, because it sits on the
+ * same row as three of them and a chip that only recoloured its text read as
+ * decoration rather than as the third button in the group.
  */
 const StateChip = forwardRef(({ label, isOpen, onToggle, tokens, style = {} }, ref) => {
+  const theme = useTheme();
   const [isHovered, setIsHovered] = useState(false);
   const lit = isHovered || isOpen;
+  const accent = theme.accent.primary;
 
   return (
     <button
@@ -295,9 +303,11 @@ const StateChip = forwardRef(({ label, isOpen, onToggle, tokens, style = {} }, r
         marginTop: 5,
         padding: '2px 9px',
         borderRadius: 20,
-        border: `1px solid ${lit ? tokens.brand : tokens.hairline}`,
-        background: 'transparent',
-        color: lit ? tokens.brand : tokens.muted,
+        border: `1px solid ${lit ? 'transparent' : tokens.hairline}`,
+        background: lit ? '#DEDADA' : 'transparent',
+        boxShadow: lit ? `0 0 0 3px ${accent}` : 'none',
+        transform: lit ? 'scale(1.04)' : 'scale(1)',
+        color: lit ? accent : tokens.muted,
         fontFamily: FONT,
         fontSize: '11px',
         cursor: 'pointer',
@@ -308,7 +318,7 @@ const StateChip = forwardRef(({ label, isOpen, onToggle, tokens, style = {} }, r
         maxWidth: '100%',
         overflow: 'hidden',
         whiteSpace: 'nowrap',
-        transition: 'color 0.15s ease, border-color 0.15s ease',
+        transition: 'color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease',
         ...style
       }}
     >

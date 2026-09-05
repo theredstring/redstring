@@ -42,11 +42,10 @@ export const MATCH_STATES = [
 ];
 
 export const PROVENANCE_INTRO =
-  'How this Thing got here, and how its names were found. Anything you made ' +
-  'yourself reads as Redstring.';
+  'How this Thing got here, and how its data was found.';
 
 export const ID_INTRO =
-  'Redstring\'s internal handle. It never leaves your universe.';
+  'Redstring\'s internal handle.';
 
 /** Numeric confidence → a word. The number stays available on hover. */
 export const confidenceWord = (value) => {
