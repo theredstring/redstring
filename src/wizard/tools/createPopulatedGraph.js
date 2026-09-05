@@ -13,7 +13,8 @@ import { runStructureReview } from './utils/structureReview.js';
 import { conformNames } from './utils/conformNames.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
 import { newBuildId } from '../../services/oneShot.js';
-import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning } from './utils/graphSpec.js';
+import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning, normalizeNodeSpec } from './utils/graphSpec.js';
+import { applyLadderCap, summarizeLadders } from './utils/abstractionSpec.js';
 
 /** Existing node names in a graph from the serialized graphState (for C7 style). */
 function existingGraphNodeNames(graphState, graphId) {
@@ -84,18 +85,17 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   // Pick a palette if none provided
   const activePalette = palette || getRandomPalette();
 
-  // Build unified spec for both queue and UI
-  let nodeSpecs = nodes.map(n => ({
-    name: n.name,
-    color: resolvePaletteColor(activePalette, n.color),
-    description: n.description || '',
-    // undefined at the default size (or for an unrecognized word) — a size typo
-    // must never fail a whole build, it just leaves that node at medium.
-    sizeMul: nodeSizeMul(n.size),
-    type: n.type || null,
-    typeColor: resolvePaletteColor(activePalette, n.typeColor || '#A0A0A0'),
-    typeDescription: n.typeDescription || ''
-  }));
+  // Build unified spec for both queue and UI. Shape (including the size-typo
+  // tolerance and the optional isA ladder) lives in normalizeNodeSpec.
+  let nodeSpecs = nodes.map(n => normalizeNodeSpec(n, activePalette));
+
+  // Backstop the "only clear cases" instruction: a ladder on every node is noise.
+  const ladderWarnings = [];
+  {
+    const capped = applyLadderCap(nodeSpecs);
+    nodeSpecs = capped.nodeSpecs;
+    if (capped.warning) ladderWarnings.push(capped.warning);
+  }
 
   // A3 — Shape routing. Classify the structural shape (from an explicit shape arg,
   // else from the request/description/name if a model is available) and route the
@@ -130,6 +130,18 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     try {
       abstractionOrder = await orderLadder({ nodeNames: nodeSpecs.map((n) => n.name), buildId });
     } catch { abstractionOrder = null; }
+
+    // Drop per-node isA here: the whole graph is already the ladder, so a second
+    // per-node ladder would found a rival chain over the same nodes and the carousel
+    // would show a different ladder depending on which node you opened it from.
+    const doubled = nodeSpecs.filter((n) => n.isA?.length).map((n) => n.name);
+    if (doubled.length > 0) {
+      nodeSpecs = nodeSpecs.map(({ isA, ...n }) => n);
+      ladderWarnings.push(
+        `Per-node isA dropped for ${doubled.join(', ')} — this whole graph is the ladder, so the ` +
+        `rungs come from the graph order instead. A second per-node ladder would compete with it.`
+      );
+    }
   }
 
   // A3 — Recursive unfold PLANNING. Decide (all via one-off calls) whether each
@@ -303,6 +315,8 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   // Note: nodesAdded/edgesAdded are ARRAYS for ToolCallCard display
   return {
     action: 'createPopulatedGraph',
+    ...summarizeLadders(nodeSpecs),
+    ladderWarnings: ladderWarnings.length > 0 ? ladderWarnings : null,
     graphId,
     graphName: name || 'existing graph',
     description,

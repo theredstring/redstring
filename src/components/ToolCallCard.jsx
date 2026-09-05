@@ -44,8 +44,10 @@ const TOOL_DISPLAY_LABELS = {
     addDefinitionGraph: 'Adding definition',
     // Abstraction & hierarchy
     setNodeType: 'Setting type',
-    readAbstractionChain: 'Reading abstraction chain',
-    editAbstractionChain: 'Editing abstraction chain',
+    // The tool the model actually calls. readAbstractionChain / editAbstractionChain /
+    // buildAbstractionChain are internal functions this one routes to on args.action,
+    // never tool names — labels for those never rendered.
+    abstractionChain: 'Making abstraction chain',
     condenseToNode: 'Condensing into thing',
     decomposeNode: 'Decomposing thing',
     // User interaction
@@ -247,6 +249,24 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
             let summary = parts.length > 0 ? `Added ${parts.join(', ')}` : 'Expanded web';
             if (result.graphName) summary += ` to "${result.graphName}"`;
             return summary;
+        }
+
+        if (toolName === 'abstractionChain') {
+            // The router hands back a different action per mode, and the generic
+            // fallback below rendered all of them as "Executed buildAbstractionChain".
+            if (Array.isArray(result.levels)) {
+                const rungs = result.levels.map(l => l.name).filter(Boolean);
+                return rungs.length > 0
+                    ? `${result.anchorName || 'Chain'} → ${rungs.join(' → ')}`
+                    : 'Built abstraction chain';
+            }
+            if (result.operationType === 'addToAbstractionChain') return 'Added a level';
+            if (result.operationType === 'removeFromAbstractionChain') return 'Removed a level';
+            if (typeof result.chainCount === 'number') {
+                return result.chainCount === 0
+                    ? `No chains on "${result.nodeName}"`
+                    : `${result.chainCount} chain${result.chainCount !== 1 ? 's' : ''} on "${result.nodeName}"`;
+            }
         }
 
         const parts = [];

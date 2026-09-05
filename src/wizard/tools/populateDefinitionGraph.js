@@ -10,7 +10,8 @@ import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 import { validateEdgesSmart } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
-import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning } from './utils/graphSpec.js';
+import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning, normalizeNodeSpec } from './utils/graphSpec.js';
+import { applyLadderCap, summarizeLadders } from './utils/abstractionSpec.js';
 
 /**
  * Convert string to Title Case
@@ -130,17 +131,16 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
     // Pick a palette if none provided
     const activePalette = palette || getRandomPalette();
 
-    // Build node specs
-    let nodeSpecs = nodes.map(n => ({
-        name: n.name,
-        color: resolvePaletteColor(activePalette, n.color),
-        description: n.description || '',
-        // undefined at the default size — see nodeSize.js
-        sizeMul: nodeSizeMul(n.size),
-        type: n.type || null,
-        typeColor: resolvePaletteColor(activePalette, n.typeColor || '#A0A0A0'),
-        typeDescription: n.typeDescription || ''
-    }));
+    // Build node specs — shape lives in normalizeNodeSpec (graphSpec.js)
+    let nodeSpecs = nodes.map(n => normalizeNodeSpec(n, activePalette));
+
+    // Backstop the "only clear cases" instruction: a ladder on every node is noise.
+    const ladderWarnings = [];
+    {
+        const capped = applyLadderCap(nodeSpecs);
+        nodeSpecs = capped.nodeSpecs;
+        if (capped.warning) ladderWarnings.push(capped.warning);
+    }
 
     // Validate edges: strip any that reference nodes not in the nodes array
     const { validEdges, droppedEdges } = await validateEdgesSmart(nodeSpecs, edges || []);
@@ -213,6 +213,8 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
 
     return {
         action: 'populateDefinitionGraph',
+        ...summarizeLadders(nodeSpecs),
+        ladderWarnings: ladderWarnings.length > 0 ? ladderWarnings : null,
         prototypeId: prototype.id,
         nodeName: prototype.name,
         graphId: newGraphId,

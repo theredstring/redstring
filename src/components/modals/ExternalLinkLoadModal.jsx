@@ -10,7 +10,8 @@ import {
   ArrowLeft,
   Search,
   Lock,
-  Unlock
+  Unlock,
+  Merge
 } from 'lucide-react';
 import Modal from '../shared/Modal.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
@@ -69,7 +70,9 @@ const ExternalLinkLoadModal = ({
   onClose,
   onPublishToRepo,
   onSaveAsLocalFile,
-  onKeepInMemory
+  onKeepInMemory,
+  onMergeIntoCurrent,
+  currentUniverseName
 }) => {
   const theme = useTheme();
   const canAccessLocalFiles = hasCapability('local-files');
@@ -644,6 +647,48 @@ const ExternalLinkLoadModal = ({
                   </div>
                 </div>
               </button>
+            )}
+
+            {/* The three options above all make a NEW universe. This one is the
+                odd one out — it changes the universe you're already in — so it
+                sits below the rule, outlined rather than filled. */}
+            {onMergeIntoCurrent && currentUniverseName && (
+              <div style={{
+                marginTop: '6px',
+                paddingTop: '10px',
+                borderTop: `1px dashed ${theme.canvas.border}`
+              }}>
+                <button
+                  onClick={() => runSimpleDestination(onMergeIntoCurrent)}
+                  disabled={busy}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px 14px',
+                    border: `1px solid ${theme.canvas.brand}`,
+                    borderRadius: '6px',
+                    background: 'transparent',
+                    color: theme.canvas.brandText,
+                    cursor: busy ? 'not-allowed' : 'pointer',
+                    opacity: busy ? 0.6 : 1,
+                    fontFamily: "'EmOne', sans-serif",
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    textAlign: 'left',
+                    width: '100%'
+                  }}
+                >
+                  <Merge size={16} style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div>Merge into "{currentUniverseName}"</div>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 400, opacity: 0.9, marginTop: '2px' }}>
+                      Combine it with what you're working in. No new universe. Duplicates
+                      come through to sort out later.
+                    </div>
+                  </div>
+                </button>
+              </div>
             )}
 
             <div style={{

@@ -88,3 +88,37 @@ describe('sketchGraph sizing', () => {
     expect(result.expandedSpec.nodes.find(n => n.name === 'A')).toBeTruthy();
   });
 });
+
+describe('sketchGraph is-a ladders', () => {
+  it('parses caret rungs alongside [Type] and {size}, and carries them into expandedSpec', async () => {
+    const result = await sketchGraph({
+      name: 'Automotive',
+      nodes: ['Ford Motor Company [Company] {large} ^Automaker ^Company', 'Pistons [Component]'],
+      edges: []
+    }, { graphs: [], nodePrototypes: [] });
+
+    const ford = result.expandedSpec.nodes.find(n => n.name === 'Ford Motor Company');
+    expect(ford).toBeTruthy();
+    expect(ford.type).toBe('Company');
+    expect(ford.isA).toEqual(['Automaker', 'Company']);
+
+    // Conditional spread: a node with no ladder must not carry an empty array.
+    const pistons = result.expandedSpec.nodes.find(n => n.name === 'Pistons');
+    expect('isA' in pistons).toBe(false);
+  });
+
+  it('still resolves an edge that repeats the decorated node string', async () => {
+    // Models repeat the full decorated name when referring back to a node. bareName
+    // strips {size}; it has to strip ^Rung too, or every edge touching a laddered
+    // node is silently dropped.
+    const result = await sketchGraph({
+      name: 'Automotive',
+      nodes: ['Ford Motor Company ^Automaker', 'Pistons'],
+      edges: ['Ford Motor Company ^Automaker -> Manufactures -> Pistons']
+    }, { graphs: [], nodePrototypes: [] });
+
+    expect(result.expandedSpec.edges).toHaveLength(1);
+    expect(result.expandedSpec.edges[0].source).toBe('Ford Motor Company');
+    expect(result.expandedSpec.edges[0].target).toBe('Pistons');
+  });
+});

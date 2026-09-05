@@ -23,6 +23,7 @@
 import { resolvePaletteColor, getRandomPalette, PALETTES } from '../../ai/palettes.js';
 import { analyzeGraphQuality } from './graphQuality.js';
 import { parseSizeShorthand, NODE_SIZE_NAMES } from './utils/nodeSize.js';
+import { parseLadderShorthand } from './utils/abstractionSpec.js';
 
 /**
  * Coerce an LLM-provided value to a string.
@@ -49,17 +50,19 @@ function coerceToString(val) {
  *   "Pistons [Component]"          → { type: 'Component' }
  *   "Sun {large}"                  → { size: 'large' }
  *   "Ceres [Dwarf Planet] {small}" → both
+ *   "Ford ^Automaker ^Company"     → { isA: ['Automaker', 'Company'] }
  *
- * The size marker is stripped BEFORE the type regex runs, so a trailing {size}
- * can't stop `[Type]` from matching at the end of the string.
+ * Both the size and ladder markers are stripped BEFORE the type regex runs, so a
+ * trailing {size} or ^Rung can't stop `[Type]` from matching at the end of the string.
  */
 function parseNodeString(str) {
-  const { text, size, unknown } = parseSizeShorthand(coerceToString(str));
+  const { text: sized, size, unknown } = parseSizeShorthand(coerceToString(str));
+  const { text, isA } = parseLadderShorthand(sized);
   const typeMatch = text.match(/^(.+?)\s*\[([^\]]+)\]\s*$/);
   if (typeMatch) {
-    return { name: typeMatch[1].trim(), type: typeMatch[2].trim(), size, unknownSize: unknown };
+    return { name: typeMatch[1].trim(), type: typeMatch[2].trim(), size, unknownSize: unknown, isA };
   }
-  return { name: text, type: null, size, unknownSize: unknown };
+  return { name: text, type: null, size, unknownSize: unknown, isA };
 }
 
 /**
@@ -77,15 +80,15 @@ function warnUnknownSizes(parsed, warnings, path) {
 }
 
 /**
- * A name with any {size} marker stripped off.
+ * A name with any {size} or ^Rung marker stripped off.
  *
- * Sizes are declared where a node is DEFINED, but models repeat the decorated
+ * Decorations are declared where a node is DEFINED, but models repeat the decorated
  * string when they later REFER to that node (in an edge or a group member). Every
- * reference site compares names case-insensitively, so an un-stripped "{large}"
- * would silently turn a valid edge into a dropped one.
+ * reference site compares names case-insensitively, so an un-stripped "{large}" — or
+ * "^Company" — would silently turn a valid edge into a dropped one.
  */
 function bareName(str) {
-  return parseSizeShorthand(coerceToString(str)).text;
+  return parseLadderShorthand(parseSizeShorthand(coerceToString(str)).text).text;
 }
 
 /**
@@ -259,7 +262,10 @@ function expandLayerSpecs(layers, ctx, depth, path) {
         ...(n.size ? { size: n.size } : {}),
         type: n.type || null,
         typeColor: n.type ? resolvePaletteColor(ctx.palette, '#A0A0A0') : null,
-        typeDescription: ''
+        typeDescription: '',
+        // Conditional: several tests compare whole node specs with toEqual, and an
+        // always-present empty array would ride along on every node that has no ladder.
+        ...(n.isA?.length ? { isA: n.isA } : {})
       })),
       edges: defEdges,
       groups: defGroups,
@@ -401,7 +407,8 @@ export async function sketchGraph(args, graphState) {
     ...(node.size ? { size: node.size } : {}),
     type: node.type || null,
     typeColor: node.type ? resolvePaletteColor(activePalette, '#A0A0A0') : null,
-    typeDescription: ''
+    typeDescription: '',
+    ...(node.isA?.length ? { isA: node.isA } : {})
   }));
 
   // Expand edges with definitionNode objects

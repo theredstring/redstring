@@ -7,6 +7,18 @@ const PALETTE_DESC = `Palette name. Available: ${PALETTE_LIST}. If omitted, a ra
 const COLOR_DESC = 'Color name from the chosen palette (e.g., "red", "tan", "navy-blue"). No hex codes.';
 const SIZE_SCHEMA = { type: 'string', enum: NODE_SIZE_NAMES, description: NODE_SIZE_FIELD_DESC };
 
+// Inline is-a ladder. Kept to a flat array of strings and a short description on
+// purpose: LLMClient's flattenDeepNesting collapses every array-of-objects param into
+// one hand-escaped JSON string summarized field-by-field, so this text is repeated at
+// each of the ~8 sites it appears and a nested object here would degrade to
+// "object with {…}". The real "when is a ladder warranted" guidance lives in the
+// Abstraction Carousel section of PromptFragments.js, where it costs nothing per call.
+const IS_A_SCHEMA = {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Optional is-a ladder, broadest last: ["Automaker","Company","Organization"]. Only where the generalization is uncontested. Omit for most nodes.'
+};
+
 /**
  * Compact `layers` parameter for the flat build tools.
  *
@@ -36,6 +48,7 @@ const LAYERS_PARAM = {
                 description: '"decomposed" (default): spread the web open here as a visible node-group. "collapsed": defined but closed — the user navigates in.'
             },
             use: { type: 'string', description: 'Name of an EXISTING Thing whose web should be invoked here instead of authoring a new one. Provide this OR definition, not both.' },
+            isA: IS_A_SCHEMA,
             definition: {
                 type: 'object',
                 description: 'The web inside this Thing. Its nodes ARE this layer\'s members.',
@@ -49,7 +62,8 @@ const LAYERS_PARAM = {
                                 color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string' },
                                 type: { type: 'string' },
-                                size: SIZE_SCHEMA
+                                size: SIZE_SCHEMA,
+                                isA: IS_A_SCHEMA
                             },
                             required: ['name']
                         }
@@ -274,6 +288,7 @@ export function getToolDefinitions(options = {}) {
                                 color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string' },
                                 size: SIZE_SCHEMA,
+                                isA: IS_A_SCHEMA,
                                 type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
                                 typeDescription: { type: 'string', description: 'Optional: brief description of the type itself.' }
@@ -363,6 +378,7 @@ export function getToolDefinitions(options = {}) {
                                 color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string', description: 'Very brief summary of what this node represents' },
                                 size: SIZE_SCHEMA,
+                                isA: IS_A_SCHEMA,
                                 type: { type: 'string', description: 'Highly recommended: name of the category/type this node falls under (e.g., "Character" or "Location").' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors for types.' },
                                 typeDescription: { type: 'string', description: 'Optional: brief description of the type itself.' }
@@ -435,7 +451,8 @@ export function getToolDefinitions(options = {}) {
                                 color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string' },
                                 type: { type: 'string', description: 'Optional type/category name for this node' },
-                                size: SIZE_SCHEMA
+                                size: SIZE_SCHEMA,
+                                isA: IS_A_SCHEMA
                             },
                             required: ['name']
                         }
@@ -482,6 +499,7 @@ export function getToolDefinitions(options = {}) {
                                     description: '"decomposed" (default): spread the web open in the parent graph as a visible node-group. "collapsed": the Thing has its web but stays closed — the user can navigate into it.'
                                 },
                                 use: { type: 'string', description: 'Name of an EXISTING Thing whose web should be invoked here instead of authoring a new one. Provide this OR definition, not both.' },
+                                isA: IS_A_SCHEMA,
                                 definition: {
                                     type: 'object',
                                     description: 'The web inside this Thing. Its nodes ARE this layer\'s members.',
@@ -495,7 +513,8 @@ export function getToolDefinitions(options = {}) {
                                                     color: { type: 'string', description: COLOR_DESC },
                                                     description: { type: 'string' },
                                                     type: { type: 'string' },
-                                                    size: SIZE_SCHEMA
+                                                    size: SIZE_SCHEMA,
+                                                    isA: IS_A_SCHEMA
                                                 },
                                                 required: ['name']
                                             }
@@ -685,6 +704,7 @@ export function getToolDefinitions(options = {}) {
                                 color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string', description: 'Very brief summary of what this node represents' },
                                 size: SIZE_SCHEMA,
+                                isA: IS_A_SCHEMA,
                                 type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
                                 typeDescription: { type: 'string', description: 'Optional: brief description of the type itself.' }

@@ -14,9 +14,37 @@
 
 import { resolvePaletteColor } from '../../../ai/palettes.js';
 import { nodeSizeMul } from './nodeSize.js';
+import { readIsAList } from './abstractionSpec.js';
 
 export const MAX_LAYER_DEPTH = 4;
 export const SOFT_NODE_CAP = 12;
+
+/**
+ * Normalize one node entry from a build spec.
+ *
+ * The single definition of what a node in a spec IS. It used to be copy-pasted into
+ * createPopulatedGraph, expandGraph and populateDefinitionGraph as well as here, so
+ * every new node field had to be remembered in four places — which is how `isA`
+ * would have shipped working in one tool and silently missing in the others.
+ *
+ * `isA` is spread conditionally, never as an empty array: several tests compare whole
+ * node specs with toEqual (and pass today only because `sizeMul` is undefined at
+ * default size), and an always-present empty array would also ride along in every
+ * spec payload for the overwhelming majority of nodes that have no ladder.
+ */
+export function normalizeNodeSpec(n, palette) {
+  const isA = readIsAList(n.isA);
+  return {
+    name: n.name,
+    color: resolvePaletteColor(palette, n.color),
+    description: n.description || '',
+    sizeMul: nodeSizeMul(n.size),
+    type: n.type || null,
+    typeColor: resolvePaletteColor(palette, n.typeColor || '#A0A0A0'),
+    typeDescription: n.typeDescription || '',
+    ...(isA.length > 0 ? { isA } : {})
+  };
+}
 
 /** "isPartOf" → "Is Part Of" */
 export const toTitleCase = (str) => {
@@ -178,15 +206,7 @@ export function normalizeGraphSpec(spec, ctx, depth = 0, path = 'graph') {
       collidingNodeNames.push(n.name);
       return false;
     })
-    .map(n => ({
-      name: n.name,
-      color: resolvePaletteColor(palette, n.color),
-      description: n.description || '',
-      sizeMul: nodeSizeMul(n.size),
-      type: n.type || null,
-      typeColor: resolvePaletteColor(palette, n.typeColor || '#A0A0A0'),
-      typeDescription: n.typeDescription || ''
-    }));
+    .map(n => normalizeNodeSpec(n, palette));
   if (collidingNodeNames.length > 0) {
     warnings.push(`${path}: ${layerCollisionWarning(collidingNodeNames)}`);
   }
@@ -273,11 +293,15 @@ export function normalizeGraphSpec(spec, ctx, depth = 0, path = 'graph') {
     }
 
     const display = layer.display === 'collapsed' ? 'collapsed' : 'decomposed';
+    // A layer is a real Thing, so it can sit on an is-a ladder like any other node.
+    // Conditional, for the same reason as normalizeNodeSpec's.
+    const layerIsA = readIsAList(layer.isA);
     const normalized = {
       name: layer.name,
       color: resolvePaletteColor(palette, layer.color || '#8B0000'),
       description: layer.description || '',
-      display
+      display,
+      ...(layerIsA.length > 0 ? { isA: layerIsA } : {})
     };
 
     if (useName) {

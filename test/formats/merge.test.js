@@ -421,6 +421,52 @@ describe('P5.4 — same-ID graphs union their contents', () => {
 // Fields that used to be dropped on the floor
 // ---------------------------------------------------------------------------
 
+describe('P5.4 — open and expanded webs union', () => {
+  const sides = () => {
+    const b = state({ graphs: [graph('g1'), graph('g2')] });
+    b.openGraphIds = ['g1'];
+    b.expandedGraphIds = new Set(['g1']);
+    const i = state({ graphs: [graph('g2'), graph('g3')] });
+    i.openGraphIds = ['g2', 'g3'];
+    i.expandedGraphIds = new Set(['g3']);
+    return [b, i];
+  };
+
+  it('base order is preserved and incoming open webs are appended', () => {
+    const [b, i] = sides();
+    const { merged } = mergeUniverses(b, i);
+    expect(merged.openGraphIds).toEqual(['g1', 'g2', 'g3']);
+  });
+
+  it('a web open on both sides is not duplicated', () => {
+    const [b, i] = sides();
+    b.openGraphIds = ['g1', 'g2'];
+    const { merged } = mergeUniverses(b, i);
+    expect(merged.openGraphIds).toEqual(['g1', 'g2', 'g3']);
+  });
+
+  it('expandedGraphIds union', () => {
+    const [b, i] = sides();
+    const { merged } = mergeUniverses(b, i);
+    expect(merged.expandedGraphIds).toEqual(new Set(['g1', 'g3']));
+  });
+
+  it('neither base collection is mutated in place', () => {
+    const [b, i] = sides();
+    mergeUniverses(b, i);
+    expect(b.openGraphIds).toEqual(['g1']);
+    expect(b.expandedGraphIds).toEqual(new Set(['g1']));
+  });
+
+  it('the active web still comes from base', () => {
+    const [b, i] = sides();
+    b.activeGraphId = 'g1';
+    i.activeGraphId = 'g3';
+    const { merged } = mergeUniverses(b, i);
+    expect(merged.activeGraphId).toBe('g1');
+  });
+});
+
 describe('P5.4 — edgePrototypes are merged', () => {
   it('incoming edge prototypes are carried over; base wins on a shared id', () => {
     const base = state();

@@ -22,6 +22,12 @@
  */
 import useGraphStore from '../store/graphStore.js';
 import { resolveGraphId } from '../wizard/tools/resolveGraphId.js';
+import {
+  DEFAULT_ABSTRACTION_DIMENSION,
+  findByLooseName,
+  findChainOwner,
+  buildLadderLevels
+} from '../wizard/tools/utils/abstractionSpec.js';
 import { applyOffscreenLayout } from './offscreenLayout.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 import { attachOneShotOutcome } from './oneShot.js';
@@ -260,25 +266,170 @@ function applyUnfoldPlan(unfoldPlan, { enrich = true, overwriteDescription = fal
 }
 
 /**
+ * Splice a ladder's rungs onto a chain, creating whatever doesn't exist yet.
+ *
+ * Each side walks outward from the anchor with each rung placed against the one
+ * before it, so ordering never depends on the chain's current contents. Rungs are
+ * created PROTOTYPE-ONLY — a chain member is a concept, not a placement, which is
+ * exactly what the carousel's own Add Above/Below does.
+ *
+ * The caller owns the history transaction: withHistoryTransaction is not re-entrant
+ * (graphStore.js — the inner finally nulls the txn and closes the outer), so this
+ * must never open one of its own.
+ */
+function wireLadder(ownerProtoId, anchorProtoId, dimension, levels) {
+  const store = useGraphStore.getState();
+  const anchors = { below: anchorProtoId, above: anchorProtoId };
+
+  for (const level of (levels || [])) {
+    let protoId = level.existingId;
+
+    if (protoId && !store.nodePrototypes.has(protoId)) {
+      console.error('[Wizard] ladder: stale prototype id, recreating:', level.name);
+      protoId = null;
+    }
+
+    if (!protoId) {
+      protoId = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      store.addNodePrototype({
+        id: protoId,
+        name: level.create?.name || level.name,
+        color: level.create?.color || '#8B0000',
+        description: level.create?.description || '',
+        typeNodeId: 'base-thing-prototype',
+        definitionGraphIds: []
+      });
+    } else if (level.description) {
+      // Reused rung: fill in a description only if it has none. A node the user
+      // already described is theirs, and the ladder is no reason to rewrite it.
+      const existing = store.nodePrototypes.get(protoId);
+      if (existing && !(existing.description || '').trim()) {
+        store.updateNodePrototype(protoId, (draft) => {
+          draft.description = level.description;
+        });
+      }
+    }
+
+    store.addToAbstractionChain(ownerProtoId, dimension, level.direction, protoId, anchors[level.direction]);
+    anchors[level.direction] = protoId;
+  }
+}
+
+/**
+ * Wire the per-node `isA` ladders declared inline on a build spec.
+ *
+ * Must run AFTER the spec has landed in the store: prototypes are minted per call,
+ * layer prototypes don't exist until materialization, and buildComposition's
+ * decompose pass retargets instances — so a name resolves to a different prototype
+ * before and after. Resolving early attaches ladders to the wrong nodes, silently.
+ *
+ * Anchor resolution prefers an instance in THIS graph, because applyBulkGraphUpdates
+ * reuses an existing same-named instance rather than the prototype the applier asked
+ * for. A global name lookup would sometimes bind the ladder to a stale same-named
+ * prototype in another graph — invisible in the graph you're looking at.
+ *
+ * Not re-entrant with withHistoryTransaction: it opens its own.
+ */
+export function applyNodeLadders(spec, { graphId = null, dimension = DEFAULT_ABSTRACTION_DIMENSION, label = 'build' } = {}) {
+  const wired = [];
+  const warnings = [];
+
+  const resolveAnchor = (gid, name, preferredId) => {
+    const store = useGraphStore.getState();
+    if (preferredId && store.nodePrototypes.has(preferredId)) return preferredId;
+
+    const graph = gid ? store.graphs.get(gid) : null;
+    if (graph?.instances) {
+      const nl = String(name).toLowerCase().trim();
+      let hit = null;
+      for (const inst of graph.instances.values()) {
+        const proto = store.nodePrototypes.get(inst.prototypeId);
+        if ((proto?.name || '').toLowerCase().trim() === nl) hit = inst.prototypeId; // LAST match
+      }
+      if (hit) return hit;
+    }
+    return resolvePrototypeByNameLast(name);
+  };
+
+  const wireFor = (gid, name, entries, preferredId) => {
+    const anchorId = resolveAnchor(gid, name, preferredId);
+    if (!anchorId) {
+      warnings.push(`isA skipped for "${name}" — could not resolve it to a prototype.`);
+      return;
+    }
+    // Re-read between nodes so a rung created for one node is reused by the next.
+    const store = useGraphStore.getState();
+    const protos = [...store.nodePrototypes.values()];
+    const anchorProto = store.nodePrototypes.get(anchorId);
+    const ownerId = findChainOwner(anchorId, dimension, protos)?.id || anchorId;
+    const levels = buildLadderLevels(entries, 'below', {
+      baseColor: anchorProto?.color || '#8B0000',
+      protos
+    });
+    if (levels.length === 0) return;
+
+    wireLadder(ownerId, anchorId, dimension, levels);
+    wired.push({
+      node: anchorProto?.name || name,
+      rungs: levels.map((l) => l.name),
+      created: levels.filter((l) => !l.existingId).length,
+      reused: levels.filter((l) => l.existingId).length
+    });
+  };
+
+  const walk = (gid, s) => {
+    for (const n of (s?.nodes || [])) {
+      if (n?.isA?.length) wireFor(gid, n.name, n.isA, null);
+    }
+    for (const l of (s?.layers || [])) {
+      if (l?.isA?.length) wireFor(gid, l.name, l.isA, l._protoId);
+      if (l?.definition && l._defGraphId) walk(l._defGraphId, l.definition);
+    }
+  };
+
+  const hasAny = (s) => (s?.nodes || []).some((n) => n?.isA?.length)
+    || (s?.layers || []).some((l) => l?.isA?.length || (l?.definition && hasAny(l.definition)));
+  if (!spec || !hasAny(spec)) return { wired, warnings };
+
+  const store = useGraphStore.getState();
+  const run = () => walk(graphId, spec);
+  if (typeof store.withHistoryTransaction === 'function') {
+    store.withHistoryTransaction('Built abstraction chains', run);
+  } else {
+    run();
+  }
+
+  if (wired.length > 0) {
+    console.log(`[Wizard] ${label}: wired ${wired.length} is-a ladder(s):`,
+      wired.map((w) => `${w.node} → ${w.rungs.join(' → ')}`).join(' | '));
+  }
+  if (warnings.length > 0) console.warn(`[Wizard] ${label} ladder warnings:`, warnings);
+  return { wired, warnings };
+}
+
+/**
  * Build a node's abstraction axis (the `ladder` shape) from an ordered list of
  * names. The tool decided the order (specific → general); this resolves names to
- * real prototypes (LAST match) and wires the chain via addToAbstractionChain.
+ * real prototypes and wires the chain via addToAbstractionChain.
  * Returns a summary, or null if fewer than two members resolved (caller keeps
  * the flat node pile — never a hard error).
  */
-function applyAbstractionChain(orderNames, dimension = 'Generalization Axis') {
+function applyAbstractionChain(orderNames, dimension = DEFAULT_ABSTRACTION_DIMENSION) {
   const names = Array.isArray(orderNames) ? orderNames.filter(Boolean) : [];
   if (names.length < 2) return null;
   const st = useGraphStore.getState();
 
+  // findByLooseName, not exact-match: this used to compare lowercased names exactly
+  // while every other ladder path matched on a normalized+singularized key. Two
+  // matchers over one graph is how a second "Company" prototype appears next to the
+  // "Companies" already there. Note the .values() — findByLooseName wants prototype
+  // objects, and iterating the Map itself would yield [id, proto] pairs and match
+  // nothing.
+  const protos = [...st.nodePrototypes.values()];
   const ids = [];
   for (const name of names) {
-    const nl = String(name).toLowerCase().trim();
-    let id = null;
-    for (const [pid, proto] of st.nodePrototypes) {
-      if ((proto.name || '').toLowerCase().trim() === nl) id = pid; // LAST match
-    }
-    if (id && !ids.includes(id)) ids.push(id);
+    const hit = findByLooseName(name, protos);
+    if (hit?.id && !ids.includes(hit.id)) ids.push(hit.id);
   }
   if (ids.length < 2) return null;
 
@@ -1630,6 +1781,14 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
 
     decomposeCompositionLayers(graphId, result.spec.layers, warnings);
 
+    // Ladders AFTER decomposition: decomposeCompositionLayers retargets instances at
+    // an existing prototype, which changes what a node name resolves to.
+    try {
+      applyNodeLadders(result.spec, { graphId, label: 'buildComposition' });
+    } catch (e) {
+      console.warn('[Wizard] buildComposition: isA ladders failed (build kept):', e);
+    }
+
     // Layout runs AFTER decomposition on purpose: the layout engine is
     // group-aware (offscreenLayout passes graph.groups through), so it can only
     // place members sensibly once the groups exist.
@@ -1827,6 +1986,12 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       overwriteDescription: result.overwriteDescription || false
     }, 'populateDefinitionGraph');
 
+    try {
+      applyNodeLadders(result.spec, { graphId, label: 'populateDefinitionGraph' });
+    } catch (e) {
+      console.warn('[Wizard] populateDefinitionGraph: isA ladders failed (build kept):', e);
+    }
+
     scheduleGraphLayout(graphId);
 
     if (result.enrich !== false) {
@@ -1990,6 +2155,17 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       enrich: result.enrich !== false,
       overwriteDescription: result.overwriteDescription || false
     }, 'createPopulatedGraph');
+
+    // Per-node ladders run BEFORE the whole-graph ladder below. addToAbstractionChain
+    // inserts relatively, so this order lets the graph-level pass extend whatever the
+    // per-node pass left; the reverse would splice rungs into a finished ladder. The
+    // tool also strips isA when the whole graph IS the ladder, so in practice only one
+    // of the two fires.
+    try {
+      applyNodeLadders(result.spec, { graphId, label: 'createPopulatedGraph' });
+    } catch (e) {
+      console.warn('[Wizard] createPopulatedGraph: isA ladders failed (build kept):', e);
+    }
 
     // 3b. Ladder → build the abstraction axis instead of a disconnected pile.
     // Falls back silently to the flat nodes if it can't resolve enough rungs.
@@ -2217,6 +2393,12 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       overwriteDescription: result.overwriteDescription || false
     }, 'expandGraph');
 
+    try {
+      applyNodeLadders(result.spec, { graphId: activeGraphId, label: 'expandGraph' });
+    } catch (e) {
+      console.warn('[Wizard] expandGraph: isA ladders failed (build kept):', e);
+    }
+
     // Verify the operation actually succeeded
     const updatedGraph = store.graphs.get(activeGraphId);
     const actualNodeCount = updatedGraph?.instances?.size || 0;
@@ -2282,50 +2464,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       return;
     }
 
-    const wire = () => {
-      // Each side walks outward from the anchor, each rung placed against the one
-      // before it, so ordering never depends on the chain's current contents.
-      const anchors = { below: result.anchorId, above: result.anchorId };
-
-      for (const level of (result.levels || [])) {
-        let protoId = level.existingId;
-
-        if (protoId && !store.nodePrototypes.has(protoId)) {
-          console.error('[Wizard] buildAbstractionChain: stale prototype id, recreating:', level.name);
-          protoId = null;
-        }
-
-        if (!protoId) {
-          protoId = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          store.addNodePrototype({
-            id: protoId,
-            name: level.create?.name || level.name,
-            color: level.create?.color || '#8B0000',
-            description: level.create?.description || '',
-            typeNodeId: 'base-thing-prototype',
-            definitionGraphIds: []
-          });
-        } else if (level.description) {
-          // Reused rung: fill in a description only if it has none. A node the user
-          // already described is theirs, and the ladder is no reason to rewrite it.
-          const existing = store.nodePrototypes.get(protoId);
-          if (existing && !(existing.description || '').trim()) {
-            store.updateNodePrototype(protoId, (draft) => {
-              draft.description = level.description;
-            });
-          }
-        }
-
-        store.addToAbstractionChain(
-          result.nodeId,
-          result.dimension,
-          level.direction,
-          protoId,
-          anchors[level.direction]
-        );
-        anchors[level.direction] = protoId;
-      }
-    };
+    const wire = () => wireLadder(result.nodeId, result.anchorId, result.dimension, result.levels);
 
     // One undo step for the whole ladder — undoing half a ladder would leave the
     // chain in a state the user never asked for.

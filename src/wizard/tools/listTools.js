@@ -54,7 +54,7 @@ Every node-creating tool also accepts an optional per-node \`size\` ("extra-smal
 - **condenseToNode**(nodeNames[]*, newNodeName*, description, color, targetGraphId) — Package Things into a new Thing with definition Web
 - **decomposeNode**(nodeName*, targetGraphId) — Unpack a Thing's definition into current Web
 - **manageDefinitions**(nodeName*, action*:"add"|"remove"|"setActive", definitionGraphId) — Manage definition Webs
-- **abstractionChain**(nodeName*, action*:"read"|"add"|"remove", dimension, entries[]) — Abstraction spectrum (Dog → Mammal → Animal)
+- **abstractionChain**(nodeName*, action*:"read"|"build"|"add"|"remove", dimension, moreGeneric[], moreSpecific[]) — Is-a ladder on the abstraction axis (Ford Motor Company → Automaker → Company). "build" does a whole ladder in one call. While building a Web, use the \`isA\` field on a node instead.
 
 ## Planning & Interaction
 - **planTask**(steps[{description,status,substeps}]*) — Create/update a multi-step plan

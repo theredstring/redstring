@@ -16,6 +16,7 @@ import { dedupeHistory, dedupKeyFor } from './historyDedup.js';
 import { WIZARD_SYSTEM_PROMPT, SMALL_MODEL_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 import { parseTextToolCalls } from './utils/parseTextToolCalls.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
+import { readIsAList, findByLooseName, DEFAULT_ABSTRACTION_DIMENSION } from './tools/utils/abstractionSpec.js';
 
 // Load system prompt
 let SYSTEM_PROMPT = WIZARD_SYSTEM_PROMPT;
@@ -61,6 +62,56 @@ const MAX_HISTORY_TOKENS = 24000;
  * @param {Object} spec - { nodes: [...], edges: [...], groups: [...] }
  * @returns {{ nodesAdded: number, edgesAdded: number }}
  */
+/**
+ * Mirror a ladder's rungs into predictive state, minting ids for those that don't
+ * exist yet so a follow-up call in the same turn sees them by name rather than asking
+ * for them again. Predictive ids only — the applier assigns the real ones and resolves
+ * rungs against the live store regardless, so this is about the model's view, not
+ * correctness.
+ */
+function mirrorLadderLevels(graphState, ownerProto, dimension, levels) {
+  if (!ownerProto) return;
+  ownerProto.abstractionChains = ownerProto.abstractionChains || {};
+  const chain = ownerProto.abstractionChains[dimension] || [ownerProto.id];
+
+  for (const level of (levels || [])) {
+    let id = level.existingId;
+    if (!id) {
+      id = `proto-${Math.random().toString(36).slice(2, 10)}`;
+      (graphState.nodePrototypes || []).push({
+        id,
+        name: level.create?.name || level.name,
+        color: level.create?.color,
+        description: level.create?.description || ''
+      });
+    }
+    if (!chain.includes(id)) {
+      // 'below' is more generic (later in the chain), 'above' more specific.
+      if (level.direction === 'below') chain.push(id);
+      else chain.unshift(id);
+    }
+  }
+  ownerProto.abstractionChains[dimension] = chain;
+}
+
+/**
+ * Mirror an inline `isA` ladder (nearest-first, all more generic) onto a prototype,
+ * reusing a same-named rung this run already minted.
+ */
+function mirrorLadder(graphState, ownerProto, isA) {
+  const protos = graphState.nodePrototypes || [];
+  const levels = readIsAList(isA).map((entry) => {
+    const existing = findByLooseName(entry.name, protos);
+    return {
+      name: existing?.name || entry.name,
+      existingId: existing?.id || null,
+      direction: 'below',
+      create: { name: entry.name, description: entry.description || '' }
+    };
+  });
+  mirrorLadderLevels(graphState, ownerProto, DEFAULT_ABSTRACTION_DIMENSION, levels);
+}
+
 function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
   const nodeSpecs = spec.nodes || [];
   const edgeSpecs = spec.edges || [];
@@ -117,6 +168,7 @@ function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
     }
   }
 
+  const mintedProtos = [];
   nodeSpecs.forEach((n, idx) => {
     const protoId = `proto-${Date.now()}-${idx}`;
     const instId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
@@ -128,18 +180,27 @@ function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
       ...(typeof n.sizeMul === 'number' ? { sizeMul: n.sizeMul } : {})
     });
 
-    graphState.nodePrototypes.push({
+    const proto = {
       id: protoId,
       name: n.name,
       color: n.color || NODE_DEFAULT_COLOR,
       description: n.description || '',
       typeNodeId: n.type ? typeMap.get(String(n.type).toLowerCase().trim()) : null,
       definitionGraphIds: []
-    });
+    };
+    graphState.nodePrototypes.push(proto);
+    mintedProtos.push({ spec: n, proto });
 
     nameToInstId.set(n.name, instId);
     nameToInstId.set((n.name || '').toLowerCase().trim(), instId);
   });
+
+  // 2b. Mirror any is-a ladders so a follow-up call in the same turn sees the rungs
+  // by name instead of re-creating them. Predictive ids only — the applier assigns
+  // the real ones, and resolves rungs against the live store regardless.
+  for (const { spec, proto } of mintedProtos) {
+    if (spec.isA?.length) mirrorLadder(graphState, proto, spec.isA);
+  }
 
   // 3. Create edges — resolve source/target by name, add to graphState.edges + targetGraph.edgeIds
   let edgesAdded = 0;
@@ -682,11 +743,16 @@ export function updateGraphState(graphState, _toolName, _args, result) {
         for (const n of (spec.nodes || [])) {
           const protoId = uid('proto');
           const instId = uid('inst');
-          graphState.nodePrototypes.push({
+          const proto = {
             id: protoId, name: n.name, color: n.color, description: n.description || '', definitionGraphIds: []
-          });
+          };
+          graphState.nodePrototypes.push(proto);
           graph.instances.push({ id: instId, prototypeId: protoId, name: n.name });
           createdIds.push(instId);
+          // buildComposition doesn't go through applyBulkSpecToInternalState, so its
+          // ladders need mirroring here or a follow-up call in the same turn won't
+          // see the rungs by name.
+          if (n.isA?.length) mirrorLadder(graphState, proto, n.isA);
         }
 
         for (const layer of (spec.layers || [])) {
@@ -843,32 +909,11 @@ export function updateGraphState(graphState, _toolName, _args, result) {
       console.error('[updateGraphState] editAbstractionChain:', result.operationType, proto.name);
     }
   } else if (result.action === 'buildAbstractionChain') {
-    // Mirror the whole ladder into predictive state, minting ids for the rungs that
-    // don't exist yet so a follow-up call in the same turn can see them by name.
-    // These ids are predictive only — the applier assigns the real ones.
     const proto = (graphState.nodePrototypes || []).find(p => p.id === result.nodeId);
     if (proto) {
-      proto.abstractionChains = proto.abstractionChains || {};
-      const chain = proto.abstractionChains[result.dimension] || [result.nodeId];
-      for (const level of (result.levels || [])) {
-        let id = level.existingId;
-        if (!id) {
-          id = `proto-${Math.random().toString(36).slice(2, 10)}`;
-          (graphState.nodePrototypes || []).push({
-            id,
-            name: level.create?.name || level.name,
-            color: level.create?.color,
-            description: level.create?.description || ''
-          });
-        }
-        if (!chain.includes(id)) {
-          // 'below' is more generic (later in the chain), 'above' more specific.
-          if (level.direction === 'below') chain.push(id);
-          else chain.unshift(id);
-        }
-      }
-      proto.abstractionChains[result.dimension] = chain;
-      console.error('[updateGraphState] buildAbstractionChain:', proto.name, chain.length, 'levels');
+      mirrorLadderLevels(graphState, proto, result.dimension, result.levels);
+      console.error('[updateGraphState] buildAbstractionChain:', proto.name,
+        (proto.abstractionChains?.[result.dimension] || []).length, 'levels');
     }
   } else if (result.action === 'themeGraph' && result.updates) {
     for (const update of result.updates) {

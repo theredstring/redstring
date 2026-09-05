@@ -18,6 +18,7 @@
 
 import { getRandomPalette } from '../../ai/palettes.js';
 import { analyzeGraphQuality } from './graphQuality.js';
+import { summarizeLadders } from './utils/abstractionSpec.js';
 import { resolveGraphId } from './resolveGraphId.js';
 import {
   normalizeGraphSpec,
@@ -92,8 +93,19 @@ export async function buildComposition(args, graphState) {
 
   console.error('[buildComposition] graph:', graphId, 'layers:', ctx.stats.layerCount, 'maxDepth:', ctx.stats.maxDepth);
 
+  // Ladders can sit on nodes at any depth, and result.spec never reaches the model —
+  // so gather them across the whole nesting for the summary.
+  const collectLaddered = (s) => [
+    ...(s?.nodes || []).filter((n) => n?.isA?.length),
+    ...(s?.layers || []).flatMap((l) => [
+      ...(l?.isA?.length ? [l] : []),
+      ...collectLaddered(l?.definition)
+    ])
+  ];
+
   return {
     action: 'buildComposition',
+    ...summarizeLadders(collectLaddered(spec)),
     graphId,
     graphName,
     // Stripped from LLM history by sanitizeResultForLLM; reaches the applier intact.

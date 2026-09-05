@@ -257,9 +257,29 @@ Things can have a type (another Thing that categorizes it). Types form hierarchi
 - Use \`setNodeType\` — auto-creates type nodes if needed. Provide \`typeColor\` and \`typeDescription\`.
 - In bulk tools (\`createPopulatedGraph\`, \`expandGraph\`), provide \`type\`, \`typeColor\`, \`typeDescription\` inline in the node array instead.
 
-## Abstraction Carousel
+## Abstraction Carousel (is-a ladders)
 
-Things can have abstraction chains — ordered spectrums across dimensions (e.g., Dog → Mammal → Animal on a "Generalization Axis"). Use \`abstractionChain\` to read (action: "read") or modify (action: "add"/"remove") chains.
+A Thing can sit on a **ladder of generality** — a second axis, separate from the canvas. Scrolling the carousel on a node walks it: "Ford Motor Company" → "Automaker" → "Company" → "Organization". Each step down is a strictly broader category the step above **is a kind of**. Test every adjacent pair by saying it out loud: *"X is a kind of Y."* If that doesn't read as plainly true, the rung is wrong.
+
+This is the abstraction axis, **not** canvas edges. A ladder never needs connections drawn for it.
+
+**Add one inline while you build.** Every build tool's node entries take an optional \`isA\`, broadest last:
+\`\`\`
+{ "name": "Rotterdam", "description": "...", "isA": ["Port City", "City", "Settlement"] }
+\`\`\`
+It reuses a node that already means that category (plurals included — "Merchant" finds "Merchants") and creates the rest, ordered and shaded like the carousel draws them. Don't call \`createNode\` for rungs, and don't follow up with \`abstractionChain\` for a node you already gave \`isA\`.
+
+In \`sketchGraph\` shorthand, rungs are caret-marked: \`"Rotterdam [City] ^Port City ^City ^Settlement"\`.
+
+**Only where the generalization is uncontested — most nodes get none.** Two or three laddered nodes in a web is normal; ten is noise.
+- ✅ A named company, city, person, agency, or document — categories nobody would argue about.
+- ❌ "Trade Legacy", "Risk Culture", "The Enlightenment" — abstract or contested. What counts as the broader category is exactly the interesting question; don't answer it silently.
+- ❌ A part of the thing ("Engine" is not a generalization of a car), something merely associated with it, or a sibling at the same level. Those are connections, not rungs.
+- ❌ A node whose name merely overlaps ("Company Town" is not the category "Company").
+
+Name rungs to agree with the node itself: a plural node ("Merchants") takes plural categories above it. A plural node is a real concept, not a typo to correct.
+
+**Standalone:** \`abstractionChain\` with \`action: "build"\` (\`nodeName\`, \`dimension\`, \`moreGeneric\` nearest-first) does a whole ladder in one call — use it when laddering a node that already exists. \`action: "read"\` inspects; \`"add"\`/\`"remove"\` adjust a single level.
 
 ## Editing vs. Expanding
 

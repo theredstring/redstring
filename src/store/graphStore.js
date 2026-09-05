@@ -7170,11 +7170,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
         const { merged, report } = mergeUniverses(currentState, incomingState, { foldSameAs });
 
-        // Session/UI state is the live store's.
-        merged.openGraphIds = currentState.openGraphIds;
+        // Open and expanded webs are unioned by the engine — which webs are open
+        // is part of what a universe IS, not chrome to discard. What stays
+        // strictly the live store's is where you are POINTED: a merge adds tabs,
+        // it never moves you off the web you were working in.
         merged.activeGraphId = currentState.activeGraphId;
         merged.rightPanelTabs = currentState.rightPanelTabs;
-        merged.expandedGraphIds = currentState.expandedGraphIds;
         merged.activeDefinitionNodeId = currentState.activeDefinitionNodeId;
 
         sanitizeStoreStateReferences(merged);

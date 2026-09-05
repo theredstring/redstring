@@ -4429,6 +4429,47 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
           setExternalLinkModalOpen(false);
         }}
+        onMergeIntoCurrent={async (storeState, suggestedName) => {
+          // The external file is only READ. Unlike the other three destinations
+          // this makes no universe — it folds the link's contents into the one
+          // already open, which is therefore the destination and the source of
+          // truth for any unavoidable ID collision.
+          const active = serviceState.universes.find(u => u.slug === serviceState.activeUniverseSlug);
+          if (!active) throw new Error('No universe is open to merge into.');
+
+          const incomingUniverse = { name: suggestedName || 'the linked universe' };
+          setExternalLinkModalOpen(false);
+          setMergeDialog({
+            phase: 'working',
+            active,
+            destination: active,
+            incomingUniverse,
+            incomingIsInList: false,
+            report: null,
+            error: null
+          });
+
+          try {
+            try {
+              await universeBackend.saveActiveUniverse();
+            } catch (saveErr) {
+              umWarn('[ExternalLink] Could not save before merge (continuing):', saveErr);
+            }
+
+            const report = useGraphStore.getState().mergeUniverseState(storeState, { foldSameAs: true });
+            if (!report) throw new Error(`The merge could not be applied to "${active.name}".`);
+
+            await universeBackend.saveActiveUniverse();
+            await refreshState();
+            setMergeDialog((prev) => ({ ...prev, phase: 'result', report, error: null }));
+          } catch (err) {
+            umError('[ExternalLink] Merge into current universe failed:', err);
+            setMergeDialog((prev) => ({ ...prev, phase: 'result', report: null, error: err.message }));
+          }
+        }}
+        currentUniverseName={
+          serviceState.universes.find(u => u.slug === serviceState.activeUniverseSlug)?.name || null
+        }
         onKeepInMemory={async (storeState, suggestedName, sourceUrl) => {
           await universeManagerService.createUniverse(suggestedName, {
             enableLocal: false,
@@ -4925,14 +4966,17 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           onFoldSameAsChange={(foldSameAs) => setMergeDialog({ ...mergeDialog, foldSameAs })}
           destination={mergeDialog.destination}
           incomingUniverse={mergeDialog.incomingUniverse}
+          incomingIsInList={mergeDialog.incomingIsInList !== false}
           report={mergeDialog.report}
           error={mergeDialog.error}
           onConfirm={runMerge}
-          onDisconnectSource={() => {
+          // Omitted for a link-sourced merge: there is no universe entry to
+          // disconnect, and the dialog hides the button when it isn't given.
+          onDisconnectSource={mergeDialog.incomingUniverse?.slug ? () => {
             const { incomingUniverse } = mergeDialog;
             setMergeDialog(null);
             handleDeleteUniverse(incomingUniverse.slug, incomingUniverse.name);
-          }}
+          } : undefined}
           onClose={() => setMergeDialog(null)}
         />
       )}

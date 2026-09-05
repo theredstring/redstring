@@ -154,6 +154,9 @@ const MergeUniverseDialog = ({
   onFoldSameAsChange,
   destination,
   incomingUniverse,
+  // False when the incoming side came from a link rather than the universes
+  // list: there is then nothing to disconnect and nothing left behind.
+  incomingIsInList = true,
   report = null,
   error = null,
   onConfirm,
@@ -330,8 +333,9 @@ const MergeUniverseDialog = ({
                 </div>
               )}
               <div style={{ marginTop: 4, fontSize: '0.75rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
-                Everything now lives in "{destName}". "{incomingName}" was not changed and is
-                still in your list.
+                {incomingIsInList
+                  ? `Everything now lives in "${destName}". "${incomingName}" was not changed and is still in your list.`
+                  : `Everything now lives in "${destName}". Nothing was written back to the link it came from.`}
                 {switched && ` You're now working in "${destName}".`}
               </div>
             </>
@@ -359,7 +363,7 @@ const MergeUniverseDialog = ({
               <>
                 {/* Deliberately the quiet button: disconnecting is a separate,
                     destructive decision, not the natural end of a merge. */}
-                {!error && (
+                {!error && onDisconnectSource && (
                   <DialogButton onClick={onDisconnectSource}>
                     Disconnect {incomingName}…
                   </DialogButton>

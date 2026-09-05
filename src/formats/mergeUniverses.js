@@ -250,9 +250,11 @@ export function mergeUniverses(base, incoming, options = {}) {
     // Unioned below. Leaving this out entirely used to dangle the typeNodeId of
     // every incoming edge that used a custom connection type.
     edgePrototypes:       new Map(base.edgePrototypes || new Map()),
-    openGraphIds:         base.openGraphIds       || [],
+    // Copies, not references: these are unioned in place below, and the base
+    // is the LIVE store state — pushing onto its own array would mutate it.
+    openGraphIds:         [...(base.openGraphIds || [])],
     activeGraphId:        base.activeGraphId      || null,
-    expandedGraphIds:     base.expandedGraphIds   || new Set(),
+    expandedGraphIds:     new Set(base.expandedGraphIds || new Set()),
     savedNodeIds:         new Set(base.savedNodeIds || new Set()),
     savedGraphIds:        new Set(base.savedGraphIds || new Set()),
     rightPanelTabs:       base.rightPanelTabs     || [],
@@ -390,6 +392,20 @@ export function mergeUniverses(base, incoming, options = {}) {
   // -- Edge prototypes: set-union (identical ID → base wins) --
   for (const [epid, edgeProto] of (incoming.edgePrototypes || new Map())) {
     if (!merged.edgePrototypes.has(epid)) merged.edgePrototypes.set(epid, edgeProto);
+  }
+
+  // -- Open webs: union, base's first then the incoming ones appended.
+  //
+  // Which webs are open is not session chrome to be discarded — it is the
+  // shape the universe is actually experienced in, and dropping it loses the
+  // arrangement of the side being merged in while keeping every one of its
+  // webs. Base's order is preserved so the tabs you were working in stay put
+  // and the incoming ones arrive after them. --
+  for (const gid of (incoming.openGraphIds || [])) {
+    if (!merged.openGraphIds.includes(gid)) merged.openGraphIds.push(gid);
+  }
+  for (const gid of (incoming.expandedGraphIds || new Set())) {
+    merged.expandedGraphIds.add(gid);
   }
 
   // -- Saved sets: union. These are the user's own saved items, so a merge that

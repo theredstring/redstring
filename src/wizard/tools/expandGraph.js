@@ -13,7 +13,8 @@ import { resolveGraphId } from './resolveGraphId.js';
 import { runStructureReview } from './utils/structureReview.js';
 import { newBuildId } from '../../services/oneShot.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
-import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning } from './utils/graphSpec.js';
+import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning, normalizeNodeSpec } from './utils/graphSpec.js';
+import { applyLadderCap, summarizeLadders } from './utils/abstractionSpec.js';
 
 /**
  * Convert string to Title Case
@@ -72,17 +73,16 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   // Pick a palette if none provided
   const activePalette = palette || getRandomPalette();
 
-  // Build node specs
-  let nodeSpecs = nodes.map(n => ({
-    name: n.name,
-    color: resolvePaletteColor(activePalette, n.color),
-    description: n.description || '',
-    // undefined at the default size — see nodeSize.js
-    sizeMul: nodeSizeMul(n.size),
-    type: n.type || null,
-    typeColor: resolvePaletteColor(activePalette, n.typeColor || '#A0A0A0'),
-    typeDescription: n.typeDescription || ''
-  }));
+  // Build node specs — shape lives in normalizeNodeSpec (graphSpec.js)
+  let nodeSpecs = nodes.map(n => normalizeNodeSpec(n, activePalette));
+
+  // Backstop the "only clear cases" instruction: a ladder on every node is noise.
+  const ladderWarnings = [];
+  {
+    const capped = applyLadderCap(nodeSpecs);
+    nodeSpecs = capped.nodeSpecs;
+    if (capped.warning) ladderWarnings.push(capped.warning);
+  }
 
   // Composition. Normalized BEFORE edge validation because a layer materializes
   // as a Thing at this level, which makes its name a legal edge endpoint — and
@@ -191,6 +191,8 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   // Return full spec so UI can apply it directly (same pattern as createPopulatedGraph)
   return {
     action: 'expandGraph',
+    ...summarizeLadders(nodeSpecs),
+    ladderWarnings: ladderWarnings.length > 0 ? ladderWarnings : null,
     graphId, // Can be activeGraphId or targetGraphId
     buildId,
     structureSuggestions,
