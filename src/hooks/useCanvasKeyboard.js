@@ -4,6 +4,7 @@ import useGraphStore from '../store/graphStore.js';
 import { performUndo, performRedo } from '../store/historyActions.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from '../utils/clipboard';
 import { getNodeDimensions } from '../utils';
+import { isTextEntryActive, isTextEntryTarget } from '../utils/textEntry.js';
 import { NODE_DEFAULT_COLOR } from '../constants'; // Assumed constant exists
 
 // Constants (moved from NodeCanvas.jsx)
@@ -137,12 +138,6 @@ export const useCanvasKeyboard = ({
         // Typing in a field must get the browser's own text undo. This handler
         // used to preventDefault on every Cmd+Z, which killed native undo inside
         // node name and description editors.
-        const isTextEntryTarget = (target) => !!target && (
-            target.tagName === 'INPUT' ||
-            target.tagName === 'TEXTAREA' ||
-            target.isContentEditable === true
-        );
-
         const handleKeyDown = (e) => {
             const key = e.key.toLowerCase();
             const cmdOrCtrl = e.ctrlKey || e.metaKey;
@@ -447,7 +442,12 @@ export const useCanvasKeyboard = ({
     // ---------------------------------------------------------------------------
     useEffect(() => {
         const handleKeyDown = (e) => {
-            const isInputActive = isHeaderEditing || isRightPanelInputFocused || isLeftPanelInputFocused || nodeNamePrompt.visible;
+            // The panel focus flags only cover fields wired to report focus, so
+            // they miss the wizard chat and any editor added since. Asking the
+            // DOM as well means no text field can leak a Backspace onto the
+            // canvas and delete the selection.
+            const isInputActive = isHeaderEditing || isRightPanelInputFocused || isLeftPanelInputFocused
+                || nodeNamePrompt.visible || isTextEntryActive(e);
 
             // Skip keys already handled by Tab-scrub
             if (e.key === 'Tab') return;
@@ -460,13 +460,7 @@ export const useCanvasKeyboard = ({
             if (abstractionCarouselVisible) {
                 const isDeleteOrBackspace = e.key === 'Delete' || e.key === 'Backspace';
                 if (isDeleteOrBackspace) {
-                    const target = e.target;
-                    const isEditableTarget = target && (
-                        target.tagName === 'INPUT' ||
-                        target.tagName === 'TEXTAREA' ||
-                        target.isContentEditable === true
-                    );
-                    if (!isEditableTarget) {
+                    if (!isTextEntryTarget(e.target)) {
                         e.preventDefault();
                         e.stopPropagation();
                         return;

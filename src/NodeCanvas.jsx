@@ -103,6 +103,7 @@ import {
   MIDDLE_MOUSE_ZOOM_SENSITIVITY,
   NODE_DEFAULT_COLOR,
   CONNECTION_DEFAULT_COLOR,
+  CONNECTION_WIDTH_BASE_SCALE,
   MODAL_CLOSE_ICON_SIZE,
   DARK_MODE_BG_COLOR,
   LIGHT_MODE_BG_COLOR,
@@ -308,6 +309,19 @@ const EMPTY_ORBIT = Object.freeze({ ring1: [], ring2: [], ring3: [], ring4: [], 
 // spatial index over it, and at this density there is no uncrossed spot left to
 // move to — so it would be paid for in full and return nothing.
 const LABEL_CROSSING_BUDGET = 220;
+
+// A multi-node delete fires its ghosts in shuffled order, one step apart, rather
+// than all at once. Shuffling keeps it from reading as a mechanical sweep in
+// whatever order the selection happened to be stored, and a fixed step reads as a
+// deliberate cascade where a purely random offset just reads as jitter. The total
+// spread is capped so a large selection tightens its step instead of trailing on
+// long after the nodes are gone.
+// The step is a sizeable fraction of the 280ms shrink on purpose: the ghost eases
+// in, so it barely moves for the first stretch of its own animation, and a step
+// much shorter than this lands entirely inside that motionless window — the
+// offset is real but there is nothing on screen yet to read it against.
+const DELETE_GHOST_STAGGER_STEP_MS = 50;
+const DELETE_GHOST_STAGGER_MAX_MS = 150;
 
 // EXCLUSIVE_PANEL_MODE_THRESHOLD is imported from ./constants (shared with Panel.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
@@ -1117,7 +1131,7 @@ function NodeCanvas() {
   const orthogonalLaneSpacing = curveSpacing * ORTHOGONAL_LANE_FRACTION;
   const lombardiLaneSpacing = curveSpacing * LOMBARDI_LANE_FRACTION;
   const textSettings = useGraphStore(state => state.textSettings);
-  const connectionWidth = textSettings?.connectionWidth ?? 1.0;
+  const connectionWidth = (textSettings?.connectionWidth ?? 1.0) * CONNECTION_WIDTH_BASE_SCALE;
   const connectionLabelSize = useGraphStore(state => state.connectionLabelSize ?? 1.0);
   const groupLayoutAlgorithm = useGraphStore(state => state.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven');
   const showClusterHulls = useGraphStore(state => state.autoLayoutSettings?.showClusterHulls || false);
@@ -6113,11 +6127,13 @@ function NodeCanvas() {
       lines.push('- Use node names exactly as they appear above. Do not pass IDs you have not seen in this message.');
       lines.push('');
       lines.push('Searching is never the finished job. If you look something up first, come back and make the build call in the same turn — the task is done when the levels are actually on the chain, not when you have decided what they should be.');
+      lines.push('');
+      lines.push('Reporting back: the user does NOT see this message — on their side it appears only as a small "Build abstraction chain" chip. So write your reply as if they had simply asked for the chain in their own words. Say what the ladder now is and flag anything you were unsure of. Do not refer to these instructions, to the context you were given, to the goals or rules above, or to the tool call itself.');
     } else {
       lines.push('Tool to use this time:');
       lines.push(`- abstractionChain with action="build", nodeName="${protoName}", dimension="${dimension}", moreGeneric=[…] ordered nearest-first. One call; it reuses or creates each rung itself.`);
       lines.push('');
-      lines.push('(Reminder: same generalization-ladder goal, reuse-before-creating guidance, and direction/relativeTo rules as the previous Ask The Wizard message in this conversation. Use node names, never IDs.)');
+      lines.push('(Reminder: same generalization-ladder goal and rules as the previous Ask The Wizard message in this conversation. Use node names, never IDs. As before, the user does not see this message — reply as if they had asked for the chain in their own words, without referring to these instructions.)');
     }
 
     const subjectLabel = `"${protoName}"`;
@@ -6656,20 +6672,42 @@ function NodeCanvas() {
       height: dims.currentHeight - 12,
       rx,
       color: node.color || NODE_DEFAULT_COLOR,
+      delay: 0,
     };
   };
 
+  // Spawn the shrink ghosts for a set of instances without removing anything, so
+  // delete paths that need their own removal semantics (the control panel's
+  // Delete, which loops removeNodeInstance to take group anchors with it) still
+  // animate identically to the pie menu and keyboard paths.
+  const captureDeletionGhosts = (instanceIds) => {
+    const ids = instanceIds instanceof Set ? instanceIds : new Set(instanceIds);
+    const ghosts = [];
+    ids.forEach(id => { const g = _captureGhost(id); if (g) ghosts.push(g); });
+    if (!ghosts.length) return;
+
+    // Shuffle, then hand out the stagger by position, so which node goes first is
+    // random but the spacing between them stays even.
+    for (let i = ghosts.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ghosts[i], ghosts[j]] = [ghosts[j], ghosts[i]];
+    }
+    const step = ghosts.length > 1
+      ? Math.min(DELETE_GHOST_STAGGER_STEP_MS, DELETE_GHOST_STAGGER_MAX_MS / (ghosts.length - 1))
+      : 0;
+    ghosts.forEach((ghost, i) => { ghost.delay = i * step; });
+
+    setDeletionAnimations(prev => [...prev, ...ghosts]);
+  };
+
   const deleteNodeWithAnimation = (instanceId) => {
-    const ghost = _captureGhost(instanceId);
-    if (ghost) setDeletionAnimations(prev => [...prev, ghost]);
+    captureDeletionGhosts([instanceId]);
     storeActions.removeNodeInstance(activeGraphId, instanceId);
   };
 
   const deleteMultipleNodesWithAnimation = (instanceIds) => {
     const ids = instanceIds instanceof Set ? instanceIds : new Set(instanceIds);
-    const ghosts = [];
-    ids.forEach(id => { const g = _captureGhost(id); if (g) ghosts.push(g); });
-    if (ghosts.length) setDeletionAnimations(prev => [...prev, ...ghosts]);
+    captureDeletionGhosts(ids);
     storeActions.removeMultipleNodeInstances(activeGraphId, ids);
   };
 
@@ -8266,6 +8304,13 @@ function NodeCanvas() {
 
   const isMouseDown = useRef(false);
   const ignoreCanvasClick = useRef(false);
+  // Set when a marquee release just committed a selection, and consumed by the
+  // synthetic click the browser fires right after that mouseup. ignoreCanvasClick
+  // can't cover this: it deliberately falls through when something is selected, so
+  // the first click after a pan isn't wasted just clearing the flag — but that
+  // fall-through is exactly what reaches the click handler's deselect branch and
+  // wipes the selection the marquee just made.
+  const justCompletedBoxSelectRef = useRef(false);
   const mouseDownPosition = useRef({ x: 0, y: 0 });
   const mouseMoved = useRef(false);
   const startedOnNode = useRef(false);
@@ -11591,6 +11636,19 @@ function NodeCanvas() {
 
       // Finalize selection box
       if (selectionStart) {
+        // Only a marquee that actually dragged swallows its trailing click. A
+        // zero-drag Cmd+click also lands here and should keep behaving like the
+        // plain click it is. Read before the reset further down in this handler.
+        if (mouseMoved.current) justCompletedBoxSelectRef.current = true;
+        // Retire the marquee synchronously rather than in the worker callback
+        // below. selectionStart is already captured into the calculateSelection
+        // call, and the control-panel effect reads it as "still box-selecting" —
+        // leaving it set until a worker round-trip replies means the panel can't
+        // open on release, and whether it opens at all depends on how that reply
+        // interleaves with the synthetic click. Clearing here also drops the
+        // rectangle the instant the mouse comes up.
+        setSelectionStart(null);
+        setSelectionRect(null);
         const rect = containerRef.current.getBoundingClientRect();
         const rawX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
         const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
@@ -11615,10 +11673,6 @@ function NodeCanvas() {
           })
           .catch(error => {
             ignoreCanvasClick.current = true;
-          })
-          .finally(() => {
-            setSelectionStart(null);
-            setSelectionRect(null);
           });
       }
 
@@ -11738,6 +11792,14 @@ function NodeCanvas() {
     handleMouseUp(e);
   };
   const handleCanvasClick = (e) => {
+    // The click that closes a marquee gesture isn't a click on empty canvas — it
+    // must not deselect what the marquee just selected, exit orbit mode, or spawn
+    // a plus sign. Consumed once, so the next real click behaves normally.
+    if (justCompletedBoxSelectRef.current) {
+      justCompletedBoxSelectRef.current = false;
+      ignoreCanvasClick.current = false;
+      return;
+    }
     // Suppress canvas taps that arrive inside the post-pinch dead zone — otherwise
     // a finger lifting onto bare canvas after a multi-touch gesture spawns a stray PlusSign.
     // Allow deselection through even within the dead zone: the block was designed to suppress
@@ -13624,7 +13686,8 @@ function NodeCanvas() {
     NODE_DEFAULT_COLOR,
     onStartHurtleAnimationFromPanel: startHurtleAnimationFromPanel,
     onOpenColorPicker: handlePieMenuColorPickerOpen,
-    onActivateSemanticOrbit: activateSemanticOrbit
+    onActivateSemanticOrbit: activateSemanticOrbit,
+    onCaptureDeletionGhosts: captureDeletionGhosts
   });
 
   // Copy the whole selection (and any edges running between its members) to the
@@ -17823,7 +17886,7 @@ function NodeCanvas() {
                             rx={ghost.rx}
                             ry={ghost.rx}
                             fill={ghost.color}
-                            style={{ pointerEvents: 'none' }}
+                            style={{ pointerEvents: 'none', animationDelay: `${ghost.delay}ms` }}
                             onAnimationEnd={() =>
                               setDeletionAnimations(prev => prev.filter(a => a.id !== ghost.id))
                             }

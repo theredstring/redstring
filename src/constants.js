@@ -90,6 +90,11 @@ export const NODE_DEFAULT_COLOR = '#8B0000';
 // Define default connection color - red for new connections in UnifiedSelector
 export const CONNECTION_DEFAULT_COLOR = '#8B0000';
 
+// Rendered weight of a connection at the slider's 1x. What used to draw at 1.25x is
+// now the baseline, so multiply textSettings.connectionWidth by this everywhere edges
+// and their arrowheads are drawn. The slider itself stays unscaled (1x reads as 1x).
+export const CONNECTION_WIDTH_BASE_SCALE = 1.25;
+
 // Dark mode background colors
 export const DARK_MODE_BG_COLOR = '#3F3A3A';
 export const LIGHT_MODE_BG_COLOR = '#bdb5b5';

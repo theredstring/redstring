@@ -3,7 +3,7 @@ import useGraphStore from './store/graphStore.js';
 import { getNodeDimensions } from './utils.js';
 import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { isValidColor } from './ai/palettes.js';
-import { NODE_DEFAULT_COLOR } from './constants.js';
+import { NODE_DEFAULT_COLOR, CONNECTION_WIDTH_BASE_SCALE } from './constants.js';
 import { useTheme } from './hooks/useTheme.js';
 import { measureTextWidth } from './services/textMeasurement.js';
 import { CONNECTION_LABEL_BASE_FONT_SIZE, wrapConnectionLabel } from './UniversalNodeRenderer.presets.js';
@@ -203,7 +203,7 @@ const UniversalNodeRenderer = ({
   const activeGraphId = useGraphStore((state) => state.activeGraphId);
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
   const connectionWidthGlobalRaw = useGraphStore((state) => state.textSettings?.connectionWidth ?? 1.0);
-  const connectionWidthGlobal = ignoreGlobalScale ? 1.0 : connectionWidthGlobalRaw;
+  const connectionWidthGlobal = (ignoreGlobalScale ? 1.0 : connectionWidthGlobalRaw) * CONNECTION_WIDTH_BASE_SCALE;
   // Global node size. getNodeDimensions() inflates node geometry (width, padding,
   // corner radius) AND the canvas font by this factor. The renderer's node dims come
   // from getNodeDimensions (so they're already inflated), so text/padding/rounding

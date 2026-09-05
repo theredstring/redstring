@@ -3,7 +3,7 @@ import React, { useMemo, useEffect, useRef, useCallback } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { getNodeDimensions } from '../utils.js';
-import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from '../constants';
+import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR, CONNECTION_WIDTH_BASE_SCALE } from '../constants';
 import { candidateToConcept } from '../services/candidates.js';
 import useGraphStore from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
@@ -912,7 +912,7 @@ export default function OrbitOverlay({
   // ~3N selectors on the store, all of them re-running on every write.
   const theme = useTheme();
   const darkMode = theme.darkMode;
-  const connectionWidth = useGraphStore(state => state.textSettings?.connectionWidth ?? 1.0);
+  const connectionWidth = useGraphStore(state => (state.textSettings?.connectionWidth ?? 1.0) * CONNECTION_WIDTH_BASE_SCALE);
   const fontScale = useGraphStore(state => state.textSettings?.fontSize || 1);
   const connectionLabelSize = useGraphStore(state => state.connectionLabelSize ?? 1.0);
   const nodeScale = useGraphStore(state => state.textSettings?.nodeScale ?? 1.0);

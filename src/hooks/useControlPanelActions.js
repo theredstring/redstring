@@ -34,15 +34,19 @@ export function useControlPanelActions({
   NODE_DEFAULT_COLOR,
   onStartHurtleAnimationFromPanel,
   onOpenColorPicker,
-  onActivateSemanticOrbit
+  onActivateSemanticOrbit,
+  onCaptureDeletionGhosts
 }) {
 
   const handleNodePanelDelete = useCallback(() => {
     if (!activeGraphId || selectedInstanceIds.size === 0) return;
     const idsToDelete = Array.from(selectedInstanceIds);
+    // Capture the shrink ghosts before the instances leave the store, so a
+    // panel delete animates the same way the pie menu and Delete key do.
+    onCaptureDeletionGhosts?.(idsToDelete);
     idsToDelete.forEach(id => storeActions.removeNodeInstance(activeGraphId, id));
     setSelectedInstanceIds(new Set());
-  }, [activeGraphId, selectedInstanceIds, storeActions, setSelectedInstanceIds]);
+  }, [activeGraphId, selectedInstanceIds, storeActions, setSelectedInstanceIds, onCaptureDeletionGhosts]);
 
   const handleNodePanelAdd = useCallback(() => {
     setNodeNamePrompt({ visible: true, name: '', color: NODE_DEFAULT_COLOR });

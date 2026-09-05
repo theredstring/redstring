@@ -8,7 +8,8 @@ import {
     EXPANDED_NODE_WIDTH,
     NAME_AREA_FACTOR,
     NODE_CORNER_RADIUS,
-    NODE_DEFAULT_COLOR
+    NODE_DEFAULT_COLOR,
+    CONNECTION_WIDTH_BASE_SCALE
 } from './constants'; // Import necessary constants
 import { getNodeDimensions } from './utils.js'; // Import from utils.js
 import { getTextColor } from './utils/colorUtils.js';
@@ -55,7 +56,7 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
   const textSettings = useGraphStore(state => state.textSettings);
   const nodeScaleGlobal = textSettings?.nodeScale ?? 1.0;
-  const connectionWidth = textSettings?.connectionWidth ?? 1.0;
+  const connectionWidth = (textSettings?.connectionWidth ?? 1.0) * CONNECTION_WIDTH_BASE_SCALE;
 
   // Helper function to get edge color based on type hierarchy
   const getEdgeColor = (edge, destNode) => {

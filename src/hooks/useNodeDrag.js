@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import * as GeometryUtils from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
+import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
@@ -689,7 +690,7 @@ export const useNodeDrag = ({
     // the routing below needs it as well as the arrowhead transform does (the
     // Lombardi end back-offs scale with it; see lombardiArrowInsets).
     const dragStoreState = useGraphStore.getState();
-    const dragConnWidth = dragStoreState.textSettings?.connectionWidth ?? 1;
+    const dragConnWidth = (dragStoreState.textSettings?.connectionWidth ?? 1) * CONNECTION_WIDTH_BASE_SCALE;
 
     // A SELECTED connection carries the endpoint affordance the settled render
     // calls `isActive`: each arrow-less end retracts by an arrowhead's length
