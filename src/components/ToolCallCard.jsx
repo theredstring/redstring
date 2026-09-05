@@ -57,6 +57,7 @@ const TOOL_DISPLAY_LABELS = {
     // Enrichment
     enrichFromWikipedia: 'Enriching from Wikipedia',
     linkIdentifier: 'Linking identifier',
+    findWork: 'Looking up publications',
     themeGraph: 'Theming web',
     // Planning
     planTask: 'Planning task',
@@ -253,17 +254,39 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
         }
 
         if (toolName === 'linkIdentifier') {
-            const node = result.nodeName || parsedArgs?.nodeName || 'thing';
-            const id = [result.authority, result.identifier].filter(Boolean).join(' ')
-                || parsedArgs?.identifier
-                || 'identifier';
-            if (result.alreadyLinked) return `"${node}" already carries ${id}`;
-            // The registered title is the reason the tool looks a DOI up at all:
-            // it's what makes a bare number checkable without following it. The
-            // row clips to one line, so a long paper title costs nothing.
-            return result.label
-                ? `Linked ${id} to "${node}" — ${result.label}`
-                : `Linked ${id} to "${node}"`;
+            const links = Array.isArray(result.links) ? result.links : [];
+            const failed = Array.isArray(result.failures) ? result.failures.length : 0;
+            const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
+
+            if (links.length === 1 && !failed && !skipped) {
+                const link = links[0];
+                const id = [link.authority, link.identifier].filter(Boolean).join(' ') || 'identifier';
+                // The registered title is the reason the tool looks a DOI up at
+                // all: it's what makes a bare number checkable without following
+                // it. The row clips to one line, so a long title costs nothing.
+                return link.label
+                    ? `Linked ${id} to "${link.nodeName}" — ${link.label}`
+                    : `Linked ${id} to "${link.nodeName}"`;
+            }
+
+            const parts = [];
+            if (links.length) parts.push(`Linked ${links.length} identifier${links.length !== 1 ? 's' : ''}`);
+            if (skipped) parts.push(`${skipped} already present`);
+            // Named plainly: a batch that half-failed must not read as a success.
+            if (failed) parts.push(`${failed} could not be verified`);
+            return parts.join(' · ') || 'Nothing to link';
+        }
+
+        if (toolName === 'findWork') {
+            const rows = Array.isArray(result.results) ? result.results : [];
+            const found = result.queriesWithCandidates ?? rows.filter(r => (r.candidates || []).length).length;
+            if (rows.length === 1) {
+                const top = rows[0]?.candidates?.[0];
+                return top
+                    ? `${top.identifier} — ${top.label}`
+                    : `Nothing found for "${rows[0]?.query}"`;
+            }
+            return `Found candidates for ${found} of ${rows.length} work${rows.length !== 1 ? 's' : ''}`;
         }
 
         if (toolName === 'abstractionChain') {

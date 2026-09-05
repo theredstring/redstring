@@ -25,6 +25,39 @@ const WIKIPEDIA_SUMMARY = 'https://en.wikipedia.org/api/rest_v1/page/summary';
 const DBPEDIA_LOOKUP = 'https://lookup.dbpedia.org/api/search';
 const DBPEDIA_SPARQL = 'https://dbpedia.org/sparql';
 const CROSSREF_API = 'https://api.crossref.org/works';
+
+/**
+ * Crossref's "polite pool" ticket.
+ *
+ * The anonymous pool 429s hard — measured here at three sequential requests,
+ * never mind parallel ones — and a rejected search used to fall through to a
+ * different registry and answer with something plausible and wrong. Identifying
+ * the client is what buys the headroom; Crossref asks for an address it can
+ * reach a misbehaving client at, and answers normally once it has one.
+ *
+ * Point this at a real inbox someone reads. Never at the end user's own address
+ * — this is the application identifying itself, not the person using it.
+ */
+const CROSSREF_MAILTO = 'redstring@users.noreply.github.com';
+
+/**
+ * A Crossref request, in the polite pool, retried once if it is still throttled.
+ *
+ * One retry, because the failure this guards against is a burst hitting the
+ * limiter, not an outage. Anything past that is the caller's to report.
+ */
+const crossrefFetch = async (url, { signal } = {}) => {
+  const polite = `${url}${url.includes('?') ? '&' : '?'}mailto=${encodeURIComponent(CROSSREF_MAILTO)}`;
+
+  const resp = await fetch(polite, { signal });
+  if (resp.status !== 429) return resp;
+
+  const retryAfter = Number(resp.headers.get('retry-after'));
+  const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 3000) : 1000;
+  await new Promise(resolve => setTimeout(resolve, waitMs));
+
+  return fetch(polite, { signal });
+};
 const DATACITE_API = 'https://api.datacite.org/dois';
 const PUBMED_API = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi';
 
@@ -149,26 +182,40 @@ const searchDBpedia = async (term, { limit, signal }) => {
  * answers with a redirect chain that browsers can't always follow with a custom
  * Accept header, so two direct calls are the reliable version.
  */
+/**
+ * One Crossref record, read as the line a row shows.
+ *
+ * Shared by the single-DOI lookup and the bibliographic search so the two can
+ * never describe the same paper differently — and so `journal` and `year` come
+ * back as fields, not only folded into the prose. Picking between "Golden Eggs
+ * and Hyperbolic Discounting" the 1997 QJE article and the 2011 book chapter of
+ * the same name is exactly what those two fields are for.
+ */
+const readCrossrefWork = (work) => {
+  const title = Array.isArray(work?.title) ? work.title[0] : work?.title;
+  if (!title) return null;
+
+  const authorList = work.author || [];
+  const authors = authorList.slice(0, 2).map(a => a.family || a.name).filter(Boolean);
+  const year = work.issued?.['date-parts']?.[0]?.[0] || null;
+  const journal = (Array.isArray(work['container-title']) ? work['container-title'][0] : null) || null;
+  const parts = [
+    authors.length ? `${authors.join(', ')}${authorList.length > 2 ? ' et al.' : ''}` : null,
+    journal,
+    year
+  ].filter(Boolean);
+
+  return { label: stripHtml(title), description: parts.join(' · '), journal, year, type: work.type || null };
+};
+
 const describeDOI = async (doi, { signal }) => {
   try {
-    const resp = await fetch(`${CROSSREF_API}/${encodeURIComponent(doi)}`, { signal });
+    // Polite pool here too: a throttled verification reads as "no such DOI",
+    // which would reject an identifier that is perfectly real.
+    const resp = await crossrefFetch(`${CROSSREF_API}/${encodeURIComponent(doi)}`, { signal });
     if (resp.ok) {
-      const work = (await resp.json())?.message;
-      const title = Array.isArray(work?.title) ? work.title[0] : work?.title;
-      if (title) {
-        const authors = (work.author || [])
-          .slice(0, 2)
-          .map(a => a.family || a.name)
-          .filter(Boolean);
-        const year = work.issued?.['date-parts']?.[0]?.[0];
-        const journal = Array.isArray(work['container-title']) ? work['container-title'][0] : null;
-        const parts = [
-          authors.length ? `${authors.join(', ')}${(work.author || []).length > 2 ? ' et al.' : ''}` : null,
-          journal,
-          year
-        ].filter(Boolean);
-        return { label: stripHtml(title), description: parts.join(' · ') };
-      }
+      const read = readCrossrefWork((await resp.json())?.message);
+      if (read) return { label: read.label, description: read.description };
     }
   } catch (error) {
     if (error?.name === 'AbortError') throw error;
@@ -181,6 +228,91 @@ const describeDOI = async (doi, { signal }) => {
   if (!title) return null;
   const parts = [attributes.publisher, attributes.publicationYear].filter(Boolean);
   return { label: stripHtml(title), description: parts.join(' · ') };
+};
+
+/**
+ * Papers matching a bibliographic description — the other direction from
+ * `describeDOI`.
+ *
+ * This exists because a DOI is the one identifier in the system that cannot be
+ * recalled, only looked up. A model asked for Laibson 1997 will happily
+ * assemble `10.1093/qje/112.2.443` out of the journal, volume and page, which
+ * has the shape of a DOI and is not one. Searching returns the real
+ * `10.1162/003355397555253` — alongside two book-chapter reprints of the same
+ * paper, which is why every candidate carries its journal and year and why
+ * nothing here picks a winner. Recognising the right edition needs the context
+ * the caller has and this function does not.
+ *
+ * Crossref covers journal articles and books; DataCite is tried only when
+ * Crossref comes back empty, since that is where datasets, preprints and
+ * software live. One call in the ordinary case.
+ *
+ * @param {string} query - free text: title, plus author and year if known
+ * @param {{rows?: number, signal?: AbortSignal}} [options]
+ * @returns {Promise<Array<{url: string, doi: string, identifier: string, label: string, description: string, journal: string|null, year: number|null}>>}
+ */
+export const searchWorks = async (query, { rows = 4, signal } = {}) => {
+  const term = String(query ?? '').trim();
+  if (!term) return [];
+
+  const asRow = (doi, read) => ({
+    // Stored form, so a caller can hand this straight to whatever attaches it.
+    url: `doi:${doi}`,
+    doi,
+    identifier: doi,
+    label: read.label,
+    description: read.description,
+    journal: read.journal,
+    year: read.year
+  });
+
+  // A FAILED Crossref call must never fall through to the other registry. That
+  // is how "Kahneman & Tversky 1979" came back as an unrelated Zenodo upload:
+  // Crossref answered 429, the error was swallowed, and DataCite's full-text
+  // search — which always returns something — supplied the top hit. Throwing
+  // here makes the caller report "could not search", which is true and useless,
+  // instead of something false and convincing.
+  const url = `${CROSSREF_API}?query.bibliographic=${encodeURIComponent(term)}&rows=${rows}`
+    + '&select=DOI,title,author,issued,container-title,type';
+  const resp = await crossrefFetch(url, { signal });
+  if (!resp.ok) throw new Error(`Crossref HTTP ${resp.status}`);
+
+  const items = (await resp.json())?.message?.items || [];
+  const found = items
+    .map(item => {
+      const read = readCrossrefWork(item);
+      return read && item.DOI ? asRow(item.DOI, read) : null;
+    })
+    .filter(Boolean);
+  if (found.length) return found;
+
+  // Only now: Crossref answered, and genuinely knows nothing. Datasets,
+  // preprints and software live at DataCite instead.
+  try {
+    const dataciteResp = await fetch(
+      `${DATACITE_API}?query=${encodeURIComponent(term)}&page[size]=${rows}`,
+      { signal }
+    );
+    if (!dataciteResp.ok) return [];
+    const records = (await dataciteResp.json())?.data || [];
+    return records.map(record => {
+      const attributes = record?.attributes || {};
+      const title = attributes.titles?.[0]?.title;
+      const doi = attributes.doi || record.id;
+      if (!title || !doi) return null;
+      const year = attributes.publicationYear || null;
+      return asRow(doi, {
+        label: stripHtml(title),
+        description: [attributes.publisher, year].filter(Boolean).join(' · '),
+        journal: attributes.publisher || null,
+        year
+      });
+    }).filter(Boolean);
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error;
+    console.warn('[identifierSearch] DataCite search failed:', error?.message || error);
+    return [];
+  }
 };
 
 const describePubMed = async (pmid, { signal }) => {

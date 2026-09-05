@@ -904,16 +904,44 @@ export function getToolDefinitions(options = {}) {
             }
         },
         {
-            name: 'linkIdentifier',
-            description: 'Attach an external identifier to a Thing — a DOI (10.xxxx/yyyy or a doi.org URL), a Wikidata/Wikipedia/DBpedia entry, or any URL. Same as pasting one into the panel\'s "Known Elsewhere As" field. DOIs and PubMed ids are checked against their registry first and the call fails if they do not exist, so never guess one — the registered title comes back in the result. The link is recorded as unverified ("found, nobody has checked"); the user promotes it in the panel.',
+            name: 'findWork',
+            description: 'Look up the REAL DOIs for papers by describing them (title, ideally with author and year). Read-only — it links nothing. Use this before linkIdentifier for any study: DOIs cannot be recalled, and one assembled out of a journal/volume/page is always wrong. Batch every study you need into ONE call. Candidates come back with journal and year because reprints and book chapters share the article\'s title — match on those, not on the title alone.',
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the Thing to attach the identifier to.' },
-                    identifier: { type: 'string', description: 'A DOI, a doi.org/PubMed URL, or any full https:// URL.' },
+                    queries: {
+                        type: 'array',
+                        description: 'One entry per work. Either a string ("Golden Eggs and Hyperbolic Discounting Laibson 1997") or {query, nodeName} to carry the node pairing through to linkIdentifier.',
+                        items: { type: 'string' }
+                    },
+                    rows: { type: 'number', description: 'Candidates per query (default 4, max 8).' }
+                },
+                required: ['queries']
+            }
+        },
+        {
+            name: 'linkIdentifier',
+            description: 'Attach external identifiers to Things — a DOI (10.xxxx/yyyy or a doi.org URL), a Wikidata/Wikipedia/DBpedia entry, or any URL. Same as pasting one into the panel\'s "Known Elsewhere As" field. Pass `links` to ground many Things in ONE call. DOIs and PubMed ids are checked against their registry and rejected if they do not exist, so never guess one — get it from findWork first (a DOI that search just returned is not re-checked, so this is fast). The registered title comes back per link. Links are recorded as unverified ("found, nobody has checked"); the user promotes them in the panel.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    links: {
+                        type: 'array',
+                        description: 'Batch form, preferred: [{nodeName, identifier}, …]. One call for a whole set of studies.',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                nodeName: { type: 'string', description: 'Name of the Thing to attach the identifier to.' },
+                                identifier: { type: 'string', description: 'A DOI, a doi.org/PubMed URL, or any full https:// URL.' }
+                            },
+                            required: ['nodeName', 'identifier']
+                        }
+                    },
+                    nodeName: { type: 'string', description: 'Single-link form: name of the Thing.' },
+                    identifier: { type: 'string', description: 'Single-link form: the DOI or URL.' },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
-                required: ['nodeName', 'identifier']
+                required: []
             }
         },
         {
@@ -1274,6 +1302,13 @@ const TOOL_TIERS = {
     // that turn. The keywords are what the user is talking about; hasNodes
     // covers "add the DOIs" against a web that already exists.
     linkIdentifier: [
+        'hasNodes',
+        'doi', 'study', 'studies', 'paper', 'papers', 'publication',
+        'journal', 'citation', 'cite', 'article', 'research', 'literature'
+    ],
+    // Same gate as the tool it feeds — offering one without the other is what
+    // leaves the model guessing DOIs.
+    findWork: [
         'hasNodes',
         'doi', 'study', 'studies', 'paper', 'papers', 'publication',
         'journal', 'citation', 'cite', 'article', 'research', 'literature'

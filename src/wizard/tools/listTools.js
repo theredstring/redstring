@@ -25,7 +25,8 @@ Every node-creating tool also accepts an optional per-node \`size\` ("extra-smal
 - **setNodeType**(nodeName*, typeName*, typeColor, typeDescription) — Assign a type/category
 - **inspectPrototype**(nodeName*) — View full prototype data (definitions, types, metadata)
 - **enrichFromWikipedia**(nodeName*, overwriteDescription) — Pull Wikipedia description and image
-- **linkIdentifier**(nodeName*, identifier*, targetGraphId) — Attach an external identifier: a DOI, a Wikidata/Wikipedia/DBpedia entry, or any URL. DOIs are checked against Crossref/DataCite and rejected if they don't exist — never guess one
+- **findWork**(queries[]*, rows) — Look up the REAL DOIs for papers by title/author/year. Read-only, batched. DOIs cannot be recalled — always look them up
+- **linkIdentifier**(links[{nodeName,identifier}]* or nodeName*+identifier*, targetGraphId) — Attach external identifiers: DOIs, Wikidata/Wikipedia/DBpedia entries, any URL. Batch a whole set in one call. DOIs are checked against Crossref/DataCite and rejected if they don't exist — never guess one, use findWork
 - **getNodeContext**(nodeName*) — Get connections, groups, and compositional context
 
 ## Webs (Graphs)

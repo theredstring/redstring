@@ -4,15 +4,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../services/identifierSearch.js', () => ({
-  describeIdentifier: vi.fn()
+  describeIdentifier: vi.fn(),
+  searchWorks: vi.fn()
 }));
 
 import { describeIdentifier } from '../../services/identifierSearch.js';
 import { linkIdentifier, normalizeIdentifier } from './linkIdentifier.js';
+import { clearVerified, rememberVerified } from './utils/verifiedWorks.js';
 
 const baseState = () => ({
   nodePrototypes: [
     { id: 'proto-photosynthesis', name: 'Photosynthesis' },
+    { id: 'proto-fitts', name: 'Fitts 1954' },
+    { id: 'proto-miller', name: 'Miller 1956' },
     { id: 'proto-paper', name: 'Chlorophyll Paper', externalLinks: ['doi:10.1038/nature12373'] }
   ],
   graphs: [{ id: 'graph-1', instances: [], edgeIds: [] }],
@@ -49,6 +53,7 @@ describe('normalizeIdentifier', () => {
 describe('linkIdentifier', () => {
   beforeEach(() => {
     describeIdentifier.mockReset();
+    clearVerified();
   });
 
   it('attaches a verified DOI and carries the registered title back', async () => {
@@ -60,11 +65,12 @@ describe('linkIdentifier', () => {
     );
 
     expect(result.action).toBe('linkIdentifier');
-    expect(result.prototypeId).toBe('proto-photosynthesis');
-    expect(result.url).toBe('doi:10.1038/nature12373');
-    expect(result.authority).toBe('DOI');
-    expect(result.href).toBe('https://doi.org/10.1038/nature12373');
-    expect(result.label).toBe('A paper about leaves');
+    expect(result.links).toHaveLength(1);
+    expect(result.links[0].prototypeId).toBe('proto-photosynthesis');
+    expect(result.links[0].url).toBe('doi:10.1038/nature12373');
+    expect(result.links[0].authority).toBe('DOI');
+    expect(result.links[0].href).toBe('https://doi.org/10.1038/nature12373');
+    expect(result.links[0].label).toBe('A paper about leaves');
   });
 
   it('refuses a DOI no registry knows', async () => {
@@ -83,9 +89,9 @@ describe('linkIdentifier', () => {
       baseState()
     );
 
-    expect(result.action).toBe('linkIdentifier');
-    expect(result.kind).toBe('url');
-    expect(result.label).toBe(null);
+    expect(result.links).toHaveLength(1);
+    expect(result.links[0].kind).toBe('url');
+    expect(result.links[0].label).toBe(null);
   });
 
   it('reports a duplicate as a no-op instead of re-adding it', async () => {
@@ -94,8 +100,8 @@ describe('linkIdentifier', () => {
       baseState()
     );
 
-    expect(result.action).toBeUndefined();
-    expect(result.alreadyLinked).toBe(true);
+    expect(result.links).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
     expect(describeIdentifier).not.toHaveBeenCalled();
   });
 
@@ -121,7 +127,84 @@ describe('linkIdentifier', () => {
     );
 
     expect(result.action).toBe('linkIdentifier');
-    expect(result.prototypeId).toBe(null);
-    expect(result.nodeName).toBe('Dog');
+    expect(result.links[0].prototypeId).toBe(null);
+    expect(result.links[0].nodeName).toBe('Dog');
+  });
+
+  describe('batch form', () => {
+    it('links several studies in one call', async () => {
+      describeIdentifier.mockImplementation(async (url) => ({ label: `Paper at ${url}`, description: '' }));
+
+      const result = await linkIdentifier({
+        links: [
+          { nodeName: 'Fitts 1954', identifier: '10.1037/h0055392' },
+          { nodeName: 'Miller 1956', identifier: '10.1037/h0043158' }
+        ]
+      }, baseState());
+
+      expect(result.links).toHaveLength(2);
+      expect(result.linkedCount).toBe(2);
+      expect(result.links.map(l => l.prototypeId)).toEqual(['proto-fitts', 'proto-miller']);
+    });
+
+    it('keeps the good links when one entry fails', async () => {
+      describeIdentifier.mockImplementation(async (url) => (
+        url === 'doi:10.9999/made-up' ? null : { label: 'A real paper', description: '' }
+      ));
+
+      const result = await linkIdentifier({
+        links: [
+          { nodeName: 'Fitts 1954', identifier: '10.1037/h0055392' },
+          { nodeName: 'Miller 1956', identifier: '10.9999/made-up' }
+        ]
+      }, baseState());
+
+      expect(result.links).toHaveLength(1);
+      expect(result.links[0].nodeName).toBe('Fitts 1954');
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0].nodeName).toBe('Miller 1956');
+      expect(result.failures[0].reason).toMatch(/could not be verified/);
+    });
+
+    it('throws when every entry in the batch fails', async () => {
+      describeIdentifier.mockResolvedValue(null);
+
+      await expect(linkIdentifier({
+        links: [
+          { nodeName: 'Fitts 1954', identifier: '10.9999/nope' },
+          { nodeName: 'Miller 1956', identifier: '10.9999/also-nope' }
+        ]
+      }, baseState())).rejects.toThrow(/Fitts 1954.*Miller 1956/s);
+    });
+
+    it('caps the batch size', async () => {
+      const links = Array.from({ length: 31 }, (_, i) => ({ nodeName: `N${i}`, identifier: `10.1234/x${i}` }));
+      await expect(linkIdentifier({ links }, baseState())).rejects.toThrow('Too many links');
+    });
+  });
+
+  describe('verification memo', () => {
+    it('does not re-check a DOI a search already verified', async () => {
+      rememberVerified('doi:10.1162/003355397555253', {
+        label: 'Golden Eggs and Hyperbolic Discounting',
+        description: 'Laibson · The Quarterly Journal of Economics · 1997'
+      });
+
+      const result = await linkIdentifier(
+        { nodeName: 'Photosynthesis', identifier: '10.1162/003355397555253' },
+        baseState()
+      );
+
+      expect(describeIdentifier).not.toHaveBeenCalled();
+      expect(result.links[0].label).toBe('Golden Eggs and Hyperbolic Discounting');
+    });
+
+    it('checks a DOI the memo has never seen', async () => {
+      describeIdentifier.mockResolvedValue({ label: 'Something else', description: '' });
+
+      await linkIdentifier({ nodeName: 'Photosynthesis', identifier: '10.1038/nature12373' }, baseState());
+
+      expect(describeIdentifier).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -923,18 +923,20 @@ export function updateGraphState(graphState, _toolName, _args, result) {
       }
     }
   } else if (result.action === 'linkIdentifier') {
-    // Mirror the link onto the predictive prototype so a second call in the same
-    // turn sees it as already attached rather than adding it twice.
-    const proto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId)
-      || (graphState.nodePrototypes || []).find(
-        p => (p.name || '').toLowerCase().trim() === String(result.nodeName || '').toLowerCase().trim()
-      );
-    if (proto) {
-      proto.externalLinks = Array.isArray(proto.externalLinks) ? proto.externalLinks : [];
-      if (!proto.externalLinks.includes(result.url)) proto.externalLinks.push(result.url);
-      console.error('[updateGraphState] linkIdentifier:', proto.name, '→', result.url);
-    } else {
-      console.warn('[updateGraphState] linkIdentifier: no predictive prototype for', result.nodeName);
+    // Mirror the links onto the predictive prototypes so a second call in the
+    // same turn sees them as already attached rather than adding them twice.
+    for (const link of (result.links || [])) {
+      const proto = (graphState.nodePrototypes || []).find(p => p.id === link.prototypeId)
+        || (graphState.nodePrototypes || []).find(
+          p => (p.name || '').toLowerCase().trim() === String(link.nodeName || '').toLowerCase().trim()
+        );
+      if (proto) {
+        proto.externalLinks = Array.isArray(proto.externalLinks) ? proto.externalLinks : [];
+        if (!proto.externalLinks.includes(link.url)) proto.externalLinks.push(link.url);
+        console.error('[updateGraphState] linkIdentifier:', proto.name, '→', link.url);
+      } else {
+        console.warn('[updateGraphState] linkIdentifier: no predictive prototype for', link.nodeName);
+      }
     }
   } else if (result.action === 'enrichFromWikipedia') {
     // No-op for predictive state — enrichment is async and happens client-side.

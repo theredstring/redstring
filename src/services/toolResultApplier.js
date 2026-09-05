@@ -2554,50 +2554,74 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       console.error(`[Wizard] ❌ Wikipedia enrichment failed for "${nodeName}":`, err);
     });
   } else if (result.action === 'linkIdentifier') {
-    // Attach an external identifier to a prototype — the panel's AddIdentifier
+    // Attach external identifiers to prototypes — the panel's AddIdentifier
     // handler (components/panel/AboutSection.jsx) written against the store.
-    // The tool already validated the URL and checked any DOI against its
+    // The tool already validated each URL and checked any DOI against its
     // registry; this half is the write.
-    const lookupName = (result.nodeName || '').toLowerCase().trim();
-    const url = result.url;
-    console.log('[Wizard] Applying linkIdentifier:', lookupName, '→', url);
-    if (!lookupName || !url) {
-      console.error('[Wizard] linkIdentifier: Missing nodeName or url');
-      dispatchWizardToolFailed('linkIdentifier', 'Missing node name or identifier.', result);
+    const links = Array.isArray(result.links) ? result.links : [];
+    console.log('[Wizard] Applying linkIdentifier:', links.length, 'link(s)');
+    if (links.length === 0) {
+      console.error('[Wizard] linkIdentifier: No links to apply');
       return;
     }
 
-    // Predictive ids never match; resolve by name and take the LAST match.
-    let realProtoId = result.prototypeId && store.nodePrototypes.has(result.prototypeId)
-      ? result.prototypeId
-      : null;
-    if (!realProtoId) {
-      for (const [protoId, proto] of store.nodePrototypes) {
-        if ((proto.name || '').toLowerCase().trim() === lookupName) realProtoId = protoId;
+    const unresolved = [];
+    const write = () => {
+      for (const link of links) {
+        const lookupName = (link.nodeName || '').toLowerCase().trim();
+        if (!lookupName || !link.url) {
+          unresolved.push(link.nodeName || '(unnamed)');
+          continue;
+        }
+
+        // Predictive ids never match; resolve by name and take the LAST match.
+        let realProtoId = link.prototypeId && store.nodePrototypes.has(link.prototypeId)
+          ? link.prototypeId
+          : null;
+        if (!realProtoId) {
+          for (const [protoId, proto] of store.nodePrototypes) {
+            if ((proto.name || '').toLowerCase().trim() === lookupName) realProtoId = protoId;
+          }
+        }
+        if (!realProtoId) {
+          console.error('[Wizard] linkIdentifier: Could not find prototype for name:', lookupName);
+          unresolved.push(link.nodeName);
+          continue;
+        }
+
+        const canonical = canonicalizeLink(link.url);
+        store.updateNodePrototype(realProtoId, (prototype) => {
+          const existing = Array.isArray(prototype.externalLinks) ? prototype.externalLinks : [];
+          if (existing.some(url => canonicalizeLink(url) === canonical)) return;
+          prototype.externalLinks = [...existing, link.url];
+          // AUTO, not EXACT: the wizard found this, nobody has checked it. The
+          // panel is one click from promoting it, and understating a claim is
+          // the safe direction (formats/linkState.js).
+          prototype.semanticMetadata = setLinkState(
+            prototype.semanticMetadata,
+            link.url,
+            LINK_STATES.AUTO,
+            'auto'
+          );
+        });
+        console.log('[Wizard] Linked', link.authority, link.identifier, '→', realProtoId);
       }
-    }
-    if (!realProtoId) {
-      console.error('[Wizard] linkIdentifier: Could not find prototype for name:', lookupName);
-      dispatchWizardToolFailed('linkIdentifier', `No Thing named "${result.nodeName}" to link.`, result);
-      return;
+    };
+
+    // Grounding a set of studies is one act, so it undoes as one.
+    if (links.length > 1 && typeof store.withHistoryTransaction === 'function') {
+      store.withHistoryTransaction(`Linked ${links.length} identifiers`, write);
+    } else {
+      write();
     }
 
-    const canonical = canonicalizeLink(url);
-    store.updateNodePrototype(realProtoId, (prototype) => {
-      const existing = Array.isArray(prototype.externalLinks) ? prototype.externalLinks : [];
-      if (existing.some(link => canonicalizeLink(link) === canonical)) return;
-      prototype.externalLinks = [...existing, url];
-      // AUTO, not EXACT: the wizard found this, nobody has checked it. The panel
-      // is one click from promoting it, and understating a claim is the safe
-      // direction (formats/linkState.js).
-      prototype.semanticMetadata = setLinkState(
-        prototype.semanticMetadata,
-        url,
-        LINK_STATES.AUTO,
-        'auto'
+    if (unresolved.length > 0) {
+      dispatchWizardToolFailed(
+        'linkIdentifier',
+        `No Thing named ${unresolved.map(n => `"${n}"`).join(', ')} to link.`,
+        result
       );
-    });
-    console.log('[Wizard] Successfully linked', result.authority, result.identifier, 'to', realProtoId);
+    }
     return;
 
   } else if (result.action === 'mergeNodes') {
