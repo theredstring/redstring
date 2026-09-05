@@ -3620,6 +3620,63 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return newId;
     })),
 
+    /**
+     * Merge one thing into another as a single, undoable action.
+     *
+     * Wraps the two existing primitives so the whole thing — carrying over the
+     * fields the survivor was missing, settling the definition webs, folding
+     * the prototypes together — lands as ONE entry on the undo stack. Done as
+     * three separate calls it would take three Cmd+Zs to walk back, and the
+     * intermediate states are not ones the user ever asked for.
+     *
+     * Carry-over is gap-fill only: every field in `carryOver` is one the
+     * survivor did not have. The caller decides which to apply; nothing here
+     * overwrites a value the survivor already holds.
+     *
+     * @param {string} survivorId - The thing that remains.
+     * @param {string} loserId - The thing folded into it and removed.
+     * @param {Object} [options]
+     * @param {Array<{field: string, value: *}>} [options.carryOver=[]] - Gap-fill patches to apply.
+     * @param {'combine'|'overwrite_with_primary'|'overwrite_with_secondary'} [options.definitionStrategy='combine']
+     * @returns {boolean} Whether the merge ran.
+     */
+    mergeThings: (survivorId, loserId, options = {}) => {
+      const { carryOver = [], definitionStrategy = 'combine' } = options;
+      const state = api.getState();
+
+      if (survivorId === loserId) return false;
+      if (!state.nodePrototypes.has(survivorId) || !state.nodePrototypes.has(loserId)) {
+        console.warn('[graphStore] mergeThings: one or both things no longer exist', { survivorId, loserId });
+        return false;
+      }
+
+      api.setChangeContext({ type: 'thing_merge', survivorId, loserId });
+
+      if (carryOver.length > 0) {
+        set(produce((draft) => {
+          const survivor = draft.nodePrototypes.get(survivorId);
+          if (!survivor) return;
+          for (const { field, value } of carryOver) {
+            if (field === 'image') {
+              // Moves as a unit: an aspect ratio without its image, or a
+              // thumbnail pointing at a different picture, is worse than none.
+              survivor.imageSrc = value?.imageSrc;
+              survivor.thumbnailSrc = value?.thumbnailSrc;
+              survivor.imageAspectRatio = value?.imageAspectRatio;
+            } else if (field === 'abstractionChains') {
+              survivor.abstractionChains = { ...(survivor.abstractionChains || {}), ...(value || {}) };
+            } else {
+              survivor[field] = value;
+            }
+          }
+        }));
+      }
+
+      state.mergeDefinitionGraphs(survivorId, loserId, { strategy: definitionStrategy });
+      api.getState().mergeNodePrototypes(survivorId, loserId);
+      return true;
+    },
+
     // ─── NODE INSTANCE MANAGEMENT ────────────────────────────────────────────────
 
     /**
