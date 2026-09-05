@@ -290,6 +290,10 @@ function wireLadder(ownerProtoId, anchorProtoId, dimension, levels) {
     }
 
     if (!protoId) {
+      // A rung is a real node, and one born with only a name and a color is a dead
+      // end wherever it turns up. The bio is written here, at creation, because this
+      // is the only moment we have the authored text and a node that is definitely
+      // ours to write to.
       protoId = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       store.addNodePrototype({
         id: protoId,
@@ -299,16 +303,10 @@ function wireLadder(ownerProtoId, anchorProtoId, dimension, levels) {
         typeNodeId: 'base-thing-prototype',
         definitionGraphIds: []
       });
-    } else if (level.description) {
-      // Reused rung: fill in a description only if it has none. A node the user
-      // already described is theirs, and the ladder is no reason to rewrite it.
-      const existing = store.nodePrototypes.get(protoId);
-      if (existing && !(existing.description || '').trim()) {
-        store.updateNodePrototype(protoId, (draft) => {
-          draft.description = level.description;
-        });
-      }
     }
+    // Reused rungs are left exactly as they are — bios go on new nodes only. An
+    // existing node is somebody's, described or not, and building a ladder through
+    // it is not a reason to write on it.
 
     store.addToAbstractionChain(ownerProtoId, dimension, level.direction, protoId, anchors[level.direction]);
     anchors[level.direction] = protoId;

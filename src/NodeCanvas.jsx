@@ -5854,6 +5854,7 @@ function NodeCanvas() {
       lines.push('- The components should reflect what this node IS made of (compositional), not what it RELATES to. Use the description, type, and existing connections as evidence.');
       lines.push('- Add edges between the components when their relationship is genuinely meaningful and well-known. Prefer reusing existing connection prototypes from the project where possible.');
       lines.push('- If a component is novel, you may create a new node for it and use its description to clarify the term.');
+      lines.push('- Where a component has an obvious, uncontested generalization, give it an is-a ladder in the same call: add `isA: [{ "name": "Company", "description": "A legally constituted business entity." }]` (broadest last) to that node. Every rung needs a bio — a rung is created as a real node, and one born with only a name is a dead end. One rung is a complete ladder; leave `isA` off any component whose broader category is arguable. This is the abstraction carousel, not a connection; do not draw an edge for it.');
       lines.push('');
       lines.push('Before applying changes (only if needed):');
       lines.push('- If you genuinely lack information about what "this node" is composed of, FIRST call search / searchNodes / readGraph to learn more about the project. Skip this step if the description and connections above already give you enough to proceed.');
@@ -6121,7 +6122,7 @@ function NodeCanvas() {
     if (includeInstructions === 'full') {
       lines.push('Goals:');
       lines.push('- Extend the chain toward the GENERIC end — this is nearly all of the work. Each level you add should be one honest step broader than the one above it: broad enough to be a real generalization, not so broad that it skips a category anyone would name.');
-      lines.push('- Stop when you reach a category so broad it stops saying anything about this node. Three or four well-chosen levels beat ten.');
+      lines.push('- A ladder of ONE rung is a complete ladder, and often the right one. If the only honest generalization is "Company", add "Company" and stop — do not pad it out to a tidy-looking four. Stop as soon as the next level up stops saying anything about this node.');
       lines.push('- Name each level for what it SHOULD be, not for what happens to exist. Reach for an existing category when it genuinely means that level — the type ladder above is the best place to look — but never bend a rung to fit a node that is merely nearby. New category nodes are the normal case here, and the tool creates them for you; an ill-fitting rung is far worse than a new one.');
       lines.push('- Refine what is already there if it is wrong: a level out of order, a step that is not actually a generalization of the one above it, or a gap big enough that a named category is obviously missing between two levels.');
       lines.push('- The SPECIFIC end (adding levels above the focused node) is for concrete examples and well-known subtypes. Only add one when it is genuinely useful and unambiguous — most chains do not need it.');

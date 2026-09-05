@@ -136,14 +136,27 @@ describe('buildLadderLevels', () => {
     expect(levels[1].create.color).not.toBe(levels[0].create.color);
   });
 
-  it('carries a description even for a reused rung', () => {
+  it('puts the bio on a rung it is about to create', () => {
+    // A rung is a real node; born with only a name it is a dead end wherever it
+    // later turns up. The bio has to ride along to the creation call.
+    const levels = buildLadderLevels(
+      readIsAList([{ name: 'Organization', description: 'An organized body of people.' }]),
+      'below',
+      { protos }
+    );
+    expect(levels[0].existingId).toBeNull();
+    expect(levels[0].create.description).toBe('An organized body of people.');
+  });
+
+  it('carries a description alongside a reused rung without asserting it gets written', () => {
+    // Reused rungs are left alone by the applier — bios go on new nodes only.
     const levels = buildLadderLevels(
       readIsAList([{ name: 'Merchant', description: 'A trader.' }]),
       'below',
       { protos }
     );
     expect(levels[0].existingId).toBe('p2');
-    expect(levels[0].description).toBe('A trader.');
+    expect(levels[0].create).toBeNull();
   });
 });
 

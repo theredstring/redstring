@@ -263,13 +263,17 @@ A Thing can sit on a **ladder of generality** — a second axis, separate from t
 
 This is the abstraction axis, **not** canvas edges. A ladder never needs connections drawn for it.
 
-**Add one inline while you build.** Every build tool's node entries take an optional \`isA\`, broadest last:
+**Add one inline while you build.** Every build tool's node entries take an optional \`isA\`, broadest last. Give every rung a bio — a rung is created as a real node, and one born with only a name is a dead end wherever it later turns up:
 \`\`\`
-{ "name": "Rotterdam", "description": "...", "isA": ["Port City", "City", "Settlement"] }
+{ "name": "Rotterdam", "description": "...", "isA": [
+    { "name": "Port City", "description": "A city whose economy is built around a working harbour." },
+    { "name": "City", "description": "A large permanent settlement with its own governance." } ] }
 \`\`\`
 It reuses a node that already means that category (plurals included — "Merchant" finds "Merchants") and creates the rest, ordered and shaded like the carousel draws them. Don't call \`createNode\` for rungs, and don't follow up with \`abstractionChain\` for a node you already gave \`isA\`.
 
 In \`sketchGraph\` shorthand, rungs are caret-marked: \`"Rotterdam [City] ^Port City ^City ^Settlement"\`.
+
+**One rung is a whole ladder.** \`isA: ["Company"]\` is a complete, good answer — a carousel with a single step above the node is worth having, and far better than three padded-out levels reaching for "Entity". Add the rungs you are sure of and stop.
 
 **Only where the generalization is uncontested — most nodes get none.** Two or three laddered nodes in a web is normal; ten is noise.
 - ✅ A named company, city, person, agency, or document — categories nobody would argue about.

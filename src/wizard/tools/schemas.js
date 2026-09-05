@@ -16,7 +16,7 @@ const SIZE_SCHEMA = { type: 'string', enum: NODE_SIZE_NAMES, description: NODE_S
 const IS_A_SCHEMA = {
     type: 'array',
     items: { type: 'string' },
-    description: 'Optional is-a ladder, broadest last: ["Automaker","Company","Organization"]. Only where the generalization is uncontested. Omit for most nodes.'
+    description: 'Optional is-a ladder, broadest last, each rung carrying a bio: [{"name":"Company","description":"A legally constituted business entity."}]. A rung is created as a real node, so without a bio it lands blank. One rung is a whole ladder. Only where the generalization is uncontested; omit for most nodes.'
 };
 
 /**
