@@ -39,7 +39,6 @@ import PanelContentWrapper from './components/panel/PanelContentWrapper.jsx';
 import CollapsibleSection from './components/CollapsibleSection.jsx';
 import StandardDivider from './components/StandardDivider.jsx';
 import { knowledgeFederation } from './services/knowledgeFederation.js';
-import DuplicateManager from './components/DuplicateManager.jsx';
 import { showContextMenu } from './components/GlobalContextMenu.jsx';
 import { normalizeToCandidate, candidateToConcept } from './services/candidates.js';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
@@ -927,7 +926,6 @@ const Panel = memo(forwardRef(
     const [allThingsSearchVisible, setAllThingsSearchVisible] = useState(false);
 
     // Add merge modal state for handling events from canvas/tabs
-    const [showMergeModal, setShowMergeModal] = useState(false);
 
     // Refs
     const isResizing = useRef(false);
@@ -1068,20 +1066,14 @@ const Panel = memo(forwardRef(
       setColorPickerNodeId(null);
     }, [leftViewActive]); // Close when switching left panel views
 
-    // Event listener for opening merge modal from canvas/tabs
+    // The merge modal itself is mounted once in NodeCanvas and listens for
+    // 'openMergeModal' there. The panel only follows along, moving to the view
+    // the merge concerns so the result is visible behind the modal. (The left
+    // branch used to be a console.log that opened nothing.)
     useEffect(() => {
       const handleOpenMergeModal = () => {
-        console.log('[Panel] Opening merge modal from external trigger');
-        // Switch to saved tab and open merge modal
-        if (side === 'right') {
-          storeActions.setActiveTab('saved');
-          setShowMergeModal(true);
-        } else if (side === 'left') {
-          setLeftViewActive('library');
-          // For left panel, we'll use the showDuplicateManager from LeftLibraryView
-          // We need to trigger it somehow - for now we'll just console log
-          console.log('[Panel] Left panel merge modal triggered - switching to library view');
-        }
+        if (side === 'right') storeActions.setActiveTab('saved');
+        else if (side === 'left') setLeftViewActive('library');
       };
 
       window.addEventListener('openMergeModal', handleOpenMergeModal);
@@ -2461,17 +2453,6 @@ const Panel = memo(forwardRef(
           searchOnly={true}
           gridTitle="Open Things"
         />
-
-        {/* Merge Modal */}
-        {showMergeModal && (
-          <DuplicateManager
-            onClose={() => setShowMergeModal(false)}
-            nodePrototypes={nodePrototypes}
-            storeActions={storeActions}
-            instances={instances}
-          />
-        )}
-
 
       </>
     );

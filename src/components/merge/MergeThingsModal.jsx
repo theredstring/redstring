@@ -1,0 +1,449 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Merge, CheckCircle, HelpCircle, EyeOff, X } from 'lucide-react';
+import CanvasModal from '../CanvasModal.jsx';
+import PanelIconButton from '../shared/PanelIconButton.jsx';
+import useGraphStore from '../../store/graphStore.js';
+import { useTheme } from '../../hooks/useTheme.js';
+import { scanForDuplicates } from '../../services/duplicateScan.js';
+import '../ModalChrome.css';
+
+/**
+ * The things-merge modal.
+ *
+ * Replaces DuplicateManager, which rendered a global <style jsx> block (styled-jsx
+ * isn't installed), hardcoded an off-palette indigo, ignored dark mode, subscribed
+ * to the whole store, and was mounted three times over. This one follows the
+ * SettingsModal shell and ModalChrome.css so it reads as part of the app.
+ *
+ * Sections are confidence bands, because that is the only axis on which the
+ * decision actually differs: a shared Wikidata URI is an identity claim the user
+ * already made and can be cleared in bulk; a shared name is a coincidence until
+ * a person says otherwise.
+ */
+
+const BANDS = [
+  { key: 'certain',  title: 'Certain',      icon: <CheckCircle size={16} />, bulk: true },
+  { key: 'review',   title: 'Needs review', icon: <HelpCircle size={16} />,  bulk: false },
+  { key: 'unlikely', title: 'Unlikely',     icon: <EyeOff size={16} />,      bulk: false },
+];
+
+const BAND_BLURB = {
+  certain: 'These share an external link — the same Wikidata or DBpedia entry. That is an identity claim already recorded on both, not a guess.',
+  review: 'These look alike but nothing asserts they are the same thing. Your call, one at a time.',
+  unlikely: 'Weak signals, listed so you can audit what the scan saw. Merging from here is rarely right.',
+};
+
+const FACTOR_LABEL = {
+  wikidata_id_match: 'same Wikidata entry',
+  wikidata_id_mismatch: 'different Wikidata entries',
+  dbpedia_uri_match: 'same DBpedia entry',
+  wikipedia_url_match: 'same Wikipedia page',
+  bidirectional_sameas: 'each links to the other',
+  unidirectional_sameas: 'one links to the other',
+  label_exact_match: 'same name',
+  label_fuzzy_match: 'similar name',
+  description_similarity: 'similar description',
+};
+
+const describeFactors = (factors) => (factors || [])
+  .map((f) => FACTOR_LABEL[f.factor] || f.factor)
+  .join(' · ');
+
+/** One candidate pair. */
+const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
+  const theme = useTheme();
+  const [survivorId, setSurvivorId] = useState(candidate.survivorId);
+  const [carryFields, setCarryFields] = useState(() => new Set(candidate.carryOver.map((g) => g.field)));
+  const [definitionStrategy, setDefinitionStrategy] = useState('combine');
+
+  // The scan's suggestion is the starting point; flipping sides recomputes
+  // which side is "the other one", so the gap list has to follow.
+  const flipped = survivorId !== candidate.survivorId;
+  const survivor = flipped ? candidate.loser : candidate.survivor;
+  const other = flipped ? candidate.survivor : candidate.loser;
+
+  const gaps = useMemo(
+    () => (flipped ? [] : candidate.carryOver),
+    [flipped, candidate.carryOver]
+  );
+
+  useEffect(() => {
+    setCarryFields(new Set(gaps.map((g) => g.field)));
+  }, [gaps]);
+
+  const bothHaveDefinitions =
+    (survivor.definitionGraphIds?.length || 0) > 0 && (other.definitionGraphIds?.length || 0) > 0;
+
+  const toggleField = (field) => {
+    setCarryFields((prev) => {
+      const next = new Set(prev);
+      if (next.has(field)) next.delete(field); else next.add(field);
+      return next;
+    });
+  };
+
+  const sideButton = (proto, isSurvivor, instances) => (
+    <button
+      type="button"
+      onClick={() => setSurvivorId(proto.id)}
+      style={{
+        flex: 1,
+        minWidth: 0,
+        textAlign: 'left',
+        padding: '8px 10px',
+        borderRadius: 8,
+        border: `2px solid ${isSurvivor ? theme.accent.primary : theme.canvas.border}`,
+        background: 'transparent',
+        color: theme.canvas.textPrimary,
+        cursor: 'pointer',
+        fontFamily: "'EmOne', sans-serif",
+        transition: 'border-color 0.15s ease'
+      }}
+    >
+      <div style={{
+        fontWeight: 700, fontSize: '0.85rem',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+      }}>
+        {proto.name || 'Untitled'}
+      </div>
+      <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, marginTop: 2 }}>
+        {isSurvivor ? 'keeps its name' : 'folded in'} · {instances} {instances === 1 ? 'use' : 'uses'}
+      </div>
+    </button>
+  );
+
+  return (
+    <div style={{
+      border: `1px solid ${theme.canvas.border}`,
+      borderRadius: 10,
+      padding: 12,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 8,
+      opacity: disabled ? 0.5 : 1,
+      pointerEvents: disabled ? 'none' : 'auto'
+    }}>
+      <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, letterSpacing: '0.03em' }}>
+        {describeFactors(candidate.factors)}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        {sideButton(
+          flipped ? candidate.loser : candidate.survivor,
+          !flipped,
+          flipped ? candidate.loserInstances : candidate.survivorInstances
+        )}
+        {sideButton(
+          flipped ? candidate.survivor : candidate.loser,
+          flipped,
+          flipped ? candidate.survivorInstances : candidate.loserInstances
+        )}
+      </div>
+
+      {gaps.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+          <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>Also take:</span>
+          {gaps.map((gap) => (
+            <label key={gap.field} style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              fontSize: '0.75rem', color: theme.canvas.textPrimary, cursor: 'pointer'
+            }}>
+              <input
+                type="checkbox"
+                checked={carryFields.has(gap.field)}
+                onChange={() => toggleField(gap.field)}
+                style={{ accentColor: theme.accent.primary }}
+              />
+              {gap.label}
+            </label>
+          ))}
+        </div>
+      )}
+
+      {bothHaveDefinitions && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+          <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>Definitions:</span>
+          {[
+            ['combine', 'combine both'],
+            ['overwrite_with_primary', `only ${survivor.name || 'this one'}’s`],
+            ['overwrite_with_secondary', `only ${other.name || 'the other'}’s`],
+          ].map(([value, label]) => (
+            <label key={value} style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              fontSize: '0.75rem', color: theme.canvas.textPrimary, cursor: 'pointer'
+            }}>
+              <input
+                type="radio"
+                name={`defs-${candidate.key}`}
+                checked={definitionStrategy === value}
+                onChange={() => setDefinitionStrategy(value)}
+                style={{ accentColor: theme.accent.primary }}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <PanelIconButton
+          label="Not the same"
+          variant="outline"
+          labelFontSize={12}
+          onClick={() => onSkip(candidate.key)}
+        />
+        <PanelIconButton
+          icon={Merge}
+          label="Merge"
+          variant="solid"
+          labelFontSize={12}
+          onClick={() => onMerge(candidate, {
+            survivorId: survivor.id,
+            loserId: other.id,
+            carryOver: gaps.filter((g) => carryFields.has(g.field)),
+            definitionStrategy
+          })}
+        />
+      </div>
+    </div>
+  );
+};
+
+const MergeThingsModal = ({ isVisible, onClose }) => {
+  const theme = useTheme();
+  const [activeBand, setActiveBand] = useState('certain');
+  const [result, setResult] = useState(null);
+  const [dismissed, setDismissed] = useState(() => new Set());
+  const [mergedCount, setMergedCount] = useState(0);
+
+  const [viewportSize, setViewportSize] = useState(() => ({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1200,
+    height: typeof window !== 'undefined' ? window.innerHeight : 900
+  }));
+
+  useEffect(() => {
+    const handleResize = () => setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isCompactLayout = viewportSize.width <= 768;
+  const modalWidth = isCompactLayout ? Math.min(Math.max(viewportSize.width - 24, 320), 600) : 750;
+  const modalHeight = isCompactLayout ? Math.min(Math.max(viewportSize.height * 0.85, 400), 600) : 600;
+
+  // Scan on open, not on every store change: this is O(n²) in the worst case
+  // and the list would thrash under the user as they merge.
+  const rescan = useCallback(() => {
+    const { nodePrototypes, graphs } = useGraphStore.getState();
+    setResult(scanForDuplicates(nodePrototypes, graphs));
+  }, []);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    setDismissed(new Set());
+    setMergedCount(0);
+    rescan();
+  }, [isVisible, rescan]);
+
+  const handleMerge = useCallback((candidate, decision) => {
+    const ok = useGraphStore.getState().mergeThings(decision.survivorId, decision.loserId, {
+      carryOver: decision.carryOver,
+      definitionStrategy: decision.definitionStrategy
+    });
+    if (ok) setMergedCount((n) => n + 1);
+    // Re-scan rather than splicing the list: merging one pair can invalidate
+    // others that referenced the thing just removed.
+    rescan();
+  }, [rescan]);
+
+  const handleSkip = useCallback((key) => {
+    setDismissed((prev) => new Set(prev).add(key));
+  }, []);
+
+  const handleMergeAllCertain = useCallback(() => {
+    const pending = (result?.certain || []).filter((c) => !dismissed.has(c.key));
+    const store = useGraphStore.getState();
+    let merged = 0;
+    for (const c of pending) {
+      // Each is re-checked inside mergeThings; a pair whose thing was already
+      // folded in by an earlier merge in this same loop is skipped, not fatal.
+      if (store.mergeThings(c.survivorId, c.loserId, { carryOver: c.carryOver })) merged += 1;
+    }
+    setMergedCount((n) => n + merged);
+    rescan();
+  }, [result, dismissed, rescan]);
+
+  const bands = useMemo(() => {
+    const empty = { certain: [], review: [], unlikely: [] };
+    if (!result) return empty;
+    return {
+      certain: result.certain.filter((c) => !dismissed.has(c.key)),
+      review: result.review.filter((c) => !dismissed.has(c.key)),
+      unlikely: result.unlikely.filter((c) => !dismissed.has(c.key)),
+    };
+  }, [result, dismissed]);
+
+  const visible = bands[activeBand] || [];
+
+  const modalContent = (
+    <div
+      className={theme.darkMode ? 'modal-dark' : ''}
+      style={{
+        display: 'flex',
+        height: '100%',
+        fontFamily: "'EmOne', sans-serif",
+        fontSize: isCompactLayout ? '0.85rem' : '0.9rem'
+      }}
+    >
+      <PanelIconButton
+        icon={X}
+        size={18}
+        title="Close"
+        onClick={onClose}
+        style={{
+          position: 'absolute',
+          top: isCompactLayout ? '12px' : '16px',
+          right: isCompactLayout ? '32px' : '40px',
+          zIndex: 10,
+          touchAction: 'manipulation'
+        }}
+      />
+
+      {!isCompactLayout && (
+        <div
+          className="settings-modal-sidebar modal-scroll"
+          style={{
+            width: '180px',
+            borderRight: `1px solid ${theme.canvas.border}`,
+            padding: '20px 12px',
+            overflowY: 'auto',
+            flexShrink: 0
+          }}
+        >
+          <h3 className="modal-nav-heading">Duplicates</h3>
+          {BANDS.map((band) => (
+            <button
+              key={band.key}
+              type="button"
+              className={`modal-nav-item ${activeBand === band.key ? 'active' : ''}`}
+              aria-current={activeBand === band.key ? 'true' : undefined}
+              onClick={() => setActiveBand(band.key)}
+            >
+              {band.icon}
+              {band.title}
+              <span style={{ marginLeft: 'auto', opacity: 0.7 }}>{bands[band.key].length}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div
+        className="settings-modal-content modal-scroll"
+        style={{
+          flex: 1,
+          padding: isCompactLayout ? '16px' : '24px',
+          paddingTop: isCompactLayout ? '40px' : '24px',
+          paddingRight: isCompactLayout ? '24px' : '32px',
+          overflowY: 'auto'
+        }}
+      >
+        {isCompactLayout && (
+          <div style={{ marginBottom: '20px' }}>
+            <select
+              className="modal-input"
+              aria-label="Confidence band"
+              value={activeBand}
+              onChange={(e) => setActiveBand(e.target.value)}
+            >
+              {BANDS.map((band) => (
+                <option key={band.key} value={band.key}>
+                  {band.title} ({bands[band.key].length})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <h2 style={{
+          margin: '0 0 6px 0',
+          color: theme.canvas.textPrimary,
+          fontSize: isCompactLayout ? '1.3rem' : '1.5rem'
+        }}>
+          {BANDS.find((b) => b.key === activeBand)?.title}
+        </h2>
+
+        <p style={{ margin: '0 0 16px 0', fontSize: '0.78rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
+          {BAND_BLURB[activeBand]}
+        </p>
+
+        {mergedCount > 0 && (
+          <p style={{ margin: '0 0 12px 0', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
+            {mergedCount} merged this session. Cmd+Z undoes them one at a time.
+          </p>
+        )}
+
+        {activeBand === 'certain' && visible.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <PanelIconButton
+              icon={Merge}
+              label={`Merge all ${visible.length}`}
+              variant="solid"
+              labelFontSize={12}
+              onClick={handleMergeAllCertain}
+            />
+          </div>
+        )}
+
+        {result?.fuzzySkipped && activeBand !== 'certain' && (
+          <p style={{ margin: '0 0 12px 0', fontSize: '0.72rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
+            This universe is large, so only exact signals were compared — shared links and
+            identical names. Name-similarity matching was skipped.
+          </p>
+        )}
+
+        {visible.length === 0 ? (
+          <div style={{
+            padding: '30px 20px',
+            textAlign: 'left',
+            color: theme.canvas.brandText,
+            fontSize: '0.85rem',
+            background: theme.canvas.inactive,
+            borderRadius: 8,
+            border: `1px dashed ${theme.canvas.border}`,
+            fontStyle: 'italic'
+          }}>
+            Nothing here.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {visible.map((candidate) => (
+              <PairCard
+                key={candidate.key}
+                candidate={candidate}
+                onMerge={handleMerge}
+                onSkip={handleSkip}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <CanvasModal
+      isVisible={isVisible}
+      onClose={onClose}
+      title=""
+      width={modalWidth}
+      height={modalHeight}
+      position="center"
+      margin={isCompactLayout ? 12 : 20}
+      fullScreenOverlay={true}
+    >
+      {modalContent}
+    </CanvasModal>
+  );
+};
+
+export default MergeThingsModal;

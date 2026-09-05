@@ -192,4 +192,67 @@ describe('chooseArcLabelPlacement stays on the arc', () => {
     expect(result.anchor.offset).not.toBe(0);
     expect(result.overlap).toBeLessThan(place([]).overlap + 1);
   });
+
+});
+
+describe('a tilted label is not moved by the empty corners of its own box', () => {
+  // See PHANTOM CORNERS in edgeLabelPlacement.js. A label that follows an arc's
+  // tangent reserves the axis-aligned bounding box of a ROTATED rectangle, and
+  // the four corners of that box hold no text whatever — on a label this long,
+  // more of the box is empty corner than is label. An obstacle reaching into one
+  // of those corners is not on the text, and must not be treated as if it were.
+  //
+  // Every arc in the suite above happens to run vertically through the middle of
+  // its span, where the box is exact and there is nothing to get wrong. This one
+  // is deliberately tilted (~20 degrees at the midpoint), which is the ordinary
+  // case for a Lombardi connection and the case that misbehaved: labels drifting
+  // along their arcs, or stepping off them entirely, with visibly free space all
+  // around.
+  const arc = { cx: 0, cy: 0, radius: 400, a0: -1.822, sweep: 1.2, delta: 1 };
+  const onArc = (p) => Math.abs(Math.hypot(p.x - arc.cx, p.y - arc.cy) - arc.radius);
+  const place = (obstacles) => chooseArcLabelPlacement(
+    arc, 'is a kind of', [], new Set(), new Map(), new Map(), 40, 'e1', new Set(),
+    { obstacles }
+  );
+
+  const clear = place([]);
+
+  it('is actually tilted, or this test proves nothing', () => {
+    expect(Math.abs(clear.angle % 90)).toBeGreaterThan(10);
+  });
+
+  it('ignores an obstacle that only clips a corner of the reserved box', () => {
+    const rad = (clear.angle * Math.PI) / 180;
+    const w = 264;                    // estimateTextWidth('is a kind of', 40)
+    const h = 40 * 1.1;               // LABEL_BOX_LINE_HEIGHT
+    const halfW = (w * Math.abs(Math.cos(rad)) + h * Math.abs(Math.sin(rad))) / 2;
+    const halfH = (w * Math.abs(Math.sin(rad)) + h * Math.abs(Math.cos(rad))) / 2;
+    // A 12px square tucked into the box's top-left corner — the corner furthest
+    // from the rotated rectangle's own, and a couple of hundred pixels of empty
+    // box away from any glyph.
+    const result = place([{
+      minX: clear.x - halfW, maxX: clear.x - halfW + 12,
+      minY: clear.y - halfH, maxY: clear.y - halfH + 12,
+    }]);
+
+    expect(result.anchor.offset).toBe(0);
+    expect(onArc(result)).toBeLessThan(1e-6);
+    // Nor does it slide along the run: a corner nibble is not a reason to move
+    // at all, so the label stays exactly where a wholly clear one sits. This is
+    // the half that produced "placement a little off" without ever detaching.
+    expect(result.anchor.t).toBe(clear.anchor.t);
+  });
+
+  it('still moves for something genuinely on the text', () => {
+    // The allowance is a corner budget, not an amnesty. An obstacle over the
+    // middle of the label overruns it many times over and still gets dodged —
+    // by a whole line height and more, not the sub-pixel drift a nibble buys.
+    // (This run is only ~480px long against a 264px label, so the label cannot
+    // get entirely clear of a 160px block on it; what matters is that it tries.)
+    const result = place([{
+      minX: clear.x - 80, maxX: clear.x + 80,
+      minY: clear.y - 80, maxY: clear.y + 80,
+    }]);
+    expect(Math.hypot(result.x - clear.x, result.y - clear.y)).toBeGreaterThan(40);
+  });
 });

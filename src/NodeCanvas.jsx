@@ -145,6 +145,7 @@ import { formatPredicate } from './utils/predicateFormatter.js';
 import StorageSetupModal from './components/StorageSetupModal.jsx';
 import HelpModal from './components/HelpModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
+import MergeThingsModal from './components/merge/MergeThingsModal.jsx';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 
@@ -1887,6 +1888,7 @@ function NodeCanvas() {
 
   // Settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showMergeThingsModal, setShowMergeThingsModal] = useState(false);
 
   // Helper to get storage key with test mode support
 
@@ -2200,6 +2202,16 @@ function NodeCanvas() {
 
     window.addEventListener('openSettingsModal', handler);
     return () => window.removeEventListener('openSettingsModal', handler);
+  }, []);
+
+  // Open the things-merge modal. One listener and one mount, beside the
+  // settings modal — it used to be rendered from three panel views, each with
+  // its own copy of the overlay and its own local open/closed state.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = () => setShowMergeThingsModal(true);
+    window.addEventListener('openMergeModal', handler);
+    return () => window.removeEventListener('openMergeModal', handler);
   }, []);
 
   // Open Onboarding modal when event is dispatched from Help menu
@@ -19669,6 +19681,12 @@ function NodeCanvas() {
       <SettingsModal
         isVisible={showSettingsModal}
         onClose={() => setShowSettingsModal(false)}
+      />
+
+      {/* Things-merge Modal */}
+      <MergeThingsModal
+        isVisible={showMergeThingsModal}
+        onClose={() => setShowMergeThingsModal(false)}
       />
 
       {/* On-screen sync diagnostics — visible only when debug mode is on

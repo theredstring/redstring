@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Merge, ChevronRight, Search } from 'lucide-react';
 import { VirtuosoGrid } from 'react-virtuoso';
-import DuplicateManager from '../../DuplicateManager.jsx';
 import SavedNodeItem from '../items/SavedNodeItem.jsx';
 import LazySection from '../LazySection.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
@@ -28,14 +27,14 @@ const LeftLibraryView = ({
   onOpenSearch,
 }) => {
   const theme = useTheme();
-  const [showDuplicateManager, setShowDuplicateManager] = useState(false);
 
   // Context menu options for saved things tab
   const getTabContextMenuOptions = () => [
     {
       label: 'Merge Duplicates',
       icon: <Merge size={14} />,
-      action: () => setShowDuplicateManager(true)
+      // The modal is mounted once in NodeCanvas; this only announces intent.
+      action: () => window.dispatchEvent(new CustomEvent('openMergeModal'))
     }
   ];
 
@@ -101,23 +100,6 @@ const LeftLibraryView = ({
           title="Search Saved Things"
         />
       </div>
-
-      {showDuplicateManager && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999
-        }}>
-          <DuplicateManager onClose={() => setShowDuplicateManager(false)} />
-        </div>
-      )}
 
       {savedNodesByType.size === 0 ? (
         <div style={{ color: theme.canvas.textSecondary, fontSize: '0.9rem', fontFamily: "'EmOne', sans-serif", textAlign: 'center', marginTop: '20px' }}>

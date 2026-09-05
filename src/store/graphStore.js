@@ -3673,7 +3673,26 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
 
       state.mergeDefinitionGraphs(survivorId, loserId, { strategy: definitionStrategy });
+
+      // mergeNodePrototypes unconditionally UNIONS the loser's definition webs
+      // into the survivor's. That silently defeats any strategy that meant to
+      // drop some: 'overwrite_with_primary' closes the loser's tabs but never
+      // clears its list, so the union puts every one of them straight back.
+      // (It looked like it worked for 'overwrite_with_secondary' only because
+      // unioning a list into itself is a no-op.) So capture what the strategy
+      // decided and restore it after the union has had its way.
+      const intendedDefinitions = definitionStrategy === 'combine'
+        ? null
+        : [...(api.getState().nodePrototypes.get(survivorId)?.definitionGraphIds || [])];
+
       api.getState().mergeNodePrototypes(survivorId, loserId);
+
+      if (intendedDefinitions) {
+        set(produce((draft) => {
+          const survivor = draft.nodePrototypes.get(survivorId);
+          if (survivor) survivor.definitionGraphIds = intendedDefinitions;
+        }));
+      }
       return true;
     },
 

@@ -418,6 +418,61 @@ const overlapArea = (rect, obstacles) => {
 };
 
 /**
+ * PHANTOM CORNERS
+ *
+ * `overlapArea` measures axis-aligned box against axis-aligned box, but a
+ * label's box is only axis-aligned when the label is. A tilted one is measured
+ * through `labelRectFor`, which reserves the true AABB of the rotated rectangle
+ * — and that AABB has four empty triangles in its corners that no glyph ever
+ * occupies. They are not a rounding error: a 264x44 label at 21 degrees has
+ * ~24,000 square pixels of empty corner against ~11,600 of actual text. Twice
+ * as much of that box is nothing as is label.
+ *
+ * On the axes this cost nothing, which is why Manhattan and Clean never showed
+ * it. A Lombardi label follows its arc's tangent and is almost never on an axis,
+ * so a node's inflated hitbox catching one of those empty corners registered as
+ * a genuine collision — and since `betterPlacement` ranks overlap above all
+ * else, a few hundred square pixels of nothing was enough to slide the label
+ * away from the middle of its run, or (once `overlap > 0` opened the radial
+ * tier) to push it clean off its own arc while the visible space around it was
+ * obviously free. Dragging a node and dropping it re-solved against a different
+ * set of neighbouring label rects, the phantom went away, and the label snapped
+ * back onto the curve — the exact hysteresis this is here to remove.
+ *
+ * So each candidate gets an allowance: a small share of the area its own box is
+ * known to be lying about, subtracted before anything is compared. Exactly zero
+ * for an axis-aligned label, where the box is exact and nothing changes.
+ *
+ * The share is small on purpose. An obstacle sitting on the TEXT overlaps by far
+ * more than this, so real collisions still register at full strength; what gets
+ * absorbed is the corner-nibble case, which is the one that was never real.
+ */
+const OVERLAP_PHANTOM_SHARE = 0.05;
+
+/**
+ * The empty corner area of a `textWidth` x `boxHeight` rectangle rotated to
+ * `angle`, times the share above.
+ *
+ * AABB area is w*h + |sin a cos a|*(w^2 + h^2), so the second term IS the four
+ * corner triangles — no approximation, and identically zero on the axes.
+ */
+const phantomAllowance = (textWidth, boxHeight, angle) => {
+    const rad = (angle * Math.PI) / 180;
+    const corners = Math.abs(Math.sin(rad) * Math.cos(rad))
+        * (textWidth * textWidth + boxHeight * boxHeight);
+    return corners * OVERLAP_PHANTOM_SHARE;
+};
+
+/**
+ * Burial that a placer should act on: measured overlap less the part of the box
+ * that holds no text. Still continuous in position, which is what lets a label
+ * with nowhere good to go drift rather than teleport.
+ */
+const chargeableOverlap = (rect, obstacles, allowance) => (
+    Math.max(0, overlapArea(rect, obstacles) - allowance)
+);
+
+/**
  * Rank one candidate placement against the best so far.
  *
  * OVERLAP first, then crossings, then score.
@@ -821,6 +876,8 @@ export const chooseOrthogonalLabelPlacement = (
         const dy = seg.b.y - seg.a.y;
         const perpX = -dy / seg.length;
         const perpY = dx / seg.length;
+        // Constant for the whole segment — the label's tilt is the segment's.
+        const segAllowance = phantomAllowance(textWidth, boxHeight, seg.angle);
 
         for (const t of alongFractions) {
             const baseX = seg.a.x + dx * t;
@@ -835,7 +892,11 @@ export const chooseOrthogonalLabelPlacement = (
                 // free-or-nothing, so a label with no clear spot slides instead
                 // of dropping to the midpoint. Early-out skips the crossing
                 // query for candidates that already cannot win.
-                const overlap = overlapArea(rect, obstacles);
+                //
+                // Discounted per PHANTOM CORNERS — zero discount on the axis-
+                // aligned segments this placer mostly deals in, and non-zero
+                // only on the diagonals, where the box genuinely overstates.
+                const overlap = chargeableOverlap(rect, obstacles, segAllowance);
                 if (best && overlap > best.overlap) continue;
 
                 const crossings = countCrossingEdges(rect, options.segmentIndex, edgeId);
@@ -869,7 +930,8 @@ export const chooseOrthogonalLabelPlacement = (
     return {
         ...fallback,
         score: 0,
-        overlap: overlapArea(fallbackRect, obstacles),
+        overlap: chargeableOverlap(fallbackRect, obstacles,
+            phantomAllowance(textWidth, boxHeight, fallback.angle)),
         crossings: countCrossingEdges(fallbackRect, options.segmentIndex, edgeId),
         rect: fallbackRect,
         anchor: fallback.anchor,
@@ -1003,7 +1065,12 @@ export const chooseArcLabelPlacement = (
         // skips the crossing query, which is the expensive half. In the
         // common case (a free spot exists early) this runs the query for
         // fewer candidates than the old hard reject did.
-        const overlap = overlapArea(rect, obstacles);
+        //
+        // Discounted per PHANTOM CORNERS. This matters more here than anywhere
+        // else: an arc label rides the tangent, so it is off-axis nearly always
+        // and its box is nearly always claiming more room than the text needs.
+        const overlap = chargeableOverlap(rect, obstacles,
+            phantomAllowance(textWidth, boxHeight, anchor.angle));
         if (best && overlap > best.overlap) return;
 
         const crossings = countCrossingEdges(rect, options.segmentIndex, edgeId);
@@ -1033,7 +1100,10 @@ export const chooseArcLabelPlacement = (
     for (const s of ARC_ALONG) consider(s, 0);
 
     // Off it only when something solid is on top of the label wherever it slides
-    // to. See RADIAL OFFSETS for why overlap opens this and crossings do not.
+    // to. See RADIAL OFFSETS for why overlap opens this and crossings do not,
+    // and PHANTOM CORNERS for why "on top of" now means on top of the TEXT
+    // rather than merely inside the box's empty corners — brushing one of those
+    // used to be enough to detach a label from an otherwise clear arc.
     // The on-curve winner stays in `best`, so an off-curve candidate has to
     // actually beat it, and the score penalty keeps the smallest step that works.
     if (best && best.overlap > 0) {
@@ -1052,7 +1122,8 @@ export const chooseArcLabelPlacement = (
     return {
         ...fallback,
         score: 0,
-        overlap: overlapArea(fallbackRect, obstacles),
+        overlap: chargeableOverlap(fallbackRect, obstacles,
+            phantomAllowance(textWidth, boxHeight, fallback.angle)),
         crossings: countCrossingEdges(fallbackRect, options.segmentIndex, edgeId),
         rect: fallbackRect,
         anchor: fallback.anchor,

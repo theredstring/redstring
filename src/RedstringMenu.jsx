@@ -481,7 +481,7 @@ const RedstringMenu = ({
                         <div
                           className="submenu-item"
                           onClick={() => {
-                            // Dispatch global event used by Panel to open DuplicateManager
+                            // Dispatch global event; the merge modal is mounted in NodeCanvas
                             window.dispatchEvent(new Event('openMergeModal'));
                           }}
                           style={{ cursor: 'pointer' }}
