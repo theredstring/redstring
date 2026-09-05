@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useCallback, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import './TypeList.css';
 import { HEADER_HEIGHT } from './constants';
@@ -10,14 +10,37 @@ import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { ChevronUp, Tag, Share2, LayoutGrid } from 'lucide-react';
 import { useTheme } from './hooks/useTheme.js';
 
+// When the list is hidden, the toggle button dims itself after this much
+// inactivity so it stops competing with the canvas.
+const TOGGLE_IDLE_DELAY_MS = 1000;
+const TOGGLE_IDLE_OPACITY = 0.3;
+
 const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
   const theme = useTheme();
   // Use shared state from store for TypeList mode
   const mode = useGraphStore((state) => state.typeListMode);
-  const setTypeListMode = useGraphStore((state) => state.setTypeListMode); 
-  
+  const setTypeListMode = useGraphStore((state) => state.setTypeListMode);
+
   // Ref for scrollable content area
   const contentRef = useRef(null);
+
+  // Idle fade for the toggle button (hide mode only)
+  const [toggleIdle, setToggleIdle] = useState(false);
+  const [toggleHovered, setToggleHovered] = useState(false);
+  const [toggleInteractionTick, setToggleInteractionTick] = useState(0);
+  const wakeToggle = useCallback(() => setToggleInteractionTick((t) => t + 1), []);
+
+  useEffect(() => {
+    // Only fade while hidden, and never while the pointer is on the button
+    if (mode !== 'closed' || toggleHovered) {
+      setToggleIdle(false);
+      return undefined;
+    }
+
+    setToggleIdle(false);
+    const timer = setTimeout(() => setToggleIdle(true), TOGGLE_IDLE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [mode, toggleHovered, toggleInteractionTick]);
 
   // Save state to localStorage whenever mode changes
   useEffect(() => {
@@ -254,16 +277,18 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
   };
 
   const getButtonIcon = () => {
+    // Slightly smaller than the panel icons so it sits inside the circular button
+    const iconSize = HEADER_HEIGHT * 0.4;
     switch (mode) {
       case 'node':
-        return <Tag size={HEADER_HEIGHT * 0.6} />;
+        return <Tag size={iconSize} />;
       case 'connection': // Icon for connection mode
-        return <Share2 size={HEADER_HEIGHT * 0.6} />;
+        return <Share2 size={iconSize} />;
       case 'component':
-        return <LayoutGrid size={HEADER_HEIGHT * 0.6} />;
+        return <LayoutGrid size={iconSize} />;
       case 'closed':
       default:
-        return <ChevronUp size={HEADER_HEIGHT * 0.6} />; // Use ChevronUp for closed state
+        return <ChevronUp size={iconSize} />; // Use ChevronUp for closed state
     }
   };
 
@@ -312,7 +337,11 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
     <>
       {/* Mode Toggle Button - Positioned Separately and Fixed */}
       <button
-        onClick={cycleMode}
+        onClick={() => { wakeToggle(); cycleMode(); }}
+        onPointerDown={wakeToggle}
+        onMouseEnter={() => setToggleHovered(true)}
+        onMouseLeave={() => setToggleHovered(false)}
+        onFocus={wakeToggle}
         className="type-list-toggle-button"
         style={{
           position: 'fixed',
@@ -326,16 +355,17 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
           justifyContent: 'center',
           background: headerBg,
           border: '2px solid ' + (theme.canvas?.bg || '#BDB5B5'), // Canvas color stroke
-          borderRadius: '8px',
+          borderRadius: '50%',
           padding: 0,
           cursor: 'pointer',
           color: '#EFE8E5',
           zIndex: 20000, // Higher than panels (10000)
           boxShadow: '0 0 0 3px ' + (theme.canvas?.bg || '#BDB5B5') + ', 0 2px 5px rgba(0, 0, 0, 0.2)',
-          transition: 'background-color 0.2s ease, color 0.2s ease'
+          opacity: toggleIdle ? TOGGLE_IDLE_OPACITY : 1,
+          // Slow fade out when idle, quick fade back in on hover/interaction
+          transition: `background-color 0.2s ease, color 0.2s ease, opacity ${toggleIdle ? '0.8s' : '0.15s'} ease`
         }}
       >
-        {/* Icon size is HEADER_HEIGHT * 0.6 = 30 (matches panel icon size) */}
         {getButtonIcon()}
       </button>
 
