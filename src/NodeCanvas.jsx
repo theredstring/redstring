@@ -25,7 +25,7 @@ import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, he
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from './utils/clipboard.js';
-import { lineModeBounds } from './utils/pieMenuLayout.js';
+import { lineModeBounds, CAROUSEL_SLOT_FRACTION } from './utils/pieMenuLayout.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
 import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, Globe, RefreshCw } from 'lucide-react'; // Icons for PieMenu
@@ -2221,14 +2221,43 @@ function NodeCanvas() {
   // follows knows not to build anything out of it. One-way: only a genuinely new
   // draw clears it, which is why it can never suppress a legitimate edge.
   const connectionDrawAbandonedRef = useRef(false);
+  // ---------------------------------------------------------------------------
+  // In-flight connection endpoint — DOM-bypass path.
+  //
+  // The free end of the line moves every frame while a connection is being drawn,
+  // and it has to keep moving when the canvas moves under a stationary pointer
+  // (edge-pan, keyboard pan/zoom). Pushing that through `setDrawingConnectionFrom`
+  // re-renders all of NodeCanvas once per frame, at exactly the moment the canvas
+  // is already busy panning — so the live value lives in a ref and is written
+  // straight to the <line> element instead, the same trade useCanvasTransform
+  // makes for pan/zoom.
+  //
+  // `drawingConnectionFrom` still carries the source and the start point (both
+  // fixed for the life of a draw); only the endpoint moved out of state.
+  // ---------------------------------------------------------------------------
+  const drawingConnectionEndRef = useRef({ x: 0, y: 0 });
+  const drawingConnectionLineRef = useRef(null);
+  const drawingConnectionWrittenRef = useRef(null);
+  // Flips when the endpoint enters or leaves its own source node's box, which is
+  // what gates the self-loop preview. This is the only endpoint-driven re-render
+  // left in a draw: a couple per gesture instead of one per frame.
+  const [selfLoopPreviewActive, setSelfLoopPreviewActive] = useState(false);
+
   // Wrapped so that beginning a draw synchronously clears the "abandoned" mark a
   // previous pinch may have left (see connectionDrawAbandonedRef). Doing it in an
   // effect instead would leave the mark standing for one commit, and a release
   // landing in that gap would silently drop a legitimate edge.
-  // Functional updates pass straight through: the only one moves an existing
-  // draw's endpoint, it never starts a draw.
+  // Starting a draw also seeds the DOM-bypass endpoint so the line's first frame
+  // lands in the right place; ending one drops the write cache and the self-loop
+  // preview. Endpoint movement does NOT come through here — see
+  // setDrawingConnectionEnd.
   const setDrawingConnectionFrom = useCallback((next) => {
-    if (next && typeof next !== 'function') connectionDrawAbandonedRef.current = false;
+    if (next) {
+      connectionDrawAbandonedRef.current = false;
+      drawingConnectionEndRef.current = { x: next.currentX, y: next.currentY };
+    }
+    drawingConnectionWrittenRef.current = null;
+    if (!next) setSelfLoopPreviewActive(false);
     _setDrawingConnectionFromState(next);
   }, []);
   // True once the pointer has moved >=10px (in canvas coords) outside the source node's
@@ -2245,6 +2274,94 @@ function NodeCanvas() {
   // from repeating while the finger sits still on a node.
   const connectionHoverTargetRef = useRef(null);
   const [selfLoopDialog, setSelfLoopDialog] = useState(null);
+
+  // Write the in-flight endpoint straight to the <line>. Mirrors
+  // useCanvasTransform.applyTransform — same reason (per-frame updates must not
+  // go through React) and the same skip-when-unchanged guard, since setAttribute
+  // with an identical value still invalidates the raster.
+  const applyDrawingConnection = useCallback(() => {
+    const el = drawingConnectionLineRef.current;
+    if (!el) return;
+    const { x, y } = drawingConnectionEndRef.current;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const written = drawingConnectionWrittenRef.current;
+    if (written && written.x === x && written.y === y) return;
+    el.setAttribute('x2', x);
+    el.setAttribute('y2', y);
+    drawingConnectionWrittenRef.current = { x, y };
+  }, []);
+
+  // Move the in-flight endpoint to a canvas-space point. Every path that moves it
+  // goes through here — pointer moves, edge-pan, keyboard pan/zoom — so the
+  // gesture's two source-relative facts (has it left the source yet, is it back
+  // inside it) are evaluated once, for every kind of movement. That matters for
+  // keyboard panning in particular: the pointer can sit still while the canvas
+  // slides the source node out from under it, which is a real exit even though no
+  // pointer event fired.
+  const setDrawingConnectionEnd = useCallback((canvasX, canvasY) => {
+    drawingConnectionEndRef.current = { x: canvasX, y: canvasY };
+    applyDrawingConnection();
+
+    const draw = drawingConnectionFromRef.current;
+    const srcNode = draw ? nodesRef.current?.find(n => n.id === draw.sourceInstanceId) : null;
+    if (!srcNode) return;
+
+    const anchorInfo = srcNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(srcNode.id) : null;
+    const dims = anchorInfo
+      ? { currentWidth: anchorInfo.width, currentHeight: anchorInfo.height }
+      : getNodeDimensions(srcNode, false, null);
+    const sx = anchorInfo ? anchorInfo.x : srcNode.x;
+    const sy = anchorInfo ? anchorInfo.y : srcNode.y;
+
+    if (!connectionExitedSourceRef.current) {
+      // Self-loop gesture: flip once the endpoint has traveled >=10px (screen
+      // space) outside the source's bounds. Threshold scaled to canvas units.
+      const closestX = Math.max(sx, Math.min(canvasX, sx + dims.currentWidth));
+      const closestY = Math.max(sy, Math.min(canvasY, sy + dims.currentHeight));
+      const distSq = (canvasX - closestX) ** 2 + (canvasY - closestY) ** 2;
+      const threshold = 10 / Math.max(zoomLevelRef.current, 0.0001);
+      if (distSq >= threshold * threshold) connectionExitedSourceRef.current = true;
+      return; // can't be back inside on the same frame it first left
+    }
+
+    const overSource = canvasX >= sx && canvasX <= sx + dims.currentWidth
+      && canvasY >= sy && canvasY <= sy + dims.currentHeight;
+    setSelfLoopPreviewActive(prev => (prev === overSource ? prev : overSource));
+  }, [applyDrawingConnection]);
+
+  // Same, from a client-space pointer position re-projected against the given
+  // pan/zoom. This is what holds the endpoint under the cursor while the canvas
+  // pans beneath it: the edge-pan loop and the keyboard loop both call it right
+  // after they move the view, so the line never drifts off a stationary pointer.
+  const reprojectDrawingConnectionEnd = useCallback((clientX, clientY, pan, zoom) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cs = canvasSizeRef.current;
+    const rawX = (clientX - rect.left - pan.x) / zoom + cs.offsetX;
+    const rawY = (clientY - rect.top - pan.y) / zoom + cs.offsetY;
+    const { x, y } = GeometryUtils.clampCoordinates(rawX, rawY, cs);
+    setDrawingConnectionEnd(x, y);
+  }, [setDrawingConnectionEnd]);
+
+  // Ref-wrapped for the keyboard loop, which mounts once with no dependencies.
+  const reprojectDrawingConnectionEndRef = useRef(reprojectDrawingConnectionEnd);
+  useEffect(() => {
+    reprojectDrawingConnectionEndRef.current = reprojectDrawingConnectionEnd;
+  }, [reprojectDrawingConnectionEnd]);
+
+  // React writes x2/y2 from props whenever it renders the line, and its diff is
+  // against the last value IT rendered — not against what the imperative path has
+  // since written. So after every commit, check the DOM against the ref and
+  // re-assert only on a genuine mismatch: a redundant setAttribute would still
+  // invalidate the raster, and this runs on every render of the canvas.
+  useLayoutEffect(() => {
+    const el = drawingConnectionLineRef.current;
+    if (!el) return;
+    const { x, y } = drawingConnectionEndRef.current;
+    if (el.getAttribute('x2') === String(x) && el.getAttribute('y2') === String(y)) return;
+    drawingConnectionWrittenRef.current = null;
+    applyDrawingConnection();
+  });
 
   const [isPanning, _setIsPanningState] = useState(false);
   const [panStart, _setPanStartState] = useState({ x: 0, y: 0 });
@@ -2742,13 +2859,7 @@ function NodeCanvas() {
           // recomputing canvas-space coords against the new pan. Without
           // this, the endpoint visibly drifts while the pointer is held
           // still at the edge.
-          const rect = containerRef.current?.getBoundingClientRect();
-          if (rect) {
-            const rawX = (mouseX - rect.left - newPan.x) / currentZoom + canvasSize.offsetX;
-            const rawY = (mouseY - rect.top - newPan.y) / currentZoom + canvasSize.offsetY;
-            const { x: cx, y: cy } = GeometryUtils.clampCoordinates(rawX, rawY, canvasSize);
-            setDrawingConnectionFrom(prev => prev && ({ ...prev, currentX: cx, currentY: cy }));
-          }
+          reprojectDrawingConnectionEnd(mouseX, mouseY, newPan, currentZoom);
         }
       }
 
@@ -6347,16 +6458,18 @@ function NodeCanvas() {
       ));
       // Max horizontal reach of the pie-menu button cluster from the focused-node
       // centre, in canvas units: the focused-node half-width plus the outermost
-      // ('right-outer') button and its radius. Buttons are BUBBLE_SIZE/BUBBLE_PADDING
-      // (see PieMenu.jsx) scaled by nodeScale·pieMenuScale, so this tracks any size
-      // change automatically. right-outer sits at halfW + padding + 2·outerOffset,
-      // where padding = bPad + bSize/2 and outerOffset = bSize + bPad, plus bSize/2
-      // for the bubble's own radius → halfW + 3·bSize + 3·bPad.
+      // button and its radius. Buttons are BUBBLE_SIZE/BUBBLE_PADDING (see
+      // PieMenu.jsx) scaled by nodeScale·pieMenuScale, so this tracks any size
+      // change automatically. The furthest slot stage 1 fills is 'right-third'
+      // (Delete), at halfW + padding + 2·slotStep, where padding = bPad + bSize/2
+      // and slotStep = CAROUSEL_SLOT_FRACTION·(bSize + bPad), plus bSize/2 for the
+      // bubble's own radius.
       const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
       const bSize = 120 * pieScale; // BUBBLE_SIZE
       const bPad = 32 * pieScale;   // BUBBLE_PADDING
+      const slotStep = (bSize + bPad) * CAROUSEL_SLOT_FRACTION;
       const focusScale = carouselFocusedNodeScale || 1.2;
-      const clusterHalfReach = (dims.currentWidth * focusScale) / 2 + 3 * bSize + 3 * bPad;
+      const clusterHalfReach = (dims.currentWidth * focusScale) / 2 + bSize + bPad + 2 * slotStep;
       // Fraction of the usable region half-width the cluster should occupy (fuller on narrow).
       const fillFrac = CAROUSEL_FILL_WIDE + (CAROUSEL_FILL_NARROW - CAROUSEL_FILL_WIDE) * narrowness;
       const referenceZoom = (vb.width * 0.5 * fillFrac) / clusterHalfReach;
@@ -6373,8 +6486,12 @@ function NodeCanvas() {
       // neighbour fit would drive the zoom to ~0.09 and render the focused node
       // barely 100px tall. The stack is built to overlap and fade (LEVEL_SPACING is
       // negative), so neighbours peeking in is the intended read.
+      //
+      // Stage 1's second button row (Expand, Ask The Wizard) hangs one slot step
+      // below the node's centre line, so on a short node it — not the node — is
+      // what sets the vertical extent. Fit whichever reaches further.
       const availableHalfHeight = Math.max(1, vb.height * 0.5 - CAROUSEL_HINT_BAND);
-      const nodeHalfHeight = Math.max(1, (dims.currentHeight * focusScale) / 2);
+      const nodeHalfHeight = Math.max(1, (dims.currentHeight * focusScale) / 2, slotStep + bSize / 2);
       const verticalZoom = availableHalfHeight / nodeHalfHeight;
       const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(referenceZoom, verticalZoom)));
       const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
@@ -8357,7 +8474,12 @@ function NodeCanvas() {
     if (isInCarouselMode) {
       // AbstractionCarousel mode: different layouts based on stage
       if (carouselPieMenuStage === 1) {
-        // Stage 1: Main carousel menu with 4 buttons from left to right: Back, Swap, Plus, ArrowUpFromDot
+        // Stage 1: Main carousel menu, laid out on the slot grid PieMenu's carousel
+        // mode draws (see CAROUSEL_SLOTS there). Back hangs off the node's left edge;
+        // the actions run off its right edge in two rows, spaced the same distance
+        // apart in both axes:
+        //   row 0: Swap, Create Definition, Delete
+        //   row 1: Expand, Ask The Wizard
         return [
           {
             id: 'carousel-back',
@@ -8506,7 +8628,8 @@ function NodeCanvas() {
             id: 'carousel-expand',
             label: 'Expand',
             icon: ArrowUpFromDot,
-            position: 'right-outer',
+            position: 'right-inner',
+            row: 1,
             action: (originalNodeId) => {
               console.log('[Carousel Expand] Up-dot clicked.', {
                 originalNodeId,
@@ -8634,6 +8757,34 @@ function NodeCanvas() {
               } else {
 
               }
+            }
+          },
+          {
+            id: 'carousel-ask-wizard',
+            label: 'Ask The Wizard',
+            icon: Sparkles,
+            position: 'right-second',
+            row: 1,
+            action: (originalNodeId) => {
+              setIsPieMenuActionInProgress(true);
+              setTimeout(() => setIsPieMenuActionInProgress(false), 100);
+
+              // Same target resolution as Expand: act on whichever node the
+              // carousel is focused on, falling back to the node it was opened from.
+              const originalNodeData = nodes.find(n => n.id === originalNodeId);
+              const targetPrototypeId = carouselFocusedNode?.prototypeId || originalNodeData?.prototypeId;
+              if (!targetPrototypeId) return;
+
+              // Route through the same pref-aware "Ask The Wizard" flow the node
+              // pie menu and the right panel use.
+              window.dispatchEvent(new CustomEvent('rs-ask-wizard-define-node', {
+                detail: { prototypeId: targetPrototypeId }
+              }));
+
+              // Close the carousel: the wizard works in the left panel, and the
+              // carousel holds the canvas view locked on the focused node.
+              setSelectedNodeIdForPieMenu(null);
+              setIsTransitioningPieMenu(true);
             }
           }
         ];
@@ -10351,10 +10502,6 @@ function NodeCanvas() {
   const lastHoverCheckRef = useRef(0);
   const HOVER_CHECK_INTERVAL_MS = 24; // ~40 Hz
 
-  // RAF-based connection drawing updates
-  const pendingConnectionUpdate = useRef(null);
-  const connectionUpdateScheduled = useRef(false);
-
   // RAF-based label clearing updates
   const pendingLabelClear = useRef(null);
   const labelClearScheduled = useRef(false);
@@ -10636,32 +10783,18 @@ function NodeCanvas() {
       if (!mouseMoved.current) mouseMoved.current = true;
       nodeDrag.handleDragMove(e.clientX, e.clientY);
     } else if (drawingConnectionFrom) {
-      // Update connection drawing coordinates with RAF throttling
       // Validate coordinates before updating
       if (typeof currentX === 'number' && typeof currentY === 'number' && !isNaN(currentX) && !isNaN(currentY)) {
-        // Self-loop gesture: flip once the pointer has traveled >=10px (screen-space)
-        // outside the source node's bounds. Threshold is scaled to canvas units by zoom.
-        if (!connectionExitedSourceRef.current) {
-          const srcNode = nodes.find(n => n.id === drawingConnectionFrom.sourceInstanceId);
-          if (srcNode) {
-            const srcAnchorInfo = srcNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(srcNode.id) : null;
-            const srcDims = srcAnchorInfo
-              ? { currentWidth: srcAnchorInfo.width, currentHeight: srcAnchorInfo.height }
-              : getNodeDimensions(srcNode, false, null);
-            const sx = srcAnchorInfo ? srcAnchorInfo.x : srcNode.x;
-            const sy = srcAnchorInfo ? srcAnchorInfo.y : srcNode.y;
-            const closestX = Math.max(sx, Math.min(currentX, sx + srcDims.currentWidth));
-            const closestY = Math.max(sy, Math.min(currentY, sy + srcDims.currentHeight));
-            const distSq = (currentX - closestX) ** 2 + (currentY - closestY) ** 2;
-            const threshold = 10 / Math.max(zoomLevelRef.current, 0.0001);
-            if (distSq >= threshold * threshold) {
-              connectionExitedSourceRef.current = true;
-            }
-          }
-        }
-        // Detents run off the raw pointer stream, not the RAF-throttled visual
-        // update: the lattice should be sampled at input rate so a fast flick
-        // crosses every boundary it actually crossed.
+        // Move the line first: this is the write that also decides whether the
+        // gesture has left its source node, which the drop-target arming below
+        // reads. Straight to the DOM, so it can run at pointer rate — the RAF hop
+        // that used to sit here existed only to coalesce React renders that no
+        // longer happen.
+        setDrawingConnectionEnd(currentX, currentY);
+
+        // Detents run off the raw pointer stream: the lattice should be sampled
+        // at input rate so a fast flick crosses every boundary it actually
+        // crossed.
         connectionStretchTrack.current.update(
           Math.hypot(currentX - drawingConnectionFrom.startX, currentY - drawingConnectionFrom.startY)
           * zoomLevelRef.current
@@ -10681,18 +10814,6 @@ function NodeCanvas() {
         if (armedTarget !== connectionHoverTargetRef.current) {
           connectionHoverTargetRef.current = armedTarget;
           if (armedTarget) haptic('connectionTarget', { force: true });
-        }
-
-        pendingConnectionUpdate.current = { currentX, currentY };
-        if (!connectionUpdateScheduled.current) {
-          connectionUpdateScheduled.current = true;
-          requestAnimationFrame(() => {
-            connectionUpdateScheduled.current = false;
-            const update = pendingConnectionUpdate.current;
-            if (update) {
-              setDrawingConnectionFrom(prev => prev && ({ ...prev, currentX: update.currentX, currentY: update.currentY }));
-            }
-          });
         }
       }
     } else if (isPanningRef.current && !pinchRef.current.active) {
@@ -12114,6 +12235,8 @@ function NodeCanvas() {
     draggingNodeInfo,
     draggingNodeInfoRef: nodeDrag.draggingNodeInfoRef,
     performDragUpdateRef: nodeDrag.performDragUpdateRef,
+    drawingConnectionFromRef,
+    reprojectConnectionEndRef: reprojectDrawingConnectionEndRef,
     isAnimatingZoomRef,
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
@@ -17139,23 +17262,27 @@ function NodeCanvas() {
                     into a drag, which would otherwise leave a frozen black stub behind. */}
                   {drawingConnectionFrom && !draggingNodeInfo && (
                     <line
+                      ref={drawingConnectionLineRef}
                       x1={drawingConnectionFrom.startX}
                       y1={drawingConnectionFrom.startY}
-                      x2={drawingConnectionFrom.currentX}
-                      y2={drawingConnectionFrom.currentY}
+                      /* Endpoint is ref-owned (see drawingConnectionEndRef) and re-asserted
+                         imperatively after every commit — rendered here only so a fresh
+                         mount paints in the right place. */
+                      x2={drawingConnectionEndRef.current.x}
+                      y2={drawingConnectionEndRef.current.y}
                       stroke="black"
                       strokeWidth={27 * connectionWidth}
                     />
                   )}
-                  {drawingConnectionFrom && !draggingNodeInfo && connectionExitedSourceRef.current && (() => {
+                  {/* Self-loop preview. Gated on the state flag rather than on the live
+                    endpoint: the flag is what re-renders this at all, since endpoint
+                    movement no longer goes through React. */}
+                  {drawingConnectionFrom && !draggingNodeInfo && selfLoopPreviewActive && (() => {
                     const srcNode = nodes.find(n => n.id === drawingConnectionFrom.sourceInstanceId);
                     if (!srcNode) return null;
                     const srcDims = baseDimsById.get(srcNode.id) || getNodeDimensions(srcNode, false, null);
                     const sx = srcNode.x;
                     const sy = srcNode.y;
-                    const insideX = drawingConnectionFrom.currentX >= sx && drawingConnectionFrom.currentX <= sx + srcDims.currentWidth;
-                    const insideY = drawingConnectionFrom.currentY >= sy && drawingConnectionFrom.currentY <= sy + srcDims.currentHeight;
-                    if (!insideX || !insideY) return null;
                     const existing = countSelfLoopsForNode(visibleEdges, srcNode.id);
                     const loop = calculateSelfLoopPath(sx, sy, srcDims.currentWidth, srcDims.currentHeight, { pairIndex: existing, totalInPair: existing + 1 });
                     return (

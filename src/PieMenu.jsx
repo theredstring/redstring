@@ -3,7 +3,7 @@ import { NODE_CORNER_RADIUS } from './constants'; // Import node corner radius
 import './PieMenu.css'; // Animation styles
 import useGraphStore from './store/graphStore.js';
 import { haptic } from './services/haptics.js';
-import { lineModeLayout } from './utils/pieMenuLayout.js';
+import { lineModeLayout, CAROUSEL_SLOT_FRACTION } from './utils/pieMenuLayout.js';
 
 const BUBBLE_SIZE = 120; // Diameter of the bubble
 const BUBBLE_PADDING = 32; // Gap between node edge and bubble
@@ -26,6 +26,22 @@ const EXIT_ANIMATION_BUFFER = 50; // ms, extra buffer for animation to complete 
 const REFLOW_MS = 280;                     // matches .pie-bubble-reflow in PieMenu.css
 const BUBBLE_ENTER_MS = 240;               // matches .is-entering in PieMenu.css
 const EMPTY_ID_SET = new Set();
+
+// Carousel mode's horizontal slots, as a distance out from the focused node's
+// left or right edge measured in slot steps (see CAROUSEL_SLOT_FRACTION). Slot 0
+// sits against the edge; the side comes from the name's `left`/`right` prefix.
+// A button's optional `row` drops it that same step-distance downward, so a
+// second row is spaced exactly as far apart as the buttons within a row.
+const CAROUSEL_SLOTS = {
+  'left-outer': 1,
+  'left': 0,
+  'left-inner': 0,
+  'right': 0,
+  'right-inner': 0,
+  'right-second': 1,
+  'right-third': 2,
+  'right-outer': 3,
+};
 
 const PieMenu = ({
   node,
@@ -503,29 +519,15 @@ const PieMenu = ({
           // nodeDimensions now contains the actual current scaled dimensions from AbstractionCarousel
           const currentNodeHalfWidth = nodeDimensions.currentWidth / 2;
           const padding = bPad + bSize / 2;
-          const outerOffset = bSize + bPad; // Additional offset for outer buttons
+          // Grid pitch for the slotted layout: also the gap between rows, so a
+          // wrapped carousel menu reads as a grid rather than as two loose lines.
+          const slotStep = (bSize + bPad) * CAROUSEL_SLOT_FRACTION;
 
-          if (button.position === 'left-outer') {
-            bubbleX = nodeCenterX - currentNodeHalfWidth - padding - outerOffset;
-            bubbleY = nodeCenterY;
-          } else if (button.position === 'left' || button.position === 'left-inner') {
-            bubbleX = nodeCenterX - currentNodeHalfWidth - padding;
-            bubbleY = nodeCenterY;
-          } else if (button.position === 'right' || button.position === 'right-inner') {
-            bubbleX = nodeCenterX + currentNodeHalfWidth + padding;
-            bubbleY = nodeCenterY;
-          } else if (button.position === 'right-second') {
-            bubbleX = nodeCenterX + currentNodeHalfWidth + padding + outerOffset * 0.67;
-            bubbleY = nodeCenterY;
-          } else if (button.position === 'right-third') {
-            bubbleX = nodeCenterX + currentNodeHalfWidth + padding + outerOffset * 1.33;
-            bubbleY = nodeCenterY;
-          } else if (button.position === 'right-middle') {
-            bubbleX = nodeCenterX + currentNodeHalfWidth + padding + outerOffset;
-            bubbleY = nodeCenterY;
-          } else if (button.position === 'right-outer') {
-            bubbleX = nodeCenterX + currentNodeHalfWidth + padding + outerOffset * 2;
-            bubbleY = nodeCenterY;
+          if (CAROUSEL_SLOTS[button.position] !== undefined) {
+            const side = button.position.startsWith('left') ? -1 : 1;
+            const slot = CAROUSEL_SLOTS[button.position];
+            bubbleX = nodeCenterX + side * (currentNodeHalfWidth + padding + slot * slotStep);
+            bubbleY = nodeCenterY + (button.row || 0) * slotStep;
           } else if (button.position === 'right-top') {
             // Vertical stack on right side - top button
             bubbleX = nodeCenterX + currentNodeHalfWidth + padding;

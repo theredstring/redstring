@@ -303,6 +303,26 @@
   border-top: 1px solid var(--rs-modal-hairline);
 }
 
+/*
+ * A row's hairline and a section divider are the same 1px line, so a section
+ * that ends on a row rather than a slider drew both — the doubled rule above
+ * Zoom and Keyboard in Input. Handled here rather than by hand at each seam,
+ * so it can't come back the next time a row lands last in a section.
+ *
+ * The divider is the line that means something, so the row stands down and the
+ * divider keeps its symmetric margins.
+ */
+.settings-row:has(+ .settings-section-divider) {
+  border-bottom: none;
+}
+
+/* Without :has(), the divider stands down instead. One line either way. */
+@supports not selector(:has(*)) {
+  .settings-row + .settings-section-divider {
+    border-top: none;
+  }
+}
+
 .settings-section-subtitle {
   font-size: 0.8rem;
   font-weight: bold;
@@ -364,6 +384,18 @@ select.modal-input {
 select.modal-input option {
   background: var(--rs-modal-surface);
   color: var(--rs-modal-text);
+}
+
+/* A field that sits directly opposite a label shares the row with it rather
+   than taking `width: 100%`, which makes its flex base the whole row and
+   crushes the label into a narrow wrapping column. Basis 0 on both sides is
+   what splits them evenly. Only direct children: a field wrapped in a
+   positioning div (the API key's eye button needs one) fills that wrapper
+   instead, and the wrapper sizes to its content. */
+.settings-row > .modal-input {
+  width: auto;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 /* ========== Legacy option buttons ========== */

@@ -45,6 +45,11 @@ export const useCanvasKeyboard = ({
     draggingNodeInfo,
     draggingNodeInfoRef,
     performDragUpdateRef,
+    // In-flight connection draw, if any, and the callback that re-projects the
+    // pointer onto the line's free end. Both refs: the loop mounts once, and the
+    // reprojection writes the SVG directly rather than through React state.
+    drawingConnectionFromRef,
+    reprojectConnectionEndRef,
     isAnimatingZoomRef,
     minZoom, // dynamic MIN_ZOOM from NodeCanvas — must match wheel/trackpad clamp
     maxZoom, // dynamic MAX_ZOOM from NodeCanvas — must match wheel/trackpad clamp
@@ -99,6 +104,8 @@ export const useCanvasKeyboard = ({
         draggingNodeInfo,
         draggingNodeInfoRef,
         performDragUpdateRef,
+        drawingConnectionFromRef,
+        reprojectConnectionEndRef,
         isAnimatingZoomRef,
         minZoom,
         maxZoom,
@@ -188,6 +195,8 @@ export const useCanvasKeyboard = ({
                 draggingNodeInfo,
                 draggingNodeInfoRef,
                 performDragUpdateRef,
+                drawingConnectionFromRef,
+                reprojectConnectionEndRef,
                 mousePositionRef,
                 isAnimatingZoomRef,
                 viewportBounds,
@@ -310,6 +319,21 @@ export const useCanvasKeyboard = ({
                         panOffsetRef.current,
                         zoomLevelRef.current,
                         activeDragInfo
+                    );
+                }
+
+                // Same for an in-flight connection draw: re-project the pointer
+                // against the NEW pan/zoom so the line's free end stays pinned
+                // under the cursor instead of sliding away with the canvas. The
+                // callback writes the <line>'s x2/y2 straight to the DOM — no
+                // React render — which is what makes this affordable to do on
+                // every frame of a pan, alongside the transform write above.
+                if (drawingConnectionFromRef?.current && reprojectConnectionEndRef?.current && mousePositionRef?.current) {
+                    reprojectConnectionEndRef.current(
+                        mousePositionRef.current.x,
+                        mousePositionRef.current.y,
+                        panOffsetRef.current,
+                        zoomLevelRef.current
                     );
                 }
 

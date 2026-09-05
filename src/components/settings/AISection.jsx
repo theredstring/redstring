@@ -24,6 +24,13 @@ function readStoredIterations(key, def) {
   }
 }
 
+/**
+ * Where the key ends up. It belongs to the field that takes the key, so it sits
+ * inside that row above its dividing line rather than floating under the whole
+ * form — both key inputs carry it, cloud and local.
+ */
+const KEY_STORAGE_NOTE = 'API key stored locally in browser localStorage (obfuscated but not encrypted)';
+
 const WIZARD_PREF_OPTIONS = [
   { label: 'Ask each time', value: 'ask' },
   { label: 'New conversation', value: 'new' },
@@ -709,7 +716,9 @@ const AISection = () => {
                         : `Couldn't reach ${getProviderLabel(provider)} — showing a short built-in list`}
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {/* flex 1 1 0 so this column claims the same half of the row as a
+                  bare field would — see `.settings-row > .modal-input`. */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: '1 1 0', minWidth: 0 }}>
                 {providerModels.length > 0 ? (
                   <>
                     <select
@@ -830,9 +839,10 @@ const AISection = () => {
               <div className="settings-row-label">
                 API Key
                 <div className="settings-row-description">Your provider key</div>
+                <div className="settings-row-description">{KEY_STORAGE_NOTE}</div>
               </div>
               {(!isEditingExisting || allowKeyEdit) ? (
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: '1 1 0', minWidth: 0 }}>
                   <input
                     type={showKey ? 'text' : 'password'}
                     value={apiKey}
@@ -881,8 +891,9 @@ const AISection = () => {
               <div className="settings-row-label">
                 API Key
                 <div className="settings-row-description">Optional (leave empty if not needed)</div>
+                <div className="settings-row-description">{KEY_STORAGE_NOTE}</div>
               </div>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: '1 1 0', minWidth: 0 }}>
                 <input
                   type={showKey ? 'text' : 'password'}
                   value={apiKey}
@@ -936,10 +947,6 @@ const AISection = () => {
           </div>
         </div>
       )}
-
-      <div className="settings-row-description" style={{ marginTop: '12px', marginBottom: '4px' }}>
-        API key stored locally in browser localStorage (obfuscated but not encrypted)
-      </div>
 
       <hr className="settings-section-divider" />
 

@@ -220,8 +220,11 @@ const UnifiedSelector = ({
   const dialogTitleSize = isMobilePortrait ? '16px' : (isSmallScreen ? '18px' : '18px');
   const subtitleFontSize = isMobilePortrait ? '13px' : (isSmallScreen ? '14px' : '14px');
   const inputPadding = isMobilePortrait ? '10px' : (isSmallScreen ? '9px' : '9px');
-  const actionButtonMinWidth = isMobilePortrait ? '52px' : (isSmallScreen ? '48px' : '48px');
-  const actionButtonMinHeight = isMobilePortrait ? '52px' : (isSmallScreen ? '48px' : '40px');
+  // One value for both axes: the + button is a circle, so a width that differs
+  // from its height would render it as an ellipse. A notch above
+  // iconButtonHitSize below, which keeps the primary action reading as the
+  // larger target in the row.
+  const actionButtonSize = isMobilePortrait ? '52px' : (isSmallScreen ? '48px' : '44px');
   const cardHeight = isMobilePortrait ? (isExtraSmall ? '100px' : '105px') : (isSmallScreen ? '110px' : '75px');
 
   // Touch-friendly sizing on mobile, compact on desktop
@@ -330,27 +333,20 @@ const UnifiedSelector = ({
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: isSmallScreen ? '6px' : '8px' }}>
               {!searchOnly && (
-                <Palette
+                <PanelIconButton
+                  icon={Palette}
                   size={iconSize}
                   color={theme.canvas.textPrimary}
-                  style={{
-                    cursor: 'pointer',
-                    flexShrink: 0,
-                    touchAction: 'manipulation',
-                    padding: isMobilePortrait ? '8px' : '4px',
-                    minWidth: iconButtonHitSize,
-                    minHeight: iconButtonHitSize
-                  }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onTouchEnd={(e) => {
-                    e.stopPropagation();
-                    touchHandledRef.current = true;
-                    handleColorPickerToggle(e.currentTarget, e);
-                    setTimeout(() => { touchHandledRef.current = false; }, 400);
-                  }}
-                  onClick={(e) => { if (touchHandledRef.current) return; handleColorPickerToggle(e.currentTarget, e); }}
+                  active={colorPickerVisible}
+                  onClick={(e) => handleColorPickerToggle(e.currentTarget, e)}
                   title="Change color"
+                  ariaExpanded={colorPickerVisible}
+                  ariaHasPopup="dialog"
+                  style={{
+                    minWidth: iconButtonHitSize,
+                    minHeight: iconButtonHitSize,
+                    touchAction: 'manipulation'
+                  }}
                 />
               )}
               <input
@@ -377,41 +373,37 @@ const UnifiedSelector = ({
                 autoFocus={false}
               />
               {!searchOnly && (
-                <button
-                  onTouchEnd={(e) => {
-                    e.stopPropagation();
-                    // Suppress the delayed synthesized click that would otherwise
-                    // land on the canvas after this dialog closes and either cancel
-                    // the morphing plus sign or spawn a stray one.
-                    if (e.cancelable) e.preventDefault();
-                    touchHandledRef.current = true;
-                    handleSubmit();
-                    setTimeout(() => { touchHandledRef.current = false; }, 400);
-                  }}
-                  onClick={(e) => { if (touchHandledRef.current) return; handleSubmit(); }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  style={{
-                    padding: inputPadding,
-                    backgroundColor: color,
-                    color: getTextColor(color, theme.darkMode),
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    // These already carry their unit. Interpolating another "px"
-                    // onto them yielded "52pxpx", which the CSSOM drops on the
-                    // floor — which is why the + button had quietly been sizing
-                    // itself to padding + glyph rather than to this floor.
-                    minWidth: actionButtonMinWidth,
-                    minHeight: actionButtonMinHeight,
-                    touchAction: 'manipulation'
-                  }}
-                  title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : 'Create node type'}
+                // display: contents so this adds no box to the row — it exists
+                // only to catch the button's touchend on the way up and suppress
+                // the delayed synthesized click that would otherwise land on the
+                // canvas after this dialog closes, cancelling the morphing plus
+                // sign or spawning a stray one. PanelIconButton takes no
+                // onTouchEnd of its own (and cannot preventDefault from inside
+                // it), so the cancel has to happen from the parent.
+                <span
+                  style={{ display: 'contents' }}
+                  onTouchEnd={(e) => { if (e.cancelable) e.preventDefault(); }}
                 >
-                  <Plus size={iconSize} color={getTextColor(color, theme.darkMode)} strokeWidth={2.5} />
-                </button>
+                  <PanelIconButton
+                    icon={Plus}
+                    size={iconSize}
+                    strokeWidth={2.5}
+                    // The glyph carries the colour the node's own text would
+                    // take on this fill, so the button previews the node it is
+                    // about to make. Hover hands both back to PanelIconButton's
+                    // pie-bubble treatment.
+                    color={getTextColor(color, theme.darkMode)}
+                    onClick={handleSubmit}
+                    title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : 'Create node type'}
+                    style={{
+                      backgroundColor: color,
+                      // Square, so the component's 50% radius reads as a circle.
+                      minWidth: actionButtonSize,
+                      minHeight: actionButtonSize,
+                      touchAction: 'manipulation'
+                    }}
+                  />
+                </span>
               )}
             </div>
           </div>

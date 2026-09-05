@@ -23,6 +23,24 @@
 // itself is legible at.
 export const LINE_MODE_MAX_PER_ROW = 5;
 
+/**
+ * Carousel mode's slot pitch, as a fraction of one bubble step (bSize + bPad).
+ *
+ * The abstraction carousel hangs its buttons off the focused node's left and
+ * right edges rather than along an edge, so it has less room than line mode and
+ * uses a tighter pitch. A full step would push the outermost button far enough
+ * out that framing the cluster shrinks the node itself; the old 0.67 overlapped
+ * the bubbles. This clears the bubble diameter (0.8 * 152 = 121.6 > 120) with a
+ * hair to spare.
+ *
+ * Rows are spaced by this same distance, so a carousel button's horizontal gap
+ * and its row gap match — the step == rowGap relationship line mode uses.
+ *
+ * Shared with PieMenu (which draws it) and NodeCanvas's carousel framing (which
+ * sizes the view against it), for the same reason lineModeLayout is.
+ */
+export const CAROUSEL_SLOT_FRACTION = 0.8;
+
 // How far adjacent rows are offset along the edge when they'd otherwise align,
 // as a fraction of the bubble step. Enough to read as staggered, not enough to
 // look like the rows are fanning apart.
