@@ -38,6 +38,26 @@ const MaroonSlider = ({
   const commit = (v) => Number(Number(v).toFixed(decimals));
   const shown = commit(raw);
 
+  // The value chip shares a grid row with the track, and its column is sized to
+  // its text. So the track's width — and therefore where along it the thumb
+  // sits — depended on how many characters the current value happened to need.
+  // Crossing 1.0 is where that bites: trailing zeros are trimmed, so "0.95x"
+  // becomes "1x", the chip loses three characters, the track grows into them and
+  // the thumb jumps out from under the pointer. Same on any digit boundary — a
+  // Grid Size crossing 100px did it too.
+  //
+  // So reserve the widest string this slider could ever show and hold the chip
+  // at that width for its whole range. Built from the range rather than from the
+  // current value: the largest magnitude at full decimal precision, with 8s
+  // standing in for the digits.
+  const widestSample = (() => {
+    const magnitude = Math.max(Math.abs(min), Math.abs(max));
+    const intDigits = String(Math.floor(magnitude)).length;
+    const sign = min < 0 ? '-' : '';
+    const frac = decimals > 0 ? `.${'8'.repeat(decimals)}` : '';
+    return `${sign}${'8'.repeat(intDigits)}${frac}${suffix}`;
+  })();
+
   const handleChange = (e) => {
     const v = Number(e.target.value);
     if (isDragging) setDragValue(v);
@@ -73,8 +93,11 @@ const MaroonSlider = ({
           aria-valuenow={shown}
         />
         <div className="maroon-slider__value">
-          {displayValue !== undefined ? displayValue : shown}
-          {suffix}
+          <span className="maroon-slider__value-sizer" aria-hidden="true">{widestSample}</span>
+          <span className="maroon-slider__value-text">
+            {displayValue !== undefined ? displayValue : shown}
+            {suffix}
+          </span>
         </div>
       </div>
     </div>

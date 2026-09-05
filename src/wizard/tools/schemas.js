@@ -818,15 +818,25 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'abstractionChain',
-            description: 'Read, add to, or remove from a node\'s abstraction chains (carousel spectrums).',
+            description: 'Read or build a node\'s abstraction chains (the carousel\'s generalization ladders). To build a ladder, use action "build" and pass the whole thing at once as a list of names — it reuses existing nodes where the name already matches (plurals included) and creates the rest for you, correctly ordered and colored. Prefer "build" over adding levels one at a time.',
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the node' },
-                    action: { type: 'string', enum: ['read', 'add', 'remove'], description: '"read" (default): view all chains. "add"/"remove": modify a chain.' },
-                    dimension: { type: 'string', description: 'For add/remove: dimension name, e.g., "Generalization Axis"' },
+                    nodeName: { type: 'string', description: 'Name of the node the ladder is built around' },
+                    action: { type: 'string', enum: ['read', 'build', 'add', 'remove'], description: '"read" (default): view all chains. "build": lay down a whole ladder from moreGeneric/moreSpecific in one call — the normal way to build. "add"/"remove": adjust a single level of an existing chain.' },
+                    moreGeneric: {
+                        type: 'array',
+                        description: 'For build: the rungs BROADER than the node, ordered nearest-first — e.g. for "Ford Motor Company": ["Automaker", "Manufacturing Company", "Company", "Organization"]. Each entry is a name, or an object { name, description }. Nodes that already exist are reused; the rest are created.',
+                        items: { type: 'string' }
+                    },
+                    moreSpecific: {
+                        type: 'array',
+                        description: 'For build: rungs NARROWER than the node, ordered nearest-first. Usually empty — this end is for concrete examples and is rarely needed.',
+                        items: { type: 'string' }
+                    },
+                    dimension: { type: 'string', description: 'Dimension name, e.g., "Generalization Axis"' },
                     targetNodeName: { type: 'string', description: 'For add/remove: name of the node to add or remove' },
-                    direction: { type: 'string', enum: ['above', 'below'], description: 'For add: "above" = more generic, "below" = more specific. Default: "above".' },
+                    direction: { type: 'string', enum: ['above', 'below'], description: 'For add: "above" = one step MORE SPECIFIC (the concrete end, shown higher in the carousel); "below" = one step MORE GENERIC (the abstract end, shown lower). Adding a broader category is "below". Default: "above".' },
                     relativeTo: { type: 'string', description: 'For add: name of a node already in the chain to insert relative to' }
                 },
                 required: ['nodeName']

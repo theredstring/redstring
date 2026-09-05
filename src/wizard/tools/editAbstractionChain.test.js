@@ -81,6 +81,62 @@ describe('editAbstractionChain', () => {
         ).rejects.toThrow('Unknown editAction');
     });
 
+    it('does not bind a new category to a merely similar-sounding node', async () => {
+        // The old resolver fell back to loose substring matching and took the first
+        // hit, so asking for "Company" silently attached the unrelated "Company Town"
+        // to the chain. A chain level asserts that one category generalizes another —
+        // a near-miss name is not evidence of that, so this must fail loudly instead.
+        const state = {
+            nodePrototypes: [
+                { id: 'proto-bunge', name: 'Bunge & Born', abstractionChains: {} },
+                { id: 'proto-town', name: 'Company Town' },
+                { id: 'proto-grain', name: 'Grain' }
+            ]
+        };
+
+        await expect(
+            editAbstractionChain({
+                nodeName: 'Bunge & Born',
+                dimension: 'Generalization Axis',
+                editAction: 'add',
+                targetNodeName: 'Company',
+                direction: 'below'
+            }, state)
+        ).rejects.toThrow(/No node named exactly "Company" exists/);
+    });
+
+    it('surfaces similar names in the error so a real match can be reused deliberately', async () => {
+        const state = {
+            nodePrototypes: [
+                { id: 'proto-bunge', name: 'Bunge & Born', abstractionChains: {} },
+                { id: 'proto-town', name: 'Company Town' }
+            ]
+        };
+
+        await expect(
+            editAbstractionChain({
+                nodeName: 'Bunge & Born',
+                dimension: 'Generalization Axis',
+                editAction: 'add',
+                targetNodeName: 'Company',
+                direction: 'below'
+            }, state)
+        ).rejects.toThrow(/Company Town/);
+    });
+
+    it('rejects a relativeTo that is not an exact node name', async () => {
+        await expect(
+            editAbstractionChain({
+                nodeName: 'Dog',
+                dimension: 'Generalization Axis',
+                editAction: 'add',
+                targetNodeName: 'Animal',
+                direction: 'below',
+                relativeTo: 'Mamm'
+            }, baseState)
+        ).rejects.toThrow(/can't be used as relativeTo/);
+    });
+
     it('throws on unknown node names', async () => {
         await expect(
             editAbstractionChain({

@@ -3,7 +3,7 @@ import { NODE_CORNER_RADIUS } from './constants'; // Import node corner radius
 import './PieMenu.css'; // Animation styles
 import useGraphStore from './store/graphStore.js';
 import { haptic } from './services/haptics.js';
-import { lineModeLayout, CAROUSEL_SLOT_FRACTION } from './utils/pieMenuLayout.js';
+import { lineModeLayout, CAROUSEL_SLOT_FRACTION, CAROUSEL_STAGGER_FRACTION } from './utils/pieMenuLayout.js';
 
 const BUBBLE_SIZE = 120; // Diameter of the bubble
 const BUBBLE_PADDING = 32; // Gap between node edge and bubble
@@ -373,6 +373,19 @@ const PieMenu = ({
     })
     : null;
 
+  // How many rows each side of the carousel menu uses. Each side's block is centred
+  // on the node's centre line rather than hung off it, so a side that wraps to a
+  // second row straddles the centre instead of sagging below it — and a side that
+  // stays one row (the lone Back button) doesn't move at all.
+  const carouselRowCounts = isCarouselMode
+    ? displayedButtons.reduce((acc, b) => {
+      if (CAROUSEL_SLOTS[b.position] === undefined) return acc;
+      const key = b.position.startsWith('left') ? 'left' : 'right';
+      acc[key] = Math.max(acc[key] || 1, (b.row || 0) + 1);
+      return acc;
+    }, {})
+    : null;
+
   // Page-switching chevrons: bare < / > arrows (stroked, no surrounding shape)
   // flanking the outer bounds of the circular menu. The hitbox is an invisible
   // rectangle around the arm bounds. Only shown for the default (circular) node
@@ -526,8 +539,15 @@ const PieMenu = ({
           if (CAROUSEL_SLOTS[button.position] !== undefined) {
             const side = button.position.startsWith('left') ? -1 : 1;
             const slot = CAROUSEL_SLOTS[button.position];
-            bubbleX = nodeCenterX + side * (currentNodeHalfWidth + padding + slot * slotStep);
-            bubbleY = nodeCenterY + (button.row || 0) * slotStep;
+            const row = button.row || 0;
+            // Alternate rows sit half a step further out, dropping their bubbles into
+            // the gaps of the row beside them instead of stacking into columns — see
+            // CAROUSEL_STAGGER_FRACTION for why this is an outward-only offset rather
+            // than line mode's centre-and-recentre version.
+            const stagger = (row % 2 === 1) ? slotStep * CAROUSEL_STAGGER_FRACTION : 0;
+            const rowCount = carouselRowCounts?.[side < 0 ? 'left' : 'right'] || 1;
+            bubbleX = nodeCenterX + side * (currentNodeHalfWidth + padding + slot * slotStep + stagger);
+            bubbleY = nodeCenterY + (row - (rowCount - 1) / 2) * slotStep;
           } else if (button.position === 'right-top') {
             // Vertical stack on right side - top button
             bubbleX = nodeCenterX + currentNodeHalfWidth + padding;

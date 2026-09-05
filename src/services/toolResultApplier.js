@@ -2271,6 +2271,65 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     return;
   }
 
+  // Handle buildAbstractionChain — lay down a whole ladder in one go, creating any
+  // rung that doesn't exist yet. Prototype-only, like the carousel's own Add Above /
+  // Add Below: a chain member is a concept, not a placement, so it gets no instance.
+  if (result.action === 'buildAbstractionChain') {
+    console.log('[Wizard] Applying buildAbstractionChain:', result.dimension, 'for', result.anchorName);
+
+    if (!result.nodeId || !store.nodePrototypes.has(result.nodeId)) {
+      console.error('[Wizard] buildAbstractionChain: chain owner not found:', result.nodeId);
+      return;
+    }
+
+    const wire = () => {
+      // Each side walks outward from the anchor, each rung placed against the one
+      // before it, so ordering never depends on the chain's current contents.
+      const anchors = { below: result.anchorId, above: result.anchorId };
+
+      for (const level of (result.levels || [])) {
+        let protoId = level.existingId;
+
+        if (protoId && !store.nodePrototypes.has(protoId)) {
+          console.error('[Wizard] buildAbstractionChain: stale prototype id, recreating:', level.name);
+          protoId = null;
+        }
+
+        if (!protoId) {
+          protoId = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          store.addNodePrototype({
+            id: protoId,
+            name: level.create?.name || level.name,
+            color: level.create?.color || '#8B0000',
+            description: level.create?.description || '',
+            typeNodeId: 'base-thing-prototype',
+            definitionGraphIds: []
+          });
+        }
+
+        store.addToAbstractionChain(
+          result.nodeId,
+          result.dimension,
+          level.direction,
+          protoId,
+          anchors[level.direction]
+        );
+        anchors[level.direction] = protoId;
+      }
+    };
+
+    // One undo step for the whole ladder — undoing half a ladder would leave the
+    // chain in a state the user never asked for.
+    if (typeof store.withHistoryTransaction === 'function') {
+      store.withHistoryTransaction('Built abstraction chain', wire);
+    } else {
+      wire();
+    }
+
+    console.log('[Wizard] Built abstraction chain with', (result.levels || []).length, 'levels');
+    return;
+  }
+
   // Handle editAbstractionChain — add or remove nodes from abstraction chains
   if (result.action === 'editAbstractionChain') {
     console.log('[Wizard] Applying editAbstractionChain to store:', result.operationType, result.nodeId);

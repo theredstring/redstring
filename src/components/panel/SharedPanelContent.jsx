@@ -1223,6 +1223,7 @@ const DraggableTitleComponent = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        lineHeight: '1.1',
         maxWidth: '200px',
         width: 'fit-content'
       }}>
@@ -1277,6 +1278,7 @@ const DraggableTitleComponent = ({
         alignItems: 'center',
         justifyContent: 'center',
         opacity: isDragging ? 0.5 : 1,
+        lineHeight: '1.1',
         maxWidth: '200px',
         width: 'fit-content'
       }}

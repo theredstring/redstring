@@ -160,6 +160,8 @@ import {
  * @property {boolean} showAbstractionControlPanel - Whether the abstraction chain control panel is visible.
  * @property {Object} gridSettings - `{ mode: 'off'|'move'|'always', size: number, snapMode: 'if-enabled'|'always'|'never', appearance: 'lattice'|'dot' }`.
  * @property {Object} dragZoomSettings - `{ enabled: boolean, zoomAmount: number }`.
+ * @property {boolean} focusOnSelectEnabled - Whether selecting a single Thing frames it in view.
+ * @property {number} focusOnSelectZoomAmount - Framing tightness for focus-on-select, in range [0.5, 1.5]; 1.0 is the tuned default.
  * @property {Object} autoLayoutSettings - Force-directed layout parameters.
  * @property {Object} forceTunerSettings - Advanced force tuner parameters (mirrors autoLayoutSettings structure).
  * @property {Object} textSettings - `{ fontSize, lineSpacing, nodeScale, connectionWidth, plusSignScale, pieMenuScale }`.
@@ -1512,6 +1514,19 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return raw ? raw === 'true' : true;
       } catch (_) {
         return true;
+      }
+    })(),
+    // How tightly focus-on-select frames its target. A multiplier on the frame
+    // zoom the canvas computes, not on the framing geometry: the pie-menu fit
+    // that geometry encodes stays correct at every setting, and 1.0 is exactly
+    // the tuned behaviour. Below 1 pulls back, above 1 moves in.
+    focusOnSelectZoomAmount: (() => {
+      try {
+        const raw = parseFloat(localStorage.getItem('redstring_focus_on_select_zoom_amount'));
+        if (!Number.isFinite(raw)) return 1.0;
+        return Math.max(0.5, Math.min(1.5, raw));
+      } catch (_) {
+        return 1.0;
       }
     })(),
     // Connections visualization/layout settings
@@ -5868,6 +5883,24 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (_) { }
     })),
 
+    /**
+     * Sets how tightly focus-on-select frames its target. Clamped to [0.5, 1.5],
+     * where 1.0 is the canvas's tuned framing. Persists to localStorage.
+     * @param {number} value - 0.5 = pulled well back, 1.5 = moved in close.
+     */
+    setFocusOnSelectZoomAmount: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v)) {
+        console.warn(`[setFocusOnSelectZoomAmount] Invalid value: ${value}`);
+        return;
+      }
+      const clamped = Math.max(0.5, Math.min(1.5, v));
+      draft.focusOnSelectZoomAmount = clamped;
+      try {
+        localStorage.setItem('redstring_focus_on_select_zoom_amount', String(clamped));
+      } catch (_) { }
+    })),
+
     /** Toggles whether edge auto-routing avoids nodes. Persists to localStorage. */
     toggleEnableAutoRouting: () => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
@@ -7197,7 +7230,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {string} nodeId - Prototype ID that owns the chain.
      * @param {string} dimension - The abstraction dimension (e.g., 'specificity').
-     * @param {'above'|'below'} direction - Insert above (more general) or below (more specific).
+     * @param {'above'|'below'} direction - Insert above (more specific — a lower chain
+     *   index, drawn higher in the carousel) or below (more general — a higher index).
      * @param {string} newNodeId - Prototype ID of the node to insert into the chain.
      * @param {string|null} insertRelativeToNodeId - Existing chain member to insert relative to.
      */

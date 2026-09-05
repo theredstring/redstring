@@ -41,6 +41,25 @@ export const LINE_MODE_MAX_PER_ROW = 5;
  */
 export const CAROUSEL_SLOT_FRACTION = 0.8;
 
+/**
+ * How far alternate carousel rows are offset along their row, as a fraction of
+ * the slot step. Same purpose as LINE_MODE_STAGGER_FRACTION — without it a
+ * second row stacks into perfect columns under the first, and the block reads as
+ * a grid of columns rather than as rows.
+ *
+ * A HALF step, where line mode nudges by a quarter, because the anchoring
+ * differs. Line mode centres every row on the anchor, so rows whose counts
+ * differ in parity already interleave perfectly and a quarter step is only a
+ * nudge for the ones that don't. Carousel rows are hung off the focused node's
+ * edge and grow outward from a shared slot 0, so every row lands in perfect
+ * columns and needs the full offset that drops its bubbles into the gaps of the
+ * row beside it.
+ *
+ * The offset only ever goes outward: pulling a row inward would eat the gap
+ * between the node and its buttons.
+ */
+export const CAROUSEL_STAGGER_FRACTION = 0.5;
+
 // How far adjacent rows are offset along the edge when they'd otherwise align,
 // as a fraction of the bubble step. Enough to read as staggered, not enough to
 // look like the rows are fanning apart.

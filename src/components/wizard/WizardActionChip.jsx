@@ -17,6 +17,7 @@ const WizardActionChip = ({ message }) => {
   const actionTitle =
     action === 'refine-connections' ? 'Refine connection' :
     action === 'define-node' ? 'Define components' :
+    action === 'refine-abstraction' ? 'Build abstraction chain' :
     'Ask The Wizard';
 
   return (

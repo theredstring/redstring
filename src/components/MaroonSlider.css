@@ -24,6 +24,22 @@
   border-radius: 10px;
   padding: 4px 8px;
   color: #BDB6B5;
+  /* Sizer and text occupy one cell: the hidden sizer sets the width for the
+     whole range, the live value is centred over it. Without this the chip
+     resized per value and dragged the track's width — and the thumb — with it. */
+  display: grid;
+  justify-items: center;
+  /* Equal-width digits, so the centred value doesn't shuffle inside the box it
+     has been given as 1s and 8s trade places. */
+  font-variant-numeric: tabular-nums;
+}
+
+.maroon-slider__value > * {
+  grid-area: 1 / 1;
+}
+
+.maroon-slider__value-sizer {
+  visibility: hidden;
 }
 
 .maroon-slider__range {

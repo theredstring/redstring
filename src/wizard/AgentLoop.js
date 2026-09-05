@@ -842,6 +842,34 @@ export function updateGraphState(graphState, _toolName, _args, result) {
       }
       console.error('[updateGraphState] editAbstractionChain:', result.operationType, proto.name);
     }
+  } else if (result.action === 'buildAbstractionChain') {
+    // Mirror the whole ladder into predictive state, minting ids for the rungs that
+    // don't exist yet so a follow-up call in the same turn can see them by name.
+    // These ids are predictive only — the applier assigns the real ones.
+    const proto = (graphState.nodePrototypes || []).find(p => p.id === result.nodeId);
+    if (proto) {
+      proto.abstractionChains = proto.abstractionChains || {};
+      const chain = proto.abstractionChains[result.dimension] || [result.nodeId];
+      for (const level of (result.levels || [])) {
+        let id = level.existingId;
+        if (!id) {
+          id = `proto-${Math.random().toString(36).slice(2, 10)}`;
+          (graphState.nodePrototypes || []).push({
+            id,
+            name: level.create?.name || level.name,
+            color: level.create?.color,
+            description: level.create?.description || ''
+          });
+        }
+        if (!chain.includes(id)) {
+          // 'below' is more generic (later in the chain), 'above' more specific.
+          if (level.direction === 'below') chain.push(id);
+          else chain.unshift(id);
+        }
+      }
+      proto.abstractionChains[result.dimension] = chain;
+      console.error('[updateGraphState] buildAbstractionChain:', proto.name, chain.length, 'levels');
+    }
   } else if (result.action === 'themeGraph' && result.updates) {
     for (const update of result.updates) {
       const proto = (graphState.nodePrototypes || []).find(p => p.id === update.prototypeId);

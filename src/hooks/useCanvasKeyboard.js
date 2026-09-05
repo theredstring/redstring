@@ -50,6 +50,11 @@ export const useCanvasKeyboard = ({
     // reprojection writes the SVG directly rather than through React state.
     drawingConnectionFromRef,
     reprojectConnectionEndRef,
+    // Called with each frame's APPLIED pan displacement while a pan is running.
+    // NodeCanvas treats that displacement as pointer-relative motion, so panning
+    // with a node held down starts a connection draw the same way dragging the
+    // pointer off the node would.
+    onPanTravelRef,
     isAnimatingZoomRef,
     minZoom, // dynamic MIN_ZOOM from NodeCanvas — must match wheel/trackpad clamp
     maxZoom, // dynamic MAX_ZOOM from NodeCanvas — must match wheel/trackpad clamp
@@ -106,6 +111,7 @@ export const useCanvasKeyboard = ({
         performDragUpdateRef,
         drawingConnectionFromRef,
         reprojectConnectionEndRef,
+        onPanTravelRef,
         isAnimatingZoomRef,
         minZoom,
         maxZoom,
@@ -197,6 +203,7 @@ export const useCanvasKeyboard = ({
                 performDragUpdateRef,
                 drawingConnectionFromRef,
                 reprojectConnectionEndRef,
+                onPanTravelRef,
                 mousePositionRef,
                 isAnimatingZoomRef,
                 viewportBounds,
@@ -256,6 +263,10 @@ export const useCanvasKeyboard = ({
                 if (newX !== prev.x || newY !== prev.y) {
                     panOffsetRef.current = { x: newX, y: newY };
                     didMove = true;
+                    // Report the APPLIED delta, not the requested one: a pan held
+                    // against the canvas edge moves nothing, so it should count as
+                    // no travel. See onPanTravelRef.
+                    onPanTravelRef?.current?.(newX - prev.x, newY - prev.y);
                 }
             }
 

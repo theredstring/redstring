@@ -1096,6 +1096,7 @@ function NodeCanvas() {
   const gridAppearance = useGraphStore(state => state.gridSettings?.appearance || 'lattice');
   const dragZoomSettings = useGraphStore(state => state.dragZoomSettings || { enabled: true, zoomAmount: 0.45 });
   const focusOnSelectEnabled = useGraphStore(state => state.focusOnSelectEnabled !== false);
+  const focusOnSelectZoomAmount = useGraphStore(state => state.focusOnSelectZoomAmount ?? 1.0);
   const enableAutoRouting = useGraphStore(state => state.autoLayoutSettings?.enableAutoRouting);
   const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
   const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
@@ -2362,6 +2363,28 @@ function NodeCanvas() {
     drawingConnectionWrittenRef.current = null;
     applyDrawingConnection();
   });
+
+  // ---------------------------------------------------------------------------
+  // Starting a draw. Two gestures produce the same relative motion between the
+  // pointer and the node it is holding, and both start a connection:
+  //
+  //   1. the pointer moves away from the node (handleMouseMove), and
+  //   2. the canvas is keyboard-panned out from under a stationary pointer.
+  //
+  // (2) exists for hardware where holding a button while moving is genuinely
+  // awkward — a Windows trackpad's button is a physical press in one corner, not
+  // macOS's click-anywhere surface, so "hold and drag" costs a hand contortion
+  // that "hold and press D" doesn't. Both routes are the same threshold on the
+  // same gesture; only the frame of reference differs.
+  // ---------------------------------------------------------------------------
+
+  // Screen-space canvas travel accumulated while a node is held. Keyed by the
+  // armed node so it self-zeroes on every new arming and on button-up — travel
+  // can never leak from one gesture into the next.
+  const panTravelSinceMouseDownRef = useRef({ x: 0, y: 0, armedId: null });
+  // Live-mirrored so the keyboard loop, which mounts once, always calls the
+  // current closure rather than the one from its mount render.
+  const keyboardPanTravelRef = useRef(null);
 
   const [isPanning, _setIsPanningState] = useState(false);
   const [panStart, _setPanStartState] = useState({ x: 0, y: 0 });
@@ -5268,6 +5291,9 @@ function NodeCanvas() {
   // Ask The Wizard dialog state (for node-define control panel)
   const [askWizardNodeDialog, setAskWizardNodeDialog] = useState(null); // { prototype }
   const [askWizardNodeDontAskAgain, setAskWizardNodeDontAskAgain] = useState(false);
+  // Ask The Wizard dialog state (for the abstraction carousel's chain-building action)
+  const [askWizardAbstractionDialog, setAskWizardAbstractionDialog] = useState(null); // { prototype, dimension }
+  const [askWizardAbstractionDontAskAgain, setAskWizardAbstractionDontAskAgain] = useState(false);
   // Ask The Wizard dialog state (for the canvas "Grow with The Wizard" action)
   const [askWizardGrowDialog, setAskWizardGrowDialog] = useState(null); // { subjectLabel, isBlank }
   const [askWizardGrowDontAskAgain, setAskWizardGrowDontAskAgain] = useState(false);
@@ -5907,6 +5933,260 @@ function NodeCanvas() {
     setSelectedInstanceIds(new Set());
   }, [buildWizardNodeDefinitionPrompt, ensureWizardApiKey, storeActions]);
 
+  // Walk a prototype's type chain (its type, that type's type, and so on) up to the
+  // base Thing. A node's type in Redstring is already a generalization of it, so this
+  // is a ready-made ladder of broader terms — the strongest evidence in the project
+  // for what belongs further down a generalization axis.
+  const collectTypeAncestry = useCallback((prototype, nodePrototypesMap) => {
+    const ancestry = [];
+    const seen = new Set([prototype?.id]);
+    let cursor = prototype?.typeNodeId ? nodePrototypesMap.get(prototype.typeNodeId) : null;
+    while (cursor && !seen.has(cursor.id) && cursor.id !== 'base-thing-prototype') {
+      seen.add(cursor.id);
+      ancestry.push(cursor);
+      cursor = cursor.typeNodeId ? nodePrototypesMap.get(cursor.typeNodeId) : null;
+    }
+    return ancestry;
+  }, []);
+
+  // "Ask The Wizard" from the abstraction carousel: build out or refine the focused
+  // node's abstraction chain for the dimension the carousel is currently showing.
+  //
+  // This is DATA abstraction — a generalization spectrum where each step is a strictly
+  // broader category that the step above it is a kind of. It is not composition (that's
+  // the define-node prompt above) and it is not a relationship graph: no edges are
+  // involved, only chain membership and its ordering. The work is nearly always toward
+  // the generic end; the specific end is where concrete examples live and is rare.
+  const buildWizardAbstractionPrompt = useCallback((prototype, dimension, opts = {}) => {
+    if (!prototype || !dimension) return '';
+    const includeInstructions = opts.includeInstructions === 'short' ? 'short' : 'full';
+    const st = useGraphStore.getState();
+    const graphs = st.graphs;
+    const nodePrototypesMap = st.nodePrototypes;
+    const activeId = st.activeGraphId;
+    const activeGraph = activeId ? graphs.get(activeId) : null;
+
+    const protoName = prototype.name || 'this node';
+    const protoDescription = (prototype.description || '').trim();
+
+    // Resolve the chain the carousel is actually showing. The focused node may own a
+    // chain, or may be a member of another node's — the same two-step lookup
+    // AbstractionCarousel does. This matters more than it looks: addToAbstractionChain
+    // writes to whichever prototype it's handed, so naming a mere member starts a
+    // SECOND, competing chain instead of extending the one on screen.
+    let chainOwner = prototype;
+    let chain = prototype.abstractionChains?.[dimension];
+    if (!(Array.isArray(chain) && chain.length > 0)) {
+      chain = null;
+      for (const [, candidate] of nodePrototypesMap.entries()) {
+        const candidateChain = candidate?.abstractionChains?.[dimension];
+        if (Array.isArray(candidateChain) && candidateChain.includes(prototype.id)) {
+          chainOwner = candidate;
+          chain = candidateChain;
+          break;
+        }
+      }
+    }
+    const ownerName = chainOwner.name || protoName;
+
+    // Render the chain as the carousel reads it: index order runs specific → generic,
+    // with the focused node at level 0. Signed levels are how readAbstractionChain
+    // reports a chain back to the wizard, so the two agree on what "+2" means.
+    const chainLines = [];
+    if (Array.isArray(chain) && chain.length > 0) {
+      const focusIndex = chain.indexOf(prototype.id);
+      chain.forEach((memberId, index) => {
+        const member = nodePrototypesMap.get(memberId);
+        const memberName = member?.name || memberId;
+        const level = focusIndex >= 0 ? index - focusIndex : index;
+        const marker = memberId === prototype.id ? ' ← the focused node' : '';
+        const role = level < 0 ? 'more specific' : level > 0 ? 'more generic' : 'current';
+        const memberDesc = (member?.description || '').trim();
+        const descPart = memberDesc ? ` — ${memberDesc.length > 120 ? memberDesc.slice(0, 120) + '…' : memberDesc}` : '';
+        chainLines.push(`- ${level >= 0 ? '+' : ''}${level}: "${memberName}" (${role})${descPart}${marker}`);
+      });
+    }
+
+    // The focused node's type ladder — its most direct evidence for what sits below it.
+    const typeAncestry = collectTypeAncestry(prototype, nodePrototypesMap);
+
+    // Categories the project already uses as types, so the wizard reuses an existing
+    // node rather than minting a near-duplicate of one. Ranked by how many prototypes
+    // point at them, since a heavily used type is a category this project has settled on.
+    const typeUsage = new Map();
+    nodePrototypesMap.forEach((proto) => {
+      const tid = proto?.typeNodeId;
+      if (!tid || tid === 'base-thing-prototype' || tid === prototype.id) return;
+      typeUsage.set(tid, (typeUsage.get(tid) || 0) + 1);
+    });
+    const chainMemberIds = new Set(Array.isArray(chain) ? chain : []);
+    const typeRoster = [...typeUsage.entries()]
+      .filter(([tid]) => !chainMemberIds.has(tid) && nodePrototypesMap.has(tid))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 30)
+      .map(([tid, count]) => {
+        const proto = nodePrototypesMap.get(tid);
+        return `"${proto.name || tid}" (used as the type of ${count} node${count === 1 ? '' : 's'})`;
+      });
+
+    const lines = [];
+    lines.push(`I need help building out the abstraction chain for the node "${protoName}", on the "${dimension}" axis.`);
+    lines.push('');
+    lines.push('This is data abstraction: a ladder of generality, where each step down is a strictly broader category that the step above it is a kind of. It is NOT composition (parts of a thing) and NOT a relationship graph. No connections/edges are involved here — only which nodes are on the ladder and in what order.');
+    lines.push('');
+    lines.push('Examples of well-formed ladders, in different domains:');
+    lines.push('- "Ford Motor Company" → "Automaker" → "Manufacturing Company" → "Company" → "Organization"');
+    lines.push('- "Rotterdam" → "Port City" → "City" → "Settlement" → "Place"');
+    lines.push('- "Marie Curie" → "Physicist" → "Scientist" → "Person"');
+    lines.push('- "The Marshall Plan" → "Aid Program" → "Government Program" → "Policy Instrument"');
+    lines.push('');
+    lines.push('The test for every adjacent pair is that "<upper> is a kind of <lower>" reads as plainly true. Apply it to each step you add; if it does not read true, the step is wrong.');
+    lines.push('');
+    lines.push('Things that are NOT levels on this ladder, and are the usual way this goes wrong:');
+    lines.push('- A node whose NAME merely overlaps the category you want. Sharing a word is not evidence of anything — "Company Town" is not the category "Company".');
+    lines.push('- A part or component of the node ("Engine" is not a generalization of a car).');
+    lines.push('- Something merely associated with it — a place it operated, a person who ran it, a thing it produced. Those are connections, not abstraction levels.');
+    lines.push('- A sibling: another thing of the same kind, at the same level of generality.');
+
+    lines.push('');
+    lines.push('What we know about the focused node:');
+    lines.push(`- Name: "${protoName}"`);
+    lines.push(protoDescription
+      ? `- Description: ${protoDescription}`
+      : '- Description: (none — infer from the name, type and context)');
+    if (typeAncestry.length > 0) {
+      const ladder = typeAncestry.map((t) => {
+        const desc = (t.description || '').trim();
+        return desc
+          ? `"${t.name || 'Node'}" (${desc.length > 120 ? desc.slice(0, 120) + '…' : desc})`
+          : `"${t.name || 'Node'}"`;
+      });
+      lines.push(`- Type ladder (this node's type, then that type's type, …): ${ladder.join(' → ')}`);
+      lines.push('  These are already generalizations of the focused node. Strongly prefer putting THESE on the chain — reusing them keeps the ladder consistent with how the project is typed — before inventing new category nodes.');
+    } else {
+      lines.push('- Type: (untyped, or typed only as the base Thing — no ready-made generalization to reuse)');
+    }
+
+    lines.push('');
+    if (chainLines.length > 0) {
+      lines.push(`Existing "${dimension}" chain (level 0 is the focused node; negative is more specific, positive is more generic):`);
+      lines.push(...chainLines);
+      lines.push(`- This chain is owned by the node "${ownerName}".`);
+    } else {
+      lines.push(`There is no "${dimension}" chain yet — the focused node is on its own. You are building the first one, which is owned by "${ownerName}".`);
+    }
+
+    if (typeRoster.length > 0) {
+      lines.push('');
+      lines.push('Categories this project already uses as types (reuse one of these when it means the level you want, instead of creating a near-duplicate):');
+      lines.push(`- ${typeRoster.join(', ')}`);
+    }
+
+    const graphCtxLines = buildGraphContextLines(activeGraph, nodePrototypesMap, { excludePrototypeIds: new Set([prototype.id]) });
+    if (graphCtxLines.length > 0) {
+      lines.push('');
+      lines.push('About the graph this node lives in:');
+      lines.push(...graphCtxLines);
+    }
+
+    lines.push('');
+    if (includeInstructions === 'full') {
+      lines.push('Goals:');
+      lines.push('- Extend the chain toward the GENERIC end — this is nearly all of the work. Each level you add should be one honest step broader than the one above it: broad enough to be a real generalization, not so broad that it skips a category anyone would name.');
+      lines.push('- Stop when you reach a category so broad it stops saying anything about this node. Three or four well-chosen levels beat ten.');
+      lines.push('- Name each level for what it SHOULD be, not for what happens to exist. Reach for an existing category when it genuinely means that level — the type ladder above is the best place to look — but never bend a rung to fit a node that is merely nearby. New category nodes are the normal case here, and the tool creates them for you; an ill-fitting rung is far worse than a new one.');
+      lines.push('- Refine what is already there if it is wrong: a level out of order, a step that is not actually a generalization of the one above it, or a gap big enough that a named category is obviously missing between two levels.');
+      lines.push('- The SPECIFIC end (adding levels above the focused node) is for concrete examples and well-known subtypes. Only add one when it is genuinely useful and unambiguous — most chains do not need it.');
+      lines.push('');
+      lines.push('Before applying changes (only if needed):');
+      lines.push(`- Call abstractionChain with action="read" and nodeName="${ownerName}" if you want the chain re-read straight from the project.`);
+      lines.push('- You do NOT need to search for whether a category already exists — the build call matches by name itself. Search only if you are unsure what the node actually is.');
+      lines.push('- You may call querySparql or enrichFromWikipedia for outside evidence about how a term is normally classified — but only if you actually need it.');
+      lines.push('');
+      lines.push('How to apply it (important):');
+      lines.push(`- ONE call does the whole ladder: abstractionChain with action="build", nodeName="${protoName}", dimension="${dimension}", and moreGeneric=[…] listing the rungs broader than this node, ordered nearest-first.`);
+      lines.push(`    Example: { "action": "build", "nodeName": "${protoName}", "dimension": "${dimension}", "moreGeneric": ["Automaker", "Manufacturing Company", "Company", "Organization"] }`);
+      lines.push('- An entry can carry a description: { "name": "Automaker", "description": "A company that designs and manufactures motor vehicles." } — worth doing for categories you are creating.');
+      lines.push('- Do NOT call createNode for the rungs. The build call reuses a node when one of that name already exists (plurals count — asking for "Merchant" finds an existing "Merchants") and creates the rest itself, in the right order and the right carousel shading.');
+      lines.push('- moreSpecific=[…] adds rungs on the narrow side, nearest-first. Usually leave it out.');
+      lines.push('- Use action="add" only to fix up one level of a chain that already exists. For building, "build" is the whole job in one call.');
+      lines.push('- Use node names exactly as they appear above. Do not pass IDs you have not seen in this message.');
+      lines.push('');
+      lines.push('Searching is never the finished job. If you look something up first, come back and make the build call in the same turn — the task is done when the levels are actually on the chain, not when you have decided what they should be.');
+    } else {
+      lines.push('Tool to use this time:');
+      lines.push(`- abstractionChain with action="build", nodeName="${protoName}", dimension="${dimension}", moreGeneric=[…] ordered nearest-first. One call; it reuses or creates each rung itself.`);
+      lines.push('');
+      lines.push('(Reminder: same generalization-ladder goal, reuse-before-creating guidance, and direction/relativeTo rules as the previous Ask The Wizard message in this conversation. Use node names, never IDs.)');
+    }
+
+    const subjectLabel = `"${protoName}"`;
+    const summary = `Build abstraction chain for ${subjectLabel}`;
+
+    return {
+      message: lines.join('\n'),
+      summary,
+      action: 'refine-abstraction',
+      subjectLabel
+    };
+  }, [buildGraphContextLines, collectTypeAncestry]);
+
+  const openAbstractionWizardWithPrompt = useCallback(async (prototype, dimension, { newConversation }) => {
+    if (!prototype || !dimension) return;
+    if (!(await ensureWizardApiKey())) return;
+    try {
+      storeActions.setLeftPanelExpanded(true);
+    } catch { }
+    setLeftPanelInitialView('ai');
+
+    // New conversations always start with full instructions. For "Add to current",
+    // skip the instruction block if this conversation already saw an abstraction action.
+    const includeInstructions = (() => {
+      if (newConversation) return 'full';
+      try {
+        return (typeof window !== 'undefined' && window.__rs_wizardConversationHasAction?.('refine-abstraction'))
+          ? 'short'
+          : 'full';
+      } catch {
+        return 'full';
+      }
+    })();
+
+    const built = buildWizardAbstractionPrompt(prototype, dimension, { includeInstructions });
+    if (!built || !built.message) return;
+    const { message, summary, action, subjectLabel } = built;
+
+    const send = () => {
+      try {
+        const detail = { message };
+        if (summary) {
+          detail.displayContent = summary;
+          detail.replayContent = summary;
+          detail.displayMetadata = {
+            kind: 'wizard-action-chip',
+            action,
+            label: subjectLabel,
+            fullPrompt: message
+          };
+        }
+        window.dispatchEvent(new CustomEvent('rs-send-wizard-message', { detail }));
+      } catch (err) {
+        console.error('[NodeCanvas] Failed to dispatch wizard message:', err);
+      }
+    };
+
+    if (newConversation) {
+      try {
+        window.dispatchEvent(new CustomEvent('rs-new-wizard-tab'));
+      } catch (err) {
+        console.error('[NodeCanvas] Failed to dispatch new wizard tab event:', err);
+      }
+      setTimeout(send, 0);
+    } else {
+      send();
+    }
+  }, [buildWizardAbstractionPrompt, ensureWizardApiKey, storeActions]);
+
   // Build the "Grow with The Wizard" prompt for the active graph. Branches on whether the
   // graph is blank (populate from scratch) or already has content (expand / deepen it).
   const buildWizardGrowGraphPrompt = useCallback((opts = {}) => {
@@ -6079,6 +6359,38 @@ function NodeCanvas() {
     window.addEventListener('rs-ask-wizard-define-node', handler);
     return () => window.removeEventListener('rs-ask-wizard-define-node', handler);
   }, [openNodeWizardWithPrompt]);
+
+  // Listen for "Ask The Wizard" requests dispatched from the abstraction carousel.
+  // Shares wizardNodePref with the other node-oriented flows — the preference is about
+  // new-tab-vs-current-tab, not about which prompt is being sent.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = (e) => {
+      const protoId = e?.detail?.prototypeId;
+      const dimension = e?.detail?.dimension;
+      if (!protoId || !dimension) return;
+      const proto = useGraphStore.getState().nodePrototypes.get(protoId);
+      if (!proto) {
+        console.error('[NodeCanvas] rs-ask-wizard-abstraction: prototype not found:', protoId);
+        return;
+      }
+      const pref = (() => {
+        try { return debugConfig.getWizardNodePref(); } catch { return 'ask'; }
+      })();
+      if (pref === 'new') {
+        openAbstractionWizardWithPrompt(proto, dimension, { newConversation: true });
+        return;
+      }
+      if (pref === 'current') {
+        openAbstractionWizardWithPrompt(proto, dimension, { newConversation: false });
+        return;
+      }
+      setAskWizardAbstractionDontAskAgain(false);
+      setAskWizardAbstractionDialog({ prototype: proto, dimension });
+    };
+    window.addEventListener('rs-ask-wizard-abstraction', handler);
+    return () => window.removeEventListener('rs-ask-wizard-abstraction', handler);
+  }, [openAbstractionWizardWithPrompt]);
 
   // Pie menu color picker state
   const [pieMenuColorPickerVisible, setPieMenuColorPickerVisible] = useState(false);
@@ -6463,7 +6775,8 @@ function NodeCanvas() {
       // change automatically. The furthest slot stage 1 fills is 'right-third'
       // (Delete), at halfW + padding + 2·slotStep, where padding = bPad + bSize/2
       // and slotStep = CAROUSEL_SLOT_FRACTION·(bSize + bPad), plus bSize/2 for the
-      // bubble's own radius.
+      // bubble's own radius. Row 1 reaches slot 1 plus its stagger — 1.5 steps —
+      // so it stays inside row 0's reach and doesn't enter this.
       const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
       const bSize = 120 * pieScale; // BUBBLE_SIZE
       const bPad = 32 * pieScale;   // BUBBLE_PADDING
@@ -6487,11 +6800,11 @@ function NodeCanvas() {
       // barely 100px tall. The stack is built to overlap and fade (LEVEL_SPACING is
       // negative), so neighbours peeking in is the intended read.
       //
-      // Stage 1's second button row (Expand, Ask The Wizard) hangs one slot step
-      // below the node's centre line, so on a short node it — not the node — is
-      // what sets the vertical extent. Fit whichever reaches further.
+      // Stage 1's two button rows straddle the node's centre line, half a slot step
+      // either side of it, so on a short node they — not the node — set the vertical
+      // extent. Fit whichever reaches further.
       const availableHalfHeight = Math.max(1, vb.height * 0.5 - CAROUSEL_HINT_BAND);
-      const nodeHalfHeight = Math.max(1, (dims.currentHeight * focusScale) / 2, slotStep + bSize / 2);
+      const nodeHalfHeight = Math.max(1, (dims.currentHeight * focusScale) / 2, slotStep / 2 + bSize / 2);
       const verticalZoom = availableHalfHeight / nodeHalfHeight;
       const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(referenceZoom, verticalZoom)));
       const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
@@ -6967,7 +7280,10 @@ function NodeCanvas() {
     // binds, which is why ordinary selection framing is unchanged.
     const menuHalfHeight = dims.currentHeight / 2 + bSize + bPad;
     const tallZoomV = (vb.height * 0.5 * FOCUS_TALL_FILL) / menuHalfHeight;
-    const referenceZoom = Math.min(referenceZoomH, referenceZoomV, tallZoomV);
+    // The user's framing-tightness setting scales the fit rather than any of the
+    // constants above, so all three bounds keep meaning what they say and 1.0 is
+    // byte-for-byte the tuned behaviour.
+    const referenceZoom = Math.min(referenceZoomH, referenceZoomV, tallZoomV) * focusOnSelectZoomAmount;
     const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
 
     const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
@@ -6989,7 +7305,7 @@ function NodeCanvas() {
 
     animateCanvasView(finalPan, tz);
     });
-  }, [nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, runFramingAfterCommit]);
+  }, [nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, runFramingAfterCommit, focusOnSelectZoomAmount]);
 
   // Frame the connection (edge) pie menu the same way focusNodeInView frames a node:
   // fit the menu's own bounds into the usable region. The edge menu is one or more
@@ -7063,12 +7379,15 @@ function NodeCanvas() {
     const referenceZoom = Math.min(
       (vb.width * fillFrac) / boundsW,
       (vb.height * fillFrac) / boundsH
-    );
+    ) * focusOnSelectZoomAmount;
     // A connection menu is a short, wide box — fitting it edge-to-edge lands at
     // ~1.8x, which reads as being thrown at the connection. Cap the zoom-IN side:
     // framing should never magnify past near-native scale, only pull back when the
     // row genuinely doesn't fit.
-    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, FOCUS_EDGE_MAX_ZOOM, referenceZoom));
+    // The ceiling moves with the setting too — otherwise asking for tighter
+    // framing would silently do nothing on connections, which is where the cap
+    // binds most often.
+    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, FOCUS_EDGE_MAX_ZOOM * focusOnSelectZoomAmount, referenceZoom));
 
     // No vertical bias here — unlike a node's radial menu, the row already sits to
     // one side of the anchor, so its bounds centered in the region is the right frame.
@@ -7091,7 +7410,7 @@ function NodeCanvas() {
 
     animateCanvasView(finalPan, tz);
     });
-  }, [animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, runFramingAfterCommit]);
+  }, [animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, runFramingAfterCommit, focusOnSelectZoomAmount]);
 
   useEffect(() => {
     const was = prevFocusPieNodeIdRef.current;
@@ -8775,10 +9094,11 @@ function NodeCanvas() {
               const targetPrototypeId = carouselFocusedNode?.prototypeId || originalNodeData?.prototypeId;
               if (!targetPrototypeId) return;
 
-              // Route through the same pref-aware "Ask The Wizard" flow the node
-              // pie menu and the right panel use.
-              window.dispatchEvent(new CustomEvent('rs-ask-wizard-define-node', {
-                detail: { prototypeId: targetPrototypeId }
+              // Ask about THIS chain, not this node's components: the carousel's
+              // wizard action builds out the generalization ladder for the dimension
+              // currently on screen.
+              window.dispatchEvent(new CustomEvent('rs-ask-wizard-abstraction', {
+                detail: { prototypeId: targetPrototypeId, dimension: currentAbstractionDimension }
               }));
 
               // Close the carousel: the wizard works in the left panel, and the
@@ -9074,7 +9394,7 @@ function NodeCanvas() {
       // page that no longer exists.
       return nodePieMenuPages[pieMenuPage] ?? nodePieMenuPages[0] ?? [];
     }
-  }, [nodePieMenuPages, storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage, graphsMap, edgesMap, nodePrototypesMap, clipboardRef, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, CopyPlus, Sparkles, Scaling, TextSearch, ImagePlus, SendToBack, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+  }, [nodePieMenuPages, storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, currentAbstractionDimension, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage, graphsMap, edgesMap, nodePrototypesMap, clipboardRef, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, CopyPlus, Sparkles, Scaling, TextSearch, ImagePlus, SendToBack, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
 
   // Data for the decomposition CONTROL PANEL (mirrors the decomposition pie-menu state).
   // Non-null whenever a node is being previewed/decomposed; supplies the current definition
@@ -10515,6 +10835,118 @@ function NodeCanvas() {
   const hoverCheckScheduled = useRef(false);
 
   /**
+   * Starts a connection draw from the node the pointer is currently holding.
+   *
+   * Shared by the pointer-move path and the keyboard-pan path — see the note at
+   * panTravelSinceMouseDownRef for why a pan counts as the same gesture. The
+   * caller owns the "should this start" decision (armed node, threshold crossed,
+   * nothing else in flight); this owns everything that happens once it does.
+   *
+   * @returns {boolean} true if a draw was started.
+   */
+  function beginConnectionDrawFromNode(armedInstanceId, clientX, clientY) {
+    const srcNode = nodes.find(n => n.id === armedInstanceId);
+    if (!srcNode) return false;
+
+    // Allow both patterns:
+    // 1) Move outside the node (original behavior)
+    // 2) Quick drag while still inside the node (desktop-friendly)
+    const leftNodeArea = !isInsideNode(srcNode, clientX, clientY);
+    if (!leftNodeArea && !startedOnNode.current) return false;
+
+    clearTimeout(longPressTimeout.current);
+    clearTimeout(groupLongPressTimeout.current); // Cancel group drag if connection drawing starts
+    mouseInsideNode.current = false;
+    // For anchor nodes (thing group titles), use title dimensions from anchorPositionUpdatesRef
+    const anchorInfo = srcNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(srcNode.id) : null;
+    const startNodeDims = anchorInfo
+      ? { currentWidth: anchorInfo.width, currentHeight: anchorInfo.height }
+      : getNodeDimensions(srcNode, previewingNodeId === srcNode.id, null);
+    const startPt = { x: srcNode.x + startNodeDims.currentWidth / 2, y: srcNode.y + startNodeDims.currentHeight / 2 };
+
+    // Validate mouse coordinates before calculating canvas position
+    if (!containerRef.current || typeof clientX !== 'number' || typeof clientY !== 'number') {
+      // If coordinates are invalid, don't start drawing connection
+      setLongPressingInstanceId(null);
+      return false;
+    }
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const rawX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+    const rawY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+
+    // Validate calculated coordinates are not NaN
+    if (isNaN(rawX) || isNaN(rawY)) {
+      // Only clear if NOT already dragging
+      if (!draggingNodeInfoRef.current) {
+        setLongPressingInstanceId(null);
+      }
+      return false; // Skip this frame but don't abort active drag
+    }
+
+    const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
+    setDrawingConnectionFrom({ sourceInstanceId: armedInstanceId, startX: startPt.x, startY: startPt.y, currentX, currentY });
+    connectionExitedSourceRef.current = false;
+    // Seed the lattice at the gesture's actual starting length so the
+    // first detent is a real crossing, not an artifact of starting
+    // from zero.
+    connectionHoverTargetRef.current = null;
+    connectionStretchTrack.current.reset(
+      Math.hypot(currentX - startPt.x, currentY - startPt.y) * zoomLevelRef.current
+    );
+    setLongPressingInstanceId(null); // Clear ID
+    return true;
+  }
+
+  /**
+   * Keyboard pan reporting its APPLIED per-frame displacement (screen px, already
+   * clamped at the canvas edge — a pan that goes nowhere reports nothing).
+   *
+   * While a node is held, this travel is the pointer-relative motion that the
+   * mouse never made, so it arms the connection draw on the same
+   * MOVEMENT_THRESHOLD the pointer path uses.
+   */
+  function handleKeyboardPanTravel(dx, dy) {
+    const travel = panTravelSinceMouseDownRef.current;
+    const armedInstanceId = isMouseDown.current ? longPressingInstanceIdRef.current : null;
+    // One arming is the accumulator's whole lifetime: zero it whenever the held
+    // node changes or the button comes up.
+    if (travel.armedId !== armedInstanceId) {
+      travel.armedId = armedInstanceId;
+      travel.x = 0;
+      travel.y = 0;
+    }
+    if (!armedInstanceId) return;
+
+    travel.x += dx;
+    travel.y += dy;
+
+    if (draggingNodeInfoRef.current || drawingConnectionFromRef.current || pinchRef.current.active) return;
+    if (Math.hypot(travel.x, travel.y) <= MOVEMENT_THRESHOLD) return;
+
+    // Mark the gesture as moved before starting the draw, exactly as the pointer
+    // path does on threshold: the lift timer promotes a still-held node into a
+    // node drag unless it sees movement, and mouseup reads the same flag to tell
+    // a drag from a click.
+    mouseMoved.current = true;
+    setHasMouseMovedSinceDown(true);
+    if (clickTimeoutIdRef.current) {
+      clearTimeout(clickTimeoutIdRef.current);
+      clickTimeoutIdRef.current = null;
+      potentialClickNodeRef.current = null;
+    }
+
+    const mouse = mousePositionRef.current;
+    beginConnectionDrawFromNode(armedInstanceId, mouse.x, mouse.y);
+  }
+
+  // Re-point every render so the once-mounted keyboard loop never calls a stale
+  // closure (this reads render-scope values like `nodes` and `previewingNodeId`).
+  useEffect(() => {
+    keyboardPanTravelRef.current = handleKeyboardPanTravel;
+  });
+
+  /**
    * Handles pointer-move for dragging, panning, edge-preview, and hover detection.
    *
    * Runs on every `mousemove`/`pointermove` event over the canvas SVG. Branches:
@@ -10713,56 +11145,7 @@ function NodeCanvas() {
         // otherwise see null and fail to start a connection — notably from thing-group titles.
         const armedInstanceId = longPressingInstanceIdRef.current ?? longPressingInstanceId;
         if (armedInstanceId && !draggingNodeInfo && !draggingNodeInfoRef.current && !pinchRef.current.active) {
-          const longPressNodeData = nodes.find(n => n.id === armedInstanceId); // Get data
-          if (longPressNodeData) {
-            const leftNodeArea = !isInsideNode(longPressNodeData, e.clientX, e.clientY);
-            // Allow both patterns:
-            // 1) Move outside the node (original behavior)
-            // 2) Quick drag while still inside the node (desktop-friendly)
-            if (leftNodeArea || startedOnNode.current) {
-              clearTimeout(longPressTimeout.current);
-              clearTimeout(groupLongPressTimeout.current); // Cancel group drag if connection drawing starts
-              mouseInsideNode.current = false;
-              // For anchor nodes (thing group titles), use title dimensions from anchorPositionUpdatesRef
-              const anchorInfo = longPressNodeData.isGroupAnchor ? anchorPositionUpdatesRef.current.get(longPressNodeData.id) : null;
-              const startNodeDims = anchorInfo
-                ? { currentWidth: anchorInfo.width, currentHeight: anchorInfo.height }
-                : getNodeDimensions(longPressNodeData, previewingNodeId === longPressNodeData.id, null);
-              const startPt = { x: longPressNodeData.x + startNodeDims.currentWidth / 2, y: longPressNodeData.y + startNodeDims.currentHeight / 2 };
-
-              // Validate mouse coordinates before calculating canvas position
-              if (!containerRef.current || typeof e.clientX !== 'number' || typeof e.clientY !== 'number') {
-                // If coordinates are invalid, don't start drawing connection
-                setLongPressingInstanceId(null);
-                return;
-              }
-
-              const rect = containerRef.current.getBoundingClientRect();
-              const rawX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-              const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
-
-              // Validate calculated coordinates are not NaN
-              if (isNaN(rawX) || isNaN(rawY)) {
-                // Only clear if NOT already dragging
-                if (!draggingNodeInfo) {
-                  setLongPressingInstanceId(null);
-                }
-                return; // Skip this frame but don't abort active drag
-              }
-
-              const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
-              setDrawingConnectionFrom({ sourceInstanceId: armedInstanceId, startX: startPt.x, startY: startPt.y, currentX, currentY });
-              connectionExitedSourceRef.current = false;
-              // Seed the lattice at the gesture's actual starting length so the
-              // first detent is a real crossing, not an artifact of starting
-              // from zero.
-              connectionHoverTargetRef.current = null;
-              connectionStretchTrack.current.reset(
-                Math.hypot(currentX - startPt.x, currentY - startPt.y) * zoomLevelRef.current
-              );
-              setLongPressingInstanceId(null); // Clear ID
-            }
-          }
+          beginConnectionDrawFromNode(armedInstanceId, e.clientX, e.clientY);
         } else if (!draggingNodeInfo && !drawingConnectionFrom && !isPanningRef.current && !startedOnNode.current && !pinchRef.current.active && !panStartRef.current) {
           // Start panning after threshold exceeded. Use refs (not state) so we read the
           // synchronously-current values — important post-pinch where React may not have
@@ -12237,6 +12620,7 @@ function NodeCanvas() {
     performDragUpdateRef: nodeDrag.performDragUpdateRef,
     drawingConnectionFromRef,
     reprojectConnectionEndRef: reprojectDrawingConnectionEndRef,
+    onPanTravelRef: keyboardPanTravelRef,
     isAnimatingZoomRef,
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
@@ -17573,7 +17957,19 @@ function NodeCanvas() {
 
                         {/* Edge pie menu — rendered inline at the edge midpoint */}
                         {(() => {
-                          const anchor = edgePieMenuAnchorRef.current;
+                          // Live midpoint wins whenever there is one; the frozen ref only stands in
+                          // once the edge is deselected, which is the case it exists for — the
+                          // bubbles have to finish shrinking where they were.
+                          //
+                          // Same reasoning as frozenButtons below, and for the same reason: the
+                          // effect that maintains this ref writes it AFTER the render that changed
+                          // the selection, and a ref write re-renders nothing. Reading the ref first
+                          // therefore pinned the menu to the previous connection until an unrelated
+                          // render came along — the visible stall when clicking from one connection
+                          // straight to another. The glide to the new midpoint is a CSS transition on
+                          // the bubbles (see PieMenu's line mode), so it plays either way; this only
+                          // decides whether it starts now or whenever something else happens to render.
+                          const anchor = selectedEdgeMidpoint || edgePieMenuAnchorRef.current;
                           // Live buttons win whenever there are any; the frozen ref only stands in once
                           // the list empties out, which is exactly the case it exists for — the edge is
                           // deselected while the menu is still animating away, and the bubbles have to
@@ -18944,6 +19340,46 @@ function NodeCanvas() {
             showDontAskAgain={true}
             dontAskAgainChecked={askWizardNodeDontAskAgain}
             onDontAskAgainChange={setAskWizardNodeDontAskAgain}
+            containerRect={containerRef.current?.getBoundingClientRect()}
+            panOffset={panOffset}
+            zoomLevel={zoomLevel}
+          />
+        )
+      }
+
+      {/* Ask The Wizard dialog (abstraction chain) */}
+      {
+        askWizardAbstractionDialog && (
+          <CanvasConfirmDialog
+            isOpen={true}
+            onClose={() => setAskWizardAbstractionDialog(null)}
+            onConfirm={() => {
+              const { prototype, dimension } = askWizardAbstractionDialog;
+              const remember = askWizardAbstractionDontAskAgain;
+              setAskWizardAbstractionDialog(null);
+              if (remember) {
+                try { debugConfig.setWizardNodePref('new'); } catch { }
+              }
+              openAbstractionWizardWithPrompt(prototype, dimension, { newConversation: true });
+            }}
+            onSecondaryConfirm={() => {
+              const { prototype, dimension } = askWizardAbstractionDialog;
+              const remember = askWizardAbstractionDontAskAgain;
+              setAskWizardAbstractionDialog(null);
+              if (remember) {
+                try { debugConfig.setWizardNodePref('current'); } catch { }
+              }
+              openAbstractionWizardWithPrompt(prototype, dimension, { newConversation: false });
+            }}
+            title="Ask The Wizard"
+            message={`Open the AI Wizard to build out the abstraction chain for "${askWizardAbstractionDialog.prototype?.name || 'this node'}"?`}
+            confirmLabel="New conversation"
+            secondaryConfirmLabel="Add to current"
+            cancelLabel="Cancel"
+            variant="info"
+            showDontAskAgain={true}
+            dontAskAgainChecked={askWizardAbstractionDontAskAgain}
+            onDontAskAgainChange={setAskWizardAbstractionDontAskAgain}
             containerRect={containerRef.current?.getBoundingClientRect()}
             panOffset={panOffset}
             zoomLevel={zoomLevel}

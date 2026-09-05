@@ -51,6 +51,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const dragZoomEnabled = useGraphStore(s => s.dragZoomSettings?.enabled);
   const dragZoomAmount = useGraphStore(s => s.dragZoomSettings?.zoomAmount);
   const focusOnSelectEnabled = useGraphStore(s => s.focusOnSelectEnabled !== false);
+  const focusOnSelectZoomAmount = useGraphStore(s => s.focusOnSelectZoomAmount ?? 1.0);
   const textSettings = useGraphStore(s => s.textSettings);
   const keyboardSettings = useGraphStore(s => s.keyboardSettings);
   const touchSettings = useGraphStore(s => s.touchSettings);
@@ -732,8 +733,11 @@ const SettingsModal = ({ isVisible, onClose }) => {
 
           <hr className="settings-section-divider" />
 
+          {/* Both zoom behaviours are a toggle over its own amount, laid out the
+              way the glide settings above are: an attached header row, then the
+              bar it governs. One of the two used to have no amount at all. */}
           <div className="settings-section-subtitle">Zoom</div>
-          <div className="settings-row">
+          <div className="settings-row settings-row--attached">
             <div className="settings-row-label">
               Zoom on Drag
               <div className="settings-row-description">Zoom out when dragging a node</div>
@@ -745,7 +749,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
           </div>
           <div className="settings-slider-row">
             <MaroonSlider
-              label="Zoom Amount"
               value={dragZoomAmount ?? 0.45}
               min={0.0}
               max={0.9}
@@ -755,7 +758,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
               suffix=""
             />
           </div>
-          <div className="settings-row">
+          <div className="settings-row settings-row--attached">
             <div className="settings-row-label">
               Zoom on Select
               <div className="settings-row-description">Zoom to frame a single Thing when you select it. Ignored when multiple Things are selected.</div>
@@ -763,6 +766,17 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <Toggle
               checked={!!focusOnSelectEnabled}
               onChange={() => useGraphStore.getState().toggleFocusOnSelectEnabled?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              value={focusOnSelectZoomAmount ?? 1.0}
+              min={0.5}
+              max={1.5}
+              step={0.05}
+              suffix="x"
+              disabled={!focusOnSelectEnabled}
+              onChange={(v) => useGraphStore.getState().setFocusOnSelectZoomAmount?.(v)}
             />
           </div>
         </div>

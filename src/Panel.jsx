@@ -365,6 +365,10 @@ const ItemTypes = {
 // that's less of what it is protecting against than it was.
 const MIN_PANEL_WIDTH = 64;
 const INITIAL_PANEL_WIDTH = 250; // Match NodeCanvas default
+// Width at or below which the panel's sections switch to their low-width
+// (stacked/compact) layout. Tracked live during a resize drag, not just on
+// drag end, so the switch lands under the user's cursor as they pull inward.
+const ULTRA_SLIM_WIDTH = 320;
 // EXCLUSIVE_PANEL_MODE_THRESHOLD imported from ./constants (shared with NodeCanvas.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
 
@@ -860,6 +864,16 @@ const Panel = memo(forwardRef(
     // such as dispatching panelWidthChanged must not live inside them).
     const panelWidthRef = useRef(panelWidth);
     useEffect(() => { panelWidthRef.current = panelWidth; }, [panelWidth]);
+    // Live width while the NodeCanvas overlay resizer is being dragged (null
+    // otherwise). During that drag the width lives on the DOM node only, so any
+    // re-render mid-drag — e.g. the layout-mode switches below — would otherwise
+    // paint the stale `panelWidth` and snap the panel back for a frame.
+    const dragLiveWidthRef = useRef(null);
+    React.useLayoutEffect(() => {
+      if (dragLiveWidthRef.current != null && panelRef.current) {
+        panelRef.current.style.width = `${dragLiveWidthRef.current}px`;
+      }
+    });
     const [lastCustomWidth, setLastCustomWidth] = useState(INITIAL_PANEL_WIDTH);
     const [isWidthInitialized, setIsWidthInitialized] = useState(false);
     const [isAnimatingWidth, setIsAnimatingWidth] = useState(false);
@@ -1432,16 +1446,21 @@ const Panel = memo(forwardRef(
         if (!e?.detail) return;
         const { side: evtSide, width } = e.detail;
         if (evtSide === side && typeof width === 'number' && panelRef.current) {
+          dragLiveWidthRef.current = width;
           panelRef.current.style.width = `${width}px`;
-          // Update wide layout when crossing the threshold (at most 1 re-render per drag)
+          // Update layout modes when crossing a threshold (at most 1 re-render
+          // per crossing — same-value setState bails out)
           const nowWide = width > 250;
           setIsWideLayout(prev => prev === nowWide ? prev : nowWide);
+          const nowSlim = width <= ULTRA_SLIM_WIDTH;
+          setIsUltraSlim(prev => prev === nowSlim ? prev : nowSlim);
         }
       };
       const onChanged = (e) => {
         if (!e?.detail) return;
         const { side: evtSide, width } = e.detail;
         if (evtSide === side && typeof width === 'number') {
+          dragLiveWidthRef.current = null;
           setPanelWidth(width);
           setIsWideLayout(width > 250);
           try {
@@ -1537,8 +1556,18 @@ const Panel = memo(forwardRef(
     // --- End Resize Handlers & related effects ---
 
     // --- Determine Active View/Tab ---
-    const isUltraSlim = panelWidth <= 275;
+    // Not derived from panelWidth: while the NodeCanvas overlay resizer is being
+    // dragged the panel's width is mutated on the DOM node directly and
+    // panelWidth stays stale until drag end, so this is driven by the live
+    // `panelWidthChanging` events too (crossings only — see the listener below).
+    const [isUltraSlim, setIsUltraSlim] = useState(() => panelWidth <= ULTRA_SLIM_WIDTH);
     const [isWideLayout, setIsWideLayout] = useState(() => panelWidth > 250);
+    // Keep it honest for every non-drag path that moves the width (initial load,
+    // double-click toggle, viewport re-clamp, this panel's own resize handle).
+    useEffect(() => {
+      const nowSlim = panelWidth <= ULTRA_SLIM_WIDTH;
+      setIsUltraSlim(prev => prev === nowSlim ? prev : nowSlim);
+    }, [panelWidth]);
     // Get tabs reactively if side is 'right'
     const activeRightPanelTab = useMemo(() => {
       if (side !== 'right') return null;
