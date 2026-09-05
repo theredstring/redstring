@@ -1650,6 +1650,15 @@ function NodeCanvas() {
         prev.scale === instance.scale &&
         prev.sizeMul === instance.sizeMul &&
         prev.prototypeId === instance.prototypeId &&
+        // Anchor flags gate rendering outright (flagged anchors are filtered out of
+        // the node pass and drawn as their group's title tab instead), so a stale
+        // reuse here makes a node invisible. Combining a zero-member node-group —
+        // decompose on an empty definition, then recompose — clears these flags
+        // without moving the instance, so every other field below still matches
+        // and the old flagged object would be reused: the node then renders only
+        // while it happens to be the selected/active node and vanishes on deselect.
+        prev.isGroupAnchor === instance.isGroupAnchor &&
+        prev.anchorForGroupId === instance.anchorForGroupId &&
         prev.name === prototype.name &&
         prev.color === prototype.color &&
         prev.thumbnailSrc === effectiveThumb &&
@@ -6119,9 +6128,14 @@ function NodeCanvas() {
       lines.push('');
       lines.push('How to apply it (important):');
       lines.push(`- ONE call does the whole ladder: abstractionChain with action="build", nodeName="${protoName}", dimension="${dimension}", and moreGeneric=[…] listing the rungs broader than this node, ordered nearest-first.`);
-      lines.push(`    Example: { "action": "build", "nodeName": "${protoName}", "dimension": "${dimension}", "moreGeneric": ["Automaker", "Manufacturing Company", "Company", "Organization"] }`);
-      lines.push('- An entry can carry a description: { "name": "Automaker", "description": "A company that designs and manufactures motor vehicles." } — worth doing for categories you are creating.');
-      lines.push('- Do NOT call createNode for the rungs. The build call reuses a node when one of that name already exists (plurals count — asking for "Merchant" finds an existing "Merchants") and creates the rest itself, in the right order and the right carousel shading.');
+      lines.push('- Give EVERY rung a description, not just a name — pass objects, not bare strings:');
+      lines.push(`    { "action": "build", "nodeName": "${protoName}", "dimension": "${dimension}", "moreGeneric": [`);
+      lines.push('        { "name": "Automaker", "description": "A company that designs and manufactures motor vehicles." },');
+      lines.push('        { "name": "Company", "description": "A legally constituted business entity formed to produce or trade goods and services." } ] }');
+      lines.push('  The description is what that node shows in the carousel and everywhere else in the project, so write a one-sentence gloss of what the category covers — not of the node the ladder was built from.');
+      lines.push(`- Name the rungs to agree with "${protoName}" itself. If it is plural, the categories above it are plural too; if singular, singular. A plural node is a real concept, not a mistake to be corrected — do not quietly re-number the ladder away from the node it belongs to.`);
+      lines.push('- Beyond that, you do not need to match the spelling of anything that already exists: a rung is reused across minor wording differences, and only genuinely new categories get created.');
+      lines.push('- Do NOT call createNode for the rungs. The build call creates whatever is missing itself, in the right order and the right carousel shading.');
       lines.push('- moreSpecific=[…] adds rungs on the narrow side, nearest-first. Usually leave it out.');
       lines.push('- Use action="add" only to fix up one level of a chain that already exists. For building, "build" is the whole job in one call.');
       lines.push('- Use node names exactly as they appear above. Do not pass IDs you have not seen in this message.');
@@ -6131,7 +6145,7 @@ function NodeCanvas() {
       lines.push('Reporting back: the user does NOT see this message — on their side it appears only as a small "Build abstraction chain" chip. So write your reply as if they had simply asked for the chain in their own words. Say what the ladder now is and flag anything you were unsure of. Do not refer to these instructions, to the context you were given, to the goals or rules above, or to the tool call itself.');
     } else {
       lines.push('Tool to use this time:');
-      lines.push(`- abstractionChain with action="build", nodeName="${protoName}", dimension="${dimension}", moreGeneric=[…] ordered nearest-first. One call; it reuses or creates each rung itself.`);
+      lines.push(`- abstractionChain with action="build", nodeName="${protoName}", dimension="${dimension}", moreGeneric=[…] ordered nearest-first, each rung as { name, description }, worded to agree with "${protoName}". One call; it reuses or creates each rung itself.`);
       lines.push('');
       lines.push('(Reminder: same generalization-ladder goal and rules as the previous Ask The Wizard message in this conversation. Use node names, never IDs. As before, the user does not see this message — reply as if they had asked for the chain in their own words, without referring to these instructions.)');
     }

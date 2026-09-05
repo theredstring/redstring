@@ -496,8 +496,16 @@ const blockGap = (A, B, ceiling) => {
  * minimum and reads as suffocation. Measured rect to rect, one number means the
  * same thing for both.
  *
+ * `gap` may be a single number, or a function of the two block INDICES. The
+ * per-pair form exists because one number for every pair is wrong in both
+ * directions once the blocks are heterogeneous: a group shell and a loose node
+ * do not need the same corridor as two group shells, and sizing every pair off
+ * whichever pair needs the most casts the whole layout apart. Callers derive
+ * each pair's floor from whatever constraint actually applies to it.
+ *
  * @param {Array<{rects: Array, movable?: boolean}>} blocks
- * @param {number} gap required clear space between any two blocks
+ * @param {number | ((i: number, j: number) => number)} gap required clear space
+ *        between two blocks, uniform or per index pair
  * @param {{center?: {x,y}, iterations?: number, pullRate?: number}} options
  * @returns {Array<{dx: number, dy: number}>} translations, parallel to `blocks`
  */
@@ -525,6 +533,7 @@ export function condenseBlocks(blocks, gap, options = {}) {
   };
   const iterations = options.iterations ?? 24;
   const pullRate = options.pullRate ?? 0.12;
+  const gapFor = typeof gap === 'function' ? gap : () => gap;
 
   // One separation sweep: push every too-close pair apart along the line
   // between their centres. Both blocks share the correction when both may
@@ -536,8 +545,9 @@ export function condenseBlocks(blocks, gap, options = {}) {
         const A = state[i];
         const B = state[j];
         if (!A.movable && !B.movable) continue;
-        const distance = blockGap(A, B, gap);
-        const deficit = gap - distance;
+        const pairGap = gapFor(i, j);
+        const distance = blockGap(A, B, pairGap);
+        const deficit = pairGap - distance;
         if (deficit <= SEPARATION_EPSILON) continue;
         worst = Math.max(worst, deficit);
 

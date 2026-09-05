@@ -826,7 +826,7 @@ export function getToolDefinitions(options = {}) {
                     action: { type: 'string', enum: ['read', 'build', 'add', 'remove'], description: '"read" (default): view all chains. "build": lay down a whole ladder from moreGeneric/moreSpecific in one call — the normal way to build. "add"/"remove": adjust a single level of an existing chain.' },
                     moreGeneric: {
                         type: 'array',
-                        description: 'For build: the rungs BROADER than the node, ordered nearest-first — e.g. for "Ford Motor Company": ["Automaker", "Manufacturing Company", "Company", "Organization"]. Each entry is a name, or an object { name, description }. Nodes that already exist are reused; the rest are created.',
+                        description: 'For build: the rungs BROADER than the node, ordered nearest-first — e.g. for "Ford Motor Company": ["Automaker", "Manufacturing Company", "Company", "Organization"]. Prefer objects { name, description } over bare names: the description is what the node shows in the carousel. Name the rungs to agree grammatically with nodeName — a plural node ("Merchants") takes plural categories above it, a singular one takes singular. Nodes that already exist are reused (matching tolerates minor wording differences), the rest created.',
                         items: { type: 'string' }
                     },
                     moreSpecific: {

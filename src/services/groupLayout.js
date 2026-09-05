@@ -497,13 +497,18 @@ export function edgeZSlotFor(edge, slotByInstanceId, topSlot) {
 // Tab height is dictated by the label font: tall enough for the line box
 // (font * 1.4) plus vertical padding, with a sane minimum. `fontSize` is the
 // already-scaled px size; falls back to the fixed constant when not supplied.
-const labelHeightConst = (scale = 1, fontSize = null) => {
+// Exported because the LAYOUT has to reserve the same tab the renderer draws.
+// It used to carry its own copy — a flat 80px height and a `name.length * 12`
+// width guess — which under-reserved a real group title by roughly half its
+// width. The tab is centred on the group's band, so the deficit hangs off both
+// sides and paints over whatever is beside the group. One formula, both callers.
+export const labelHeightConst = (scale = 1, fontSize = null) => {
   const C = GROUP_LAYOUT_CONSTANTS;
   const f = fontSize ?? C.fontSize * scale;
   return Math.max(80 * scale, f * 1.4 + C.titlePaddingVertical * scale * 2);
 };
 
-const labelWidthFor = (text, measureLabelWidth, scale = 1) => {
+export const labelWidthFor = (text, measureLabelWidth, scale = 1) => {
   const C = GROUP_LAYOUT_CONSTANTS;
   // `measureLabelWidth` already measures against the node-scaled font, so the
   // padding/floor/ceiling scale alongside it to keep the tab proportional.

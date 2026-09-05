@@ -2305,6 +2305,15 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
             typeNodeId: 'base-thing-prototype',
             definitionGraphIds: []
           });
+        } else if (level.description) {
+          // Reused rung: fill in a description only if it has none. A node the user
+          // already described is theirs, and the ladder is no reason to rewrite it.
+          const existing = store.nodePrototypes.get(protoId);
+          if (existing && !(existing.description || '').trim()) {
+            store.updateNodePrototype(protoId, (draft) => {
+              draft.description = level.description;
+            });
+          }
         }
 
         store.addToAbstractionChain(

@@ -5,7 +5,7 @@
  * Focuses on predictability, spaciousness, and preventing node overlap.
  */
 
-import { GROUP_LAYOUT_CONSTANTS } from './groupLayout.js';
+import { GROUP_LAYOUT_CONSTANTS, labelHeightConst, labelWidthFor } from './groupLayout.js';
 // Shared box/segment geometry. This module imports nothing from services/, so
 // it is safe to pull in ahead of the patternLayouts cycle below.
 import {
@@ -280,19 +280,49 @@ function buildGroupContainmentHierarchy(groups) {
  * Compute a group's visual bounding box from its laid-out member positions,
  * folding the title bar overhang for node-groups. Mirrors the math in
  * services/groupLayout.js so meta-positioning sees the same rect a renderer
- * would draw.
+ * would draw — the tab formulas are imported from there rather than copied.
+ *
+ * The label font matters and used to be guessed. `measureLabelWidth` can only
+ * be supplied on the main thread (the solver runs in a worker, and functions do
+ * not survive the structured clone that carries `options` across), so the
+ * FALLBACK is what actually runs in production. It was `name.length * 12`,
+ * against a renderer measuring real text at 45px — roughly half the true width,
+ * with the deficit hanging off both sides of a centred tab. The fallback now
+ * goes through this file's own EmOne advance table at the real label size, which
+ * tracks measured widths closely enough that plumbing a measurement function is
+ * optional polish rather than a correctness requirement.
+ *
+ * @param {object} group
+ * @param {{minX, minY, maxX, maxY}} bbox - member bounding box
+ * @param {object} [config] - reads gridSize, measureLabelWidth,
+ *        groupLabelFontSize, groupLabelScale. Omit for the constant defaults.
  */
-export function deriveGroupVisualBounds(group, bbox, gridSize, measureLabelWidth) {
+export function deriveGroupVisualBounds(group, bbox, config = {}) {
   const C = GROUP_LAYOUT_CONSTANTS;
-  const memberPad = Math.max(24, Math.round((gridSize ?? 100) * 0.2));
+  const labelScale = config.groupLabelScale ?? 1;
+  const labelFontSize = config.groupLabelFontSize ?? C.fontSize * labelScale;
+  const memberPad = Math.max(24, Math.round((config.gridSize ?? 100) * 0.2));
   const margin = memberPad + C.innerCanvasBorder;
-  const rectX = bbox.minX - margin;
+  let rectX = bbox.minX - margin;
   const rectY = bbox.minY - margin;
-  const rectW = (bbox.maxX - bbox.minX) + margin * 2;
+  let rectW = (bbox.maxX - bbox.minX) + margin * 2;
   const rectH = (bbox.maxY - bbox.minY) + margin * 2;
-  const labelHeight = Math.max(80, C.fontSize * 1.4 + C.titlePaddingVertical * 2);
-  const measured = measureLabelWidth ? measureLabelWidth(group.name || 'Group') : (group.name || 'Group').length * 12;
-  const labelWidth = Math.min(1000, Math.max(100, measured + C.titlePaddingHorizontal * 2 + C.strokeWidth * 2));
+
+  const measure = config.measureLabelWidth
+    || ((text) => estimateEdgeLabelWidth(text, labelFontSize));
+  const labelWidth = labelWidthFor(group.name || 'Group', measure, labelScale);
+  const labelHeight = labelHeightConst(labelScale, labelFontSize);
+
+  // The band grows to hold a title wider than it, symmetrically — same as
+  // computeGroupLayoutInner. Without it the solver's rect is up to
+  // 2 * titlePaddingHorizontal narrower than the drawn one for any group whose
+  // name outruns its contents.
+  const minRectW = labelWidth + C.titlePaddingHorizontal * 2;
+  if (minRectW > rectW) {
+    rectX -= (minRectW - rectW) / 2;
+    rectW = minRectW;
+  }
+
   const labelX = rectX + (rectW - labelWidth) / 2;
   const labelY = rectY - labelHeight - C.titleToCanvasGap;
   const isNodeGroup = !!group.linkedNodePrototypeId;
@@ -851,6 +881,114 @@ function calculateAutoScale(nodeCount) {
 }
 
 // ============================================================================
+// COMPACTION
+// ============================================================================
+
+/**
+ * Draw a level's rigid bodies together until a floor binds.
+ *
+ * The group pipeline is otherwise expansion-only — every stage in it either
+ * pushes apart (the separation and exclusion passes) or composes bottom-up with
+ * a fresh allowance at each level. Nesting therefore accumulates slack
+ * multiplicatively: a measured 1.3-1.8x per level on top of the leaf's own
+ * spread, so a four-deep web draws at ~2.5x the area of the same graph with no
+ * groups at all, and reads at a zoom where nothing is legible.
+ *
+ * The one existing compaction pass, `condenseClusters`, cannot help: it marks
+ * any cluster spanning more than one group immovable, which in a nested web is
+ * every cluster.
+ *
+ * WHAT KEEPS THIS FROM OVER-COMPACTING. `condenseBlocks` alternates a pull
+ * toward the common centre with a separation sweep and then ends on separation
+ * alone, so the constraint — never the objective — is the last thing to touch
+ * the layout. What makes that safe HERE is where the constraint comes from:
+ * every floor below is the number a later pass already enforces, computed with
+ * that pass's own helper. Compaction therefore cannot reach a position that
+ * `enforceGroupClaims` would undo, and the two cannot oscillate. On top of the
+ * structural floor each pair is held at least as far apart as the widest
+ * connection label crossing it, so no labelled edge is ever pulled shorter than
+ * its own text.
+ *
+ * Bodies translate as wholes, so every child group's interior — and every edge,
+ * label and clearance its own solver established — comes through untouched.
+ *
+ * @param {Map<string, {x: number, y: number}>} positions - TOP-LEFT, mutated
+ * @param {Array<{ids: string[], rect: object, group: object|null}>} bodies
+ * @param {Array} edges - connections, for the label floors
+ * @param {object} config
+ * @param {(a: object, b: object) => number} structuralGap - floor for a pair
+ */
+function compactBodies(positions, bodies, edges, config, structuralGap) {
+  if (config.compactGroups === false) return;
+  if (!bodies || bodies.length < 2) return;
+
+  const bodyIndexByNodeId = new Map();
+  bodies.forEach((body, index) => {
+    body.ids.forEach(id => bodyIndexByNodeId.set(id, index));
+  });
+
+  // Widest label on any connection crossing each pair. A label is drawn along
+  // its edge, so the span between the two bodies has to hold the text —
+  // `labelPadding` beyond it is the same allowance `requiredEdgeLength` adds.
+  const labelFloor = new Map();
+  (edges || []).forEach(e => {
+    if (!e?.name) return;
+    const i = bodyIndexByNodeId.get(e.sourceId);
+    const j = bodyIndexByNodeId.get(e.destinationId);
+    if (i === undefined || j === undefined || i === j) return;
+    const key = i < j ? `${i}|${j}` : `${j}|${i}`;
+    const width = estimateEdgeLabelWidth(e.name, config.edgeLabelFontSize);
+    if (width > (labelFloor.get(key) || 0)) labelFloor.set(key, width);
+  });
+
+  // Gap between two rects, uncapped — the separation sweep's own version
+  // short-circuits once a pair is far enough apart, and this needs the number.
+  const gapBetween = (a, b) => Math.hypot(
+    Math.max(0, a.minX - b.maxX, b.minX - a.maxX),
+    Math.max(0, a.minY - b.maxY, b.minY - a.maxY)
+  );
+
+  const gapFor = (i, j) => {
+    const key = i < j ? `${i}|${j}` : `${j}|${i}`;
+    const structural = structuralGap(bodies[i], bodies[j]);
+    const label = labelFloor.get(key);
+    if (!label) return structural;
+    // COMPACTION MUST NEVER ADD SPACE. A rect-to-rect gap is a far stronger
+    // demand than the label actually makes — the connection runs endpoint to
+    // endpoint, which for two group shells is nothing like the distance between
+    // their nearest edges — so treating the label width as an unconditional
+    // floor here pushes pairs APART, and a "compaction" that expands the
+    // drawing is worse than none. Cap it at the room the pair already has:
+    // whatever the solver established for this label survives untouched, and
+    // compaction can still close in to the structural floor. Only that floor,
+    // which is a membership-legibility guarantee rather than an aesthetic one,
+    // is allowed to separate an overlapping pair.
+    const initial = gapBetween(bodies[i].rect, bodies[j].rect);
+    return Math.max(structural, Math.min(label + (config.labelPadding ?? 40), initial));
+  };
+
+  const shifts = condenseBlocks(bodies.map(b => ({ rects: [b.rect] })), gapFor);
+
+  bodies.forEach((body, index) => {
+    const { dx, dy } = shifts[index];
+    if (dx === 0 && dy === 0) return;
+    body.ids.forEach(id => {
+      const pos = positions.get(id);
+      if (pos) { pos.x += dx; pos.y += dy; }
+    });
+    body.rect.minX += dx; body.rect.maxX += dx;
+    body.rect.minY += dy; body.rect.maxY += dy;
+  });
+}
+
+/** The rect a plain (non-group) body occupies, from a top-left position. */
+function bodyRectForNode(pos, node) {
+  const w = node?.width || 150;
+  const h = node?.height || 100;
+  return { minX: pos.x, minY: pos.y, maxX: pos.x + w, maxY: pos.y + h };
+}
+
+// ============================================================================
 // GROUP-SEPARATED LAYOUT (Two-Phase)
 // ============================================================================
 
@@ -1060,10 +1198,20 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     );
 
     // Compose final positions for every node "owned" by this group's layout.
+    // Each entry in `bodies` is one thing that moves as a unit at THIS level —
+    // a direct member, or a whole child group — which is what the compaction
+    // below translates.
     const composedPositions = new Map();
+    const bodies = [];
     directMemberIds.forEach(mid => {
       const p = positions.get(mid);
-      if (p) composedPositions.set(mid, { x: p.x, y: p.y });
+      if (!p) return;
+      composedPositions.set(mid, { x: p.x, y: p.y });
+      bodies.push({
+        ids: [mid],
+        rect: bodyRectForNode(p, nodeById.get(mid)),
+        group: null,
+      });
     });
     childIds.forEach(cid => {
       const blockPos = positions.get(`__block__${cid}`);
@@ -1077,8 +1225,10 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       // its reserved slot, overlapping whatever sat there.)
       const dx = blockPos.x - cl.visualBounds.x;
       const dy = blockPos.y - cl.visualBounds.y;
+      const childIdsMoved = [];
       cl.positions.forEach((pos, mid) => {
         composedPositions.set(mid, { x: pos.x + dx, y: pos.y + dy });
+        childIdsMoved.push(mid);
       });
       // Pin the child's anchor to the top-centre of its composed shell — the
       // renderer syncs it to the title tab there anyway, and a pinned anchor
@@ -1093,8 +1243,39 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
           x: vb.x + vb.w / 2 - ((anchorNode?.width || 150) / 2) + dx,
           y: vb.y + dy,
         });
+        if (!childIdsMoved.includes(anchorId)) childIdsMoved.push(anchorId);
       }
+      // The rect the child must be kept clear of is the one the exclusion pass
+      // will compute for it, not its bare shell — same helper, same padding, so
+      // compaction's floor and that pass's floor are one number.
+      const childBBox = {
+        minX: cl.centerX - cl.width / 2 + dx,
+        minY: cl.centerY - cl.height / 2 + dy,
+        maxX: cl.centerX + cl.width / 2 + dx,
+        maxY: cl.centerY + cl.height / 2 + dy,
+      };
+      bodies.push({
+        ids: childIdsMoved,
+        rect: inflateToRenderedRect(childGroup, childBBox, config.groupBoundaryPadding || 100, config),
+        group: childGroup,
+      });
     });
+
+    // ---- Phase 1.5: compact this level ----
+    // Leaves-first, so the effect compounds DOWNWARD: a tightened level 3 is a
+    // smaller block for level 2 to place, which is a smaller block for level 1.
+    // That is the same path the slack took getting in.
+    // Note `edges`, not `intraEdges`: the latter routes everything that touches
+    // a child through a synthetic `__block__` id, which no body claims. The
+    // real list resolves each endpoint to whichever body now owns it.
+    if (options._compactDuringCompose !== false) {
+      compactBodies(composedPositions, bodies, edges, config, (a, b) => {
+        const pad = config.groupBoundaryPadding || 100;
+        if (a.group && b.group) return groupPairGap(a.group, b.group, nodeById, pad);
+        if (a.group || b.group) return Math.max(30, config.nodeGap ?? 140);
+        return config.nodeGap ?? 140;
+      });
+    }
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     composedPositions.forEach((pos, mid) => {
@@ -1108,12 +1289,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     });
     if (!isFinite(minX)) continue;
 
-    const visualBounds = deriveGroupVisualBounds(
-      group,
-      { minX, minY, maxX, maxY },
-      options.gridSize,
-      options.measureLabelWidth,
-    );
+    const visualBounds = deriveGroupVisualBounds(group, { minX, minY, maxX, maxY }, config);
 
     groupLayouts.set(gId, {
       positions: composedPositions,
@@ -1548,7 +1724,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       if (!group || !members) return;
       const bbox = boundsOf(topLeft, [...members]);
       if (!bbox) return;
-      const vb = deriveGroupVisualBounds(group, bbox, options.gridSize, options.measureLabelWidth);
+      const vb = deriveGroupVisualBounds(group, bbox, config);
       groupBoxes.set(gId, {
         minX: vb.x, minY: vb.y, maxX: vb.x + vb.w, maxY: vb.y + vb.h,
         centerX: vb.x + vb.w / 2, centerY: vb.y + vb.h / 2
@@ -1687,6 +1863,113 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     }
   }
 
+  /** Clear space a pair of bodies at one level must keep between them. */
+  const structuralGapFor = (a, b) => {
+    const pad = config.groupBoundaryPadding || 100;
+    if (a.group && b.group) return groupPairGap(a.group, b.group, nodeById, pad);
+    // A loose node beside a group rect: `enforceGroupBoundsExclusion` parks a
+    // non-member exactly this far outside, and the rect already carries the
+    // padding, so this is where that pass would leave it anyway.
+    if (a.group || b.group) return Math.max(30, config.nodeGap ?? 140);
+    return config.nodeGap ?? 140;
+  };
+
+  /** The rect the exclusion pass will hold clear around a set of ids. */
+  const enforcementRectFor = (group, memberIds, topLeft) => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    memberIds.forEach(id => {
+      const pos = topLeft.get(id);
+      const node = nodeById.get(id);
+      if (!pos || !node) return;
+      if (pos.x < minX) minX = pos.x;
+      if (pos.y < minY) minY = pos.y;
+      if (pos.x + (node.width || 150) > maxX) maxX = pos.x + (node.width || 150);
+      if (pos.y + (node.height || 100) > maxY) maxY = pos.y + (node.height || 100);
+    });
+    if (!Number.isFinite(minX)) return null;
+    return inflateToRenderedRect(group, { minX, minY, maxX, maxY },
+      config.groupBoundaryPadding || 100, config);
+  };
+
+  /**
+   * Walk the group tree leaves-first and squeeze the slack out of each level,
+   * then out of the top level itself.
+   *
+   * Compacting during Phase 1 alone accomplishes nothing measurable, because
+   * Phase 3 runs afterwards: sibling groups are not an ancestor-descendant pair,
+   * so the inter-group centroid repulsion fires between them at full strength
+   * for twenty iterations and re-opens everything that was closed. So this runs
+   * at the END, on whatever the springs settled to, and immediately before
+   * `enforceGroupClaims` — which is what makes it safe rather than a fight. The
+   * claims pass gets the last word, and every floor used here is the floor that
+   * pass enforces, so it has nothing to undo.
+   *
+   * Bottom-up matters: a tightened child is a smaller rigid body for its parent
+   * to place, so the saving at each level compounds into the one above it.
+   */
+  const compactGroupTree = (topLeft) => {
+    const idsOwnedBy = new Map();   // groupId -> every id that rides with it
+    const rectOwnedBy = new Map();  // groupId -> its enforcement rect (mutated in place)
+
+    for (const gId of hierarchy.topo) {
+      const group = hierarchy.groupsById.get(gId);
+      if (!group) continue;
+      const childIds = (hierarchy.childrenOf.get(gId) || []).filter(cid => idsOwnedBy.has(cid));
+      const childAnchors = new Set(
+        childIds.map(cid => hierarchy.groupsById.get(cid)?.anchorInstanceId).filter(Boolean)
+      );
+
+      const bodies = [];
+      const owned = [];
+      (group.memberInstanceIds || []).forEach(mid => {
+        if (innermostGroupOf.get(mid) !== gId) return;  // lives inside a child
+        if (childAnchors.has(mid)) return;              // is a child's title tab
+        const pos = topLeft.get(mid);
+        if (!pos) return;
+        bodies.push({ ids: [mid], rect: bodyRectForNode(pos, nodeById.get(mid)), group: null });
+        owned.push(mid);
+      });
+      childIds.forEach(cid => {
+        const ids = idsOwnedBy.get(cid);
+        const rect = rectOwnedBy.get(cid);
+        if (!ids?.length || !rect) return;
+        bodies.push({ ids, rect, group: hierarchy.groupsById.get(cid) });
+        owned.push(...ids);
+      });
+
+      compactBodies(topLeft, bodies, edges, config, structuralGapFor);
+
+      idsOwnedBy.set(gId, owned);
+      const rect = enforcementRectFor(group, group.memberInstanceIds || [], topLeft);
+      if (rect) rectOwnedBy.set(gId, rect);
+    }
+
+    // Top level: each top-level group as a whole, plus each groupless component.
+    const topBodies = [];
+    hierarchy.topLevelGroupIds.forEach(gId => {
+      const ids = idsOwnedBy.get(gId);
+      const rect = rectOwnedBy.get(gId);
+      if (!ids?.length || !rect) return;
+      const group = hierarchy.groupsById.get(gId);
+      // The anchor is the group's own title tab — it rides with the group even
+      // though it is deliberately not one of its members.
+      const withAnchor = group?.anchorInstanceId && topLeft.has(group.anchorInstanceId)
+        ? [...ids, group.anchorInstanceId]
+        : ids;
+      topBodies.push({ ids: withAnchor, rect, group });
+    });
+    const componentIds = new Map();
+    ungroupedMetaOf.forEach((metaId, nodeId) => {
+      if (!componentIds.has(metaId)) componentIds.set(metaId, []);
+      componentIds.get(metaId).push(nodeId);
+    });
+    componentIds.forEach(ids => {
+      const bbox = boundsOf(topLeft, ids);
+      if (bbox) topBodies.push({ ids, rect: { ...bbox }, group: null });
+    });
+    compactBodies(topLeft, topBodies, edges, config, structuralGapFor);
+  };
+
   /**
    * Peer rects must not interleave, and no node may finish inside a rect it
    * isn't a member of.
@@ -1747,8 +2030,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
         maxY = Math.max(maxY, pos.y + (node.height || 60));
       });
       if (!Number.isFinite(minX)) return;
-      const vb = deriveGroupVisualBounds(group, { minX, minY, maxX, maxY },
-        options.gridSize, options.measureLabelWidth);
+      const vb = deriveGroupVisualBounds(group, { minX, minY, maxX, maxY }, config);
       const anchorNode = nodeById.get(anchorId);
       out.set(anchorId, {
         x: vb.x + vb.w / 2 - ((anchorNode?.width || 150) / 2),
@@ -1759,6 +2041,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   };
 
   if (patternIntra) {
+    compactGroupTree(finalPositions);
     const out = enforceGroupClaims(finalPositions);
     if (options.onProgress) options.onProgress(1);
     return out;
@@ -1792,6 +2075,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   // it belongs beside — enough, on a canvas the groups mostly fill, to shove a
   // satellite past a neighbouring group entirely. Reel once more before the
   // claims pass gets the last word.
+  compactGroupTree(refined);
   const settled = enforceGroupClaims(refined);
   if (ungroupedLayouts.length === 0) return settled;
   reelAttachedComponents(settled);
@@ -2633,10 +2917,17 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
         if (!pos || !force) return;
 
         const nodeGroups = nodeGroupsMap.get(node.id) || new Set();
-        const nodeW = node.width || 100;
-        const nodeH = node.height || 60;
-        const nodeCenterX = pos.x + nodeW / 2;
-        const nodeCenterY = pos.y + nodeH / 2;
+        // `pos` IS the centre — see the COORDINATE FRAME note above, and the
+        // groupBounds scan directly overhead, which reads the same map as
+        // centres. This used to add half the node's size on top, so every
+        // containment test below ran against the node's BOTTOM-RIGHT CORNER:
+        // a node overlapping a rect's top-left went undetected, one clear of
+        // the bottom-right by less than half its size was pushed anyway, and
+        // the radial term biased every ejection down-right. The force fires
+        // once per (node, group) pair, so in a nested web that bias compounds
+        // across every level.
+        const nodeCenterX = pos.x;
+        const nodeCenterY = pos.y;
 
         groups.forEach(group => {
           // Skip if node belongs to this group
@@ -3425,7 +3716,7 @@ function inflateToRenderedRect(group, bbox, pad, config) {
     maxX: bbox.maxX + pad, maxY: bbox.maxY + pad
   };
   if (config?.groupVisualBounds === false) return padded;
-  const vb = deriveGroupVisualBounds(group, bbox, config?.gridSize, config?.measureLabelWidth);
+  const vb = deriveGroupVisualBounds(group, bbox, config || {});
   return {
     minX: Math.min(padded.minX, vb.x),
     minY: Math.min(padded.minY, vb.y),
@@ -3488,6 +3779,31 @@ function makePeerSharedChecker(nodeGroupsMap, nestedGroupPairs) {
 }
 
 /**
+ * Clear space two group rects must keep between them.
+ *
+ * Only pairs that actually share members need a corridor wide enough for the
+ * shared node plus ejection clearance (or corridor placement oscillates). Pairs
+ * with nothing between them get a modest gap — sizing every pair for the
+ * graph's biggest node casts the whole layout apart.
+ *
+ * Shared with the compaction stages so that pulling groups together and pushing
+ * them apart are governed by ONE number. Two separate notions of "close enough"
+ * would leave compaction packing to a floor the separation pass then undoes.
+ */
+function groupPairGap(g1, g2, nodeById, pad) {
+  const plainGap = pad * 2;
+  const m2 = new Set(g2.memberInstanceIds || []);
+  let maxSharedExtent = 0;
+  (g1.memberInstanceIds || []).forEach(id => {
+    if (!m2.has(id)) return;
+    const n = nodeById.get(id);
+    if (n) maxSharedExtent = Math.max(maxSharedExtent, n.width || 100, n.height || 60);
+  });
+  if (maxSharedExtent === 0) return plainGap;
+  return pad * 2 + maxSharedExtent + 80;
+}
+
+/**
  * Rigidly translate peer (non-nested) top-level groups apart until their
  * core boxes no longer overlap. Pairwise node separation alone can leave two
  * groups spatially interleaved — which renders as one group's rect swallowing
@@ -3500,24 +3816,7 @@ function separateGroupBoxes(positions, groups, nodeGroupsMap, nodeById, nestedGr
   if (!groups || groups.length < 2) return;
   const pad = config.groupBoundaryPadding || 100;
   const isPeerSharedWith = makePeerSharedChecker(nodeGroupsMap, nestedGroupPairs);
-
-  // Only pairs that actually share members need a corridor between their
-  // PADDED boxes wide enough for the shared node plus ejection clearance
-  // (or corridor placement oscillates). Pairs with nothing between them get
-  // a modest gap — sizing every pair for the graph's biggest node casts the
-  // whole layout apart.
-  const plainGap = pad * 2;
-  const gapForPair = (g1, g2) => {
-    const m2 = new Set(g2.memberInstanceIds || []);
-    let maxSharedExtent = 0;
-    (g1.memberInstanceIds || []).forEach(id => {
-      if (!m2.has(id)) return;
-      const n = nodeById.get(id);
-      if (n) maxSharedExtent = Math.max(maxSharedExtent, n.width || 100, n.height || 60);
-    });
-    if (maxSharedExtent === 0) return plainGap;
-    return pad * 2 + maxSharedExtent + 80;
-  };
+  const gapForPair = (g1, g2) => groupPairGap(g1, g2, nodeById, pad);
 
   const memberSet = new Map(groups.map(g => [g.id, new Set(g.memberInstanceIds || [])]));
   const isContained = (innerId, outerId) => {

@@ -133,6 +133,10 @@ export async function buildAbstractionChain(args, graphState) {
       existingId: existing?.id || null,
       direction,
       level,
+      // Carried for reused nodes as well as new ones: a rung that already exists
+      // but was never described still shows up blank in the carousel, and the
+      // applier fills that gap in (without ever overwriting an existing one).
+      description: entry.description || '',
       create: existing
         ? null
         : {

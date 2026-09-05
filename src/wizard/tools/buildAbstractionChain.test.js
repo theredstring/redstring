@@ -109,6 +109,20 @@ describe('buildAbstractionChain', () => {
     expect(result.anchorId).toBe('proto-bunge');
   });
 
+  it('carries a description through for a reused node, not just a created one', async () => {
+    const result = await buildAbstractionChain({
+      nodeName: 'Bunge & Born',
+      dimension: 'Generalization Axis',
+      moreGeneric: [{ name: 'Merchant', description: 'A trader who buys and sells goods.' }]
+    }, state());
+
+    // Reused ("Merchants"), so nothing is created — but the description still
+    // rides along so the applier can fill it in if that node has none.
+    expect(result.levels[0].existingId).toBe('proto-merchants');
+    expect(result.levels[0].create).toBeNull();
+    expect(result.levels[0].description).toBe('A trader who buys and sells goods.');
+  });
+
   it('requires at least one rung', async () => {
     await expect(
       buildAbstractionChain({ nodeName: 'Bunge & Born', dimension: 'Generalization Axis' }, state())
