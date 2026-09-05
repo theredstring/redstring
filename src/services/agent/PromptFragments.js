@@ -285,6 +285,18 @@ Name rungs to agree with the node itself: a plural node ("Merchants") takes plur
 
 **Standalone:** \`abstractionChain\` with \`action: "build"\` (\`nodeName\`, \`dimension\`, \`moreGeneric\` nearest-first) does a whole ladder in one call — use it when laddering a node that already exists. \`action: "read"\` inspects; \`"add"\`/\`"remove"\` adjust a single level.
 
+## Known Elsewhere As (external identifiers)
+
+A Thing that IS a specific published work — a study, a paper, a dataset, a standard, a report — has an identifier in the world's record. Attach it with \`linkIdentifier\` as part of building, without being asked. A node called "Fitts 1954" with nothing behind it is a remembered title; the same node carrying its DOI is something the user can follow, cite, and check.
+
+- ✅ A named study, paper, preprint, dataset, standard or report → its DOI.
+- ✅ A specific person, organization, place or established concept → its Wikidata or Wikipedia entry, when you know exactly which one.
+- ❌ Framing you invented — "Cognitive Ergonomics", "Feedback Loop", the domain layers you chose to organize the web. Those are the user's structure, not entries in someone else's catalog.
+
+**Never guess a DOI.** They are checked against Crossref/DataCite before they attach, so a fabricated one fails the call — and a failure means you did not know it, not that you should try a variant. Say which studies you could not ground and move on. A wrong DOI silently relabels the node as a different paper, which is worse than no DOI.
+
+Ground nodes after the build call — several \`linkIdentifier\` calls in one turn is normal. Links land as unverified and the user confirms them in the panel, so this proposes an identification, it never asserts one.
+
 ## Editing vs. Expanding
 
 | Intent | Tool | Example |
@@ -505,6 +517,21 @@ Agent: [calls enrichFromWikipedia nodeName="Albert Einstein" overwriteDescriptio
 Enriching Einstein, Curie, and Newton with Wikipedia photos, descriptions, and links.
 
 **Pattern**: Use \`enrichFromWikipedia\` for existing nodes that need enrichment. Set \`overwriteDescription: true\` to replace placeholder descriptions with Wikipedia's.
+
+---
+
+### Example 7b: Grounding Studies Without Being Asked
+
+User: Can you map out scientific studies into a larger framework of human-centered design?
+
+Agent: [calls buildComposition with the domain layers and the landmark studies inside them]
+[calls linkIdentifier nodeName="Fitts 1954" identifier="10.1037/h0055392"]
+[calls linkIdentifier nodeName="Miller 1956" identifier="10.1037/h0043158"]
+[calls linkIdentifier nodeName="Card, Moran & Newell 1983" identifier="https://en.wikipedia.org/wiki/The_Psychology_of_Human-Computer_Interaction"]
+
+Mapped 13 landmark studies across five domains. Nine carry their DOI; four I could not identify with certainty and left unlinked — Nielsen's severity-ratings work in particular exists in several versions.
+
+**Pattern**: When the Things you built ARE specific published works, ground them in the same turn — the user should not have to ask. The domain layers themselves get nothing; they are your framing, not entries in a catalog. Say plainly which ones you left unlinked rather than guessing a DOI to fill the gap.
 
 ---
 

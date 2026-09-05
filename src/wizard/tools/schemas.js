@@ -1268,7 +1268,16 @@ const TOOL_TIERS = {
     setNodeSize: 'hasNodes',
     inspectPrototype: 'hasNodes',
     getNodeContext: 'hasNodes', enrichFromWikipedia: 'hasNodes',
-    linkIdentifier: 'hasNodes',
+    // Both routes on purpose. "Map out these studies…" is one ask that creates
+    // the papers AND is the only moment they can be grounded, and at its start
+    // the graph is empty — hasNodes would have withheld the tool for exactly
+    // that turn. The keywords are what the user is talking about; hasNodes
+    // covers "add the DOIs" against a web that already exists.
+    linkIdentifier: [
+        'hasNodes',
+        'doi', 'study', 'studies', 'paper', 'papers', 'publication',
+        'journal', 'citation', 'cite', 'article', 'research', 'literature'
+    ],
     findDuplicates: 'has5PlusNodes', mergeNodes: 'has5PlusNodes',
     mergeGraphs: 'multipleGraphs',
 
@@ -1337,7 +1346,19 @@ export function selectToolsForTurn({ graphState, userMessage, hasTabularData = f
         if (tier === undefined) return false;
         if (tier === 1) return true;
         if (typeof tier === 'string') return flags[tier] === true;
-        if (Array.isArray(tier)) return tier.some(kw => msgLower.includes(kw));
+        // An array entry is a context flag if one exists by that name, and a
+        // keyword to look for in the message otherwise — so a tool can be
+        // reached by either route. Some need both: the gates are frozen from
+        // the state at the START of the ask (AgentLoop), so a tool that grounds
+        // nodes the same ask creates them would arrive one ask too late on
+        // `hasNodes` alone.
+        if (Array.isArray(tier)) {
+            return tier.some(entry => (
+                Object.prototype.hasOwnProperty.call(flags, entry)
+                    ? flags[entry] === true
+                    : msgLower.includes(entry)
+            ));
+        }
         return false;
     });
 }

@@ -905,6 +905,40 @@ describe('selectToolsForTurn', () => {
     expect(names).toContain('semanticSearch');
   });
 
+  // linkIdentifier is gated on a mixed flag/keyword tier: the ask that creates
+  // studies is the only moment they can be grounded, and the gates are frozen
+  // from the state at its start, when the graph is still empty.
+  it('includes linkIdentifier on an empty graph when the ask is about studies', () => {
+    const tools = selectToolsForTurn({
+      graphState: { graphs: [], nodePrototypes: [], activeGraphId: null },
+      userMessage: 'can you map out scientific studies into a framework of human factors?',
+    });
+
+    expect(tools.map(t => t.name)).toContain('linkIdentifier');
+  });
+
+  it('includes linkIdentifier for a populated graph regardless of wording', () => {
+    const tools = selectToolsForTurn({
+      graphState: {
+        graphs: [{ id: 'g1', instances: [{}, {}], edgeIds: [], groups: [] }],
+        nodePrototypes: [],
+        activeGraphId: 'g1',
+      },
+      userMessage: 'ground these in the record',
+    });
+
+    expect(tools.map(t => t.name)).toContain('linkIdentifier');
+  });
+
+  it('omits linkIdentifier on an empty graph with an unrelated ask', () => {
+    const tools = selectToolsForTurn({
+      graphState: { graphs: [], nodePrototypes: [], activeGraphId: null },
+      userMessage: 'build me a graph about the solar system',
+    });
+
+    expect(tools.map(t => t.name)).not.toContain('linkIdentifier');
+  });
+
   it('includes tabular tools when hasTabularData is true', () => {
     const tools = selectToolsForTurn({
       graphState: { graphs: [], nodePrototypes: [], activeGraphId: null },
