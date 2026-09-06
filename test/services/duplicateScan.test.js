@@ -152,10 +152,10 @@ describe('scanForDuplicates', () => {
   const graphs = new Map([graphWith('g1', [inst('i1', 'a'), inst('i2', 'a'), inst('i3', 'b')])]);
   const edges = new Map();
 
-  it('puts a shared Wikidata link in the certain band', () => {
+  it('puts a shared Wikidata link between same-named things in certain', () => {
     const protos = new Map([
       ['a', proto('a', 'Dog', { externalLinks: [WIKI('Q144')] })],
-      ['b', proto('b', 'Doggo', { externalLinks: [WIKI('Q144')] })],
+      ['b', proto('b', 'Dog', { externalLinks: [WIKI('Q144')] })],
     ]);
     const r = scanForDuplicates(protos, graphs, edges);
     expect(r.certain).toHaveLength(1);
@@ -237,7 +237,9 @@ describe('scanForDuplicates', () => {
 
     const r = scanForDuplicates(protos, graphs, edges, { fuzzyCap: 5 });
     expect(r.fuzzySkipped).toBe(true);
-    expect(r.certain).toHaveLength(1);
+    // The point is that link bucketing still runs, so the pair is still FOUND.
+    // Which band it lands in is the name bar's business, tested separately.
+    expect([...r.certain, ...r.review, ...r.unlikely]).toHaveLength(1);
   });
 
   // Enrichment routinely lands a whole cast on one "List of X characters"
@@ -253,7 +255,18 @@ describe('scanForDuplicates', () => {
       ]);
       const r = scanForDuplicates(protos, graphs, edges);
       expect(r.certain).toHaveLength(0);
-      expect(r.review).toHaveLength(1);
+      // Their names are also nothing alike, so this lands in unlikely.
+      expect(r.unlikely).toHaveLength(1);
+    });
+
+    it('demotes a hub link even when the names DO match', () => {
+      // The name bar can't catch this one — only the hub rule can.
+      const protos = new Map([
+        ['a', proto('a', 'Toad', { externalLinks: [LIST] })],
+        ['b', proto('b', 'Toad', { externalLinks: [LIST] })],
+      ]);
+      const r = scanForDuplicates(protos, graphs, edges);
+      expect(r.certain).toHaveLength(0);
       expect(r.review[0].demotedBecause).toBe('shared page covers many things');
     });
 
@@ -280,23 +293,59 @@ describe('scanForDuplicates', () => {
   });
 
   describe('certain requires the names to be plausible', () => {
-    it('holds back a link match between things named nothing alike', () => {
+    it('allows a typo through — that is what the bar is for', () => {
+      const protos = new Map([
+        ['a', proto('a', 'Mitochondrion', { externalLinks: [WIKI('Q39572')] })],
+        ['b', proto('b', 'Mitochondrian', { externalLinks: [WIKI('Q39572')] })],
+      ]);
+      const r = scanForDuplicates(protos, graphs, edges);
+      expect(r.certain).toHaveLength(1);
+    });
+
+    it('holds back a merely similar name, even on a shared link', () => {
+      // 'dog' vs 'doggo' is 60% — under the unlikely bar, so it goes there.
+      const protos = new Map([
+        ['a', proto('a', 'Dog', { externalLinks: [WIKI('Q144')] })],
+        ['b', proto('b', 'Doggo', { externalLinks: [WIKI('Q144')] })],
+      ]);
+      const r = scanForDuplicates(protos, graphs, edges);
+      expect(r.certain).toHaveLength(0);
+      expect(r.unlikely[0].demotedBecause).toBe('names are too different');
+    });
+
+    it('drops a badly mismatched name to unlikely, not review', () => {
+      // Below 75% similar there is no decision worth surfacing — it should not
+      // sit in the queue of pairs asking to be judged.
       const protos = new Map([
         ['a', proto('a', 'Mario', { externalLinks: [WIKI('Q12379')] })],
         ['b', proto('b', 'Princess Peach', { externalLinks: [WIKI('Q12379')] })],
       ]);
       const r = scanForDuplicates(protos, graphs, edges);
       expect(r.certain).toHaveLength(0);
-      expect(r.review[0].demotedBecause).toBe('names are quite different');
+      expect(r.review).toHaveLength(0);
+      expect(r.unlikely).toHaveLength(1);
+      expect(r.unlikely[0].demotedBecause).toBe('names are too different');
     });
 
-    it('still allows the ordinary near-name case through', () => {
+    it('keeps a near-miss name in review, where a decision belongs', () => {
+      // "Doggo" is ~60% — under the certain bar but well over the unlikely one.
       const protos = new Map([
-        ['a', proto('a', 'Dog', { externalLinks: [WIKI('Q144')] })],
+        ['a', proto('a', 'Doggos', { externalLinks: [WIKI('Q144')] })],
         ['b', proto('b', 'Doggo', { externalLinks: [WIKI('Q144')] })],
       ]);
       const r = scanForDuplicates(protos, graphs, edges);
-      expect(r.certain).toHaveLength(1);
+      expect(r.certain).toHaveLength(0);
+      expect(r.review).toHaveLength(1);
+    });
+
+    it('holds back one name being the start of another', () => {
+      // Containment is not sameness: "Mario Kart" is not Mario.
+      const protos = new Map([
+        ['a', proto('a', 'Mario', { externalLinks: [WIKI('Q12379')] })],
+        ['b', proto('b', 'Mario Kart', { externalLinks: [WIKI('Q12379')] })],
+      ]);
+      const r = scanForDuplicates(protos, graphs, edges);
+      expect(r.certain).toHaveLength(0);
     });
 
     it('a demoted pair is still offered, never dropped', () => {

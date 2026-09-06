@@ -5,6 +5,7 @@ import PanelIconButton from '../shared/PanelIconButton.jsx';
 import useGraphStore from '../../store/graphStore.js';
 import { useTheme } from '../../hooks/useTheme.js';
 import { scanForDuplicates, computeCarryOver } from '../../services/duplicateScan.js';
+import { performUndo } from '../../store/historyActions.js';
 import '../ModalChrome.css';
 
 /**
@@ -28,7 +29,7 @@ const BANDS = [
 ];
 
 const BAND_BLURB = {
-  certain: 'These share an external link AND go by much the same name. Shared-page links that cover many things — cast lists, disambiguation pages — are held back for review instead.',
+  certain: 'These share an external link AND go by nearly the same name. Anything less — a different name, or a shared page that covers many things like a cast list — is held back for review instead.',
   review: 'These look alike, or share a link that is not proof on its own. Your call, one at a time.',
   unlikely: 'Weak signals, listed so you can audit what the scan saw. Merging from here is rarely right.',
 };
@@ -230,6 +231,15 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
   const [result, setResult] = useState(null);
   const [dismissed, setDismissed] = useState(() => new Set());
   const [mergedCount, setMergedCount] = useState(0);
+  // What this modal has done, newest last. Cmd+Z walks it back — including the
+  // "Not the same" presses, which are modal-local and never reach the store's
+  // history, so nothing else could undo them.
+  const [actions, setActions] = useState([]);
+
+  // Rescan whenever the things themselves change. A merge undone from anywhere
+  // — Cmd+Z, the menu, the history panel — restores a prototype, and without
+  // this the modal would keep showing a list that no longer matches the store.
+  const nodePrototypes = useGraphStore((s) => s.nodePrototypes);
 
   const [viewportSize, setViewportSize] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
@@ -255,10 +265,18 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
     return scanned;
   }, []);
 
+  // Keyed on the prototypes Map, which immer replaces on every change, so an
+  // undo from outside this modal refreshes the list. Skipped while hidden.
+  useEffect(() => {
+    if (!isVisible) return;
+    rescan();
+  }, [nodePrototypes, isVisible, rescan]);
+
   useEffect(() => {
     if (!isVisible) return;
     setDismissed(new Set());
     setMergedCount(0);
+    setActions([]);
     const scanned = rescan();
     // Open on a band that has something in it. Arriving here from a universe
     // merge, the duplicates it surfaced are name matches, which land in review
@@ -272,15 +290,54 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
       carryOver: decision.carryOver,
       definitionStrategy: decision.definitionStrategy
     });
-    if (ok) setMergedCount((n) => n + 1);
-    // Re-scan rather than splicing the list: merging one pair can invalidate
-    // others that referenced the thing just removed.
+    if (ok) {
+      setMergedCount((n) => n + 1);
+      setActions((prev) => [...prev, { type: 'merge' }]);
+    }
+    // The prototypes subscription rescans; this covers a no-op merge too.
     rescan();
   }, [rescan]);
 
   const handleSkip = useCallback((key) => {
     setDismissed((prev) => new Set(prev).add(key));
+    setActions((prev) => [...prev, { type: 'dismiss', key }]);
   }, []);
+
+  const undoLast = useCallback(() => {
+    if (actions.length === 0) return false;
+    const last = actions[actions.length - 1];
+    setActions((prev) => prev.slice(0, -1));
+
+    if (last.type === 'dismiss') {
+      setDismissed((prev) => {
+        const next = new Set(prev);
+        next.delete(last.key);
+        return next;
+      });
+    } else {
+      performUndo();
+      setMergedCount((n) => Math.max(0, n - 1));
+      rescan();
+    }
+    return true;
+  }, [actions, rescan]);
+
+  // Cmd/Ctrl+Z while the modal is open walks back what the modal did. When it
+  // has nothing left of its own, the event is deliberately left alone so the
+  // app's normal undo still works rather than being swallowed by an open modal.
+  useEffect(() => {
+    if (!isVisible) return undefined;
+    const onKeyDown = (e) => {
+      const isUndo = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey;
+      if (!isUndo) return;
+      if (undoLast()) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [isVisible, undoLast]);
 
   const handleMergeAllCertain = useCallback(() => {
     const pending = (result?.certain || []).filter((c) => !dismissed.has(c.key));
@@ -292,6 +349,9 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
       if (store.mergeThings(c.survivorId, c.loserId, { carryOver: c.carryOver })) merged += 1;
     }
     setMergedCount((n) => n + merged);
+    // One entry each, so Cmd+Z steps back through a bulk run pair by pair
+    // rather than being unable to touch it.
+    setActions((prev) => [...prev, ...Array.from({ length: merged }, () => ({ type: 'merge' }))]);
     rescan();
   }, [result, dismissed, rescan]);
 
@@ -398,9 +458,10 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
           {BAND_BLURB[activeBand]}
         </p>
 
-        {mergedCount > 0 && (
+        {actions.length > 0 && (
           <p style={{ margin: '0 0 12px 0', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
-            {mergedCount} merged this session. Cmd+Z undoes them one at a time.
+            {mergedCount > 0 && `${mergedCount} merged. `}
+            Cmd+Z steps back through what you have done here, merges and dismissals alike.
           </p>
         )}
 

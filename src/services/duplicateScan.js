@@ -50,20 +50,37 @@ export function isHubLink(url) {
 /**
  * How alike two names must be before a link match can be called certain.
  *
- * Deliberately loose. It has to pass real pairs whose names differ
- * ("Dog"/"Doggo") while rejecting things that merely share a hub page
- * ("Mario"/"Princess Peach"). A pair that fails this is not discarded — it
- * drops to review, where a person decides.
+ * Deliberately strict. "Certain" means safe to merge in bulk without reading
+ * it, and a shared link is weaker evidence than it looks — enrichment lands
+ * related-but-distinct things on the same page all the time. At this bar
+ * essentially only typos and punctuation differences qualify
+ * ("Mitochondrion"/"Mitochondrian"); anything a person would need to think
+ * about drops to review, which is where thinking belongs.
+ *
+ * Note there is deliberately NO prefix shortcut. One name being the start of
+ * another ("Mario" / "Mario Kart", "Dog" / "Dog Breeds") is a containment
+ * relationship, not evidence of sameness — and it was the exact shape that let
+ * related-but-distinct things through.
  */
-export const NAME_PLAUSIBILITY_THRESHOLD = 0.5;
+export const NAME_PLAUSIBILITY_THRESHOLD = 0.9;
 
-export function namesPlausiblyMatch(nameA, nameB) {
+/**
+ * Below this, the names are too far apart for the pair to be worth a decision.
+ * It still gets listed — under Unlikely, for auditing what the scan saw — but
+ * it is out of the way of the pairs that need judgement.
+ */
+export const NAME_UNLIKELY_THRESHOLD = 0.75;
+
+export function nameSimilarity(nameA, nameB) {
   const a = normalizeLabel(nameA);
   const b = normalizeLabel(nameB);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  if (a.startsWith(b) || b.startsWith(a)) return true;
-  return calculateTextSimilarity(a, b) >= NAME_PLAUSIBILITY_THRESHOLD;
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  return calculateTextSimilarity(a, b);
+}
+
+export function namesPlausiblyMatch(nameA, nameB) {
+  return nameSimilarity(nameA, nameB) >= NAME_PLAUSIBILITY_THRESHOLD;
 }
 
 /** Above this many prototypes, skip the O(n²) fuzzy stage. */
@@ -290,13 +307,16 @@ export function scanForDuplicates(nodePrototypes, graphs, edges, options = {}) {
     const otherLinks = new Set(e2.externalLinks);
     const sharedLinks = e1.externalLinks.filter((url) => otherLinks.has(url));
     const onlyHubEvidence = sharedLinks.length > 0 && sharedLinks.every(isHubLink);
-    const namesOk = namesPlausiblyMatch(p1.name, p2.name);
+    const nameScore = nameSimilarity(p1.name, p2.name);
+    const namesOk = nameScore >= NAME_PLAUSIBILITY_THRESHOLD;
+    const namesTooFar = nameScore < NAME_UNLIKELY_THRESHOLD;
 
     // "Certain" means safe to merge in bulk without reading it, so it has to
     // clear a bar the raw score does not: a shared link scores 0.90 on its own,
     // which is enough to auto-merge every character on one cast-list page.
     let demotedBecause = null;
-    if (match.shouldMerge) {
+    if (namesTooFar) demotedBecause = 'names are too different';
+    else if (match.shouldMerge) {
       if (onlyHubEvidence) demotedBecause = 'shared page covers many things';
       else if (!namesOk) demotedBecause = 'names are quite different';
     }
@@ -311,13 +331,18 @@ export function scanForDuplicates(nodePrototypes, graphs, edges, options = {}) {
       confidence: match.confidence,
       factors: match.factors,
       sharedLinks,
+      nameScore,
       demotedBecause,
       carryOver: computeCarryOver(survivor, loser),
       survivorUses: usesOf(useCounts, survivor.id),
       loserUses: usesOf(useCounts, loser.id)
     };
 
-    if (match.shouldMerge && !demotedBecause) result.certain.push(candidate);
+    // Names too far apart drop straight to unlikely however strong the link
+    // evidence looks — that combination is the cast-list shape, and it should
+    // not be sitting in the queue of things asking for a decision.
+    if (namesTooFar) result.unlikely.push(candidate);
+    else if (match.shouldMerge && !demotedBecause) result.certain.push(candidate);
     else if (match.shouldMerge || match.needsReview) result.review.push(candidate);
     else result.unlikely.push(candidate);
   }

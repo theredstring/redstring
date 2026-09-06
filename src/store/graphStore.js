@@ -3669,6 +3669,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return false;
       }
 
+      // Grouped explicitly. Setting a change context is not enough: the two
+      // primitives below are themselves ctxSet calls that stamp their OWN
+      // contexts, so without a transaction one merge lands as three separate
+      // entries and takes three Cmd+Zs to walk back — through intermediate
+      // states the user never asked for (carry-over applied but not merged).
+      return api.withHistoryTransaction(`Merge "${state.nodePrototypes.get(loserId)?.name || 'thing'}"`, () => {
       api.setChangeContext({ type: 'thing_merge', survivorId, loserId });
 
       if (carryOver.length > 0) {
@@ -3713,6 +3719,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }));
       }
       return true;
+      });
     },
 
     // ─── NODE INSTANCE MANAGEMENT ────────────────────────────────────────────────

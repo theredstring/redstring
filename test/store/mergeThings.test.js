@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import useGraphStore from '../../src/store/graphStore.js';
+import useHistoryStore from '../../src/store/historyStore.js';
 
 const resetStore = (patch = {}) => {
   useGraphStore.setState({
@@ -184,6 +185,26 @@ describe('mergeThings', () => {
       definitionStrategy: 'overwrite_with_secondary'
     });
     expect(useGraphStore.getState().nodePrototypes.get('keep').definitionGraphIds).toEqual(['g2']);
+  });
+
+  it('lands as a single undo step, not one per primitive it calls', () => {
+    // It calls mergeDefinitionGraphs and mergeNodePrototypes, each of which is
+    // its own ctxSet. Without an explicit transaction that is three history
+    // entries, and Cmd+Z walks through states the user never asked for —
+    // carry-over applied but the merge not done.
+    resetStore({
+      nodePrototypes: new Map([
+        proto('keep', 'Keep', { definitionGraphIds: ['g1'] }),
+        proto('lose', 'Lose', { definitionGraphIds: ['g2'] }),
+      ])
+    });
+    useHistoryStore.getState().clearHistory();
+
+    useGraphStore.getState().mergeThings('keep', 'lose', {
+      carryOver: [{ field: 'description', value: 'carried' }]
+    });
+
+    expect(useHistoryStore.getState().history).toHaveLength(1);
   });
 
   it('refuses to merge a thing into itself', () => {
