@@ -452,10 +452,10 @@ const TRACKPAD_ZOOM_MAX_STEP_DELTA = 40;        // |deltaY| above this in pixel 
 //
 // Recentred: the scale was 13, putting the default at 6.5 — the value inherited
 // from constants.js when the slider was added around a fixed constant rather
-// than tuned as a range. The comfortable setting turned out to sit at 0.35 on
-// that slider, i.e. 4.55, so the range is rescaled to put 4.55 in the middle
-// where the default belongs. The top of the slider still offers 2x the default.
-const TRACKPAD_ZOOM_SENSITIVITY_SLIDER_SCALE = 9.1;
+// than tuned as a range. The comfortable setting sits nearer 0.40 on that old
+// slider, i.e. 5.2, so the range is rescaled to put 5.2 in the middle where the
+// default belongs. The top of the slider still offers 2x the default.
+const TRACKPAD_ZOOM_SENSITIVITY_SLIDER_SCALE = 10.4;
 // Per-frame fraction of the remaining gap to close (log space). This is the
 // latency dial: the view trails the target by about (1 − s)/s frames, so 0.35
 // costs ~1.9 frames (~31ms) and 0.6 costs ~0.67 (~11ms) — low enough to read as

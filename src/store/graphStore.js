@@ -1630,7 +1630,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         glideStrength = Math.max(0.0, Math.min(1.0, glideStrength));
 
         // Versioned key: the slider's scale was recentred (its midpoint went
-        // from 6.5 to 4.55), so a value stored against the old range means a
+        // from 6.5 to 5.2), so a value stored against the old range means a
         // different speed under the new one. Starting a fresh key lets the new
         // default actually apply instead of being overridden by a setting that
         // was chosen to compensate for the old range.
