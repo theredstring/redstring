@@ -4970,6 +4970,15 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           report={mergeDialog.report}
           error={mergeDialog.error}
           onConfirm={runMerge}
+          // Hands off to the things-merge modal, which is mounted once in
+          // NodeCanvas and listens for this event. It rescans the universe on
+          // open, so it finds these duplicates itself — nothing needs passing.
+          // Both merge flows (universe-to-universe and link import) end here,
+          // so this covers both.
+          onReviewDuplicates={() => {
+            setMergeDialog(null);
+            window.dispatchEvent(new CustomEvent('openMergeModal'));
+          }}
           // Omitted for a link-sourced merge: there is no universe entry to
           // disconnect, and the dialog hides the button when it isn't given.
           onDisconnectSource={mergeDialog.incomingUniverse?.slug ? () => {

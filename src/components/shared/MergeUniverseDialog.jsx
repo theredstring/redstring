@@ -161,10 +161,14 @@ const MergeUniverseDialog = ({
   error = null,
   onConfirm,
   onDisconnectSource,
+  onReviewDuplicates,
   onClose
 }) => {
   const theme = useTheme();
   if (!isOpen) return null;
+
+  const duplicateCount =
+    (report?.closeMatchCandidates?.length ?? 0) + (report?.sameAsCandidates?.length ?? 0);
 
   const destName = destination?.name || 'the destination';
   const incomingName = incomingUniverse?.name || 'the other universe';
@@ -314,7 +318,7 @@ const MergeUniverseDialog = ({
                 <ReportRow label="Webs combined" value={report.mergedGraphIds?.length ?? 0} />
                 <ReportRow label="Connections added" value={report.addedEdgeIds?.length ?? 0} />
               </div>
-              {(report.closeMatchCandidates?.length > 0 || report.sameAsCandidates?.length > 0) && (
+              {duplicateCount > 0 && (
                 <div style={{
                   marginTop: 4,
                   padding: '8px 10px',
@@ -325,11 +329,10 @@ const MergeUniverseDialog = ({
                   lineHeight: 1.5
                 }}>
                   <strong style={{ color: theme.canvas.textPrimary }}>
-                    {(report.closeMatchCandidates?.length ?? 0) + (report.sameAsCandidates?.length ?? 0)} possible
-                    {' '}{((report.closeMatchCandidates?.length ?? 0) + (report.sameAsCandidates?.length ?? 0)) === 1 ? 'duplicate' : 'duplicates'} came through.
+                    {duplicateCount} possible {duplicateCount === 1 ? 'duplicate' : 'duplicates'} came through.
                   </strong>{' '}
-                  They were left as they are rather than combined on a guess. Sorting
-                  them out is a separate step.
+                  They were left as they are rather than combined on a guess. Sorting them
+                  out is a separate step — you can do it now or whenever.
                 </div>
               )}
               <div style={{ marginTop: 4, fontSize: '0.75rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
@@ -348,6 +351,7 @@ const MergeUniverseDialog = ({
             display: 'flex',
             justifyContent: 'flex-end',
             alignItems: 'center',
+            flexWrap: 'wrap',
             gap: 8,
             padding: '10px 16px',
             borderTop: `2px solid ${theme.canvas.textPrimary}`,
@@ -368,7 +372,18 @@ const MergeUniverseDialog = ({
                     Disconnect {incomingName}…
                   </DialogButton>
                 )}
-                <DialogButton tone="accent" onClick={onClose}>Done</DialogButton>
+                {/* When the merge brought duplicates in, sorting them out is the
+                    real next step, so it takes the accent and Done steps back. */}
+                {!error && duplicateCount > 0 && onReviewDuplicates ? (
+                  <>
+                    <DialogButton onClick={onClose}>Done</DialogButton>
+                    <DialogButton tone="accent" onClick={onReviewDuplicates}>
+                      Review {duplicateCount} {duplicateCount === 1 ? 'duplicate' : 'duplicates'}
+                    </DialogButton>
+                  </>
+                ) : (
+                  <DialogButton tone="accent" onClick={onClose}>Done</DialogButton>
+                )}
               </>
             )}
           </div>

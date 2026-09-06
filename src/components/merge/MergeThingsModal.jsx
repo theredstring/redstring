@@ -250,14 +250,21 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
   // and the list would thrash under the user as they merge.
   const rescan = useCallback(() => {
     const { nodePrototypes, graphs, edges } = useGraphStore.getState();
-    setResult(scanForDuplicates(nodePrototypes, graphs, edges));
+    const scanned = scanForDuplicates(nodePrototypes, graphs, edges);
+    setResult(scanned);
+    return scanned;
   }, []);
 
   useEffect(() => {
     if (!isVisible) return;
     setDismissed(new Set());
     setMergedCount(0);
-    rescan();
+    const scanned = rescan();
+    // Open on a band that has something in it. Arriving here from a universe
+    // merge, the duplicates it surfaced are name matches, which land in review
+    // rather than certain — so defaulting to certain would show an empty tab.
+    // Only on open: the band must not jump around as pairs get cleared.
+    setActiveBand(BANDS.map((b) => b.key).find((k) => scanned[k].length > 0) || 'certain');
   }, [isVisible, rescan]);
 
   const handleMerge = useCallback((candidate, decision) => {
