@@ -421,13 +421,14 @@ const PINCH_GLIDE_STRENGTH_FRICTION_RANGE = 0.08; // friction offset sweep for t
 // events accumulate into a TARGET zoom and a rAF loop eases the view toward it,
 // which decouples motion from event timing and smooths the bunching out.
 //
-// The glide falls out of the same mechanism rather than being a second system
-// bolted on: when the gesture stops, the target is extended past the last event
-// by the release velocity, and the ease that was already running carries the
-// view there and settles. There is no handoff between "gesture" and "coast" —
-// the same loop, at the same speed, with a target that moved once more. (The
-// touch pinch keeps its own momentum glide in startZoomMomentum; its gesture
-// applies zoom directly from finger distance and has a real release event.)
+// The glide runs through the same mechanism rather than being a second system
+// bolted on: when the gesture stops, the target keeps MOVING at the release
+// velocity under its own friction, and the ease follows it exactly as it
+// followed the fingers. There is no handoff between "gesture" and "coast" —
+// the same loop, the same anchor, the same edge clamping, with the target now
+// driven by decaying momentum instead of by wheel events. (The touch pinch
+// keeps its own momentum glide in startZoomMomentum; its gesture applies zoom
+// directly from finger distance and has a real release event.)
 const TRACKPAD_ZOOM_MAX_STEP_DELTA = 40;        // |deltaY| above this in pixel mode is a mouse wheel detent, not a trackpad
 // Per-frame fraction of the remaining gap to close (log space). This is the
 // latency dial: the view trails the target by about (1 − s)/s frames, so 0.35
@@ -447,17 +448,49 @@ const TRACKPAD_ZOOM_IDLE_GAP_MULTIPLE = 2.4;    // idle gap = this × the gestur
 const TRACKPAD_ZOOM_IDLE_END_MIN_MS = 34;       // floor: two frames at 60fps
 const TRACKPAD_ZOOM_IDLE_END_MAX_MS = 110;      // ceiling: past this the "release" is too stale to coast from
 const TRACKPAD_ZOOM_VELOCITY_WINDOW_MS = 90;    // how far back from the last zoom event to sample release velocity
-// How far past the last event the target is thrown, expressed as the duration of
-// gesture the coast stands in for. Deliberately short: the trackpad is a
-// precision instrument that lands where you aimed it, so the glide exists to
-// remove the dead stop at release, not to carry the view onward. Note the ease
-// contributes a tail of its own — the remaining gap decays over ~5 frames — so
-// even zero extension still reads as a settle rather than a stop. The strength
-// slider scales this from nothing (0) to double (1).
-const TRACKPAD_ZOOM_GLIDE_EXTENSION_MS = 45;
-// Below this release speed there is no extension at all — a gesture deliberately
+// A velocity sample spanning less than this is jitter, not motion. Wheel events
+// queue and then arrive in a burst whenever a frame runs long on a heavy graph,
+// and the peak-biased pick in endTrackpadZoomGesture would otherwise select
+// exactly those bursts: three steps measured across two milliseconds reads as an
+// enormous velocity and flung the zoom to its bound.
+const TRACKPAD_ZOOM_VELOCITY_MIN_SPAN_MS = 10;
+// --- The coast itself ---
+// Per-frame retention of the coast's velocity. The coast moves the TARGET; it is
+// not a single extension of it. Two properties follow from that, and both were
+// missing from the one-shot throw this replaced:
+//
+//   1. The handoff is seamless. Easing toward a fixed target moves the view at a
+//      speed proportional to the REMAINING gap, so extending the target once
+//      steps that speed up the instant the gesture ends — at the shipped numbers
+//      the coast launched at roughly twice the speed of the gesture that spawned
+//      it. That is a lurch, and it is what the release read as.
+//   2. The coast has a decay rate of its own. Against a fixed target the only
+//      available rate is the SMOOTHING rate — 60% per frame, over inside four —
+//      so the strength slider could only make the throw bigger, never longer.
+//      Turning it up bought a harder pop rather than a longer glide.
+//
+// Total travel is (velocity x frame) / (1 - friction), so 0.72 coasts about
+// three and a half frames' worth of gesture motion and decays to nothing in
+// ~10 frames: a settle you can see, well short of the touch pinch's throw.
+const TRACKPAD_ZOOM_GLIDE_FRICTION = 0.72;
+const TRACKPAD_ZOOM_GLIDE_STRENGTH_FRICTION_RANGE = 0.34; // slider sweep: 0.55 at 0 → 0.89 at 1
+const TRACKPAD_ZOOM_GLIDE_FRICTION_MIN = 0.45;  // barely a settle
+const TRACKPAD_ZOOM_GLIDE_FRICTION_MAX = 0.90;  // a real throw, still bounded
+// Strength moves friction only, never the launch speed: the coast has to leave
+// at exactly the speed the gesture arrived at or the seam comes back, this time
+// as a step up at high strength and a step down at low.
+//
+// Below this release speed there is no coast at all — a gesture deliberately
 // slowed to a stop should stay exactly where it was left.
 const TRACKPAD_ZOOM_GLIDE_MIN_SPEED = 0.0015;
+// Ceiling on launch velocity, restoring the cap the momentum-based coast had.
+// Sized just above the fastest frame-locked pinch (|deltaY| ~10 per event).
+// TRACKPAD_ZOOM_VELOCITY_MIN_SPAN_MS is the first line of defence against a
+// mismeasured burst; this is the backstop.
+const TRACKPAD_ZOOM_GLIDE_MAX_SPEED = 0.010;
+// Velocity floor at which the coast stops advancing the target and hands the
+// last percent or two to the ease's own settle.
+const TRACKPAD_ZOOM_GLIDE_STOP_SPEED = 0.0004;
 
 // The scrim drawn behind the orbit overlay. Lives on an HTML layer above the
 // <svg>, never as a rect inside it — see the orbit scrim in the render tree.
@@ -3360,6 +3393,14 @@ function NodeCanvas() {
     sensitivity: null,
     rect: null,
     easeZoom: null,
+    // Release coast. `glideVel` is d(ln zoom)/dt applied to the TARGET each
+    // frame and decayed by `glideFriction`; zero means no coast in flight. The
+    // zoom bounds are latched per gesture because MIN_ZOOM is dynamic
+    // (fit-to-canvas) — the coast must clamp exactly where the gesture would.
+    glideVel: 0,
+    glideFriction: TRACKPAD_ZOOM_GLIDE_FRICTION,
+    minZoom: null,
+    maxZoom: null,
   });
 
   // Diagnostic accumulator for `window.__zoomPerf`. Off by default and never
@@ -3383,6 +3424,7 @@ function NodeCanvas() {
     ref.sensitivity = null;
     ref.rect = null;
     ref.easeZoom = null;
+    ref.glideVel = 0;
   }, []);
 
   // Points the ease at `targetZoom`, anchored on the world point under the
@@ -3398,7 +3440,16 @@ function NodeCanvas() {
     const ref = trackpadZoomRef.current;
     const effMinZoom = Number.isFinite(minZoomBound) ? minZoomBound : MIN_ZOOM;
     const effMaxZoom = Number.isFinite(maxZoomBound) ? maxZoomBound : MAX_ZOOM;
+    ref.minZoom = effMinZoom;
+    ref.maxZoom = effMaxZoom;
     ref.targetZoom = Math.max(effMinZoom, Math.min(effMaxZoom, targetZoom));
+    // Every caller of this is real input, so it supersedes a coast in flight.
+    // This is also what makes a FALSE gesture end self-correcting: the idle
+    // timer can fire mid-gesture and launch a coast, and the next event simply
+    // cancels it. The one-shot extension it replaced was unrecoverable — it had
+    // already been folded into the target the next step accumulates onto, so a
+    // stuttering event stream quietly injected zoom the fingers never asked for.
+    ref.glideVel = 0;
 
     // One layout read per gesture — the caller usually has the rect already, and
     // it's held for the gesture's duration (a panel can't resize mid-zoom).
@@ -3456,6 +3507,27 @@ function NodeCanvas() {
         if (rawDt > 24) p.longFrames++;
       }
 
+      // Release coast: advance the target under its own decaying velocity, then
+      // let the ease below chase it exactly as it chases a gesture. Doing it
+      // here rather than as a one-time extension is what keeps the speed
+      // continuous across the release and gives the coast a duration that is
+      // independent of the smoothing constant.
+      if (s.glideVel) {
+        const minZ = Number.isFinite(s.minZoom) ? s.minZoom : MIN_ZOOM;
+        const maxZ = Number.isFinite(s.maxZoom) ? s.maxZoom : MAX_ZOOM;
+        const rawTarget = s.targetZoom * Math.exp(s.glideVel * dt);
+        const clampedTarget = Math.max(minZ, Math.min(maxZ, rawTarget));
+        s.targetZoom = clampedTarget;
+        if (clampedTarget !== rawTarget) {
+          // Pinned at a zoom bound. Grinding the remaining velocity against the
+          // clamp for another ten frames only delays the settle.
+          s.glideVel = 0;
+        } else {
+          s.glideVel *= Math.pow(s.glideFriction, dt / PAN_MOMENTUM_FRAME);
+          if (Math.abs(s.glideVel) < TRACKPAD_ZOOM_GLIDE_STOP_SPEED) s.glideVel = 0;
+        }
+      }
+
       // Ease in log space so a step feels the same at any magnification, and
       // compensate for frame time so a dropped frame closes proportionally more
       // of the gap instead of stretching the ease.
@@ -3474,7 +3546,9 @@ function NodeCanvas() {
       const lnTarget = Math.log(s.targetZoom);
       const gap = lnTarget - lnCur;
       const t = 1 - Math.pow(1 - smoothing, dt / PAN_MOMENTUM_FRAME);
-      const settled = Math.abs(gap) < TRACKPAD_ZOOM_SETTLE_EPSILON;
+      // A coast still carrying velocity is not settled even when the view has
+      // caught up to the target — the target is about to move again.
+      const settled = Math.abs(gap) < TRACKPAD_ZOOM_SETTLE_EPSILON && !s.glideVel;
       // Applied exactly as eased — the scale is NOT snapped. See ZOOM SCALE
       // QUANTUM for the measurements that took the snap back out.
       const nextZoom = settled ? s.targetZoom : Math.exp(lnCur + gap * t);
@@ -3531,9 +3605,9 @@ function NodeCanvas() {
   }, [setPanAndZoom, MIN_ZOOM]);
 
   // Called when the trackpad gesture stops (idle gap on the wheel path, or a
-  // real `gestureend` in Safari). Measures the release velocity and throws the
-  // target that far past the last event — the ease already running then carries
-  // the view there and settles, so the coast is the same motion continuing
+  // real `gestureend` in Safari). Measures the release velocity and hands it to
+  // the ease loop as coast velocity — the target keeps moving under friction and
+  // the same loop keeps following it, so the coast is the motion continuing
   // rather than a second mechanism taking over.
   const endTrackpadZoomGesture = useCallback(() => {
     const ref = trackpadZoomRef.current;
@@ -3543,7 +3617,9 @@ function NodeCanvas() {
     ref.hist = [];
     ref.sensitivity = null;
 
-    if (hist.length < 2 || ref.targetZoom == null || !ref.anchorClient) return;
+    // No anchor means stopTrackpadZoom handed the view to something else (a
+    // press, an animated zoom); there is nothing to coast.
+    if (hist.length < 2 || !ref.anchorClient) return;
 
     const prefs = useGraphStore.getState().touchSettings;
     if (prefs?.trackpadZoomGlideEnabled === false) return;
@@ -3563,31 +3639,64 @@ function NodeCanvas() {
       }
       if (!first) return 0;
       const span = last.t - first.t;
-      return span > 0 ? (last.lz - first.lz) / span : 0;
+      // Too short a span is a delivery burst, not motion — see
+      // TRACKPAD_ZOOM_VELOCITY_MIN_SPAN_MS. Returning 0 lets the wider window
+      // stand in rather than letting the burst win the peak-biased pick.
+      return span >= TRACKPAD_ZOOM_VELOCITY_MIN_SPAN_MS ? (last.lz - first.lz) / span : 0;
     };
     const fullVel = velOverWindow(TRACKPAD_ZOOM_VELOCITY_WINDOW_MS);
     const recentVel = velOverWindow(TRACKPAD_ZOOM_VELOCITY_WINDOW_MS / 2.5);
-    const releaseVel = Math.abs(recentVel) > Math.abs(fullVel) && recentVel * fullVel >= 0
+    let releaseVel = Math.abs(recentVel) > Math.abs(fullVel) && recentVel * fullVel >= 0
       ? recentVel
       : fullVel;
     if (Math.abs(releaseVel) < TRACKPAD_ZOOM_GLIDE_MIN_SPEED) return;
+    releaseVel = Math.sign(releaseVel) * Math.min(Math.abs(releaseVel), TRACKPAD_ZOOM_GLIDE_MAX_SPEED);
 
-    const extensionMs = TRACKPAD_ZOOM_GLIDE_EXTENSION_MS * (strength * 2);
-    setTrackpadZoomTarget(
-      ref.targetZoom * Math.exp(releaseVel * extensionMs),
-      ref.anchorClient.x,
-      ref.anchorClient.y
+    // The ease may already have caught up and shut itself down inside the idle
+    // gap — a short gesture at 60fps settles in about four frames while the gap
+    // waits out two. Restart it from the live view so whether the coast happens
+    // at all stops being a race between the two.
+    if (ref.targetZoom == null || !ref.animationId) {
+      setTrackpadZoomTarget(
+        zoomLevelRef.current,
+        ref.anchorClient.x,
+        ref.anchorClient.y,
+        ref.minZoom,
+        ref.maxZoom
+      );
+      if (ref.targetZoom == null) return; // no container/canvas — nothing started
+    }
+
+    // Strength moves friction, never the launch speed. Assigned after the
+    // restart above, which clears any coast velocity by design.
+    ref.glideFriction = Math.max(
+      TRACKPAD_ZOOM_GLIDE_FRICTION_MIN,
+      Math.min(
+        TRACKPAD_ZOOM_GLIDE_FRICTION_MAX,
+        TRACKPAD_ZOOM_GLIDE_FRICTION + (strength - 0.5) * TRACKPAD_ZOOM_GLIDE_STRENGTH_FRICTION_RANGE
+      )
     );
+    ref.glideVel = releaseVel;
   }, [setTrackpadZoomTarget]);
 
   // Record one step of a trackpad zoom gesture and (re)arm the idle end timer.
   // `zoom` is the TARGET the step asked for, not the eased on-screen value —
   // sampling the target keeps the measured velocity true to the input.
-  const recordTrackpadZoomSample = useCallback((zoom, sensitivity = null) => {
+  //
+  // `eventTime` is the event's own timestamp, and it matters more than it looks:
+  // stamping samples with the time the HANDLER ran means a stalled main thread
+  // records a frame's worth of queued events as simultaneous, which both inflates
+  // the measured release velocity and collapses the median gap the idle timer is
+  // scaled to (making it false-end constantly, on exactly the heavy graphs where
+  // it hurts). Event timestamps are unaffected by when we got around to reading
+  // them. Sanity-checked against the clock in case a browser hands back an
+  // epoch-based value rather than a DOMHighResTimeStamp.
+  const recordTrackpadZoomSample = useCallback((zoom, sensitivity = null, eventTime = null) => {
     if (!Number.isFinite(zoom) || zoom <= 0) return;
     const ref = trackpadZoomRef.current;
     if (sensitivity != null && ref.hist.length === 0) ref.sensitivity = sensitivity;
-    const now = performance.now();
+    const clock = performance.now();
+    const now = (Number.isFinite(eventTime) && Math.abs(clock - eventTime) < 1000) ? eventTime : clock;
     ref.hist.push({ t: now, lz: Math.log(zoom) });
     while (ref.hist.length > 2 && now - ref.hist[0].t > TRACKPAD_ZOOM_VELOCITY_WINDOW_MS * 2) {
       ref.hist.shift();
@@ -10511,8 +10620,11 @@ function NodeCanvas() {
     if (pinchRef.current.active) return;
     if (trackpadZoomEnabled && (e.ctrlKey || e.metaKey)) return;
 
-    // Any fresh wheel input supersedes a coasting trackpad zoom — the glide
-    // relaunches from the idle timer once this new gesture stops.
+    // Any fresh wheel input supersedes a coast in flight: the touch pinch's own
+    // momentum here, and the trackpad coast either where the zoom path retargets
+    // (setTrackpadZoomTarget zeroes the coast velocity) or where the pan path
+    // calls stopTrackpadZoom. Either way it relaunches from the idle timer once
+    // this new gesture stops.
     stopZoomMomentum();
 
     // getBoundingClientRect forces a synchronous layout, and the transform write
@@ -10600,7 +10712,7 @@ function NodeCanvas() {
           viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM,
         }).zoomLevel;
         setTrackpadZoomTarget(target, e.clientX, e.clientY, MIN_ZOOM, MAX_ZOOM, r);
-        recordTrackpadZoomSample(target, sensitivity);
+        recordTrackpadZoomSample(target, sensitivity, e.timeStamp);
         setTimeout(() => {
           if (opId !== zoomOpIdRef.current) return;
           panSourceRef.current = null;
@@ -10768,7 +10880,7 @@ function NodeCanvas() {
       setTrackpadZoomTarget(targetZoom, gestureAnchor.x, gestureAnchor.y, MIN_ZOOM, MAX_ZOOM);
       // Sample the raw finger-driven target, not the eased on-screen zoom, so
       // the measured release velocity is true to the fingers.
-      recordTrackpadZoomSample(targetZoom);
+      recordTrackpadZoomSample(targetZoom, null, e.timeStamp);
     };
 
     const onGestureEnd = (e) => {

@@ -28,12 +28,6 @@ const BANDS = [
   { key: 'unlikely', title: 'Unlikely',     icon: <EyeOff size={16} />,      bulk: false },
 ];
 
-const BAND_BLURB = {
-  certain: 'These share an external link AND go by nearly the same name. Anything less — a different name, or a shared page that covers many things like a cast list — is held back for review instead.',
-  review: 'These look alike, or share a link that is not proof on its own. Your call, one at a time.',
-  unlikely: 'Weak signals, listed so you can audit what the scan saw. Merging from here is rarely right.',
-};
-
 const FACTOR_LABEL = {
   wikidata_id_match: 'same Wikidata entry',
   wikidata_id_mismatch: 'different Wikidata entries',
@@ -481,16 +475,12 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
         )}
 
         <h2 style={{
-          margin: '0 0 6px 0',
+          margin: '0 0 16px 0',
           color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '1.3rem' : '1.5rem'
         }}>
           {BANDS.find((b) => b.key === activeBand)?.title}
         </h2>
-
-        <p style={{ margin: '0 0 16px 0', fontSize: '0.78rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
-          {BAND_BLURB[activeBand]}
-        </p>
 
         {actions.length > 0 && (
           <p style={{ margin: '0 0 12px 0', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
