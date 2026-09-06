@@ -499,14 +499,15 @@ const TRACKPAD_ZOOM_VELOCITY_MIN_SPAN_MS = 10;
 // friction and a longer coast (matching TOUCH_PAN_FRICTION above). The Settings
 // slider is the other way round — see the mapping in recordTrackpadZoomSample.
 //
-// Total travel is (velocity x frame) / (1 - retention), so 0.66 coasts about
-// three frames' worth of gesture motion and decays to nothing in ~6: a settle
-// you can see, well short of the touch pinch's throw.
-const TRACKPAD_ZOOM_GLIDE_FRICTION = 0.66;
+// Total travel is (velocity x frame) / (1 - retention), so 0.72 coasts about
+// three and a half frames' worth of gesture motion and decays to nothing in ~8:
+// a settle you can watch, well short of the touch pinch's throw.
+const TRACKPAD_ZOOM_GLIDE_FRICTION = 0.72;
 // How far the Settings slider sweeps the retention either side of the default.
-// The clamps below trim the very end of the travel rather than the slider
-// bottoming out on a value that still coasts noticeably.
-const TRACKPAD_ZOOM_GLIDE_FRICTION_SLIDER_RANGE = 0.44;
+// Sized so the low-friction end of the slider lands exactly on _MAX rather than
+// clamping short of it, which would leave the first few percent of the travel
+// dead. The high-friction end stops above _MIN, so that clamp is only a guard.
+const TRACKPAD_ZOOM_GLIDE_FRICTION_SLIDER_RANGE = 0.40;
 const TRACKPAD_ZOOM_GLIDE_FRICTION_MIN = 0.45;  // most friction — barely a settle
 const TRACKPAD_ZOOM_GLIDE_FRICTION_MAX = 0.88;  // least friction — a real throw, still bounded
 // The slider moves friction only, never the launch speed: the coast has to
