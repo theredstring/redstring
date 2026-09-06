@@ -18,6 +18,7 @@ import { WIZARD_DEFINE_INTRO } from './panelCopy.js';
 import useAutoEnrichIdentifiers from '../../hooks/useAutoEnrichIdentifiers.js';
 import useGraphStore from "../../store/graphStore.js";
 import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from '../../services/imageCache.js';
+import { linkedWikipediaTitle } from '../../services/conceptEnrichment.js';
 import { resolveImageRef, canResolveRefs } from '../../services/imageBlobStore.js';
 
 // Helper function to determine the correct article ("a" or "an")
@@ -578,6 +579,21 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
     console.log(`[Wikipedia Images] 🚀 TRIGGERED: Wikipedia search for "${nodeData.name}"`);
     setIsSearching(true);
     try {
+      // If this Thing is already linked to an article, that article is the
+      // source — for the bio and for the picture alike. Searching the name
+      // again would re-open the ambiguity the link exists to have closed, and
+      // can quietly land on a different subject entirely.
+      const linkedTitle = await linkedWikipediaTitle(nodeData);
+      if (linkedTitle) {
+        console.log(`[Wikipedia Images] 🔗 Node is already linked — pulling from "${linkedTitle}"`);
+        const linkedPage = await getWikipediaPage(linkedTitle);
+        if (linkedPage) {
+          await applyWikipediaData(linkedPage);
+          return;
+        }
+        console.warn(`[Wikipedia Images] ⚠️ Linked article "${linkedTitle}" fetch failed — falling back to name search`);
+      }
+
       console.log(`[Wikipedia Images] 📞 Calling searchWikipedia("${nodeData.name}")...`);
       const result = await searchWikipedia(nodeData.name);
       console.log(`[Wikipedia Images] 📦 Search result type: ${result.type}`);
@@ -751,13 +767,13 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
     nodeData.description !== 'Double-click to add a bio...' &&
     nodeData.description.trim().length > 10; // Require at least 10 characters
 
-  const hasWikipediaLink = nodeData.semanticMetadata?.wikipediaUrl;
+  const isAlreadyLinked = !!nodeData.semanticMetadata?.wikipediaUrl;
 
-  // Only show enrichment button if BOTH conditions are true:
-  // 1. No meaningful description exists
-  // 2. No Wikipedia link exists
-  const showEnrichButton = !hasMeaningfulDescription && !hasWikipediaLink;
-  const isAlreadyLinked = nodeData.semanticMetadata?.wikipediaUrl;
+  // Offer the pull whenever there is no meaningful bio to overwrite. A node that
+  // is already linked used to be excluded here, which left the one case where
+  // the pull is least ambiguous — we know the exact article — with no way to
+  // ask for it.
+  const showEnrichButton = !hasMeaningfulDescription;
 
   // Expose search trigger to parent via ref (must be before early return)
   useEffect(() => {
@@ -776,7 +792,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
           icon={BookOpen}
           size={12}
           label={isSearching ? 'Searching Wikipedia...' :
-            nodeData.semanticMetadata?.autoEnriched ? 'Re-Pull from Wikipedia' :
+            isAlreadyLinked ? 'Pull from Linked Wikipedia' :
               'Pull from Wikipedia & Link'}
           labelFontSize={11}
           variant="outline"
@@ -1899,7 +1915,8 @@ const SharedPanelContent = ({
               <PanelIconButton
                 icon={BookOpen}
                 size={12}
-                label={wikiIsSearching ? 'Searching Wikipedia...' : 'Pull from Wikipedia'}
+                label={wikiIsSearching ? 'Searching Wikipedia...' :
+                  nodeData.semanticMetadata?.wikipediaUrl ? 'Pull from Linked Wikipedia' : 'Pull from Wikipedia'}
                 labelFontSize={11}
                 variant="outline"
                 color={accentColor}

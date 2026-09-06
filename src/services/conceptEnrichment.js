@@ -9,6 +9,7 @@
  */
 import useGraphStore from '../store/graphStore.js';
 import { setLinkState, LINK_STATES } from '../formats/linkState.js';
+import { collectIdentifiers } from '../utils/externalIdentifiers.js';
 import { queueThumbnailFetch } from './imageCache.js';
 import { fetchWikipediaPage } from '../wizard/services/wikipediaEnrichment.js';
 
@@ -112,6 +113,25 @@ export const wikipediaTitleFromLinks = async (links = [], { signal } = {}) => {
   }
 
   return null;
+};
+
+/**
+ * The article a prototype is already linked to, if it is linked to one.
+ *
+ * A node that carries a Wikipedia, DBpedia or Wikidata link has had its
+ * ambiguity settled — by the user, or by an earlier enrichment they kept. Every
+ * later pull should follow that link rather than search the name again, since
+ * the name is exactly the thing that was ambiguous. `wikipediaTitle` is checked
+ * first because it is the title the article was actually fetched under, which a
+ * URL path only approximates once redirects are involved.
+ *
+ * @param {object} prototype
+ * @returns {Promise<string|null>} an enwiki title, or null if nothing is linked
+ */
+export const linkedWikipediaTitle = async (prototype, { signal } = {}) => {
+  const named = prototype?.semanticMetadata?.wikipediaTitle;
+  if (typeof named === 'string' && named.trim()) return named.trim();
+  return wikipediaTitleFromLinks(collectIdentifiers(prototype), { signal });
 };
 
 /**

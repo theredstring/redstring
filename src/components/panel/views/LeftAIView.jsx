@@ -38,8 +38,8 @@ import { WIZARD_SYSTEM_PROMPT } from '../../../services/agent/WizardPrompt.js';
 import { runWizardInProcess, isAbortError } from '../../../wizard/runWizardInProcess.js';
 import { getToolDefinitions, executeTool } from '../../../wizard/tools/index.js';
 import { callLLM } from '../../../wizard/LLMClient.js';
-import { enrichBatch, enrichSingle } from '../../../wizard/services/wikipediaEnrichment.js';
-import { buildEnrichmentUpdates } from '../../../services/conceptEnrichment.js';
+import { enrichBatch, enrichSingle, fetchWikipediaPage } from '../../../wizard/services/wikipediaEnrichment.js';
+import { buildEnrichmentUpdates, linkedWikipediaTitle } from '../../../services/conceptEnrichment.js';
 
 // Shared Components
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
@@ -94,16 +94,8 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
   try {
     console.log(`[Auto-Enrich] Starting Wikipedia enrichment for "${nodeName}" (minConfidence=${minConfidence}, overwrite=${overwriteDescription})`);
 
-    const match = await enrichSingle(nodeName, { minConfidence });
-    if (!match) {
-      console.warn(`[Auto-Enrich] No Wikipedia match for "${nodeName}"`);
-      return null;
-    }
-
-    const { searchResult, confidence } = match;
-    console.log(`[Auto-Enrich] ✅ Match for "${nodeName}": "${searchResult.page.title}" (${confidence.toFixed(2)}), thumb=${!!searchResult.page.thumbnail}, desc=${(searchResult.page.description || '').length}ch`);
-
-    // Find and update the node in the store
+    // Find the node first: if it already names an article, that article is the
+    // source and the name search never has to run.
     const store = useGraphStore.getState();
     let targetNodeProtoId = null;
     const wantedName = String(nodeName || '').toLowerCase().trim();
@@ -119,6 +111,34 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
     }
 
     const nodeProto = store.nodePrototypes.get(targetNodeProtoId);
+
+    // A linked node has already had its ambiguity settled. Follow the link:
+    // confidence 1.0 because nothing was guessed.
+    let searchResult = null;
+    let confidence = 1.0;
+    const linkedTitle = await linkedWikipediaTitle(nodeProto);
+    if (linkedTitle) {
+      const linked = await fetchWikipediaPage(linkedTitle);
+      if (linked?.type === 'direct') {
+        searchResult = linked;
+        console.log(`[Auto-Enrich] 🔗 "${nodeName}" is already linked — pulled from "${linkedTitle}"`);
+      } else {
+        console.warn(`[Auto-Enrich] Linked article "${linkedTitle}" fetch failed — falling back to name search`);
+      }
+    }
+
+    if (!searchResult) {
+      const match = await enrichSingle(nodeName, { minConfidence });
+      if (!match) {
+        console.warn(`[Auto-Enrich] No Wikipedia match for "${nodeName}"`);
+        return null;
+      }
+      searchResult = match.searchResult;
+      confidence = match.confidence;
+    }
+
+    console.log(`[Auto-Enrich] ✅ Match for "${nodeName}": "${searchResult.page.title}" (${confidence.toFixed(2)}), thumb=${!!searchResult.page.thumbnail}, desc=${(searchResult.page.description || '').length}ch`);
+
     const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence, { overwriteDescription });
     console.log(`[Auto-Enrich] Built updates for "${nodeName}": desc=${!!updates.description}, wikiUrl=${updates.semanticMetadata?.wikipediaUrl}, links=${updates.externalLinks?.length || 'unchanged'}`);
 
@@ -213,7 +233,7 @@ async function runEnrichment(nodeNames, { overwriteDescription = false } = {}) {
   const pendingUpdates = [];
   const imageJobs = []; // queued for background
 
-  for (const { nodeName, searchResult, confidence } of matches) {
+  for (const { nodeName, searchResult: matchedResult, confidence: matchedConfidence } of matches) {
     const store = useGraphStore.getState();
     let targetProtoId = null;
     const wanted = String(nodeName || '').toLowerCase().trim();
@@ -232,6 +252,22 @@ async function runEnrichment(nodeNames, { overwriteDescription = false } = {}) {
     }
 
     const nodeProto = store.nodePrototypes.get(targetProtoId);
+
+    // The batch searched by name before any of these prototypes was read, so a
+    // node that already names an article gets corrected here rather than having
+    // its link overwritten by whatever the name happened to match.
+    let searchResult = matchedResult;
+    let confidence = matchedConfidence;
+    const linkedTitle = await linkedWikipediaTitle(nodeProto);
+    if (linkedTitle && linkedTitle !== matchedResult.page.title) {
+      const linked = await fetchWikipediaPage(linkedTitle);
+      if (linked?.type === 'direct') {
+        searchResult = linked;
+        confidence = 1.0;
+        console.log(`[Auto-Enrich] 🔗 "${nodeName}" is already linked — using "${linkedTitle}" instead of "${matchedResult.page.title}"`);
+      }
+    }
+
     const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence, { overwriteDescription });
 
     // Store image URLs in metadata
