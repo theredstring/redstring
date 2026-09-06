@@ -182,6 +182,19 @@
   color: var(--rs-modal-text);
   flex: 1;
   min-width: 0;
+  /* min-width: 0 lets this box shrink past its own min-content, which is what
+     keeps a control from being crushed — but without a break rule the text
+     doesn't shrink with the box, it spills out sideways under the control. */
+  overflow-wrap: break-word;
+}
+
+/* A wrapper standing in for a field: a range plus its readout, a select plus a
+   Refresh button, an input plus the eye toggle that has to be positioned over
+   it. It claims the same share of the row a bare .modal-input would, and stacks
+   at the same width. */
+.settings-row-control {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .settings-row-description {
@@ -396,6 +409,44 @@ select.modal-input option {
   width: auto;
   flex: 1 1 0;
   min-width: 0;
+}
+
+/* ========== Narrow width ========== */
+
+/*
+ * A settings row is a label beside its control, and on a phone there isn't
+ * room for both. The content column is ~326px at a 390px viewport; halving it
+ * leaves a label and its description about 160px, and the controls that carry a
+ * floor — a range input's intrinsic width, the stacked option group's 170px —
+ * take more than their half and leave the label even less. Below its
+ * min-content the label's text spills sideways under the control, which is what
+ * made some of them unreadable.
+ *
+ * So below this width the control drops to its own line at full width and the
+ * label gets the whole row above it. Toggles and single pills are deliberately
+ * left inline: they are narrow enough to sit beside a label at any size, and
+ * moving them away from what they toggle costs more than it gains.
+ *
+ * The breakpoint is where the content column crosses ~450px, not where the JS
+ * switches to the compact layout (768px) — at 768 the modal is 600px wide and
+ * actually has MORE room than the 750px desktop modal minus its sidebar.
+ */
+@media (max-width: 520px) {
+  .settings-row {
+    flex-wrap: wrap;
+  }
+
+  .settings-row > .modal-input,
+  .settings-row > .settings-row-control,
+  .settings-modal-content .settings-option-group {
+    flex-basis: 100%;
+    max-width: 100%;
+  }
+
+  /* On its own line it no longer has to reserve width against a neighbour. */
+  .settings-modal-content .settings-option-group--stacked {
+    min-width: 0;
+  }
 }
 
 /* ========== Legacy option buttons ========== */

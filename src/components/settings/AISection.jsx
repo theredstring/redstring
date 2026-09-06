@@ -716,9 +716,7 @@ const AISection = () => {
                         : `Couldn't reach ${getProviderLabel(provider)} — showing a short built-in list`}
                 </div>
               </div>
-              {/* flex 1 1 0 so this column claims the same half of the row as a
-                  bare field would — see `.settings-row > .modal-input`. */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: '1 1 0', minWidth: 0 }}>
+              <div className="settings-row-control" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {providerModels.length > 0 ? (
                   <>
                     <select
@@ -842,7 +840,7 @@ const AISection = () => {
                 <div className="settings-row-description">{KEY_STORAGE_NOTE}</div>
               </div>
               {(!isEditingExisting || allowKeyEdit) ? (
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: '1 1 0', minWidth: 0 }}>
+                <div className="settings-row-control" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <input
                     type={showKey ? 'text' : 'password'}
                     value={apiKey}
@@ -893,7 +891,7 @@ const AISection = () => {
                 <div className="settings-row-description">Optional (leave empty if not needed)</div>
                 <div className="settings-row-description">{KEY_STORAGE_NOTE}</div>
               </div>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: '1 1 0', minWidth: 0 }}>
+              <div className="settings-row-control" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                 <input
                   type={showKey ? 'text' : 'password'}
                   value={apiKey}
@@ -958,7 +956,7 @@ const AISection = () => {
           Local model iterations
           <div className="settings-row-description">Max tool calls per turn for local/small models. 0 = max (capped at 300)</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="settings-row-control" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <input
             type="range"
             min="0"
@@ -979,7 +977,7 @@ const AISection = () => {
           Cloud model iterations
           <div className="settings-row-description">Max tool calls per turn for cloud models. 0 = max (capped at 100)</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="settings-row-control" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <input
             type="range"
             min="0"
