@@ -63,7 +63,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const trackpadZoomSensitivity = useGraphStore(s => s.touchSettings?.trackpadZoomSensitivity ?? 0.5);
   const trackpadPanSensitivity = useGraphStore(s => s.touchSettings?.trackpadPanSensitivity ?? 0.5);
   const trackpadZoomGlideEnabled = useGraphStore(s => s.touchSettings?.trackpadZoomGlideEnabled ?? true);
-  const trackpadZoomGlideStrength = useGraphStore(s => s.touchSettings?.trackpadZoomGlideStrength ?? 0.5);
+  const trackpadZoomGlideFriction = useGraphStore(s => s.touchSettings?.trackpadZoomGlideFriction ?? 0.5);
   const mouseGlideStrength = useGraphStore(s => s.mouseSettings?.glideStrength ?? 0.1);
   const nodeLiftDelay = useGraphStore(s => s.mouseSettings?.nodeLiftDelay ?? 250);
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
@@ -623,11 +623,12 @@ const SettingsModal = ({ isVisible, onClose }) => {
           </div>
           <div className="settings-slider-row">
             <MaroonSlider
-              value={trackpadZoomGlideStrength ?? 0.5}
+              label="Friction"
+              value={trackpadZoomGlideFriction ?? 0.5}
               min={0.1}
               max={1.0}
               step={0.05}
-              onChange={(v) => useGraphStore.getState().setTrackpadZoomGlideStrength?.(v)}
+              onChange={(v) => useGraphStore.getState().setTrackpadZoomGlideFriction?.(v)}
               disabled={!trackpadZoomGlideEnabled}
               suffix=""
             />

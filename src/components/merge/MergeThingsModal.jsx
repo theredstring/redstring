@@ -501,13 +501,6 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
           </div>
         )}
 
-        {result?.fuzzySkipped && activeBand !== 'certain' && (
-          <p style={{ margin: '0 0 12px 0', fontSize: '0.72rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
-            This universe is large, so only exact signals were compared — shared links and
-            identical names. Name-similarity matching was skipped.
-          </p>
-        )}
-
         {visible.length === 0 ? (
           <div style={{
             padding: '30px 20px',

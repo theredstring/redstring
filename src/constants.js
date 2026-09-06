@@ -60,7 +60,10 @@ export const nodeSizeLabel = (scale) => NODE_SIZE_LABELS[nearestNodeSizeIndex(sc
 
 export const EDGE_MARGIN = 75; // Pixels from viewport edge for decomposed view placement
 
-export const TRACKPAD_ZOOM_SENSITIVITY = 6.5;     // Slightly increased sensitivity for trackpad pinch-zooming (macOS)
+// Trackpad zoom sensitivity is not a constant — it is the Settings slider,
+// scaled by TRACKPAD_ZOOM_SENSITIVITY_SLIDER_SCALE in NodeCanvas. The 6.5 that
+// used to live here was the slider's midpoint until the range was recentred,
+// and leaving it behind would name a default that no longer exists.
 export const PAN_DRAG_SENSITIVITY = 1.2;
 export const MOUSE_WHEEL_ZOOM_SENSITIVITY = 1.5; // Renaming this slightly for clarity, adjust value if needed
 export const SMOOTH_MOUSE_WHEEL_ZOOM_SENSITIVITY = 0.3; // Slightly faster to address slow mouse wheel zoom

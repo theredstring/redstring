@@ -167,7 +167,7 @@ import {
  * @property {Object} textSettings - `{ fontSize, lineSpacing, nodeScale, connectionWidth, plusSignScale, pieMenuScale }`.
  * @property {Object} keyboardSettings - `{ zoomSensitivity, panSensitivity }` in range [0, 1].
  * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
- * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength }`.
+ * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideFriction }`.
  */
 
 // Enable Immer plugins
@@ -1629,7 +1629,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!Number.isFinite(glideStrength)) glideStrength = 0.5;
         glideStrength = Math.max(0.0, Math.min(1.0, glideStrength));
 
-        const trackpadZoomRaw = localStorage.getItem('redstring_trackpad_zoom_sensitivity');
+        // Versioned key: the slider's scale was recentred (its midpoint went
+        // from 6.5 to 4.55), so a value stored against the old range means a
+        // different speed under the new one. Starting a fresh key lets the new
+        // default actually apply instead of being overridden by a setting that
+        // was chosen to compensate for the old range.
+        const trackpadZoomRaw = localStorage.getItem('redstring_trackpad_zoom_sensitivity_v2');
         let trackpadZoomSensitivity = trackpadZoomRaw !== null ? parseFloat(trackpadZoomRaw) : 0.5;
         if (!Number.isFinite(trackpadZoomSensitivity)) trackpadZoomSensitivity = 0.5;
         trackpadZoomSensitivity = Math.max(0.1, Math.min(1.0, trackpadZoomSensitivity));
@@ -1650,14 +1655,19 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const trackpadZoomGlideRaw = localStorage.getItem('redstring_trackpad_zoom_glide_enabled');
         const trackpadZoomGlideEnabled = trackpadZoomGlideRaw === null ? true : trackpadZoomGlideRaw === 'true';
 
-        const trackpadZoomGlideStrengthRaw = localStorage.getItem('redstring_trackpad_zoom_glide_strength');
-        let trackpadZoomGlideStrength = trackpadZoomGlideStrengthRaw !== null ? parseFloat(trackpadZoomGlideStrengthRaw) : 0.5;
-        if (!Number.isFinite(trackpadZoomGlideStrength)) trackpadZoomGlideStrength = 0.5;
-        trackpadZoomGlideStrength = Math.max(0.0, Math.min(1.0, trackpadZoomGlideStrength));
+        // Friction, not "strength": higher = the coast is damped harder and
+        // stops sooner. Deliberately a different localStorage key from the
+        // `..._glide_strength` it replaces, because the polarity is inverted —
+        // reusing the key would silently reinterpret a stored value as its
+        // opposite. An old value is simply ignored and the default applies.
+        const trackpadZoomGlideFrictionRaw = localStorage.getItem('redstring_trackpad_zoom_glide_friction');
+        let trackpadZoomGlideFriction = trackpadZoomGlideFrictionRaw !== null ? parseFloat(trackpadZoomGlideFrictionRaw) : 0.5;
+        if (!Number.isFinite(trackpadZoomGlideFriction)) trackpadZoomGlideFriction = 0.5;
+        trackpadZoomGlideFriction = Math.max(0.0, Math.min(1.0, trackpadZoomGlideFriction));
 
-        return { zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength };
+        return { zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideFriction };
       } catch (_) {
-        return { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomSensitivity: 0.5, trackpadPanSensitivity: 0.5, pinchGlideEnabled: true, pinchGlideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideStrength: 0.5 };
+        return { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomSensitivity: 0.5, trackpadPanSensitivity: 0.5, pinchGlideEnabled: true, pinchGlideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideFriction: 0.5 };
       }
     })(),
 
@@ -6482,7 +6492,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomSensitivity: 0.5, trackpadPanSensitivity: 0.5 };
       draft.touchSettings.trackpadZoomSensitivity = v;
       try {
-        localStorage.setItem('redstring_trackpad_zoom_sensitivity', String(v));
+        localStorage.setItem('redstring_trackpad_zoom_sensitivity_v2', String(v));
       } catch (_) { }
     })),
 
@@ -6505,7 +6515,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     /** Toggles momentum/glide zoom after a trackpad pinch-zoom gesture stops. Persists to localStorage. */
     toggleTrackpadZoomGlide: () => set(produce((draft) => {
-      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideStrength: 0.5 };
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideFriction: 0.5 };
       draft.touchSettings.trackpadZoomGlideEnabled = draft.touchSettings.trackpadZoomGlideEnabled === false;
       try {
         localStorage.setItem('redstring_trackpad_zoom_glide_enabled', String(draft.touchSettings.trackpadZoomGlideEnabled));
@@ -6513,19 +6523,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     /**
-     * Sets how far trackpad zoom glide coasts after the gesture stops. Range [0, 1]. Persists to localStorage.
+     * Sets how hard the trackpad zoom coast is damped after the gesture stops.
+     * Range [0, 1], where HIGHER means more friction and a shorter coast.
+     * Persists to localStorage.
      * @param {number} value
      */
-    setTrackpadZoomGlideStrength: (value) => set(produce((draft) => {
+    setTrackpadZoomGlideFriction: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
-        console.warn(`[setTrackpadZoomGlideStrength] Invalid value: ${value}`);
+        console.warn(`[setTrackpadZoomGlideFriction] Invalid value: ${value}`);
         return;
       }
-      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideStrength: 0.5 };
-      draft.touchSettings.trackpadZoomGlideStrength = v;
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideFriction: 0.5 };
+      draft.touchSettings.trackpadZoomGlideFriction = v;
       try {
-        localStorage.setItem('redstring_trackpad_zoom_glide_strength', String(v));
+        localStorage.setItem('redstring_trackpad_zoom_glide_friction', String(v));
       } catch (_) { }
     })),
 
