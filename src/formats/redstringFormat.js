@@ -648,6 +648,7 @@ export const PERSISTED_STORE_KEYS = [
   'savedGraphIds',
   'showConnectionNames',
   'wizardPlansByConversation',
+  'mergeDismissals',
   'universeCreatedAt'
 ];
 
@@ -779,7 +780,8 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       savedNodeIds = new Set(),
       savedGraphIds = new Set(),
       showConnectionNames = false,
-      wizardPlansByConversation = {}
+      wizardPlansByConversation = {},
+      mergeDismissals = {}
     } = storeState;
 
   // Three-Layer Architecture: Export Spatial Graphs with Instance Collections
@@ -1348,7 +1350,10 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       "redstring:savedNodeIds": [...savedNodeIds],
       "redstring:savedGraphIds": [...savedGraphIds],
       "redstring:showConnectionNames": !!showConnectionNames,
-      "redstring:wizardPlansByConversation": (typeof wizardPlansByConversation === 'object' && wizardPlansByConversation) ? wizardPlansByConversation : {}
+      "redstring:wizardPlansByConversation": (typeof wizardPlansByConversation === 'object' && wizardPlansByConversation) ? wizardPlansByConversation : {},
+      // "these two things are not the same" — a judgement about the universe,
+      // so it travels with the file rather than living in one browser.
+      "redstring:mergeDismissals": (typeof mergeDismissals === 'object' && mergeDismissals) ? mergeDismissals : {}
     },
     
     // Spatial metadata snapshots for agent/CLI workflows
@@ -2051,6 +2056,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
     const extractedSavedGraphIds = uiState['redstring:savedGraphIds'] || uiState.savedGraphIds || [];
     const extractedShowConnectionNames = uiState['redstring:showConnectionNames'] ?? uiState.showConnectionNames ?? true;
     const extractedWizardPlansByConversation = uiState['redstring:wizardPlansByConversation'] || {};
+    const extractedMergeDismissals = uiState['redstring:mergeDismissals'] || uiState.mergeDismissals || {};
 
     // Rehydrate custom edge prototypes (connection types). Absent in older
     // files — the store re-seeds base + agent types, so leaving the Map empty
@@ -2077,7 +2083,10 @@ export const importFromRedstring = (redstringData, storeActions) => {
       savedNodeIds: new Set(Array.isArray(extractedSavedNodeIds) ? extractedSavedNodeIds : []),
       savedGraphIds: new Set(Array.isArray(extractedSavedGraphIds) ? extractedSavedGraphIds : []),
       showConnectionNames: !!extractedShowConnectionNames,
-      wizardPlansByConversation: extractedWizardPlansByConversation
+      wizardPlansByConversation: extractedWizardPlansByConversation,
+      mergeDismissals: (extractedMergeDismissals && typeof extractedMergeDismissals === 'object' && !Array.isArray(extractedMergeDismissals))
+        ? extractedMergeDismissals
+        : {}
     };
 
     // Carry the file-root quarantine bag through (opaque cargo, D1/P1.3)

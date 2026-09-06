@@ -143,6 +143,11 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
             {' · '}{candidate.demotedBecause}
           </span>
         )}
+        {candidate.alsoMatches > 0 && (
+          <span style={{ color: theme.canvas.brandText }}>
+            {' · '}one of {candidate.alsoMatches + 1} lookalikes
+          </span>
+        )}
       </div>
 
       {/* Sides keep their positions. They used to swap when you picked the
@@ -206,6 +211,7 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
           label="Not the same"
           variant="outline"
           labelFontSize={12}
+          title="Remembered with the universe — this pair won’t be raised again"
           onClick={() => onSkip(candidate.key)}
         />
         <PanelIconButton
@@ -229,8 +235,11 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
   const theme = useTheme();
   const [activeBand, setActiveBand] = useState('certain');
   const [result, setResult] = useState(null);
-  const [dismissed, setDismissed] = useState(() => new Set());
   const [mergedCount, setMergedCount] = useState(0);
+  // Dismissals live in the store, not here. Held locally they were rebuilt
+  // empty on every open, so the scan — which is deterministic — produced the
+  // identical pair again and asked about things the user had already ruled on.
+  const dismissed = useGraphStore((s) => s.mergeDismissals);
   // What this modal has done, newest last. Cmd+Z walks it back — including the
   // "Not the same" presses, which are modal-local and never reach the store's
   // history, so nothing else could undo them.
@@ -274,9 +283,11 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
 
   useEffect(() => {
     if (!isVisible) return;
-    setDismissed(new Set());
     setMergedCount(0);
     setActions([]);
+    // Dismissals naming a thing that has since been merged away are dead
+    // weight; clearing them here keeps the list from growing forever.
+    useGraphStore.getState().pruneDuplicateDismissals();
     const scanned = rescan();
     // Open on a band that has something in it. Arriving here from a universe
     // merge, the duplicates it surfaced are name matches, which land in review
@@ -299,7 +310,7 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
   }, [rescan]);
 
   const handleSkip = useCallback((key) => {
-    setDismissed((prev) => new Set(prev).add(key));
+    useGraphStore.getState().dismissDuplicatePair(key);
     setActions((prev) => [...prev, { type: 'dismiss', key }]);
   }, []);
 
@@ -309,11 +320,7 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
     setActions((prev) => prev.slice(0, -1));
 
     if (last.type === 'dismiss') {
-      setDismissed((prev) => {
-        const next = new Set(prev);
-        next.delete(last.key);
-        return next;
-      });
+      useGraphStore.getState().restoreDuplicatePair(last.key);
     } else {
       performUndo();
       setMergedCount((n) => Math.max(0, n - 1));
@@ -340,7 +347,7 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
   }, [isVisible, undoLast]);
 
   const handleMergeAllCertain = useCallback(() => {
-    const pending = (result?.certain || []).filter((c) => !dismissed.has(c.key));
+    const pending = (result?.certain || []).filter((c) => !dismissed[c.key]);
     const store = useGraphStore.getState();
     let merged = 0;
     for (const c of pending) {
@@ -358,10 +365,37 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
   const bands = useMemo(() => {
     const empty = { certain: [], review: [], unlikely: [] };
     if (!result) return empty;
+
+    const live = {
+      certain: result.certain.filter((c) => !dismissed[c.key]),
+      review: result.review.filter((c) => !dismissed[c.key]),
+      unlikely: result.unlikely.filter((c) => !dismissed[c.key]),
+    };
+
+    // How many still-live pairs each thing appears in.
+    //
+    // Three things named "Dog" make three pairs, so clearing one leaves two
+    // cards that look word-for-word identical to the one just merged. Without
+    // saying so, a merge reads as having failed and come back. It hasn't —
+    // there is simply a third copy — and the count is what makes that legible.
+    const appearances = new Map();
+    for (const c of [...live.certain, ...live.review, ...live.unlikely]) {
+      for (const id of [c.survivorId, c.loserId]) {
+        appearances.set(id, (appearances.get(id) || 0) + 1);
+      }
+    }
+    const withCluster = (c) => {
+      const others = Math.max(
+        (appearances.get(c.survivorId) || 1) - 1,
+        (appearances.get(c.loserId) || 1) - 1
+      );
+      return others > 0 ? { ...c, alsoMatches: others } : c;
+    };
+
     return {
-      certain: result.certain.filter((c) => !dismissed.has(c.key)),
-      review: result.review.filter((c) => !dismissed.has(c.key)),
-      unlikely: result.unlikely.filter((c) => !dismissed.has(c.key)),
+      certain: live.certain.map(withCluster),
+      review: live.review.map(withCluster),
+      unlikely: live.unlikely.map(withCluster),
     };
   }, [result, dismissed]);
 

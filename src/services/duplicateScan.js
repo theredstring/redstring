@@ -20,6 +20,7 @@
  */
 
 import { calculateEntityMatchConfidence, normalizeLabel, calculateTextSimilarity } from './entityMatching.js';
+import { duplicatePairKey } from '../formats/duplicatePairKey.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 
 /**
@@ -231,7 +232,7 @@ function chooseSurvivor(a, b, useCounts) {
   return String(a.id) <= String(b.id) ? [a, b] : [b, a];
 }
 
-const pairKey = (id1, id2) => (String(id1) < String(id2) ? `${id1}|${id2}` : `${id2}|${id1}`);
+const pairKey = duplicatePairKey;
 
 /**
  * Scan a universe for duplicate things.

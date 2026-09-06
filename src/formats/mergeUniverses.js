@@ -40,6 +40,8 @@
  * P5.4 (FORMAT_REFACTOR_PLAN §5).
  */
 
+import { duplicatePairKey, splitDuplicatePairKey } from './duplicatePairKey.js';
+
 // Scalar fields on a prototype that can conflict during merge.
 // imageRef/imageRefExt merge as scalars like the image fields they stand in
 // for. This is where content-addressing pays off twice: a conflicting image
@@ -260,6 +262,8 @@ export function mergeUniverses(base, incoming, options = {}) {
     rightPanelTabs:       base.rightPanelTabs     || [],
     showConnectionNames:  base.showConnectionNames || false,
     activeDefinitionNodeId: base.activeDefinitionNodeId || null,
+    // Unioned below (with remapping) — see the note there.
+    mergeDismissals:      { ...(base.mergeDismissals || {}) },
   };
 
   const report = {
@@ -414,6 +418,20 @@ export function mergeUniverses(base, incoming, options = {}) {
   // savedGraphIds is keyed by DEFINING PROTOTYPE id, not graph id (graphStore.js:1272),
   // so it remaps like a prototype reference.
   for (const id of (incoming.savedGraphIds || new Set())) merged.savedGraphIds.add(remapId(remap, id));
+
+  // -- Dismissed duplicate pairs: union, re-keyed through the remap. Someone
+  // who already ruled "these two are different" on one side should not be
+  // asked again after a merge. A pair whose two ids the merge collapsed into
+  // one is dropped: the things are now the same thing, so the ruling has
+  // nothing left to say. --
+  for (const key of Object.keys(incoming.mergeDismissals || {})) {
+    const ids = splitDuplicatePairKey(key);
+    if (!ids) continue;
+    const a = remapId(remap, ids[0]);
+    const b = remapId(remap, ids[1]);
+    if (a === b) continue;
+    merged.mergeDismissals[duplicatePairKey(a, b)] = true;
+  }
 
   return { merged, report };
 }

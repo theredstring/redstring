@@ -1384,6 +1384,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // Durable wizard plans keyed by conversation/tab ID — persists across LLM context clears
     wizardPlansByConversation: {},  // { [conversationId]: { steps, graphId } }
 
+    // Pairs of things the user has said are NOT duplicates, keyed "idA|idB"
+    // (ids sorted, so the key does not depend on which side the scan picked).
+    // Persisted with the universe: "these two are different" is a judgement
+    // about the universe, not about this browser or this sitting. Held as a
+    // plain object so it round-trips through JSON untouched.
+    mergeDismissals: {},  // { [pairKey]: true }
+
     // Universe file state
     isUniverseLoaded: false,
     isUniverseLoading: true, // Start in loading state
@@ -3721,6 +3728,48 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return true;
       });
     },
+
+    /**
+     * Record that two things are NOT the same, so the duplicate scan stops
+     * asking about them.
+     *
+     * Persisted with the universe rather than held in the modal, which is where
+     * this lived at first: the scan is deterministic, so every reopen produced
+     * the identical pair and the user was asked again about something they had
+     * already ruled on.
+     *
+     * @param {string} pairKey - "idA|idB", ids sorted (see duplicateScan).
+     */
+    dismissDuplicatePair: (pairKey) => ctxSet({ type: 'duplicate_dismiss', pairKey }, produce((draft) => {
+      if (!pairKey) return;
+      draft.mergeDismissals = { ...(draft.mergeDismissals || {}), [pairKey]: true };
+    })),
+
+    /** Undo a dismissal — the pair goes back into the review list. */
+    restoreDuplicatePair: (pairKey) => ctxSet({ type: 'duplicate_dismiss', pairKey }, produce((draft) => {
+      if (!pairKey || !draft.mergeDismissals) return;
+      const { [pairKey]: _removed, ...rest } = draft.mergeDismissals;
+      draft.mergeDismissals = rest;
+    })),
+
+    /**
+     * Drop dismissals naming a thing that no longer exists.
+     *
+     * Merging removes a prototype, so without this the list only ever grows —
+     * and an id can in principle be reused by an import, which would silently
+     * hide a pair nobody ruled on.
+     */
+    pruneDuplicateDismissals: () => ctxSet({ type: 'duplicate_dismiss' }, produce((draft) => {
+      const current = draft.mergeDismissals || {};
+      const kept = {};
+      let dropped = 0;
+      for (const key of Object.keys(current)) {
+        const [a, b] = key.split('|');
+        if (draft.nodePrototypes.has(a) && draft.nodePrototypes.has(b)) kept[key] = true;
+        else dropped += 1;
+      }
+      if (dropped > 0) draft.mergeDismissals = kept;
+    })),
 
     // ─── NODE INSTANCE MANAGEMENT ────────────────────────────────────────────────
 
@@ -7485,6 +7534,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       expandedGraphIds: new Set(),
       savedNodeIds: new Set(),
       savedGraphIds: new Set(),
+      // Keyed by prototype id, so it means nothing once the prototypes are gone.
+      mergeDismissals: {},
         isUniverseLoaded: false,
         isUniverseLoading: false,
         universeLoadingError: null,
