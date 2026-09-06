@@ -14019,6 +14019,15 @@ function NodeCanvas() {
         }
       });
     }
+    // Bottom of the menu — the merge modal is mounted here in NodeCanvas, but go
+    // through the same event the other entry points use so there is one opener.
+    options.push({
+      label: 'Merge Duplicates',
+      icon: <Merge size={14} />,
+      action: () => {
+        window.dispatchEvent(new Event('openMergeModal'));
+      }
+    });
     return options;
   }, [triggerAutoLayout, snapToGrid, wizardEnabled, openGrowGraphWizardWithPrompt, activeGraphId, graphsMap, storeActions, canvasSize, setSelectedInstanceIds]);
 

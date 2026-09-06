@@ -1066,19 +1066,11 @@ const Panel = memo(forwardRef(
       setColorPickerNodeId(null);
     }, [leftViewActive]); // Close when switching left panel views
 
-    // The merge modal itself is mounted once in NodeCanvas and listens for
-    // 'openMergeModal' there. The panel only follows along, moving to the view
-    // the merge concerns so the result is visible behind the modal. (The left
-    // branch used to be a console.log that opened nothing.)
-    useEffect(() => {
-      const handleOpenMergeModal = () => {
-        if (side === 'right') storeActions.setActiveTab('saved');
-        else if (side === 'left') setLeftViewActive('library');
-      };
-
-      window.addEventListener('openMergeModal', handleOpenMergeModal);
-      return () => window.removeEventListener('openMergeModal', handleOpenMergeModal);
-    }, [side, storeActions]);
+    // The merge modal is mounted once in NodeCanvas and listens for
+    // 'openMergeModal' there. The panel deliberately does nothing: the modal is a
+    // full-screen centered overlay, so switching views underneath it would just
+    // move the user somewhere they never saw go by. (DuplicateManager needed this
+    // because each view mounted its own copy.)
 
     // Event listener: open Semantic Discovery (triggered by text-search icon)
     useEffect(() => {
