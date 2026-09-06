@@ -50,6 +50,45 @@ describe('mergeNodePrototypes — description is gap-fill, not longest-wins', ()
   });
 });
 
+describe('mergeNodePrototypes — things used as connection types', () => {
+  beforeEach(() => resetStore());
+
+  // A thing can be a connection's type as well as a node on a canvas. Only the
+  // endpoints used to be re-pointed, so merging one left every connection it
+  // typed naming a prototype that no longer existed.
+  it('re-points connections typed by the thing being merged away', () => {
+    resetStore({
+      nodePrototypes: new Map([proto('keep', 'Eats'), proto('lose', 'Eats')]),
+      edges: new Map([
+        ['e1', { id: 'e1', sourceId: 'i1', destinationId: 'i2', typeNodeId: 'lose' }],
+        ['e2', { id: 'e2', sourceId: 'i2', destinationId: 'i3', typeNodeId: 'keep' }],
+      ]),
+    });
+
+    useGraphStore.getState().mergeNodePrototypes('keep', 'lose');
+
+    const s = useGraphStore.getState();
+    expect(s.edges.get('e1').typeNodeId).toBe('keep');
+    expect(s.edges.get('e2').typeNodeId).toBe('keep');
+    // The real invariant: no connection names a type that is gone.
+    for (const edge of s.edges.values()) {
+      if (edge.typeNodeId) expect(s.nodePrototypes.has(edge.typeNodeId)).toBe(true);
+    }
+  });
+
+  it('re-points a connection’s definitionNodeIds and does not duplicate', () => {
+    resetStore({
+      nodePrototypes: new Map([proto('keep', 'A'), proto('lose', 'B')]),
+      edges: new Map([
+        ['e1', { id: 'e1', sourceId: 'i1', destinationId: 'i2', definitionNodeIds: ['lose', 'keep'] }],
+      ]),
+    });
+
+    useGraphStore.getState().mergeNodePrototypes('keep', 'lose');
+    expect(useGraphStore.getState().edges.get('e1').definitionNodeIds).toEqual(['keep']);
+  });
+});
+
 describe('mergeThings', () => {
   beforeEach(() => resetStore());
 

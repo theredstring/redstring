@@ -3394,6 +3394,25 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         draft.savedGraphIds.add(primaryId);
       }
 
+      // Re-point connections that used the secondary as their TYPE.
+      //
+      // A thing can be a connection's type as well as a node on the canvas
+      // (edge.typeNodeId is resolved against nodePrototypes in places, e.g.
+      // NodeCanvas' connection-type lookup). Only the endpoints were being
+      // re-pointed above, so merging a thing that types connections left every
+      // one of them naming a prototype that no longer exists — the connections
+      // silently lost their type.
+      for (const edge of draft.edges.values()) {
+        if (edge.typeNodeId === secondaryId) {
+          edge.typeNodeId = primaryId;
+        }
+        if (Array.isArray(edge.definitionNodeIds) && edge.definitionNodeIds.includes(secondaryId)) {
+          edge.definitionNodeIds = [...new Set(
+            edge.definitionNodeIds.map((id) => (id === secondaryId ? primaryId : id))
+          )];
+        }
+      }
+
       // Update active definition node if it referenced the secondary
       if (draft.activeDefinitionNodeId === secondaryId) {
         draft.activeDefinitionNodeId = primaryId;

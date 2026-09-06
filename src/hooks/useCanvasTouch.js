@@ -10,7 +10,6 @@ const MAX_ZOOM = 4;
 // Slider 0.5 maps to this base easing factor (current "good default").
 // Slider value scales linearly: actual = clamp(0.05, slider * 2 * BASE, 1.0).
 const TOUCH_PINCH_SENSITIVITY_BASE = 0.8;
-const TOUCH_PINCH_CENTER_SMOOTHING = 0.1;
 const MOVEMENT_THRESHOLD = 6;
 const TOUCH_MOVEMENT_THRESHOLD = 12; // Higher than mouse
 // Touch long-press is longer than the mouse equivalent (200ms) — fingers
@@ -685,15 +684,35 @@ export const useCanvasTouch = ({
                     return;
                 }
                 const rect = containerRef.current.getBoundingClientRect();
-                const rawWorldX = (centerX - rect.left - prevPan.x) / prevZoom + canvasSize.offsetX;
-                const rawWorldY = (centerY - rect.top - prevPan.y) / prevZoom + canvasSize.offsetY;
-                const prevWorld = pinchRef.current.centerWorld;
-                const worldX = prevWorld ? prevWorld.x + (rawWorldX - prevWorld.x) * TOUCH_PINCH_CENTER_SMOOTHING : rawWorldX;
-                const worldY = prevWorld ? prevWorld.y + (rawWorldY - prevWorld.y) * TOUCH_PINCH_CENTER_SMOOTHING : rawWorldY;
-                pinchRef.current.centerWorld = { x: worldX, y: worldY };
+                // The anchor is the world point that was under the midpoint when
+                // the pinch began, and it stays that point for the whole gesture:
+                // pinning it is what makes the view track the fingers exactly —
+                // the midpoint moves n px, the content moves n px, and the zoom
+                // stays centered between the fingers.
+                //
+                // It used to be re-derived from the live midpoint each frame and
+                // low-passed toward it, which quietly bled a fixed fraction of
+                // every midpoint movement out of the transform (10% per event, so
+                // fingers travelling 100px moved the content 90px). Symmetric
+                // spreads hid it — their midpoint doesn't move — but any real
+                // pinch, above all one with a finger parked on a node, drifted the
+                // content diagonally out from under the fingers, which reads as the
+                // pinch center sitting somewhere other than between them.
+                const anchorWorld = pinchRef.current.centerWorld || {
+                    x: (centerX - rect.left - prevPan.x) / prevZoom + canvasSize.offsetX,
+                    y: (centerY - rect.top - prevPan.y) / prevZoom + canvasSize.offsetY,
+                };
+                pinchRef.current.centerWorld = anchorWorld;
+                // The live midpoint goes in raw. Any low-pass here — on the
+                // midpoint or on the anchor — trades calibration for jitter that
+                // the fingers put there in the first place: a first-order filter
+                // holds a standing offset proportional to how fast the midpoint is
+                // moving, so the content trails the fingers for exactly as long as
+                // they keep moving. The zoom center can't wobble either way, since
+                // the anchor above is fixed for the gesture.
                 const newPan = {
-                    x: centerX - rect.left - (worldX - canvasSize.offsetX) * newZoom,
-                    y: centerY - rect.top - (worldY - canvasSize.offsetY) * newZoom,
+                    x: centerX - rect.left - (anchorWorld.x - canvasSize.offsetX) * newZoom,
+                    y: centerY - rect.top - (anchorWorld.y - canvasSize.offsetY) * newZoom,
                 };
                 setPanAndZoom(newPan, newZoom);
                 // Record the RAW finger-driven target zoom (log space) for the
@@ -707,6 +726,8 @@ export const useCanvasTouch = ({
                     }
                 }
                 pinchRef.current.lastDist = dist;
+                // Pairs with centerWorld as the glide's anchor: the midpoint the
+                // final pan was built from, holding the anchor world point.
                 pinchRef.current.lastCenterClient = { x: centerX, y: centerY };
             }
             return;

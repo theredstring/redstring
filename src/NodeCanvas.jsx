@@ -349,7 +349,6 @@ const isAndroid = /Android/i.test(userAgent);
 const MOUSE_WHEEL_ZOOM_SENSITIVITY = 1;        // Sensitivity for standard mouse wheel zooming
 const TOUCH_PINCH_SENSITIVITY = isIOS ? 0.11 : 0.24;           // approach factor toward target zoom per frame
 const TOUCH_PINCH_MAX_RATIO_STEP = isIOS ? 0.28 : 0.6;         // overall clamp when deriving target zoom from initial distance
-const TOUCH_PINCH_CENTER_SMOOTHING = isIOS ? 0.05 : 0.03;      // low-pass filter for pinch midpoint movement
 const TOUCH_PAN_DRAG_SENSITIVITY = isIOS ? 0.75 : 1.05;        // per-move multiplier for single-finger touch panning
 const PAN_MOMENTUM_MIN_SPEED = 0.01;            // px/ms threshold before momentum stops (lowered for touch)
 const TOUCH_MOMENTUM_VELOCITY_WINDOW_MS = 80;   // how far back from the last touchmove to sample for release velocity

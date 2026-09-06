@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { calculateEntityMatchConfidence } from '../../src/services/entityMatching.js';
 import {
   prototypeToEntity,
-  countInstancesByPrototype,
+  countUsesByPrototype,
   computeCarryOver,
   scanForDuplicates
 } from '../../src/services/duplicateScan.js';
@@ -74,15 +74,32 @@ describe('prototypeToEntity', () => {
   });
 });
 
-describe('countInstancesByPrototype', () => {
-  it('counts across every web', () => {
+describe('countUsesByPrototype', () => {
+  it('counts instances across every web', () => {
     const graphs = new Map([
       graphWith('g1', [inst('i1', 'a'), inst('i2', 'a'), inst('i3', 'b')]),
       graphWith('g2', [inst('i4', 'a')]),
     ]);
-    const counts = countInstancesByPrototype(graphs);
-    expect(counts.get('a')).toBe(3);
-    expect(counts.get('b')).toBe(1);
+    const counts = countUsesByPrototype(graphs, new Map());
+    expect(counts.get('a').instances).toBe(3);
+    expect(counts.get('b').instances).toBe(1);
+  });
+
+  // A thing used as a connection's type is used, even with nothing on canvas.
+  it('counts a thing used as a connection type', () => {
+    const edges = new Map([
+      ['e1', { id: 'e1', sourceId: 'i1', destinationId: 'i2', typeNodeId: 'eats' }],
+      ['e2', { id: 'e2', sourceId: 'i2', destinationId: 'i3', typeNodeId: 'eats' }],
+    ]);
+    const counts = countUsesByPrototype(new Map(), edges);
+    expect(counts.get('eats')).toEqual({ instances: 0, connections: 2, total: 2 });
+  });
+
+  it('totals both kinds of use together', () => {
+    const graphs = new Map([graphWith('g1', [inst('i1', 'eats')])]);
+    const edges = new Map([['e1', { id: 'e1', typeNodeId: 'eats' }]]);
+    expect(countUsesByPrototype(graphs, edges).get('eats'))
+      .toEqual({ instances: 1, connections: 1, total: 2 });
   });
 });
 
@@ -133,13 +150,14 @@ describe('computeCarryOver — fills gaps, never overwrites', () => {
 
 describe('scanForDuplicates', () => {
   const graphs = new Map([graphWith('g1', [inst('i1', 'a'), inst('i2', 'a'), inst('i3', 'b')])]);
+  const edges = new Map();
 
   it('puts a shared Wikidata link in the certain band', () => {
     const protos = new Map([
       ['a', proto('a', 'Dog', { externalLinks: [WIKI('Q144')] })],
       ['b', proto('b', 'Doggo', { externalLinks: [WIKI('Q144')] })],
     ]);
-    const r = scanForDuplicates(protos, graphs);
+    const r = scanForDuplicates(protos, graphs, edges);
     expect(r.certain).toHaveLength(1);
     expect(r.certain[0].confidence).toBeGreaterThanOrEqual(0.85);
   });
@@ -149,7 +167,7 @@ describe('scanForDuplicates', () => {
       ['a', proto('a', 'Mercury', { externalLinks: [WIKI('Q308')] })],
       ['b', proto('b', 'Mercury', { externalLinks: [WIKI('Q925')] })],
     ]);
-    const r = scanForDuplicates(protos, graphs);
+    const r = scanForDuplicates(protos, graphs, edges);
     const all = [...r.certain, ...r.review, ...r.unlikely];
     expect(all).toHaveLength(0);
   });
@@ -159,9 +177,27 @@ describe('scanForDuplicates', () => {
       ['a', proto('a', 'Dog', { externalLinks: [WIKI('Q144')] })],   // 2 instances
       ['b', proto('b', 'Dog', { externalLinks: [WIKI('Q144')] })],   // 0 instances
     ]);
-    const r = scanForDuplicates(protos, graphs);
+    const r = scanForDuplicates(protos, graphs, edges);
     expect(r.certain[0].survivorId).toBe('a');
-    expect(r.certain[0].survivorInstances).toBe(2);
+    expect(r.certain[0].survivorUses.total).toBe(2);
+  });
+
+  it('lets connection use decide the survivor, not just canvas instances', () => {
+    // 'b' is on no canvas but types three connections; 'a' is placed once.
+    const protos = new Map([
+      ['a', proto('a', 'Eats', { externalLinks: [WIKI('Q1')] })],
+      ['b', proto('b', 'Eats', { externalLinks: [WIKI('Q1')] })],
+    ]);
+    const oneInstance = new Map([graphWith('g1', [inst('i1', 'a')])]);
+    const typedEdges = new Map([
+      ['e1', { id: 'e1', typeNodeId: 'b' }],
+      ['e2', { id: 'e2', typeNodeId: 'b' }],
+      ['e3', { id: 'e3', typeNodeId: 'b' }],
+    ]);
+
+    const r = scanForDuplicates(protos, oneInstance, typedEdges);
+    expect(r.certain[0].survivorId).toBe('b');
+    expect(r.certain[0].survivorUses).toEqual({ instances: 0, connections: 3, total: 3 });
   });
 
   it('attaches the gap-fill list to the pair', () => {
@@ -169,7 +205,7 @@ describe('scanForDuplicates', () => {
       ['a', proto('a', 'Dog', { externalLinks: [WIKI('Q144')] })],
       ['b', proto('b', 'Dog', { externalLinks: [WIKI('Q144')], description: 'a good dog' })],
     ]);
-    const r = scanForDuplicates(protos, graphs);
+    const r = scanForDuplicates(protos, graphs, edges);
     expect(r.certain[0].carryOver.map(g => g.field)).toContain('description');
   });
 
@@ -178,7 +214,7 @@ describe('scanForDuplicates', () => {
       ['a', proto('a', 'Ecology')],
       ['b', proto('b', 'ecology')],
     ]);
-    const r = scanForDuplicates(protos, graphs);
+    const r = scanForDuplicates(protos, graphs, edges);
     const all = [...r.certain, ...r.review, ...r.unlikely];
     expect(all).toHaveLength(1);
     expect(r.certain).toHaveLength(0); // a shared name alone is not proof
@@ -189,7 +225,7 @@ describe('scanForDuplicates', () => {
       ['a', proto('a', 'Dog')],
       ['b', proto('b', 'Photosynthesis')],
     ]);
-    const r = scanForDuplicates(protos, graphs);
+    const r = scanForDuplicates(protos, graphs, edges);
     expect([...r.certain, ...r.review, ...r.unlikely]).toHaveLength(0);
   });
 
@@ -199,13 +235,82 @@ describe('scanForDuplicates', () => {
     protos.set('a', proto('a', 'Dog', { externalLinks: [WIKI('Q144')] }));
     protos.set('b', proto('b', 'Doggo', { externalLinks: [WIKI('Q144')] }));
 
-    const r = scanForDuplicates(protos, graphs, { fuzzyCap: 5 });
+    const r = scanForDuplicates(protos, graphs, edges, { fuzzyCap: 5 });
     expect(r.fuzzySkipped).toBe(true);
     expect(r.certain).toHaveLength(1);
   });
 
+  // Enrichment routinely lands a whole cast on one "List of X characters"
+  // page. That link scores 0.90 on its own — enough to auto-merge every
+  // character in the list into one thing.
+  describe('a shared hub page is not proof of identity', () => {
+    const LIST = 'https://en.wikipedia.org/wiki/List_of_Mario_characters';
+
+    it('keeps two different characters on one cast list out of certain', () => {
+      const protos = new Map([
+        ['a', proto('a', 'Mario', { externalLinks: [LIST] })],
+        ['b', proto('b', 'Princess Peach', { externalLinks: [LIST] })],
+      ]);
+      const r = scanForDuplicates(protos, graphs, edges);
+      expect(r.certain).toHaveLength(0);
+      expect(r.review).toHaveLength(1);
+      expect(r.review[0].demotedBecause).toBe('shared page covers many things');
+    });
+
+    it('demotes a disambiguation page the same way', () => {
+      const DAB = 'https://en.wikipedia.org/wiki/Mercury_(disambiguation)';
+      const protos = new Map([
+        ['a', proto('a', 'Mercury', { externalLinks: [DAB] })],
+        ['b', proto('b', 'Mercury the planet', { externalLinks: [DAB] })],
+      ]);
+      const r = scanForDuplicates(protos, graphs, edges);
+      expect(r.certain).toHaveLength(0);
+    });
+
+    it('still trusts a real page shared by two things with the same name', () => {
+      const PAGE = 'https://en.wikipedia.org/wiki/Dog';
+      const protos = new Map([
+        ['a', proto('a', 'Dog', { externalLinks: [PAGE] })],
+        ['b', proto('b', 'Dog', { externalLinks: [PAGE] })],
+      ]);
+      const r = scanForDuplicates(protos, graphs, edges);
+      expect(r.certain).toHaveLength(1);
+      expect(r.certain[0].demotedBecause).toBeNull();
+    });
+  });
+
+  describe('certain requires the names to be plausible', () => {
+    it('holds back a link match between things named nothing alike', () => {
+      const protos = new Map([
+        ['a', proto('a', 'Mario', { externalLinks: [WIKI('Q12379')] })],
+        ['b', proto('b', 'Princess Peach', { externalLinks: [WIKI('Q12379')] })],
+      ]);
+      const r = scanForDuplicates(protos, graphs, edges);
+      expect(r.certain).toHaveLength(0);
+      expect(r.review[0].demotedBecause).toBe('names are quite different');
+    });
+
+    it('still allows the ordinary near-name case through', () => {
+      const protos = new Map([
+        ['a', proto('a', 'Dog', { externalLinks: [WIKI('Q144')] })],
+        ['b', proto('b', 'Doggo', { externalLinks: [WIKI('Q144')] })],
+      ]);
+      const r = scanForDuplicates(protos, graphs, edges);
+      expect(r.certain).toHaveLength(1);
+    });
+
+    it('a demoted pair is still offered, never dropped', () => {
+      const protos = new Map([
+        ['a', proto('a', 'Mario', { externalLinks: [WIKI('Q12379')] })],
+        ['b', proto('b', 'Princess Peach', { externalLinks: [WIKI('Q12379')] })],
+      ]);
+      const r = scanForDuplicates(protos, graphs, edges);
+      expect([...r.certain, ...r.review, ...r.unlikely]).toHaveLength(1);
+    });
+  });
+
   it('handles a universe too small to have duplicates', () => {
-    expect(scanForDuplicates(new Map(), new Map()).certain).toEqual([]);
-    expect(scanForDuplicates(new Map([['a', proto('a', 'Dog')]]), new Map()).review).toEqual([]);
+    expect(scanForDuplicates(new Map(), new Map(), new Map()).certain).toEqual([]);
+    expect(scanForDuplicates(new Map([['a', proto('a', 'Dog')]]), new Map(), new Map()).review).toEqual([]);
   });
 });

@@ -19,8 +19,52 @@
  *                      degrades to "exact signals only" instead of hanging.
  */
 
-import { calculateEntityMatchConfidence, normalizeLabel } from './entityMatching.js';
+import { calculateEntityMatchConfidence, normalizeLabel, calculateTextSimilarity } from './entityMatching.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
+
+/**
+ * Pages that cover MANY things rather than naming one.
+ *
+ * A Wikipedia or DBpedia URL identifies a page, not an entity, and enrichment
+ * routinely lands a whole cast on the same "List of X characters" page. Two
+ * things sharing that link have no more been claimed identical than two books
+ * sharing a library. Only Wikidata QIDs name a single entity — and even those
+ * have list items — so a shared hub link is not identity evidence.
+ */
+const HUB_LINK_PATTERNS = [
+  /\/lists?_of_/i,
+  /\/index_of_/i,
+  /\/outline_of_/i,
+  /\/glossary_of_/i,
+  /\/timeline_of_/i,
+  /\(disambiguation\)/i,
+  /\/category:/i,
+  /\/portal:/i,
+];
+
+export function isHubLink(url) {
+  if (typeof url !== 'string') return false;
+  return HUB_LINK_PATTERNS.some((re) => re.test(url));
+}
+
+/**
+ * How alike two names must be before a link match can be called certain.
+ *
+ * Deliberately loose. It has to pass real pairs whose names differ
+ * ("Dog"/"Doggo") while rejecting things that merely share a hub page
+ * ("Mario"/"Princess Peach"). A pair that fails this is not discarded — it
+ * drops to review, where a person decides.
+ */
+export const NAME_PLAUSIBILITY_THRESHOLD = 0.5;
+
+export function namesPlausiblyMatch(nameA, nameB) {
+  const a = normalizeLabel(nameA);
+  const b = normalizeLabel(nameB);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.startsWith(b) || b.startsWith(a)) return true;
+  return calculateTextSimilarity(a, b) >= NAME_PLAUSIBILITY_THRESHOLD;
+}
 
 /** Above this many prototypes, skip the O(n²) fuzzy stage. */
 export const FUZZY_SCAN_CAP = 600;
@@ -55,25 +99,46 @@ export function prototypeToEntity(prototype) {
 }
 
 /**
- * Count how many instances each prototype has across every web.
+ * Count how much each prototype is actually used.
+ *
+ * Two ways a thing gets used, and both count: as an instance placed on a web,
+ * and as the TYPE of a connection. Counting only instances made a thing that
+ * types fifty connections but sits on no canvas look unused, and lose the
+ * survivor choice to a near-duplicate placed once.
+ *
  * Indexed once and reused — the survivor choice needs it for every pair.
  *
- * @returns {Map<string, number>}
+ * @returns {Map<string, {instances: number, connections: number, total: number}>}
  */
-export function countInstancesByPrototype(graphs) {
+export function countUsesByPrototype(graphs, edges) {
   const counts = new Map();
-  if (!graphs) return counts;
-  for (const graph of (graphs instanceof Map ? graphs.values() : Object.values(graphs))) {
-    const instances = graph?.instances;
-    if (!(instances instanceof Map)) continue;
-    for (const instance of instances.values()) {
-      const pid = instance?.prototypeId;
-      if (!pid) continue;
-      counts.set(pid, (counts.get(pid) || 0) + 1);
+  const bump = (id, key) => {
+    if (!id) return;
+    const entry = counts.get(id) || { instances: 0, connections: 0, total: 0 };
+    entry[key] += 1;
+    entry.total += 1;
+    counts.set(id, entry);
+  };
+
+  if (graphs) {
+    for (const graph of (graphs instanceof Map ? graphs.values() : Object.values(graphs))) {
+      const instances = graph?.instances;
+      if (!(instances instanceof Map)) continue;
+      for (const instance of instances.values()) bump(instance?.prototypeId, 'instances');
     }
   }
+
+  if (edges) {
+    for (const edge of (edges instanceof Map ? edges.values() : Object.values(edges || {}))) {
+      bump(edge?.typeNodeId, 'connections');
+    }
+  }
+
   return counts;
 }
+
+const NO_USES = { instances: 0, connections: 0, total: 0 };
+const usesOf = (counts, id) => counts.get(id) || NO_USES;
 
 const hasText = (v) => typeof v === 'string' && v.trim() !== '';
 const hasColor = (v) => hasText(v) && v !== NODE_DEFAULT_COLOR;
@@ -137,9 +202,9 @@ export function computeCarryOver(survivor, other) {
 }
 
 /** Most-used wins; ties fall back to the longer description, then to id order. */
-function chooseSurvivor(a, b, instanceCounts) {
-  const ca = instanceCounts.get(a.id) || 0;
-  const cb = instanceCounts.get(b.id) || 0;
+function chooseSurvivor(a, b, useCounts) {
+  const ca = usesOf(useCounts, a.id).total;
+  const cb = usesOf(useCounts, b.id).total;
   if (ca !== cb) return ca > cb ? [a, b] : [b, a];
 
   const da = (a.description || '').length;
@@ -156,12 +221,13 @@ const pairKey = (id1, id2) => (String(id1) < String(id2) ? `${id1}|${id2}` : `${
  *
  * @param {Map} nodePrototypes
  * @param {Map} graphs
+ * @param {Map} [edges] - Needed to count things used as connection types.
  * @param {Object} [options]
  * @param {number} [options.fuzzyCap=FUZZY_SCAN_CAP]
  * @param {number} [options.maxPairs=MAX_PAIRS]
  * @returns {{certain: Array, review: Array, unlikely: Array, scanned: number, fuzzySkipped: boolean}}
  */
-export function scanForDuplicates(nodePrototypes, graphs, options = {}) {
+export function scanForDuplicates(nodePrototypes, graphs, edges, options = {}) {
   const { fuzzyCap = FUZZY_SCAN_CAP, maxPairs = MAX_PAIRS } = options;
 
   const protos = nodePrototypes instanceof Map
@@ -171,7 +237,7 @@ export function scanForDuplicates(nodePrototypes, graphs, options = {}) {
   const result = { certain: [], review: [], unlikely: [], scanned: protos.length, fuzzySkipped: false };
   if (protos.length < 2) return result;
 
-  const instanceCounts = countInstancesByPrototype(graphs);
+  const useCounts = countUsesByPrototype(graphs, edges);
   const entities = new Map(protos.map((p) => [p.id, prototypeToEntity(p)]));
   const byId = new Map(protos.map((p) => [p.id, p]));
 
@@ -215,10 +281,27 @@ export function scanForDuplicates(nodePrototypes, graphs, options = {}) {
     const p2 = byId.get(id2);
     if (!p1 || !p2) continue;
 
-    const match = calculateEntityMatchConfidence(entities.get(id1), entities.get(id2));
+    const e1 = entities.get(id1);
+    const e2 = entities.get(id2);
+    const match = calculateEntityMatchConfidence(e1, e2);
     if (!match || match.confidence <= 0) continue;
 
-    const [survivor, loser] = chooseSurvivor(p1, p2, instanceCounts);
+    // What the two actually share, and whether any of it names one thing.
+    const otherLinks = new Set(e2.externalLinks);
+    const sharedLinks = e1.externalLinks.filter((url) => otherLinks.has(url));
+    const onlyHubEvidence = sharedLinks.length > 0 && sharedLinks.every(isHubLink);
+    const namesOk = namesPlausiblyMatch(p1.name, p2.name);
+
+    // "Certain" means safe to merge in bulk without reading it, so it has to
+    // clear a bar the raw score does not: a shared link scores 0.90 on its own,
+    // which is enough to auto-merge every character on one cast-list page.
+    let demotedBecause = null;
+    if (match.shouldMerge) {
+      if (onlyHubEvidence) demotedBecause = 'shared page covers many things';
+      else if (!namesOk) demotedBecause = 'names are quite different';
+    }
+
+    const [survivor, loser] = chooseSurvivor(p1, p2, useCounts);
     const candidate = {
       key,
       survivorId: survivor.id,
@@ -227,13 +310,15 @@ export function scanForDuplicates(nodePrototypes, graphs, options = {}) {
       loser,
       confidence: match.confidence,
       factors: match.factors,
+      sharedLinks,
+      demotedBecause,
       carryOver: computeCarryOver(survivor, loser),
-      survivorInstances: instanceCounts.get(survivor.id) || 0,
-      loserInstances: instanceCounts.get(loser.id) || 0
+      survivorUses: usesOf(useCounts, survivor.id),
+      loserUses: usesOf(useCounts, loser.id)
     };
 
-    if (match.shouldMerge) result.certain.push(candidate);
-    else if (match.needsReview) result.review.push(candidate);
+    if (match.shouldMerge && !demotedBecause) result.certain.push(candidate);
+    else if (match.shouldMerge || match.needsReview) result.review.push(candidate);
     else result.unlikely.push(candidate);
   }
 

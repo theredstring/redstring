@@ -4,7 +4,7 @@ import CanvasModal from '../CanvasModal.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import useGraphStore from '../../store/graphStore.js';
 import { useTheme } from '../../hooks/useTheme.js';
-import { scanForDuplicates } from '../../services/duplicateScan.js';
+import { scanForDuplicates, computeCarryOver } from '../../services/duplicateScan.js';
 import '../ModalChrome.css';
 
 /**
@@ -28,8 +28,8 @@ const BANDS = [
 ];
 
 const BAND_BLURB = {
-  certain: 'These share an external link — the same Wikidata or DBpedia entry. That is an identity claim already recorded on both, not a guess.',
-  review: 'These look alike but nothing asserts they are the same thing. Your call, one at a time.',
+  certain: 'These share an external link AND go by much the same name. Shared-page links that cover many things — cast lists, disambiguation pages — are held back for review instead.',
+  review: 'These look alike, or share a link that is not proof on its own. Your call, one at a time.',
   unlikely: 'Weak signals, listed so you can audit what the scan saw. Merging from here is rarely right.',
 };
 
@@ -56,15 +56,17 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
   const [carryFields, setCarryFields] = useState(() => new Set(candidate.carryOver.map((g) => g.field)));
   const [definitionStrategy, setDefinitionStrategy] = useState('combine');
 
-  // The scan's suggestion is the starting point; flipping sides recomputes
-  // which side is "the other one", so the gap list has to follow.
+  // The scan's suggestion is the starting point; flipping sides changes which
+  // one is "the other", so the gap list has to be recomputed against the new
+  // survivor. (It used to go empty on flip, silently removing every carry-over
+  // option from the direction the user had just chosen.)
   const flipped = survivorId !== candidate.survivorId;
   const survivor = flipped ? candidate.loser : candidate.survivor;
   const other = flipped ? candidate.survivor : candidate.loser;
 
   const gaps = useMemo(
-    () => (flipped ? [] : candidate.carryOver),
-    [flipped, candidate.carryOver]
+    () => (flipped ? computeCarryOver(survivor, other) : candidate.carryOver),
+    [flipped, survivor, other, candidate.carryOver]
   );
 
   useEffect(() => {
@@ -82,7 +84,17 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
     });
   };
 
-  const sideButton = (proto, isSurvivor, instances) => (
+  // A thing can be used two ways — placed on a web, and as a connection's type.
+  // Both are shown, because a thing that types many connections but sits on no
+  // canvas is heavily used and used to read as "0 uses".
+  const describeUses = (uses) => {
+    const parts = [];
+    if (uses.instances > 0) parts.push(`${uses.instances} ${uses.instances === 1 ? 'use' : 'uses'}`);
+    if (uses.connections > 0) parts.push(`${uses.connections} as connection`);
+    return parts.length > 0 ? parts.join(' · ') : 'unused';
+  };
+
+  const sideButton = (proto, isSurvivor, uses) => (
     <button
       type="button"
       onClick={() => setSurvivorId(proto.id)}
@@ -107,7 +119,7 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
         {proto.name || 'Untitled'}
       </div>
       <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, marginTop: 2 }}>
-        {isSurvivor ? 'keeps its name' : 'folded in'} · {instances} {instances === 1 ? 'use' : 'uses'}
+        {isSurvivor ? 'keeps its name' : 'merged in'} · {describeUses(uses)}
       </div>
     </button>
   );
@@ -125,19 +137,19 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
     }}>
       <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, letterSpacing: '0.03em' }}>
         {describeFactors(candidate.factors)}
+        {candidate.demotedBecause && (
+          <span style={{ color: theme.canvas.brandText }}>
+            {' · '}{candidate.demotedBecause}
+          </span>
+        )}
       </div>
 
+      {/* Sides keep their positions. They used to swap when you picked the
+          other one, so the thing you clicked jumped out from under the cursor —
+          and it made "(left)" and "(right)" below mean nothing. */}
       <div style={{ display: 'flex', gap: 8 }}>
-        {sideButton(
-          flipped ? candidate.loser : candidate.survivor,
-          !flipped,
-          flipped ? candidate.loserInstances : candidate.survivorInstances
-        )}
-        {sideButton(
-          flipped ? candidate.survivor : candidate.loser,
-          flipped,
-          flipped ? candidate.survivorInstances : candidate.loserInstances
-        )}
+        {sideButton(candidate.survivor, survivorId === candidate.survivorId, candidate.survivorUses)}
+        {sideButton(candidate.loser, survivorId === candidate.loserId, candidate.loserUses)}
       </div>
 
       {gaps.length > 0 && (
@@ -163,10 +175,13 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
       {bothHaveDefinitions && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
           <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>Definitions:</span>
+          {/* The two names are very often identical, so the side is the only
+              thing that tells these apart. It tracks the survivor choice: the
+              survivor is the left card until you flip it. */}
           {[
             ['combine', 'combine both'],
-            ['overwrite_with_primary', `only ${survivor.name || 'this one'}’s`],
-            ['overwrite_with_secondary', `only ${other.name || 'the other'}’s`],
+            ['overwrite_with_primary', `only ${survivor.name || 'this one'}’s (${flipped ? 'right' : 'left'})`],
+            ['overwrite_with_secondary', `only ${other.name || 'the other'}’s (${flipped ? 'left' : 'right'})`],
           ].map(([value, label]) => (
             <label key={value} style={{
               display: 'flex', alignItems: 'center', gap: 4,
@@ -234,8 +249,8 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
   // Scan on open, not on every store change: this is O(n²) in the worst case
   // and the list would thrash under the user as they merge.
   const rescan = useCallback(() => {
-    const { nodePrototypes, graphs } = useGraphStore.getState();
-    setResult(scanForDuplicates(nodePrototypes, graphs));
+    const { nodePrototypes, graphs, edges } = useGraphStore.getState();
+    setResult(scanForDuplicates(nodePrototypes, graphs, edges));
   }, []);
 
   useEffect(() => {

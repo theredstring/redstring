@@ -12,8 +12,20 @@ const stabilizationCache = new Map();
 
 // Stabilization parameters
 const POSITION_THRESHOLD = 5; // px - don't update if moved less than this
-const ANGLE_SNAP_THRESHOLD = 5; // degrees - snap if within this range
-const ANGLE_SNAP_INCREMENT = 15; // degrees - snap to multiples of this
+
+/**
+ * How far the angle may drift before the position deadband stops holding.
+ *
+ * The deadband freezes position AND angle together, which is right as long as
+ * they move together. They don't always: a long connection whose far end swings
+ * pivots the line about a label that barely moves, so the label can need a
+ * several-degree correction while its centre travels under 5px. Releasing on
+ * either one keeps a held label from lying about its own direction.
+ */
+const ANGLE_THRESHOLD = 1; // degrees
+
+/** Shortest angular distance between two bearings, in degrees. */
+const angleDistance = (a, b) => Math.abs((((a - b) % 360) + 540) % 360 - 180);
 
 /**
  * Stabilize label position to prevent jitter during interactions
@@ -45,7 +57,8 @@ export const stabilizeLabelPosition = (edgeId, x, y, angle) => {
   const distance = Math.sqrt(dx * dx + dy * dy);
 
   // If small movement, return cached position (prevent jitter)
-  if (distance < POSITION_THRESHOLD) {
+  if (distance < POSITION_THRESHOLD
+      && angleDistance(angle, cached.lastAngle) < ANGLE_THRESHOLD) {
     return {
       x: cached.lastX,
       y: cached.lastY,
@@ -65,13 +78,25 @@ export const stabilizeLabelPosition = (edgeId, x, y, angle) => {
   const smoothX = x;
   const smoothY = y;
 
-  // Snap angle to nearest increment if close
-  // This prevents labels from wiggling at near-horizontal/vertical angles
-  let smoothAngle = angle;
-  const nearestSnap = Math.round(angle / ANGLE_SNAP_INCREMENT) * ANGLE_SNAP_INCREMENT;
-  if (Math.abs(angle - nearestSnap) < ANGLE_SNAP_THRESHOLD) {
-    smoothAngle = nearestSnap;
-  }
+  // The angle is the placement's, unmodified.
+  //
+  // It used to be snapped to the nearest multiple of 15 degrees whenever it fell
+  // within 5 of one — which is two thirds of all angles, tilted by up to 5
+  // degrees each. A label is drawn along the connection it names, so that is not
+  // stabilization, it is a deliberate mismatch between a label and its own line:
+  // a connection running at -26 degrees got a label drawn at -30. Long labels
+  // made it obvious, since the same tilt displaces the ends further the wider the
+  // text; on a straight Lombardi connection, where there is no curve to disguise
+  // it, the label visibly crossed the line it was supposed to sit on.
+  //
+  // Its stated purpose — stopping labels wiggling near horizontal and vertical —
+  // is already served twice over, and by mechanisms that don't lie about the
+  // direction. describeSegments assigns axis-aligned segments an EXACT 0 or 90
+  // rather than the measured atan2, so there is no float noise there to damp;
+  // and quantizeLabelAngle in NodeCanvas buckets rotations for the glyph atlas
+  // against a stated on-screen error budget, with the bucket size snapped onto a
+  // divisor of 90 precisely so that 0 and 90 survive untouched.
+  const smoothAngle = angle;
 
   // Update cache with new stabilized position
   stabilizationCache.set(edgeId, {
