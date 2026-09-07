@@ -21,7 +21,7 @@ import DownloadAppPill from './DownloadAppPill.jsx';
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances } from './services/textMeasurement.js';
-import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, getConnectionLabelColors, CONNECTION_LABEL_OUTER_STROKE_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from './utils/clipboard.js';
@@ -1201,6 +1201,8 @@ function NodeCanvas() {
   const failedImagesMap = useImageCache(state => state.failed);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
+  const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
+  const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
   const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
   const showNodeControlPanel = useGraphStore(state => state.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore(state => state.showMultipleNodesControlPanel ?? true);
@@ -17927,6 +17929,40 @@ function NodeCanvas() {
                                 const labelHitW = estimateTextWidth(connectionName, connectionFontSize) + connectionFontSize * 0.9;
                                 const labelHitH = connectionFontSize * 1.5;
 
+                                const labelColors = getConnectionLabelColors(edgeColor, darkMode, connectionLabelColorMode, connectionLabelOuterRing);
+                                const labelHaloWidth = 8 * (connectionFontSize / 54);
+
+                                // Everything that positions the label, shared by the real label and
+                                // the connection-colored ring drawn underneath it. Both carry
+                                // data-connection-label so the drag updater moves them together —
+                                // see labelTextOf in useNodeDrag.
+                                const labelGeomProps = {
+                                  'data-connection-label': '1',
+                                  'data-label-frame': labelFrame,
+                                  fontSize: connectionFontSize,
+                                  fontWeight: 'bold',
+                                  dominantBaseline: 'middle',
+                                  style: { pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" },
+                                  ...(labelGlyphs
+                                    /* Curved: every glyph placed and rotated individually.
+                                       textAnchor is `start` because x/y are baseline ORIGINS —
+                                       labelArcGlyphFrames already walked each one back half an
+                                       advance so the glyph's centre lands on the circle. The drag
+                                       updater rewrites these same three lists per frame. */
+                                    ? {
+                                      x: glyphAttrs.x,
+                                      y: glyphAttrs.y,
+                                      rotate: glyphAttrs.rotate,
+                                      textAnchor: 'start',
+                                    }
+                                    : {
+                                      x: labelRenderX,
+                                      y: labelRenderY,
+                                      textAnchor: 'middle',
+                                      transform: straightLabelTransform(adjustedAngle, labelRenderX, labelRenderY),
+                                    }),
+                                };
+
                                 return (
                                   <g>
                                     {/* Invisible click target covering the label text */}
@@ -17942,60 +17978,36 @@ function NodeCanvas() {
                                       style={{ cursor: 'pointer' }}
                                       {...getEdgeHitboxHandlers(edge.id)}
                                     />
-                                    {/* Canvas-colored text creating a "hole" effect in the connection */}
-                                    {labelGlyphs ? (
-                                      /* Curved: one <text>, every glyph placed and rotated
-                                         individually. textAnchor is `start` because x/y are
-                                         baseline ORIGINS — labelArcGlyphFrames already walked each
-                                         one back half an advance so the glyph's centre lands on the
-                                         circle. data-connection-label marks it for the drag
-                                         updater, which rewrites these same three lists per frame. */
+                                    {/* Outermost ring, in the connection's own color, so the dark
+                                        halo never meets the canvas directly and the label reads as
+                                        sitting IN the line rather than on top of it. A separate
+                                        <text> because SVG paints exactly one stroke per element. */}
+                                    {labelHaloEnabled && labelColors.outerStroke && (
                                       <text
-                                        data-connection-label="1"
-                                        data-label-frame={labelFrame}
-                                        x={glyphAttrs.x}
-                                        y={glyphAttrs.y}
-                                        rotate={glyphAttrs.rotate}
-                                        fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
-                                        fontSize={connectionFontSize}
-                                        fontWeight="bold"
-                                        textAnchor="start"
-                                        dominantBaseline="middle"
-                                        {...(labelHaloEnabled ? {
-                                          stroke: darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor),
-                                          strokeWidth: 8 * (connectionFontSize / 54),
-                                          strokeLinecap: 'round',
-                                          strokeLinejoin: 'round',
-                                          paintOrder: 'stroke fill',
-                                        } : null)}
-                                        style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
-                                      >
-                                        {connectionName}
-                                      </text>
-                                    ) : (
-                                      <text
-                                        data-connection-label="1"
-                                        data-label-frame={labelFrame}
-                                        x={labelRenderX}
-                                        y={labelRenderY}
-                                        fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
-                                        fontSize={connectionFontSize}
-                                        fontWeight="bold"
-                                        textAnchor="middle"
-                                        dominantBaseline="middle"
-                                        transform={straightLabelTransform(adjustedAngle, labelRenderX, labelRenderY)}
-                                        {...(labelHaloEnabled ? {
-                                          stroke: darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor),
-                                          strokeWidth: 8 * (connectionFontSize / 54),
-                                          strokeLinecap: 'round',
-                                          strokeLinejoin: 'round',
-                                          paintOrder: 'stroke fill',
-                                        } : null)}
-                                        style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+                                        {...labelGeomProps}
+                                        fill="none"
+                                        stroke={labelColors.outerStroke}
+                                        strokeWidth={labelHaloWidth * CONNECTION_LABEL_OUTER_STROKE_SCALE}
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
                                       >
                                         {connectionName}
                                       </text>
                                     )}
+                                    {/* Canvas-colored text creating a "hole" effect in the connection */}
+                                    <text
+                                      {...labelGeomProps}
+                                      fill={labelColors.fill}
+                                      {...(labelHaloEnabled ? {
+                                        stroke: labelColors.stroke,
+                                        strokeWidth: labelHaloWidth,
+                                        strokeLinecap: 'round',
+                                        strokeLinejoin: 'round',
+                                        paintOrder: 'stroke fill',
+                                      } : null)}
+                                    >
+                                      {connectionName}
+                                    </text>
                                   </g>
                                 );
                               })()}

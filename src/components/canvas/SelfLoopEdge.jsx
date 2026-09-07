@@ -1,7 +1,7 @@
 import React from 'react';
 import { calculateSelfLoopPath } from '../../utils/canvas/selfLoopUtils.js';
 import { estimateTextWidth } from '../../utils/canvas/edgeLabelPlacement.js';
-import { getLightHueText, getDarkHueText } from '../../utils/colorUtils.js';
+import { getConnectionLabelColors, CONNECTION_LABEL_OUTER_STROKE_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from '../../utils/colorUtils.js';
 import useGraphStore from '../../store/graphStore.js';
 
 const SelfLoopEdge = ({
@@ -23,6 +23,8 @@ const SelfLoopEdge = ({
   placedLabelsRef,
 }) => {
   const darkMode = useGraphStore(state => state.darkMode);
+  const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
+  const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
   const arrowsToward = edge.directionality?.arrowsToward instanceof Set
     ? edge.directionality.arrowsToward
     : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
@@ -192,22 +194,42 @@ const SelfLoopEdge = ({
           });
         }
 
+        const labelColors = getConnectionLabelColors(edgeColor, darkMode, connectionLabelColorMode, connectionLabelOuterRing);
+        const haloWidth = 8 * (fontSize / 54);
+        const geomProps = {
+          x: lx,
+          y: ly,
+          fontSize,
+          fontWeight: 'bold',
+          textAnchor: 'middle',
+          dominantBaseline: 'middle',
+          style: { pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" },
+        };
+
         return (
           <g>
+            {/* Outermost ring in the connection's own color — SVG paints one
+                stroke per element, so it's a second <text> underneath. */}
+            {labelColors.outerStroke && (
+              <text
+                {...geomProps}
+                fill="none"
+                stroke={labelColors.outerStroke}
+                strokeWidth={haloWidth * CONNECTION_LABEL_OUTER_STROKE_SCALE}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                {connectionName}
+              </text>
+            )}
             <text
-              x={lx}
-              y={ly}
-              fill={darkMode ? getDarkHueText(edgeColor) : getLightHueText(edgeColor)}
-              fontSize={fontSize}
-              fontWeight="bold"
-              textAnchor="middle"
-              dominantBaseline="middle"
-              stroke={darkMode ? getLightHueText(edgeColor) : getDarkHueText(edgeColor)}
-              strokeWidth={8 * (fontSize / 54)}
+              {...geomProps}
+              fill={labelColors.fill}
+              stroke={labelColors.stroke}
+              strokeWidth={haloWidth}
               strokeLinecap="round"
               strokeLinejoin="round"
               paintOrder="stroke fill"
-              style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
             >
               {connectionName}
             </text>

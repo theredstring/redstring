@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.js';
 import { getNodeDimensions } from './utils.js';
-import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, hexToHsl, hslToHex } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, getConnectionLabelColors, CONNECTION_LABEL_OUTER_STROKE_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { isValidColor } from './ai/palettes.js';
 import { NODE_DEFAULT_COLOR, CONNECTION_WIDTH_BASE_SCALE } from './constants.js';
 import { useTheme } from './hooks/useTheme.js';
@@ -55,6 +55,8 @@ const ConnectionText = ({
   lineHeightScale = 1
 }) => {
   const theme = useTheme();
+  const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
+  const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
   if (!connection.connectionName) {
     return null;
   }
@@ -97,25 +99,47 @@ const ConnectionText = ({
     lines.push(...wrapConnectionLabel(displayName));
   }
 
+  const labelColors = getConnectionLabelColors(connection.color, theme.darkMode, connectionLabelColorMode, connectionLabelOuterRing);
+
+  const lineGeomProps = (i) => ({
+    x: midX,
+    y: midY + (i - (lines.length - 1) / 2) * scaledLineHeight,
+    fontSize,
+    fontWeight: 'bold',
+    textAnchor: 'middle',
+    dominantBaseline: 'middle',
+    fontFamily: "'EmOne', sans-serif",
+    style: { pointerEvents: 'none' },
+  });
+
   return (
     <g transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}>
+      {/* Outermost ring in the connection's own color — SVG paints one stroke per
+          element, so it's a second pass underneath. Every line's ring goes down
+          before any fill, or a wrapped label's rings would cut into the line above. */}
+      {labelColors.outerStroke && lines.map((line, i) => (
+        <text
+          key={`ring-${i}`}
+          {...lineGeomProps(i)}
+          fill="none"
+          stroke={labelColors.outerStroke}
+          strokeWidth={strokeWidth * CONNECTION_LABEL_OUTER_STROKE_SCALE}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          {line}
+        </text>
+      ))}
       {lines.map((line, i) => (
         <text
           key={i}
-          x={midX}
-          y={midY + (i - (lines.length - 1) / 2) * scaledLineHeight}
-          fill={theme.darkMode ? getDarkHueText(connection.color || '#800000') : getLightHueText(connection.color || '#800000')}
-          fontSize={fontSize}
-          fontWeight="bold"
-          textAnchor="middle"
-          dominantBaseline="middle"
-          stroke={theme.darkMode ? getLightHueText(connection.color || '#800000') : getDarkHueText(connection.color || '#800000')}
+          {...lineGeomProps(i)}
+          fill={labelColors.fill}
+          stroke={labelColors.stroke}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
           paintOrder="stroke fill"
-          fontFamily="'EmOne', sans-serif"
-          style={{ pointerEvents: 'none' }}
         >
           {line}
         </text>

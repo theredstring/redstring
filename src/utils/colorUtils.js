@@ -154,15 +154,14 @@ export const blendColors = (baseColor, tintColor, amount) => {
 const LIGHT_TEXT_LIGHTNESS = 95;
 
 /**
- * Returns an appropriate text color (dark or light) based on the background color's brightness.
- * @param {string} backgroundColor - Hex color string
- * @param {boolean} isDarkMode - Whether the application is in dark mode
- * @returns {string} - Hex color string for text
+ * Perceptual brightness test used to decide whether a color wants dark or light
+ * text on top of it. Raw HSL lightness isn't enough — the same lightness reads
+ * much brighter in yellow than in blue — so the threshold is nudged per hue.
+ * @param {string} color - Hex color string
+ * @returns {boolean} - true when the color is bright enough to need dark text
  */
-export const getTextColor = (backgroundColor, isDarkMode = false) => {
-  if (!backgroundColor) return '#bdb5b5';
-
-  const { h, s, l } = hexToHsl(backgroundColor);
+export const isBrightColor = (color) => {
+  const { h, s, l } = hexToHsl(color);
 
   // Colors from yellow through cyan are perceptually brighter to human eyes,
   // so we lower the threshold to switch to dark text earlier.
@@ -186,12 +185,24 @@ export const getTextColor = (backgroundColor, isDarkMode = false) => {
     hueAdjustment += Math.round((50 - s) / 5); // up to +10 extra at s=0
   }
 
+  return l > (LIGHTNESS_THRESHOLD - hueAdjustment);
+};
+
+/**
+ * Returns an appropriate text color (dark or light) based on the background color's brightness.
+ * @param {string} backgroundColor - Hex color string
+ * @param {boolean} isDarkMode - Whether the application is in dark mode
+ * @returns {string} - Hex color string for text
+ */
+export const getTextColor = (backgroundColor, isDarkMode = false) => {
+  if (!backgroundColor) return '#bdb5b5';
+
+  const { h, s } = hexToHsl(backgroundColor);
+
   // Nodes are self-contained visual elements that should look the same regardless
   // of the app's theme. Text color is determined purely by the node's background color.
-  let threshold = LIGHTNESS_THRESHOLD - hueAdjustment;
-
   // If background is bright, use dark text with same hue
-  if (l > threshold) {
+  if (isBrightColor(backgroundColor)) {
     // Create a dark color with the same hue (preserving saturation) but very low lightness
     // This creates a "near black" that matches the theme of the group/node
     return hslToHex(h, s, DARK_TEXT_LIGHTNESS);
@@ -210,30 +221,10 @@ export const getTextColor = (backgroundColor, isDarkMode = false) => {
 export const getInvertedTextColor = (backgroundColor, isDarkMode = false) => {
   if (!backgroundColor) return '#bdb5b5';
 
-  const { h, s, l } = hexToHsl(backgroundColor);
-
-  let hueAdjustment = 0;
-  if (h > 45 && h < 70) {
-    hueAdjustment = 20;
-  } else if (h >= 70 && h < 150) {
-    hueAdjustment = 15;       // Reduced from 20 for earlier light text on dark greens
-  } else if (h >= 150 && h < 200) {
-    hueAdjustment = 15;
-  } else if (h >= 200 && h < 250) {
-    hueAdjustment = 5;
-  } else if (h >= 250 && h < 320) {
-    hueAdjustment = -5;       // Darker purples/violets get light text sooner
-  }
-
-  if (hueAdjustment > 0 && s < 50) {
-    hueAdjustment += Math.round((50 - s) / 5);
-  }
-
-  // Same threshold as getTextColor - nodes are self-contained
-  let threshold = LIGHTNESS_THRESHOLD - hueAdjustment;
+  const { h, s } = hexToHsl(backgroundColor);
 
   // Inverted: bright backgrounds get light text, dark backgrounds get dark text
-  if (l > threshold) {
+  if (isBrightColor(backgroundColor)) {
     return hslToHex(h, s, LIGHT_TEXT_LIGHTNESS);
   } else {
     return hslToHex(h, s, DARK_TEXT_LIGHTNESS);
@@ -261,6 +252,61 @@ export const getDarkHueText = (backgroundColor) => {
   const { h, s } = hexToHsl(backgroundColor);
   return hslToHex(h, s, DARK_TEXT_LIGHTNESS);
 };
+
+export const CONNECTION_LABEL_COLOR_MODES = ['light', 'connection', 'theme'];
+export const DEFAULT_CONNECTION_LABEL_COLOR_MODE = 'light';
+export const DEFAULT_CONNECTION_LABEL_OUTER_RING = true;
+
+/**
+ * Returns the { fill, stroke } pair for a connection label. Both are drawn from
+ * the connection's own hue — one near-white, one near-black — so the halo is
+ * always the opposite lightness of the glyph fill.
+ *
+ * Which of the two lands on the fill depends on the mode:
+ *  - 'light' (default): the fill is always the near-white, the halo always the
+ *    near-black, whatever the connection color or app theme.
+ *  - 'connection': the connection's color decides, the same way node text does —
+ *    a dark connection gets a light fill, a light one gets a dark fill.
+ *  - 'theme': the app's light/dark mode decides (the original behavior).
+ *
+ * `outerStroke` is a third, outermost ring in the connection's own color, so the
+ * halo never meets the canvas directly and the label reads as sitting IN the line
+ * rather than on top of it. It is independent of the mode — any of the three can
+ * wear it — and is null when `showOuterRing` is false.
+ *
+ * @param {string} connectionColor - Hex color string of the connection
+ * @param {boolean} isDarkMode - Whether the application is in dark mode
+ * @param {string} mode - 'light', 'connection', or 'theme'
+ * @param {boolean} showOuterRing - Whether to include the connection-colored ring
+ * @returns {{ fill: string, stroke: string, outerStroke: string|null }}
+ */
+export const getConnectionLabelColors = (
+  connectionColor,
+  isDarkMode = false,
+  mode = DEFAULT_CONNECTION_LABEL_COLOR_MODE,
+  showOuterRing = DEFAULT_CONNECTION_LABEL_OUTER_RING
+) => {
+  const base = connectionColor || '#800000';
+  const light = getLightHueText(base);
+  const dark = getDarkHueText(base);
+
+  let fillIsDark = false;
+  if (mode === 'theme') fillIsDark = !!isDarkMode;
+  else if (mode === 'connection') fillIsDark = isBrightColor(base);
+
+  const outerStroke = showOuterRing ? base : null;
+
+  return fillIsDark
+    ? { fill: dark, stroke: light, outerStroke }
+    : { fill: light, stroke: dark, outerStroke };
+};
+
+/**
+ * How much wider the connection-colored outer ring is than the label's own halo.
+ * SVG paints one stroke per element, so the ring is a second <text> underneath
+ * the real one carrying this width — see the connection label render sites.
+ */
+export const CONNECTION_LABEL_OUTER_STROKE_SCALE = 2.1;
 
 // Generate consistent color based on node name
 export const generateConceptColor = (name) => {

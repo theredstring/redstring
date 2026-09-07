@@ -7,7 +7,7 @@ import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR, CONNECTION_WIDTH_BASE_SCALE } f
 import { candidateToConcept } from '../services/candidates.js';
 import useGraphStore from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
-import { getTextColor, getLightHueText, getDarkHueText } from '../utils/colorUtils';
+import { getTextColor, getConnectionLabelColors, CONNECTION_LABEL_OUTER_STROKE_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from '../utils/colorUtils';
 import { formatPredicate } from '../utils/predicateFormatter.js';
 import { wrapTextToLines } from '../services/textMeasurement.js';
 import { getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
@@ -364,6 +364,7 @@ const OrbitConnection = React.memo(function OrbitConnection({
   connectionWidth,
   labelFontSize,
   darkMode,
+  connectionLabelColorMode = DEFAULT_CONNECTION_LABEL_COLOR_MODE,
   registerConn,
 }) {
   const geom = computeOrbitConnectionGeometry({
@@ -379,8 +380,18 @@ const OrbitConnection = React.memo(function OrbitConnection({
     else registerConn(id, null);
   }, [id, registerConn]);
 
-  const fill = darkMode ? getDarkHueText(color) : getLightHueText(color);
-  const halo = darkMode ? getLightHueText(color) : getDarkHueText(color);
+  const { fill, stroke: halo, outerStroke } = getConnectionLabelColors(color, darkMode, connectionLabelColorMode, connectionLabelOuterRing);
+  const haloWidth = 8 * (labelFontSize / LABEL_HALO_REF_SIZE);
+  const labelGeomProps = {
+    x: 0,
+    y: 0,
+    fontSize: labelFontSize,
+    fontFamily: "'EmOne', sans-serif",
+    fontWeight: 'bold',
+    textAnchor: 'middle',
+    dominantBaseline: 'middle',
+    style: { userSelect: 'none' },
+  };
 
   return (
     <g ref={setGroup} className="orbit-connection" style={{ pointerEvents: 'none' }}>
@@ -408,21 +419,28 @@ const OrbitConnection = React.memo(function OrbitConnection({
       </g>
 
       <g ref={(el) => { elsRef.current.labelG = el; }} transform={geom.labelTransform}>
+        {/* Outermost ring in the connection's own color — SVG paints one stroke
+            per element, so it's a second <text> underneath. */}
+        {outerStroke && (
+          <text
+            {...labelGeomProps}
+            fill="none"
+            stroke={outerStroke}
+            strokeWidth={haloWidth * CONNECTION_LABEL_OUTER_STROKE_SCALE}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            {formatPredicate(predicate)}
+          </text>
+        )}
         <text
-          x={0}
-          y={0}
-          fontSize={labelFontSize}
-          fontFamily="'EmOne', sans-serif"
-          fontWeight="bold"
+          {...labelGeomProps}
           fill={fill}
           stroke={halo}
-          strokeWidth={8 * (labelFontSize / LABEL_HALO_REF_SIZE)}
+          strokeWidth={haloWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
           paintOrder="stroke fill"
-          textAnchor="middle"
-          dominantBaseline="middle"
-          style={{ userSelect: 'none' }}
         >
           {formatPredicate(predicate)}
         </text>
@@ -915,6 +933,8 @@ export default function OrbitOverlay({
   const connectionWidth = useGraphStore(state => (state.textSettings?.connectionWidth ?? 1.0) * CONNECTION_WIDTH_BASE_SCALE);
   const fontScale = useGraphStore(state => state.textSettings?.fontSize || 1);
   const connectionLabelSize = useGraphStore(state => state.connectionLabelSize ?? 1.0);
+  const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
+  const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
   const nodeScale = useGraphStore(state => state.textSettings?.nodeScale ?? 1.0);
 
   const labelFontSize = useMemo(
@@ -1550,6 +1570,7 @@ export default function OrbitOverlay({
             connectionWidth={connectionWidth}
             labelFontSize={labelFontSize}
             darkMode={darkMode}
+            connectionLabelColorMode={connectionLabelColorMode}
             registerConn={registerConn}
           />
         ))}

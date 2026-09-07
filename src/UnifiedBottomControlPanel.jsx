@@ -6,7 +6,7 @@ import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from "./store/graphStore.js";
 import { getNodeDimensions } from './utils.js';
 import useMobileDetection from './hooks/useMobileDetection';
-import { getTextColor, getLightHueText, getDarkHueText } from './utils/colorUtils.js';
+import { getTextColor, getConnectionLabelColors, CONNECTION_LABEL_OUTER_STROKE_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from './utils/colorUtils.js';
 import { haptic } from './services/haptics.js';
 import './UnifiedBottomControlPanel.css';
 
@@ -97,8 +97,23 @@ const NodePill = ({ name, color = '#800000', onClick }) => {
   );
 };
 
+const RAIL_LABEL_STROKE_PX = 2;
+const railLabelStyle = {
+  display: 'block',
+  fontWeight: 'bold',
+  fontSize: '24px',
+  fontFamily: "'EmOne', sans-serif",
+  textAlign: 'center',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+};
+
 const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLeft, onToggleRight, onClickCenter, centerWidth = 140, label }) => {
   const theme = useTheme();
+  const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
+  const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
+  const labelColors = getConnectionLabelColors(color, theme.darkMode, connectionLabelColorMode, connectionLabelOuterRing);
   return (
     <div className="predicate-rail" onClick={onClickCenter}>
       <TriangleCap direction="left" color={color} variant={leftActive ? 'solid' : 'ghost'} onClick={(e) => { e.stopPropagation(); onToggleLeft?.(); }} />
@@ -107,20 +122,33 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
         backgroundColor: theme.canvas.bg,
         border: '1px solid rgba(38, 0, 0, 0.2)',
       }}>
-        <span style={{
-          color: getLightHueText(color),
-          fontWeight: 'bold',
-          fontSize: '24px',
-          fontFamily: "'EmOne', sans-serif",
-          textAlign: 'center',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          WebkitTextStroke: `2px ${getDarkHueText(color)}`,
-          paintOrder: 'stroke fill',
-          textShadow: '0px 2px 3px rgba(0,0,0,0.3)'
-        }}>
-          {label || 'Connection'}
+        <span style={{ position: 'relative', display: 'inline-block', minWidth: 0 }}>
+          {/* Outermost ring in the connection's own color. -webkit-text-stroke
+              only takes one width, so the ring is a duplicate span stacked
+              behind — same text, same box, wider stroke. aria-hidden so a
+              screen reader hears the name once. */}
+          {labelColors.outerStroke && (
+            <span aria-hidden="true" style={{
+              ...railLabelStyle,
+              position: 'absolute',
+              inset: 0,
+              color: 'transparent',
+              WebkitTextStroke: `${RAIL_LABEL_STROKE_PX * CONNECTION_LABEL_OUTER_STROKE_SCALE}px ${labelColors.outerStroke}`,
+              pointerEvents: 'none'
+            }}>
+              {label || 'Connection'}
+            </span>
+          )}
+          <span style={{
+            ...railLabelStyle,
+            position: 'relative',
+            color: labelColors.fill,
+            WebkitTextStroke: `${RAIL_LABEL_STROKE_PX}px ${labelColors.stroke}`,
+            paintOrder: 'stroke fill',
+            textShadow: '0px 2px 3px rgba(0,0,0,0.3)'
+          }}>
+            {label || 'Connection'}
+          </span>
         </span>
       </div>
       <TriangleCap direction="right" color={color} variant={rightActive ? 'solid' : 'ghost'} onClick={(e) => { e.stopPropagation(); onToggleRight?.(); }} />

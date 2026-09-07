@@ -8,6 +8,7 @@ import AISection from './settings/AISection.jsx';
 import DebugSection from './settings/DebugSection.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
+import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from '../utils/colorUtils.js';
 import './ModalChrome.css';
 
 /**
@@ -111,6 +112,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const multiConnectionCurve = useGraphStore(s => s.autoLayoutSettings?.multiConnectionCurve ?? 1.0);
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
   const connectionLabelSize = useGraphStore(s => s.connectionLabelSize ?? 1.0);
+  const connectionLabelColorMode = useGraphStore(s => s.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
+  const connectionLabelOuterRing = useGraphStore(s => s.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
   const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
   const darkMode = useGraphStore(s => s.darkMode);
   const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
@@ -470,6 +473,19 @@ const SettingsModal = ({ isVisible, onClose }) => {
       content: (
         <div>
           <div className="settings-row">
+            <div className="settings-row-label">Routing Style</div>
+            <OptionGroup
+              options={[
+                { label: 'Straight', value: 'straight' },
+                { label: 'Lombardi', value: 'lombardi' },
+                { label: 'Manhattan', value: 'manhattan' },
+                { label: 'Clean', value: 'clean' }
+              ]}
+              value={routingStyle || 'straight'}
+              onChange={(v) => useGraphStore.getState().setRoutingStyle?.(v)}
+            />
+          </div>
+          <div className="settings-row">
             <div className="settings-row-label">
               Show Connection Names
               <div className="settings-row-description">Display labels on connections</div>
@@ -477,6 +493,25 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <Toggle
               checked={!!showConnectionNames}
               onChange={() => useGraphStore.getState().toggleShowConnectionNames?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">Label Color</div>
+            <OptionGroup
+              options={[
+                { label: 'Always Light', value: 'light' },
+                { label: 'Connection Color', value: 'connection' },
+                { label: 'Theme', value: 'theme' }
+              ]}
+              value={connectionLabelColorMode}
+              onChange={(v) => useGraphStore.getState().setConnectionLabelColorMode?.(v)}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">Label Ring</div>
+            <Toggle
+              checked={!!connectionLabelOuterRing}
+              onChange={() => useGraphStore.getState().toggleConnectionLabelOuterRing?.()}
             />
           </div>
           <div className="settings-slider-row">
@@ -511,19 +546,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
               step={0.05}
               suffix="x"
               onChange={(v) => useGraphStore.getState().setMultiConnectionCurve?.(v)}
-            />
-          </div>
-          <div className="settings-row">
-            <div className="settings-row-label">Routing Style</div>
-            <OptionGroup
-              options={[
-                { label: 'Straight', value: 'straight' },
-                { label: 'Lombardi', value: 'lombardi' },
-                { label: 'Manhattan', value: 'manhattan' },
-                { label: 'Clean', value: 'clean' }
-              ]}
-              value={routingStyle || 'straight'}
-              onChange={(v) => useGraphStore.getState().setRoutingStyle?.(v)}
             />
           </div>
           {routingStyle === 'lombardi' && (

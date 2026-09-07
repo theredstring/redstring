@@ -595,6 +595,37 @@ const LeftAIView = ({ compact = false,
   // both and marks the active one.
   const [showWizardModeMenu, setShowWizardModeMenu] = React.useState(false);
   const wizardModeMenuRef = React.useRef(null);
+  // The chooser is right-aligned only while it shares a row with the chips. A
+  // lone pill pushed to the far right of its own wrapped row reads as detached;
+  // left-aligned it reads as the next item in the stack. CSS cannot tell
+  // whether a flex item wrapped, so measure: the pill's top against the bar's
+  // first item, re-checked whenever the bar resizes.
+  const contextBarRef = React.useRef(null);
+  const [wizardModeWrapped, setWizardModeWrapped] = React.useState(false);
+  React.useLayoutEffect(() => {
+    const bar = contextBarRef.current;
+    const pill = wizardModeMenuRef.current;
+    if (!bar || !pill || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const first = bar.firstElementChild;
+      if (!first || first === pill) { setWizardModeWrapped(false); return; }
+      // Measured with the auto margin off, or the margin itself keeps a pill
+      // that would fit on the first row from ever appearing to wrap.
+      const prev = pill.style.marginLeft;
+      pill.style.marginLeft = '0';
+      const wrapped = pill.offsetTop > first.offsetTop + first.offsetHeight / 2;
+      pill.style.marginLeft = prev;
+      setWizardModeWrapped(wrapped);
+    };
+    measure();
+    // The bar mounts with the view and stays mounted (the view is hidden with
+    // display, not unmounted), so one observer for the component's lifetime
+    // is enough — any chip, meter, or width change that alters wrapping
+    // changes the bar's height, which is what the observer watches.
+    const ro = new ResizeObserver(measure);
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, []);
 
   // Load current API config when advanced options are shown
   React.useEffect(() => {
@@ -4268,7 +4299,7 @@ const LeftAIView = ({ compact = false,
           })()}
 
           {/* Persistent context chips (node-style) */}
-          <div className="ai-context-bar">
+          <div className="ai-context-bar" ref={contextBarRef}>
             {/* Attach "+" button with upward dropdown */}
             <div ref={attachMenuRef} style={{ position: 'relative', display: 'inline-flex' }}>
               <PanelIconButton
@@ -4375,6 +4406,9 @@ const LeftAIView = ({ compact = false,
                 disabled={isProcessing}
                 onClick={() => runCompaction({ source: 'meter' })}
                 title={contextUsageTooltip}
+                // In the narrow panel the mode chooser sits left, so the meter
+                // moves after it visually to keep its right-hand spot.
+                style={compact ? { order: 1 } : undefined}
               >
                 <div className="ai-context-usage-bar">
                   <div
@@ -4388,10 +4422,16 @@ const LeftAIView = ({ compact = false,
 
             {/* Wizard mode chooser: last in the bar, right-aligned, menu opens upward.
                 A chooser rather than a toggle — the pill names the mode in effect and
-                the menu shows both with the active one marked. */}
+                the menu shows both with the active one marked. In the narrow panel it
+                sits left instead and the menu grows rightward, so it can never be
+                clipped by the left edge of the screen. */}
             <div
               ref={wizardModeMenuRef}
-              style={{ position: 'relative', display: 'inline-flex', marginLeft: messages.length > 0 ? 0 : 'auto' }}
+              style={{
+                position: 'relative',
+                display: 'inline-flex',
+                marginLeft: (compact || wizardModeWrapped || messages.length > 0) ? 0 : 'auto'
+              }}
             >
               <PanelIconButton
                 icon={wizardMode === WIZARD_MODE_GOAL ? Target : ListChecks}
@@ -4408,7 +4448,7 @@ const LeftAIView = ({ compact = false,
                 <div style={{
                   position: 'absolute',
                   bottom: '100%',
-                  right: 0,
+                  ...((compact || wizardModeWrapped) ? { left: 0 } : { right: 0 }),
                   marginBottom: 4,
                   backgroundColor: theme.canvas.bg,
                   border: `1px solid ${theme.canvas.border}`,

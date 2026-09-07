@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches } from 'immer';
+import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from '../utils/colorUtils.js';
 
 // Global listener for patches, used by middleware to capture changes from actions
 let patchListener = null;
@@ -158,6 +159,8 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {boolean} darkMode - Dark theme enabled.
  * @property {number} connectionLabelSize - Multiplier for connection label text size.
  * @property {boolean} showConnectionNames - Whether connection labels are visible on the canvas.
+ * @property {string} connectionLabelColorMode - `'light'|'connection'|'theme'` — what decides a connection label's fill/halo pair: always the light half, the connection's own color, or the app theme.
+ * @property {boolean} connectionLabelOuterRing - Whether a connection label wears an outermost ring in the connection's own color.
  * @property {boolean} showEdgeGlowIndicators - Whether edges show directional glow effects.
  * @property {boolean} showHoverPreview - Whether hovering a node shows a preview card.
  * @property {boolean} hoverPreviewZoomOnly - When true, the hover preview only appears while zoomed out (small on-canvas text); when false it appears at any zoom.
@@ -1436,6 +1439,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return saved === null ? true : saved === 'true';
       } catch (_) {
         return true;
+      }
+    })(),
+    connectionLabelColorMode: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_connection_label_color_mode');
+        return CONNECTION_LABEL_COLOR_MODES.includes(saved) ? saved : DEFAULT_CONNECTION_LABEL_COLOR_MODE;
+      } catch (_) {
+        return DEFAULT_CONNECTION_LABEL_COLOR_MODE;
+      }
+    })(),
+    connectionLabelOuterRing: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_connection_label_outer_ring');
+        return saved === null ? DEFAULT_CONNECTION_LABEL_OUTER_RING : saved === 'true';
+      } catch (_) {
+        return DEFAULT_CONNECTION_LABEL_OUTER_RING;
       }
     })(),
     showEdgeGlowIndicators: (() => {
@@ -5883,6 +5902,31 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.connectionLabelSize = size;
       try {
         localStorage.setItem('redstring_connection_label_size', size);
+      } catch (_) { }
+    })),
+
+    /**
+     * Sets what decides a connection label's fill/halo pair. Persists to localStorage.
+     * @param {'light'|'connection'|'theme'} mode - 'light' always fills light (default);
+     *   'connection' derives it from the connection's own color; 'theme' derives it from
+     *   the app's light/dark mode.
+     */
+    setConnectionLabelColorMode: (mode) => set(produce((draft) => {
+      const next = CONNECTION_LABEL_COLOR_MODES.includes(mode) ? mode : DEFAULT_CONNECTION_LABEL_COLOR_MODE;
+      draft.connectionLabelColorMode = next;
+      try {
+        localStorage.setItem('redstring_connection_label_color_mode', next);
+      } catch (_) { }
+    })),
+
+    /**
+     * Toggles the connection-colored ring drawn outside a connection label's halo.
+     * Independent of connectionLabelColorMode. Persists to localStorage.
+     */
+    toggleConnectionLabelOuterRing: () => set(produce((draft) => {
+      draft.connectionLabelOuterRing = !draft.connectionLabelOuterRing;
+      try {
+        localStorage.setItem('redstring_connection_label_outer_ring', draft.connectionLabelOuterRing);
       } catch (_) { }
     })),
 

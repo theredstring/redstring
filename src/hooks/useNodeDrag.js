@@ -447,13 +447,21 @@ export const useNodeDrag = ({
     // The advances are read off the DOM once per drag. They cannot change while
     // dragging — the text and font size are fixed — and computing them from the
     // same helper the settled render uses is what keeps the two in step.
+    //
+    // There can be more than one: the 'light' label color mode draws a second,
+    // wider-stroked copy underneath to fake SVG's missing second stroke. Every
+    // copy carries the same text, font size and frame, and every copy has to be
+    // written each frame — updating only the top one would leave the ring
+    // stranded at the label's old pose.
     const labelTextOf = (el) => {
-      const labelText = el.querySelector('text[data-connection-label]');
-      if (!labelText) return { labelText: null, labelAdvances: null, labelTouched: null };
+      const labelTexts = Array.from(el.querySelectorAll('text[data-connection-label]'));
+      const labelText = labelTexts[0] || null;
+      if (!labelText) return { labelText: null, labelTexts: [], labelAdvances: null, labelTouched: null };
       const fontSize = parseFloat(labelText.getAttribute('font-size'));
       const prior = priorLabelState.get(labelText);
       return {
         labelText,
+        labelTexts,
         labelAdvances: edgeLabelGlyphAdvances(labelText.textContent, fontSize),
         labelForm: { current: null },
         labelTouched: prior?.labelTouched ?? { current: false },
@@ -992,7 +1000,7 @@ export const useNodeDrag = ({
         // of straightening the moment you grab a node. The advances come from
         // the cache — they can't change during a drag.
         edgeEls.forEach((entry) => {
-          const { paths, hitPaths, lines, arrows: arrowGs, texts, labelText, labelAdvances, labelForm, labelTouched } = entry;
+          const { paths, hitPaths, lines, arrows: arrowGs, texts, labelText, labelTexts, labelAdvances, labelForm, labelTouched } = entry;
           const dragLabelGlyphs = (routing.arc && labelText && labelAdvances)
             ? labelArcGlyphFrames(routing.arc, labelPos, labelAdvances, {
               minBow: labelArcMinBow,
@@ -1029,24 +1037,32 @@ export const useNodeDrag = ({
           // `transform` would spin a curved one about its first glyph.
           if (labelText && dragLabelGlyphs) {
             labelTouched.current = true;
-            labelText.setAttribute('x', dragLabelGlyphs.x.map(v => v.toFixed(2)).join(' '));
-            labelText.setAttribute('y', dragLabelGlyphs.y.map(v => v.toFixed(2)).join(' '));
-            labelText.setAttribute('rotate', dragLabelGlyphs.rotate.map(v => v.toFixed(2)).join(' '));
-            if (labelForm.current !== 'glyphs') {
-              labelText.setAttribute('text-anchor', 'start');
-              labelText.removeAttribute('transform');
-              labelForm.current = 'glyphs';
-            }
+            const gx = dragLabelGlyphs.x.map(v => v.toFixed(2)).join(' ');
+            const gy = dragLabelGlyphs.y.map(v => v.toFixed(2)).join(' ');
+            const gr = dragLabelGlyphs.rotate.map(v => v.toFixed(2)).join(' ');
+            labelTexts.forEach(t => {
+              t.setAttribute('x', gx);
+              t.setAttribute('y', gy);
+              t.setAttribute('rotate', gr);
+              if (labelForm.current !== 'glyphs') {
+                t.setAttribute('text-anchor', 'start');
+                t.removeAttribute('transform');
+              }
+            });
+            labelForm.current = 'glyphs';
           } else if (labelText) {
             labelTouched.current = true;
-            labelText.setAttribute('x', labelPos.x);
-            labelText.setAttribute('y', labelPos.y);
-            labelText.setAttribute('transform', straightLabelTransform(labelAdj, labelPos.x, labelPos.y));
-            if (labelForm.current !== 'straight') {
-              labelText.setAttribute('text-anchor', 'middle');
-              labelText.removeAttribute('rotate');
-              labelForm.current = 'straight';
-            }
+            const straight = straightLabelTransform(labelAdj, labelPos.x, labelPos.y);
+            labelTexts.forEach(t => {
+              t.setAttribute('x', labelPos.x);
+              t.setAttribute('y', labelPos.y);
+              t.setAttribute('transform', straight);
+              if (labelForm.current !== 'straight') {
+                t.setAttribute('text-anchor', 'middle');
+                t.removeAttribute('rotate');
+              }
+            });
+            labelForm.current = 'straight';
           } else {
             texts.forEach(t => {
               t.setAttribute('x', labelPos.x);
@@ -2001,9 +2017,9 @@ export const useNodeDrag = ({
     // React's last commit however many times React re-rendered mid-drag. See
     // LABEL FRAMES in edgeLabelPlacement.js.
     dragEdgeElsRef.current.forEach(els => {
-      els.forEach(({ labelText, labelTouched }) => {
-        if (!labelText || !labelTouched?.current) return;
-        applyLabelFrame(labelText, labelText.getAttribute('data-label-frame'));
+      els.forEach(({ labelTexts, labelTouched }) => {
+        if (!labelTouched?.current) return;
+        labelTexts?.forEach(t => applyLabelFrame(t, t.getAttribute('data-label-frame')));
       });
     });
 
