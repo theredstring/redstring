@@ -25,6 +25,16 @@ export const GROUP_LAYOUT_CONSTANTS = Object.freeze({
   innerCanvasCornerRadius: 12,
   strokeWidth: 2,
   fontSize: 36,
+  // Title tab sizing. The tab grows with its text up to `titleMaxWidth`, then
+  // WRAPS instead of overflowing — a name past the cap used to keep painting
+  // outward from a pill that had stopped growing, so the text spilled out
+  // through the outline on both sides.
+  titleMinWidth: 100,
+  titleMaxWidth: 1000,
+  titleMaxLines: 3,
+  // Line box as a multiple of the font size. Also what labelHeightConst uses
+  // for the single-line case, so one line and N lines stay proportional.
+  titleLineHeightFactor: 1.4,
 });
 
 const FALLBACK_DIMS = { currentWidth: 200, currentHeight: 150 };
@@ -502,18 +512,117 @@ export function edgeZSlotFor(edge, slotByInstanceId, topSlot) {
 // width guess — which under-reserved a real group title by roughly half its
 // width. The tab is centred on the group's band, so the deficit hangs off both
 // sides and paints over whatever is beside the group. One formula, both callers.
-export const labelHeightConst = (scale = 1, fontSize = null) => {
+export const labelHeightConst = (scale = 1, fontSize = null, lineCount = 1) => {
   const C = GROUP_LAYOUT_CONSTANTS;
   const f = fontSize ?? C.fontSize * scale;
-  return Math.max(80 * scale, f * 1.4 + C.titlePaddingVertical * scale * 2);
+  const lines = Math.max(1, lineCount);
+  return Math.max(80 * scale, f * C.titleLineHeightFactor * lines + C.titlePaddingVertical * scale * 2);
 };
 
-export const labelWidthFor = (text, measureLabelWidth, scale = 1) => {
+/**
+ * Greedy word wrap against an injected measure function.
+ *
+ * Lives here rather than reusing services/textMeasurement so this module stays
+ * DOM-free and stubbable (see the file header). A word wider than `maxWidth` on
+ * its own is broken mid-word — the tab has a hard ceiling, so there is nowhere
+ * else for a 40-character token to go. Past `maxLines` the remainder is folded
+ * onto the last line and ellipsized: an unbounded title would otherwise grow a
+ * tab taller than the group it names.
+ */
+export const wrapLabelLines = (text, maxWidth, measureLabelWidth, maxLines = Infinity) => {
+  const words = String(text).split(/\s+/).filter(Boolean);
+  if (!words.length) return [String(text)];
+
+  // Split one over-long token into the widest chunks that still fit.
+  const breakWord = (word) => {
+    const chunks = [];
+    let chunk = '';
+    for (const ch of word) {
+      if (chunk && measureLabelWidth(chunk + ch) > maxWidth) {
+        chunks.push(chunk);
+        chunk = ch;
+      } else {
+        chunk += ch;
+      }
+    }
+    if (chunk) chunks.push(chunk);
+    return chunks.length ? chunks : [word];
+  };
+
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (!current || measureLabelWidth(candidate) <= maxWidth) {
+      if (!current && measureLabelWidth(word) > maxWidth) {
+        const chunks = breakWord(word);
+        lines.push(...chunks.slice(0, -1));
+        current = chunks[chunks.length - 1];
+      } else {
+        current = candidate;
+      }
+      continue;
+    }
+    lines.push(current);
+    if (measureLabelWidth(word) > maxWidth) {
+      const chunks = breakWord(word);
+      lines.push(...chunks.slice(0, -1));
+      current = chunks[chunks.length - 1];
+    } else {
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+
+  if (lines.length <= maxLines) return lines;
+
+  const kept = lines.slice(0, maxLines);
+  let last = kept[maxLines - 1];
+  // Trim until the line plus its ellipsis fits the same ceiling as any other.
+  while (last.length > 1 && measureLabelWidth(`${last}…`) > maxWidth) {
+    last = last.slice(0, -1);
+  }
+  kept[maxLines - 1] = `${last.trimEnd()}…`;
+  return kept;
+};
+
+/**
+ * Full title-tab box: width, height, and the wrapped lines the renderer draws.
+ *
+ * One function because the three are interdependent — a wrapped title's height
+ * depends on its line count, and its width hugs the widest resulting line
+ * rather than sitting at the ceiling. Layout and render must agree on all
+ * three, so every caller goes through here.
+ */
+export const labelBoxFor = (text, measureLabelWidth, scale = 1, fontSize = null) => {
   const C = GROUP_LAYOUT_CONSTANTS;
   // `measureLabelWidth` already measures against the node-scaled font, so the
   // padding/floor/ceiling scale alongside it to keep the tab proportional.
-  const measured = measureLabelWidth(text);
-  return Math.min(1000 * scale, Math.max(100 * scale, measured + (C.titlePaddingHorizontal * 2 + C.strokeWidth * 2) * scale));
+  const chrome = (C.titlePaddingHorizontal * 2 + C.strokeWidth * 2) * scale;
+  const minW = C.titleMinWidth * scale;
+  const maxW = C.titleMaxWidth * scale;
+  const label = String(text ?? '');
+
+  const natural = measureLabelWidth(label);
+  if (natural + chrome <= maxW) {
+    return {
+      w: Math.max(minW, natural + chrome),
+      h: labelHeightConst(scale, fontSize, 1),
+      lines: [label],
+    };
+  }
+
+  const lines = wrapLabelLines(label, maxW - chrome, measureLabelWidth, C.titleMaxLines);
+  let widest = 0;
+  for (const line of lines) {
+    const w = measureLabelWidth(line);
+    if (w > widest) widest = w;
+  }
+  return {
+    w: Math.min(maxW, Math.max(minW, widest + chrome)),
+    h: labelHeightConst(scale, fontSize, lines.length),
+    lines,
+  };
 };
 
 /**
@@ -783,8 +892,9 @@ function computeGroupLayoutInner(group, context) {
   const rectH = (maxY - minY) + margin * 2;
 
   const labelText = group.name || 'Group';
-  const labelWidth = labelWidthFor(labelText, measureLabelWidth, labelScale);
-  const labelHeight = labelHeightConst(labelScale, labelFontSize);
+  const labelBox = labelBoxFor(labelText, measureLabelWidth, labelScale, labelFontSize);
+  const labelWidth = labelBox.w;
+  const labelHeight = labelBox.h;
 
   // The background band must be at least as wide as the title plus its own
   // breathing room, or the title spills past the band on narrow groups (few/
@@ -819,7 +929,7 @@ function computeGroupLayoutInner(group, context) {
     isNodeGroup,
     bbox: { minX, minY, maxX, maxY },
     rect: { x: rectX, y: rectY, w: rectW, h: rectH },
-    label: { x: labelX, y: labelY, w: labelWidth, h: labelHeight },
+    label: { x: labelX, y: labelY, w: labelWidth, h: labelHeight, lines: labelBox.lines },
     nodeGroupRect: { y: nodeGroupRectY, h: nodeGroupRectH },
     innerCanvasY,
     visualBounds: {

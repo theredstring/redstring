@@ -10,6 +10,7 @@ import {
   buildShellCutoutPath,
   placeholderIdForGroup,
   groupIdFromPlaceholderId,
+  labelBoxFor,
   GROUP_LAYOUT_CONSTANTS as C,
 } from '../groupLayout.js';
 
@@ -757,5 +758,72 @@ describe('buildShellCutoutPath', () => {
   it('returns nothing for a degenerate region rather than an empty clip', () => {
     // An empty clip would hide the connection entirely; callers skip applying it.
     expect(buildShellCutoutPath({ ...region, w: 0 }, [shell])).toBe('');
+  });
+});
+
+describe('labelBoxFor', () => {
+  const chrome = C.titlePaddingHorizontal * 2 + C.strokeWidth * 2;
+  const maxContent = C.titleMaxWidth - chrome;
+
+  it('keeps a short title on one line and hugs it', () => {
+    const box = labelBoxFor('Short', measure, 1);
+    expect(box.lines).toEqual(['Short']);
+    expect(box.w).toBe(measure('Short') + chrome);
+    expect(box.h).toBe(labelHeight);
+  });
+
+  it('never goes narrower than the floor', () => {
+    expect(labelBoxFor('a', measure, 1).w).toBe(C.titleMinWidth);
+  });
+
+  it('wraps past the ceiling instead of overflowing it', () => {
+    // 100 chars at 12px each is 1200px — well past titleMaxWidth.
+    const name = Array.from({ length: 20 }, (_, i) => `word${i}`).join(' ');
+    const box = labelBoxFor(name, measure, 1);
+
+    expect(box.lines.length).toBeGreaterThan(1);
+    expect(box.w).toBeLessThanOrEqual(C.titleMaxWidth);
+    for (const line of box.lines) expect(measure(line)).toBeLessThanOrEqual(maxContent);
+    // Taller by exactly the lines it gained.
+    expect(box.h).toBe(C.fontSize * C.titleLineHeightFactor * box.lines.length + C.titlePaddingVertical * 2);
+  });
+
+  it('breaks a single word too wide for any line', () => {
+    const box = labelBoxFor('x'.repeat(200), measure, 1);
+    expect(box.lines.length).toBeGreaterThan(1);
+    for (const line of box.lines) expect(measure(line)).toBeLessThanOrEqual(maxContent);
+  });
+
+  it('ellipsizes rather than growing past titleMaxLines', () => {
+    const name = Array.from({ length: 200 }, (_, i) => `w${i}`).join(' ');
+    const box = labelBoxFor(name, measure, 1);
+    expect(box.lines).toHaveLength(C.titleMaxLines);
+    expect(box.lines[C.titleMaxLines - 1].endsWith('…')).toBe(true);
+    for (const line of box.lines) expect(measure(line)).toBeLessThanOrEqual(maxContent);
+  });
+
+  it('scales the ceiling with the label scale', () => {
+    const name = Array.from({ length: 20 }, (_, i) => `word${i}`).join(' ');
+    const box = labelBoxFor(name, (t) => measure(t) * 2, 2);
+    expect(box.w).toBeLessThanOrEqual(C.titleMaxWidth * 2);
+  });
+});
+
+describe('computeGroupLayout title wrapping', () => {
+  it('publishes the wrapped lines and a band wide enough to hold them', () => {
+    const ctx = buildContext();
+    addNode(ctx, 'a', 0, 0, 200, 150);
+    const name = Array.from({ length: 20 }, (_, i) => `word${i}`).join(' ');
+    const g = { id: 'g1', name, memberInstanceIds: ['a'] };
+    addGroup(ctx, g);
+
+    const r = computeGroupLayout(g, ctx);
+    expect(r.label.lines.length).toBeGreaterThan(1);
+    expect(r.label.w).toBeLessThanOrEqual(C.titleMaxWidth);
+    // The tab still fits inside the band it is centred on.
+    expect(r.label.x).toBeGreaterThanOrEqual(r.rect.x);
+    expect(r.label.x + r.label.w).toBeLessThanOrEqual(r.rect.x + r.rect.w);
+    // And the extra lines push the tab up, not down into the members.
+    expect(r.label.y + r.label.h + C.titleToCanvasGap).toBeCloseTo(r.rect.y);
   });
 });

@@ -15799,6 +15799,10 @@ function NodeCanvas() {
 
                       const currentText = editingGroupId === group.id ? tempGroupName : effectiveGroupName;
                       const labelText = effectiveGroupName;
+                      // Wrapped lines from the same box the layout measured, so the
+                      // drawn text can never be wider than the tab it sits in.
+                      const labelLines = label.lines?.length ? label.lines : [labelText];
+                      const labelLineHeight = fontSize * GROUP_LAYOUT_CONSTANTS.titleLineHeightFactor;
                       const isGroupDragging = draggingNodeInfo?.groupId === group.id;
 
                       const nodeGroupColor = effectiveGroupColor;
@@ -16191,14 +16195,18 @@ function NodeCanvas() {
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 boxSizing: 'border-box'
                               }}>
-                                <input
+                                {/* textarea, not input: the tab wraps long names, and a
+                                    single-line field would scroll its text sideways out
+                                    of a box that is already the right shape for it. */}
+                                <textarea
                                   ref={groupEditInputRef}
-                                  type="text"
+                                  rows={labelLines.length}
                                   value={tempGroupName}
                                   onChange={(e) => { setTempGroupName(e.target.value); }}
                                   onKeyDown={(e) => {
                                     e.stopPropagation();
                                     if (e.key === 'Enter') {
+                                      e.preventDefault();
                                       const newName = tempGroupName.trim();
                                       if (newName && activeGraphId) {
                                         storeActions.updateGroup(activeGraphId, group.id, (draft) => { draft.name = newName; });
@@ -16230,9 +16238,12 @@ function NodeCanvas() {
                                     fontSize: `${fontSize}px`,
                                     fontFamily: 'EmOne, sans-serif',
                                     fontWeight: 'bold',
+                                    lineHeight: `${labelLineHeight}px`,
                                     color: isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode),
                                     backgroundColor: 'transparent',
                                     border: 'none', outline: 'none',
+                                    padding: 0, resize: 'none', overflow: 'hidden',
+                                    overflowWrap: 'break-word', wordBreak: 'break-word',
                                     textAlign: 'center', boxSizing: 'border-box'
                                   }}
                                 />
@@ -16245,7 +16256,17 @@ function NodeCanvas() {
                               paintOrder="stroke fill" textAnchor="middle" dominantBaseline="central"
                               transform={groupLiftTransform}
                             >
-                              {labelText}
+                              {labelLines.length === 1 ? labelText : labelLines.map((line, i) => (
+                                <tspan
+                                  key={i}
+                                  x={labelX + labelWidth / 2}
+                                  // Centre the whole block on the tab: first line sits
+                                  // (n-1)/2 line boxes above the middle.
+                                  dy={i === 0 ? -((labelLines.length - 1) / 2) * labelLineHeight : labelLineHeight}
+                                >
+                                  {line}
+                                </tspan>
+                              ))}
                             </text>
                           )}
                         </g>

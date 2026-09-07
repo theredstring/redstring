@@ -695,20 +695,34 @@ const UnifiedBottomControlPanel = ({
     };
 
     // UniversalNodeRenderer decides wrapping via a fixed heuristic on the group node:
-    //   charsPerLine = floor((width - 2 * sidePadding) / avgCharWidth), sidePadding 30, avgCharWidth 14
-    // (scale-invariant — the fit scale cancels). If width doesn't leave room for the
-    // side padding, multi-word names wrap. Size the pill to keep the name on one line,
-    // mirroring the canvas group tag. Long names then scale down to fit (still one line).
+    //   charsPerLine = floor((width - 2 * sidePadding) / avgCharWidth), sidePadding 30
+    //   (36 once wrapped), avgCharWidth 14 (scale-invariant — the fit scale cancels).
+    // Size the pill to keep the name on one line, mirroring the canvas group tag —
+    // but only up to GROUP_MAX_WIDTH. Past that the pill grows DOWN instead of out,
+    // the same way the canvas tab wraps: an unbounded width just got squeezed back
+    // by the fit scale, so a long name rendered as one hairline-thin line.
     const GROUP_SIDE_PADDING = 30;
+    const GROUP_MULTILINE_SIDE_PADDING = 36;
     const GROUP_AVG_CHAR_WIDTH = 14;
-    const width = Math.max(200, groupName.length * GROUP_AVG_CHAR_WIDTH + GROUP_SIDE_PADDING * 2 + 24);
+    const GROUP_LINE_HEIGHT = 36;
+    const GROUP_VERTICAL_PADDING = 16;
+    const GROUP_MAX_WIDTH = 520;
+    const GROUP_MAX_LINES = 3;
+
+    const oneLineWidth = groupName.length * GROUP_AVG_CHAR_WIDTH + GROUP_SIDE_PADDING * 2 + 24;
+    const width = Math.max(200, Math.min(GROUP_MAX_WIDTH, oneLineWidth));
+
+    const charsPerLine = Math.max(1, Math.floor((width - GROUP_MULTILINE_SIDE_PADDING * 2) / GROUP_AVG_CHAR_WIDTH));
+    const lineCount = oneLineWidth <= GROUP_MAX_WIDTH
+      ? 1
+      : Math.min(GROUP_MAX_LINES, Math.ceil(groupName.length / charsPerLine));
 
     return {
       ...baseNode,
       x: 0,
       y: 0,
       width,
-      height: 90,
+      height: Math.max(90, lineCount * GROUP_LINE_HEIGHT + GROUP_VERTICAL_PADDING * 2),
       isGroup: true
     };
   }, [isGroup, selectedGroup]);

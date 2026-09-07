@@ -5,7 +5,7 @@
  * Focuses on predictability, spaciousness, and preventing node overlap.
  */
 
-import { GROUP_LAYOUT_CONSTANTS, labelHeightConst, labelWidthFor } from './groupLayout.js';
+import { GROUP_LAYOUT_CONSTANTS, labelBoxFor } from './groupLayout.js';
 // Shared box/segment geometry. This module imports nothing from services/, so
 // it is safe to pull in ahead of the patternLayouts cycle below.
 import {
@@ -346,8 +346,9 @@ export function deriveGroupVisualBounds(group, bbox, config = {}) {
 
   const measure = config.measureLabelWidth
     || ((text) => estimateEdgeLabelWidth(text, labelFontSize));
-  const labelWidth = labelWidthFor(group.name || 'Group', measure, labelScale);
-  const labelHeight = labelHeightConst(labelScale, labelFontSize);
+  const labelBox = labelBoxFor(group.name || 'Group', measure, labelScale, labelFontSize);
+  const labelWidth = labelBox.w;
+  const labelHeight = labelBox.h;
 
   // The band grows to hold a title wider than it, symmetrically — same as
   // computeGroupLayoutInner. Without it the solver's rect is up to

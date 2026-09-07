@@ -1451,6 +1451,14 @@ export const useNodeDrag = ({
         if (matrix) el.setAttribute('transform', matrix);
         else el.removeAttribute('transform');
       };
+      // A wrapped title is a <text> of <tspan> lines, and each line carries its
+      // own absolute `x` (that's what re-centres it after the previous line's
+      // advance). Moving only the parent leaves every line behind.
+      const setLabelTextX = (el, x) => {
+        el.setAttribute('x', x);
+        const spans = el.getElementsByTagName('tspan');
+        for (let i = 0; i < spans.length; i++) spans[i].setAttribute('x', x);
+      };
 
       meta.elements.forEach(sub => {
         // Clear CSS transform — use raw attribute positioning instead
@@ -1479,7 +1487,7 @@ export const useNodeDrag = ({
             sub.labelRect.style.transformBox = '';
             sub.labelRect.style.transformOrigin = '';
             if (sub.labelText) {
-              sub.labelText.setAttribute('x', labelX + groupLabelWidth / 2);
+              setLabelTextX(sub.labelText, labelX + groupLabelWidth / 2);
               sub.labelText.setAttribute('y', labelY + groupLabelHeight / 2); // dominantBaseline:central centers it
               // Pop the text with the pill, pivoting off the same center.
               applyLiftMatrix(sub.labelText, liftMatrix);
@@ -1523,7 +1531,7 @@ export const useNodeDrag = ({
             sub.labelRect.style.transformBox = '';
             sub.labelRect.style.transformOrigin = '';
             if (sub.labelText) {
-              sub.labelText.setAttribute('x', labelX + groupLabelWidth / 2);
+              setLabelTextX(sub.labelText, labelX + groupLabelWidth / 2);
               sub.labelText.setAttribute('y', labelY + groupLabelHeight / 2); // dominantBaseline:central centers it
               // Pop the text with the pill, pivoting off the same center.
               applyLiftMatrix(sub.labelText, liftMatrix);

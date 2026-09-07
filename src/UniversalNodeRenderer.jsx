@@ -18,6 +18,10 @@ import { CONNECTION_LABEL_BASE_FONT_SIZE, wrapConnectionLabel } from './Universa
 // the user's global font-size / node-size sliders (used when ignoreGlobalScale is set).
 const STANDARD_TEXT_SETTINGS = { fontSize: 1, lineSpacing: 1, nodeScale: 1, connectionWidth: 1 };
 
+// Matches GROUP_LAYOUT_CONSTANTS.titleMaxLines — a group tag wraps to at most
+// this many lines here too, so a name reads the same in a panel as on canvas.
+const GROUP_TAG_MAX_LINES = 3;
+
 const truncateToWidth = (text, fontString, maxWidth) => {
   if (!text || maxWidth <= 0) return text;
   if (measureTextWidth(text, fontString) <= maxWidth) return text;
@@ -1169,6 +1173,12 @@ const UniversalNodeRenderer = ({
             verticalPadding = Math.max(verticalPadding, (baseVerticalPadding + 6) * transform.scale);
           }
 
+          // How much of a group name actually fits before `overflow: hidden` starts
+          // eating it: three wrapped lines at this box's width. A flat 120-character
+          // cap was unrelated to the box, so a long name in a narrow pill got clipped
+          // mid-word with no ellipsis to show for it.
+          const groupNameLimit = Math.max(12, charsPerLine * GROUP_TAG_MAX_LINES);
+
           return (
             <g
               key={`node-${node.id}`}
@@ -1287,8 +1297,8 @@ const UniversalNodeRenderer = ({
                         paintOrder: 'stroke fill',
                       }}
                     >
-                      {node.isGroup && nameString.length > 120
-                        ? nameString.substring(0, 120) + '...'
+                      {node.isGroup && nameString.length > groupNameLimit
+                        ? nameString.substring(0, groupNameLimit).trimEnd() + '…'
                         : nameString}
                     </span>
                   </div>
