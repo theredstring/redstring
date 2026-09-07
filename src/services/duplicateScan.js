@@ -234,8 +234,23 @@ function chooseSurvivor(a, b, useCounts) {
 
 const pairKey = duplicatePairKey;
 
+/** Pairs scored between yields. Small enough to keep a frame responsive. */
+const SCORE_CHUNK = 500;
+
 /**
- * Scan a universe for duplicate things.
+ * Scan a universe for duplicate things, in resumable chunks.
+ *
+ * A generator rather than a plain function because the scoring stage is the
+ * O(n²) one: at the fuzzy cap it is ~180,000 pair comparisons, which on the
+ * main thread froze the app for seconds BEFORE the modal had painted — the
+ * window just locked up and the modal appeared afterwards, already finished.
+ *
+ * Yielding hands control back so the caller can paint a frame and honour a
+ * cancel. Not a Web Worker: prototypes can carry base64 image data, and
+ * structured-cloning the whole map to a worker is the OOM shape SaveCoordinator
+ * exists to avoid (see its image-stripping step).
+ *
+ * Yields `{scored, total}` progress; returns the finished result.
  *
  * @param {Map} nodePrototypes
  * @param {Map} graphs
@@ -243,10 +258,11 @@ const pairKey = duplicatePairKey;
  * @param {Object} [options]
  * @param {number} [options.fuzzyCap=FUZZY_SCAN_CAP]
  * @param {number} [options.maxPairs=MAX_PAIRS]
- * @returns {{certain: Array, review: Array, unlikely: Array, scanned: number, fuzzySkipped: boolean}}
+ * @param {number} [options.chunkSize=SCORE_CHUNK]
+ * @returns {Generator<{scored: number, total: number}, {certain: Array, review: Array, unlikely: Array, scanned: number, fuzzySkipped: boolean}>}
  */
-export function scanForDuplicates(nodePrototypes, graphs, edges, options = {}) {
-  const { fuzzyCap = FUZZY_SCAN_CAP, maxPairs = MAX_PAIRS } = options;
+export function* scanForDuplicatesSteps(nodePrototypes, graphs, edges, options = {}) {
+  const { fuzzyCap = FUZZY_SCAN_CAP, maxPairs = MAX_PAIRS, chunkSize = SCORE_CHUNK } = options;
 
   const protos = nodePrototypes instanceof Map
     ? [...nodePrototypes.values()]
@@ -293,7 +309,15 @@ export function scanForDuplicates(nodePrototypes, graphs, edges, options = {}) {
   }
 
   // -- Score every candidate pair --
+  const total = candidatePairs.size;
+  let scored = 0;
+  // One yield before any scoring, so a caller driving this over frames gets to
+  // paint its loading state before the expensive part starts.
+  yield { scored: 0, total };
+
   for (const key of candidatePairs) {
+    if (++scored % chunkSize === 0) yield { scored, total };
+
     const [id1, id2] = key.split('|');
     const p1 = byId.get(id1);
     const p2 = byId.get(id2);
@@ -357,4 +381,19 @@ export function scanForDuplicates(nodePrototypes, graphs, edges, options = {}) {
   result.unlikely = result.unlikely.slice(0, Math.max(0, maxPairs - result.certain.length - result.review.length));
 
   return result;
+}
+
+/**
+ * Run a whole scan at once.
+ *
+ * The blocking form, for tests and any caller with no frame to protect. The UI
+ * drives `scanForDuplicatesSteps` directly instead.
+ *
+ * @returns {{certain: Array, review: Array, unlikely: Array, scanned: number, fuzzySkipped: boolean}}
+ */
+export function scanForDuplicates(nodePrototypes, graphs, edges, options = {}) {
+  const steps = scanForDuplicatesSteps(nodePrototypes, graphs, edges, options);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
 }

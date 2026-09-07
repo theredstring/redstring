@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Merge, CheckCircle, HelpCircle, EyeOff, X } from 'lucide-react';
 import CanvasModal from '../CanvasModal.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import useGraphStore from '../../store/graphStore.js';
 import { useTheme } from '../../hooks/useTheme.js';
-import { scanForDuplicates, computeCarryOver } from '../../services/duplicateScan.js';
+import { scanForDuplicatesSteps, computeCarryOver } from '../../services/duplicateScan.js';
 import { performUndo } from '../../store/historyActions.js';
 import '../ModalChrome.css';
 
@@ -89,6 +89,13 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
     return parts.length > 0 ? parts.join(' · ') : 'unused';
   };
 
+  // Reasons this pair is not straightforward, in brand colour on their own row.
+  // Digits on both sides of "1 of 3" so the two numbers read as one count.
+  const caveats = [
+    candidate.demotedBecause,
+    candidate.alsoMatches > 0 ? `1 of ${candidate.alsoMatches + 1} lookalikes` : null
+  ].filter(Boolean);
+
   const sideButton = (proto, isSurvivor, uses) => (
     <button
       type="button"
@@ -130,17 +137,17 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
       opacity: disabled ? 0.5 : 1,
       pointerEvents: disabled ? 'none' : 'auto'
     }}>
-      <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, letterSpacing: '0.03em' }}>
-        {describeFactors(candidate.factors)}
-        {candidate.demotedBecause && (
-          <span style={{ color: theme.canvas.brandText }}>
-            {' · '}{candidate.demotedBecause}
-          </span>
-        )}
-        {candidate.alsoMatches > 0 && (
-          <span style={{ color: theme.canvas.brandText }}>
-            {' · '}one of {candidate.alsoMatches + 1} lookalikes
-          </span>
+      {/* Two rows, not one. Run together, the brand-coloured caveat wrapped
+          onto the end of the factor list and left a stray red fragment
+          hanging off the first line. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, letterSpacing: '0.03em' }}>
+          {describeFactors(candidate.factors)}
+        </div>
+        {caveats.length > 0 && (
+          <div style={{ fontSize: '0.7rem', color: theme.canvas.brandText, letterSpacing: '0.03em' }}>
+            {caveats.join(' · ')}
+          </div>
         )}
       </div>
 
@@ -259,19 +266,151 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
   const modalWidth = isCompactLayout ? Math.min(Math.max(viewportSize.width - 24, 320), 600) : 750;
   const modalHeight = isCompactLayout ? Math.min(Math.max(viewportSize.height * 0.85, 400), 600) : 600;
 
-  // Scan on open, not on every store change: this is O(n²) in the worst case
-  // and the list would thrash under the user as they merge.
+  // The scan runs across frames rather than in one go. It is O(n²), and run
+  // synchronously it locked the window for seconds BEFORE the modal painted —
+  // the app appeared to hang, then the finished modal popped into place. Now
+  // the modal is up first and the work happens under it, so the X is live the
+  // whole time.
+  const [scanning, setScanning] = useState(false);
+  const [progress, setProgress] = useState({ scored: 0, total: 0 });
+  // Bumped to abandon whatever scan is in flight — a newer scan superseding it,
+  // or the modal closing.
+  const scanRunRef = useRef(0);
+  const scanCancelRef = useRef(null);
+  const pickBandRef = useRef(false);
+  // The prototypes Map as it stood after a change this modal made itself. The
+  // store subscription compares against it so our own merges don't trigger the
+  // full rescan they have already been accounted for.
+  const selfChangeRef = useRef(null);
+
   const rescan = useCallback(() => {
-    const { nodePrototypes, graphs, edges } = useGraphStore.getState();
-    const scanned = scanForDuplicates(nodePrototypes, graphs, edges);
-    setResult(scanned);
-    return scanned;
+    const runId = ++scanRunRef.current;
+    if (scanCancelRef.current) scanCancelRef.current();
+
+    const { nodePrototypes: protos, graphs, edges } = useGraphStore.getState();
+    const steps = scanForDuplicatesSteps(protos, graphs, edges);
+    setScanning(true);
+    setProgress({ scored: 0, total: 0 });
+
+    // A MessageChannel message, not setTimeout(0): nested timers are clamped to
+    // ~4ms by every browser, and at one clamp per slice a long scan spends more
+    // time waiting for the clock than doing the work.
+    const channel = typeof MessageChannel !== 'undefined' ? new MessageChannel() : null;
+    let timer = null;
+    scanCancelRef.current = () => {
+      if (channel) channel.port1.close();
+      if (timer) clearTimeout(timer);
+    };
+
+    const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+    const pump = () => {
+      if (scanRunRef.current !== runId) return;
+
+      // Work in frame-sized slices. The generator yields far more often than
+      // this; draining several yields per slice keeps the per-yield overhead
+      // off the total without giving up responsiveness.
+      const started = now();
+      let step;
+      do {
+        step = steps.next();
+      } while (!step.done && (now() - started) < 12);
+
+      if (scanRunRef.current !== runId) return;
+
+      if (step.done) {
+        setResult(step.value);
+        setScanning(false);
+        scanCancelRef.current = null;
+        if (channel) channel.port1.close();
+        if (pickBandRef.current) {
+          pickBandRef.current = false;
+          // Open on a band that has something in it. Arriving here from a
+          // universe merge, the duplicates it surfaced are name matches, which
+          // land in review rather than certain — so defaulting to certain would
+          // show an empty tab. Only on open: the band must not jump around as
+          // pairs get cleared.
+          setActiveBand(BANDS.map((b) => b.key).find((k) => step.value[k].length > 0) || 'certain');
+        }
+        return;
+      }
+
+      setProgress(step.value);
+      if (channel) channel.port2.postMessage(null);
+      else timer = setTimeout(pump, 0);
+    };
+
+    if (channel) channel.port1.onmessage = pump;
+
+    // Deferred, not inline: this is what lets the modal paint its loading state
+    // before the expensive part starts.
+    if (channel) channel.port2.postMessage(null);
+    else timer = setTimeout(pump, 0);
   }, []);
 
+  /**
+   * Fold a merge into the list already on screen instead of rescanning.
+   *
+   * A merge removes exactly one thing, so every pair it settles is a pair
+   * naming that thing — which is a filter over the current result, not a
+   * reason to re-derive the whole O(n²) comparison. Rescanning after each one
+   * meant a wait proportional to the WHOLE universe for a change affecting one
+   * row, which is what made merging feel like it had stalled.
+   *
+   * The tradeoff, stated plainly: a survivor inherits the loser's external
+   * links, so in principle it could now match some third thing that neither
+   * matched before. That pair appears on the next open. It is rare, and it is
+   * worth not making every merge pay for the whole universe.
+   */
+  const applyMergeLocally = useCallback((removedIds) => {
+    const state = useGraphStore.getState();
+    selfChangeRef.current = state.nodePrototypes;
+    const removed = new Set(removedIds);
+
+    setResult((prev) => {
+      if (!prev) return prev;
+      const settle = (list) => list.reduce((out, c) => {
+        if (removed.has(c.survivorId) || removed.has(c.loserId)) return out;
+        const survivor = state.nodePrototypes.get(c.survivorId);
+        const loser = state.nodePrototypes.get(c.loserId);
+        if (!survivor || !loser) return out;
+        // A survivor that took carry-over has fewer gaps than it did; its other
+        // pairs would otherwise keep offering a field it now has.
+        if (survivor === c.survivor && loser === c.loser) out.push(c);
+        else out.push({ ...c, survivor, loser, carryOver: computeCarryOver(survivor, loser) });
+        return out;
+      }, []);
+
+      return {
+        ...prev,
+        certain: settle(prev.certain),
+        review: settle(prev.review),
+        unlikely: settle(prev.unlikely),
+      };
+    });
+  }, []);
+
+  // Abandon an in-flight scan when the modal closes or unmounts. React runs
+  // cleanups before any new effect body, so a reopen cannot cancel its own
+  // fresh scan.
+  useEffect(() => () => {
+    scanRunRef.current += 1;
+    if (scanCancelRef.current) {
+      scanCancelRef.current();
+      scanCancelRef.current = null;
+    }
+    // Cleared here rather than on open: cleanups run before any effect body, so
+    // a stale value can't survive into the next open and convince the store
+    // subscription that the first scan has already been done.
+    selfChangeRef.current = null;
+  }, [isVisible]);
+
   // Keyed on the prototypes Map, which immer replaces on every change, so an
-  // undo from outside this modal refreshes the list. Skipped while hidden.
+  // undo from outside this modal refreshes the list. Our own merges are folded
+  // in directly and skipped here.
   useEffect(() => {
     if (!isVisible) return;
+    if (selfChangeRef.current === nodePrototypes) return;
     rescan();
   }, [nodePrototypes, isVisible, rescan]);
 
@@ -279,16 +418,12 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
     if (!isVisible) return;
     setMergedCount(0);
     setActions([]);
+    setResult(null);
+    pickBandRef.current = true;
     // Dismissals naming a thing that has since been merged away are dead
     // weight; clearing them here keeps the list from growing forever.
     useGraphStore.getState().pruneDuplicateDismissals();
-    const scanned = rescan();
-    // Open on a band that has something in it. Arriving here from a universe
-    // merge, the duplicates it surfaced are name matches, which land in review
-    // rather than certain — so defaulting to certain would show an empty tab.
-    // Only on open: the band must not jump around as pairs get cleared.
-    setActiveBand(BANDS.map((b) => b.key).find((k) => scanned[k].length > 0) || 'certain');
-  }, [isVisible, rescan]);
+  }, [isVisible]);
 
   const handleMerge = useCallback((candidate, decision) => {
     const ok = useGraphStore.getState().mergeThings(decision.survivorId, decision.loserId, {
@@ -298,10 +433,13 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
     if (ok) {
       setMergedCount((n) => n + 1);
       setActions((prev) => [...prev, { type: 'merge' }]);
+      applyMergeLocally([decision.loserId]);
+    } else {
+      // The pair was already settled by an earlier merge. Drop it rather than
+      // leaving a card that does nothing when pressed.
+      applyMergeLocally([]);
     }
-    // The prototypes subscription rescans; this covers a no-op merge too.
-    rescan();
-  }, [rescan]);
+  }, [applyMergeLocally]);
 
   const handleSkip = useCallback((key) => {
     useGraphStore.getState().dismissDuplicatePair(key);
@@ -316,12 +454,14 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
     if (last.type === 'dismiss') {
       useGraphStore.getState().restoreDuplicatePair(last.key);
     } else {
+      // An undone merge puts a thing back, which can revive pairs this list
+      // never held — so this one does need the full scan. The store
+      // subscription starts it; calling it here too would just run two.
       performUndo();
       setMergedCount((n) => Math.max(0, n - 1));
-      rescan();
     }
     return true;
-  }, [actions, rescan]);
+  }, [actions]);
 
   // Cmd/Ctrl+Z while the modal is open walks back what the modal did. When it
   // has nothing left of its own, the event is deliberately left alone so the
@@ -344,17 +484,22 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
     const pending = (result?.certain || []).filter((c) => !dismissed[c.key]);
     const store = useGraphStore.getState();
     let merged = 0;
+    const removed = [];
     for (const c of pending) {
       // Each is re-checked inside mergeThings; a pair whose thing was already
       // folded in by an earlier merge in this same loop is skipped, not fatal.
-      if (store.mergeThings(c.survivorId, c.loserId, { carryOver: c.carryOver })) merged += 1;
+      if (store.mergeThings(c.survivorId, c.loserId, { carryOver: c.carryOver })) {
+        merged += 1;
+        removed.push(c.loserId);
+      }
     }
     setMergedCount((n) => n + merged);
     // One entry each, so Cmd+Z steps back through a bulk run pair by pair
     // rather than being unable to touch it.
     setActions((prev) => [...prev, ...Array.from({ length: merged }, () => ({ type: 'merge' }))]);
-    rescan();
-  }, [result, dismissed, rescan]);
+    // One fold for the whole run, not one scan per pair.
+    applyMergeLocally(removed);
+  }, [result, dismissed, applyMergeLocally]);
 
   const bands = useMemo(() => {
     const empty = { certain: [], review: [], unlikely: [] };
@@ -394,6 +539,13 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
   }, [result, dismissed]);
 
   const visible = bands[activeBand] || [];
+
+  // No result yet — the only time the list itself is unknown. Later rescans
+  // still have a list to show, so they stay quiet.
+  const isFirstScan = scanning && !result;
+  const scanPercent = progress.total > 0
+    ? Math.min(100, Math.round((progress.scored / progress.total) * 100))
+    : 0;
 
   const modalContent = (
     <div
@@ -441,7 +593,10 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
             >
               {band.icon}
               {band.title}
-              <span style={{ marginLeft: 'auto', opacity: 0.7 }}>{bands[band.key].length}</span>
+              {/* A count of 0 mid-scan reads as an answer. It isn't one yet. */}
+              <span style={{ marginLeft: 'auto', opacity: 0.7 }}>
+                {isFirstScan ? '' : bands[band.key].length}
+              </span>
             </button>
           ))}
         </div>
@@ -467,7 +622,7 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
             >
               {BANDS.map((band) => (
                 <option key={band.key} value={band.key}>
-                  {band.title} ({bands[band.key].length})
+                  {isFirstScan ? band.title : `${band.title} (${bands[band.key].length})`}
                 </option>
               ))}
             </select>
@@ -482,14 +637,23 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
           {BANDS.find((b) => b.key === activeBand)?.title}
         </h2>
 
-        {actions.length > 0 && (
+        {mergedCount > 0 && !isFirstScan && (
           <p style={{ margin: '0 0 12px 0', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
-            {mergedCount > 0 && `${mergedCount} merged. `}
-            Cmd+Z steps back through what you have done here, merges and dismissals alike.
+            {mergedCount} merged.
           </p>
         )}
 
-        {activeBand === 'certain' && visible.length > 0 && (
+        {/* A rescan after a merge keeps the current list up rather than
+            flashing the loading state — the pairs on screen are still the
+            right ones bar the merged pair, and a spinner between every merge
+            would be worse than a card lingering for a frame. */}
+        {scanning && !isFirstScan && (
+          <p style={{ margin: '0 0 12px 0', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
+            Rescanning…
+          </p>
+        )}
+
+        {activeBand === 'certain' && visible.length > 0 && !isFirstScan && (
           <div style={{ marginBottom: 14 }}>
             <PanelIconButton
               icon={Merge}
@@ -501,7 +665,34 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
           </div>
         )}
 
-        {visible.length === 0 ? (
+        {isFirstScan ? (
+          <div style={{
+            padding: '30px 20px',
+            background: theme.canvas.inactive,
+            borderRadius: 8,
+            border: `1px dashed ${theme.canvas.border}`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12
+          }}>
+            <div style={{ color: theme.canvas.brandText, fontSize: '0.85rem', fontStyle: 'italic' }}>
+              Looking for duplicates…
+            </div>
+            <div style={{
+              height: 4,
+              borderRadius: 2,
+              background: theme.canvas.border,
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                height: '100%',
+                width: `${scanPercent}%`,
+                background: theme.accent.primary,
+                transition: 'width 0.15s linear'
+              }} />
+            </div>
+          </div>
+        ) : visible.length === 0 ? (
           <div style={{
             padding: '30px 20px',
             textAlign: 'left',

@@ -4,7 +4,8 @@ import {
   prototypeToEntity,
   countUsesByPrototype,
   computeCarryOver,
-  scanForDuplicates
+  scanForDuplicates,
+  scanForDuplicatesSteps
 } from '../../src/services/duplicateScan.js';
 import { NODE_DEFAULT_COLOR } from '../../src/constants.js';
 
@@ -361,5 +362,54 @@ describe('scanForDuplicates', () => {
   it('handles a universe too small to have duplicates', () => {
     expect(scanForDuplicates(new Map(), new Map(), new Map()).certain).toEqual([]);
     expect(scanForDuplicates(new Map([['a', proto('a', 'Dog')]]), new Map(), new Map()).review).toEqual([]);
+  });
+
+  describe('running in chunks', () => {
+    // 40 things → 780 pairs, comfortably more than one chunk.
+    const many = new Map(
+      Array.from({ length: 40 }, (_, i) => [`p${i}`, proto(`p${i}`, `Thing ${i}`)])
+    );
+
+    it('yields before doing any scoring, so the caller can paint first', () => {
+      const steps = scanForDuplicatesSteps(many, new Map(), new Map());
+      const first = steps.next();
+      expect(first.done).toBe(false);
+      expect(first.value).toEqual({ scored: 0, total: expect.any(Number) });
+      expect(first.value.total).toBeGreaterThan(0);
+    });
+
+    it('reports progress that climbs toward the total', () => {
+      const steps = scanForDuplicatesSteps(many, new Map(), new Map(), { chunkSize: 50 });
+      const seen = [];
+      let step = steps.next();
+      while (!step.done) {
+        seen.push(step.value.scored);
+        step = steps.next();
+      }
+      expect(seen.length).toBeGreaterThan(2);
+      expect(seen).toEqual([...seen].sort((a, b) => a - b));
+      expect(seen[seen.length - 1]).toBeLessThanOrEqual(step.value.scanned ** 2);
+    });
+
+    it('gives the same answer as running it all at once', () => {
+      const steps = scanForDuplicatesSteps(many, new Map(), new Map(), { chunkSize: 7 });
+      let step = steps.next();
+      while (!step.done) step = steps.next();
+
+      const oneGo = scanForDuplicates(many, new Map(), new Map());
+      expect(step.value.certain.map((c) => c.key)).toEqual(oneGo.certain.map((c) => c.key));
+      expect(step.value.review.map((c) => c.key)).toEqual(oneGo.review.map((c) => c.key));
+      expect(step.value.unlikely.map((c) => c.key)).toEqual(oneGo.unlikely.map((c) => c.key));
+    });
+
+    it('does no further work once abandoned', () => {
+      // Cancelling is just dropping the generator — closing the modal stops
+      // the scan because nobody calls next() again.
+      const steps = scanForDuplicatesSteps(many, new Map(), new Map(), { chunkSize: 10 });
+      steps.next();
+      steps.next();
+      expect(steps.return(undefined).done).toBe(true);
+      expect(steps.next().done).toBe(true);
+    });
   });
 });
