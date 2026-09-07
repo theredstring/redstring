@@ -784,8 +784,13 @@ describe('labelBoxFor', () => {
     expect(box.lines.length).toBeGreaterThan(1);
     expect(box.w).toBeLessThanOrEqual(C.titleMaxWidth);
     for (const line of box.lines) expect(measure(line)).toBeLessThanOrEqual(maxContent);
-    // Taller by exactly the lines it gained.
-    expect(box.h).toBe(C.fontSize * C.titleLineHeightFactor * box.lines.length + C.titlePaddingVertical * 2);
+    // Taller by exactly one tight line box per line it gained — not by a whole
+    // one-line pill per line.
+    expect(box.h).toBe(
+      C.fontSize * C.titleLineHeightFactor
+      + C.fontSize * C.titleLineSpacingFactor * (box.lines.length - 1)
+      + C.titlePaddingVertical * 2
+    );
   });
 
   it('breaks a single word too wide for any line', () => {

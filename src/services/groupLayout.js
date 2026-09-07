@@ -32,9 +32,14 @@ export const GROUP_LAYOUT_CONSTANTS = Object.freeze({
   titleMinWidth: 100,
   titleMaxWidth: 1000,
   titleMaxLines: 3,
-  // Line box as a multiple of the font size. Also what labelHeightConst uses
-  // for the single-line case, so one line and N lines stay proportional.
+  // Height of a ONE-line tab, as a multiple of the font size. Generous on
+  // purpose — it is the pill's whole interior, not a line box.
   titleLineHeightFactor: 1.4,
+  // Spacing between WRAPPED lines. Matches how node names wrap
+  // (LABEL_LINE_HEIGHT_BASE / LABEL_FONT_SIZE_BASE = 39/45 in nodeLabelStyle),
+  // so a two-line group title reads as tightly as a two-line node title.
+  // Using the 1.4 box height here instead spread the lines half a line apart.
+  titleLineSpacingFactor: 39 / 45,
 });
 
 const FALLBACK_DIMS = { currentWidth: 200, currentHeight: 150 };
@@ -516,7 +521,9 @@ export const labelHeightConst = (scale = 1, fontSize = null, lineCount = 1) => {
   const C = GROUP_LAYOUT_CONSTANTS;
   const f = fontSize ?? C.fontSize * scale;
   const lines = Math.max(1, lineCount);
-  return Math.max(80 * scale, f * C.titleLineHeightFactor * lines + C.titlePaddingVertical * scale * 2);
+  // One line's interior, plus a tight line box for each line after it.
+  const inner = f * C.titleLineHeightFactor + f * C.titleLineSpacingFactor * (lines - 1);
+  return Math.max(80 * scale, inner + C.titlePaddingVertical * scale * 2);
 };
 
 /**

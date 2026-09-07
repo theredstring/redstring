@@ -15741,10 +15741,34 @@ function NodeCanvas() {
                     // group tab reads at the same size as an average node and its box is sized
                     // from that text.
                     const groupLabelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * groupLabelScale;
+
+                    // The name every part of the layout pass measures against, resolved
+                    // ONCE into the map itself rather than at each group's own top-level
+                    // call. A parent folds its children in by reading `groupsById`, and
+                    // the shared `_cache` means whichever call runs first wins — so a
+                    // nested group whose parent was laid out before it got served its
+                    // parent's view of the name. Renaming a nested group then sized its
+                    // tab from the OLD name while the text drew the new one, and a title
+                    // that had grown a line spilled up out of the tab into the shell.
+                    // Two readers, two names; one map, one name.
+                    const effectiveNameFor = (g) => {
+                      if (editingGroupId === g.id) return tempGroupName;
+                      const proto = g.linkedNodePrototypeId ? nodePrototypesMap.get(g.linkedNodePrototypeId) : null;
+                      return proto?.name || g.name || 'Group';
+                    };
+                    let groupsForLayout = graphData.groups;
+                    const renamedForLayout = groups
+                      .map(g => [g, effectiveNameFor(g)])
+                      .filter(([g, name]) => name !== g.name);
+                    if (renamedForLayout.length) {
+                      groupsForLayout = new Map(graphData.groups);
+                      for (const [g, name] of renamedForLayout) groupsForLayout.set(g.id, { ...g, name });
+                    }
+
                     const layoutContext = {
                       nodesById: layoutNodesById,
                       dimsById: baseDimsById,
-                      groupsById: graphData.groups,
+                      groupsById: groupsForLayout,
                       groupsByMemberId: groupsByNodeIdRef.current,
                       childGroupIdsByGroupId: childGroupIdsByGroupIdRef.current,
                       gridSize,
@@ -15778,12 +15802,10 @@ function NodeCanvas() {
                       const effectiveGroupName = nodeGroupPrototype?.name || group.name || 'Group';
                       const effectiveGroupColor = nodeGroupPrototype?.color || group.color || '#8B0000';
 
-                      // When this group's name is being edited, measure against the in-flight
-                      // text so the label rect tracks keystrokes — pass an override-named
-                      // shallow copy to keep the helper pure.
-                      const groupForLayout = (editingGroupId === group.id)
-                        ? { ...group, name: tempGroupName }
-                        : (effectiveGroupName !== group.name ? { ...group, name: effectiveGroupName } : group);
+                      // The same override-named copy the rest of the pass reads (see
+                      // groupsForLayout above), so a nested group and its parent can
+                      // never disagree about what this group is called.
+                      const groupForLayout = groupsForLayout.get(group.id) || group;
                       const layout = computeGroupLayout(groupForLayout, layoutContext);
                       if (!layout.ok) return;
 
@@ -15802,7 +15824,7 @@ function NodeCanvas() {
                       // Wrapped lines from the same box the layout measured, so the
                       // drawn text can never be wider than the tab it sits in.
                       const labelLines = label.lines?.length ? label.lines : [labelText];
-                      const labelLineHeight = fontSize * GROUP_LAYOUT_CONSTANTS.titleLineHeightFactor;
+                      const labelLineHeight = fontSize * GROUP_LAYOUT_CONSTANTS.titleLineSpacingFactor;
                       const isGroupDragging = draggingNodeInfo?.groupId === group.id;
 
                       const nodeGroupColor = effectiveGroupColor;
@@ -16233,8 +16255,12 @@ function NodeCanvas() {
                                   autoFocus
                                   style={{
                                     width: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * 2 * groupLabelScale}px)`,
-                                    height: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingVertical * 2 * groupLabelScale}px)`,
-                                    margin: `${GROUP_LAYOUT_CONSTANTS.titlePaddingVertical * groupLabelScale}px ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * groupLabelScale}px`,
+                                    // Exactly its own lines tall, then centred by the flex
+                                    // parent — a textarea won't centre its text the way the
+                                    // <input> this replaced did, so it would ride high in a
+                                    // box whose one-line interior is taller than one line box.
+                                    height: `${labelLines.length * labelLineHeight}px`,
+                                    margin: `0 ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * groupLabelScale}px`,
                                     fontSize: `${fontSize}px`,
                                     fontFamily: 'EmOne, sans-serif',
                                     fontWeight: 'bold',
