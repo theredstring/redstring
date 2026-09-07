@@ -86,7 +86,10 @@ describe('findTargetCollisions', () => {
 });
 
 describe('resolveUniqueUniverseFolder', () => {
-  const existing = [gitUniverse('ii', 'ii'), gitUniverse('ii-2', 'ii-2')];
+  // Both write `ii.redstring`, so the folder is the only thing separating them.
+  // A target is folder AND file: `ii-2/ii-2.redstring` would not block
+  // `ii-2/ii.redstring`, because those are two different files.
+  const existing = [gitUniverse('ii', 'ii'), gitUniverse('ii-2', 'ii-2', 'ii.redstring')];
 
   it('keeps the requested folder when it is free', () => {
     expect(resolveUniqueUniverseFolder({
@@ -104,6 +107,12 @@ describe('resolveUniqueUniverseFolder', () => {
     // Re-linking an existing universe must be idempotent, not walk it to ii-3.
     expect(resolveUniqueUniverseFolder({
       folder: 'ii', file: 'ii.redstring', linkedRepo: REPO, existingUniverses: existing, selfSlug: 'ii'
+    })).toBe('ii');
+  });
+
+  it('treats a different file in the same folder as a different target', () => {
+    expect(resolveUniqueUniverseFolder({
+      folder: 'ii', file: 'notes.redstring', linkedRepo: REPO, existingUniverses: existing
     })).toBe('ii');
   });
 
