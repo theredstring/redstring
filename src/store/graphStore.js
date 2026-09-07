@@ -3462,6 +3462,44 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
       }
 
+      // Re-point abstraction chains that name the secondary.
+      //
+      // A chain is an ordered list of prototype ids (the Is-a hierarchy), and
+      // it is serialized verbatim, so a chain left naming a deleted prototype
+      // saves that dangling id and reloads with it. De-duplicated because a
+      // chain that named BOTH sides would otherwise list the survivor twice —
+      // the same rung claimed at two levels of generality.
+      for (const prototype of draft.nodePrototypes.values()) {
+        const chains = prototype.abstractionChains;
+        if (!chains || typeof chains !== 'object') continue;
+        for (const dimension of Object.keys(chains)) {
+          const chain = chains[dimension];
+          if (!Array.isArray(chain) || !chain.includes(secondaryId)) continue;
+          const seen = new Set();
+          const rebuilt = [];
+          for (const id of chain) {
+            const mapped = id === secondaryId ? primaryId : id;
+            if (seen.has(mapped)) continue;
+            seen.add(mapped);
+            rebuilt.push(mapped);
+          }
+          chains[dimension] = rebuilt;
+        }
+      }
+
+      // Re-point node-groups anchored to the secondary, and bring their
+      // mirrored name/colour into line with the survivor — a group keeps its
+      // own copies of those (see syncNodeGroupsToPrototype), so re-pointing
+      // alone would leave a group labelled with the folded-in thing's name.
+      for (const graph of draft.graphs.values()) {
+        graph.groups?.forEach((group) => {
+          if (group.linkedNodePrototypeId !== secondaryId) return;
+          group.linkedNodePrototypeId = primaryId;
+          if (primary.name !== undefined) group.name = primary.name;
+          if (primary.color !== undefined) group.color = primary.color;
+        });
+      }
+
       // Remap graphs' definingNodeIds from the secondary to the primary
       for (const [graphId, graph] of draft.graphs.entries()) {
         if (Array.isArray(graph.definingNodeIds) && graph.definingNodeIds.includes(secondaryId)) {
