@@ -52,6 +52,14 @@ import {
 } from './historyPolicy.js';
 
 /**
+ * Default coast length for the trackpad two-finger pan glide, on the same 0..1
+ * scale as the touch and mouse glide strengths. Calibrated slightly below the
+ * touch midpoint: a trackpad swipe releases with more speed than a finger flick
+ * of the same intent, so an even 0.5 overshoots where the user meant to stop.
+ */
+export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
+
+/**
  * @module graphStore
  * @description Zustand store for all Redstring graph state. Uses Immer for immutable
  * updates and a custom `produce` wrapper that captures patches for the undo/redo history system.
@@ -167,7 +175,7 @@ import {
  * @property {Object} textSettings - `{ fontSize, lineSpacing, nodeScale, connectionWidth, plusSignScale, pieMenuScale }`.
  * @property {Object} keyboardSettings - `{ zoomSensitivity, panSensitivity }` in range [0, 1].
  * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
- * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideFriction }`.
+ * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength, trackpadPanGlideEnabled, trackpadPanGlideStrength }`.
  */
 
 // Enable Immer plugins
@@ -1655,19 +1663,31 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const trackpadZoomGlideRaw = localStorage.getItem('redstring_trackpad_zoom_glide_enabled');
         const trackpadZoomGlideEnabled = trackpadZoomGlideRaw === null ? true : trackpadZoomGlideRaw === 'true';
 
-        // Friction, not "strength": higher = the coast is damped harder and
-        // stops sooner. Deliberately a different localStorage key from the
-        // `..._glide_strength` it replaces, because the polarity is inverted —
-        // reusing the key would silently reinterpret a stored value as its
-        // opposite. An old value is simply ignored and the default applies.
-        const trackpadZoomGlideFrictionRaw = localStorage.getItem('redstring_trackpad_zoom_glide_friction');
-        let trackpadZoomGlideFriction = trackpadZoomGlideFrictionRaw !== null ? parseFloat(trackpadZoomGlideFrictionRaw) : 0.5;
-        if (!Number.isFinite(trackpadZoomGlideFriction)) trackpadZoomGlideFriction = 0.5;
-        trackpadZoomGlideFriction = Math.max(0.0, Math.min(1.0, trackpadZoomGlideFriction));
+        // Strength, like every other glide slider: higher = a longer coast.
+        // This briefly shipped as a "friction" whose polarity ran opposite to
+        // its neighbours, under `..._glide_friction`. Versioned key rather than
+        // either of the two it replaces, because both hold values on scales
+        // that mean something different now — one inverted, one from an older
+        // range. An old value is ignored and the default applies.
+        const trackpadZoomGlideStrengthRaw = localStorage.getItem('redstring_trackpad_zoom_glide_strength_v2');
+        let trackpadZoomGlideStrength = trackpadZoomGlideStrengthRaw !== null ? parseFloat(trackpadZoomGlideStrengthRaw) : 0.5;
+        if (!Number.isFinite(trackpadZoomGlideStrength)) trackpadZoomGlideStrength = 0.5;
+        trackpadZoomGlideStrength = Math.max(0.0, Math.min(1.0, trackpadZoomGlideStrength));
 
-        return { zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideFriction };
+        // Trackpad two-finger pan glide. Previously this rode on the Mouse
+        // Glide setting, which meant a trackpad user had to hunt in the Mouse
+        // section — and inherited that section's much shorter default coast.
+        const trackpadPanGlideRaw = localStorage.getItem('redstring_trackpad_pan_glide_enabled');
+        const trackpadPanGlideEnabled = trackpadPanGlideRaw === null ? true : trackpadPanGlideRaw === 'true';
+
+        const trackpadPanGlideStrengthRaw = localStorage.getItem('redstring_trackpad_pan_glide_strength');
+        let trackpadPanGlideStrength = trackpadPanGlideStrengthRaw !== null ? parseFloat(trackpadPanGlideStrengthRaw) : TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT;
+        if (!Number.isFinite(trackpadPanGlideStrength)) trackpadPanGlideStrength = TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT;
+        trackpadPanGlideStrength = Math.max(0.0, Math.min(1.0, trackpadPanGlideStrength));
+
+        return { zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength, trackpadPanGlideEnabled, trackpadPanGlideStrength };
       } catch (_) {
-        return { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomSensitivity: 0.5, trackpadPanSensitivity: 0.5, pinchGlideEnabled: true, pinchGlideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideFriction: 0.5 };
+        return { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomSensitivity: 0.5, trackpadPanSensitivity: 0.5, pinchGlideEnabled: true, pinchGlideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideStrength: 0.5, trackpadPanGlideEnabled: true, trackpadPanGlideStrength: TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT };
       }
     })(),
 
@@ -6553,7 +6573,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     /** Toggles momentum/glide zoom after a trackpad pinch-zoom gesture stops. Persists to localStorage. */
     toggleTrackpadZoomGlide: () => set(produce((draft) => {
-      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideFriction: 0.5 };
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideStrength: 0.5 };
       draft.touchSettings.trackpadZoomGlideEnabled = draft.touchSettings.trackpadZoomGlideEnabled === false;
       try {
         localStorage.setItem('redstring_trackpad_zoom_glide_enabled', String(draft.touchSettings.trackpadZoomGlideEnabled));
@@ -6561,21 +6581,49 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     /**
-     * Sets how hard the trackpad zoom coast is damped after the gesture stops.
-     * Range [0, 1], where HIGHER means more friction and a shorter coast.
-     * Persists to localStorage.
+     * Sets how far the trackpad zoom coasts after the gesture stops. Range
+     * [0, 1], where HIGHER means a longer coast — the same polarity as every
+     * other glide strength. Persists to localStorage.
      * @param {number} value
      */
-    setTrackpadZoomGlideFriction: (value) => set(produce((draft) => {
+    setTrackpadZoomGlideStrength: (value) => set(produce((draft) => {
       const v = Number(value);
       if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
-        console.warn(`[setTrackpadZoomGlideFriction] Invalid value: ${value}`);
+        console.warn(`[setTrackpadZoomGlideStrength] Invalid value: ${value}`);
         return;
       }
-      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideFriction: 0.5 };
-      draft.touchSettings.trackpadZoomGlideFriction = v;
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadZoomGlideEnabled: true, trackpadZoomGlideStrength: 0.5 };
+      draft.touchSettings.trackpadZoomGlideStrength = v;
       try {
-        localStorage.setItem('redstring_trackpad_zoom_glide_friction', String(v));
+        localStorage.setItem('redstring_trackpad_zoom_glide_strength_v2', String(v));
+      } catch (_) { }
+    })),
+
+    /** Toggles momentum/glide pan after a trackpad two-finger pan stops. Persists to localStorage. */
+    toggleTrackpadPanGlide: () => set(produce((draft) => {
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadPanGlideEnabled: true, trackpadPanGlideStrength: TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT };
+      draft.touchSettings.trackpadPanGlideEnabled = draft.touchSettings.trackpadPanGlideEnabled === false;
+      try {
+        localStorage.setItem('redstring_trackpad_pan_glide_enabled', String(draft.touchSettings.trackpadPanGlideEnabled));
+      } catch (_) { }
+    })),
+
+    /**
+     * Sets how far the trackpad pan coasts after the gesture stops. Range
+     * [0, 1], where HIGHER means less friction and a longer coast (the same
+     * polarity as the touch and mouse glide strengths).
+     * @param {number} value
+     */
+    setTrackpadPanGlideStrength: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
+        console.warn(`[setTrackpadPanGlideStrength] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5, trackpadPanGlideEnabled: true, trackpadPanGlideStrength: TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT };
+      draft.touchSettings.trackpadPanGlideStrength = v;
+      try {
+        localStorage.setItem('redstring_trackpad_pan_glide_strength', String(v));
       } catch (_) { }
     })),
 

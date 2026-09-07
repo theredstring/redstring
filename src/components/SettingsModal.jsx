@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import CanvasModal from './CanvasModal';
 import MaroonSlider from './MaroonSlider.jsx';
-import useGraphStore from '../store/graphStore.js';
+import useGraphStore, { TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT } from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
 import { Monitor, Grid3x3, Cable, Keyboard, Scaling, PanelBottom, Brain, Info, X } from 'lucide-react';
 import AISection from './settings/AISection.jsx';
@@ -63,7 +63,9 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const trackpadZoomSensitivity = useGraphStore(s => s.touchSettings?.trackpadZoomSensitivity ?? 0.5);
   const trackpadPanSensitivity = useGraphStore(s => s.touchSettings?.trackpadPanSensitivity ?? 0.5);
   const trackpadZoomGlideEnabled = useGraphStore(s => s.touchSettings?.trackpadZoomGlideEnabled ?? true);
-  const trackpadZoomGlideFriction = useGraphStore(s => s.touchSettings?.trackpadZoomGlideFriction ?? 0.5);
+  const trackpadZoomGlideStrength = useGraphStore(s => s.touchSettings?.trackpadZoomGlideStrength ?? 0.5);
+  const trackpadPanGlideEnabled = useGraphStore(s => s.touchSettings?.trackpadPanGlideEnabled ?? true);
+  const trackpadPanGlideStrength = useGraphStore(s => s.touchSettings?.trackpadPanGlideStrength ?? TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT);
   const mouseGlideStrength = useGraphStore(s => s.mouseSettings?.glideStrength ?? 0.1);
   const nodeLiftDelay = useGraphStore(s => s.mouseSettings?.nodeLiftDelay ?? 250);
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
@@ -543,30 +545,13 @@ const SettingsModal = ({ isVisible, onClose }) => {
               suffix=""
             />
           </div>
+          {/* Zoom before pan, same as the Trackpad section below. The store
+              names are older than these labels: the touch zoom glide is
+              `pinchGlide*` and the touch pan glide is the unqualified
+              `glide*`. */}
           <div className="settings-row settings-row--attached">
             <div className="settings-row-label">
-              Touch Glide
-              <div className="settings-row-description">Keep panning with momentum after you flick and lift your finger</div>
-            </div>
-            <Toggle
-              checked={!!touchGlideEnabled}
-              onChange={() => useGraphStore.getState().toggleTouchGlide?.()}
-            />
-          </div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              value={touchGlideStrength ?? 0.5}
-              min={0.1}
-              max={1.0}
-              step={0.05}
-              onChange={(v) => useGraphStore.getState().setTouchGlideStrength?.(v)}
-              disabled={!touchGlideEnabled}
-              suffix=""
-            />
-          </div>
-          <div className="settings-row settings-row--attached">
-            <div className="settings-row-label">
-              Pinch Glide
+              Zoom Glide
               <div className="settings-row-description">Keep zooming with momentum after you release a two-finger pinch</div>
             </div>
             <Toggle
@@ -582,6 +567,27 @@ const SettingsModal = ({ isVisible, onClose }) => {
               step={0.05}
               onChange={(v) => useGraphStore.getState().setTouchPinchGlideStrength?.(v)}
               disabled={!touchPinchGlideEnabled}
+              suffix=""
+            />
+          </div>
+          <div className="settings-row settings-row--attached">
+            <div className="settings-row-label">
+              Pan Glide
+              <div className="settings-row-description">Keep panning with momentum after you flick and lift your finger</div>
+            </div>
+            <Toggle
+              checked={!!touchGlideEnabled}
+              onChange={() => useGraphStore.getState().toggleTouchGlide?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              value={touchGlideStrength ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setTouchGlideStrength?.(v)}
+              disabled={!touchGlideEnabled}
               suffix=""
             />
           </div>
@@ -623,13 +629,33 @@ const SettingsModal = ({ isVisible, onClose }) => {
           </div>
           <div className="settings-slider-row">
             <MaroonSlider
-              label="Friction"
-              value={trackpadZoomGlideFriction ?? 0.5}
+              value={trackpadZoomGlideStrength ?? 0.5}
               min={0.1}
               max={1.0}
               step={0.05}
-              onChange={(v) => useGraphStore.getState().setTrackpadZoomGlideFriction?.(v)}
+              onChange={(v) => useGraphStore.getState().setTrackpadZoomGlideStrength?.(v)}
               disabled={!trackpadZoomGlideEnabled}
+              suffix=""
+            />
+          </div>
+          <div className="settings-row settings-row--attached">
+            <div className="settings-row-label">
+              Pan Glide
+              <div className="settings-row-description">Keep panning with momentum after you lift a two-finger swipe</div>
+            </div>
+            <Toggle
+              checked={!!trackpadPanGlideEnabled}
+              onChange={() => useGraphStore.getState().toggleTrackpadPanGlide?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              value={trackpadPanGlideStrength ?? TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setTrackpadPanGlideStrength?.(v)}
+              disabled={!trackpadPanGlideEnabled}
               suffix=""
             />
           </div>

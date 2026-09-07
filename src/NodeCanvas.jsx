@@ -75,6 +75,7 @@ import useGraphStore, {
   getHydratedNodesForGraph, // New selector
   getEdgesForGraph,
   getNodePrototypeById, // New selector for prototypes
+  TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT,
 } from "./store/graphStore.js";
 import useHistoryStore from './store/historyStore.js';
 import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from './services/imageCache.js';
@@ -3726,17 +3727,17 @@ function NodeCanvas() {
     if (isGestureStart) {
       const prefs = useGraphStore.getState().touchSettings;
       ref.glideEnabled = prefs?.trackpadZoomGlideEnabled !== false;
-      // The slider reads as friction — turn it up, the coast is damped harder
-      // and stops sooner — so it runs OPPOSITE to the retention coefficient it
-      // sets. The subtraction is that inversion, and it is the only place the
-      // two senses meet. The slider moves this and nothing else: the coast's
-      // launch speed is always the gesture's, or the seam comes back.
-      const friction = Math.max(0, Math.min(1, prefs?.trackpadZoomGlideFriction ?? 0.5));
+      // The slider reads as strength, like every other glide slider — turn it
+      // up, the coast runs longer — which is the same sense as the retention
+      // coefficient it sets, hence the addition. The slider moves this and
+      // nothing else: the coast's launch speed is always the gesture's, or the
+      // seam comes back.
+      const strength = Math.max(0, Math.min(1, prefs?.trackpadZoomGlideStrength ?? 0.5));
       ref.glideFriction = Math.max(
         TRACKPAD_ZOOM_GLIDE_FRICTION_MIN,
         Math.min(
           TRACKPAD_ZOOM_GLIDE_FRICTION_MAX,
-          TRACKPAD_ZOOM_GLIDE_FRICTION - (friction - 0.5) * TRACKPAD_ZOOM_GLIDE_FRICTION_SLIDER_RANGE
+          TRACKPAD_ZOOM_GLIDE_FRICTION + (strength - 0.5) * TRACKPAD_ZOOM_GLIDE_FRICTION_SLIDER_RANGE
         )
       );
     }
@@ -11932,16 +11933,20 @@ function NodeCanvas() {
       let momentumStarted = false;
       if (isPanningRef.current && panStartRef.current) {
         const source = panSourceRef.current;
-        // Glide (momentum panning) is opt-out per input modality. Touch glide is
-        // gated by touchSettings.glideEnabled; click (mouse) and trackpad glide
-        // by mouseSettings.glideEnabled. Both default to enabled.
+        // Glide (momentum panning) is opt-out per input modality, each with its
+        // own toggle + strength in Settings → Input: touch glide under Touch,
+        // trackpad two-finger pan glide under Trackpad, click-drag pan glide
+        // under Mouse. All default to enabled.
         const settings = useGraphStore.getState();
         const glideAllowed =
           source === 'touch' ? (settings.touchSettings?.glideEnabled !== false)
-          : (source === 'mouse' || source === 'trackpad') ? (settings.mouseSettings?.glideEnabled !== false)
+          : source === 'trackpad' ? (settings.touchSettings?.trackpadPanGlideEnabled !== false)
+          : source === 'mouse' ? (settings.mouseSettings?.glideEnabled !== false)
           : false;
         const glideStrength = source === 'touch'
           ? (settings.touchSettings?.glideStrength ?? 0.5)
+          : source === 'trackpad'
+          ? (settings.touchSettings?.trackpadPanGlideStrength ?? TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT)
           : (settings.mouseSettings?.glideStrength ?? 0.1);
         if (glideAllowed) {
           const isTouch = source === 'touch';
