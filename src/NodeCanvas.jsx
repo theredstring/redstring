@@ -4822,7 +4822,14 @@ function NodeCanvas() {
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
 
-  const [debugMode, setDebugMode] = useState(false);
+  // Owned by debugConfig rather than by this component: the switch now lives in
+  // the Settings modal, which is nowhere near here.
+  const [debugMode, setDebugMode] = useState(() => debugConfig.isDebugOverlayEnabled());
+  useEffect(() => {
+    const unsubscribe = debugConfig.addListener((config) => setDebugMode(!!config.showDebugOverlay));
+    setDebugMode(debugConfig.isDebugOverlayEnabled());
+    return unsubscribe;
+  }, []);
   // On-screen sync diagnostics (populated only while debugMode is on; primary
   // use-case is debugging the "Awaiting sync engine forever" symptom on
   // mobile where devtools aren't readily accessible).
@@ -7183,6 +7190,13 @@ function NodeCanvas() {
   const [autoGraphModalVisible, setAutoGraphModalVisible] = useState(false);
   const [forceSimModalVisible, setForceSimModalVisible] = useState(false);
   const [autoLayoutRunning, setAutoLayoutRunning] = useState(false);
+
+  // Opened from the Debug settings page, which has no way to reach this state.
+  useEffect(() => {
+    const handler = () => setAutoGraphModalVisible(true);
+    window.addEventListener('redstring:open-auto-graph-modal', handler);
+    return () => window.removeEventListener('redstring:open-auto-graph-modal', handler);
+  }, []);
 
 
   // Define carousel callbacks outside conditional rendering to avoid hook violations
@@ -14980,8 +14994,6 @@ function NodeCanvas() {
         onActionHoverChange={handlePieMenuHoverChange}
         isExclusivePanelMode={shouldPanelsBeExclusive}
         // Receive debug props
-        debugMode={debugMode}
-        setDebugMode={setDebugMode}
         trackpadZoomEnabled={trackpadZoomEnabled}
         onToggleTrackpadZoom={() => setTrackpadZoomEnabled(prev => !prev)}
         isFullscreen={isFullscreen}
@@ -14998,10 +15010,6 @@ function NodeCanvas() {
         onToggleEnableAutoRouting={storeActions.toggleEnableAutoRouting}
         onSetRoutingStyle={storeActions.setRoutingStyle}
         onSetManhattanBends={storeActions.setManhattanBends}
-        groupLayoutAlgorithm={groupLayoutAlgorithm}
-        onSetGroupLayoutAlgorithm={storeActions.setGroupLayoutAlgorithm}
-        showClusterHulls={showClusterHulls}
-        onToggleShowClusterHulls={storeActions.toggleShowClusterHulls}
 
         // Grid controls
         gridMode={gridMode}
@@ -15017,9 +15025,6 @@ function NodeCanvas() {
         onToggleDragZoom={() => useGraphStore.getState().toggleDragZoomEnabled()}
         onSetDragZoomAmount={(v) => useGraphStore.getState().setDragZoomAmount(v)}
 
-        onGenerateTestGraph={() => {
-          setAutoGraphModalVisible(true);
-        }}
         onOpenForceSim={() => {
           setForceSimModalVisible(true);
         }}

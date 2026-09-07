@@ -1,12 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Bot, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, MonitorDown, Link as LinkIcon } from 'lucide-react';
+import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, MonitorDown, Link as LinkIcon } from 'lucide-react';
 import './RedstringMenu.css';
 import { canOfferDesktopDownload, openDesktopDownload } from './utils/desktopDownload.js';
-import DebugOverlay from './DebugOverlay';
 import * as fileStorage from './store/fileStorage.js';
-import { debugConfig } from './utils/debugConfig.js';
-import { getStorageKey } from './utils/storageUtils.js';
 import useHistoryStore from './store/historyStore.js';
 import { performUndo, performRedo } from './store/historyActions.js';
 import useGraphStore from './store/graphStore.js';
@@ -14,9 +11,6 @@ import useGraphStore from './store/graphStore.js';
 const RedstringMenu = ({
   isOpen,
   onHoverView,
-  showDebugMenu = false,
-  debugMode,
-  setDebugMode,
   trackpadZoomEnabled,
   onToggleTrackpadZoom,
   isFullscreen,
@@ -32,11 +26,6 @@ const RedstringMenu = ({
   onToggleEnableAutoRouting,
   onSetRoutingStyle,
   onSetManhattanBends,
-  // Group layout
-  groupLayoutAlgorithm,
-  onSetGroupLayoutAlgorithm,
-  showClusterHulls,
-  onToggleShowClusterHulls,
   // Grid controls
   gridMode,
   onSetGridMode,
@@ -62,8 +51,6 @@ const RedstringMenu = ({
   onOpenRecentFile,
   onLoadWikidataCatalog,
   onLoadFromExternalLink,
-  // Auto-graph generation
-  onGenerateTestGraph,
   onOpenForceSim,
   onAutoLayoutGraph,
   onSnapToGrid,
@@ -76,20 +63,20 @@ const RedstringMenu = ({
 
   const [isExiting, setIsExiting] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
-  const [showDebugOption, setShowDebugOption] = useState(false);
   const [activeTopLevelMenu, setActiveTopLevelMenu] = useState(null); // Only ONE top-level menu open at a time
   const [activeNestedSubmenu, setActiveNestedSubmenu] = useState(null); // Nested submenu within the top-level
   const [isInteracting, setIsInteracting] = useState(false); // Guard to keep submenu open during slider drag
   const [recentFiles, setRecentFiles] = useState([]);
   // Track timeout for nested submenu closing only
   const nestedCloseTimeoutRef = useRef(null);
-  const [debugSettings, setDebugSettings] = useState(debugConfig.getConfig());
   // Same gate the canvas pill uses: a plain desktop browser only.
   const showDownload = useMemo(() => canOfferDesktopDownload(), []);
-  const menuItems = [...(showDownload ? ['Download'] : []), 'File', 'Edit', 'View', 'Connections', ...(showDebugMenu || showDebugOption ? ['Debug'] : []), 'Help'];
+  // Debug used to be a top-level menu here. It is a Settings page now — one
+  // surface for the switches, and one that works on a phone.
+  const menuItems = [...(showDownload ? ['Download'] : []), 'File', 'Edit', 'View', 'Connections', 'Help'];
   const menuRef = useRef(null);
 
-  const topLevelMenus = ['File', 'Edit', 'View', 'Connections', ...(showDebugMenu || showDebugOption ? ['Debug'] : []), 'Help'];
+  const topLevelMenus = ['File', 'Edit', 'View', 'Connections', 'Help'];
 
   // Helper functions for menu management
   const openTopLevelMenu = (name) => {
@@ -158,14 +145,6 @@ const RedstringMenu = ({
       return () => clearTimeout(timer);
     }
   }, [isOpen]);
-
-  // Listen for debug configuration changes
-  useEffect(() => {
-    const unsubscribe = debugConfig.addListener((newConfig) => {
-      setDebugSettings(newConfig);
-    });
-    return unsubscribe;
-  }, []);
 
   // Handle clicks outside the menu
   useEffect(() => {
@@ -914,207 +893,6 @@ const RedstringMenu = ({
                     )}
                   </div>
                 );
-              } else if (item === 'Debug') {
-                return (
-                  <div
-                    key={index}
-                    onMouseEnter={() => handleTopLevelMenuHover('Debug')}
-                    onMouseLeave={handleTopLevelMenuLeave}
-                    style={{ position: 'relative', width: '100%' }}
-                  >
-                    <button className="menu-item">
-                      <span>{item}</span>
-                      <ChevronRight size={16} className="menu-item-chevron" />
-                    </button>
-                    {isTopLevelMenuOpen('Debug') && (
-                      <div
-                        className="submenu-container"
-                        onMouseEnter={handleTopLevelSubmenuEnter}
-                        onMouseLeave={handleTopLevelMenuLeave}
-                      >
-                        <div
-                          className="submenu-item"
-                          onClick={() => {
-                            console.log('[DEBUG] Generate Test Graph clicked', { onGenerateTestGraph });
-                            closeAllMenus();
-                            if (onGenerateTestGraph) onGenerateTestGraph();
-                          }}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <LayoutGrid size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
-                          Generate Test Graph
-                        </div>
-
-                        <div
-                          className="submenu-item"
-                          onClick={() => debugConfig.setWizardEnabled(!debugSettings.enableWizard)}
-                          style={{ cursor: 'pointer', opacity: debugSettings.enableWizard ? 1 : 0.8 }}
-                        >
-                          <Bot size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
-                          {debugSettings.enableWizard ? 'Disable The Wizard' : 'Enable The Wizard'}
-                        </div>
-
-                        <div style={{ padding: '0 12px 8px 12px' }}>
-                          <div style={{ fontSize: '11px', color: '#BDB6B5', opacity: 0.6, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Layout Algorithm</div>
-                          <div
-                            className="submenu-item"
-                            onMouseEnter={handleRegularSubmenuItemHover}
-                            onClick={() => onSetGroupLayoutAlgorithm?.('pattern')}
-                            title="Detects each component's shape — tree, cycle, chain, star, pipeline — and lays it out predictably, reserving space for connection labels. Falls back to force for tangled graphs and for graphs with groups."
-                            style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'pattern' ? 1 : 0.8 }}
-                          >
-                            {groupLayoutAlgorithm === 'pattern' ? '✓ ' : ''}Pattern (Auto-Detect)
-                          </div>
-                          <div
-                            className="submenu-item"
-                            onMouseEnter={handleRegularSubmenuItemHover}
-                            onClick={() => onSetGroupLayoutAlgorithm?.('node-driven')}
-                            style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'node-driven' ? 1 : 0.8 }}
-                          >
-                            {groupLayoutAlgorithm === 'node-driven' ? '✓ ' : ''}Node-Driven (Force)
-                          </div>
-                          <div
-                            className="submenu-item"
-                            onMouseEnter={handleRegularSubmenuItemHover}
-                            onClick={() => onSetGroupLayoutAlgorithm?.('euler')}
-                            style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'euler' ? 1 : 0.8 }}
-                          >
-                            {groupLayoutAlgorithm === 'euler' ? '✓ ' : ''}Euler (Region-First)
-                          </div>
-                          <div
-                            className="submenu-item"
-                            onMouseEnter={handleRegularSubmenuItemHover}
-                            onClick={() => onSetGroupLayoutAlgorithm?.('hybrid')}
-                            style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'hybrid' ? 1 : 0.8 }}
-                          >
-                            {groupLayoutAlgorithm === 'hybrid' ? '✓ ' : ''}Hybrid
-                          </div>
-                        </div>
-
-                        <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
-
-                        <div
-                          className="submenu-item"
-                          onClick={() => setDebugMode(!debugMode)}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <Bug size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
-                          {debugMode ? 'Hide Debug Overlay' : 'Show Debug Overlay'}
-                        </div>
-
-                        <div
-                          className="submenu-item"
-                          onClick={async () => {
-                            try {
-                              // Clear onboarding flag
-                              localStorage.removeItem(getStorageKey('redstring-welcome-seen'));
-
-                              // Clear folder storage
-                              localStorage.removeItem(getStorageKey('redstring_workspace_folder_path'));
-
-                              // Clear IndexedDB folder storage
-                              indexedDB.deleteDatabase(getStorageKey('RedstringFolderStorage'));
-
-                              // Clear session flags
-                              sessionStorage.clear();
-
-                              console.log('[Debug] Onboarding state reset - reloading...');
-
-                              // Reload to trigger first-time flow
-                              window.location.reload();
-                            } catch (error) {
-                              console.error('[Debug] Failed to reset onboarding:', error);
-                            }
-                          }}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <RefreshCw size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
-                          Reset Onboarding Flow
-                        </div>
-
-                        <div
-                          className="submenu-item"
-                          onClick={() => {
-                            console.log('[Debug] Repair Graph Links clicked');
-                            closeAllMenus();
-                            useGraphStore.getState().repairGraphLinkages();
-                          }}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <RefreshCw size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
-                          Repair Broken Graph Links
-                        </div>
-
-                        <div
-                          className="submenu-item"
-                          onMouseEnter={handleRegularSubmenuItemHover}
-                          onClick={() => onToggleShowClusterHulls?.()}
-                          style={{ cursor: 'pointer', opacity: showClusterHulls ? 1 : 0.8 }}
-                        >
-                          {showClusterHulls ? '✓' : ''} Show Cluster Hulls (Connectivity)
-                        </div>
-
-                        <div
-                          className="submenu-item"
-                          onMouseEnter={handleRegularSubmenuItemHover}
-                          onClick={() => debugConfig.setNodeHitboxesEnabled(!debugSettings.showNodeHitboxes)}
-                          style={{ cursor: 'pointer', opacity: debugSettings.showNodeHitboxes ? 1 : 0.8 }}
-                        >
-                          {debugSettings.showNodeHitboxes ? '✓' : ''} Show Node Hitboxes
-                        </div>
-
-                        <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
-
-                        <div
-                          className="submenu-item"
-                          onClick={() => debugConfig.setLocalStorageDisabled(!debugSettings.disableLocalStorage)}
-                          style={{ cursor: 'pointer', opacity: debugSettings.disableLocalStorage ? 1 : 0.8 }}
-                        >
-                          {debugSettings.disableLocalStorage ? '✓' : ''} Disable Local Storage
-                        </div>
-
-                        <div
-                          className="submenu-item"
-                          onClick={() => debugConfig.setForceGitOnly(!debugSettings.forceGitOnly)}
-                          style={{ cursor: 'pointer', opacity: debugSettings.forceGitOnly ? 1 : 0.8 }}
-                        >
-                          {debugSettings.forceGitOnly ? '✓' : ''} Force Git-Only Mode
-                        </div>
-
-                        <div
-                          className="submenu-item"
-                          onClick={() => debugConfig.setDebugMode(!debugSettings.debugMode)}
-                          style={{ cursor: 'pointer', opacity: debugSettings.debugMode ? 1 : 0.8 }}
-                        >
-                          {debugSettings.debugMode ? '✓' : ''} Enable Debug Logging
-                        </div>
-
-                        <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
-
-                        <div
-                          className="submenu-item"
-                          onClick={() => {
-                            debugConfig.reset();
-                            setDebugMode(false);
-                          }}
-                          style={{ cursor: 'pointer', color: '#ff6b6b' }}
-                        >
-                          Reset All Debug Settings
-                        </div>
-
-                        <div
-                          className="submenu-item"
-                          onClick={() => {
-                            debugConfig.logToConsole();
-                          }}
-                          style={{ cursor: 'pointer', color: '#4ecdc4' }}
-                        >
-                          Show Debug Info in Console
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
               } else if (item === 'Help') {
                 return (
                   <div
@@ -1168,15 +946,6 @@ const RedstringMenu = ({
                         >
                           <Settings size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Settings
-                        </div>
-                        <div
-                          className="submenu-item"
-                          onMouseEnter={handleRegularSubmenuItemHover}
-                          onClick={() => setShowDebugOption(!showDebugOption)}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <Bug size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
-                          {showDebugOption ? 'Hide Debug Option' : 'Show Debug Option'}
                         </div>
                       </div>
                     )}

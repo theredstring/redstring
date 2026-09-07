@@ -7,6 +7,7 @@ import HeaderGraphTab from './HeaderGraphTab';
 import { showContextMenu } from './components/GlobalContextMenu';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { haptic, createDetentTrack } from './services/haptics.js';
+import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from './utils/debugUnlock.js';
 
 // Import all logo states
 import logo1 from './assets/redstring_button/header_logo_1.svg';
@@ -32,8 +33,6 @@ const Header = ({
   // Responsive layout
   isExclusivePanelMode = false,
   // Receive debug props
-  debugMode,
-  setDebugMode,
   // View option: trackpad zoom
   trackpadZoomEnabled,
   onToggleTrackpadZoom,
@@ -58,10 +57,6 @@ const Header = ({
   // Clean routing controls
   // Lombardi routing controls
   // Group layout
-  groupLayoutAlgorithm,
-  onSetGroupLayoutAlgorithm,
-  showClusterHulls,
-  onToggleShowClusterHulls,
   // Grid controls
   gridMode,
   onSetGridMode,
@@ -84,7 +79,6 @@ const Header = ({
   onExportTxt,
   onOpenRecentFile,
   onLoadFromExternalLink,
-  onGenerateTestGraph,
   onOpenForceSim,
   onAutoLayoutGraph,
   onCondenseNodes,
@@ -96,14 +90,6 @@ const Header = ({
   const [currentLogoIndex, setCurrentLogoIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
   const [imagesLoaded, setImagesLoaded] = useState(false);
-  // Show/Hide Debug Menu state
-  const [showDebugMenu, setShowDebugMenu] = useState(() => {
-    try {
-      return localStorage.getItem('redstring_show_debug_menu') === 'true';
-    } catch {
-      return false;
-    }
-  });
 
   // Detent spacing (px of scrollLeft) for the header tab strip. Tabs run
   // ~150-220px wide, so this is roughly two or three clicks per tab: enough to
@@ -320,14 +306,18 @@ const Header = ({
     e.preventDefault();
     e.stopPropagation();
 
+    // Read at click time: Settings can have unlocked or relocked this since the
+    // last render, and this menu is built fresh on every right-click anyway.
+    const unlocked = isDebugSettingsUnlocked();
     showContextMenu(e.clientX, e.clientY, [
       {
-        label: showDebugMenu ? 'Hide Debug Menu' : 'Show Debug Menu',
+        label: unlocked ? 'Hide Debug Settings' : 'Show Debug Settings',
         icon: <Bug size={14} />,
         action: () => {
-          const newState = !showDebugMenu;
-          setShowDebugMenu(newState);
-          localStorage.setItem('redstring_show_debug_menu', newState);
+          setDebugSettingsUnlocked(!unlocked);
+          if (!unlocked) {
+            window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { section: 'debug' } }));
+          }
         }
       }
     ]);
@@ -613,7 +603,6 @@ const Header = ({
           onContextMenu={handleLogoContextMenu}
         />
 
-        {/* Pass debug props to RedstringMenu here */}
         <RedstringMenu
           isOpen={isMenuOpen}
           onHoverView={(open) => {
@@ -623,9 +612,6 @@ const Header = ({
               setIsMenuOpen(true);
             }
           }}
-          showDebugMenu={showDebugMenu}
-          debugMode={debugMode}
-          setDebugMode={setDebugMode}
           trackpadZoomEnabled={trackpadZoomEnabled}
           onToggleTrackpadZoom={onToggleTrackpadZoom}
           isFullscreen={isFullscreen}
@@ -640,10 +626,6 @@ const Header = ({
           onToggleEnableAutoRouting={onToggleEnableAutoRouting}
           onSetRoutingStyle={onSetRoutingStyle}
           onSetManhattanBends={onSetManhattanBends}
-          groupLayoutAlgorithm={groupLayoutAlgorithm}
-          onSetGroupLayoutAlgorithm={onSetGroupLayoutAlgorithm}
-          showClusterHulls={showClusterHulls}
-          onToggleShowClusterHulls={onToggleShowClusterHulls}
           gridMode={gridMode}
           onSetGridMode={onSetGridMode}
           gridSize={gridSize}
@@ -663,7 +645,6 @@ const Header = ({
           onExportTxt={onExportTxt}
           onOpenRecentFile={onOpenRecentFile}
           onLoadFromExternalLink={onLoadFromExternalLink}
-          onGenerateTestGraph={onGenerateTestGraph}
           onOpenForceSim={onOpenForceSim}
           onAutoLayoutGraph={onAutoLayoutGraph}
           onCondenseNodes={onCondenseNodes}
@@ -711,7 +692,6 @@ const Header = ({
           onTouchStart={(e) => { e.stopPropagation(); toggleMenu(); }}
           onContextMenu={handleLogoContextMenu}
         />
-        {/* Pass debug props to RedstringMenu here */}
         <RedstringMenu
           isOpen={isMenuOpen}
           onHoverView={(open) => {
@@ -721,9 +701,6 @@ const Header = ({
               setIsMenuOpen(true);
             }
           }}
-          showDebugMenu={showDebugMenu}
-          debugMode={debugMode}
-          setDebugMode={setDebugMode}
           trackpadZoomEnabled={trackpadZoomEnabled}
           onToggleTrackpadZoom={onToggleTrackpadZoom}
           isFullscreen={isFullscreen}
@@ -738,10 +715,6 @@ const Header = ({
           onToggleEnableAutoRouting={onToggleEnableAutoRouting}
           onSetRoutingStyle={onSetRoutingStyle}
           onSetManhattanBends={onSetManhattanBends}
-          groupLayoutAlgorithm={groupLayoutAlgorithm}
-          onSetGroupLayoutAlgorithm={onSetGroupLayoutAlgorithm}
-          showClusterHulls={showClusterHulls}
-          onToggleShowClusterHulls={onToggleShowClusterHulls}
           gridMode={gridMode}
           onSetGridMode={onSetGridMode}
           gridSize={gridSize}
@@ -761,7 +734,6 @@ const Header = ({
           onExportTxt={onExportTxt}
           onOpenRecentFile={onOpenRecentFile}
           onLoadFromExternalLink={onLoadFromExternalLink}
-          onGenerateTestGraph={onGenerateTestGraph}
           onOpenForceSim={onOpenForceSim}
           onAutoLayoutGraph={onAutoLayoutGraph}
           onCondenseNodes={onCondenseNodes}

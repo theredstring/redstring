@@ -11,6 +11,10 @@ const DEBUG_STORAGE_KEYS = {
   LOG_LEVEL: 'redstring_debug_log_level',
   ENABLE_WIZARD: 'redstring_debug_enable_wizard',
   SHOW_NODE_HITBOXES: 'redstring_debug_show_node_hitboxes',
+  // Was NodeCanvas-local `useState` while the only way to toggle it was the
+  // Debug menu rendered beside it. The Settings page is nowhere near NodeCanvas,
+  // so it lives here with the other debug flags and NodeCanvas subscribes.
+  SHOW_DEBUG_OVERLAY: 'redstring_debug_show_overlay',
   WIZARD_CONNECTION_PREF: 'redstring_wizard_connection_pref',
   WIZARD_NODE_PREF: 'redstring_wizard_node_pref'
 };
@@ -46,6 +50,7 @@ class DebugConfig {
         logLevel: 'info',
         enableWizard: true,
         showNodeHitboxes: false,
+        showDebugOverlay: false,
         wizardConnectionPref: 'ask',
         wizardNodePref: 'ask'
       };
@@ -64,6 +69,7 @@ class DebugConfig {
         logLevel: this.getStringSetting(DEBUG_STORAGE_KEYS.LOG_LEVEL, 'info'),
         enableWizard: this.getBooleanSetting(DEBUG_STORAGE_KEYS.ENABLE_WIZARD, true),
         showNodeHitboxes: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_NODE_HITBOXES, false),
+        showDebugOverlay: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_DEBUG_OVERLAY, false),
         wizardConnectionPref: WIZARD_PREF_VALUES.includes(storedConnectionPref) ? storedConnectionPref : 'ask',
         wizardNodePref: WIZARD_PREF_VALUES.includes(storedNodePref) ? storedNodePref : 'ask'
       };
@@ -108,6 +114,7 @@ class DebugConfig {
         logLevel: 'info',
         enableWizard: false,
         showNodeHitboxes: false,
+        showDebugOverlay: false,
         wizardConnectionPref: 'ask',
         wizardNodePref: 'ask'
       };
@@ -189,6 +196,11 @@ class DebugConfig {
     return this.config.showNodeHitboxes || false;
   }
 
+  // Check if the on-canvas debug overlay should be shown
+  isDebugOverlayEnabled() {
+    return this.config.showDebugOverlay || false;
+  }
+
   // Wizard connection preference: 'ask' (default), 'new', or 'current'
   getWizardConnectionPref() {
     const v = this.config.wizardConnectionPref;
@@ -254,6 +266,14 @@ class DebugConfig {
     console.log(`[DebugConfig] Node hitboxes ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
 
+  // Show/hide the on-canvas debug overlay
+  setDebugOverlayEnabled(enabled) {
+    this.config.showDebugOverlay = enabled;
+    this.setSetting(DEBUG_STORAGE_KEYS.SHOW_DEBUG_OVERLAY, enabled);
+    this.notifyListeners();
+    console.log(`[DebugConfig] Debug overlay ${enabled ? 'ENABLED' : 'DISABLED'}`);
+  }
+
   // Set wizard connection preference: 'ask' | 'new' | 'current'
   setWizardConnectionPref(value) {
     const next = WIZARD_PREF_VALUES.includes(value) ? value : 'ask';
@@ -282,6 +302,7 @@ class DebugConfig {
         logLevel: 'info',
         enableWizard: false,
         showNodeHitboxes: false,
+        showDebugOverlay: false,
         wizardConnectionPref: 'ask',
         wizardNodePref: 'ask'
       };
@@ -301,6 +322,7 @@ class DebugConfig {
         logLevel: 'info',
         enableWizard: false,
         showNodeHitboxes: false,
+        showDebugOverlay: false,
         wizardConnectionPref: 'ask',
         wizardNodePref: 'ask'
       };

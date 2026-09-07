@@ -1,12 +1,22 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import CanvasModal from './CanvasModal';
 import MaroonSlider from './MaroonSlider.jsx';
 import useGraphStore, { TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT } from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
-import { Monitor, Grid3x3, Cable, Keyboard, Scaling, PanelBottom, Brain, Info, X } from 'lucide-react';
+import { Monitor, Grid3x3, Cable, Keyboard, Scaling, PanelBottom, Brain, Info, Bug, X } from 'lucide-react';
 import AISection from './settings/AISection.jsx';
+import DebugSection from './settings/DebugSection.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
+import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
 import './ModalChrome.css';
+
+/**
+ * How the Debug page is reached: five taps on About, either on the sidebar item
+ * or on the version number — the version is the only one of the two a phone
+ * has, since the sidebar collapses to a <select> there and re-picking the
+ * option it already shows fires nothing.
+ */
+const DEBUG_UNLOCK_TAPS = 5;
 
 /**
  * Settings Modal
@@ -16,6 +26,16 @@ import './ModalChrome.css';
 const SettingsModal = ({ isVisible, onClose }) => {
   const theme = useTheme();
   const [activeSection, setActiveSection] = useState('display');
+  const [debugUnlocked, setDebugUnlocked] = useState(isDebugSettingsUnlocked);
+  const [aboutTaps, setAboutTaps] = useState(0);
+  // The header logo's context menu can flip this while the modal is mounted but
+  // hidden, so re-read on the way in rather than trusting the mount-time value.
+  const sectionsRef = useRef(null);
+  React.useEffect(() => {
+    if (!isVisible) return;
+    setDebugUnlocked(isDebugSettingsUnlocked());
+    setAboutTaps(0);
+  }, [isVisible]);
   const [viewportSize, setViewportSize] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
     height: typeof window !== 'undefined' ? window.innerHeight : 900
@@ -35,9 +55,19 @@ const SettingsModal = ({ isVisible, onClose }) => {
   // Handle opening to specific section via event
   React.useEffect(() => {
     const handleOpenSettings = (e) => {
-      if (e.detail?.section && sections[e.detail.section]) {
-        setActiveSection(e.detail.section);
+      const requested = e.detail?.section;
+      if (!requested) return;
+      // Debug is asked for by the same gesture that reveals it, so this render
+      // has not built the section yet. Trust the stored flag instead.
+      if (requested === 'debug') {
+        if (!isDebugSettingsUnlocked()) return;
+        setDebugUnlocked(true);
+        setActiveSection('debug');
+        return;
       }
+      // Everything else goes through a ref: `sections` changes shape after this
+      // listener is bound, and the closure holds the first render's copy.
+      if (sectionsRef.current?.[requested]) setActiveSection(requested);
     };
     window.addEventListener('openSettingsModal', handleOpenSettings);
     return () => window.removeEventListener('openSettingsModal', handleOpenSettings);
@@ -92,6 +122,27 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const showGroupControlPanel = useGraphStore(s => s.showGroupControlPanel ?? true);
   const showAbstractionControlPanel = useGraphStore(s => s.showAbstractionControlPanel ?? true);
 
+  // Counting happens on the way in, so the fifth tap is the one that reveals it.
+  const registerAboutTap = () => {
+    if (debugUnlocked) return;
+    const next = aboutTaps + 1;
+    if (next >= DEBUG_UNLOCK_TAPS) {
+      setDebugSettingsUnlocked(true);
+      setDebugUnlocked(true);
+      setAboutTaps(0);
+      return;
+    }
+    setAboutTaps(next);
+  };
+
+  const relockDebug = () => {
+    setDebugSettingsUnlocked(false);
+    // Leave first — the section this is called from is about to stop existing.
+    setActiveSection('about');
+    setDebugUnlocked(false);
+    setAboutTaps(0);
+  };
+
   const isCompactLayout = viewportSize.width <= 768;
   const modalWidth = isCompactLayout
     ? Math.min(Math.max(viewportSize.width - 24, 320), 600)
@@ -140,8 +191,11 @@ const SettingsModal = ({ isVisible, onClose }) => {
     grid: <Grid3x3 size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     connections: <Cable size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     keyboard: <Keyboard size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
-    about: <Info size={16} style={{ minWidth: '16px', flexShrink: 0 }} />
+    about: <Info size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
+    debug: <Bug size={16} style={{ minWidth: '16px', flexShrink: 0 }} />
   };
+
+  const tapsRemaining = DEBUG_UNLOCK_TAPS - aboutTaps;
 
   const sections = {
     display: {
@@ -825,13 +879,35 @@ const SettingsModal = ({ isVisible, onClose }) => {
             }}>
               Redstring
             </span>
-            <span style={{
-              fontSize: '0.75rem',
-              color: theme.canvas.textSecondary,
-              marginLeft: '10px'
-            }}>
+            {/* Also the way in to the Debug page, and the only way in on a
+                phone. Styled as plain text — it is meant to be found, not
+                advertised. */}
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={registerAboutTap}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); registerAboutTap(); } }}
+              style={{
+                fontSize: '0.75rem',
+                color: theme.canvas.textSecondary,
+                marginLeft: '10px',
+                cursor: 'default',
+                userSelect: 'none',
+                WebkitTapHighlightColor: 'transparent'
+              }}
+            >
               v{import.meta.env.VITE_APP_VERSION}
             </span>
+            {!debugUnlocked && aboutTaps > 0 && tapsRemaining <= 3 && (
+              <div style={{ marginTop: '6px', fontSize: '0.72rem', color: theme.canvas.textSecondary }}>
+                {tapsRemaining} more to show debug settings
+              </div>
+            )}
+            {debugUnlocked && (
+              <div style={{ marginTop: '6px', fontSize: '0.72rem', color: theme.canvas.textSecondary }}>
+                Debug settings are showing at the bottom of the list.
+              </div>
+            )}
           </div>
           <div style={{
             fontSize: '0.8rem',
@@ -869,6 +945,20 @@ const SettingsModal = ({ isVisible, onClose }) => {
       )
     }
   };
+
+  // Last in the list, and only once it has been asked for.
+  if (debugUnlocked) {
+    sections.debug = {
+      title: 'Debug',
+      content: <DebugSection onCloseSettings={onClose} onRelock={relockDebug} />
+    };
+  }
+
+  sectionsRef.current = sections;
+
+  // A relock drops the section out from under the page rendering it, and the
+  // event listener above can be handed any string at all.
+  const activeSectionData = sections[activeSection] || sections.display;
 
   const modalContent = (
     <div
@@ -916,7 +1006,12 @@ const SettingsModal = ({ isVisible, onClose }) => {
               type="button"
               className={`modal-nav-item ${activeSection === key ? 'active' : ''}`}
               aria-current={activeSection === key ? 'true' : undefined}
-              onClick={() => setActiveSection(key)}
+              onClick={() => {
+                // Any other destination is the user going somewhere, which
+                // means the run of About taps is over.
+                if (key === 'about') registerAboutTap(); else setAboutTaps(0);
+                setActiveSection(key);
+              }}
             >
               {sectionIcons[key]}
               {sections[key].title}
@@ -943,7 +1038,10 @@ const SettingsModal = ({ isVisible, onClose }) => {
               className="modal-input"
               aria-label="Settings section"
               value={activeSection}
-              onChange={(e) => setActiveSection(e.target.value)}
+              onChange={(e) => {
+                if (e.target.value !== 'about') setAboutTaps(0);
+                setActiveSection(e.target.value);
+              }}
             >
               {Object.keys(sections).map((key) => (
                 <option key={key} value={key}>
@@ -959,14 +1057,14 @@ const SettingsModal = ({ isVisible, onClose }) => {
           color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '1.3rem' : '1.5rem'
         }}>
-          {sections[activeSection].title}
+          {activeSectionData.title}
         </h2>
 
         <div style={{
           lineHeight: '1.6',
           color: theme.canvas.textSecondary
         }}>
-          {sections[activeSection].content}
+          {activeSectionData.content}
         </div>
       </div>
     </div>
