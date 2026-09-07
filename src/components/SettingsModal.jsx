@@ -66,7 +66,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const trackpadZoomGlideStrength = useGraphStore(s => s.touchSettings?.trackpadZoomGlideStrength ?? 0.5);
   const trackpadPanGlideEnabled = useGraphStore(s => s.touchSettings?.trackpadPanGlideEnabled ?? true);
   const trackpadPanGlideStrength = useGraphStore(s => s.touchSettings?.trackpadPanGlideStrength ?? TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT);
-  const mouseGlideStrength = useGraphStore(s => s.mouseSettings?.glideStrength ?? 0.1);
+  const mouseGlideStrength = useGraphStore(s => s.mouseSettings?.glideStrength ?? 0.5);
   const nodeLiftDelay = useGraphStore(s => s.mouseSettings?.nodeLiftDelay ?? 250);
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
   const touchPinchGlideEnabled = useGraphStore(s => s.touchSettings?.pinchGlideEnabled ?? true);
@@ -665,7 +665,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-section-subtitle">Mouse</div>
           <div className="settings-row settings-row--attached">
             <div className="settings-row-label">
-              Mouse Glide
+              Pan Glide
               <div className="settings-row-description">Keep panning with momentum after you release a click-drag pan</div>
             </div>
             <Toggle
@@ -675,7 +675,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           </div>
           <div className="settings-slider-row">
             <MaroonSlider
-              value={mouseGlideStrength ?? 0.1}
+              value={mouseGlideStrength ?? 0.5}
               min={0.1}
               max={1.0}
               step={0.05}

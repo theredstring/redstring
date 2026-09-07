@@ -393,6 +393,11 @@ const NODE_GROUP_INTERIOR_TINT = 0.07;
 // before it starts retracting. See handlePieMenuHoverChange.
 const VISION_AID_TOUCH_HOLD_MS = 1000;
 const TRACKPAD_PAN_FRICTION = 0.94;             // per-frame retention for trackpad glide
+// Per-frame retention for click-drag glide. Its own base rather than touch's,
+// so the Mouse slider's default can sit at the midpoint like every other glide
+// slider instead of pinned to the floor: this is exactly what the old scale
+// produced at 0.1 (TOUCH_PAN_FRICTION - 0.4 * GLIDE_STRENGTH_FRICTION_RANGE).
+const MOUSE_PAN_FRICTION = 0.872;
 const PAN_MOMENTUM_FRAME = 16.67;               // baseline frame duration (ms) for damping scaling
 const TOUCH_PAN_MOMENTUM_BOOST = 1.0;           // no amplification — launch momentum at the actual finger release velocity (boost made low/mid flicks feel jumpy)
 const TRACKPAD_PAN_MOMENTUM_BOOST = 1.1;        // marginally higher boost for precision trackpads
@@ -3062,7 +3067,9 @@ function NodeCanvas() {
     }
     stopPanMomentum();
     const boost = source === 'trackpad' ? TRACKPAD_PAN_MOMENTUM_BOOST : TOUCH_PAN_MOMENTUM_BOOST;
-    let frictionBase = source === 'trackpad' ? TRACKPAD_PAN_FRICTION : TOUCH_PAN_FRICTION;
+    let frictionBase = source === 'trackpad' ? TRACKPAD_PAN_FRICTION
+      : source === 'mouse' ? MOUSE_PAN_FRICTION
+      : TOUCH_PAN_FRICTION;
     const vx = initialVx * boost;
     const vy = initialVy * boost;
     const launchSpeed = Math.hypot(vx, vy);
@@ -11947,7 +11954,7 @@ function NodeCanvas() {
           ? (settings.touchSettings?.glideStrength ?? 0.5)
           : source === 'trackpad'
           ? (settings.touchSettings?.trackpadPanGlideStrength ?? TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT)
-          : (settings.mouseSettings?.glideStrength ?? 0.1);
+          : (settings.mouseSettings?.glideStrength ?? 0.5);
         if (glideAllowed) {
           const isTouch = source === 'touch';
           // Mouse and touch are motion-driven (events only fire while moving), so

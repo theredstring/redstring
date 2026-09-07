@@ -1594,9 +1594,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const connectionDrawEdgePanEnabled = cdepRaw === null ? true : cdepRaw === 'true';
         const glideRaw = localStorage.getItem('redstring_mouse_glide_enabled');
         const glideEnabled = glideRaw === null ? true : glideRaw === 'true';
-        const glideStrengthRaw = localStorage.getItem('redstring_mouse_glide_strength');
-        let glideStrength = glideStrengthRaw !== null ? parseFloat(glideStrengthRaw) : 0.1;
-        if (!Number.isFinite(glideStrength)) glideStrength = 0.1;
+        // Versioned key: the default moved from 0.1 to the 0.5 midpoint and the
+        // glide layer gained a mouse-specific base friction to match, so the
+        // same number means a different coast under the new scale. Starting a
+        // fresh key lets the recentred default apply instead of being overridden
+        // by a value chosen against the old range.
+        const glideStrengthRaw = localStorage.getItem('redstring_mouse_glide_strength_v2');
+        let glideStrength = glideStrengthRaw !== null ? parseFloat(glideStrengthRaw) : 0.5;
+        if (!Number.isFinite(glideStrength)) glideStrength = 0.5;
         glideStrength = Math.max(0.0, Math.min(1.0, glideStrength));
         const liftDelayRaw = localStorage.getItem('redstring_node_lift_delay');
         let nodeLiftDelay = liftDelayRaw !== null ? parseFloat(liftDelayRaw) : 250;
@@ -1604,7 +1609,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         nodeLiftDelay = Math.max(50, Math.min(1000, nodeLiftDelay));
         return { middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay };
       } catch (_) {
-        return { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.1, nodeLiftDelay: 250 };
+        return { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.5, nodeLiftDelay: 250 };
       }
     })(),
 
@@ -6410,7 +6415,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     /** Toggles momentum/glide panning for mouse click-drag. Persists to localStorage. */
     toggleMouseGlide: () => set(produce((draft) => {
-      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.1 };
+      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.5 };
       draft.mouseSettings.glideEnabled = draft.mouseSettings.glideEnabled === false;
       try {
         localStorage.setItem('redstring_mouse_glide_enabled', String(draft.mouseSettings.glideEnabled));
@@ -6427,10 +6432,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         console.warn(`[setMouseGlideStrength] Invalid value: ${value}`);
         return;
       }
-      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.1 };
+      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.5 };
       draft.mouseSettings.glideStrength = v;
       try {
-        localStorage.setItem('redstring_mouse_glide_strength', String(v));
+        localStorage.setItem('redstring_mouse_glide_strength_v2', String(v));
       } catch (_) { }
     })),
 
@@ -6444,7 +6449,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         console.warn(`[setNodeLiftDelay] Invalid value: ${value}`);
         return;
       }
-      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.1, nodeLiftDelay: 250 };
+      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.5, nodeLiftDelay: 250 };
       draft.mouseSettings.nodeLiftDelay = v;
       try {
         localStorage.setItem('redstring_node_lift_delay', String(v));
