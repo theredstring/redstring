@@ -18,6 +18,7 @@ vi.mock('./ContextBuilder.js', () => ({
   buildContext: vi.fn(() => 'Mock context'),
   buildPersistentContextHeader: vi.fn(() => 'Mock persistent context'),
   buildPlanContext: vi.fn(() => 'Mock plan context'),
+  buildGoalContext: vi.fn(() => 'Mock goal context'),
   truncateContext: vi.fn((ctx) => ctx)
 }));
 
@@ -979,6 +980,133 @@ describe('AgentLoop', () => {
       expect(toolCalls.length).toBe(2);
       expect(toolResults.length).toBe(2);
       expect(executeTool).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('Goal Based mode', () => {
+    const openGoal = {
+      goal: 'Show why transistors leak',
+      satisfiedWhen: 'Leakage Current connects to three physical causes',
+      failsIf: ['Only one cause is present'],
+      status: 'open',
+      verdict: ''
+    };
+    const goalConfig = { ...mockConfig, wizardMode: 'goal' };
+
+    it('holds the turn open on a text-only reply while the goal is unjudged', async () => {
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'All built.' };
+      });
+
+      const events = [];
+      for await (const event of runAgent('Build it', { ...mockGraphState, _currentGoal: openGoal }, goalConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+        if (events.length > 50) break;
+      }
+
+      const steering = events.filter(e => e.type === 'steering');
+      expect(steering.length).toBeGreaterThan(0);
+      expect(steering[0].kind).toBe('goal_unjudged');
+      expect(steering[0].content).toContain('declareGoal');
+
+      const doneEvent = events[events.length - 1];
+      expect(doneEvent.reason).toBe('nudge_limit');
+      expect(doneEvent.goalOpen).toBe(true);
+    });
+
+    it('lets the model hand control back with a question, leaving the goal open', async () => {
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'Should leakage include thermal noise?' };
+      });
+
+      const events = [];
+      for await (const event of runAgent('Build it', { ...mockGraphState, _currentGoal: openGoal }, goalConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      expect(events.some(e => e.type === 'steering')).toBe(false);
+      expect(events[events.length - 1].reason).toBe('model_done');
+    });
+
+    it('ends on the verdict even when the plan is unfinished', async () => {
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'Satisfied: three causes are connected.' };
+      });
+
+      const state = {
+        ...mockGraphState,
+        _currentGoal: { ...openGoal, status: 'satisfied', verdict: 'Subthreshold, Tunneling, Junction all connect.' },
+        _currentPlan: [{ description: 'Optional polish', status: 'pending' }, { description: 'Build', status: 'done' }]
+      };
+
+      const events = [];
+      for await (const event of runAgent('Build it', state, goalConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      expect(events.some(e => e.type === 'steering')).toBe(false);
+      const doneEvent = events[events.length - 1];
+      expect(doneEvent.reason).toBe('goal_satisfied');
+      expect(doneEvent.goal.status).toBe('satisfied');
+    });
+
+    it('ignores a leftover goal in Plan Based mode', async () => {
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'Done.' };
+      });
+
+      const state = { ...mockGraphState, _currentGoal: openGoal };
+      const events = [];
+      for await (const event of runAgent('Build it', state, mockConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      expect(events.some(e => e.type === 'steering')).toBe(false);
+      expect(events[events.length - 1].reason).toBe('model_done');
+      expect(state._currentGoal).toBeUndefined();
+      expect(state._wizardMode).toBe('plan');
+    });
+
+    it('asks for the verdict after a declareGoal call settles the goal', async () => {
+      let iteration = 0;
+      streamLLM.mockImplementation(async function* () {
+        if (iteration === 0) {
+          yield { type: 'tool_call', name: 'declareGoal', args: { ...openGoal, status: 'satisfied', verdict: 'All three connect.' }, id: 'call-goal' };
+          iteration++;
+        } else {
+          yield { type: 'text', content: 'Verdict: satisfied.' };
+        }
+      });
+      executeTool.mockResolvedValue({
+        action: 'declareGoal',
+        goal: { ...openGoal, status: 'satisfied', verdict: 'All three connect.' },
+        settled: true,
+        goalText: 'Goal [SATISFIED]: Show why transistors leak'
+      });
+
+      const events = [];
+      for await (const event of runAgent('Build it', { ...mockGraphState }, goalConfig, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      const steering = events.filter(e => e.type === 'steering');
+      expect(steering.map(e => e.kind)).toContain('goal_settled');
+      expect(events[events.length - 1].reason).toBe('goal_satisfied');
+    });
+
+    it('falls back to Plan Based for small models', async () => {
+      streamLLM.mockImplementation(async function* () {
+        yield { type: 'text', content: 'Done.' };
+      });
+
+      const state = { ...mockGraphState, _currentGoal: openGoal };
+      const events = [];
+      for await (const event of runAgent('Build it', state, { ...goalConfig, modelTier: 'small' }, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      expect(state._wizardMode).toBe('plan');
+      expect(events.some(e => e.type === 'steering')).toBe(false);
     });
   });
 });

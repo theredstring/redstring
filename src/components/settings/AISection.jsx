@@ -6,6 +6,8 @@ import apiKeyManager from '../../services/apiKeyManager.js';
 import { useProviderModels } from '../../hooks/useProviderModels.js';
 import { getProviderLabel } from '../../services/modelCatalog.js';
 import debugConfig from '../../utils/debugConfig.js';
+import { useWizardMode } from '../../hooks/useWizardMode.js';
+import { WIZARD_MODE_OPTIONS } from '../../wizard/wizardMode.js';
 import './AISection.css';
 
 /**
@@ -94,6 +96,7 @@ const AISection = () => {
   const [maxIterationsCloud, setMaxIterationsCloud] = useState(() => readStoredIterations('rs.wizard.maxIterationsCloud', 77));
   const [connectionTestResult, setConnectionTestResult] = useState(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [wizardMode, setWizardMode] = useWizardMode();
   const [wizardConnectionPref, setWizardConnectionPref] = useState(() => {
     try { return debugConfig.getWizardConnectionPref(); } catch { return 'ask'; }
   });
@@ -990,6 +993,29 @@ const AISection = () => {
           <span style={{ minWidth: '32px', textAlign: 'right', fontSize: '0.8rem' }}>
             {maxIterationsCloud === 0 ? '∞' : maxIterationsCloud}
           </span>
+        </div>
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-label">
+          Wizard mode
+          <div className="settings-row-description">
+            Plan Based ends a turn when every plan step is settled. Goal Based makes the Wizard
+            declare what it is after and what would satisfy it before building, and ends on a verdict.
+          </div>
+        </div>
+        <div className="settings-option-group">
+          {WIZARD_MODE_OPTIONS.map(opt => (
+            <PanelIconButton
+              key={opt.value}
+              label={opt.label}
+              labelFontSize={11}
+              variant="outline"
+              active={wizardMode === opt.value}
+              onClick={() => setWizardMode(opt.value)}
+              style={{ padding: '5px 12px' }}
+            />
+          ))}
         </div>
       </div>
 

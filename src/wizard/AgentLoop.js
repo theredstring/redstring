@@ -6,14 +6,16 @@
  */
 
 import { callLLM, streamLLM } from './LLMClient.js';
-import { buildContext, buildPersistentContextHeader, buildPlanContext, truncateContext } from './ContextBuilder.js';
+import { buildContext, buildPersistentContextHeader, buildPlanContext, buildGoalContext, truncateContext } from './ContextBuilder.js';
 import { MAX_TOOL_RESULT_CHARS, estimateObjectTokens, estimateTokens } from './tokenEstimate.js';
 import { isSettled, renderPlanText } from './tools/planTask.js';
+import { isGoalSettled, renderGoalText } from './tools/declareGoal.js';
+import { normalizeWizardMode, WIZARD_MODE_GOAL } from './wizardMode.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
 import { selectToolsForTurn } from './tools/schemas.js';
 import { buildRequestMessages } from './requestMessages.js';
 import { dedupeHistory, dedupKeyFor } from './historyDedup.js';
-import { WIZARD_SYSTEM_PROMPT, SMALL_MODEL_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
+import { WIZARD_SYSTEM_PROMPT, SMALL_MODEL_SYSTEM_PROMPT, GOAL_MODE_PROMPT_ADDENDUM } from '../services/agent/WizardPrompt.js';
 import { parseTextToolCalls } from './utils/parseTextToolCalls.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 import { readIsAList, findByLooseName, DEFAULT_ABSTRACTION_DIMENSION } from './tools/utils/abstractionSpec.js';
@@ -1035,6 +1037,10 @@ export function updateGraphState(graphState, _toolName, _args, result) {
     graphState._currentPlan = result.steps;
     const settled = result.steps.filter(isSettled).length;
     console.error('[updateGraphState] planTask: updated plan', settled + '/' + result.steps.length, 'settled');
+  } else if (result.action === 'declareGoal' && result.goal) {
+    // Goal Based mode: lives beside the plan, for context injection only.
+    graphState._currentGoal = result.goal;
+    console.error('[updateGraphState] declareGoal:', result.goal.status, '-', result.goal.goal);
   } else if (result.action === 'mergeNodes') {
     // Remove secondary prototype and remap its instances to primary
     const primaryName = (result.primaryName || '').toLowerCase().trim();
@@ -1124,12 +1130,20 @@ const DEFAULT_MAX_ITERATIONS = 77;
  * (createNode/createEdge/createGraph/expandGraph/populateDefinitionGraph/… ).
  */
 const NON_MUTATING_TOOLS = new Set([
-  'planTask', 'sketchGraph', 'readGraph', 'search', 'selectNode', 'getNodeContext',
+  'planTask', 'declareGoal', 'sketchGraph', 'readGraph', 'search', 'selectNode', 'getNodeContext',
   'inspectPrototype', 'inspectWorkspace', 'listTools', 'askMultipleChoice'
 ]);
 
 /** Max planTask calls permitted per user turn (hard cap, all tiers). */
 const MAX_PLANTASK_CALLS = 3;
+
+/**
+ * Max declareGoal calls per user turn that leave the goal OPEN: a declaration
+ * and up to three revisions. Beyond that the model is negotiating with its
+ * own goal instead of building toward it. Verdict calls are never capped —
+ * a goal the model can no longer judge is a turn that can never end.
+ */
+const MAX_DECLAREGOAL_CALLS = 4;
 
 /**
  * Watchdog for a single tool call. Note this cannot interrupt a *synchronous*
@@ -1333,9 +1347,20 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   });
 
   const modelTier = config.modelTier || 'large';
-  const baseSystemPrompt = config.systemPrompt
+  // Goal Based mode (see wizardMode.js): a declared goal, not the plan, ends
+  // the turn. Small models cannot maintain model-owned state — planTask is
+  // withheld from them for exactly that reason — so the goal contract is too;
+  // they run Plan Based whatever the setting says.
+  const wizardMode = normalizeWizardMode(config.wizardMode);
+  const goalMode = wizardMode === WIZARD_MODE_GOAL && modelTier !== 'small';
+  graphState._wizardMode = goalMode ? WIZARD_MODE_GOAL : 'plan';
+  if (wizardMode === WIZARD_MODE_GOAL && !goalMode) {
+    console.error('[AgentLoop] Goal Based mode requested but the model tier is small — running Plan Based.');
+  }
+  const baseSystemPrompt = (config.systemPrompt
     || (modelTier === 'small' ? SMALL_MODEL_SYSTEM_PROMPT : SYSTEM_PROMPT)
-    || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
+    || 'You are The Wizard, a helpful assistant for building knowledge graphs.')
+    + (goalMode ? GOAL_MODE_PROMPT_ADDENDUM : '');
 
   // Truncate context for small models — they have limited context budgets
   if (modelTier === 'small') {
@@ -1512,6 +1537,18 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     console.error(`[AgentLoop] Resuming a carried-over plan: ${settledCount}/${graphState._currentPlan.length} settled.`);
   }
 
+  // Same for a goal: one present before the first call was seeded from the
+  // durable store and is still open (a verdict retires it on apply). In Plan
+  // Based mode a leftover goal is dropped, not judged — the contract is off.
+  if (!goalMode) delete graphState._currentGoal;
+  let goalWasResumed = goalMode && !!graphState._currentGoal && !isGoalSettled(graphState._currentGoal);
+  if (goalWasResumed) {
+    console.error(`[AgentLoop] Resuming a carried-over goal: ${graphState._currentGoal.goal}`);
+  }
+  // Identity of the goal in effect, for the same no-op detection planTask gets.
+  let lastAppliedGoalText = goalMode && graphState._currentGoal ? renderGoalText(graphState._currentGoal) : null;
+  let declareGoalCallCount = 0;
+
   // Tool selection is FROZEN for the whole ask.
   //
   // It used to be recomputed every iteration, and selectToolsForTurn gates on
@@ -1561,7 +1598,10 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       const planCtx = graphState._currentPlan
         ? buildPlanContext(graphState._currentPlan, iteration, maxIterations, { isResumed: planWasResumed })
         : '';
-      volatileContext = freshContext + planCtx;
+      const goalCtx = goalMode && graphState._currentGoal
+        ? buildGoalContext(graphState._currentGoal, { isResumed: goalWasResumed, plan: graphState._currentPlan })
+        : '';
+      volatileContext = freshContext + planCtx + goalCtx;
     }
     // Collapse read-only results that a later read of the same target has made
     // obsolete. Rewriting history mid-array does cost one cache write, but a
@@ -1945,8 +1985,24 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       if (iterationToolCalls.length === 0) {
         const plan = graphState._currentPlan;
         const planIncomplete = plan && plan.length > 0 && !plan.every(isSettled);
+        // A reply that closes by asking the user something ("Want me to ...?", "Or should
+        // we ...?") is the model deliberately handing control back, not a stalled plan.
+        // Nudging there makes it answer its own question and act without consent.
+        const modelEndedWithQuestion = /\?["')\]*_]*$/.test(iterationContent.trim());
 
-        if (planIncomplete) {
+        // Goal Based: a declared goal, not the plan, is the termination contract.
+        // Judged → the turn ends on this reply whatever the plan says. Open → it
+        // governs the gates below in place of the plan.
+        const goal = goalMode ? graphState._currentGoal : null;
+        if (goal && isGoalSettled(goal)) {
+          const reason = goal.status === 'satisfied' ? 'goal_satisfied' : 'goal_failed';
+          console.error(`[AgentLoop] ✓ Goal ${goal.status} and the model replied with text. Stopping.`);
+          yield { type: 'done', iterations: iteration + 1, reason, goal, planDone: plan ? plan.filter(isSettled).length : 0, planTotal: plan ? plan.length : 0 };
+          return;
+        }
+        const goalGoverns = !!goal;
+
+        if (planIncomplete && !goalGoverns) {
           const doneCount = plan.filter(isSettled).length;
 
           // Completion-signal reconciliation. A text-only response here means the model
@@ -2004,10 +2060,24 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         // asks, where nudging pushes the model into unrequested edits.
         const userMsgIsTaskLike = userMessageText.trim().length > 15
           && /\b(build|creat\w*|map|maps|mapping|graph|make|design|show|add|defin\w*|populate|explore|generate|construct|plan)\b/i.test(userMessageText);
-        // A reply that closes by asking the user something ("Want me to ...?", "Or should
-        // we ...?") is the model deliberately handing control back, not a stalled plan.
-        // Nudging there makes it answer its own question and act without consent.
-        const modelEndedWithQuestion = /\?["')\]*_]*$/.test(iterationContent.trim());
+        // Goal Based: an open goal holds the turn until a verdict — unless the model
+        // is handing control back with a question, in which case the goal stays open
+        // and carries into the next turn. The appetite is the user's, not the loop's.
+        if (goalGoverns && !modelEndedWithQuestion) {
+          consecutiveNudges++;
+          if (consecutiveNudges > MAX_CONSECUTIVE_NUDGES) {
+            console.error(`[AgentLoop] ✗ Model nudged ${MAX_CONSECUTIVE_NUDGES} times but won't judge the goal. Stopping.`);
+            yield { type: 'done', iterations: iteration + 1, reason: 'nudge_limit', goal, goalOpen: true };
+            return;
+          }
+          const planNote = planIncomplete
+            ? `\nYour plan still shows ${plan.length - plan.filter(isSettled).length} step(s) unfinished. Do them only if the goal needs them; otherwise mark them "skipped".`
+            : '';
+          console.error(`[AgentLoop] ⚠️ Model returned text-only but the goal is open. Nudge ${consecutiveNudges}/${MAX_CONSECUTIVE_NUDGES}.`);
+          yield steer('goal_unjudged', `You replied with text, but the goal is still open:\n${renderGoalText(goal)}${planNote}\n\nDo exactly ONE of these now:\n• If the web meets "Satisfied when", call declareGoal with status "satisfied" and a verdict citing the specific nodes and connections that meet it.\n• If a "Fails if" condition has tripped, call declareGoal with status "failed" and a verdict naming which one and why.\n• If the web falls short and more building would fix it, call an action tool.\n• If you cannot judge it without the user, ask them one direct question.\n\nDo not reply with prose until the goal has a verdict.`);
+          continue;
+        }
+
         if (!hasNudgedFirstIteration && iteration === 0 && iterationContent.trim().length > 0
             && userMsgIsTaskLike && !modelEndedWithQuestion) {
           hasNudgedFirstIteration = true;
@@ -2032,6 +2102,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // Did a planTask call this iteration actually change the plan? A repeat of
       // the plan already in effect must not read as progress downstream.
       let planTaskChangedThisIter = false;
+      // Did a declareGoal call this iteration issue a verdict?
+      let goalSettledThisIter = false;
 
       // Execute tools sequentially
       for (const toolCall of iterationToolCalls) {
@@ -2054,6 +2126,25 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           }
           // The counter is incremented AFTER the call is known to have changed the
           // plan — a no-op repeat shouldn't burn one of three allowed updates.
+        }
+
+        // declareGoal: the same cap-and-lock shape as planTask, but only for calls
+        // that leave the goal open. A verdict always goes through — see the cap.
+        if (toolCall.name === 'declareGoal') {
+          const isVerdict = toolCall.args?.status === 'satisfied' || toolCall.args?.status === 'failed';
+          let lockedResult = null;
+          if (!goalMode) {
+            lockedResult = { locked: true, message: 'declareGoal is only available in Goal Based mode. Use planTask, or just build.' };
+          } else if (!isVerdict && declareGoalCallCount >= MAX_DECLAREGOAL_CALLS) {
+            lockedResult = { locked: true, message: `Goal locked — it has been declared or revised ${MAX_DECLAREGOAL_CALLS} times this turn. No further changes to the goal statement: build toward it with an action tool, or judge it with status "satisfied" or "failed".` };
+          }
+          if (lockedResult) {
+            console.error(`[AgentLoop] declareGoal blocked (goalMode=${goalMode}, count=${declareGoalCallCount}/${MAX_DECLAREGOAL_CALLS}).`);
+            resolvedToolCallIds.add(toolCall.id);
+            yield { type: 'tool_result', name: toolCall.name, result: lockedResult, id: toolCall.id };
+            messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(lockedResult) });
+            continue;
+          }
         }
 
         try {
@@ -2105,6 +2196,31 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             lastAppliedPlanText = result?.planText || lastAppliedPlanText;
             planTaskCallCount++;
             planTaskChangedThisIter = true;
+          }
+
+          // declareGoal is idempotent the same way: a goal that renders identically
+          // to the one in effect is a no-op — nothing stored, no card re-emitted, no
+          // cap consumed — with the directive the model needs in the result itself.
+          if (toolCall.name === 'declareGoal') {
+            if (result?.goalText && result.goalText === lastAppliedGoalText) {
+              console.error('[AgentLoop] declareGoal re-submitted an identical goal — returning unchanged.');
+              const unchangedResult = {
+                unchanged: true,
+                goalText: result.goalText,
+                message: result.settled
+                  ? 'Goal unchanged — the verdict is already issued and shown to the user. Reply in one sentence. Do NOT call any more tools.'
+                  : 'Goal unchanged — this is the goal already in effect. Stop re-declaring it: build toward it with an action tool, or judge it with a verdict.'
+              };
+              resolvedToolCallIds.add(toolCall.id);
+              yield { type: 'tool_result', name: toolCall.name, result: unchangedResult, id: toolCall.id };
+              messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(unchangedResult) });
+              continue;
+            }
+            lastAppliedGoalText = result?.goalText || lastAppliedGoalText;
+            declareGoalCallCount++;
+            // Once the model has touched the goal itself it is this turn's own.
+            goalWasResumed = false;
+            if (result?.settled) goalSettledThisIter = true;
           }
 
           // Update graphState so subsequent tool calls see the latest state
@@ -2185,6 +2301,13 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         yield steer('sparse_definition', `⚠️ Thin definition graph: ${details}. A definition graph needs at least 5 nodes to meaningfully describe what a concept is made of — what are its sub-components, aspects, stages, or processes? Call expandGraph now with targetGraphId set to the ID shown above to add more. Do NOT respond to the user until every definition graph has at least 5 nodes.`);
       }
 
+      // Goal Based: a verdict just landed. The next text reply ends the turn (see
+      // the completion gate), so tell the model to write it instead of building on.
+      if (goalSettledThisIter) {
+        console.error('[AgentLoop] ✓ Goal verdict issued. Injecting stop message.');
+        yield steer('goal_settled', 'Verdict issued. The goal card already shows it and its evidence — reply to the user in ONE sentence, without restating either. Do NOT call any more tools.');
+      }
+
       // If the plan just reached 100% via planTask AND no sparse definition graphs need work,
       // tell the model to stop calling tools.
       // Without this, small models keep calling tools after the plan is complete.
@@ -2195,8 +2318,15 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         // of an already-complete plan carries the same directive in its own result,
         // so injecting it again would just be a second copy of the same sentence.
         if (planAllDone && planTaskChangedThisIter && sparseDefinitionGraphs.length === 0) {
-          console.error('[AgentLoop] ✓ Plan is 100% complete. Injecting stop message.');
-          yield steer('plan_complete', 'All plan steps are done. Respond to the user now with one sentence summarizing what you built. Do NOT call any more tools.');
+          const goalStillOpen = goalMode && graphState._currentGoal && !isGoalSettled(graphState._currentGoal);
+          if (goalStillOpen) {
+            // In Goal Based mode a finished plan is not a finished turn.
+            console.error('[AgentLoop] ✓ Plan is 100% complete; goal still open. Asking for a verdict.');
+            yield steer('plan_complete', 'All plan steps are done, but the goal is still open — the verdict ends the turn, not the plan. Verify the web against "Satisfied when", then call declareGoal with status "satisfied" (verdict citing the nodes and connections that meet it) or "failed" (verdict naming which "Fails if" tripped). Do NOT respond to the user until the verdict is issued.');
+          } else {
+            console.error('[AgentLoop] ✓ Plan is 100% complete. Injecting stop message.');
+            yield steer('plan_complete', 'All plan steps are done. Respond to the user now with one sentence summarizing what you built. Do NOT call any more tools.');
+          }
         }
       }
 
@@ -2244,5 +2374,6 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const planDone = plan ? plan.filter(isSettled).length : 0;
   const planTotal = plan ? plan.length : 0;
   console.error(`[AgentLoop] ✗ Max iterations (${maxIterations}) reached. Plan: ${planDone}/${planTotal} done.`);
-  yield { type: 'done', iterations: maxIterations, reason: 'max_iterations', planDone, planTotal };
+  const goalOpen = !!(goalMode && graphState._currentGoal && !isGoalSettled(graphState._currentGoal));
+  yield { type: 'done', iterations: maxIterations, reason: 'max_iterations', planDone, planTotal, goalOpen };
 }

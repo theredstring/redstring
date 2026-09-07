@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildContext,
   buildPlanContext,
+  buildGoalContext,
   assignGraphTiers,
   CONTEXT_TOKEN_BUDGET,
   NEIGHBOR_RADIUS
@@ -325,5 +326,48 @@ describe('buildPlanContext', () => {
     );
     expect(out).not.toContain('carried over');
     expect(out).toContain('All steps are settled');
+  });
+});
+
+describe('buildGoalContext', () => {
+  const goal = {
+    goal: 'Show why transistors leak',
+    satisfiedWhen: 'Leakage Current connects to three physical causes',
+    failsIf: ['Only one cause is present'],
+    status: 'open',
+    verdict: ''
+  };
+
+  it('restates an open goal and demands a verdict before replying', () => {
+    const out = buildGoalContext(goal);
+    expect(out).toContain('## Active Goal (open)');
+    expect(out).toContain('Satisfied when:');
+    expect(out).toContain('Only one cause is present');
+    expect(out).toContain('declareGoal');
+    expect(out).not.toContain('carried over');
+  });
+
+  it('announces a carried-over goal and forbids re-declaring it', () => {
+    const out = buildGoalContext(goal, { isResumed: true });
+    expect(out).toContain('carried over from your previous turn');
+    expect(out).toContain('Do NOT re-declare');
+  });
+
+  it('says a settled plan does not end the turn while the goal is open', () => {
+    const plan = [{ description: 'Build', status: 'done' }, { description: 'Polish', status: 'skipped' }];
+    expect(buildGoalContext(goal, { plan })).toContain('does not end the turn');
+    expect(buildGoalContext(goal, { plan: [{ description: 'Build', status: 'pending' }] })).not.toContain('does not end the turn');
+  });
+
+  it('tells the model to respond once a verdict is issued', () => {
+    const out = buildGoalContext({ ...goal, status: 'failed', verdict: 'Only one cause is present.' });
+    expect(out).toContain('## Active Goal (failed)');
+    expect(out).toContain('Verdict: Only one cause is present.');
+    expect(out).toContain('Do NOT call any more tools');
+  });
+
+  it('is empty without a goal', () => {
+    expect(buildGoalContext(null)).toBe('');
+    expect(buildGoalContext({})).toBe('');
   });
 });

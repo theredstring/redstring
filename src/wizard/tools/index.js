@@ -44,6 +44,7 @@ import { enrichFromWikipedia } from './enrichFromWikipedia.js';
 import { linkIdentifier } from './linkIdentifier.js';
 import { findWork } from './findWork.js';
 import { planTask } from './planTask.js';
+import { declareGoal } from './declareGoal.js';
 import { sketchGraph } from './sketchGraph.js';
 import { discoverOrbit } from './discoverOrbit.js';
 import { semanticSearch } from './semanticSearch.js';
@@ -94,6 +95,7 @@ const TOOLS = {
   linkIdentifier,
   findWork,
   planTask,
+  declareGoal,
   sketchGraph,
   discoverOrbit,
   semanticSearch,

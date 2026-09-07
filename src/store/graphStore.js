@@ -141,6 +141,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {Set<string>} savedNodeIds - Prototype IDs pinned to the right panel.
  * @property {Set<string>} savedGraphIds - Graph IDs pinned to the right panel.
  * @property {Object} wizardPlansByConversation - Durable wizard plans keyed by conversation ID.
+ * @property {Object} wizardGoalsByConversation - Durable Goal Based mode goals keyed by conversation ID.
  * @property {boolean} isUniverseLoaded - True after a universe file has been successfully loaded.
  * @property {boolean} isUniverseLoading - True while a universe file is being loaded.
  * @property {boolean} hasUniverseFile - True if the app is connected to a `.redstring` file.
@@ -1391,6 +1392,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     // Durable wizard plans keyed by conversation/tab ID — persists across LLM context clears
     wizardPlansByConversation: {},  // { [conversationId]: { steps, graphId } }
+    // Durable Goal Based mode goals, same keying — an open goal outlives the turn
+    wizardGoalsByConversation: {},  // { [conversationId]: { goal, graphId } }
 
     // Pairs of things the user has said are NOT duplicates, keyed "idA|idB"
     // (ids sorted, so the key does not depend on which side the scan picked).
@@ -7979,6 +7982,28 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       const next = { ...state.wizardPlansByConversation };
       delete next[conversationId];
       return { wizardPlansByConversation: next };
+    }),
+    /**
+     * Stores the Goal Based mode goal for a conversation/tab so an open goal
+     * carries into the next ask (and survives a reload, like plans).
+     * @param {string} conversationId
+     * @param {Object} goal - { goal, satisfiedWhen, failsIf, status, verdict }
+     * @param {string|null} graphId - Graph the goal was declared against.
+     */
+    setWizardGoalForConversation: (conversationId, goal, graphId) => set((state) => ({
+      wizardGoalsByConversation: {
+        ...state.wizardGoalsByConversation,
+        [conversationId]: { goal, graphId: graphId || null }
+      }
+    })),
+    /**
+     * Removes the Goal Based mode goal for a conversation/tab.
+     * @param {string} conversationId
+     */
+    clearWizardGoalForConversation: (conversationId) => set((state) => {
+      const next = { ...state.wizardGoalsByConversation };
+      delete next[conversationId];
+      return { wizardGoalsByConversation: next };
     }),
 
     /**

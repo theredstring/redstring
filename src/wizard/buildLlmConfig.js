@@ -10,6 +10,8 @@
  * Imported by the browser. No Node builtins.
  */
 
+import { normalizeWizardMode } from './wizardMode.js';
+
 /**
  * Per-tier iteration limit, clamped to a HARD ceiling.
  *
@@ -85,6 +87,8 @@ export function buildLlmConfig({
     systemPrompt,
     maxIterations: resolveMaxIterations(apiConfig),
     maxAskTokens: resolveMaxAskTokens(apiConfig),
+    // 'plan' (default) or 'goal' — which contract ends a turn. See wizardMode.js.
+    wizardMode: normalizeWizardMode(apiConfig.settings?.wizardMode),
     contextItems
   };
 }

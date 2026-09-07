@@ -74,7 +74,8 @@ export const buildContentState = (state) => ({
   savedGraphIds: state.savedGraphIds || [],
   showConnectionNames: !!state.showConnectionNames,
   rightPanelTabs: Array.isArray(state.rightPanelTabs) ? state.rightPanelTabs : [],
-  wizardPlansByConversation: state.wizardPlansByConversation || {}
+  wizardPlansByConversation: state.wizardPlansByConversation || {},
+  wizardGoalsByConversation: state.wizardGoalsByConversation || {}
 });
 
 /**

@@ -499,6 +499,51 @@ export function buildPlanContext(plan, iteration, maxIterations, { isResumed = f
 }
 
 /**
+ * Build the goal context (Goal Based mode) for injection beside the plan.
+ *
+ * The goal is what the turn is judged against, so it is restated every
+ * iteration with a directive that depends on its status — and, because the
+ * plan directive above it says "all steps settled, respond now", an explicit
+ * note that in this mode a settled plan does not end the turn.
+ *
+ * @param {Object} goal - { goal, satisfiedWhen, failsIf, status, verdict }
+ * @param {Object} [opts]
+ * @param {boolean} [opts.isResumed] - carried over from a previous turn
+ * @param {Array}   [opts.plan] - the active plan, if any, so the note can fire
+ * @returns {string}
+ */
+export function buildGoalContext(goal, { isResumed = false, plan = null } = {}) {
+  if (!goal || !goal.goal) return '';
+  const status = goal.status === 'satisfied' || goal.status === 'failed' ? goal.status : 'open';
+  const settled = status !== 'open';
+  const fails = Array.isArray(goal.failsIf) ? goal.failsIf.filter(Boolean) : [];
+
+  const lines = [`  ${goal.goal}`, `  Satisfied when: ${goal.satisfiedWhen}`];
+  if (fails.length > 0) {
+    lines.push('  Fails if:');
+    for (const f of fails) lines.push(`    - ${f}`);
+  }
+  if (settled && goal.verdict) lines.push(`  Verdict: ${goal.verdict}`);
+
+  const resumeNote = isResumed && !settled
+    ? '\nThis goal carried over from your previous turn — it is already declared. Do NOT re-declare it; continue toward it or judge it.'
+    : '';
+  const planSettled = Array.isArray(plan) && plan.length > 0
+    && plan.every(s => s.status === 'done' || s.status === 'skipped');
+  const planNote = !settled && planSettled
+    ? '\nThe plan above is settled, but a settled plan does not end the turn in Goal Based mode — the verdict does.'
+    : '';
+
+  // One line each. The goal above is re-read every iteration; the directive
+  // only has to say what ends the turn, not re-teach the mode.
+  const directive = settled
+    ? `Verdict issued (${status}). Reply to the user in one sentence — the card already shows the verdict. Do NOT call any more tools.`
+    : 'Open goal — it, not the plan, ends the turn. Before replying: build while the web falls short of "Satisfied when", then judge it with declareGoal ("satisfied" citing nodes and connections, or "failed" naming the "Fails if"), or ask the user one direct question.';
+
+  return `\n\n## Active Goal (${status})${resumeNote}${planNote}\n${lines.join('\n')}\nIMPORTANT: ${directive}`;
+}
+
+/**
  * Build persistent context header respecting UI context toggles
  * @param {Object} graphState - Graph state from UI
  * @param {Array} contextItems - Array of { type, id, label, enabled } from UI context chips

@@ -996,6 +996,25 @@ export function getToolDefinitions(options = {}) {
                 required: ['steps']
             }
         },
+        {
+            name: 'declareGoal',
+            description: 'GOAL BASED MODE ONLY. Declare the goal a build must satisfy BEFORE building: the goal in one sentence, satisfiedWhen as a checkable condition on the web (which nodes, connections, or structure must exist), and failsIf listing what would count as failing. Call it again to issue the verdict: status "satisfied" with a verdict citing the specific nodes and connections that meet the condition, or "failed" with a verdict naming which failsIf tripped. The verdict, not the plan, ends the turn. Do NOT use for conversation, questions, or single edits.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    goal: { type: 'string', description: 'What the web must achieve, in one sentence. Conditions go in satisfiedWhen, not here.' },
+                    satisfiedWhen: { type: 'string', description: 'One or two sentences: a checkable condition on the web that would make the goal count as reached — name the nodes, connections, or structure that must exist. Write it so the build could fail it. A rubric, not a spec.' },
+                    failsIf: {
+                        type: 'array',
+                        description: 'Up to six short clauses naming ways the build can lose, defined before building (e.g. "fewer than three mechanisms are named"). Do not restate satisfiedWhen as its negation — name the failures that are likely, not every possible one.',
+                        items: { type: 'string' }
+                    },
+                    status: { type: 'string', enum: ['open', 'satisfied', 'failed'], description: '"open" while declaring or revising. "satisfied" or "failed" to issue the verdict — both require a verdict string.' },
+                    verdict: { type: 'string', description: 'Required with status "satisfied" or "failed": two or three sentences of evidence. Cite, don\'t narrate — name the specific nodes and connections that decide it, or the failsIf that tripped and why. Do not restate the conditions; the card already shows them.' }
+                },
+                required: ['goal', 'satisfiedWhen']
+            }
+        },
         // ── Semantic Web Tools ──────────────────────────────────────────
         {
             name: 'discoverOrbit',
@@ -1280,6 +1299,9 @@ const TOOL_TIERS = {
     readGraph: 1, search: 1, selectNode: 1,
     createGraph: 1, createPopulatedGraph: 1, expandGraph: 1,
     sketchGraph: 1, planTask: 1, askMultipleChoice: 1, listTools: 1,
+    // Goal Based mode only: the goal contract has no meaning in Plan Based, so
+    // the tool is not offered there rather than offered-and-refused.
+    declareGoal: 'goalMode',
     populateDefinitionGraph: 1, switchToGraph: 1, inspectWorkspace: 1,
     // Tier 1 on purpose: composition must be reachable on a blank canvas.
     // Gating it behind hasGroups/hasDefinitions (as the older thingGroup and
@@ -1377,6 +1399,8 @@ export function selectToolsForTurn({ graphState, userMessage, hasTabularData = f
         multipleGraphs: graphCount > 1,
         hasDefinitions,
         hasTabularData,
+        // Set by AgentLoop from config.wizardMode before selection is frozen.
+        goalMode: graphState?._wizardMode === 'goal',
     };
 
     const msgLower = (typeof userMessage === 'string' ? userMessage : '').toLowerCase();

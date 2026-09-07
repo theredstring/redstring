@@ -1,0 +1,62 @@
+/* GoalCard sits on PlanCard's chrome (see PlanCard.css); only the body differs. */
+
+.goal-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--canvas-text);
+}
+
+.goal-card-goal {
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.goal-card-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.goal-card-label {
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.goal-card-text {
+  line-height: 1.4;
+}
+
+.goal-card-fails {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.4;
+}
+
+/* The verdict is the card's whole point once it exists: make it the loudest row. */
+.goal-card-verdict {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(38, 0, 0, 0.15);
+}
+
+.goal-card--satisfied .goal-card-verdict .goal-card-label {
+  opacity: 1;
+  color: #516A02;
+}
+
+.goal-card--failed .plan-card-icon,
+.goal-card--failed .goal-card-verdict .goal-card-label {
+  opacity: 1;
+  color: #8B0000;
+}
+
+/* Failed is not "red for danger": the maroon is the panel accent, and the icon
+   already carries it while open. What marks failure is the strike, not colour. */
+.goal-card--failed .goal-card-goal {
+  text-decoration: line-through;
+  text-decoration-color: rgba(0, 0, 0, 0.25);
+}

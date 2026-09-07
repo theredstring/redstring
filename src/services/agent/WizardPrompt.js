@@ -156,6 +156,27 @@ Current edges: {edgeList}
 {context}
 `;
 
+/**
+ * Appended to the system prompt when the Wizard runs Goal Based (see
+ * src/wizard/wizardMode.js). Static for the whole ask, so it rides in the
+ * cache prefix with the rest of the prompt.
+ */
+export const GOAL_MODE_PROMPT_ADDENDUM = `
+
+## Mode: Goal Based
+
+This session runs Goal Based. Your process changes in one place: before any graph-building work, call \`declareGoal\` — the goal in one sentence, \`satisfiedWhen\` as a checkable condition on the web (which nodes, connections, or structure must exist), and \`failsIf\` listing what would count as failing. Declare it before you build, not after — a condition written after the fact is one you cannot fail.
+
+- A plan (\`planTask\`) is still useful for sequencing work, but it no longer ends the turn. The verdict does.
+- Build until the web meets \`satisfiedWhen\`, then verify it honestly against that condition — read the graph, look at the actual nodes and connections, and compare.
+- Issue the verdict by calling \`declareGoal\` again with status "satisfied" (the verdict cites the specific nodes and connections that meet the condition) or "failed" (the verdict names which \`failsIf\` tripped and why). A failed goal is a legitimate result; do not lower the bar to pass it.
+- An open goal outlives the turn. If the ask ends before you judge it, it carries into the next one; do not re-declare it — continue toward it or judge it.
+- The appetite belongs to the user. If the goal or its condition is unclear, ask one direct question rather than guessing. When the user changes what they want, declare the new goal.
+- Keep the goal compact — it is a rubric, not a spec, and it is re-read every step. The goal is one sentence; \`satisfiedWhen\` is one or two; \`failsIf\` is a few short clauses that do not restate \`satisfiedWhen\` as its negation. When the user gives explicit conditions, fold them into \`satisfiedWhen\` once rather than copying them into both fields.
+- The verdict cites, it does not narrate: two or three sentences naming the nodes and connections that decide it. The goal card shows the conditions already, so your reply after a verdict is one sentence, not a second copy of it.
+- Skip all of this for conversation, questions, and single edits — a goal is for builds, exactly as a plan is.
+`;
+
 // Compact prompt for small/local models (Gemma, Llama, Phi, etc.)
 // These models can't handle the full wizard prompt or complex one-shot specs.
 // They operate atomically: one tool call per response, 2-3 nodes per expandGraph.

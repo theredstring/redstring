@@ -648,6 +648,7 @@ export const PERSISTED_STORE_KEYS = [
   'savedGraphIds',
   'showConnectionNames',
   'wizardPlansByConversation',
+  'wizardGoalsByConversation',
   'mergeDismissals',
   'universeCreatedAt'
 ];
@@ -781,6 +782,7 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       savedGraphIds = new Set(),
       showConnectionNames = false,
       wizardPlansByConversation = {},
+      wizardGoalsByConversation = {},
       mergeDismissals = {}
     } = storeState;
 
@@ -1351,6 +1353,7 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       "redstring:savedGraphIds": [...savedGraphIds],
       "redstring:showConnectionNames": !!showConnectionNames,
       "redstring:wizardPlansByConversation": (typeof wizardPlansByConversation === 'object' && wizardPlansByConversation) ? wizardPlansByConversation : {},
+      "redstring:wizardGoalsByConversation": (typeof wizardGoalsByConversation === 'object' && wizardGoalsByConversation) ? wizardGoalsByConversation : {},
       // "these two things are not the same" — a judgement about the universe,
       // so it travels with the file rather than living in one browser.
       "redstring:mergeDismissals": (typeof mergeDismissals === 'object' && mergeDismissals) ? mergeDismissals : {}
@@ -2056,6 +2059,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
     const extractedSavedGraphIds = uiState['redstring:savedGraphIds'] || uiState.savedGraphIds || [];
     const extractedShowConnectionNames = uiState['redstring:showConnectionNames'] ?? uiState.showConnectionNames ?? true;
     const extractedWizardPlansByConversation = uiState['redstring:wizardPlansByConversation'] || {};
+    const extractedWizardGoalsByConversation = uiState['redstring:wizardGoalsByConversation'] || {};
     const extractedMergeDismissals = uiState['redstring:mergeDismissals'] || uiState.mergeDismissals || {};
 
     // Rehydrate custom edge prototypes (connection types). Absent in older
@@ -2084,6 +2088,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
       savedGraphIds: new Set(Array.isArray(extractedSavedGraphIds) ? extractedSavedGraphIds : []),
       showConnectionNames: !!extractedShowConnectionNames,
       wizardPlansByConversation: extractedWizardPlansByConversation,
+      wizardGoalsByConversation: extractedWizardGoalsByConversation,
       mergeDismissals: (extractedMergeDismissals && typeof extractedMergeDismissals === 'object' && !Array.isArray(extractedMergeDismissals))
         ? extractedMergeDismissals
         : {}

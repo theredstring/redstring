@@ -1,11 +1,12 @@
 import React from 'react';
 import { sanitizeHtml } from '../../../utils/sanitizeHtml.js';
-import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Brain, Wrench, Plus, X, ChevronDown, Paperclip, FileText, XCircle, ArrowRightToLine } from 'lucide-react';
+import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Brain, Wrench, Plus, X, ChevronDown, Paperclip, FileText, XCircle, ArrowRightToLine, Target, ListChecks } from 'lucide-react';
 import * as fileStorage from '../../../store/fileStorage.js';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
 import MultipleChoiceOverlay from '../../../ai/components/MultipleChoiceOverlay.jsx';
 import PlanCard from '../../../ai/components/PlanCard.jsx';
+import GoalCard from '../../../ai/components/GoalCard.jsx';
 import ThinkingBlock from '../../../ai/components/ThinkingBlock.jsx';
 import SteeringBlock from '../../../ai/components/SteeringBlock.jsx';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
@@ -33,6 +34,9 @@ import { getAllTabularData, clearTabularData } from '../../../services/tabularDa
 import { estimateTokens, estimateObjectTokens, MAX_TOOL_RESULT_CHARS, CHARS_PER_TOKEN } from '../../../wizard/tokenEstimate.js';
 import { compactConversation } from '../../../wizard/compactConversation.js';
 import { WIZARD_SYSTEM_PROMPT } from '../../../services/agent/WizardPrompt.js';
+import { useWizardMode } from '../../../hooks/useWizardMode.js';
+import { readWizardMode, wizardModeLabel, WIZARD_MODE_GOAL, WIZARD_MODE_PLAN, WIZARD_MODE_OPTIONS } from '../../../wizard/wizardMode.js';
+import { renderGoalText } from '../../../wizard/tools/declareGoal.js';
 // The agent loop, its tools, the LLM client and Wikipedia enrichment all run in
 // this process now. None of these reach a server.
 import { runWizardInProcess, isAbortError } from '../../../wizard/runWizardInProcess.js';
@@ -581,8 +585,16 @@ const LeftAIView = ({ compact = false,
   const [hasAPIKey, setHasAPIKey] = React.useState(false);
   const [apiKeyInfo, setApiKeyInfo] = React.useState(null);
   const [viewMode, setViewMode] = React.useState('wizard'); // 'wizard', 'chat', 'druid'
+  // 'plan' | 'goal' — which contract ends a Wizard turn. Shared with AI settings.
+  const [wizardMode, setWizardMode] = useWizardMode();
   const [showModeMenu, setShowModeMenu] = React.useState(false);
   const modeMenuRef = React.useRef(null);
+  // Chooser for the Wizard's Plan/Goal mode. A chooser, not a toggle: a lone
+  // icon could not say whether it showed the mode you were in or the one a
+  // click would take you to. The pill names the current mode; the menu shows
+  // both and marks the active one.
+  const [showWizardModeMenu, setShowWizardModeMenu] = React.useState(false);
+  const wizardModeMenuRef = React.useRef(null);
 
   // Load current API config when advanced options are shown
   React.useEffect(() => {
@@ -590,6 +602,17 @@ const LeftAIView = ({ compact = false,
       apiKeyManager.getAPIKeyInfo().then(setCurrentApiConfig);
     }
   }, [showAdvanced]);
+
+  React.useEffect(() => {
+    if (!showWizardModeMenu) return;
+    const handleClickOutside = (event) => {
+      if (wizardModeMenuRef.current && !wizardModeMenuRef.current.contains(event.target)) {
+        setShowWizardModeMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showWizardModeMenu]);
 
   // Close mode menu when clicking outside
   React.useEffect(() => {
@@ -1532,7 +1555,7 @@ const LeftAIView = ({ compact = false,
     const lastBlock = blocks?.[blocks.length - 1];
     const awaitingNextIteration =
       (lastBlock?.type === 'tool_call' && (lastBlock?.status === 'completed' || lastBlock?.status === 'failed')) ||
-      lastBlock?.type === 'plan';
+      lastBlock?.type === 'plan' || lastBlock?.type === 'goal';
     return !hasInlineDots && (!hasStreamingText || awaitingNextIteration) && !hasActiveThinking;
   }, [viewMode, isProcessing, messages]);
 
@@ -2393,6 +2416,14 @@ const LeftAIView = ({ compact = false,
       if (!steps || isFinished || isForeignGraph) {
         st.clearWizardPlanForConversation(activeConversationIdRef.current);
       }
+      // Same rule for a Goal Based goal: an open one against this graph is what
+      // the next ask continues toward; anything else is stale.
+      const goalEntry = st.wizardGoalsByConversation?.[activeConversationIdRef.current];
+      const goalSettled = goalEntry?.goal && (goalEntry.goal.status === 'satisfied' || goalEntry.goal.status === 'failed');
+      const goalForeign = goalEntry && goalEntry.graphId && goalEntry.graphId !== activeGraphId;
+      if (goalEntry && (!goalEntry.goal || goalSettled || goalForeign)) {
+        st.clearWizardGoalForConversation(activeConversationIdRef.current);
+      }
     }
 
     // Bind this run's (globally-broadcast) telemetry to the conversation that
@@ -2643,6 +2674,16 @@ const LeftAIView = ({ compact = false,
             return entry.steps;
           }
           return undefined;
+        })(),
+        // Seed the durable Goal Based goal the same way. AgentLoop drops it
+        // when the mode is Plan Based, so seeding is safe in either mode.
+        _currentGoal: (() => {
+          const st = useGraphStore.getState();
+          const entry = st.wizardGoalsByConversation?.[activeConversationIdRef.current];
+          if (entry?.goal && entry.graphId === effectiveActiveGraphId) {
+            return entry.goal;
+          }
+          return undefined;
         })()
       };
 
@@ -2685,6 +2726,10 @@ const LeftAIView = ({ compact = false,
           // Absent/empty/NaN → default. Number(null) is 0, so guard raw first.
           maxIterationsLocal: readWizardIterations('rs.wizard.maxIterationsLocal', 177),
           maxIterationsCloud: readWizardIterations('rs.wizard.maxIterationsCloud', 77),
+          // Read fresh rather than from the hook: this handler is a closure and
+          // the user may have flipped the mode since it was created. The Druid
+          // persona has its own prompt and no goal contract.
+          wizardMode: persona === 'druid' ? WIZARD_MODE_PLAN : readWizardMode(),
         },
         modelTier: apiConfig.modelTier || 'large'
       } : null;
@@ -2770,6 +2815,12 @@ const LeftAIView = ({ compact = false,
                 }
               }
               lastTopLevelStepStatuses = incomingTopStatuses;
+            }
+            // Goal card: one per message, updated in place as the goal is revised
+            // or judged. An `unchanged`/locked result carries no goal and is skipped.
+            let goalUpdate = null;
+            if (event.type === 'tool_result' && event.name === 'declareGoal' && event.result?.goal) {
+              goalUpdate = { goal: JSON.parse(JSON.stringify(event.result.goal)), timestamp: Date.now() };
             }
 
             // Internal updater function to apply changes to a message array
@@ -2859,6 +2910,14 @@ const LeftAIView = ({ compact = false,
                     }
                   }
                 }
+                if (goalUpdate) {
+                  const goalIdx = blocks.reduce((last, b, idx) => b.type === 'goal' ? idx : last, -1);
+                  if (goalIdx >= 0) {
+                    blocks[goalIdx] = { ...blocks[goalIdx], goal: goalUpdate.goal, timestamp: goalUpdate.timestamp };
+                  } else {
+                    blocks.push({ type: 'goal', id: `goal-${streamingMessageId}`, goal: goalUpdate.goal, timestamp: goalUpdate.timestamp });
+                  }
+                }
               } else if (event.type === 'thinking') {
                 // Thinking tokens from reasoning models (Ollama: delta.thinking_content)
                 // Accumulate into a single thinking block; collapse once response starts
@@ -2925,6 +2984,15 @@ const LeftAIView = ({ compact = false,
                 // Show a subtle system note for incomplete plans, not as AI text
                 if (event.reason === 'max_iterations' && event.planTotal > 0 && event.planDone < event.planTotal) {
                   blocks.push({ type: 'system_note', content: `Reached iteration limit — plan ${event.planDone}/${event.planTotal} complete. Try "continue" to pick up where this left off.` });
+                } else if (event.reason === 'max_iterations' && event.goalOpen) {
+                  blocks.push({ type: 'system_note', content: 'Reached iteration limit with the goal still open. Try "continue" to keep building toward it, or ask for a verdict.' });
+                } else if (event.reason === 'nudge_limit' && event.goalOpen) {
+                  blocks.push({ type: 'system_note', content: 'The Wizard stopped without judging the goal. It stays open — "continue" resumes it, or ask for a verdict.' });
+                }
+                // A verdict ends the work whatever the plan says; a leftover
+                // unfinished plan would otherwise be resumed by the next ask.
+                if (event.reason === 'goal_satisfied' || event.reason === 'goal_failed') {
+                  try { useGraphStore.getState().clearWizardPlanForConversation(targetConversationId); } catch { /* store unavailable */ }
                 }
 
                 if (persona === 'druid' && druidInstance) {
@@ -3410,6 +3478,7 @@ const LeftAIView = ({ compact = false,
               for (const block of msg.contentBlocks) {
                 if (block.type === 'text' && block.content) lines.push(block.content);
                 else if (block.type === 'plan' && block.steps) lines.push(formatPlanSteps(block.steps));
+                else if (block.type === 'goal' && block.goal) lines.push(renderGoalText(block.goal));
                 else if (block.type === 'tool_call' && block.error) lines.push(`Error: ${typeof block.error === 'string' ? block.error : JSON.stringify(block.error)}`);
               }
             } else if (msg.content) {
@@ -3896,8 +3965,8 @@ const LeftAIView = ({ compact = false,
                 if (message.contentBlocks && message.contentBlocks.length > 0) {
                   return message.contentBlocks.some(b =>
                     (b.type === 'text' && b.content) ||
-                    (b.type === 'tool_call' && b.name !== 'planTask') ||
-                    b.type === 'plan' ||
+                    (b.type === 'tool_call' && b.name !== 'planTask' && b.name !== 'declareGoal') ||
+                    b.type === 'plan' || b.type === 'goal' ||
                     (b.type === 'thinking' && b.content) ||
                     (b.type === 'system_note' && b.content)
                   );
@@ -3970,6 +4039,14 @@ const LeftAIView = ({ compact = false,
                               key={block.id || `plan-${i}`}
                               steps={block.steps}
                               frozen={!!block.frozen}
+                            />
+                          );
+                        }
+                        if (block.type === 'goal') {
+                          return (
+                            <GoalCard
+                              key={block.id || `goal-${i}`}
+                              goal={block.goal}
                             />
                           );
                         }
@@ -4064,6 +4141,8 @@ const LeftAIView = ({ compact = false,
                                   parts.push(block.content);
                                 } else if (block.type === 'plan' && block.steps) {
                                   parts.push(formatPlanSteps(block.steps));
+                                } else if (block.type === 'goal' && block.goal) {
+                                  parts.push(renderGoalText(block.goal));
                                 } else if (block.type === 'tool_call' && block.error) {
                                   parts.push(`Error: ${typeof block.error === 'string' ? block.error : JSON.stringify(block.error)}`);
                                 }
@@ -4098,8 +4177,8 @@ const LeftAIView = ({ compact = false,
               // suppress the external dots row to avoid duplication.
               const streamingMsgHasDefinitiveContent = streamingMsg?.contentBlocks?.some(b =>
                 (b.type === 'text' && b.content) ||
-                (b.type === 'tool_call' && b.name !== 'planTask') ||
-                b.type === 'plan' ||
+                (b.type === 'tool_call' && b.name !== 'planTask' && b.name !== 'declareGoal') ||
+                b.type === 'plan' || b.type === 'goal' ||
                 (b.type === 'thinking' && b.content) ||
                 (b.type === 'system_note' && b.content)
               ) || !!streamingMsg?.content;
@@ -4118,7 +4197,7 @@ const LeftAIView = ({ compact = false,
               // same "model finished something, now thinking about the next step" state.
               const awaitingNextIteration =
                 (lastContentBlock?.type === 'tool_call' && (lastContentBlock?.status === 'completed' || lastContentBlock?.status === 'failed')) ||
-                lastContentBlock?.type === 'plan';
+                lastContentBlock?.type === 'plan' || lastContentBlock?.type === 'goal';
               // Suppress external dots when inline bubble dots are already showing.
               // Hide dots while thinking is actively streaming — the thinking block itself
               // shows progress. Show once thinking collapses (response is starting).
@@ -4306,6 +4385,76 @@ const LeftAIView = ({ compact = false,
                 <span className="ai-context-usage-label">{contextUsage.percent}%</span>
               </button>
             )}
+
+            {/* Wizard mode chooser: last in the bar, right-aligned, menu opens upward.
+                A chooser rather than a toggle — the pill names the mode in effect and
+                the menu shows both with the active one marked. */}
+            <div
+              ref={wizardModeMenuRef}
+              style={{ position: 'relative', display: 'inline-flex', marginLeft: messages.length > 0 ? 0 : 'auto' }}
+            >
+              <PanelIconButton
+                icon={wizardMode === WIZARD_MODE_GOAL ? Target : ListChecks}
+                size={12}
+                label={wizardModeLabel(wizardMode)}
+                labelFontSize={11}
+                variant="outline"
+                active={showWizardModeMenu}
+                onClick={() => setShowWizardModeMenu(v => !v)}
+                title={`Wizard mode: ${wizardModeLabel(wizardMode)}. Click to choose how a turn ends.`}
+                style={{ padding: '2px 8px' }}
+              />
+              {showWizardModeMenu && (
+                <div style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  right: 0,
+                  marginBottom: 4,
+                  backgroundColor: theme.canvas.bg,
+                  border: `1px solid ${theme.canvas.border}`,
+                  borderRadius: 6,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  zIndex: 1000,
+                  minWidth: 170
+                }}>
+                  {WIZARD_MODE_OPTIONS.map(opt => {
+                    const isActive = wizardMode === opt.value;
+                    const OptIcon = opt.value === WIZARD_MODE_GOAL ? Target : ListChecks;
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() => { setWizardMode(opt.value); setShowWizardModeMenu(false); }}
+                        title={opt.value === WIZARD_MODE_GOAL
+                          ? 'The Wizard declares a goal and what would satisfy it before building; the turn ends on a verdict.'
+                          : 'The Wizard writes a step plan; the turn ends when every step is settled.'}
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          border: 'none',
+                          background: isActive ? theme.canvas.inactive : 'none',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          fontSize: '0.8rem',
+                          fontWeight: isActive ? 700 : 600,
+                          color: isActive ? theme.canvas.textPrimary : theme.canvas.textSecondary,
+                          fontFamily: 'EmOne, sans-serif',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          whiteSpace: 'nowrap'
+                        }}
+                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.backgroundColor = theme.canvas.hover; }}
+                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      >
+                        <OptIcon size={13} />
+                        <span style={{ flex: 1 }}>{opt.label}</span>
+                        <span style={{ opacity: isActive ? 1 : 0, fontSize: '0.75rem' }} aria-hidden={!isActive}>✓</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {queuedSendCount > 0 && (

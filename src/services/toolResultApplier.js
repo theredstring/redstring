@@ -928,6 +928,17 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     return;
   }
 
+  // Handle declareGoal (Goal Based mode) — persist the open goal per
+  // conversation so it carries into the next ask; a verdict retires it.
+  if (result.action === 'declareGoal' && result.goal && conversationId) {
+    if (result.settled) {
+      store.clearWizardGoalForConversation(conversationId);
+    } else {
+      store.setWizardGoalForConversation(conversationId, result.goal, store.activeGraphId);
+    }
+    return;
+  }
+
   // Handle createGraph (empty graph)
   if (result.action === 'createGraph') {
     console.log('[Wizard] Applying createGraph to store:', result.graphName);
