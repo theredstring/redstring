@@ -21,7 +21,7 @@ import DownloadAppPill from './DownloadAppPill.jsx';
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances } from './services/textMeasurement.js';
-import { getTextColor, getInvertedTextColor, getConnectionLabelColors, CONNECTION_LABEL_OUTER_STROKE_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from './utils/clipboard.js';
@@ -1203,6 +1203,7 @@ function NodeCanvas() {
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
   const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
   const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
+  const connectionLabelRingWidth = useGraphStore(state => state.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
   const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
   const showNodeControlPanel = useGraphStore(state => state.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore(state => state.showMultipleNodesControlPanel ?? true);
@@ -17987,7 +17988,7 @@ function NodeCanvas() {
                                         {...labelGeomProps}
                                         fill="none"
                                         stroke={labelColors.outerStroke}
-                                        strokeWidth={labelHaloWidth * CONNECTION_LABEL_OUTER_STROKE_SCALE}
+                                        strokeWidth={labelHaloWidth * connectionLabelRingWidth}
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
                                       >

@@ -6,7 +6,7 @@ import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from "./store/graphStore.js";
 import { getNodeDimensions } from './utils.js';
 import useMobileDetection from './hooks/useMobileDetection';
-import { getTextColor, getConnectionLabelColors, CONNECTION_LABEL_OUTER_STROKE_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from './utils/colorUtils.js';
+import { getTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from './utils/colorUtils.js';
 import { haptic } from './services/haptics.js';
 import './UnifiedBottomControlPanel.css';
 
@@ -113,6 +113,7 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
   const theme = useTheme();
   const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
   const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
+  const connectionLabelRingWidth = useGraphStore(state => state.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
   const labelColors = getConnectionLabelColors(color, theme.darkMode, connectionLabelColorMode, connectionLabelOuterRing);
   return (
     <div className="predicate-rail" onClick={onClickCenter}>
@@ -133,7 +134,7 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
               position: 'absolute',
               inset: 0,
               color: 'transparent',
-              WebkitTextStroke: `${RAIL_LABEL_STROKE_PX * CONNECTION_LABEL_OUTER_STROKE_SCALE}px ${labelColors.outerStroke}`,
+              WebkitTextStroke: `${RAIL_LABEL_STROKE_PX * connectionLabelRingWidth}px ${labelColors.outerStroke}`,
               pointerEvents: 'none'
             }}>
               {label || 'Connection'}

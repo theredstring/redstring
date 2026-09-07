@@ -302,11 +302,14 @@ export const getConnectionLabelColors = (
 };
 
 /**
- * How much wider the connection-colored outer ring is than the label's own halo.
- * SVG paints one stroke per element, so the ring is a second <text> underneath
- * the real one carrying this width — see the connection label render sites.
+ * How much wider the connection-colored outer ring is than the label's own halo,
+ * as a multiplier. SVG paints one stroke per element, so the ring is a second
+ * <text> underneath the real one carrying this width — see the connection label
+ * render sites. Below 1 the ring would hide inside the halo, hence the floor.
  */
-export const CONNECTION_LABEL_OUTER_STROKE_SCALE = 2.1;
+export const DEFAULT_CONNECTION_LABEL_RING_WIDTH = 2.1;
+export const CONNECTION_LABEL_RING_WIDTH_MIN = 1.1;
+export const CONNECTION_LABEL_RING_WIDTH_MAX = 5.0;
 
 // Generate consistent color based on node name
 export const generateConceptColor = (name) => {

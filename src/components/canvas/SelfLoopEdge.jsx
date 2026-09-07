@@ -1,7 +1,7 @@
 import React from 'react';
 import { calculateSelfLoopPath } from '../../utils/canvas/selfLoopUtils.js';
 import { estimateTextWidth } from '../../utils/canvas/edgeLabelPlacement.js';
-import { getConnectionLabelColors, CONNECTION_LABEL_OUTER_STROKE_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from '../../utils/colorUtils.js';
+import { getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from '../../utils/colorUtils.js';
 import useGraphStore from '../../store/graphStore.js';
 
 const SelfLoopEdge = ({
@@ -25,6 +25,7 @@ const SelfLoopEdge = ({
   const darkMode = useGraphStore(state => state.darkMode);
   const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
   const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
+  const connectionLabelRingWidth = useGraphStore(state => state.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
   const arrowsToward = edge.directionality?.arrowsToward instanceof Set
     ? edge.directionality.arrowsToward
     : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
@@ -215,7 +216,7 @@ const SelfLoopEdge = ({
                 {...geomProps}
                 fill="none"
                 stroke={labelColors.outerStroke}
-                strokeWidth={haloWidth * CONNECTION_LABEL_OUTER_STROKE_SCALE}
+                strokeWidth={haloWidth * connectionLabelRingWidth}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >

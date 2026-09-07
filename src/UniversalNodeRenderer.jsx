@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.js';
 import { getNodeDimensions } from './utils.js';
-import { getTextColor, getInvertedTextColor, getConnectionLabelColors, CONNECTION_LABEL_OUTER_STROKE_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, hexToHsl, hslToHex } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { isValidColor } from './ai/palettes.js';
 import { NODE_DEFAULT_COLOR, CONNECTION_WIDTH_BASE_SCALE } from './constants.js';
 import { useTheme } from './hooks/useTheme.js';
@@ -57,6 +57,7 @@ const ConnectionText = ({
   const theme = useTheme();
   const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
   const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
+  const connectionLabelRingWidth = useGraphStore(state => state.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
   if (!connection.connectionName) {
     return null;
   }
@@ -123,7 +124,7 @@ const ConnectionText = ({
           {...lineGeomProps(i)}
           fill="none"
           stroke={labelColors.outerStroke}
-          strokeWidth={strokeWidth * CONNECTION_LABEL_OUTER_STROKE_SCALE}
+          strokeWidth={strokeWidth * connectionLabelRingWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
         >

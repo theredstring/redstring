@@ -11,6 +11,9 @@ const decimalsOf = (step) => {
 
 const MaroonSlider = ({
   label,
+  // For a slider that takes its name from the row above it instead of carrying
+  // its own visible label — the control still needs an accessible name.
+  ariaLabel,
   value,
   min = 0,
   max = 100,
@@ -88,6 +91,7 @@ const MaroonSlider = ({
           onPointerCancel={endDrag}
           onBlur={endDrag}
           disabled={disabled}
+          aria-label={label ? undefined : ariaLabel}
           aria-valuemin={min}
           aria-valuemax={max}
           aria-valuenow={shown}

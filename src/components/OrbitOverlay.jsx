@@ -7,7 +7,7 @@ import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR, CONNECTION_WIDTH_BASE_SCALE } f
 import { candidateToConcept } from '../services/candidates.js';
 import useGraphStore from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
-import { getTextColor, getConnectionLabelColors, CONNECTION_LABEL_OUTER_STROKE_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from '../utils/colorUtils';
+import { getTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from '../utils/colorUtils';
 import { formatPredicate } from '../utils/predicateFormatter.js';
 import { wrapTextToLines } from '../services/textMeasurement.js';
 import { getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
@@ -365,6 +365,8 @@ const OrbitConnection = React.memo(function OrbitConnection({
   labelFontSize,
   darkMode,
   connectionLabelColorMode = DEFAULT_CONNECTION_LABEL_COLOR_MODE,
+  connectionLabelOuterRing = DEFAULT_CONNECTION_LABEL_OUTER_RING,
+  connectionLabelRingWidth = DEFAULT_CONNECTION_LABEL_RING_WIDTH,
   registerConn,
 }) {
   const geom = computeOrbitConnectionGeometry({
@@ -426,7 +428,7 @@ const OrbitConnection = React.memo(function OrbitConnection({
             {...labelGeomProps}
             fill="none"
             stroke={outerStroke}
-            strokeWidth={haloWidth * CONNECTION_LABEL_OUTER_STROKE_SCALE}
+            strokeWidth={haloWidth * connectionLabelRingWidth}
             strokeLinecap="round"
             strokeLinejoin="round"
           >
@@ -935,6 +937,7 @@ export default function OrbitOverlay({
   const connectionLabelSize = useGraphStore(state => state.connectionLabelSize ?? 1.0);
   const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
   const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
+  const connectionLabelRingWidth = useGraphStore(state => state.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
   const nodeScale = useGraphStore(state => state.textSettings?.nodeScale ?? 1.0);
 
   const labelFontSize = useMemo(
@@ -1571,6 +1574,8 @@ export default function OrbitOverlay({
             labelFontSize={labelFontSize}
             darkMode={darkMode}
             connectionLabelColorMode={connectionLabelColorMode}
+            connectionLabelOuterRing={connectionLabelOuterRing}
+            connectionLabelRingWidth={connectionLabelRingWidth}
             registerConn={registerConn}
           />
         ))}

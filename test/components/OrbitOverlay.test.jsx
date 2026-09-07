@@ -139,7 +139,10 @@ describe('OrbitOverlay', () => {
   it('draws connection labels at the canvas default size', () => {
     const { container } = renderOverlay();
     const labels = container.querySelectorAll('.orbit-connection text');
-    expect(labels.length).toBe(2);
+    // Two connections, each label drawn twice: the connection-colored ring
+    // underneath and the label itself on top, since SVG paints one stroke
+    // per element. Both layers must carry the same font size.
+    expect(labels.length).toBe(4);
     for (const label of labels) {
       expect(Number(label.getAttribute('font-size'))).toBeCloseTo(EDGE_LABEL_BASE_FONT_SIZE, 5);
     }

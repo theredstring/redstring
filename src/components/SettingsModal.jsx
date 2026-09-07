@@ -8,7 +8,7 @@ import AISection from './settings/AISection.jsx';
 import DebugSection from './settings/DebugSection.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
-import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from '../utils/colorUtils.js';
+import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX } from '../utils/colorUtils.js';
 import './ModalChrome.css';
 
 /**
@@ -114,6 +114,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const connectionLabelSize = useGraphStore(s => s.connectionLabelSize ?? 1.0);
   const connectionLabelColorMode = useGraphStore(s => s.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
   const connectionLabelOuterRing = useGraphStore(s => s.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
+  const connectionLabelRingWidth = useGraphStore(s => s.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
   const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
   const darkMode = useGraphStore(s => s.darkMode);
   const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
@@ -507,11 +508,23 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={(v) => useGraphStore.getState().setConnectionLabelColorMode?.(v)}
             />
           </div>
-          <div className="settings-row">
+          <div className="settings-row settings-row--attached">
             <div className="settings-row-label">Label Ring</div>
             <Toggle
               checked={!!connectionLabelOuterRing}
               onChange={() => useGraphStore.getState().toggleConnectionLabelOuterRing?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              ariaLabel="Label Ring Width"
+              value={connectionLabelRingWidth}
+              min={CONNECTION_LABEL_RING_WIDTH_MIN}
+              max={CONNECTION_LABEL_RING_WIDTH_MAX}
+              step={0.05}
+              suffix="x"
+              disabled={!connectionLabelOuterRing}
+              onChange={(v) => useGraphStore.getState().setConnectionLabelRingWidth?.(v)}
             />
           </div>
           <div className="settings-slider-row">
