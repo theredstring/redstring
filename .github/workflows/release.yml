@@ -60,6 +60,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # electron-builder 26.x sends the CERTIFICATE's password to
+      # `security set-key-partition-list -k`, which wants the KEYCHAIN's. macOS
+      # 26.5 accepted the wrong one silently; the 20260828.587 runner image
+      # (macOS 26.6) exits 1 on it and took the v0.13.0 release down, five days
+      # after v0.12.2 built on the same macos-26-arm64 label. Fixed upstream in
+      # 27.0.0-alpha only, so patch it here until 27 is stable. The script
+      # no-ops on 27+ and fails the job if it can't apply.
+      - name: Patch electron-builder keychain password (macOS)
+        if: runner.os == 'macOS'
+        run: node scripts/patch-electron-builder-keychain.mjs
+
       - name: Bundle agent server
         run: npm run bundle:agent
 
