@@ -7,7 +7,7 @@ import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
-import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelLineGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from '../utils/canvas/edgeLabelPlacement.js';
 import { glyphQuadAt } from '../services/labelSpriteCache.js';
 import {
@@ -408,12 +408,12 @@ export const useNodeDrag = ({
     // frame skip clearing the attributes of a form React had just re-applied.
     const priorLabelState = new Map();
     dragEdgeElsRef.current.forEach(els => {
-      els.forEach(({ labelText, labelSprites, labelTouched }) => {
+      els.forEach(({ labelText, labelSpriteHost, labelTouched }) => {
         if (!labelTouched) return;
         // Keyed on whichever element carries this label — a <text> or a sprite
         // wrapper — so the flag survives a mid-drag re-cache for both forms.
         if (labelText) priorLabelState.set(labelText, { labelTouched });
-        else if (labelSprites?.length) priorLabelState.set(labelSprites[0], { labelTouched });
+        else if (labelSpriteHost) priorLabelState.set(labelSpriteHost, { labelTouched });
       });
     });
 
@@ -536,14 +536,28 @@ export const useNodeDrag = ({
       // <text> elements — see labelSpriteCache.js. It moves by ONE transform on
       // its wrapper <g>, which is strictly less work than the text forms below,
       // but it has to be collected here or a drag leaves it behind.
-      const labelSprites = Array.from(el.querySelectorAll('g[data-label-sprite]'));
+      // STRAIGHT sprite wrappers only. A curved label's wrapper holds glyph
+      // quads at absolute coordinates, so putting a translate on it does not
+      // move the label — it adds the label's position to positions that already
+      // contain it and throws the whole thing thousands of units off the graph.
+      // That was the lombardi label found sitting in empty space.
+      const labelSprites = Array.from(
+        el.querySelectorAll('g[data-label-sprite]:not([data-label-glyph-sprite])')
+      );
       // A curved label is a run of per-glyph quads in three layer passes rather
       // than one bitmap, so it moves by rewriting each quad rather than the
       // wrapper's transform. Grouped by layer, because every layer holds the
       // same glyphs in the same order and so shares one set of frames.
-      const labelGlyphLayers = Array.from(
-        el.querySelectorAll('g[data-label-glyph-sprite] g[data-glyph-layer]')
-      ).map((g) => Array.from(g.querySelectorAll('image')));
+      const glyphSpriteHost = el.querySelector('g[data-label-glyph-sprite]');
+      const labelGlyphLayers = glyphSpriteHost
+        ? Array.from(glyphSpriteHost.querySelectorAll('g[data-glyph-layer]'))
+          .map((g) => Array.from(g.querySelectorAll('image')))
+        : [];
+      // Whichever wrapper this label actually has. It is the identity a
+      // mid-drag re-cache keys `labelTouched` on, the way a <text> label keys
+      // it on its first <text>.
+      const labelSpriteHost = labelSprites[0] || glyphSpriteHost || null;
+
       const labelTexts = Array.from(el.querySelectorAll('text[data-connection-label]'));
       const labelText = labelTexts[0] || null;
       if (!labelText) {
@@ -555,20 +569,25 @@ export const useNodeDrag = ({
         // every frame exactly as the <text> form does, and the frames come from
         // per-character widths. They are measured off the wrapper's own
         // attributes because there is no <text> node to read them from.
-        const spriteHost = labelSprites[0] || null;
-        const spriteText = spriteHost?.getAttribute('data-label-text');
-        const spriteFontSize = parseFloat(spriteHost?.getAttribute('data-label-font-size'));
+        // Either wrapper will do — whichever this label actually has. Reading
+        // only the straight one left a CURVED label with no host at all once
+        // the two selectors were split, which meant no advances to re-solve its
+        // arc with and, worse, a null `labelTouched` for the updater to write
+        // through.
+        const spriteText = labelSpriteHost?.getAttribute('data-label-text');
+        const spriteFontSize = parseFloat(labelSpriteHost?.getAttribute('data-label-font-size'));
         return {
           labelText: null,
           labelTexts: [],
           labelSprites,
           labelGlyphLayers,
+          labelSpriteHost,
           labelAdvances: (spriteText && spriteFontSize > 0)
             ? edgeLabelGlyphAdvances(spriteText, spriteFontSize)
             : null,
           labelForm: { current: null },
-          labelTouched: labelSprites.length
-            ? (priorLabelState.get(labelSprites[0])?.labelTouched ?? { current: false })
+          labelTouched: labelSpriteHost
+            ? (priorLabelState.get(labelSpriteHost)?.labelTouched ?? { current: false })
             : null,
         };
       }
@@ -579,6 +598,7 @@ export const useNodeDrag = ({
         labelTexts,
         labelSprites,
         labelGlyphLayers,
+        labelSpriteHost,
         labelFontSize: fontSize,
         // The uncut name. Absent unless the truncate setting is on, and its
         // absence is exactly what tells retruncateLabel there is nothing to
@@ -1179,15 +1199,25 @@ export const useNodeDrag = ({
           // different bitmap, and re-encoding one per frame would cost more than
           // the stroked text this replaced. The settled render after the drop
           // re-cuts it.
-          if (labelSprites && labelSprites.length) {
-            labelTouched.current = true;
-            // A curved sprite label re-solves along the new arc exactly as the
-            // per-glyph <text> form does; a straight one is the wrapper's
-            // transform and nothing else.
-            if (!(dragLabelGlyphs && writeGlyphSpriteLayers(labelGlyphLayers, dragLabelGlyphs))) {
-              const spriteTransform = `translate(${labelPos.x} ${labelPos.y}) rotate(${labelAdj})`;
-              labelSprites.forEach((g) => { g.setAttribute('transform', spriteTransform); });
-            }
+          // A curved sprite label is placed glyph by glyph; a straight one is its
+          // wrapper's transform and nothing else. The two are now disjoint sets
+          // of elements, so neither can be written the other's way.
+          if (labelGlyphLayers?.length) {
+            if (labelTouched) labelTouched.current = true;
+            // The arc is the normal case. When it flattens — which it does
+            // constantly, any time the nodes line up — there is no arc left to
+            // ride, and the glyphs go on the straight run instead. Writing
+            // NOTHING here would strand the label behind the moving connection;
+            // writing the wrapper transform, as this once did, launched it off
+            // the graph entirely.
+            const frames = dragLabelGlyphs
+              || labelLineGlyphFrames(labelPos, labelAdj, labelAdvances);
+            if (frames) writeGlyphSpriteLayers(labelGlyphLayers, frames);
+          }
+          if (labelSprites?.length) {
+            if (labelTouched) labelTouched.current = true;
+            const spriteTransform = `translate(${labelPos.x} ${labelPos.y}) rotate(${labelAdj})`;
+            labelSprites.forEach((g) => { g.setAttribute('transform', spriteTransform); });
           }
           if (labelText && dragLabelGlyphs) {
             labelTouched.current = true;

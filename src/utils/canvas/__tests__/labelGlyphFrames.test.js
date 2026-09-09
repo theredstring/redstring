@@ -15,6 +15,7 @@ import {
   labelArcGlyphFrames,
   labelArcPath,
   labelCurveMinBow,
+  labelLineGlyphFrames,
   curvedGlyphQuantum,
   solveLombardiArc,
   MAX_LABEL_SWEEP,
@@ -398,5 +399,57 @@ describe('labelArcGlyphFrames — with a real routed arc', () => {
     for (let i = 0; i < advances.length; i++) {
       expect(radiusOf(arc, centreOf(frames, advances, i))).toBeCloseTo(arc.radius + 40, 6);
     }
+  });
+});
+
+describe('labelLineGlyphFrames', () => {
+  // Used when a Lombardi arc flattens mid-drag. It has to speak exactly the
+  // same language as labelArcGlyphFrames, because one writer places both.
+  const advances = [10, 20, 30];
+
+  it('centres the whole run on the anchor', () => {
+    const f = labelLineGlyphFrames({ x: 100, y: 50 }, 0, advances);
+    // Origins sit at -30, -20, 0 from the anchor; the run ends at +30, so the
+    // text is centred rather than starting there.
+    expect(f.x).toEqual([70, 80, 100]);
+    expect(f.y).toEqual([50, 50, 50]);
+    expect(f.span).toBe(60);
+  });
+
+  it('spaces origins by their own advances, along the reading direction', () => {
+    const f = labelLineGlyphFrames({ x: 0, y: 0 }, 90, advances);
+    // Straight down: the walk is in y, and x never moves.
+    expect(f.y[1] - f.y[0]).toBeCloseTo(advances[0], 9);
+    expect(f.y[2] - f.y[1]).toBeCloseTo(advances[1], 9);
+    f.x.forEach((v) => expect(v).toBeCloseTo(0, 9));
+  });
+
+  it('gives every glyph the label angle, so a straight run reads straight', () => {
+    const f = labelLineGlyphFrames({ x: 0, y: 0 }, 37.4, advances);
+    expect(f.rotate).toEqual([37.4, 37.4, 37.4]);
+    // No arc left, so nothing to curve around.
+    expect(f.sweep).toBe(0);
+  });
+
+  it('emits the same shape as the arc form, which is what lets one writer place both', () => {
+    const arc = { cx: 0, cy: 0, radius: 400, start: 0, delta: 0.8 };
+    const curved = labelArcGlyphFrames(arc, { x: 400, y: 0 }, advances, { minBow: 0 });
+    const straight = labelLineGlyphFrames({ x: 400, y: 0 }, 0, advances);
+    expect(Object.keys(straight).sort()).toEqual(Object.keys(curved).sort());
+    for (const k of ['x', 'y', 'rotate']) {
+      expect(straight[k]).toHaveLength(advances.length);
+      expect(curved[k]).toHaveLength(advances.length);
+    }
+  });
+
+  it('declines what it cannot place instead of emitting NaN', () => {
+    // The drag reads some of these off the DOM, so a bad value must stop here
+    // rather than becoming a position.
+    expect(labelLineGlyphFrames(null, 0, advances)).toBeNull();
+    expect(labelLineGlyphFrames({ x: 0, y: 0 }, 0, [])).toBeNull();
+    expect(labelLineGlyphFrames({ x: 0, y: 0 }, 0, null)).toBeNull();
+    expect(labelLineGlyphFrames({ x: 0, y: 0 }, NaN, advances)).toBeNull();
+    expect(labelLineGlyphFrames({ x: NaN, y: 0 }, 0, advances)).toBeNull();
+    expect(labelLineGlyphFrames({ x: 0, y: 0 }, 0, [10, NaN])).toBeNull();
   });
 });

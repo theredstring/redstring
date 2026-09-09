@@ -1365,6 +1365,59 @@ export function labelArcPath(arc, anchor, textWidth, options = {}) {
  * @returns {{x:number[], y:number[], rotate:number[], span:number,
  *            sweep:number, radius:number}|null}
  */
+/**
+ * The same frames as `labelArcGlyphFrames`, for a label on a STRAIGHT run.
+ *
+ * Exists for one situation, and it is not hypothetical: a Lombardi arc flattens
+ * whenever the nodes move into line, which during a drag happens constantly. At
+ * that moment `labelArcGlyphFrames` correctly returns null — there is no arc
+ * left to ride — and a label already rendered as per-glyph quads has nothing to
+ * be re-placed with. The settled render would resolve it by switching the label
+ * to its straight form, but a drag owns the DOM and cannot swap element shapes;
+ * all it can do is keep writing positions.
+ *
+ * So it writes these instead. A straight run of glyph quads is pixel-wise the
+ * same picture as one straight label, so the label stays attached to its
+ * connection for the rest of the gesture and React tidies the form up on the
+ * next settle.
+ *
+ * Output matches labelArcGlyphFrames exactly — origins walked back half an
+ * advance, one rotation per glyph — so the same writer places both.
+ *
+ * @param {{x:number,y:number}} anchor midpoint of the label
+ * @param {number} angleDeg reading direction
+ * @param {number[]} advances one per code point, in px
+ */
+export function labelLineGlyphFrames(anchor, angleDeg, advances) {
+  if (!anchor || !Array.isArray(advances) || advances.length === 0) return null;
+  if (!Number.isFinite(angleDeg) || !Number.isFinite(anchor.x) || !Number.isFinite(anchor.y)) return null;
+
+  let span = 0;
+  for (let i = 0; i < advances.length; i++) {
+    const w = advances[i];
+    if (!(w >= 0) || !Number.isFinite(w)) return null;
+    span += w;
+  }
+
+  const rad = angleDeg * (Math.PI / 180);
+  const dx = Math.cos(rad);
+  const dy = Math.sin(rad);
+
+  const x = new Array(advances.length);
+  const y = new Array(advances.length);
+  const rotate = new Array(advances.length);
+
+  let cursor = -span / 2;
+  for (let i = 0; i < advances.length; i++) {
+    x[i] = anchor.x + cursor * dx;
+    y[i] = anchor.y + cursor * dy;
+    rotate[i] = angleDeg;
+    cursor += advances[i];
+  }
+
+  return { x, y, rotate, span, sweep: 0, radius: Infinity };
+}
+
 export function labelArcGlyphFrames(arc, anchor, advances, options = {}) {
   if (!Array.isArray(advances) || advances.length === 0) return null;
   let span = 0;
