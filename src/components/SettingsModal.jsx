@@ -20,6 +20,54 @@ import './ModalChrome.css';
 const DEBUG_UNLOCK_TAPS = 5;
 
 /**
+ * MODULE scope, both of these, and it is not a style preference.
+ *
+ * Declared inside SettingsModal they were a NEW component type on every render,
+ * so React could not match them against the previous tree and unmounted and
+ * remounted the whole subtree each time — new DOM nodes, fresh state, on every
+ * keystroke and every store update the modal listens to.
+ *
+ * That broke the pills for a mouse while leaving them working under a finger,
+ * which is a strange enough symptom to be worth writing down. A `click` is
+ * synthesised only when mousedown and mouseup land on the SAME element; swap
+ * the node between them and no click is ever produced. Touch never depended on
+ * that pairing — PanelIconButton acts on `touchend` directly — so a finger
+ * selected fine while a cursor did nothing. The remount also reset each
+ * button's own hover state, which is the flicker that went with it.
+ */
+
+/** Checkbox styled as a track-and-thumb switch. */
+const Toggle = ({ checked, onChange, disabled = false }) => (
+  <label className="settings-toggle" style={disabled ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
+    <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+    <span className="settings-toggle-track" />
+    <span className="settings-toggle-thumb" />
+  </label>
+);
+
+/**
+ * A radio group built out of the panel's pill button, `active` marking the
+ * chosen one. This is the same construction as the Concepts/Related switch in
+ * the Semantic Discovery view: the selected pill wears the pie menu's lit
+ * state, so "selected" and "hovered" are one visual idea rather than two.
+ */
+const OptionGroup = ({ options, value, onChange }) => (
+  <div className="settings-option-group">
+    {options.map(opt => (
+      <PanelIconButton
+        key={opt.value}
+        label={opt.label}
+        labelFontSize={11}
+        variant="outline"
+        active={value === opt.value}
+        onClick={() => onChange(opt.value)}
+        style={{ padding: '5px 12px' }}
+      />
+    ))}
+  </div>
+);
+
+/**
  * Settings Modal
  * Full-screen overlay with two-column layout for app settings.
  * Reads/writes settings directly via useGraphStore.
@@ -156,37 +204,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const modalHeight = isCompactLayout
     ? Math.min(Math.max(viewportSize.height * 0.85, 400), 600)
     : 600;
-
-  // Toggle helper
-  const Toggle = ({ checked, onChange, disabled = false }) => (
-    <label className="settings-toggle" style={disabled ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
-      <span className="settings-toggle-track" />
-      <span className="settings-toggle-thumb" />
-    </label>
-  );
-
-  // Option group helper
-  //
-  // A radio group built out of the panel's pill button, `active` marking the
-  // chosen one. This is the same construction as the Concepts/Related switch in
-  // the Semantic Discovery view: the selected pill wears the pie menu's lit
-  // state, so "selected" and "hovered" are one visual idea rather than two.
-  const OptionGroup = ({ options, value, onChange }) => (
-    <div className="settings-option-group">
-      {options.map(opt => (
-        <PanelIconButton
-          key={opt.value}
-          label={opt.label}
-          labelFontSize={11}
-          variant="outline"
-          active={value === opt.value}
-          onClick={() => onChange(opt.value)}
-          style={{ padding: '5px 12px' }}
-        />
-      ))}
-    </div>
-  );
 
   // Icon map for sidebar navigation
   const sectionIcons = {

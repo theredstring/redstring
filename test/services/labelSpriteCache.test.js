@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
+  hydrateLabelSprites,
   spriteScaleForZoom,
   getLabelSprite,
   glyphQuadAt,
@@ -271,5 +272,31 @@ describe('deferred baking', () => {
     expect(typeof spritesUsable()).toBe('boolean');
     clearLabelSprites();
     expect(spritesUsable()).toBe(true);
+  });
+});
+
+describe('persistence', () => {
+  // No indexedDB in this environment, which is the point: every path through
+  // the store is best-effort, so the cache must behave identically without it.
+  it('hydrates harmlessly when there is nowhere to hydrate from', async () => {
+    expect(() => hydrateLabelSprites()).not.toThrow();
+    await Promise.resolve();
+    expect(labelSpriteCount()).toBe(0);
+  });
+
+  it('only hydrates once, however often it is asked', () => {
+    expect(() => {
+      hydrateLabelSprites();
+      hydrateLabelSprites();
+      hydrateLabelSprites();
+    }).not.toThrow();
+  });
+
+  it('clears memory without touching the store unless told to', () => {
+    // Clearing memory is cheap and self-healing; clearing the store discards
+    // work that is almost certainly still valid, so it takes an explicit ask.
+    expect(() => clearLabelSprites()).not.toThrow();
+    expect(() => clearLabelSprites({ persisted: true })).not.toThrow();
+    expect(labelSpriteCount()).toBe(0);
   });
 });

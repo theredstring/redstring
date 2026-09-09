@@ -143,6 +143,22 @@ describe('getGlyphSprite (drawing)', () => {
     expect(new Set(heights).size).toBe(1);
   });
 
+  it('corrects its centre onto the baseline the <text> form anchors to', () => {
+    // Seamlessness of the text-then-sprite swap rests entirely on this. A
+    // sprite is placed by its box centre; a <text> by a baseline that
+    // `dominant-baseline: middle` puts half an x-height below the anchor.
+    // Offset = (xHeight - ascent + descent) / 2, from the stub's metrics:
+    // x-height comes back as actualBoundingBoxAscent (50), ascent/descent from
+    // fontBoundingBox (56/18).
+    const sprite = getGlyphSprite({ ...spec, ch: 'a', layer: 'fill' });
+    expect(sprite.centerOffsetY).toBeCloseTo((50 - 56 + 18) / 2, 9);
+
+    // Both forms carry the same correction, or a straight label and a curved
+    // one would sit at different heights.
+    const label = getLabelSprite({ ...spec, text: 'ab' });
+    expect(label.centerOffsetY).toBeCloseTo(sprite.centerOffsetY, 9);
+  });
+
   it('varies width per glyph, because that is what the placement uses', () => {
     const narrow = getGlyphSprite({ ...spec, ch: 'a', layer: 'fill' });
     const wide = getGlyphSprite({ ...spec, ch: 'mmm', layer: 'fill' });

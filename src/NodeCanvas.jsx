@@ -21,7 +21,7 @@ import DownloadAppPill from './DownloadAppPill.jsx';
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from './services/textMeasurement.js';
-import { peekLabelSprite, requestLabelSprite, peekGlyphSprite, requestGlyphSprite, onSpritesReady, spritesUsable, glyphQuadAt, GLYPH_SPRITE_LAYERS, spriteScaleForZoom, clearLabelSprites } from './services/labelSpriteCache.js';
+import { peekLabelSprite, requestLabelSprite, peekGlyphSprite, requestGlyphSprite, onSpritesReady, spritesUsable, hydrateLabelSprites, glyphQuadAt, GLYPH_SPRITE_LAYERS, spriteScaleForZoom } from './services/labelSpriteCache.js';
 import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
@@ -4822,6 +4822,10 @@ function NodeCanvas() {
   const [, bumpSpriteVersion] = useState(0);
   useEffect(() => onSpritesReady(() => bumpSpriteVersion((v) => v + 1)), []);
 
+  // Read last session's sprites back in. The same ready signal a finished bake
+  // sends brings them on screen, so nothing here waits on it.
+  useEffect(() => { hydrateLabelSprites(); }, []);
+
   // Reset the label caches when the routing configuration changes.
   //
   // Correctness no longer depends on this: each cached placement now carries a
@@ -4863,12 +4867,19 @@ function NodeCanvas() {
       // too, or the labels re-render at correct sizes into stale positions.
       placedLabelsRef.current.clear();
       clearLabelStabilization();
-      // Sprites baked before the font arrived hold the wrong face permanently —
-      // a bitmap cannot fix itself the way a <text> does, and the font is the
-      // one input the sprite key cannot see. getLabelSprite declines to bake
-      // until EmOne is loadable, so in practice this clears the handful that a
-      // race let through rather than a full set.
-      clearLabelSprites();
+      // Sprites are deliberately NOT cleared here.
+      //
+      // The worry was that a sprite baked before the font arrived would hold the
+      // wrong face permanently, a bitmap being unable to fix itself the way a
+      // <text> does. But both bakers refuse outright until EmOne is loadable, so
+      // there is nothing to clear — and clearing anyway is now actively harmful:
+      // it races the hydration that reads last session's sprites back in, and
+      // whichever lands second wins. Losing that race means re-baking a set that
+      // was already correct and already on disk.
+      //
+      // If the label font itself ever changes, that is a rendering change and
+      // belongs to SCHEMA in labelSpriteStore.js, which invalidates every
+      // persisted sprite at once.
       bumpLabelFontVersion((v) => v + 1);
     });
     return () => { cancelled = true; };
@@ -18291,25 +18302,23 @@ function NodeCanvas() {
                                   && labelGlyphLayers.length === wantedGlyphLayers
                                   && labelGlyphLayers.every((l) => l.quads.length === owedGlyphs);
 
-                                // A label whose sprite is still baking draws NOTHING this pass.
+                                // A label whose sprite is still baking renders as <text> and
+                                // swaps to the bitmap when it lands, rather than waiting.
                                 //
-                                // The alternative is to draw it as <text> and swap once the
-                                // bitmap lands, which sounds gentler and is the more expensive
-                                // of the two: rasterising a few hundred stroked rotated glyphs
-                                // is the cost this whole path exists to avoid, and paying it on
-                                // the very frame the graph is trying to appear is the worst
-                                // moment for it. Holding lets the network paint immediately and
-                                // the labels arrive a slice or two later.
+                                // Holding it back was the other option and read as the graph
+                                // loading in pieces. Drawing text first costs one stroked pass
+                                // per label — real, but paid ONCE at settle, where the cost this
+                                // whole path exists to avoid is the per-frame one during motion.
+                                // The label is present and correct from the first paint and gets
+                                // cheaper shortly after.
                                 //
-                                // Only ever a WAIT, never a loss. It applies solely when a
-                                // sprite is genuinely coming — sprites on, canvas working, and
-                                // the font available, which getLabelSprite requires anyway. Any
-                                // other case falls through to <text> exactly as before, and
-                                // `spritesUsable()` latches false the moment a bake proves
-                                // impossible so a broken canvas cannot hide the labels forever.
-                                const labelSpritePending =
-                                  (labelSpriteWanted && !labelSprite)
-                                  || (!!labelGlyphChars && !useGlyphSprites);
+                                // The swap only looks seamless because the two forms are placed
+                                // by the same rule: identical origins, identical advances,
+                                // identical rotations (sprites drop the glyph angle bucket, and
+                                // the text form drops it too whenever sprites are enabled), and
+                                // a sprite centre corrected onto the text's baseline by
+                                // spriteCenterOffsetY. Change any one of those and the swap
+                                // becomes a visible twitch.
 
                                 // Everything that positions the label, shared by the real label and
                                 // the connection-colored ring drawn underneath it. Both carry
@@ -18399,27 +18408,33 @@ function NodeCanvas() {
                                       >
                                         {labelGlyphLayers.map(({ layer, quads }) => (
                                           <g key={layer} data-glyph-layer={layer}>
-                                            {quads.map(({ sprite, q, gi }) => (
-                                              <image
-                                                key={gi}
-                                                href={sprite.href}
-                                                x={q.cx - sprite.width / 2}
-                                                y={q.cy - sprite.height / 2}
-                                                width={sprite.width}
-                                                height={sprite.height}
-                                                transform={`rotate(${q.rot} ${q.cx} ${q.cy})`}
-                                                preserveAspectRatio="none"
-                                                data-gi={gi}
-                                                data-advance={sprite.advance}
-                                              />
-                                            ))}
+                                            {quads.map(({ sprite, q, gi }) => {
+                                              const ix = q.cx - sprite.width / 2;
+                                              const iy = q.cy - sprite.height / 2 + sprite.centerOffsetY;
+                                              return (
+                                                <image
+                                                  key={gi}
+                                                  href={sprite.href}
+                                                  x={ix}
+                                                  y={iy}
+                                                  width={sprite.width}
+                                                  height={sprite.height}
+                                                  transform={`rotate(${q.rot} ${q.cx} ${q.cy})`}
+                                                  preserveAspectRatio="none"
+                                                  data-gi={gi}
+                                                  data-advance={sprite.advance}
+                                                  data-oy={sprite.centerOffsetY}
+                                                  /* What React committed, so a drag can put this
+                                                     glyph back before React diffs against it —
+                                                     the per-glyph twin of data-label-frame. See
+                                                     LABEL FRAMES in edgeLabelPlacement.js. */
+                                                  data-gframe={`${ix}|${iy}|${q.rot}|${q.cx}|${q.cy}`}
+                                                />
+                                              );
+                                            })}
                                           </g>
                                         ))}
                                       </g>
-                                    ) : labelSpritePending ? (
-                                      /* Baking. The hit target below is still live, so the label
-                                         stays clickable in the moment before it appears. */
-                                      null
                                     ) : labelSprite ? (
                                       /* The whole label — ring, halo and fill — as one bitmap.
                                          Wrapped in a <g> carrying the placement so a drag can
@@ -18439,7 +18454,9 @@ function NodeCanvas() {
                                         <image
                                           href={labelSprite.href}
                                           x={-labelSprite.width / 2}
-                                          y={-labelSprite.height / 2}
+                                          /* Offset inside the rotated group, so it carries
+                                             perpendicular to the text — see spriteCenterOffsetY. */
+                                          y={-labelSprite.height / 2 + labelSprite.centerOffsetY}
                                           width={labelSprite.width}
                                           height={labelSprite.height}
                                           preserveAspectRatio="none"

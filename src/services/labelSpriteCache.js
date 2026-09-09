@@ -44,6 +44,7 @@
  */
 
 import { measureTextWidth, edgeLabelFontString, edgeLabelFontLoaded } from './textMeasurement.js';
+import { loadPersistedSprites, persistSprite, purgePersistedSprites } from './labelSpriteStore.js';
 
 /**
  * Padding around the ink, as a multiple of the widest stroke's half-width.
@@ -163,10 +164,42 @@ function fontVerticalMetrics(c, font, fontSize) {
   if (!(ascent > 0)) ascent = fontSize * 0.8;
   if (!(descent > 0)) descent = fontSize * 0.25;
 
-  const out = { ascent, descent };
+  // x-height, for matching SVG's `dominant-baseline: middle` — see
+  // spriteCenterOffsetY.
+  let xHeight = 0;
+  try {
+    const mx = c.measureText('x');
+    if (mx.actualBoundingBoxAscent > 0) xHeight = mx.actualBoundingBoxAscent;
+  } catch (_) { /* estimated below */ }
+  if (!(xHeight > 0)) xHeight = fontSize * 0.52;
+
+  const out = { ascent, descent, xHeight };
   metricsCache.set(font, out);
   return out;
 }
+
+/**
+ * How far a sprite's centre sits from the point the <text> it replaces anchors to.
+ *
+ * A sprite is placed by its box centre; a <text> is placed by a BASELINE, and
+ * `dominant-baseline: middle` puts that baseline half an x-height below the
+ * anchor. Those two are not the same point, so a sprite centred naively on the
+ * anchor sits a few units off from the text it stands in for — invisible while
+ * sprites were all-or-nothing, and a visible jolt the moment a label renders as
+ * text first and swaps to a sprite afterwards.
+ *
+ * Derive it rather than nudge it. Placing the bitmap's top at Y puts its
+ * baseline at Y + pad + ascent, and matching that to the text's y + xHeight/2
+ * gives a centre offset of (xHeight - ascent + descent) / 2. The padding falls
+ * out, so this is a property of the font alone.
+ *
+ * Applied in the label's own rotated frame — offsetting the <image> before the
+ * rotation is what carries it perpendicular to the text rather than down the
+ * screen.
+ */
+const spriteCenterOffsetY = ({ ascent, descent, xHeight }) => (
+  (xHeight - ascent + descent) / 2
+);
 
 function getContext() {
   if (ctx) return ctx;
@@ -257,7 +290,8 @@ export function getLabelSprite(spec) {
   // is worse than one that carries a few transparent rows.
   // Font-wide, not string-wide, so a straight label and a curved one made of
   // the same text sit at the same height. See fontVerticalMetrics.
-  const { ascent, descent } = fontVerticalMetrics(c, font, fontSize);
+  const metrics = fontVerticalMetrics(c, font, fontSize);
+  const { ascent, descent } = metrics;
 
   const boxW = inkWidth + pad * 2;
   const boxH = ascent + descent + pad * 2;
@@ -312,8 +346,9 @@ export function getLabelSprite(spec) {
     return null;
   }
 
-  const sprite = { href, width: boxW, height: boxH };
+  const sprite = { href, width: boxW, height: boxH, centerOffsetY: spriteCenterOffsetY(metrics) };
   cache.set(key, sprite);
+  persistSprite(key, sprite);
   if (cache.size > MAX_SPRITES) evictOldest();
   return sprite;
 }
@@ -374,7 +409,8 @@ export function getGlyphSprite(spec) {
   // Width is per-glyph — that is the advance the caller places by. Height is
   // font-wide and identical for every character, which is what keeps all the
   // baselines on one line. See fontVerticalMetrics.
-  const { ascent, descent } = fontVerticalMetrics(c, font, fontSize);
+  const metrics = fontVerticalMetrics(c, font, fontSize);
+  const { ascent, descent } = metrics;
   c.font = font;
   const m = c.measureText(ch);
   const inkWidth = Number.isFinite(m.width) && m.width > 0 ? m.width : fontSize * 0.5;
@@ -422,8 +458,9 @@ export function getGlyphSprite(spec) {
   // glyph's ADVANCE box is centred in the sprite, so putting the sprite centre
   // half an advance along the reading direction from a frame origin lands the
   // glyph exactly where a `text-anchor: start` <text> would have put it.
-  const sprite = { href, width: boxW, height: boxH, advance: inkWidth };
+  const sprite = { href, width: boxW, height: boxH, advance: inkWidth, centerOffsetY: spriteCenterOffsetY(metrics) };
   cache.set(key, sprite);
+  persistSprite(key, sprite);
   if (cache.size > MAX_SPRITES) evictOldest();
   return sprite;
 }
@@ -535,6 +572,40 @@ function scheduleBake() {
 }
 
 /**
+ * Read last session's sprites back in.
+ *
+ * Fire-and-forget, and never awaited by anything: a label renders as <text>
+ * until its bitmap exists, so an empty or slow store costs nothing but the
+ * usual first-paint path. What it saves is the baking itself — a returning user
+ * opens the same universe with the same types, colours and text size, and the
+ * whole set is already made.
+ *
+ * Hydration never overwrites. Anything baked in the meantime is by definition
+ * current, and a persisted row can only be older.
+ */
+let hydrated = false;
+
+export function hydrateLabelSprites() {
+  if (hydrated || typeof window === 'undefined') return;
+  hydrated = true;
+  loadPersistedSprites().then((rows) => {
+    let added = 0;
+    for (const [key, sprite] of rows) {
+      if (cache.has(key)) continue;
+      cache.set(key, sprite);
+      added++;
+      if (cache.size > MAX_SPRITES) evictOldest();
+    }
+    if (added > 0) {
+      // Same signal a finished bake sends, so the canvas re-renders into the
+      // cache it just gained without needing to know where the sprites came
+      // from.
+      readyListeners.forEach((fn) => { try { fn(); } catch (_) { /* ignore */ } });
+    }
+  }).catch(() => { /* best effort */ });
+}
+
+/**
  * Cache lookup only — never bakes, safe to call from a render.
  *
  * Returns the sprite, or null. A null means "not yet"; ask `spritesUsable()`
@@ -593,12 +664,16 @@ export function requestGlyphSprite(spec) {
  * part of the key and simply misses, so the cache self-invalidates on all of
  * them. A font swap is the one change the key cannot see.
  */
-export function clearLabelSprites() {
+export function clearLabelSprites({ persisted = false } = {}) {
   cache.clear();
   metricsCache.clear();
   pending.clear();
   // A font swap is a fresh start, including for a canvas that looked broken.
   bakingBroken = false;
+  // Off by default. Clearing memory is cheap and self-healing; clearing the
+  // store throws away work that is almost certainly still valid, so it takes an
+  // explicit ask.
+  if (persisted) purgePersistedSprites();
 }
 
 /**

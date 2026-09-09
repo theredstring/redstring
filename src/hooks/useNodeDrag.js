@@ -113,8 +113,12 @@ const writeGlyphSpriteLayers = (layers, glyphs) => {
       if (!q) return;
       const w = parseFloat(img.getAttribute('width')) || 0;
       const h = parseFloat(img.getAttribute('height')) || 0;
+      // `data-oy` corrects the box centre onto the baseline the <text> form
+      // anchors to. Dropping it here would make every curved label jump the
+      // moment a drag started — see spriteCenterOffsetY.
+      const oy = parseFloat(img.getAttribute('data-oy')) || 0;
       img.setAttribute('x', q.cx - w / 2);
-      img.setAttribute('y', q.cy - h / 2);
+      img.setAttribute('y', q.cy - h / 2 + oy);
       img.setAttribute('transform', `rotate(${q.rot} ${q.cx} ${q.cy})`);
       wrote = true;
     });
@@ -2197,16 +2201,26 @@ export const useNodeDrag = ({
     // Not gated on labelTouched: the text is rewritten by both the routed and
     // the straight per-frame paths, and only the routed one sets that flag.
     dragEdgeElsRef.current.forEach(els => {
-      els.forEach(({ labelTexts, labelSprites, labelTouched }) => {
+      els.forEach(({ labelTexts, labelSprites, labelGlyphLayers, labelTouched }) => {
         labelTexts?.forEach(t => {
           if (labelTouched?.current) applyLabelFrame(t, t.getAttribute('data-label-frame'));
           const committed = t.getAttribute('data-label-text');
           if (committed !== null && t.textContent !== committed) t.textContent = committed;
         });
-        // Sprites need the same treatment for the same reason, one attribute
-        // instead of several. Their frame is always the straight form — a sprite
-        // is only ever used for a straight label — so the token's x, y and angle
-        // rebuild the transform React committed.
+        // Sprites need the same treatment for the same reason, and they come in
+        // two shapes.
+        //
+        // A STRAIGHT sprite is one bitmap whose placement lives on its wrapper,
+        // so restoring it is one attribute.
+        //
+        // A CURVED one is a run of per-glyph quads that each carry their own
+        // position, and missing them is what left lombardi labels stranded in
+        // open space: this block once assumed "a sprite is only ever a straight
+        // label", so a curved label's `g|` token failed the `s|` test and
+        // nothing was put back. The drag's last frame stayed in the DOM, and the
+        // settled render that followed computed the same values React had
+        // already rendered, wrote nothing, and left the label where the drag
+        // had dropped it rather than on its connection.
         if (labelTouched?.current) {
           labelSprites?.forEach(g => {
             const parts = String(g.getAttribute('data-label-frame') || '').split('|');
@@ -2214,6 +2228,13 @@ export const useNodeDrag = ({
               g.setAttribute('transform', `translate(${parts[1]} ${parts[2]}) rotate(${parts[3]})`);
             }
           });
+          labelGlyphLayers?.forEach(imgs => imgs.forEach(img => {
+            const p = String(img.getAttribute('data-gframe') || '').split('|');
+            if (p.length !== 5) return;
+            img.setAttribute('x', p[0]);
+            img.setAttribute('y', p[1]);
+            img.setAttribute('transform', `rotate(${p[2]} ${p[3]} ${p[4]})`);
+          }));
         }
       });
     });
