@@ -247,6 +247,11 @@ const UnifiedSelector = ({
         onPointerDown={(e) => e.stopPropagation()} // Stop propagation on backdrop too to prevent canvas panning
         onTouchEnd={(e) => {
           if (e.target === e.currentTarget) {
+            // Cancel the compat mouse sequence before it can reach the canvas
+            // this backdrop is about to stop covering — see the close button
+            // below. The touchHandledRef window stays as well, for the case
+            // where the backdrop survives the tap.
+            if (e.cancelable) e.preventDefault();
             touchHandledRef.current = true;
             setName('');
             setColorPickerVisible(false);
@@ -311,19 +316,33 @@ const UnifiedSelector = ({
               marginBottom: isSmallScreen ? '15px' : '10px'
             }}>
               <strong style={{ fontSize: dialogTitleSize, fontFamily: "'EmOne', sans-serif", color: theme.canvas.textPrimary }}>{title}</strong>
-              <PanelIconButton
-                icon={X}
-                size={closeIconSize}
-                color="#999"
-                onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }}
-                title="Close"
-                style={{
-                  minWidth: iconButtonHitSize,
-                  minHeight: iconButtonHitSize,
-                  flexShrink: 0,
-                  marginLeft: '8px'
-                }}
-              />
+              {/*
+                display: contents so this adds no box to the header row — it
+                exists only to catch the button's touchend on the way up and
+                cancel the delayed synthesized click. This dialog is portalled
+                and unmounts synchronously on close, so that click would
+                otherwise land on the now-uncovered canvas and spawn a stray
+                plus sign at the X's coordinates. Same guard as the submit
+                button below.
+              */}
+              <span
+                style={{ display: 'contents' }}
+                onTouchEnd={(e) => { if (e.cancelable) e.preventDefault(); }}
+              >
+                <PanelIconButton
+                  icon={X}
+                  size={closeIconSize}
+                  color="#999"
+                  onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }}
+                  title="Close"
+                  style={{
+                    minWidth: iconButtonHitSize,
+                    minHeight: iconButtonHitSize,
+                    flexShrink: 0,
+                    marginLeft: '8px'
+                  }}
+                />
+              </span>
             </div>
             {subtitle && (
               <div
