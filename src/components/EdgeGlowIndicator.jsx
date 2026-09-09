@@ -65,6 +65,7 @@ const EdgeGlowIndicator = ({
   panOffsetRef,
   zoomLevelRef,
   glowUpdateRef,
+  isViewMovingRef,
   leftPanelExpanded,
   rightPanelExpanded,
   previewingNodeId,
@@ -85,6 +86,23 @@ const EdgeGlowIndicator = ({
   useEffect(() => {
     if (!glowUpdateRef || !panOffsetRef || !zoomLevelRef) return;
     const update = () => {
+      // SUSPENDED WHILE THE VIEW MOVES.
+      //
+      // This fires once per RAF for the whole of a gesture, and each call used
+      // to commit two setStates — which re-runs `allNodeData` below over EVERY
+      // node in the graph (not the visible ones; off-screen nodes are the whole
+      // point of this component) allocating one object each. On a 120Hz
+      // trackpad that is up to 120 O(N) React commits per second, landing on
+      // exactly the frames where the browser is also re-rasterising a scaled
+      // SVG. Zoom is the worse client of the two gestures: the ease loop has a
+      // momentum tail, so it emits more mutations for longer than the input
+      // does, and the off-screen set changes monotonically under a scale, so
+      // flares mount and unmount every frame rather than just translating.
+      //
+      // Freezing the flares for the duration of a gesture and letting the
+      // settled props below put them right is invisible in practice — they are
+      // peripheral indicators — and turns O(nodes) x 60Hz into O(nodes) once.
+      if (isViewMovingRef?.current) return;
       const curPan = panOffsetRef.current;
       const curZoom = zoomLevelRef.current;
       const last = lastPanRef.current;
@@ -99,15 +117,22 @@ const EdgeGlowIndicator = ({
     return () => {
       if (glowUpdateRef.current === update) glowUpdateRef.current = null;
     };
-  }, [glowUpdateRef, panOffsetRef, zoomLevelRef]);
+  }, [glowUpdateRef, panOffsetRef, zoomLevelRef, isViewMovingRef]);
 
-  // Sync from React state when refs aren't available (fallback)
+  // The settle is now the recompute trigger, not just a fallback for when the
+  // refs are absent. `panOffset`/`zoomLevel` are NodeCanvas's settled state and
+  // change exactly once per gesture, SETTLE_DELAY ms after the last mutation —
+  // which is precisely when the suppressed `update` above should be made good.
+  // These must therefore run unconditionally; the old `if (!panOffsetRef)`
+  // guards meant they never fired whenever the live refs were supplied.
   useEffect(() => {
-    if (!panOffsetRef) setLivePan(panOffset);
-  }, [panOffset, panOffsetRef]);
+    lastPanRef.current = panOffset;
+    setLivePan(panOffset);
+  }, [panOffset]);
   useEffect(() => {
-    if (!zoomLevelRef) setLiveZoom(zoomLevel);
-  }, [zoomLevel, zoomLevelRef]);
+    lastZoomRef.current = zoomLevel;
+    setLiveZoom(zoomLevel);
+  }, [zoomLevel]);
   // Get TypeList visibility from store
   const typeListMode = useGraphStore(state => state.typeListMode);
   const typeListVisible = typeListMode !== 'closed';

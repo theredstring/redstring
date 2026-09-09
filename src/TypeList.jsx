@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import './TypeList.css';
-import { HEADER_HEIGHT } from './constants';
+import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from './constants';
 import NodeType from './NodeType'; // Import NodeType
 import EdgeType from './EdgeType'; // Import EdgeType
 import useGraphStore from './store/graphStore.js';
