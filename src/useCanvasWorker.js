@@ -31,7 +31,13 @@ export const useCanvasWorker = () => {
       };
     } catch (error) {
       console.error('Worker initialization failed:', error);
-      return null;
+      // Must be undefined, not null: React calls whatever an effect returns as
+      // its cleanup, so `return null` crashes the whole canvas with "destroy is
+      // not a function" on the NEXT render — not on this one, which is what made
+      // it hard to see. Only reachable where Worker is unavailable (jsdom under
+      // test, and any other Worker-less host), which is exactly where the
+      // fallback was supposed to keep things running.
+      return undefined;
     }
   }, []);
 

@@ -126,6 +126,7 @@ const seedStore = () => {
     savedGraphIds: new Set(),
     selectedEdgeIds: new Set(),
     selectedEdgeId: null,
+    typeListMode: 'closed',
     isUniverseLoaded: true,
     isUniverseLoading: false,
     universeLoadingError: null,
@@ -252,6 +253,79 @@ describe('NodeCanvas render smoke', () => {
     document.querySelectorAll('[data-connection-label="1"]').forEach((el) => {
       expect(el.getAttribute('data-label-frame')).toBeTruthy();
     });
+  });
+
+  // The edge element cache hands an unchanged edge back the identical React
+  // element so the reconciler bails out of its subtree. That is only safe if a
+  // cached edge is byte-for-byte what a freshly solved one would have been, so
+  // compare the two paths across a re-render that must not touch any edge.
+  //
+  // This is the automated stand-in for the golden-DOM diff. It cannot cover
+  // curved routing or baked sprites, which jsdom will not produce — those still
+  // need checking in a browser before the cache is turned on for real.
+  it('cached edges render identically to uncached ones', async () => {
+    const edgeDom = () => Array.from(document.querySelectorAll('[data-edge-id]'))
+      .map((el) => `${el.getAttribute('data-edge-id')}\n${el.outerHTML}`)
+      .sort()
+      .join('\n\n');
+
+    const capture = async (cacheOn) => {
+      window.__edgeCache = cacheOn;
+      seedStore();
+      renderCanvas();
+      flushFrames(3);
+      await waitFor(() => {
+        expect(document.querySelectorAll('[data-edge-id]')).toHaveLength(2);
+      });
+
+      // An async bootstrap effect settles after mount and flips hasUniverseFile
+      // false, which sends NodeCanvas back to its loading gate and unmounts the
+      // canvas. Hold the gate open across the forced commits below.
+      const holdUniverseOpen = () => useGraphStore.setState({
+        isUniverseLoading: false,
+        isUniverseLoaded: true,
+        hasUniverseFile: true,
+        universeLoadingError: null,
+      }, false, 'smoke_hold_gate');
+
+      // (1) A commit driven by a store field no edge reads. Every edge should
+      //     hit the cache here — this is the case the cache exists for.
+      act(() => { holdUniverseOpen(); useGraphStore.getState().setTypeListMode('open'); });
+      flushFrames(2);
+      const afterNoOpCommit = edgeDom();
+
+      // (2) Now move an endpoint. Every edge touching it MUST re-solve; if the
+      //     key is too coarse the cache serves a stale element and this half of
+      //     the comparison fails while (1) still passes.
+      act(() => {
+        holdUniverseOpen();
+        useGraphStore.getState().updateNodeInstance('g1', 'i2', (inst) => {
+          inst.x = 900; inst.y = 250;
+        });
+      });
+      flushFrames(2);
+      const afterMove = edgeDom();
+
+      cleanup();
+      return { afterNoOpCommit, afterMove };
+    };
+
+    const uncached = await capture(false);
+    const hitsBefore = window.__edgeCacheStats?.hits ?? 0;
+    const cached = await capture(true);
+    const hitsAfter = window.__edgeCacheStats?.hits ?? 0;
+
+    // The comparison is only meaningful if the cache was actually exercised.
+    expect(hitsAfter).toBeGreaterThan(hitsBefore);
+
+    expect(uncached.afterNoOpCommit.length).toBeGreaterThan(0);
+    expect(cached.afterNoOpCommit).toBe(uncached.afterNoOpCommit);
+
+    // Moving a node must change the rendered edges, or (2) proves nothing.
+    expect(uncached.afterMove).not.toBe(uncached.afterNoOpCommit);
+    expect(cached.afterMove).toBe(uncached.afterMove);
+
+    window.__edgeCache = false;
   });
 
   it('keeps edges inside the pan/zoom content group', async () => {

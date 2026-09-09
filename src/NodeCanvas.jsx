@@ -4898,9 +4898,10 @@ function NodeCanvas() {
   const labelSpriteScale = spriteScaleForZoom(zoomLevel);
 
   // Re-render when a batch of sprites finishes baking, so the labels that were
-  // held back can appear. Value intentionally unread — edges render inline with
-  // no memo of their own, so a commit is all that is needed.
-  const [, bumpSpriteVersion] = useState(0);
+  // held back can appear. The value is READ and travels in edgeRenderCtx — see
+  // the note on labelFontVersion below for why discarding it becomes a silent
+  // correctness bug the moment per-edge caching exists.
+  const [labelSpriteVersion, bumpSpriteVersion] = useState(0);
   useEffect(() => onSpritesReady(() => bumpSpriteVersion((v) => v + 1)), []);
 
   // Read last session's sprites back in. The same ready signal a finished bake
@@ -4935,10 +4936,18 @@ function NodeCanvas() {
   // slightly off while any label drawn later was correct, and nudging a node was
   // the only way to fix one. getNodeDimensions has carried the same listener for
   // node text for exactly this reason (see utils.js).
-  // Value intentionally unread — edges are rendered inline by
-  // renderConnectionEdge with no memo of their own, so a commit is all that's
-  // needed to re-solve every label.
-  const [, bumpLabelFontVersion] = useState(0);
+  // READ THIS VALUE — do not go back to discarding it.
+  //
+  // It used to be write-only, on the reasoning that "edges are rendered inline
+  // with no memo of their own, so a commit is all that's needed to re-solve
+  // every label". That was true while every commit re-solved everything. The
+  // moment any per-edge caching exists it stops being true, and the failure is
+  // silent: a label cached in its <text> form never upgrades to the sprite that
+  // has since baked, and placements solved against estimated widths never
+  // re-solve once the real font arrives. Nothing throws; the labels just stay
+  // subtly wrong forever. So the counter travels in edgeRenderCtx and belongs in
+  // any cache key built from it.
+  const [labelFontVersion, bumpLabelFontVersion] = useState(0);
   useEffect(() => {
     if (typeof document === 'undefined' || !document.fonts?.ready) return;
     let cancelled = false;
@@ -6981,7 +6990,54 @@ function NodeCanvas() {
   // of edges, so without this an orb sitting over a node border loses the touch to
   // the node; this ref lets the touch layer give orbs priority. Entries:
   // { cx, cy, r, edgeId, nodeId }.
-  const connectionOrbHitsRef = useRef([]);
+  //
+  // Keyed by edge id (Map<edgeId, orb[]>) rather than a flat list: a flat list
+  // is only correct while every edge is guaranteed to run on every pass, and
+  // the edge-caching work removes that guarantee. See renderConnectionEdge.
+  const connectionOrbHitsRef = useRef(new Map());
+
+  // EDGE ELEMENT CACHE.
+  //
+  // Map<edgeId, { edge, isHovered, isSelected, globals, element }>. Holds the
+  // React element each edge last produced, so an edge whose inputs are unchanged
+  // can be handed back the identical element object. React bails out of
+  // reconciling a subtree when it meets the same element reference in the same
+  // position, so a hit skips BOTH the ~1,800-line re-solve and the diff of the
+  // subtree it produces.
+  //
+  // The key is derived from edgeRenderCtx itself rather than hand-listed, which
+  // is the whole point: a value added to the context automatically joins the key
+  // and cannot be forgotten. Only the three genuinely per-edge inputs are pulled
+  // out and compared as booleans, so hovering one connection does not invalidate
+  // every other one.
+  //
+  // OFF BY DEFAULT — `window.__edgeCache = true` to enable. It stays off until
+  // the edge share of a commit has actually been measured (window.__edgePerf)
+  // and the output has been diffed against the uncached path on a real universe.
+  const edgeElementCacheRef = useRef(new Map());
+
+  // Cumulative hit/miss tally for the cache, mirrored onto
+  // `window.__edgeCacheStats` so its behaviour can be checked from the console
+  // (and asserted in tests) rather than inferred. Only touched when the cache is
+  // on, so it costs nothing in the default configuration.
+  const edgeCacheStatsRef = useRef({ hits: 0, misses: 0 });
+  useEffect(() => {
+    if (typeof window !== 'undefined') window.__edgeCacheStats = edgeCacheStatsRef.current;
+  }, []);
+
+  // Both per-edge maps are written by edges that RUN, so an edge that leaves the
+  // visible set (culled, or deleted) leaves its last entry behind. Neither is
+  // load-bearing enough to justify work during render, so they are swept here,
+  // after the commit that changed the visible set.
+  useEffect(() => {
+    const live = new Set(visibleEdges.map(e => e.id));
+    for (const id of connectionOrbHitsRef.current.keys()) {
+      if (!live.has(id)) connectionOrbHitsRef.current.delete(id);
+    }
+    for (const id of edgeElementCacheRef.current.keys()) {
+      if (!live.has(id)) edgeElementCacheRef.current.delete(id);
+    }
+  }, [visibleEdges]);
 
   // Timestamp of the last touch-driven orb toggle. React's touch listeners are
   // passive, so we can't preventDefault the synthesized click that follows a tap —
@@ -6994,22 +7050,24 @@ function NodeCanvas() {
   // Returns true if a toggle happened so the touch layer can swallow the gesture and
   // skip node selection / canvas deselection. Prefers the nearest orb on overlap.
   const tryToggleConnectionOrbAtPoint = useCallback((clientX, clientY) => {
-    const orbs = connectionOrbHitsRef.current;
-    if (!orbs || orbs.length === 0 || !containerRef.current) return false;
+    const orbsByEdge = connectionOrbHitsRef.current;
+    if (!orbsByEdge || orbsByEdge.size === 0 || !containerRef.current) return false;
     const rect = containerRef.current.getBoundingClientRect();
     const px = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
     const py = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
     let best = null;
     let bestDist = Infinity;
-    for (const orb of orbs) {
-      const dx = px - orb.cx;
-      const dy = py - orb.cy;
-      const dist = Math.hypot(dx, dy);
-      // Slight radius padding so a finger that lands just outside the transparent
-      // hit disc still registers (touch is far less precise than a mouse).
-      if (dist <= orb.r * 1.15 && dist < bestDist) {
-        best = orb;
-        bestDist = dist;
+    for (const orbs of orbsByEdge.values()) {
+      for (const orb of orbs) {
+        const dx = px - orb.cx;
+        const dy = py - orb.cy;
+        const dist = Math.hypot(dx, dy);
+        // Slight radius padding so a finger that lands just outside the transparent
+        // hit disc still registers (touch is far less precise than a mouse).
+        if (dist <= orb.r * 1.15 && dist < bestDist) {
+          best = orb;
+          bestDist = dist;
+        }
       }
     }
     if (!best) return false;
@@ -16815,7 +16873,45 @@ function NodeCanvas() {
                     // The renderer now lives in components/canvas/renderConnectionEdge.jsx;
                     // this object is its entire input surface. Adding a value the renderer
                     // needs means adding it here — there is no implicit closure any more.
+                    // Cache plumbing — see EDGE ELEMENT CACHE where the ref is
+                    // declared. `edgeGlobalCacheKey` is every context value that
+                    // is NOT per-edge, snapshotted once for the whole pass.
+                    const edgeCacheOn = typeof window !== 'undefined' && window.__edgeCache === true;
+                    const renderEdgeCached = (edge, ctx, globals) => {
+                      // Self-loops go straight through: they early-return into
+                      // <SelfLoopEdge>, which takes the whole selectedEdgeIds Set
+                      // as a prop and writes placedLabelsRef during its own child
+                      // reconciliation, so it does not fit the key below.
+                      if (!edgeCacheOn || edge.sourceId === edge.destinationId) {
+                        return renderConnectionEdge(edge, ctx);
+                      }
+                      const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
+                      const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
+                      const prev = edgeElementCacheRef.current.get(edge.id);
+                      if (
+                        prev
+                        && prev.edge === edge
+                        && prev.isHovered === isHovered
+                        && prev.isSelected === isSelected
+                        && prev.globals.length === globals.length
+                        && prev.globals.every((v, i) => Object.is(v, globals[i]))
+                      ) {
+                        edgeCacheStatsRef.current.hits++;
+                        return prev.element;
+                      }
+                      edgeCacheStatsRef.current.misses++;
+                      const element = renderConnectionEdge(edge, ctx);
+                      edgeElementCacheRef.current.set(edge.id, { edge, isHovered, isSelected, globals, element });
+                      return element;
+                    };
+
                     const edgeRenderCtx = {
+                      // Not read by the renderer directly — they exist so that a
+                      // cache key built from this object notices a sprite batch
+                      // finishing or the label font arriving. See EDGE ELEMENT
+                      // CACHE below.
+                      labelSpriteVersion,
+                      labelFontVersion,
                       anchorPositionUpdatesRef,
                       baseDimsById,
                       canvasSize,
@@ -16871,11 +16967,24 @@ function NodeCanvas() {
                       visibleNodeIds,
                     };
 
+                    // Every context value EXCEPT the three that vary per edge,
+                    // snapshotted once for the pass. Built by walking the context
+                    // object so that anything added to it above joins the cache key
+                    // automatically — the one way this key cannot rot.
+                    const edgeGlobalCacheKey = edgeCacheOn
+                      ? Object.keys(edgeRenderCtx)
+                        .filter(k => k !== 'hoveredEdgeInfo' && k !== 'selectedEdgeId' && k !== 'selectedEdgeIds')
+                        .sort()
+                        .map(k => edgeRenderCtx[k])
+                      : null;
+
                     return (
                         <>
-                          {/* Rebuild the visible-orb hit list fresh each render before the
-                              edge blocks below push their endpoint orbs into it. */}
-                          {void (connectionOrbHitsRef.current = [])}
+                          {/* No per-pass reset any more — see connectionOrbHitsRef.
+                              Each edge now owns its own entry and sets or deletes
+                              it, because a cached edge does not run and could not
+                              refill a cleared map. Entries for edges that have gone
+                              out of the visible set are pruned in an effect. */}
                           {/* Connections, nested plain-group outlines and node-group shells
                               interleaved by z-slot (Groups Phase 2): at each depth, the plain
                               groups that live at that depth, then that slot's connections,
@@ -16887,15 +16996,13 @@ function NodeCanvas() {
                               {nestedRegularGroupsByDepth.get(slot)}
                               {(() => {
                                 const bucket = edgesBySlot.get(slot) || [];
-                                // Zero added cost with the flag off — one property
-                                // read, then the same map that was always here.
-                                if (typeof window === 'undefined' || !window.__edgePerf) {
-                                  return bucket.map(edge => renderConnectionEdge(edge, edgeRenderCtx));
+                                const perfOn = typeof window !== 'undefined' && window.__edgePerf;
+                                const t0 = perfOn ? performance.now() : 0;
+                                const painted = bucket.map(edge => renderEdgeCached(edge, edgeRenderCtx, edgeGlobalCacheKey));
+                                if (perfOn) {
+                                  edgePerfRef.current.ms += performance.now() - t0;
+                                  edgePerfRef.current.edges += bucket.length;
                                 }
-                                const t0 = performance.now();
-                                const painted = bucket.map(edge => renderConnectionEdge(edge, edgeRenderCtx));
-                                edgePerfRef.current.ms += performance.now() - t0;
-                                edgePerfRef.current.edges += bucket.length;
                                 return painted;
                               })()}
                               {nodeGroupShellsByDepth.get(slot)}

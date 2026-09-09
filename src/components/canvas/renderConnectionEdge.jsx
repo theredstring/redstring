@@ -1134,22 +1134,42 @@ export function renderConnectionEdge(edge, ctx) {
         //   - Endpoints WITH an arrow → the arrowhead itself, so a tap on it
         //     removes the arrow. Arrowheads render for every routing, so this
         //     isn't gated on the orb routing condition.
+        // Keyed by edge id, not appended to a shared list.
+        //
+        // This used to push into a flat array that the parent cleared once per
+        // render and every edge then refilled — which is only correct while
+        // EVERY edge is guaranteed to run on EVERY pass. That is exactly the
+        // guarantee the caching and memoisation work removes: an edge that
+        // short-circuits would silently stop contributing its orbs, and the
+        // failure mode is a connection whose direction toggle just stops
+        // responding to touch, with nothing thrown and nothing logged.
+        //
+        // Writing the edge's own entry makes each edge's contribution
+        // independent of whether its neighbours ran. Entries are only produced
+        // for hovered or selected edges, so the map holds a handful at most.
         if (isHovered || isSelected) {
           const orbR = Math.round(36 * connectionWidth);
           // Every routing now computes an endpoint dot position: straight and
           // orthogonal via their hover pull-back, curved via the trimmed
           // curve end. Nothing left to exclude.
           const showDots = true;
+          const orbHits = [];
           if (arrowsToward.has(sourceNode.id)) {
-            connectionOrbHitsRef.current.push({ cx: sourceArrowX, cy: sourceArrowY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
+            orbHits.push({ cx: sourceArrowX, cy: sourceArrowY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
           } else if (showDots) {
-            connectionOrbHitsRef.current.push({ cx: sourceDotX, cy: sourceDotY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
+            orbHits.push({ cx: sourceDotX, cy: sourceDotY, r: orbR, edgeId: edge.id, nodeId: sourceNode.id });
           }
           if (arrowsToward.has(destNode.id)) {
-            connectionOrbHitsRef.current.push({ cx: destArrowX, cy: destArrowY, r: orbR, edgeId: edge.id, nodeId: destNode.id });
+            orbHits.push({ cx: destArrowX, cy: destArrowY, r: orbR, edgeId: edge.id, nodeId: destNode.id });
           } else if (showDots) {
-            connectionOrbHitsRef.current.push({ cx: destDotX, cy: destDotY, r: orbR, edgeId: edge.id, nodeId: destNode.id });
+            orbHits.push({ cx: destDotX, cy: destDotY, r: orbR, edgeId: edge.id, nodeId: destNode.id });
           }
+          connectionOrbHitsRef.current.set(edge.id, orbHits);
+        } else {
+          // Eligibility ended — drop the entry from when it was eligible.
+          // The parent no longer clears this map per pass, because a cached
+          // edge does not run and so could not refill it.
+          connectionOrbHitsRef.current.delete(edge.id);
         }
 
         const handleArrowClick = (nodeId, e) => {
