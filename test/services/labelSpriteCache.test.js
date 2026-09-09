@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   spriteScaleForZoom,
   getLabelSprite,
+  glyphQuadAt,
   clearLabelSprites,
   labelSpriteCount,
 } from '../../src/services/labelSpriteCache.js';
@@ -132,5 +133,61 @@ describe('getLabelSprite', () => {
     expect(labelSpriteCount()).toBeGreaterThan(0);
     clearLabelSprites();
     expect(labelSpriteCount()).toBe(0);
+  });
+});
+
+describe('glyphQuadAt', () => {
+  // labelArcGlyphFrames hands out baseline ORIGINS, each already walked back
+  // half an advance so the glyph's centre lands on the circle. Placing an
+  // <image> means undoing exactly that walk.
+  const frames = (rot) => ({ x: [100], y: [200], rotate: [rot] });
+
+  it('walks half an advance forward along the glyph rotation', () => {
+    expect(glyphQuadAt(frames(0), 0, 40)).toEqual({ cx: 120, cy: 200, rot: 0 });
+
+    const q = glyphQuadAt(frames(90), 0, 40);
+    expect(q.cx).toBeCloseTo(100, 9);
+    expect(q.cy).toBeCloseTo(220, 9);
+  });
+
+  it('inverts the half-advance walk labelArcGlyphFrames applied', () => {
+    // The round trip is the actual contract: whatever offset the frame solver
+    // subtracted, this adds back, at any angle.
+    for (const rot of [-170, -90, -33.3, 0, 12.5, 90, 179]) {
+      const advance = 37.4;
+      const r = rot * (Math.PI / 180);
+      const centre = { x: 480, y: -260 };
+      // What labelArcGlyphFrames stores, given that centre.
+      const origin = {
+        x: centre.x - (advance / 2) * Math.cos(r),
+        y: centre.y - (advance / 2) * Math.sin(r),
+      };
+      const q = glyphQuadAt({ x: [origin.x], y: [origin.y], rotate: [rot] }, 0, advance);
+      expect(q.cx).toBeCloseTo(centre.x, 9);
+      expect(q.cy).toBeCloseTo(centre.y, 9);
+    }
+  });
+
+  it('is driven by the advance it is given, which is why kerning depends on it', () => {
+    // The bug this pins: feeding it the bucketed em widths that SPACED the
+    // origins, rather than the advance each glyph is actually drawn at, offsets
+    // every letter by half its own error. Different advance, different centre.
+    const a = glyphQuadAt(frames(0), 0, 40);
+    const b = glyphQuadAt(frames(0), 0, 46);
+    expect(b.cx - a.cx).toBeCloseTo(3, 9);
+  });
+
+  it('declines an index or rotation it cannot place', () => {
+    expect(glyphQuadAt(null, 0, 10)).toBeNull();
+    expect(glyphQuadAt(frames(0), 1, 10)).toBeNull();
+    expect(glyphQuadAt(frames(0), -1, 10)).toBeNull();
+    expect(glyphQuadAt({ x: [1], y: [1], rotate: [NaN] }, 0, 10)).toBeNull();
+  });
+
+  it('treats a missing advance as zero rather than poisoning the placement', () => {
+    // The drag reads this off a DOM attribute, so a parse failure must degrade
+    // to "centre on the origin", not NaN the label off screen.
+    const q = glyphQuadAt(frames(0), 0, NaN);
+    expect(q).toEqual({ cx: 100, cy: 200, rot: 0 });
   });
 });

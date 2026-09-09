@@ -9,6 +9,7 @@ import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacemen
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from '../utils/canvas/edgeLabelPlacement.js';
+import { glyphQuadAt } from '../services/labelSpriteCache.js';
 import {
   computeGroupLayout,
   GROUP_LAYOUT_CONSTANTS,
@@ -83,6 +84,44 @@ const writeEndpointDots = (entry, sourcePos, destPos) => {
  *   changed advances, and the curved form places every glyph from them, so the
  *   two must be recomputed together or a re-cut Lombardi label scatters.
  */
+/**
+ * Move a curved label's per-glyph quads onto new arc frames.
+ *
+ * MODULE scope on purpose. This lived inside `cacheDOMElements` once, which put
+ * it in a different closure from the per-frame updater that calls it — the
+ * canvas threw `writeGlyphSpriteLayers is not defined` on the first frame of
+ * every lombardi drag and took the whole component down with it.
+ *
+ * Every layer pass holds the same glyphs in the same order, so one set of
+ * frames drives all three. Each <image> carries the two numbers needed to place
+ * it: `data-gi`, the index of the frame it belongs to — the runs skip spaces
+ * while the frames do not, so position in the run is NOT the frame index — and
+ * `data-advance`, the width the glyph is actually drawn at, which is what
+ * glyphQuadAt turns an origin into a centre with.
+ *
+ * @returns {boolean} whether anything was written, so a caller can fall through
+ *   to the straight form when this label has no glyph runs.
+ */
+const writeGlyphSpriteLayers = (layers, glyphs) => {
+  if (!layers?.length || !glyphs?.x) return false;
+  let wrote = false;
+  layers.forEach((imgs) => {
+    imgs.forEach((img) => {
+      const gi = parseInt(img.getAttribute('data-gi'), 10);
+      const advance = parseFloat(img.getAttribute('data-advance'));
+      const q = glyphQuadAt(glyphs, gi, advance);
+      if (!q) return;
+      const w = parseFloat(img.getAttribute('width')) || 0;
+      const h = parseFloat(img.getAttribute('height')) || 0;
+      img.setAttribute('x', q.cx - w / 2);
+      img.setAttribute('y', q.cy - h / 2);
+      img.setAttribute('transform', `rotate(${q.rot} ${q.cx} ${q.cy})`);
+      wrote = true;
+    });
+  });
+  return wrote;
+};
+
 const retruncateLabel = (entry, span) => {
   const { labelText, labelTexts, labelFullText, labelFontSize } = entry;
   if (!labelText || !labelFullText || !Number.isFinite(span)) return entry.labelAdvances;
@@ -487,12 +526,20 @@ export const useNodeDrag = ({
     // copy carries the same text, font size and frame, and every copy has to be
     // written each frame — updating only the top one would leave the ring
     // stranded at the label's old pose.
+
     const labelTextOf = (el) => {
       // A straight label may be a pre-rasterised sprite instead of two stroked
       // <text> elements — see labelSpriteCache.js. It moves by ONE transform on
       // its wrapper <g>, which is strictly less work than the text forms below,
       // but it has to be collected here or a drag leaves it behind.
       const labelSprites = Array.from(el.querySelectorAll('g[data-label-sprite]'));
+      // A curved label is a run of per-glyph quads in three layer passes rather
+      // than one bitmap, so it moves by rewriting each quad rather than the
+      // wrapper's transform. Grouped by layer, because every layer holds the
+      // same glyphs in the same order and so shares one set of frames.
+      const labelGlyphLayers = Array.from(
+        el.querySelectorAll('g[data-label-glyph-sprite] g[data-glyph-layer]')
+      ).map((g) => Array.from(g.querySelectorAll('image')));
       const labelTexts = Array.from(el.querySelectorAll('text[data-connection-label]'));
       const labelText = labelTexts[0] || null;
       if (!labelText) {
@@ -500,11 +547,21 @@ export const useNodeDrag = ({
         // still a label this drag has to move, and the updater marks what it
         // moves via `labelTouched`. Hand back a real one rather than the null
         // that meant "there is no label here" when <text> was the only form.
+        // A curved sprite label still needs advances: the drag re-solves its arc
+        // every frame exactly as the <text> form does, and the frames come from
+        // per-character widths. They are measured off the wrapper's own
+        // attributes because there is no <text> node to read them from.
+        const spriteHost = labelSprites[0] || null;
+        const spriteText = spriteHost?.getAttribute('data-label-text');
+        const spriteFontSize = parseFloat(spriteHost?.getAttribute('data-label-font-size'));
         return {
           labelText: null,
           labelTexts: [],
           labelSprites,
-          labelAdvances: null,
+          labelGlyphLayers,
+          labelAdvances: (spriteText && spriteFontSize > 0)
+            ? edgeLabelGlyphAdvances(spriteText, spriteFontSize)
+            : null,
           labelForm: { current: null },
           labelTouched: labelSprites.length
             ? (priorLabelState.get(labelSprites[0])?.labelTouched ?? { current: false })
@@ -517,6 +574,7 @@ export const useNodeDrag = ({
         labelText,
         labelTexts,
         labelSprites,
+        labelGlyphLayers,
         labelFontSize: fontSize,
         // The uncut name. Absent unless the truncate setting is on, and its
         // absence is exactly what tells retruncateLabel there is nothing to
@@ -1067,12 +1125,20 @@ export const useNodeDrag = ({
         // render uses, so it keeps following the arc for the whole drag instead
         // of straightening the moment you grab a node.
         edgeEls.forEach((entry) => {
-          const { paths, hitPaths, lines, arrows: arrowGs, texts, labelText, labelTexts, labelSprites, labelForm, labelTouched } = entry;
+          const { paths, hitPaths, lines, arrows: arrowGs, texts, labelText, labelTexts, labelSprites, labelGlyphLayers, labelForm, labelTouched } = entry;
           const labelAdvances = retruncateLabel(entry, labelSpan);
-          const dragLabelGlyphs = (routing.arc && labelText && labelAdvances)
+          // `labelText || labelGlyphLayers` — a curved SPRITE label has no <text>
+          // at all, and gating on one left every rasterised curve frozen while
+          // its connection moved.
+          const dragLabelGlyphs = (routing.arc && (labelText || labelGlyphLayers?.length) && labelAdvances)
             ? labelArcGlyphFrames(routing.arc, labelPos, labelAdvances, {
               minBow: labelArcMinBow,
-              rotationQuantum: curvedGlyphQuantum(labelAngleQuantumRef?.current ?? 0),
+              // Exact angles for a sprite label, matching the settled render —
+              // an <image> mints no atlas keys, so the bucket buys nothing and
+              // costs the per-glyph wobble. See NodeCanvas's labelGlyphs.
+              rotationQuantum: labelGlyphLayers?.length
+                ? 0
+                : curvedGlyphQuantum(labelAngleQuantumRef?.current ?? 0),
             })
             : null;
           // Glow and visible stroke share the (possibly retracted) geometry; the
@@ -1111,8 +1177,13 @@ export const useNodeDrag = ({
           // re-cuts it.
           if (labelSprites && labelSprites.length) {
             labelTouched.current = true;
-            const spriteTransform = `translate(${labelPos.x} ${labelPos.y}) rotate(${labelAdj})`;
-            labelSprites.forEach((g) => { g.setAttribute('transform', spriteTransform); });
+            // A curved sprite label re-solves along the new arc exactly as the
+            // per-glyph <text> form does; a straight one is the wrapper's
+            // transform and nothing else.
+            if (!(dragLabelGlyphs && writeGlyphSpriteLayers(labelGlyphLayers, dragLabelGlyphs))) {
+              const spriteTransform = `translate(${labelPos.x} ${labelPos.y}) rotate(${labelAdj})`;
+              labelSprites.forEach((g) => { g.setAttribute('transform', spriteTransform); });
+            }
           }
           if (labelText && dragLabelGlyphs) {
             labelTouched.current = true;
@@ -1279,7 +1350,7 @@ export const useNodeDrag = ({
 
       // Update each edge <g> element (may appear in both above/below blocks)
       edgeEls.forEach((entry) => {
-        const { paths, hitPaths, lines, hitLines, arrows: arrowGs, texts } = entry;
+        const { paths, hitPaths, lines, hitLines, arrows: arrowGs, texts, labelSprites, labelTouched } = entry;
         // --- Update edge geometry (paths + lines) ---
         // The visible stroke and its glow use the possibly-retracted ends; the
         // invisible click target keeps the full span (hover detection measures
@@ -1379,7 +1450,11 @@ export const useNodeDrag = ({
         // fresh in anchorPositionUpdatesRef by updateGroupBoundsInDOM, which
         // runs earlier this frame) so the midpoint sits centered on the truly
         // visible run — no separate slide-off-box step.
-        if (texts.length > 0) {
+        // A sprite label contributes no <text>, so gating this block on the text
+        // count alone skipped the whole placement solve for every rasterised
+        // label — they sat still while their connections moved out from under
+        // them. See labelSpriteCache.js.
+        if (texts.length > 0 || labelSprites?.length) {
           const visibleEndpoints = borderEndpoints;
           // A straight connection's run is the visible chord, the same span the
           // settled render cuts against — so the text does not change on drop.
@@ -1415,6 +1490,16 @@ export const useNodeDrag = ({
             t.setAttribute('y', midY);
             t.setAttribute('transform', `rotate(${adj}, ${midX}, ${midY})`);
           });
+          // A sprite label has no <text> for the loop above to find, so it has
+          // to be moved explicitly — and this is the STRAIGHT-routing path,
+          // which is where sprites are used most. Missing it here left every
+          // rasterised label standing still while its connection moved out from
+          // under it.
+          if (labelSprites?.length) {
+            if (labelTouched) labelTouched.current = true;
+            const spriteTransform = `translate(${midX} ${midY}) rotate(${adj})`;
+            labelSprites.forEach(g => { g.setAttribute('transform', spriteTransform); });
+          }
         }
       });
     });

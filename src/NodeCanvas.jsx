@@ -21,7 +21,7 @@ import DownloadAppPill from './DownloadAppPill.jsx';
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from './services/textMeasurement.js';
-import { getLabelSprite, spriteScaleForZoom, clearLabelSprites } from './services/labelSpriteCache.js';
+import { getLabelSprite, getGlyphSprite, glyphQuadAt, GLYPH_SPRITE_LAYERS, spriteScaleForZoom, clearLabelSprites } from './services/labelSpriteCache.js';
 import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
@@ -18136,12 +18136,23 @@ function NodeCanvas() {
                                 const labelGlyphAdvances = (orthoRouting?.arc && curveLabels)
                                   ? edgeLabelGlyphAdvances(displayName, connectionFontSize)
                                   : null;
+                                // Sprites take EXACT angles. The rotation bucket exists purely
+                                // to bound glyph-atlas keys, and a sprite mints none — rotating
+                                // an <image> is a transform on a bitmap, not a re-rasterisation
+                                // of an outline, so distinct angles are free. That bucket is also
+                                // the source of the visible wobble on gently-bent labels: each
+                                // glyph rounds INDEPENDENTLY, so neighbours straddling a boundary
+                                // jump a whole quantum apart, worst exactly where the curve is
+                                // shallowest. Sprites simply don't need it.
                                 const labelGlyphs = labelGlyphAdvances
                                   ? labelArcGlyphFrames(
                                     orthoRouting.arc,
                                     { x: labelRenderX, y: labelRenderY },
                                     labelGlyphAdvances,
-                                    { minBow: labelArcMinBow, rotationQuantum: curvedLabelQuantum }
+                                    {
+                                      minBow: labelArcMinBow,
+                                      rotationQuantum: labelSpritesEnabled ? 0 : curvedLabelQuantum,
+                                    }
                                   )
                                   : null;
 
@@ -18183,18 +18194,66 @@ function NodeCanvas() {
                                 // includes the whole period before EmOne has loaded — baking a
                                 // fallback face into a bitmap would freeze the wrong glyphs,
                                 // where <text> fixes itself on the next render.
+                                const spriteAppearance = {
+                                  fontSize: connectionFontSize,
+                                  fill: labelColors.fill,
+                                  halo: labelHaloEnabled ? labelColors.stroke : null,
+                                  haloWidth: labelHaloWidth,
+                                  ring: (labelHaloEnabled && labelRingEnabled) ? labelColors.outerStroke : null,
+                                  ringWidth: labelHaloWidth * connectionLabelRingWidth,
+                                  scale: labelSpriteScale,
+                                };
+
                                 const labelSprite = (!labelGlyphs && labelSpritesEnabled)
-                                  ? getLabelSprite({
-                                    text: displayName,
-                                    fontSize: connectionFontSize,
-                                    fill: labelColors.fill,
-                                    halo: labelHaloEnabled ? labelColors.stroke : null,
-                                    haloWidth: labelHaloWidth,
-                                    ring: (labelHaloEnabled && labelRingEnabled) ? labelColors.outerStroke : null,
-                                    ringWidth: labelHaloWidth * connectionLabelRingWidth,
-                                    scale: labelSpriteScale,
-                                  })
+                                  ? getLabelSprite({ ...spriteAppearance, text: displayName })
                                   : null;
+
+                                // A CURVED label is the same trick one level down. It has no
+                                // single baseline, so it cannot be one bitmap — but nothing about
+                                // a curve resists bitmaps: each glyph becomes its own quad, placed
+                                // and rotated by the frames labelArcGlyphFrames already computed.
+                                // The atlas is keyed by character, so it is bounded by the
+                                // alphabet rather than by how many distinct labels exist, and
+                                // every curved label on the canvas shares it.
+                                //
+                                // Drawn in three passes — every ring, then every halo, then every
+                                // fill — because neighbouring glyphs' rings overlap (22 units wide
+                                // on a ~39-unit advance). Drawing finished glyphs left to right
+                                // would paint each one's ring over the previous one's fill and
+                                // notch every letter. Stroked <text> never had that problem
+                                // because SVG strokes a whole run before filling any of it, and
+                                // these passes reproduce that order.
+                                const labelGlyphChars = (labelGlyphs && labelSpritesEnabled)
+                                  ? Array.from(displayName)
+                                  : null;
+                                // Each layer holds the same glyphs at the same indices, so one
+                                // pass builds all three. `gi` travels with every quad because the
+                                // runs SKIP spaces while the frames do not — without it the drag
+                                // updater would re-place glyph n using frame n and shear the
+                                // label apart at the first space.
+                                const labelGlyphLayers = labelGlyphChars ? GLYPH_SPRITE_LAYERS.map((layer) => {
+                                  const quads = [];
+                                  for (let i = 0; i < labelGlyphChars.length && i < labelGlyphs.x.length; i++) {
+                                    const ch = labelGlyphChars[i];
+                                    if (!ch || ch.trim() === '') continue;
+                                    const sprite = getGlyphSprite({ ...spriteAppearance, ch, layer });
+                                    if (!sprite) continue;
+                                    const q = glyphQuadAt(labelGlyphs, i, sprite.advance);
+                                    if (!q) continue;
+                                    quads.push({ sprite, q, gi: i });
+                                  }
+                                  return { layer, quads };
+                                }).filter((l) => l.quads.length) : null;
+                                // All or nothing. A partial atlas would draw some glyphs and drop
+                                // others, which is a worse picture than the <text> path it
+                                // replaces — so every layer the appearance calls for has to be
+                                // present, and all of them must cover the same glyphs.
+                                const wantedGlyphLayers = GLYPH_SPRITE_LAYERS.filter((layer) => (
+                                  layer === 'fill' || (layer === 'halo' ? spriteAppearance.halo : spriteAppearance.ring)
+                                )).length;
+                                const useGlyphSprites = !!labelGlyphLayers
+                                  && labelGlyphLayers.length === wantedGlyphLayers
+                                  && labelGlyphLayers.every((l) => l.quads.length === labelGlyphLayers[0].quads.length);
 
                                 // Everything that positions the label, shared by the real label and
                                 // the connection-colored ring drawn underneath it. Both carry
@@ -18261,7 +18320,47 @@ function NodeCanvas() {
                                       style={{ cursor: 'pointer' }}
                                       {...getEdgeHitboxHandlers(edge.id)}
                                     />
-                                    {labelSprite ? (
+                                    {useGlyphSprites ? (
+                                      /* Curved: one quad per glyph, in three layer passes.
+                                         Each <image> is placed by its box, so the quad centre
+                                         recovered by glyphSpriteQuads is walked back half its
+                                         own size — and rotated about that same centre, which is
+                                         the point labelArcGlyphFrames put on the circle. */
+                                      <g
+                                        className="connection-label"
+                                        data-connection-label="1"
+                                        data-label-sprite="1"
+                                        data-label-glyph-sprite="1"
+                                        {...({
+                                          /* The advances a drag re-solves the arc with are
+                                             measured from the text and its size, and a sprite
+                                             label has no <text> for the drag to read those off.
+                                             Carry them on the wrapper instead. */
+                                          'data-label-text': displayName,
+                                          'data-label-font-size': connectionFontSize,
+                                        })}
+                                        style={{ pointerEvents: 'none' }}
+                                      >
+                                        {labelGlyphLayers.map(({ layer, quads }) => (
+                                          <g key={layer} data-glyph-layer={layer}>
+                                            {quads.map(({ sprite, q, gi }) => (
+                                              <image
+                                                key={gi}
+                                                href={sprite.href}
+                                                x={q.cx - sprite.width / 2}
+                                                y={q.cy - sprite.height / 2}
+                                                width={sprite.width}
+                                                height={sprite.height}
+                                                transform={`rotate(${q.rot} ${q.cx} ${q.cy})`}
+                                                preserveAspectRatio="none"
+                                                data-gi={gi}
+                                                data-advance={sprite.advance}
+                                              />
+                                            ))}
+                                          </g>
+                                        ))}
+                                      </g>
+                                    ) : labelSprite ? (
                                       /* The whole label — ring, halo and fill — as one bitmap.
                                          Wrapped in a <g> carrying the placement so a drag can
                                          move it by rewriting ONE transform, the same way the
