@@ -122,7 +122,7 @@ body {
    1. THE OUT-DELAY IS THE GESTURE DETECTOR. It is deliberately just under
       useCanvasTransform's SETTLE_DELAY of 150ms, and the two must be changed
       together. A single discrete zoom step holds the class for exactly one
-      settle, so the fade gets ~10ms of its 120ms and dips by under a tenth —
+      settle, so the fade gets ~10ms of its 60ms and dips by about a sixth —
       invisible. A sustained gesture crosses the delay, fades out, and then
       costs nothing at all for as long as it runs. No JS, no thresholds: the
       delay alone separates "nudged the wheel once" from "zooming".
@@ -146,8 +146,8 @@ body {
 .connection-label,
 .connection-label-ring {
   transition:
-    fill-opacity 200ms ease-out,
-    stroke-opacity 200ms ease-out,
+    fill-opacity 90ms ease-out,
+    stroke-opacity 90ms ease-out,
     visibility 0s;
 }
 
@@ -157,17 +157,17 @@ body {
   stroke-opacity: 0;
   visibility: hidden;
   transition:
-    fill-opacity 120ms linear 140ms,
-    stroke-opacity 120ms linear 140ms,
-    visibility 0s linear 260ms;
+    fill-opacity 60ms linear 140ms,
+    stroke-opacity 60ms linear 140ms,
+    visibility 0s linear 200ms;
 }
 
 /* The ring alone leaves at once — see the note above. */
 .canvas-zooming .connection-label-ring {
   visibility: hidden;
   transition:
-    fill-opacity 120ms linear 140ms,
-    stroke-opacity 120ms linear 140ms,
+    fill-opacity 60ms linear 140ms,
+    stroke-opacity 60ms linear 140ms,
     visibility 0s;
 }
 
