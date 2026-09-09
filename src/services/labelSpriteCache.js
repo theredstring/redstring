@@ -96,6 +96,29 @@ const MAX_SPRITES = 1400;
 /** text|fontSize|fill|halo|ring|ringWidth|haloWidth|scale */
 const cache = new Map();
 
+const labelKey = (spec) => (
+  `${spec.text} ${spec.fontSize} ${spec.fill} ${spec.halo || ''} ${spec.haloWidth || 0} `
+  + `${spec.ring || ''} ${spec.ringWidth || 0} ${spec.scale}`
+);
+
+/** The colour and stroke this layer draws with, or null if it draws nothing. */
+const glyphLayerPaint = (spec) => {
+  const { layer } = spec;
+  const color = layer === 'ring' ? spec.ring : layer === 'halo' ? spec.halo : spec.fill;
+  if (!color) return null;
+  const strokeWidth = layer === 'ring' ? spec.ringWidth : layer === 'halo' ? spec.haloWidth : 0;
+  if (layer !== 'fill' && !(strokeWidth > 0)) return null;
+  // Padding comes from the widest stroke in the whole LABEL, not this layer's,
+  // so every layer of a glyph comes back the same size and one set of frames
+  // places all three.
+  const widest = Math.max(spec.ring ? spec.ringWidth : 0, spec.halo ? spec.haloWidth : 0);
+  return { color, strokeWidth, widest };
+};
+
+const glyphKey = (spec, paint) => (
+  `g|${spec.ch}|${spec.layer}|${spec.fontSize}|${paint.color}|${paint.strokeWidth}|${paint.widest}|${spec.scale}`
+);
+
 let canvas = null;
 let ctx = null;
 
@@ -329,20 +352,14 @@ export function getLabelSprite(spec) {
  * @returns {{href:string,width:number,height:number}|null} size in CANVAS units
  */
 export function getGlyphSprite(spec) {
-  const { ch, layer, fontSize, fill, halo, haloWidth, ring, ringWidth, scale } = spec;
+  const { ch, layer, fontSize, scale } = spec;
   if (!ch || !(fontSize > 0) || !(scale > 0)) return null;
   if (!edgeLabelFontLoaded(fontSize)) return null;
 
-  const color = layer === 'ring' ? ring : layer === 'halo' ? halo : fill;
-  if (!color) return null;
-  const strokeWidth = layer === 'ring' ? ringWidth : layer === 'halo' ? haloWidth : 0;
-  if (layer !== 'fill' && !(strokeWidth > 0)) return null;
-
-  // Padding is sized off the widest stroke in the whole label, not this layer's,
-  // so every layer of a given glyph comes back the same size and the caller can
-  // place all three from one set of frames.
-  const widest = Math.max(ring ? ringWidth : 0, halo ? haloWidth : 0);
-  const key = `g|${ch}|${layer}|${fontSize}|${color}|${strokeWidth}|${widest}|${scale}`;
+  const paint = glyphLayerPaint(spec);
+  if (!paint) return null;
+  const { color, strokeWidth, widest } = paint;
+  const key = glyphKey(spec, paint);
   const hit = cache.get(key);
   if (hit !== undefined) {
     cache.delete(key);
@@ -412,6 +429,164 @@ export function getGlyphSprite(spec) {
 }
 
 /**
+ * DEFERRED BAKING
+ *
+ * Baking is not cheap and there can be a lot of it at once. A lombardi graph's
+ * first render asks for the whole alphabet across three layer passes — a couple
+ * of hundred bakes — and each one ends in a PNG encode. Done inline, that is
+ * hundreds of milliseconds of synchronous work inside a React render, which is
+ * exactly the stall that showed up as the network being slow to appear: the
+ * graph could not paint until every label had been rasterised.
+ *
+ * So the render phase never bakes. It PEEKS, and asks for anything missing;
+ * the queue drains later in idle time, a slice at a time, and tells its
+ * subscribers when a batch has landed so the canvas can re-render into the
+ * cache it now has. The network paints first and the labels arrive behind it.
+ *
+ * A worker was the other option and is deliberately not what this is. It would
+ * move the encode off-thread entirely, which is strictly better on paper — but
+ * an OffscreenCanvas in a worker has its own font set, so EmOne would have to
+ * be loaded a second time there and kept in step with the main thread's copy,
+ * and a label baked against a fallback face is exactly the failure this module
+ * already goes out of its way to avoid. Chunking buys most of the win for a
+ * fraction of the risk. If idle slices turn out not to be enough, a worker is
+ * the next step and this queue is the seam it would slot into.
+ */
+
+/** Time budget per slice when there is no idle deadline to consult. */
+const BAKE_SLICE_MS = 6;
+
+/** How long a pending bake may wait before it stops being deferred. */
+const BAKE_IDLE_TIMEOUT_MS = 300;
+
+/** key -> {glyph:boolean, spec} */
+const pending = new Map();
+const readyListeners = new Set();
+let bakeScheduled = false;
+
+/**
+ * Set once a bake has failed for a reason that will not fix itself — no canvas
+ * backend, or an encode the browser refused. After that, peeks report "no
+ * sprite, and there never will be" so callers stop holding a label back waiting
+ * for one and fall through to <text> permanently.
+ */
+let bakingBroken = false;
+
+/** Is the sprite path worth waiting for at all? */
+export function spritesUsable() {
+  return !bakingBroken;
+}
+
+/** Called after each drained batch. Returns an unsubscribe. */
+export function onSpritesReady(fn) {
+  readyListeners.add(fn);
+  return () => readyListeners.delete(fn);
+}
+
+function drainBakeQueue(deadline) {
+  bakeScheduled = false;
+  const started = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  let baked = 0;
+
+  for (const [key, job] of pending) {
+    pending.delete(key);
+
+    // A THROW is latched the same way a null is, and for a sharper reason than
+    // tidiness. Callers hold a label back while its sprite bakes, so a baker
+    // that reliably throws does not merely fail to speed anything up — it makes
+    // the labels invisible and keeps retrying forever. Latching turns that into
+    // "render as <text>", which is the direction a failure should fall.
+    let made = null;
+    try {
+      made = job.glyph ? getGlyphSprite(job.spec) : getLabelSprite(job.spec);
+    } catch (err) {
+      bakingBroken = true;
+      pending.clear();
+      console.warn('[labelSprites] baking disabled; labels fall back to text', err);
+      break;
+    }
+
+    // A bake that produced nothing while the font is available means the canvas
+    // itself is unusable; nothing is gained by grinding through the rest.
+    if (!made && edgeLabelFontLoaded(job.spec.fontSize)) {
+      bakingBroken = true;
+      pending.clear();
+      break;
+    }
+    baked++;
+    const left = deadline?.timeRemaining
+      ? deadline.timeRemaining()
+      : BAKE_SLICE_MS - ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - started);
+    if (left <= 1) break;
+  }
+
+  if (baked > 0 || bakingBroken) readyListeners.forEach((fn) => { try { fn(); } catch (_) { /* a listener must not stall the queue */ } });
+  if (pending.size) scheduleBake();
+}
+
+function scheduleBake() {
+  if (bakeScheduled || pending.size === 0) return;
+  bakeScheduled = true;
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(drainBakeQueue, { timeout: BAKE_IDLE_TIMEOUT_MS });
+  } else {
+    setTimeout(() => drainBakeQueue(null), 0);
+  }
+}
+
+/**
+ * Cache lookup only — never bakes, safe to call from a render.
+ *
+ * Returns the sprite, or null. A null means "not yet"; ask `spritesUsable()`
+ * whether it will ever be anything else.
+ */
+export function peekLabelSprite(spec) {
+  if (!spec?.text || !(spec.fontSize > 0) || !(spec.scale > 0)) return null;
+  const key = labelKey(spec);
+  const hit = cache.get(key);
+  if (hit === undefined) return null;
+  cache.delete(key);
+  cache.set(key, hit);
+  return hit;
+}
+
+/** As peekLabelSprite, for one layer of one glyph. */
+export function peekGlyphSprite(spec) {
+  if (!spec?.ch || !(spec.fontSize > 0) || !(spec.scale > 0)) return null;
+  const paint = glyphLayerPaint(spec);
+  if (!paint) return null;
+  const key = glyphKey(spec, paint);
+  const hit = cache.get(key);
+  if (hit === undefined) return null;
+  cache.delete(key);
+  cache.set(key, hit);
+  return hit;
+}
+
+/**
+ * Ask for a sprite to exist soon. Cheap, idempotent, and safe from a render —
+ * it only ever writes a map entry.
+ */
+export function requestLabelSprite(spec) {
+  if (bakingBroken || !spec?.text || !(spec.fontSize > 0) || !(spec.scale > 0)) return;
+  const key = labelKey(spec);
+  if (cache.has(key) || pending.has(key)) return;
+  pending.set(key, { glyph: false, spec });
+  scheduleBake();
+}
+
+/** As requestLabelSprite, for one layer of one glyph. */
+export function requestGlyphSprite(spec) {
+  if (bakingBroken || !spec?.ch || !(spec.fontSize > 0) || !(spec.scale > 0)) return;
+  const paint = glyphLayerPaint(spec);
+  if (!paint) return;
+  const key = glyphKey(spec, paint);
+  if (cache.has(key) || pending.has(key)) return;
+  pending.set(key, { glyph: true, spec });
+  scheduleBake();
+}
+
+/**
  * Drop every sprite. For a font arriving after some were baked, and for tests.
  *
  * Nothing else needs to call this: a change of text, size, color or scale is
@@ -421,6 +596,9 @@ export function getGlyphSprite(spec) {
 export function clearLabelSprites() {
   cache.clear();
   metricsCache.clear();
+  pending.clear();
+  // A font swap is a fresh start, including for a canvas that looked broken.
+  bakingBroken = false;
 }
 
 /**

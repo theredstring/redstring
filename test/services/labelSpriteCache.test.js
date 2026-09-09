@@ -3,6 +3,12 @@ import {
   spriteScaleForZoom,
   getLabelSprite,
   glyphQuadAt,
+  peekLabelSprite,
+  requestLabelSprite,
+  peekGlyphSprite,
+  requestGlyphSprite,
+  onSpritesReady,
+  spritesUsable,
   clearLabelSprites,
   labelSpriteCount,
 } from '../../src/services/labelSpriteCache.js';
@@ -189,5 +195,81 @@ describe('glyphQuadAt', () => {
     // to "centre on the origin", not NaN the label off screen.
     const q = glyphQuadAt(frames(0), 0, NaN);
     expect(q).toEqual({ cx: 100, cy: 200, rot: 0 });
+  });
+});
+
+describe('deferred baking', () => {
+  const spec = {
+    text: 'is composed of',
+    fontSize: 71.28,
+    fill: '#EFE8E5',
+    halo: '#260000',
+    haloWidth: 10.56,
+    ring: '#800000',
+    ringWidth: 22.18,
+    scale: 2,
+  };
+
+  const setFontLoaded = (loaded) => {
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { check: () => loaded, ready: Promise.resolve() },
+    });
+  };
+
+  beforeEach(() => {
+    clearLabelSprites();
+    setFontLoaded(true);
+  });
+
+  it('peeks without baking, so a render can never stall on the encoder', () => {
+    // The whole point. A render calls peek; if peek could bake, the graph would
+    // still be waiting on a few hundred PNG encodes before it could paint.
+    expect(peekLabelSprite(spec)).toBeNull();
+    expect(labelSpriteCount()).toBe(0);
+
+    expect(peekGlyphSprite({ ...spec, ch: 'a', layer: 'fill' })).toBeNull();
+    expect(labelSpriteCount()).toBe(0);
+  });
+
+  it('requesting is cheap, idempotent, and safe to repeat every render', () => {
+    // An edge asks on every pass until its sprite lands, so a duplicate request
+    // must not queue a second bake or throw.
+    expect(() => {
+      for (let i = 0; i < 50; i++) {
+        requestLabelSprite(spec);
+        requestGlyphSprite({ ...spec, ch: 'a', layer: 'fill' });
+      }
+    }).not.toThrow();
+    // Still nothing baked: requesting only enqueues.
+    expect(labelSpriteCount()).toBe(0);
+  });
+
+  it('ignores a request it could never satisfy', () => {
+    expect(() => {
+      requestLabelSprite({ ...spec, text: '' });
+      requestLabelSprite({ ...spec, fontSize: 0 });
+      requestGlyphSprite({ ...spec, ch: 'a', layer: 'ring', ring: null });
+      requestGlyphSprite(null);
+      peekLabelSprite(null);
+      peekGlyphSprite(null);
+    }).not.toThrow();
+  });
+
+  it('hands back an unsubscribe that actually detaches', () => {
+    let calls = 0;
+    const off = onSpritesReady(() => { calls += 1; });
+    expect(typeof off).toBe('function');
+    off();
+    off(); // detaching twice must not throw
+    expect(calls).toBe(0);
+  });
+
+  it('reports the sprite path as usable until a bake proves otherwise', () => {
+    // Callers hold a label back while its sprite bakes, so this is what stops a
+    // canvas that can never bake from hiding labels permanently.
+    expect(typeof spritesUsable()).toBe('boolean');
+    clearLabelSprites();
+    expect(spritesUsable()).toBe(true);
   });
 });

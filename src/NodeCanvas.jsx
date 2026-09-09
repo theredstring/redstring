@@ -21,7 +21,7 @@ import DownloadAppPill from './DownloadAppPill.jsx';
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from './services/textMeasurement.js';
-import { getLabelSprite, getGlyphSprite, glyphQuadAt, GLYPH_SPRITE_LAYERS, spriteScaleForZoom, clearLabelSprites } from './services/labelSpriteCache.js';
+import { peekLabelSprite, requestLabelSprite, peekGlyphSprite, requestGlyphSprite, onSpritesReady, spritesUsable, glyphQuadAt, GLYPH_SPRITE_LAYERS, spriteScaleForZoom, clearLabelSprites } from './services/labelSpriteCache.js';
 import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
@@ -4815,6 +4815,12 @@ function NodeCanvas() {
   // hidden while the view moves and fade back in on settle, so the rare change
   // lands while they are off screen and the fade covers it.
   const labelSpriteScale = spriteScaleForZoom(zoomLevel);
+
+  // Re-render when a batch of sprites finishes baking, so the labels that were
+  // held back can appear. Value intentionally unread — edges render inline with
+  // no memo of their own, so a commit is all that is needed.
+  const [, bumpSpriteVersion] = useState(0);
+  useEffect(() => onSpritesReady(() => bumpSpriteVersion((v) => v + 1)), []);
 
   // Reset the label caches when the routing configuration changes.
   //
@@ -18204,9 +18210,19 @@ function NodeCanvas() {
                                   scale: labelSpriteScale,
                                 };
 
-                                const labelSprite = (!labelGlyphs && labelSpritesEnabled)
-                                  ? getLabelSprite({ ...spriteAppearance, text: displayName })
+                                // Peek, then ask. Baking inside a render is what made the
+                                // whole network wait on the labels: a lombardi graph's first
+                                // pass wants the alphabet across three layers, and every one of
+                                // those ends in a PNG encode. Now the render only reads the
+                                // cache and registers what it needs; the queue drains in idle
+                                // time and re-renders when a batch lands.
+                                const labelSpriteWanted = !labelGlyphs && labelSpritesEnabled && spritesUsable();
+                                const labelSprite = labelSpriteWanted
+                                  ? peekLabelSprite({ ...spriteAppearance, text: displayName })
                                   : null;
+                                if (labelSpriteWanted && !labelSprite) {
+                                  requestLabelSprite({ ...spriteAppearance, text: displayName });
+                                }
 
                                 // A CURVED label is the same trick one level down. It has no
                                 // single baseline, so it cannot be one bitmap — but nothing about
@@ -18223,7 +18239,7 @@ function NodeCanvas() {
                                 // notch every letter. Stroked <text> never had that problem
                                 // because SVG strokes a whole run before filling any of it, and
                                 // these passes reproduce that order.
-                                const labelGlyphChars = (labelGlyphs && labelSpritesEnabled)
+                                const labelGlyphChars = (labelGlyphs && labelSpritesEnabled && spritesUsable())
                                   ? Array.from(displayName)
                                   : null;
                                 // Each layer holds the same glyphs at the same indices, so one
@@ -18236,8 +18252,9 @@ function NodeCanvas() {
                                   for (let i = 0; i < labelGlyphChars.length && i < labelGlyphs.x.length; i++) {
                                     const ch = labelGlyphChars[i];
                                     if (!ch || ch.trim() === '') continue;
-                                    const sprite = getGlyphSprite({ ...spriteAppearance, ch, layer });
-                                    if (!sprite) continue;
+                                    const glyphSpec = { ...spriteAppearance, ch, layer };
+                                    const sprite = peekGlyphSprite(glyphSpec);
+                                    if (!sprite) { requestGlyphSprite(glyphSpec); continue; }
                                     const q = glyphQuadAt(labelGlyphs, i, sprite.advance);
                                     if (!q) continue;
                                     quads.push({ sprite, q, gi: i });
@@ -18251,9 +18268,48 @@ function NodeCanvas() {
                                 const wantedGlyphLayers = GLYPH_SPRITE_LAYERS.filter((layer) => (
                                   layer === 'fill' || (layer === 'halo' ? spriteAppearance.halo : spriteAppearance.ring)
                                 )).length;
+                                // How many glyphs this label OWES. Spaces draw nothing, so they
+                                // are not owed; everything else is.
+                                let owedGlyphs = 0;
+                                if (labelGlyphChars) {
+                                  const n = Math.min(labelGlyphChars.length, labelGlyphs.x.length);
+                                  for (let i = 0; i < n; i++) {
+                                    const ch = labelGlyphChars[i];
+                                    if (ch && ch.trim() !== '') owedGlyphs++;
+                                  }
+                                }
+                                // Every layer must be present AND complete.
+                                //
+                                // Comparing the layers to EACH OTHER is not enough, and that was
+                                // the bug: a glyph still baking is skipped by all three passes
+                                // alike, so a half-ready label had three equally short layers and
+                                // sailed through, rendering whichever characters happened to be
+                                // done. Labels came in a few letters at a time. Measuring against
+                                // what the label owes makes it wait for the whole word.
                                 const useGlyphSprites = !!labelGlyphLayers
+                                  && owedGlyphs > 0
                                   && labelGlyphLayers.length === wantedGlyphLayers
-                                  && labelGlyphLayers.every((l) => l.quads.length === labelGlyphLayers[0].quads.length);
+                                  && labelGlyphLayers.every((l) => l.quads.length === owedGlyphs);
+
+                                // A label whose sprite is still baking draws NOTHING this pass.
+                                //
+                                // The alternative is to draw it as <text> and swap once the
+                                // bitmap lands, which sounds gentler and is the more expensive
+                                // of the two: rasterising a few hundred stroked rotated glyphs
+                                // is the cost this whole path exists to avoid, and paying it on
+                                // the very frame the graph is trying to appear is the worst
+                                // moment for it. Holding lets the network paint immediately and
+                                // the labels arrive a slice or two later.
+                                //
+                                // Only ever a WAIT, never a loss. It applies solely when a
+                                // sprite is genuinely coming — sprites on, canvas working, and
+                                // the font available, which getLabelSprite requires anyway. Any
+                                // other case falls through to <text> exactly as before, and
+                                // `spritesUsable()` latches false the moment a bake proves
+                                // impossible so a broken canvas cannot hide the labels forever.
+                                const labelSpritePending =
+                                  (labelSpriteWanted && !labelSprite)
+                                  || (!!labelGlyphChars && !useGlyphSprites);
 
                                 // Everything that positions the label, shared by the real label and
                                 // the connection-colored ring drawn underneath it. Both carry
@@ -18360,6 +18416,10 @@ function NodeCanvas() {
                                           </g>
                                         ))}
                                       </g>
+                                    ) : labelSpritePending ? (
+                                      /* Baking. The hit target below is still live, so the label
+                                         stays clickable in the moment before it appears. */
+                                      null
                                     ) : labelSprite ? (
                                       /* The whole label — ring, halo and fill — as one bitmap.
                                          Wrapped in a <g> carrying the placement so a drag can
