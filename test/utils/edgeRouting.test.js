@@ -1049,6 +1049,37 @@ describe('visible range of a Lombardi route', () => {
     expect(entry.x).toBeLessThanOrEqual(groupBounds.maxX + 1);
   });
 
+  it('stops at the arrowhead, not at the border the arrowhead points at', () => {
+    // An arrowhead's tip is on the border; its rear edge is 2·POLY_TIP·cw
+    // further back ALONG the connection, and every pixel of that is outside
+    // the node box and therefore outside every obstacle set. A "visible run"
+    // that reached the border handed the label placer the head to stand on.
+    const withHead = routeWith(null).visibleRange;
+    const noHead = computeLombardiRouting(
+      { ...edge, directionality: { arrowsToward: new Set() } }, a, b, d, d, tangents
+    ).visibleRange;
+
+    // 'b' carries the arrow, so only that end retreats.
+    expect(withHead.t0).toBeCloseTo(noHead.t0, 9);
+    expect(withHead.t1).toBeLessThan(noHead.t1);
+
+    // And it retreats by exactly the triangle's length, measured as the chord
+    // the rigid triangle actually spans.
+    const arc = routeWith(null).arc;
+    const rear = arcPointAt(arc, withHead.t1);
+    const tip = arcPointAt(arc, noHead.t1);
+    expect(Math.hypot(rear.x - tip.x, rear.y - tip.y)).toBeCloseTo(2 * POLY_TIP, 6);
+  });
+
+  it('scales that retreat with the connection width', () => {
+    // The head is drawn at 2·POLY_TIP·cw, so at width 4 it eats four times the
+    // run — which is when a label sitting on one stopped being a near miss.
+    const t1At = (connectionWidth) => computeLombardiRouting(
+      edge, a, b, d, d, tangents, { connectionWidth }
+    ).visibleRange.t1;
+    expect(t1At(3)).toBeLessThan(t1At(1));
+  });
+
   it('falls back to the full arc when the two occluders leave no gap', () => {
     // Overlapping boxes: the arc enters the destination's box before it has left
     // the source's, so the "visible" run comes out inverted. Placing into that

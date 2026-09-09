@@ -177,6 +177,14 @@
   padding-top: 2px;
 }
 
+/* A slider that names itself only to screen readers has no label line above its
+   track, so it sits ~23px higher than every other slider in the modal (a 14px
+   label plus the 6px .maroon-slider gap). Pad that back so the track lands where
+   a labeled slider's track does. */
+.settings-row--attached + .settings-slider-row--unlabeled {
+  padding-top: 22px;
+}
+
 .settings-row-label {
   font-size: 0.85rem;
   color: var(--rs-modal-text);

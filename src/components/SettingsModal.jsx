@@ -534,7 +534,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={() => useGraphStore.getState().toggleConnectionLabelOuterRing?.()}
             />
           </div>
-          <div className="settings-slider-row">
+          <div className="settings-slider-row settings-slider-row--unlabeled">
             <MaroonSlider
               ariaLabel="Label Ring Width"
               value={connectionLabelRingWidth}

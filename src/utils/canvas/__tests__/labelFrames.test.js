@@ -193,6 +193,67 @@ describe('chooseArcLabelPlacement stays on the arc', () => {
     expect(result.overlap).toBeLessThan(place([]).overlap + 1);
   });
 
+  // -------------------------------------------------------------------------
+  // LABEL LENGTH — the ladder used to position a label as if it were a point.
+  //
+  // ARC_ALONG places the CENTRE at a fraction of the run, and a label set along
+  // the tangent occupies ~textWidth OF THAT RUN. At the ends of the ladder the
+  // difference is most of the label: it hung off the end of its own connection,
+  // over the arrowhead (which is in no obstacle set) and into the node.
+  // -------------------------------------------------------------------------
+
+  const runLength = arc.radius * Math.abs(arc.sweep);
+  const halfLabel = 'is a kind of'.length * 40 * 0.55 / 2; // estimateTextWidth / 2
+
+  it('never hangs a label off the end of the run, however hard it is pushed', () => {
+    // Bury everything except the last sliver at each end, so the placer wants
+    // the extremes as badly as it ever will.
+    const buried = [];
+    for (let s = 0.1; s <= 0.9; s += 0.02) {
+      const a = arc.a0 + arc.sweep * s;
+      buried.push({
+        minX: arc.cx + arc.radius * Math.cos(a) - 30,
+        maxX: arc.cx + arc.radius * Math.cos(a) + 30,
+        minY: arc.cy + arc.radius * Math.sin(a) - 30,
+        maxY: arc.cy + arc.radius * Math.sin(a) + 30,
+      });
+    }
+    const t = place(buried).anchor.t;
+    // Its own ends, in arc parameter — not the centre's ends.
+    expect(t * runLength).toBeGreaterThanOrEqual(halfLabel - 1e-6);
+    expect((1 - t) * runLength).toBeGreaterThanOrEqual(halfLabel - 1e-6);
+  });
+
+  it('reaches all the way to that limit, and does not stop short of it', () => {
+    // The other half of the same rule. An inset that the ladder then only
+    // sampled 86% of would leave usable curve untried — and an untried slide is
+    // how a label ends up stepping off the arc instead. See ARC_ALONG.
+    const buried = [];
+    for (let s = 0; s <= 0.75; s += 0.01) {
+      const a = arc.a0 + arc.sweep * s;
+      buried.push({
+        minX: arc.cx + arc.radius * Math.cos(a) - 40,
+        maxX: arc.cx + arc.radius * Math.cos(a) + 40,
+        minY: arc.cy + arc.radius * Math.sin(a) - 40,
+        maxY: arc.cy + arc.radius * Math.sin(a) + 40,
+      });
+    }
+    const result = place(buried);
+    expect(result.anchor.offset).toBe(0);   // slid, did not detach
+    expect(result.overlap).toBe(0);
+    expect((1 - result.anchor.t) * runLength).toBeCloseTo(halfLabel, 6);
+  });
+
+  it('centres a label too long for its run rather than picking an overhang', () => {
+    // No position fits, so every rung is a different way of hanging off an end.
+    // The midpoint is the only one that overhangs both ends equally.
+    const stubby = { cx: 0, cy: 0, radius: 40, a0: -Math.PI / 2, sweep: Math.PI, delta: 1 };
+    const result = chooseArcLabelPlacement(
+      stubby, 'is a kind of', [], new Set(), new Map(), new Map(), 40, 'e1', new Set(),
+      { obstacles: [] }
+    );
+    expect(result.anchor.t).toBeCloseTo(0.5, 6);
+  });
 });
 
 describe('a tilted label is not moved by the empty corners of its own box', () => {

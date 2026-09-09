@@ -953,14 +953,23 @@ export const chooseOrthogonalLabelPlacement = (
 // a steeply curving arc reads as belonging to nothing.
 // ---------------------------------------------------------------------------
 
-// Where along the visible run to try, nearest the middle first.
+// Where along the run to try, nearest the middle first.
 //
 // Longer than the orthogonal placer's ladder because sliding now has to carry
-// the work the radial rungs used to (see RADIAL OFFSETS below): these span
-// 0.14-0.86 of the run, where the old seven only reached 0.28-0.72 and leant on
-// stepping off the curve for anything further.
+// the work the radial rungs used to — see RADIAL OFFSETS below.
+//
+// The span is the WHOLE window, 0 to 1, because the window these are sampled
+// into is already the set of positions where the label FITS: `arcRangeParam`
+// insets each end by half the label's own length first (see LABEL LENGTH), so
+// s=1 puts the label's leading edge exactly on the end of the run and not one
+// pixel past it. These used to stop at 0.14/0.86, which was an attempt to leave
+// that same margin by eye — and being a fraction of the run rather than a
+// function of the label, it was simultaneously too much reach on a short
+// connection (the label overhung into the node and over the arrowhead) and too
+// little on a long one (a sixth of the usable curve was never tried, and the
+// label went radial instead of sliding into it).
 const ARC_ALONG = [
-  0.5, 0.44, 0.56, 0.38, 0.62, 0.32, 0.68, 0.26, 0.74, 0.2, 0.8, 0.14, 0.86,
+  0.5, 0.42, 0.58, 0.33, 0.67, 0.25, 0.75, 0.17, 0.83, 0.08, 0.92, 0, 1,
 ];
 
 // RADIAL OFFSETS — a last resort, not a rung. In line heights.
@@ -1014,10 +1023,41 @@ const arcAnchor = (arc, s) => {
  * `visibleRange` on the Lombardi descriptor for why they diverge — most sharply
  * against a thing-group anchor, where the group's outer box hides much of the arc.
  */
-const arcRangeParam = (range, s) => {
+const arcRangeParam = (range, s, pad = 0) => {
     const t0 = Number.isFinite(range?.t0) ? range.t0 : 0;
     const t1 = Number.isFinite(range?.t1) ? range.t1 : 1;
-    return t0 + s * (t1 - t0);
+    const room = t1 - t0;
+    // A label longer than the run it names has no position that fits, so every
+    // rung of the ladder would be a different way of overhanging. Collapse them
+    // onto the centre, which is the least-bad one and the only one that
+    // overhangs the two ends equally. See LABEL LENGTH.
+    if (!(room > 2 * pad)) return t0 + room / 2;
+    return (t0 + pad) + s * (room - 2 * pad);
+};
+
+/**
+ * LABEL LENGTH
+ *
+ * Half a label's own length, as an arc parameter — what `arcRangeParam` insets
+ * each end of the run by before ARC_ALONG is sampled into it.
+ *
+ * ARC_ALONG places the label's CENTRE at a fraction of the visible run, which
+ * quietly assumed a label was a point. It is not: it is set along the tangent,
+ * so it occupies roughly `textWidth` of the very run it is being positioned in.
+ * At the ends of the ladder that assumption is worth most of the label — a 185px
+ * name at 0.86 of a 720px run puts its leading edge 9px from the node, and on a
+ * shorter connection or a longer name it lands inside the node outright, on top
+ * of the arrowhead, or both. Nothing downstream catches it: the arrowhead is not
+ * an obstacle, and the node's own inflated box only starts charging once the
+ * label has already overrun the connection.
+ *
+ * Insetting makes `s` mean "the label FITS here" rather than "the centre is
+ * here", which is what the ladder was always trying to express — so it keeps its
+ * full 0.14-0.86 reach without any of those positions being off the end.
+ */
+const halfLabelParam = (arc, textWidth) => {
+    const run = arc.radius * Math.abs(arc.sweep);
+    return run > 1e-6 ? (textWidth / 2) / run : 0;
 };
 
 export const placeLabelOnArc = (arc, range = null) => {
@@ -1051,10 +1091,13 @@ export const chooseArcLabelPlacement = (
     // Slide along the VISIBLE run, not the whole arc — `s` is a fraction of what
     // the reader can see, and arcRangeParam converts it to an arc parameter.
     const range = options.range;
+    // ...and only as far along it as the label can go without hanging off the
+    // end. See LABEL LENGTH.
+    const pad = halfLabelParam(arc, textWidth);
 
     let best = null;
     const consider = (s, offset) => {
-        const t = arcRangeParam(range, s);
+        const t = arcRangeParam(range, s, pad);
         const anchor = arcAnchor(arc, t);
         const x = anchor.x + anchor.nx * offset;
         const y = anchor.y + anchor.ny * offset;

@@ -1555,10 +1555,12 @@ const MIN_VISIBLE_ARC_FRACTION = 0.05;
  * centres its label the same way the straight styles it otherwise mimics do.
  * Arcs are untouched: they keep going through `visibleRange`.
  */
-function visibleChordPoints(p, q, sBox, dBox) {
+function visibleChordPoints(p, q, sBox, dBox, aHeadRear = null, bHeadRear = null) {
   const chord = [p, q];
-  const a = trimRouteEnd(chord, sBox, true, 0).endpoint;
-  const b = trimRouteEnd(chord, dBox, false, 0).endpoint;
+  // An arrowed end stops where the arrowhead's ink stops, not at the border it
+  // points at — see sourceHeadRear.
+  const a = aHeadRear || trimRouteEnd(chord, sBox, true, 0).endpoint;
+  const b = bHeadRear || trimRouteEnd(chord, dBox, false, 0).endpoint;
   // Degenerate (overlapping nodes, or a group box that swallows the chord): a
   // sliver gives the placer nothing to work with, and the full chord at least
   // keeps the label near its connection. Same guard, and same threshold, as the
@@ -1594,6 +1596,28 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
   let endPt = q;
   let sourceArrow = null;
   let destArrow = null;
+
+  /**
+   * WHERE AN ARROWHEAD'S INK ENDS, per end — the boundary a LABEL has to respect.
+   *
+   * The node border is not that boundary. An arrowhead is a rigid triangle whose
+   * tip sits on the border and whose rear edge is `2·POLY_TIP·cw` further back
+   * ALONG THE CONNECTION: 68px at width 1, and 204px at width 3. All of that is
+   * outside every node box, so nothing in the obstacle set covers it, and both
+   * `visibleRange` and `labelPoints` used to hand the placer a run that ran right
+   * through it. A label at the middle of a short connection therefore sat on its
+   * own arrowhead without a single collision being registered — and the ladder,
+   * which reaches 0.14/0.86 of the run, could park one squarely on top of a head.
+   *
+   * So an arrowed end's run stops at the rear edge instead. An arrow-LESS end
+   * keeps stopping at the border, which is genuinely where it disappears.
+   *
+   * Null for an end with no arrow, or (straight/tight arcs) when the triangle has
+   * no room to be anchored — the same condition `arrowFor` falls back on, so the
+   * two never disagree about where the head is.
+   */
+  let sourceHeadRear = null;
+  let destHeadRear = null;
 
   // Each end's real occluder: a thing-group anchor hands us the GROUP's full
   // outer box, which is vastly bigger than the anchor node's own hitbox. Resolved
@@ -1702,18 +1726,32 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
     // reconstructs the hover trim from points[0] and points[last], and would
     // otherwise redraw the connection a fraction off its settled position the
     // moment you hovered it.
+    // The rear edge of the triangle `arrowFor` is about to build, in whichever
+    // coordinate the label side can use: an arc parameter when there is an arc,
+    // a point when the connection is a line. Deliberately the FULL 2·POLY_TIP·cw
+    // retreat and not `lineTrim`, which stops ARROW_CAP_RADIUS·cw short so the
+    // stroke's round cap ends under the triangle rather than at its back.
+    const headRearOf = (fromStart, box) => {
+      const back = 2 * cw * POLY_TIP;
+      if (!arc) return { point: trimRouteEnd(fullPoints, box, fromStart, back).endpoint };
+      const t = arcParamAtChord(arc, borderParamOf(fromStart, box), back, fromStart);
+      return t === null ? null : { t };
+    };
+
     points = fullPoints;
     if (hasSourceArrow) {
       points = trimRouteEnd(points, sBox, true, lineTrim).points;
       startPt = retreatFrom(true, sBox, lineTrim);
       points = [startPt, ...points.slice(1)];
       sourceArrow = arrowFor(true, sBox, true);
+      sourceHeadRear = headRearOf(true, sBox);
     }
     if (hasDestArrow) {
       points = trimRouteEnd(points, dBox, false, lineTrim).points;
       endPt = retreatFrom(false, dBox, lineTrim);
       points = [...points.slice(0, -1), endPt];
       destArrow = arrowFor(false, dBox, false);
+      destHeadRear = headRearOf(false, dBox);
     }
   }
 
@@ -1748,7 +1786,8 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
         if (points === null) points = sampleArc(arc);
         return (labelPoints = points);
       }
-      labelPoints = visibleChordPoints(p, q, sourceBox(), destBox());
+      labelPoints = visibleChordPoints(p, q, sourceBox(), destBox(),
+        sourceHeadRear?.point, destHeadRear?.point);
       return labelPoints;
     },
     /**
@@ -1772,8 +1811,11 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
       if (visibleRange) return visibleRange;
       if (!arc) return (visibleRange = FULL_ARC_RANGE);
       const full = sampleArc(arc);
-      const t0 = arcParamOf(arc, trimRouteEnd(full, sourceBox(), true, 0).endpoint);
-      const t1 = arcParamOf(arc, trimRouteEnd(full, destBox(), false, 0).endpoint);
+      // An arrowed end stops at the arrowhead's rear edge — see sourceHeadRear.
+      const t0 = sourceHeadRear?.t
+        ?? arcParamOf(arc, trimRouteEnd(full, sourceBox(), true, 0).endpoint);
+      const t1 = destHeadRear?.t
+        ?? arcParamOf(arc, trimRouteEnd(full, destBox(), false, 0).endpoint);
       // Degenerate (overlapping nodes, or a group box that swallows the whole
       // arc): a sliver gives the placer nothing to work with, and the full range
       // at least keeps the label near its connection.

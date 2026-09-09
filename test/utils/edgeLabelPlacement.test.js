@@ -11,6 +11,7 @@ import {
   computeLombardiTangents,
   computeLombardiRouting,
   LOMBARDI_LANE_FRACTION,
+  POLY_TIP,
 } from '../../src/utils/canvas/edgeRouting.js';
 import { getNodeHitbox } from '../../src/utils/canvas/nodeHitbox.js';
 
@@ -339,13 +340,24 @@ describe('a straight Lombardi connection centres its label on what is visible', 
     expect(place(routing, edge).x).toBeCloseTo(visibleMidX(), 6);
   });
 
-  it('stays centred whichever ends carry arrows', () => {
-    // Arrows retract the drawn stroke, which used to drag the label with them.
-    // What the reader sees still runs border to border — the arrowhead's tip
-    // sits on the border — so the label belongs in the same place either way.
-    for (const arrows of [[], ['b'], ['a'], ['a', 'b']]) {
+  it('centres on the run an arrowhead leaves, not on the border it points at', () => {
+    // An arrowhead's TIP sits on the border, but the triangle behind it reaches
+    // 2·POLY_TIP·cw further back along the connection — 68px at width 1, and
+    // three times that at the widths the slider allows. That stretch is outside
+    // every node box, so nothing in the obstacle set covers it; a label centred
+    // border-to-border simply sat on top of the head, and the ladder could park
+    // one squarely on it. So an arrowed end's run stops at the rear edge, and
+    // the label centres on what is left.
+    const head = 2 * POLY_TIP; // connectionWidth 1
+    for (const [arrows, shift] of [
+      [[], 0],                    // no arrows: the whole border-to-border run
+      [['b'], -head / 2],         // dest arrow eats the far end, label backs off
+      [['a'], head / 2],
+      [['a', 'b'], 0],            // both ends eaten equally: centred again
+    ]) {
       const { routing, edge } = route(arrows);
-      expect(place(routing, edge).x).toBeCloseTo(visibleMidX(), 6);
+      expect(place(routing, edge).x, `arrows ${JSON.stringify(arrows)}`)
+        .toBeCloseTo(visibleMidX() + shift, 6);
     }
   });
 
