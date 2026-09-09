@@ -130,7 +130,7 @@ body {
    1. THE OUT-DELAY IS THE GESTURE DETECTOR. It is deliberately just under
       useCanvasTransform's SETTLE_DELAY of 150ms, and the two must be changed
       together. A single discrete zoom step holds the class for exactly one
-      settle, so the fade gets ~10ms of its 60ms and dips by about a sixth —
+      settle, so the fade gets ~10ms of its 40ms and dips by about a quarter —
       invisible. A sustained gesture crosses the delay, fades out, and then
       costs nothing at all for as long as it runs. No JS, no thresholds: the
       delay alone separates "nudged the wheel once" from "zooming".
@@ -151,31 +151,36 @@ body {
    contributes. It fades back IN with everything else, so it never returns
    ahead of the text it belongs to.
    --------------------------------------------------------------------------- */
+/* Coming back. Slow enough to read as a fade, which costs nothing: the gesture
+   is over, the scale is fixed again, and the glyph rasters are cacheable. */
 .connection-label,
 .connection-label-ring {
   transition:
-    fill-opacity 90ms ease-out,
-    stroke-opacity 90ms ease-out,
+    fill-opacity 220ms ease-out,
+    stroke-opacity 220ms ease-out,
     visibility 0s;
 }
 
+/* Leaving. Deliberately much faster than coming back — the labels should be
+   out of the way as soon as the gesture proves itself, and every millisecond
+   here is spent painting the thing we are trying to stop painting. */
 .canvas-zooming .connection-label,
 .canvas-zooming .connection-label-ring {
   fill-opacity: 0;
   stroke-opacity: 0;
   visibility: hidden;
   transition:
-    fill-opacity 60ms linear 140ms,
-    stroke-opacity 60ms linear 140ms,
-    visibility 0s linear 200ms;
+    fill-opacity 40ms linear 140ms,
+    stroke-opacity 40ms linear 140ms,
+    visibility 0s linear 180ms;
 }
 
 /* The ring alone leaves at once — see the note above. */
 .canvas-zooming .connection-label-ring {
   visibility: hidden;
   transition:
-    fill-opacity 60ms linear 140ms,
-    stroke-opacity 60ms linear 140ms,
+    fill-opacity 40ms linear 140ms,
+    stroke-opacity 40ms linear 140ms,
     visibility 0s;
 }
 
