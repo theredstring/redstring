@@ -13112,6 +13112,7 @@ function NodeCanvas() {
     setZoomLevel,
     applyTransform: transform.applyTransform,
     flushSettle: transform.flushSettle,
+    syncLabelsForGesture: transform.syncLabelsForGesture,
     onTransformChange: () => transform.onTransformChangeRef.current?.(),
     isPanningOrZoomingRef: isPanningOrZooming,
     canvasSize, // {width, height, offsetX, offsetY}

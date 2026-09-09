@@ -38,6 +38,7 @@ export const useCanvasKeyboard = ({
     setZoomLevel,
     applyTransform,  // direct DOM transform write (no React state)
     flushSettle,     // flush settled React state (call when movement ends)
+    syncLabelsForGesture, // drop connection labels for the duration of the movement
     onTransformChange, // synchronous callback fired on every pan/zoom mutation (drives culling)
     isPanningOrZoomingRef, // shared ref — guards view-save timeout from firing during movement
     canvasSize, // {width, height, offsetX, offsetY}
@@ -102,6 +103,7 @@ export const useCanvasKeyboard = ({
         setZoomLevel,
         applyTransform,
         flushSettle,
+        syncLabelsForGesture,
         onTransformChange,
         isPanningOrZoomingRef,
         canvasSize, // {width, height, offsetX, offsetY}
@@ -191,6 +193,7 @@ export const useCanvasKeyboard = ({
                 zoomLevelRef,
                 applyTransform,
                 flushSettle,
+                syncLabelsForGesture,
                 onTransformChange,
                 isPanningOrZoomingRef,
                 draggingNodeInfo,
@@ -343,7 +346,16 @@ export const useCanvasKeyboard = ({
                     );
                 }
 
-                if (!wasMoving) isPanningOrZoomingRef.current = true; // guard view-save timeout
+                if (!wasMoving) {
+                    isPanningOrZoomingRef.current = true; // guard view-save timeout
+                    // This loop writes the refs and the DOM transform directly,
+                    // so it never reaches scheduleSettle — which is where every
+                    // other gesture sheds its connection labels. Without this,
+                    // keyboard pan and zoom were the one movement that kept
+                    // every label painting, at any setting. `flushSettle` in the
+                    // branches below puts them back.
+                    syncLabelsForGesture?.();
+                }
                 wasMoving = true;
             } else if (wasMoving) {
                 // Movement just ended — flush settled state for React consumers

@@ -161,6 +161,22 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   }, [applyLabelsHidden]);
 
   /**
+   * "A view gesture is in flight" — drop the labels unless something exempts
+   * them. Idempotent, so callers can fire it per frame or once per gesture.
+   *
+   * Exists as its own entry point because not every gesture goes through
+   * `setPan`/`setZoom`. The keyboard pan/zoom loop deliberately writes the refs
+   * and calls `applyTransform` directly to keep React out of its per-frame
+   * path, which means it never reaches `scheduleSettle` and so was never
+   * shedding its labels at all. It calls this at its own movement-start
+   * transition instead, and its existing `flushSettle` on release puts them
+   * back.
+   */
+  const syncLabelsForGesture = useCallback(() => {
+    setLabelsHidden(isProgrammaticMoveRef.current?.() !== true);
+  }, [setLabelsHidden]);
+
+  /**
    * Hold the labels down for a node drag, independently of any view gesture.
    *
    * The caller owns the span, which runs from the lift until the camera has
@@ -213,11 +229,13 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   // Schedule a deferred React state update when interaction settles.
   const scheduleSettle = useCallback(() => {
     movingRef.current = true;
-    // Every pan and every zoom lands here, which is exactly the scope wanted.
-    // An animated camera move is exempt, and asking on the way IN also
-    // un-suppresses when an animation takes over from a live gesture — a
-    // momentum tail, or a fit-to-content that follows a pinch.
-    setLabelsHidden(isProgrammaticMoveRef.current?.() !== true);
+    // Every pointer, wheel and touch pan/zoom lands here, which is most of the
+    // scope wanted; the keyboard loop bypasses this path and calls
+    // `syncLabelsForGesture` itself. An animated camera move is exempt, and
+    // asking on the way IN also un-suppresses when an animation takes over from
+    // a live gesture — a momentum tail, or a fit-to-content that follows a
+    // pinch.
+    syncLabelsForGesture();
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = setTimeout(() => {
       movingRef.current = false;
@@ -225,7 +243,7 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
       setSettledPan({ ...panRef.current });
       setSettledZoom(zoomRef.current);
     }, SETTLE_DELAY);
-  }, [setLabelsHidden]);
+  }, [setLabelsHidden, syncLabelsForGesture]);
 
   // Immediately flush settled state (for graph switches, navigations, etc.)
   const flushSettle = useCallback(() => {
@@ -318,5 +336,9 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
 
     // Hold the labels down for a node drag — see setDragLabelsHidden.
     setDragLabelsHidden,
+
+    // For gesture paths that bypass setPan/setZoom (the keyboard loop) and so
+    // never reach scheduleSettle — see syncLabelsForGesture.
+    syncLabelsForGesture,
   };
 }
