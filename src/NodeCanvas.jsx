@@ -210,33 +210,61 @@ const SPAWNABLE_NODE = 'spawnable_node';
 // (That column is now historical — curved labels are placed glyph by glyph and
 // land in the angle columns instead. The rest of the table still governs.)
 
-// On-screen displacement, in CSS pixels, we're willing to accept at the far end
-// of a label from snapping its angle. Snapping by a quantum q tilts a label by
-// at most q/2, which moves the end of a label of half-width w by w·sin(q/2).
+// The one rotation bucket connection labels snap into, in degrees, once enough
+// of them are on screen to be worth bucketing at all.
 //
-// Back down from 12. At 12px the formula below returned the full 9° ceiling at
-// every zoom up to ~1.0, so on any graph past the min-count EVERY label sat up
-// to 4.5° off its true angle at ordinary working zooms — a visible tilt, chosen
-// deliberately in the atlas-thrash era so the ceiling was reachable. The
-// per-glyph placement work removed that bottleneck, so the budget goes back to
-// what the name says: a displacement nobody can see. At 3px the quantum is
-// ~2.3° at zoom 1, ~4.6° at zoom 0.5, and only reaches the 9° cap below zoom
-// ~0.26 — where 3px is still the on-screen error and the tilt is invisible by
-// construction.
-const LABEL_ANGLE_ERROR_PX = 3;
+// Deliberately a CONSTANT. This used to be derived from the zoom, via a budget
+// on how far snapping may displace the far END of a label (3 CSS px, "a
+// displacement nobody can see"), inverted through w·sin(q/2) to get the
+// coarsest bucket that stayed inside it. That was wrong twice over.
+//
+// The visible failure: the bucket changed on every zoom, so every label
+// re-rounded to a different angle while the line underneath it did not move.
+// Labels rotated a degree or two against a static line, purely from zooming —
+// and the sign flipped as often as not, so it read as wobble rather than as
+// drift. Sweeping the same angles through the zoom-derived buckets from 0.4 to
+// 2.0 swings a typical label by 2.3-3.8°. A fixed bucket cannot do this:
+// whatever tilt a label has, it keeps.
+//
+// The quieter failure: the displacement budget measured the wrong quantity. A
+// connection label sits ON its own line, so what the eye judges is not where
+// the text ended up but whether two adjacent lines are PARALLEL — a far finer
+// discrimination than position, and one the 3px budget says nothing about.
+// Meanwhile the buckets it produced (2.25° at zoom 1, finer above) are ones the
+// table above shows buying nothing at any real label count: 80 labels cost
+// 16.4ms at 3° against 17.0ms exact. It reached a bucket that actually helps
+// only below zoom ~0.26, where the labels are ~18px and unreadable. Visible
+// tilt at every zoom that could read a label, and frame-time win at none.
+//
+// 4.5°, which tilts a label at most 2.25°. Sized off the 4° column of that
+// table — 16.6ms at 80 labels, 16.7ms at 120, 16.7ms at 200 — so it holds a
+// 60Hz frame at every count measured, including the 200-label case that costs
+// 41.7ms at exact angles. It also divides 90 exactly, so manhattan's 0°/90°
+// survive the snap untouched, and it collapses a full sweep of angles into 41
+// atlas slots instead of hundreds, which is the entire mechanism.
+//
+// Not 9°, which was the first draft here. 9° is the only column that reaches
+// the 8.3ms/120Hz floor at 200 labels, and it is tempting for exactly that
+// reason — but it tilts a label 4.5° off the line it is lying on, and a label
+// that visibly disagrees with its own connection is a worse artifact than a
+// second frame on the densest view a graph ever shows. 60Hz is the bar this
+// picks; the extra headroom is not worth what it costs to look at.
+//
+// `window.__labelAngleQuantum` overrides live; 0 means never snap.
+const LABEL_ANGLE_QUANTUM = 4.5;
 
-// Typical connection-label half-width in canvas px, for the estimate above.
-const LABEL_HALF_WIDTH_CANVAS = 150;
-
-// Never snap coarser than this, however far out the viewer is zoomed. 9° means
-// a label sits at most 4.5° off its true tangent. With the 3px error budget
-// this now only binds below zoom ~0.26, where the displacement it permits is
-// still under the pixel budget on screen.
-const MAX_LABEL_ANGLE_QUANTUM = 9;
-
-// Below this many labels there aren't enough distinct angles to trouble the
-// atlas, so don't snap at all — exact angles, zero visual change.
-const LABEL_ANGLE_QUANTUM_MIN_COUNT = 48;
+// Below this many labels ON SCREEN, don't snap at all — exact angles, so each
+// label lies precisely along the line it names.
+//
+// Raised from 48. The same table drives both numbers: exact angles cost 17.0ms
+// at 80 labels, a hair over a 60Hz frame, so the old gate was set to start
+// snapping just before that point. But what it started was a 2-4° snap, which
+// that table shows is worth nothing until roughly 200 labels — so the whole
+// 48-80 band paid a visible tilt and bought no speed with it. With the gate
+// here and a bucket that does reach the floor, that band gets exact angles.
+//
+// `window.__labelAngleMinCount` overrides live.
+const LABEL_ANGLE_QUANTUM_MIN_COUNT = 80;
 
 // ---------------------------------------------------------------------------
 // ZOOM SCALE QUANTUM — tried, measured, removed. Don't re-add it without
@@ -4556,14 +4584,14 @@ function NodeCanvas() {
   // screen, not the angles themselves, so collapsing them into buckets is the
   // whole fix. Zero means "don't snap".
   //
-  // The bucket size is chosen from the zoom, not picked by feel: snapping by a
-  // quantum q tilts a label by at most q/2, which displaces the end of a label
-  // of half-width w by w·sin(q/2) — so invert that for the largest q whose
-  // worst-case error stays inside LABEL_ANGLE_ERROR_PX on screen. Zoomed out,
-  // where the labels are small and numerous, that permits a coarse bucket;
-  // zoomed in, where a tilt would show, it tightens automatically.
+  // Two inputs, and the ONLY input that matters is the count. The bucket size
+  // itself is a constant — see LABEL_ANGLE_QUANTUM for why it stopped being a
+  // function of zoom, which is the same reason this reads no zoom at all now.
+  // A label's angle must not change unless its LINE changed; a zoom moves the
+  // whole picture rigidly, so anything that re-rounds a label on zoom is
+  // visible as the label rotating against its own stationary line.
   //
-  // This deliberately does NOT vary with whether the view is moving.
+  // Also deliberately does NOT vary with whether the view is moving.
   //
   // It used to: a gesture took the coarsest bucket and released it on settle, on
   // the theory that in-motion tilt precision is invisible. The theory was fine
@@ -4575,26 +4603,18 @@ function NodeCanvas() {
   // was supposed to prevent, and it bought nothing measurable: sweeping the
   // scale over a real graph costs the same 8.3ms/frame at exact angles as at 9°.
   //
-  // The zoom-derived bucket below is kept — it is computed from settled zoom, so
-  // it costs nothing during a gesture.
-  const labelAngleQuantum = useMemo(() => {
-    if (visibleEdges.length <= LABEL_ANGLE_QUANTUM_MIN_COUNT) return 0;
-    const halfWidthOnScreen = LABEL_HALF_WIDTH_CANVAS * zoomLevel;
-    const wanted = halfWidthOnScreen > LABEL_ANGLE_ERROR_PX
-      ? Math.min(
-        MAX_LABEL_ANGLE_QUANTUM,
-        2 * Math.asin(LABEL_ANGLE_ERROR_PX / halfWidthOnScreen) * (180 / Math.PI)
-      )
-      : MAX_LABEL_ANGLE_QUANTUM;
-
-    // Round the quantum itself down onto an exact divisor of 90 so that 0° and
-    // 90° survive the snap untouched. Manhattan labels sit precisely on those
-    // two angles; a raw 4° bucket would round 90° to 92°, visibly tilting every
-    // vertical label and spending extra atlas slots in the one mode that was
-    // already fast. Ceil on the division keeps the result at or under `wanted`,
-    // so the error budget above still holds.
-    return 90 / Math.max(1, Math.ceil(90 / wanted));
-  }, [visibleEdges.length, zoomLevel]);
+  // Plain arithmetic rather than a useMemo: it is two comparisons, and the
+  // result is a NUMBER, so the useCallback below re-uses its dependency
+  // identity whenever the value is unchanged just as a memo would. Recomputing
+  // it every render is also what keeps the window overrides live — a memo keyed
+  // on the count alone could never see them change.
+  const labelAngleQuantum = (() => {
+    const rawMin = (typeof window !== 'undefined') ? Number(window.__labelAngleMinCount) : NaN;
+    const minCount = (Number.isFinite(rawMin) && rawMin >= 0) ? rawMin : LABEL_ANGLE_QUANTUM_MIN_COUNT;
+    if (visibleEdges.length <= minCount) return 0;
+    const rawQuantum = (typeof window !== 'undefined') ? Number(window.__labelAngleQuantum) : NaN;
+    return (Number.isFinite(rawQuantum) && rawQuantum >= 0) ? rawQuantum : LABEL_ANGLE_QUANTUM;
+  })();
 
   const quantizeLabelAngle = useCallback(
     (degrees) => quantizeAngle(degrees, labelAngleQuantum),
@@ -17881,8 +17901,14 @@ function NodeCanvas() {
 
                                 // Adjust angle to keep text readable (never upside down),
                                 // then snap it into a bucket. The snap is what keeps a few hundred
-                                // labels affordable — see CONNECTION LABEL RENDERING BUDGETS. At
-                                // low label counts quantizeLabelAngle is the identity.
+                                // labels affordable — see CONNECTION LABEL RENDERING BUDGETS.
+                                //
+                                // Below LABEL_ANGLE_QUANTUM_MIN_COUNT visible labels — which is
+                                // most working views — quantizeLabelAngle is the identity, so the
+                                // text lies exactly along the line it names. Above it the bucket is
+                                // a constant, so whatever tilt a label takes it keeps: panning and
+                                // zooming can no longer re-round it against a line that hasn't
+                                // moved.
                                 const adjustedAngle = quantizeLabelAngle(
                                   (angle > 90 || angle < -90) ? angle + 180 : angle
                                 );

@@ -64,87 +64,89 @@ describe('quantizeAngle', () => {
   });
 });
 
-describe('label angle quantum (the renderer\'s zoom-derived bucket size)', () => {
-  // Mirrors NodeCanvas's `labelAngleQuantum`. Kept here so the error bound the
-  // constants claim is actually checked rather than asserted in a comment.
-  // 3px, not the old 12: at 12 the formula sat at the 9-degree ceiling for every
-  // zoom up to ~1, a visible tilt on every label of a dense graph. See the
-  // constant's comment in NodeCanvas.
-  const LABEL_ANGLE_ERROR_PX = 3;
-  const LABEL_HALF_WIDTH_CANVAS = 150;
-  const MAX_LABEL_ANGLE_QUANTUM = 9;
+describe('label angle quantum (the renderer\'s count-derived bucket size)', () => {
+  // Mirrors NodeCanvas's `labelAngleQuantum`. Kept here so the properties the
+  // constants claim are checked rather than asserted in a comment.
+  const LABEL_ANGLE_QUANTUM = 4.5;
+  const LABEL_ANGLE_QUANTUM_MIN_COUNT = 80;
 
-  const quantumFor = (zoom) => {
-    const halfWidthOnScreen = LABEL_HALF_WIDTH_CANVAS * zoom;
-    const wanted = halfWidthOnScreen > LABEL_ANGLE_ERROR_PX
-      ? Math.min(
-        MAX_LABEL_ANGLE_QUANTUM,
-        2 * Math.asin(LABEL_ANGLE_ERROR_PX / halfWidthOnScreen) * (180 / Math.PI)
-      )
-      : MAX_LABEL_ANGLE_QUANTUM;
+  const quantumFor = (visibleLabels) => (
+    visibleLabels <= LABEL_ANGLE_QUANTUM_MIN_COUNT ? 0 : LABEL_ANGLE_QUANTUM
+  );
+
+  // The formula this replaced, reproduced so the bug it caused stays pinned
+  // rather than described. It derived the bucket from zoom via a 3px budget on
+  // how far snapping may displace a label's far end.
+  const legacyQuantumFor = (zoom) => {
+    const halfWidthOnScreen = 150 * zoom;
+    const wanted = halfWidthOnScreen > 3
+      ? Math.min(9, 2 * Math.asin(3 / halfWidthOnScreen) * (180 / Math.PI))
+      : 9;
     return 90 / Math.max(1, Math.ceil(90 / wanted));
   };
 
-  it('holds the on-screen error inside the budget at every zoom', () => {
-    for (let zoom = 0.02; zoom <= 3; zoom *= 1.15) {
-      const q = quantumFor(zoom);
-      // Worst-case tilt is half a quantum; it displaces the label end by
-      // halfWidth * sin(tilt), in canvas units, which the zoom then scales.
-      const errorPx = LABEL_HALF_WIDTH_CANVAS * Math.sin((q / 2) * Math.PI / 180) * zoom;
-      expect(errorPx).toBeLessThanOrEqual(LABEL_ANGLE_ERROR_PX + 1e-6);
+  it('leaves angles exact below the count gate, so a label lies along its line', () => {
+    // The whole point of the gate. Under it there is no tilt to see at all.
+    for (const count of [0, 1, 12, 47, 48, 79, LABEL_ANGLE_QUANTUM_MIN_COUNT]) {
+      expect(quantumFor(count)).toBe(0);
+      for (let a = -90; a <= 90; a += 3.1) {
+        expect(quantizeAngle(a, quantumFor(count))).toBe(a);
+      }
     }
   });
 
-  it('tightens as you zoom in and coarsens as you zoom out', () => {
-    let prev = 0;
-    for (let zoom = 3; zoom >= 0.02; zoom /= 1.3) {
-      const q = quantumFor(zoom);
-      expect(q).toBeGreaterThanOrEqual(prev - 1e-9);
-      prev = q;
+  it('snaps once there are enough labels on screen to trouble the atlas', () => {
+    for (const count of [81, 120, 200, 500]) {
+      expect(quantumFor(count)).toBe(LABEL_ANGLE_QUANTUM);
     }
   });
 
-  it('never exceeds the hard cap', () => {
-    for (let zoom = 0.001; zoom <= 10; zoom *= 1.4) {
-      expect(quantumFor(zoom)).toBeLessThanOrEqual(MAX_LABEL_ANGLE_QUANTUM);
-    }
+  it('does not vary with zoom — a label may not rotate while its line holds still', () => {
+    // The reported bug. The legacy bucket changed on every zoom, so each label
+    // re-rounded to a different angle even though nothing about the edge moved:
+    // over an ordinary working range a typical label swung by degrees, and the
+    // sign flipped, which reads as wobble rather than drift.
+    const zooms = [0.4, 0.5, 0.6, 0.75, 1, 1.25, 1.5, 2];
+    const trueAngle = 37.4;
+
+    const legacy = zooms.map((z) => quantizeAngle(trueAngle, legacyQuantumFor(z)));
+    expect(Math.max(...legacy) - Math.min(...legacy)).toBeGreaterThan(2);
+
+    // The count is what it is at a given moment; the zoom must not enter into
+    // it. Same count, every zoom, one rendered angle.
+    const current = zooms.map(() => quantizeAngle(trueAngle, quantumFor(200)));
+    expect(new Set(current).size).toBe(1);
   });
 
-  it('always divides 90, so manhattan labels stay on their exact axes', () => {
+  it('divides 90, so manhattan labels stay on their exact axes', () => {
     // The mode that was already fast must not be made slower or crooked.
-    for (let zoom = 0.01; zoom <= 5; zoom *= 1.11) {
-      const q = quantumFor(zoom);
-      expect(90 / q).toBeCloseTo(Math.round(90 / q), 9);
-      expect(quantizeAngle(90, q)).toBeCloseTo(90, 9);
-      expect(quantizeAngle(0, q)).toBe(0);
+    const q = quantumFor(200);
+    expect(90 / q).toBeCloseTo(Math.round(90 / q), 9);
+    expect(quantizeAngle(90, q)).toBeCloseTo(90, 9);
+    expect(quantizeAngle(0, q)).toBe(0);
+  });
+
+  it('tilts a label by at most half a quantum', () => {
+    const q = quantumFor(200);
+    for (let a = -90; a <= 90; a += 0.05) {
+      expect(Math.abs(quantizeAngle(a, q) - a)).toBeLessThanOrEqual(q / 2 + 1e-9);
     }
   });
 
-  it('is coarse enough at fit-the-graph zoom to matter', () => {
-    // 0.15 is roughly where a 250-node graph fits on screen — the case that
-    // was measured at 50ms/frame with unquantised angles.
-    expect(quantumFor(0.15)).toBeCloseTo(9, 6);
+  it('collapses the angles far enough to be worth doing at all', () => {
+    // The mechanism is atlas slots, not the bucket size in the abstract: what
+    // has to be true is that a full sweep of angles lands in a handful of
+    // distinct rotations. 20 divisions either side of zero, plus zero itself.
     const buckets = new Set();
-    for (let a = -90; a < 90; a += 0.05) buckets.add(quantizeAngle(a, quantumFor(0.15)));
-    // 10 divisions either side of zero, plus zero itself.
-    expect(buckets.size).toBe(21);
+    for (let a = -90; a < 90; a += 0.05) buckets.add(quantizeAngle(a, quantumFor(200)));
+    expect(buckets.size).toBe(41);
   });
 
-  it('stays fine at working zooms and only reaches the cap when the tilt is sub-budget', () => {
-    // The old assertion here was the inverse — cap at every zoom up to 1 —
-    // encoded when the 12px error budget existed to make the coarse bucket
-    // reachable for the glyph atlas. That read as every label visibly tilted at
-    // ordinary zooms. At the 3px budget the bucket is gentle where the viewer
-    // can see and coarsens smoothly on the way out, hitting the cap only below
-    // zoom ~0.26 where 3px on screen still bounds the displacement.
-    expect(quantumFor(1)).toBeLessThanOrEqual(2.5);
-    expect(quantumFor(0.5)).toBeLessThanOrEqual(5);
-    expect(quantumFor(0.5)).toBeGreaterThan(quantumFor(1));
-    expect(quantumFor(0.15)).toBeCloseTo(MAX_LABEL_ANGLE_QUANTUM, 6);
-    expect(quantumFor(0.1)).toBeCloseTo(MAX_LABEL_ANGLE_QUANTUM, 6);
-    // Zooming in keeps tightening toward exact.
-    expect(quantumFor(2)).toBeLessThan(quantumFor(1));
-    expect(quantumFor(4)).toBeLessThan(quantumFor(2));
+  it('keeps the worst tilt inside what a label can wear over its own line', () => {
+    // The reason this is 4.5 and not the 9 that reaches the 120Hz floor: a
+    // label sits ON its connection, so the eye is judging two adjacent lines
+    // for parallelism rather than judging the text in isolation.
+    expect(LABEL_ANGLE_QUANTUM / 2).toBeLessThanOrEqual(2.25);
   });
 });
 
