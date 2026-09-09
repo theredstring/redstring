@@ -2,6 +2,8 @@
  * readAbstractionChain - Read a node's abstraction chains (carousel spectrums)
  */
 
+import { isSeededChain } from './utils/abstractionSpec.js';
+
 /**
  * Resolve a node prototype by name (fuzzy match)
  */
@@ -85,11 +87,19 @@ export async function readAbstractionChain(args, graphState) {
         };
     });
 
+    // A chain that is only what the node's type seeded is real and worth reporting, but
+    // it is not a ladder anybody built — so say so, or a model reading "1 abstraction
+    // chain" concludes the work is already done and declines to extend it.
+    const allSeeded = dimensionKeys.every(dim => isSeededChain(proto, chains[dim]));
+
     return {
         nodeName: proto.name,
         nodeId: proto.id,
         chainCount: dimensionKeys.length,
         dimensions,
-        message: `"${proto.name}" has ${dimensionKeys.length} abstraction chain${dimensionKeys.length !== 1 ? 's' : ''}.`
+        message: allSeeded
+            ? `"${proto.name}" has no authored abstraction chain yet — what is shown is seeded `
+              + `from its type. Use editAbstractionChain or buildAbstractionChain to extend it.`
+            : `"${proto.name}" has ${dimensionKeys.length} abstraction chain${dimensionKeys.length !== 1 ? 's' : ''}.`
     };
 }

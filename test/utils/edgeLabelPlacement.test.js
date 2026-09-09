@@ -64,15 +64,18 @@ describe('quantizeAngle', () => {
   });
 });
 
-describe('label angle quantum (the renderer\'s count-derived bucket size)', () => {
+describe('label angle quantum (the renderer\'s style-gated bucket size)', () => {
   // Mirrors NodeCanvas's `labelAngleQuantum`. Kept here so the properties the
   // constants claim are checked rather than asserted in a comment.
   const LABEL_ANGLE_QUANTUM = 4.5;
   const LABEL_ANGLE_QUANTUM_MIN_COUNT = 80;
 
-  const quantumFor = (visibleLabels) => (
-    visibleLabels <= LABEL_ANGLE_QUANTUM_MIN_COUNT ? 0 : LABEL_ANGLE_QUANTUM
-  );
+  const ALWAYS_STYLES = new Set(['lombardi']);
+
+  const quantumFor = (visibleLabels, style = 'straight') => {
+    if (ALWAYS_STYLES.has(style)) return LABEL_ANGLE_QUANTUM;
+    return visibleLabels <= LABEL_ANGLE_QUANTUM_MIN_COUNT ? 0 : LABEL_ANGLE_QUANTUM;
+  };
 
   // The formula this replaced, reproduced so the bug it caused stays pinned
   // rather than described. It derived the bucket from zoom via a 3px budget on
@@ -98,6 +101,26 @@ describe('label angle quantum (the renderer\'s count-derived bucket size)', () =
   it('snaps once there are enough labels on screen to trouble the atlas', () => {
     for (const count of [81, 120, 200, 500]) {
       expect(quantumFor(count)).toBe(LABEL_ANGLE_QUANTUM);
+    }
+  });
+
+  it('snaps lombardi at every count, gate or no gate', () => {
+    // Lombardi is the style that actually mints rotations — one per character
+    // while curved, an arbitrary chord angle once the zoom flattens the bow —
+    // so it is gated by style rather than by population.
+    for (const count of [0, 1, 12, 48, 79, 80, 81, 200]) {
+      expect(quantumFor(count, 'lombardi')).toBe(LABEL_ANGLE_QUANTUM);
+    }
+  });
+
+  it('leaves straight and manhattan exact below the gate', () => {
+    // Straight mints one rotation per label, which is mild enough that lying
+    // exactly along the line is worth more than the buckets. Manhattan sits on
+    // 0/90, where the snap is a no-op either way.
+    for (const style of ['straight', 'manhattan', 'clean']) {
+      expect(quantumFor(48, style)).toBe(0);
+      expect(quantumFor(80, style)).toBe(0);
+      expect(quantumFor(81, style)).toBe(LABEL_ANGLE_QUANTUM);
     }
   });
 

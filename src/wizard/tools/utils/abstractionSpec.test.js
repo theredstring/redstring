@@ -10,7 +10,11 @@ import {
   findChainOwner,
   buildLadderLevels,
   applyLadderCap,
-  summarizeLadders
+  summarizeLadders,
+  seededChainFor,
+  isSeededChain,
+  resolveChain,
+  THING_PROTOTYPE_ID
 } from './abstractionSpec.js';
 
 describe('singular', () => {
@@ -186,5 +190,103 @@ describe('summarizeLadders', () => {
     const s = summarizeLadders([{ name: 'Ford', isA: [{ name: 'Automaker' }, { name: 'Company' }] }]);
     expect(s.abstractionChains).toEqual(['Ford → Automaker → Company']);
     expect(s.abstractionNote).toMatch(/Do not call/);
+  });
+});
+
+describe('seededChainFor', () => {
+  it('puts the type between the node and the Thing floor', () => {
+    expect(seededChainFor('bakery', 'company')).toEqual(['bakery', 'company', THING_PROTOTYPE_ID]);
+  });
+
+  it('collapses to two rungs when the type IS Thing', () => {
+    expect(seededChainFor('bakery', THING_PROTOTYPE_ID)).toEqual(['bakery', THING_PROTOTYPE_ID]);
+  });
+
+  it('treats an absent type as Thing, since half the creation sites pass null', () => {
+    expect(seededChainFor('bakery', null)).toEqual(['bakery', THING_PROTOTYPE_ID]);
+  });
+
+  it('refuses the roots, which carry no chain of their own', () => {
+    expect(seededChainFor(THING_PROTOTYPE_ID, null)).toBeNull();
+    expect(seededChainFor('base-connection-prototype', null)).toBeNull();
+  });
+
+  it('does not repeat a self-typed node, which a merge can produce', () => {
+    expect(seededChainFor('x', 'x')).toEqual(['x', THING_PROTOTYPE_ID]);
+  });
+});
+
+describe('isSeededChain', () => {
+  const bakery = { id: 'bakery', typeNodeId: 'company' };
+
+  it('recognizes its own output', () => {
+    expect(isSeededChain(bakery, ['bakery', 'company', THING_PROTOTYPE_ID])).toBe(true);
+  });
+
+  it('counts an absent chain as seeded, so legacy files are not read as authored', () => {
+    expect(isSeededChain(bakery, undefined)).toBe(true);
+    expect(isSeededChain(bakery, [])).toBe(true);
+  });
+
+  it('reads an extended ladder as authored', () => {
+    expect(isSeededChain(bakery, ['bakery', 'company', 'org', THING_PROTOTYPE_ID])).toBe(false);
+  });
+
+  it('reads a hand-built ladder with no Thing floor as authored', () => {
+    // The case that makes shape inference safe: a two-rung ladder someone wrote is
+    // still distinguishable from a seed, because seeding always lays the floor.
+    expect(isSeededChain(bakery, ['bakery', 'company'])).toBe(false);
+  });
+
+  it('goes stale against the OLD type once the node is retyped', () => {
+    expect(isSeededChain({ id: 'bakery', typeNodeId: 'institution' },
+      ['bakery', 'company', THING_PROTOTYPE_ID])).toBe(false);
+  });
+});
+
+describe('resolveChain', () => {
+  const DIM = 'Generalization Axis';
+
+  it('synthesizes a chain for a prototype that has none stored', () => {
+    const r = resolveChain('bakery', DIM, [{ id: 'bakery', typeNodeId: 'company' }]);
+    expect(r.chain).toEqual(['bakery', 'company', THING_PROTOTYPE_ID]);
+    expect(r.virtual).toBe(true);
+    expect(r.ownerId).toBe('bakery');
+  });
+
+  it('prefers a ladder the node is a rung of over its own seeded chain', () => {
+    // The shadowing case. A rung added via Add Above/Below is born typed Thing, so it
+    // owns a trivial seeded chain; without this it would hide the ladder it was added to.
+    const protos = [
+      { id: 'rung', typeNodeId: THING_PROTOTYPE_ID,
+        abstractionChains: { [DIM]: ['rung', THING_PROTOTYPE_ID] } },
+      { id: 'ford', typeNodeId: 'automaker',
+        abstractionChains: { [DIM]: ['ford', 'rung', 'automaker', THING_PROTOTYPE_ID] } }
+    ];
+    const r = resolveChain('rung', DIM, protos);
+    expect(r.ownerId).toBe('ford');
+    expect(r.chain).toEqual(['ford', 'rung', 'automaker', THING_PROTOTYPE_ID]);
+    expect(r.seeded).toBe(false);
+  });
+
+  it('keeps a node on its OWN ladder once it has authored one', () => {
+    const protos = [
+      { id: 'rung', typeNodeId: THING_PROTOTYPE_ID,
+        abstractionChains: { [DIM]: ['rung', 'sub', THING_PROTOTYPE_ID] } },
+      { id: 'ford', abstractionChains: { [DIM]: ['ford', 'rung', THING_PROTOTYPE_ID] } }
+    ];
+    expect(resolveChain('rung', DIM, protos).ownerId).toBe('rung');
+  });
+
+  it('leaves Thing on its own, not on some arbitrary node it is the floor of', () => {
+    // Thing is a rung of every seeded chain and owner of none. Skipping seeded chains
+    // during resolution is what stops it resolving to whichever one iterates first.
+    const protos = [
+      { id: 'a', typeNodeId: 'company', abstractionChains: { [DIM]: ['a', 'company', THING_PROTOTYPE_ID] } },
+      { id: 'b', typeNodeId: 'org', abstractionChains: { [DIM]: ['b', 'org', THING_PROTOTYPE_ID] } }
+    ];
+    const r = resolveChain(THING_PROTOTYPE_ID, DIM, protos);
+    expect(r.ownerId).toBe(THING_PROTOTYPE_ID);
+    expect(r.virtual).toBe(true);
   });
 });

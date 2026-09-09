@@ -22,6 +22,7 @@
 import { calculateEntityMatchConfidence, normalizeLabel, calculateTextSimilarity } from './entityMatching.js';
 import { duplicatePairKey } from '../formats/duplicatePairKey.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
+import { isSeededChain } from '../wizard/tools/utils/abstractionSpec.js';
 
 /**
  * Pages that cover MANY things rather than naming one.
@@ -204,12 +205,18 @@ export function computeCarryOver(survivor, other) {
 
   // Per dimension: a chain the survivor has is kept as-is (its order is a
   // claim), one it lacks entirely is worth carrying.
+  //
+  // "Lacks" means lacks a ladder, not lacks the key. Every prototype carries a chain
+  // seeded from its type now, so testing for the key alone would report no gap ever —
+  // and an authored ladder on the folded-in duplicate would be dropped in silence.
+  // A seeded donor chain is likewise nothing to carry over.
   const otherChains = other?.abstractionChains;
   if (otherChains && typeof otherChains === 'object') {
     const survivorChains = survivor?.abstractionChains || {};
     const missing = {};
     for (const [dimension, chain] of Object.entries(otherChains)) {
-      if (!survivorChains[dimension]) missing[dimension] = chain;
+      if (isSeededChain(other, chain)) continue;
+      if (isSeededChain(survivor, survivorChains[dimension])) missing[dimension] = chain;
     }
     if (Object.keys(missing).length > 0) {
       gaps.push({ field: 'abstractionChains', label: 'abstraction', value: missing });

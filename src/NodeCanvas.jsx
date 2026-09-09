@@ -78,6 +78,7 @@ import useGraphStore, {
   TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT,
 } from "./store/graphStore.js";
 import useHistoryStore from './store/historyStore.js';
+import { resolveChain } from './wizard/tools/utils/abstractionSpec.js';
 import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from './services/imageCache.js';
 
 import { getAppViewportSize, getFixedOverlayOrigin } from './utils/appViewport.js';
@@ -254,17 +255,41 @@ const SPAWNABLE_NODE = 'spawnable_node';
 const LABEL_ANGLE_QUANTUM = 4.5;
 
 // Below this many labels ON SCREEN, don't snap at all — exact angles, so each
-// label lies precisely along the line it names.
+// label lies precisely along the line it names. Applies to the styles that draw
+// their labels as ONE rotated text run; lombardi is gated by style instead, see
+// LABEL_ANGLE_QUANTUM_ALWAYS_STYLES.
 //
-// Raised from 48. The same table drives both numbers: exact angles cost 17.0ms
-// at 80 labels, a hair over a 60Hz frame, so the old gate was set to start
-// snapping just before that point. But what it started was a 2-4° snap, which
-// that table shows is worth nothing until roughly 200 labels — so the whole
-// 48-80 band paid a visible tilt and bought no speed with it. With the gate
-// here and a bucket that does reach the floor, that band gets exact angles.
+// Kept as a backstop rather than as the main mechanism. Straight labels mint one
+// rotation each, which is mild — a straight graph does not generate the rotation
+// diversity this was built for, and at ordinary counts it is better served by
+// lying exactly on its lines. But the table above still holds at the top end:
+// exact angles cost 26ms at 120 labels and 41.7ms at 200, both of which drop a
+// frame while panning. So the gate stays, set where exact stops being free
+// rather than where snapping stops being visible.
 //
 // `window.__labelAngleMinCount` overrides live.
 const LABEL_ANGLE_QUANTUM_MIN_COUNT = 80;
+
+// Routing styles whose labels snap at EVERY count, with no gate.
+//
+// Lombardi only. It is the style that actually generates rotation diversity, and
+// it generates it two different ways: a curved label rotates every character
+// separately, and one whose bow the zoom has flattened under
+// LABEL_CURVE_MIN_SCREEN_PX falls back to a straight chord at whatever arbitrary
+// angle that chord sits at. On a zoomed-out lombardi graph almost every label is
+// in that second category at once.
+//
+// Ungating it costs nothing visually, which is the part worth seeing: the two
+// populations are disjoint by zoom. While a label is CURVED it is placed glyph
+// by glyph and buckets on CURVED_GLYPH_ANGLE_QUANTUM, which this number does not
+// touch at all — so zoomed in, where a tilt would show, this changes nothing. It
+// only reaches labels that have already flattened to chords, which happens
+// zoomed out, where 2.25° of tilt on small text is invisible. Lombardi therefore
+// snaps exactly when it is needed and never when it would be seen.
+//
+// Manhattan is absent because it does not need to be here: its labels sit at 0°
+// and 90°, the quantum divides 90, and snapping is a no-op on both.
+const LABEL_ANGLE_QUANTUM_ALWAYS_STYLES = new Set(['lombardi']);
 
 // ---------------------------------------------------------------------------
 // ZOOM SCALE QUANTUM — tried, measured, removed. Don't re-add it without
@@ -4624,12 +4649,19 @@ function NodeCanvas() {
   // screen, not the angles themselves, so collapsing them into buckets is the
   // whole fix. Zero means "don't snap".
   //
-  // Two inputs, and the ONLY input that matters is the count. The bucket size
-  // itself is a constant — see LABEL_ANGLE_QUANTUM for why it stopped being a
-  // function of zoom, which is the same reason this reads no zoom at all now.
-  // A label's angle must not change unless its LINE changed; a zoom moves the
-  // whole picture rigidly, so anything that re-rounds a label on zoom is
-  // visible as the label rotating against its own stationary line.
+  // Gated by ROUTING STYLE first and by count only as a backstop. Which style
+  // is drawing is the better question, because the styles differ in kind and not
+  // in degree: manhattan's labels are axis-aligned and snapping cannot touch
+  // them, straight's mint one rotation each, and lombardi's mint one per
+  // CHARACTER while curved and an arbitrary chord angle once flattened. Counting
+  // labels treats all three as the same population. See
+  // LABEL_ANGLE_QUANTUM_ALWAYS_STYLES.
+  //
+  // The bucket size itself is a constant — see LABEL_ANGLE_QUANTUM for why it
+  // stopped being a function of zoom, which is the same reason this reads no
+  // zoom at all now. A label's angle must not change unless its LINE changed; a
+  // zoom moves the whole picture rigidly, so anything that re-rounds a label on
+  // zoom is visible as the label rotating against its own stationary line.
   //
   // Also deliberately does NOT vary with whether the view is moving.
   //
@@ -4649,11 +4681,15 @@ function NodeCanvas() {
   // it every render is also what keeps the window overrides live — a memo keyed
   // on the count alone could never see them change.
   const labelAngleQuantum = (() => {
+    const rawQuantum = (typeof window !== 'undefined') ? Number(window.__labelAngleQuantum) : NaN;
+    const quantum = (Number.isFinite(rawQuantum) && rawQuantum >= 0) ? rawQuantum : LABEL_ANGLE_QUANTUM;
+
+    const style = isRoutedStyle ? routingStyle : 'straight';
+    if (LABEL_ANGLE_QUANTUM_ALWAYS_STYLES.has(style)) return quantum;
+
     const rawMin = (typeof window !== 'undefined') ? Number(window.__labelAngleMinCount) : NaN;
     const minCount = (Number.isFinite(rawMin) && rawMin >= 0) ? rawMin : LABEL_ANGLE_QUANTUM_MIN_COUNT;
-    if (visibleEdges.length <= minCount) return 0;
-    const rawQuantum = (typeof window !== 'undefined') ? Number(window.__labelAngleQuantum) : NaN;
-    return (Number.isFinite(rawQuantum) && rawQuantum >= 0) ? rawQuantum : LABEL_ANGLE_QUANTUM;
+    return visibleEdges.length <= minCount ? 0 : quantum;
   })();
 
   const quantizeLabelAngle = useCallback(
@@ -6279,24 +6315,13 @@ function NodeCanvas() {
     const protoName = prototype.name || 'this node';
     const protoDescription = (prototype.description || '').trim();
 
-    // Resolve the chain the carousel is actually showing. The focused node may own a
-    // chain, or may be a member of another node's — the same two-step lookup
-    // AbstractionCarousel does. This matters more than it looks: addToAbstractionChain
-    // writes to whichever prototype it's handed, so naming a mere member starts a
-    // SECOND, competing chain instead of extending the one on screen.
-    let chainOwner = prototype;
-    let chain = prototype.abstractionChains?.[dimension];
-    if (!(Array.isArray(chain) && chain.length > 0)) {
-      chain = null;
-      for (const [, candidate] of nodePrototypesMap.entries()) {
-        const candidateChain = candidate?.abstractionChains?.[dimension];
-        if (Array.isArray(candidateChain) && candidateChain.includes(prototype.id)) {
-          chainOwner = candidate;
-          chain = candidateChain;
-          break;
-        }
-      }
-    }
+    // Resolve the chain the carousel is actually showing, through the same helper the
+    // carousel uses. This matters more than it looks: addToAbstractionChain writes to
+    // whichever prototype it's handed, so naming a mere member starts a SECOND,
+    // competing chain instead of extending the one on screen.
+    const resolvedChain = resolveChain(prototype.id, dimension, nodePrototypesMap.values());
+    const chainOwner = nodePrototypesMap.get(resolvedChain.ownerId) || prototype;
+    const chain = resolvedChain.virtual ? null : resolvedChain.chain;
     const ownerName = chainOwner.name || protoName;
 
     // Render the chain as the carousel reads it: index order runs specific → generic,
@@ -9274,8 +9299,18 @@ function NodeCanvas() {
               // then request focus by id the same way adding a layer does — that
               // lookup is robust to the re-indexing since it doesn't depend on the
               // stale level number.
-              const chainOwnerProto = useGraphStore.getState().nodePrototypes.get(carouselNode.prototypeId);
-              const chain = chainOwnerProto?.abstractionChains?.[currentAbstractionDimension] || [];
+              //
+              // Resolve the owner rather than assuming it is the carousel anchor: this
+              // used to read the anchor's own chain directly, so deleting a layer from a
+              // ladder anchored on a mere member silently did nothing at all.
+              const protoMap = useGraphStore.getState().nodePrototypes;
+              const resolvedForDelete = resolveChain(
+                carouselNode.prototypeId,
+                currentAbstractionDimension,
+                protoMap.values()
+              );
+              const chainOwnerForDelete = resolvedForDelete.ownerId;
+              const chain = resolvedForDelete.chain || [];
               const removedIndex = chain.indexOf(selectedNode.prototypeId);
               const nextFocusPrototypeId = removedIndex !== -1
                 ? (chain[removedIndex + 1] || chain[removedIndex - 1] || carouselNode.prototypeId)
@@ -9283,7 +9318,7 @@ function NodeCanvas() {
 
               // Remove the node from the abstraction chain
               storeActions.removeFromAbstractionChain(
-                carouselNode.prototypeId,     // the node whose chain we're modifying
+                chainOwnerForDelete,          // the node whose chain we're modifying
                 currentAbstractionDimension,  // dimension (Physical, Conceptual, etc.)
                 selectedNode.prototypeId      // the node to remove
               );
@@ -12425,24 +12460,23 @@ function NodeCanvas() {
       // in an axis you're not looking at and never appear in the open carousel.
       // We still insert relative to the focused node (targetPrototypeId) within
       // that resolved chain.
+      //
+      // Resolution goes through the shared helper so it cannot drift from what the
+      // carousel drew. A plain "does the anchor own a chain?" test no longer answers
+      // this: every node carries a seeded chain, so that test is always true, and the
+      // ladder the anchor is actually a rung of would never be found. The add would then
+      // splice this ladder's rungs into the anchor's trivial chain and leave two
+      // competing chains over the same nodes.
       const currentStateForChain = useGraphStore.getState();
       const allPrototypes = currentStateForChain.nodePrototypes;
       const anchorPrototypeId = abstractionCarouselNode.prototypeId;
       let chainOwnerPrototypeId = anchorPrototypeId;
       try {
-        const anchorProto = allPrototypes.get(anchorPrototypeId);
-        const anchorOwnsChain = anchorProto?.abstractionChains?.[currentAbstractionDimension]?.length > 0;
-        if (!anchorOwnsChain) {
-          // Anchor doesn't own a chain for this dimension — find the chain that
-          // contains it (matching AbstractionCarousel's resolution, first match).
-          for (const [protoId, proto] of allPrototypes.entries()) {
-            const chain = proto?.abstractionChains?.[currentAbstractionDimension];
-            if (chain && Array.isArray(chain) && chain.includes(anchorPrototypeId)) {
-              chainOwnerPrototypeId = protoId;
-              break;
-            }
-          }
-        }
+        chainOwnerPrototypeId = resolveChain(
+          anchorPrototypeId,
+          currentAbstractionDimension,
+          allPrototypes.values()
+        ).ownerId;
       } catch (_) {
         // Fall back to the carousel node as owner
       }

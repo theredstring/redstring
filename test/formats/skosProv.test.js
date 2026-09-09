@@ -14,7 +14,10 @@ const buildState = (protoOverrides = {}) => {
     ['mammal', { id: 'mammal', name: 'Mammal', description: '', definitionGraphIds: [], abstractionChains: {} }],
     ['dog', {
       id: 'dog', name: 'Dog', description: 'A domestic canine', conjugation: 'dogs',
-      definitionGraphIds: [], abstractionChains: { Bio: ['animal', 'mammal', 'dog'] },
+      // Specific → general, with the owner at index 0: the order every runtime path
+      // produces. addToAbstractionChain splices 'below' (more general) at a HIGHER
+      // index, and the carousel draws higher indices as more generic.
+      definitionGraphIds: [], abstractionChains: { Bio: ['dog', 'mammal', 'animal'] },
       ...protoOverrides
     }]
   ]);
@@ -54,7 +57,7 @@ describe('SKOS emission (P2.4)', () => {
 
   it('keeps native abstractionChains and round-trips without _preserved pollution', () => {
     const { storeState } = importFromRedstring(ex, {});
-    expect(storeState.nodePrototypes.get('dog').abstractionChains).toEqual({ Bio: ['animal', 'mammal', 'dog'] });
+    expect(storeState.nodePrototypes.get('dog').abstractionChains).toEqual({ Bio: ['dog', 'mammal', 'animal'] });
     const reExported = exportToRedstring(storeState);
     expect(reExported.prototypeSpace.prototypes.dog._preserved).toBeUndefined();
   });

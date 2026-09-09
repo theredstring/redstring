@@ -966,6 +966,10 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
         color: result.color || NODE_DEFAULT_COLOR,
         description: result.description || '',
         sizeMul: result.sizeMul,
+        // The tool accepts a type and applyBulkGraphUpdates reads one, but this object
+        // never carried it across — so every typed node the wizard created landed
+        // untyped, and (now) without the type rung on its abstraction chain.
+        typeNodeId: result.typeNodeId || null,
         x: Math.random() * 600 + 200,
         y: Math.random() * 500 + 200,
         // PROV stamp for wizard-authored nodes (P2.6); undefined for none
@@ -1015,6 +1019,12 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
       if (result.updates.color !== undefined) prototype.color = result.updates.color;
       if (result.updates.description !== undefined) prototype.description = result.updates.description;
     });
+    // A retype goes through setNodeType rather than the recipe above: the recipe was
+    // silently dropping it, and it is the only path with the cycle and base-type guards
+    // — and the one that keeps the abstraction chain's type rung in step.
+    if (result.updates.typeNodeId !== undefined) {
+      store.setNodeType(realProtoId, result.updates.typeNodeId);
+    }
     console.log('[Wizard] Successfully updated node:', realProtoId);
     return;
   }

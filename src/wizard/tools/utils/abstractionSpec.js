@@ -20,6 +20,99 @@ import { generateProgressiveColor } from '../../../utils/colorUtils.js';
 /** Every inline ladder lands on this axis; only the standalone tool takes a dimension. */
 export const DEFAULT_ABSTRACTION_DIMENSION = 'Generalization Axis';
 
+/** The two roots. Neither is ever given a chain of its own. */
+export const THING_PROTOTYPE_ID = 'base-thing-prototype';
+export const CONNECTION_PROTOTYPE_ID = 'base-connection-prototype';
+
+/**
+ * The chain seeding writes for a node: itself, its type, then Thing as the floor.
+ *
+ * `typeNodeId` and the carousel encode the SAME is-a claim, so assigning a type is
+ * transcribed into the axis rather than left to be re-stated by hand. Half the creation
+ * sites pass `typeNodeId: null` and half pass Thing (see the audit in graphStore), so
+ * both normalize to Thing here — the Panel already displays untyped nodes as Things.
+ *
+ * Returns null for anything that must not carry a chain, so callers can use it as the
+ * "should this be seeded at all?" test.
+ */
+export function seededChainFor(protoId, typeNodeId) {
+  if (!protoId || protoId === THING_PROTOTYPE_ID || protoId === CONNECTION_PROTOTYPE_ID) return null;
+  const type = typeNodeId || THING_PROTOTYPE_ID;
+  // A self-typed node would otherwise produce [X, X, Thing]. mergeNodePrototypes can
+  // create one by re-pointing every typeNodeId naming the secondary onto the primary.
+  if (type === protoId || type === THING_PROTOTYPE_ID) return [protoId, THING_PROTOTYPE_ID];
+  return [protoId, type, THING_PROTOTYPE_ID];
+}
+
+/**
+ * True when `chain` is still exactly what seeding would have produced — i.e. nobody has
+ * edited it by hand, and retype-sync may safely rewrite it.
+ *
+ * This is a structural test rather than a stored provenance flag, which is sound here
+ * only because a seeded chain always terminates in Thing: a hand-built ladder such as
+ * [Ford, Automaker] carries no Thing floor and so reads as authored. The one chain that
+ * cannot be told apart is [X, X.type, Thing] — which is precisely what seeding writes,
+ * so rewriting it on retype is the same edit either way.
+ *
+ * An absent or empty chain counts as seeded: legacy universes predate seeding, and
+ * `resolveChain` synthesizes their chain rather than writing one.
+ */
+export function isSeededChain(proto, chain) {
+  if (!Array.isArray(chain) || chain.length === 0) return true;
+  const expected = seededChainFor(proto?.id, proto?.typeNodeId);
+  if (!expected) return false;
+  return chain.length === expected.length && chain.every((id, i) => id === expected[i]);
+}
+
+/**
+ * Which chain to show and edit for a node. The single answer to a question that used to
+ * be re-derived by hand in six places.
+ *
+ *   (a) a hand-authored chain the node owns
+ *   (b) else a hand-authored chain the node is a rung of
+ *   (c) else the node's own seeded chain, synthesized if it has none yet
+ *
+ * (b) has to outrank the node's own seeded chain, or the feature breaks the carousel:
+ * a rung created by Add Above/Below is born typed Thing, so under an owner-first rule
+ * its trivial [rung, Thing] would shadow the very ladder it was just added to. Skipping
+ * seeded chains also means Thing — a member of every seeded chain and owner of none —
+ * resolves to itself instead of to some arbitrary node's ladder.
+ *
+ * @param {string} protoId
+ * @param {string} dimension
+ * @param {Iterable<Object>} protos - prototype OBJECTS (see findByLooseName)
+ * @returns {{ownerId: string, chain: string[], seeded: boolean, virtual: boolean}}
+ *   `virtual` means nothing is stored yet and `chain` was synthesized.
+ */
+export function resolveChain(protoId, dimension, protos) {
+  const list = Array.isArray(protos) ? protos : [...protos];
+
+  let self = null;
+  let owned = null;      // { chain, seeded } for the node's own chain
+  let memberOf = null;   // { ownerId, chain } — last match wins, per project convention
+
+  for (const p of list) {
+    if (!p) continue;
+    if (p.id === protoId) self = p;
+    const chain = p.abstractionChains?.[dimension];
+    if (!Array.isArray(chain) || chain.length === 0) continue;
+    const seeded = isSeededChain(p, chain);
+    if (p.id === protoId) owned = { chain, seeded };
+    else if (!seeded && chain.includes(protoId)) memberOf = { ownerId: p.id, chain };
+  }
+
+  if (owned && !owned.seeded) return { ownerId: protoId, chain: owned.chain, seeded: false, virtual: false };
+  if (memberOf) return { ownerId: memberOf.ownerId, chain: memberOf.chain, seeded: false, virtual: false };
+  if (owned) return { ownerId: protoId, chain: owned.chain, seeded: true, virtual: false };
+
+  return {
+    ownerId: protoId,
+    chain: seededChainFor(protoId, self?.typeNodeId) || [protoId],
+    seeded: true,
+    virtual: true
+  };
+}
+
 /**
  * Past this many laddered nodes in one build we keep the first few and warn.
  * Told "you may add ladders", models add them to everything — and a ladder on every
@@ -153,14 +246,14 @@ export function parseLadderShorthand(str) {
  * @param {Iterable<Object>} protos - prototype OBJECTS (see findByLooseName)
  */
 export function findChainOwner(anchorId, dimension, protos) {
-  let owner = null;
-  for (const p of protos) {
-    const chain = p?.abstractionChains?.[dimension];
-    if (!Array.isArray(chain) || chain.length === 0) continue;
-    if (p.id === anchorId) return p;            // anchor owns its own chain
-    if (chain.includes(anchorId)) owner = p;    // anchor is a rung on this one
-  }
-  return owner;
+  const list = Array.isArray(protos) ? protos : [...protos];
+  // Delegates so the "an anchor owns its own chain" shortcut can't fire on a merely
+  // seeded chain. Every node carries one of those, so a naive owner-first test would
+  // return the anchor unconditionally and every ladder built onto an existing rung
+  // would found a competing chain instead of extending the visible one.
+  const { ownerId, virtual } = resolveChain(anchorId, dimension, list);
+  if (virtual) return null;   // nothing stored yet — callers fall back to the anchor
+  return list.find((p) => p?.id === ownerId) || null;
 }
 
 /**

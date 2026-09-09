@@ -6,6 +6,7 @@ import PanelCard, { usePanelCardTokens } from './shared/PanelCard.jsx';
 import InfoPopover from './shared/InfoPopover.jsx';
 import { RDF_SCHEMA_INTRO, CLASSIFICATION_INTRO } from './semanticWebCopy.js';
 import useGraphStore from '../store/graphStore.js';
+import { isSeededChain } from '../wizard/tools/utils/abstractionSpec.js';
 
 const FONT = "'EmOne', sans-serif";
 
@@ -130,7 +131,13 @@ const SemanticClassificationSection = ({ nodeData, onUpdate, isUltraSlim }) => {
   const setNodeType = useGraphStore(state => state.setNodeType);
 
   const equivalentClasses = nodeData.equivalentClasses || [];
-  const abstractionChains = nodeData.abstractionChains || {};
+  // Only ladders somebody built. Every node carries a chain seeded from its type now,
+  // and showing those would put this section on every node while saying nothing the
+  // Type field above does not already say.
+  const abstractionChains = useMemo(() => Object.fromEntries(
+    Object.entries(nodeData.abstractionChains || {})
+      .filter(([, chain]) => !isSeededChain(nodeData, chain))
+  ), [nodeData]);
 
   const typePrototype = useMemo(() => {
     if (!nodeData.typeNodeId) return null;

@@ -18,7 +18,7 @@ import { dedupeHistory, dedupKeyFor } from './historyDedup.js';
 import { WIZARD_SYSTEM_PROMPT, SMALL_MODEL_SYSTEM_PROMPT, GOAL_MODE_PROMPT_ADDENDUM } from '../services/agent/WizardPrompt.js';
 import { parseTextToolCalls } from './utils/parseTextToolCalls.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
-import { readIsAList, findByLooseName, DEFAULT_ABSTRACTION_DIMENSION } from './tools/utils/abstractionSpec.js';
+import { readIsAList, findByLooseName, DEFAULT_ABSTRACTION_DIMENSION, THING_PROTOTYPE_ID, seededChainFor } from './tools/utils/abstractionSpec.js';
 
 // Load system prompt
 let SYSTEM_PROMPT = WIZARD_SYSTEM_PROMPT;
@@ -74,7 +74,10 @@ const MAX_HISTORY_TOKENS = 24000;
 function mirrorLadderLevels(graphState, ownerProto, dimension, levels) {
   if (!ownerProto) return;
   ownerProto.abstractionChains = ownerProto.abstractionChains || {};
-  const chain = ownerProto.abstractionChains[dimension] || [ownerProto.id];
+  const chain = ownerProto.abstractionChains[dimension]
+    || (dimension === DEFAULT_ABSTRACTION_DIMENSION
+      && seededChainFor(ownerProto.id, ownerProto.typeNodeId))
+    || [ownerProto.id];
 
   for (const level of (levels || [])) {
     let id = level.existingId;
@@ -89,8 +92,15 @@ function mirrorLadderLevels(graphState, ownerProto, dimension, levels) {
     }
     if (!chain.includes(id)) {
       // 'below' is more generic (later in the chain), 'above' more specific.
-      if (level.direction === 'below') chain.push(id);
-      else chain.unshift(id);
+      if (level.direction === 'below') {
+        // Before the Thing floor, never after it. The applier inserts relative to the
+        // anchor and so lands rungs ahead of Thing; appending blindly would predict
+        // [X, Thing, A, B] against an actual [X, A, B, Thing], and a model that sees
+        // its prediction contradicted fires a redundant call to "fix" it.
+        const floor = chain.lastIndexOf(THING_PROTOTYPE_ID);
+        if (floor === -1) chain.push(id);
+        else chain.splice(floor, 0, id);
+      } else chain.unshift(id);
     }
   }
   ownerProto.abstractionChains[dimension] = chain;

@@ -15,6 +15,7 @@ import useGraphStore from './store/graphStore.js';
 import useImageCache from './services/imageCache.js';
 import { useTheme } from './hooks/useTheme.js';
 import { createDetentTrack } from './services/haptics.js';
+import { resolveChain } from './wizard/tools/utils/abstractionSpec.js';
 import './AbstractionCarousel.css';
 
 
@@ -251,42 +252,26 @@ const AbstractionCarousel = ({
 
     const baseColor = selectedNode.color || NODE_DEFAULT_COLOR;
 
-    // Find the abstraction chain for this node and dimension
-    // The selectedNode might be the chain owner, or it might be a member of someone else's chain
-    let chainNodeIds = [];
-    let chainOwnerNodeId = null;
-
-    // First, check if this node owns a chain
-    const selectedNodePrototype = nodePrototypesMap.get(selectedNode.prototypeId);
-    if (selectedNodePrototype?.abstractionChains?.[currentDimension]?.length > 0) {
-      // This node owns a chain
-      chainNodeIds = selectedNodePrototype.abstractionChains[currentDimension];
-      chainOwnerNodeId = selectedNode.prototypeId;
-    } else {
-      // This node doesn't own a chain, check if it's a member of someone else's chain
-      for (const [nodeId, nodePrototype] of nodePrototypesMap.entries()) {
-        const existingChain = nodePrototype.abstractionChains?.[currentDimension];
-        if (existingChain && existingChain.includes(selectedNode.prototypeId)) {
-          // Found the chain that contains this node
-          chainNodeIds = existingChain;
-          chainOwnerNodeId = nodeId;
-          break;
-        }
-      }
-    }
+    // Which ladder to show. A node may own one, or be a rung of somebody else's — and
+    // since every node now carries a seeded [self, type, Thing], "owns a chain" is no
+    // longer the same question as "has a ladder worth showing". resolveChain prefers a
+    // hand-authored chain over a merely seeded one either way round, so a rung added via
+    // Add Above/Below shows the ladder it belongs to instead of its own trivial one.
+    const resolved = resolveChain(
+      selectedNode.prototypeId,
+      currentDimension,
+      nodePrototypesMap.values()
+    );
+    const chainNodeIds = resolved.chain;
+    const chainOwnerNodeId = resolved.ownerId;
 
     console.log('[AbstractionCarousel] Chain search result:', {
       chainNodeIds,
       chainOwnerNodeId,
+      seeded: resolved.seeded,
+      virtual: resolved.virtual,
       selectedNodeInChain: chainNodeIds.includes(selectedNode.prototypeId)
     });
-
-    // If no chain was found, create a default single-node chain
-    if (chainNodeIds.length === 0) {
-      chainNodeIds = [selectedNode.prototypeId];
-      chainOwnerNodeId = selectedNode.prototypeId;
-      console.log('[AbstractionCarousel] No existing chain found, created default single-node chain');
-    }
 
     console.log('[AbstractionCarousel] Final chain setup:', {
       chainNodeIds,
@@ -296,7 +281,6 @@ const AbstractionCarousel = ({
     });
 
     const chain = [];
-    const thingNode = nodePrototypesMap.get(thingNodeId);
 
     if (chainNodeIds.length === 0) {
       // No chain exists yet - show default layout with only the current node
@@ -322,14 +306,21 @@ const AbstractionCarousel = ({
         return [];
       }
 
-      // Removed injected base "Thing" entry to reduce confusion
+      // Thing is no longer INJECTED into every chain — an earlier version did that and
+      // it was removed as confusing. It is now a real rung, written by seeding, and it
+      // is marked 'generic' rather than 'related' so it can be drawn as the floor of the
+      // ladder rather than as one more peer. Still reachable: 'generic' counts toward the
+      // physics bounds below.
 
       // Add all nodes in the chain, with current node always at level 0
       chainNodeIds.forEach((nodeId, index) => {
         const node = nodePrototypesMap.get(nodeId);
         if (node) {
           const level = index - currentNodeIndex; // Current node will be at level 0
-          const nodeType = nodeId === selectedNode.prototypeId ? 'current' : 'related';
+          const isTerminalThing = nodeId === thingNodeId && index === chainNodeIds.length - 1;
+          const nodeType = nodeId === selectedNode.prototypeId
+            ? 'current'
+            : (isTerminalThing ? 'generic' : 'related');
 
           // Calculate color based on level - nodes more general than current (positive levels) get darker
           let nodeColor;
@@ -411,8 +402,13 @@ const AbstractionCarousel = ({
     }
 
     console.log(`[AbstractionCarousel] Physics min level: ${minLevel}, reachable levels:`, reachableLevels);
-    // For multiple nodes, also add a small buffer to prevent scrolling past node centers
-    return minLevel + 0.05;
+    // Clamp exactly AT the outermost node's center, not inside it. The buffer used to be
+    // added inward (minLevel + 0.05 / maxLevel - 0.05), which puts the outermost rungs
+    // just outside the reachable range and leaves them permanently a hair off-center.
+    // Barely visible on a long ladder, where level 0 still centers — but every node now
+    // has a two-rung seeded chain, where the range was [0.05, 0.95] and contained
+    // NEITHER node's center, so nothing could ever settle.
+    return minLevel;
   }, [abstractionChainWithDims]);
 
   const physicsMaxLevel = useMemo(() => {
@@ -433,8 +429,8 @@ const AbstractionCarousel = ({
     }
 
     console.log(`[AbstractionCarousel] Physics max level: ${maxLevel}, reachable levels:`, reachableLevels);
-    // For multiple nodes, also add a small buffer to prevent scrolling past node centers
-    return maxLevel - 0.05;
+    // See physicsMinLevel: clamp at the center, not inside it.
+    return maxLevel;
   }, [abstractionChainWithDims]);
 
   // Physics state using reducer

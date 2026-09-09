@@ -51,6 +51,12 @@ import {
   isNonRecordableType,
   POSITION_TYPES,
 } from './historyPolicy.js';
+import {
+  DEFAULT_ABSTRACTION_DIMENSION,
+  THING_PROTOTYPE_ID,
+  seededChainFor,
+  isSeededChain,
+} from '../wizard/tools/utils/abstractionSpec.js';
 
 /**
  * Default coast length for the trackpad two-finger pan glide, on the same 0..1
@@ -333,6 +339,30 @@ const calculateStringSimilarity = (str1, str2) => {
   const distance = matrix[len1][len2];
   const maxLength = Math.max(len1, len2);
   return 1 - (distance / maxLength);
+};
+
+/**
+ * Transcribe a prototype's type into its abstraction chain, so the claim the type
+ * already makes is visible on the axis that shows is-a.
+ *
+ * `typeNodeId` and the carousel say the same thing — "Bakery is a Company" — but only
+ * the type field was ever written, leaving the user to re-state it by hand as a rung.
+ * This writes [self, type, Thing] at creation, and `setNodeType` keeps it current.
+ *
+ * Never overwrites: a chain that already exists belongs to whoever wrote it. Callers
+ * pass a draft prototype, so this runs inside their existing produce().
+ */
+const seedTypeRung = (draft, prototypeId) => {
+  const prototype = draft.nodePrototypes.get(prototypeId);
+  if (!prototype) return;
+  // The Orbit catalog materializes through upsertProtectedPrototype in a startup loop;
+  // seeding an entire remote index is noise nobody asked for.
+  if (prototype.isOrbitCatalog) return;
+  const chain = seededChainFor(prototypeId, prototype.typeNodeId);
+  if (!chain) return;   // the two roots
+  if (!prototype.abstractionChains) prototype.abstractionChains = {};
+  if (prototype.abstractionChains[DEFAULT_ABSTRACTION_DIMENSION]) return;
+  prototype.abstractionChains[DEFAULT_ABSTRACTION_DIMENSION] = chain;
 };
 
 const _createAndAssignGraphDefinition = (draft, prototypeId) => {
@@ -2193,6 +2223,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             createdAt: new Date().toISOString()
           };
           draft.nodePrototypes.set(prototypeId, newPrototype);
+          seedTypeRung(draft, prototypeId);
         }
 
         const prototype = draft.nodePrototypes.get(prototypeId);
@@ -3155,6 +3186,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           // Ensure agentConfig defaults to null if not provided
           const agentConfig = prototypeData.agentConfig !== undefined ? prototypeData.agentConfig : null;
           draft.nodePrototypes.set(prototypeId, { ...prototypeData, id: prototypeId, createdAt, agentConfig });
+          seedTypeRung(draft, prototypeId);
 
           // Save the new prototype by default
           draft.savedNodeIds.add(prototypeId);
@@ -3255,6 +3287,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           const prototypeId = prototypeData.id || uuidv4();
           const createdAt = prototypeData.createdAt || new Date().toISOString();
           draft.nodePrototypes.set(prototypeId, { ...prototypeData, id: prototypeId, createdAt });
+          seedTypeRung(draft, prototypeId);
           resultId = prototypeId;
         }
       }));
@@ -3520,10 +3553,39 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
       }
 
-      // Update type node references in other prototypes
+      // Update type node references in other prototypes. The primary is skipped: if it
+      // was typed BY the secondary, re-pointing would type it by itself, which
+      // setNodeType's own guards exist to prevent and which seeding would then
+      // transcribe into a [X, X] chain.
       for (const prototype of draft.nodePrototypes.values()) {
-        if (prototype.typeNodeId === secondaryId) {
-          prototype.typeNodeId = primaryId;
+        if (prototype.typeNodeId !== secondaryId) continue;
+        prototype.typeNodeId = prototype.id === primaryId ? THING_PROTOTYPE_ID : primaryId;
+      }
+
+      // Rescue a hand-built ladder the secondary owned, before the re-point below
+      // rewrites it and the delete at the end takes it away for good.
+      //
+      // The survivor always carries a chain of its own now, so nothing downstream would
+      // notice the loss: it would simply keep its seeded [self, type, Thing] and the
+      // authored ladder would be gone. Only ever overwrites a seeded chain — an authored
+      // chain on the survivor outranks one folded in. Must run BEFORE the re-point loop,
+      // which rewrites index 0 of the secondary's own chain to the primary and would
+      // make a merely-seeded chain read as authored.
+      if (secondary.abstractionChains) {
+        for (const dimension of Object.keys(secondary.abstractionChains)) {
+          const donor = secondary.abstractionChains[dimension];
+          if (!Array.isArray(donor) || isSeededChain(secondary, donor)) continue;
+          if (!isSeededChain(primary, primary.abstractionChains?.[dimension])) continue;
+          if (!primary.abstractionChains) primary.abstractionChains = {};
+          const seen = new Set();
+          const rescued = [];
+          for (const id of donor) {
+            const mapped = id === secondaryId ? primaryId : id;
+            if (seen.has(mapped)) continue;
+            seen.add(mapped);
+            rescued.push(mapped);
+          }
+          primary.abstractionChains[dimension] = rescued;
         }
       }
 
@@ -3731,16 +3793,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * Semantic metadata is shallow-copied with `isMergedNode` cleared.
      *
      * @param {string} prototypeId - ID of the prototype to duplicate.
-     * @returns {string} The new duplicate prototype's ID (via Immer return).
+     * @returns {string|null} The new duplicate prototype's ID, or null if the source
+     *   prototype does not exist.
      */
-    duplicateNodePrototype: (prototypeId) => ctxSet({ type: 'prototype_duplicate', prototypeId }, produce((draft) => {
+    duplicateNodePrototype: (prototypeId) => {
+      // The id is minted out here rather than returned from the producer. Immer refuses
+      // a recipe that both mutates the draft and returns a value, so this threw on every
+      // call — the action could not have worked at all.
+      const newId = uuidv4();
+      let created = false;
+      ctxSet({ type: 'prototype_duplicate', prototypeId }, produce((draft) => {
       const original = draft.nodePrototypes.get(prototypeId);
       if (!original) {
         console.error(`[duplicateNodePrototype] Node prototype ${prototypeId} not found`);
         return;
       }
 
-      const newId = uuidv4();
       const duplicated = {
         ...original,
         id: newId,
@@ -3750,14 +3818,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           ...original.semanticMetadata,
           isMergedNode: false,
           mergedFrom: undefined
-        } : undefined
+        } : undefined,
+        // Chains name their owner at index 0, so a verbatim copy would leave the
+        // duplicate owning a chain it does not appear in — which the carousel reports
+        // as "Current node not found in abstraction chain" and renders as nothing.
+        // The copy starts with a fresh chain of its own instead.
+        abstractionChains: undefined
       };
 
       draft.nodePrototypes.set(newId, duplicated);
+      seedTypeRung(draft, newId);
+      created = true;
       console.log(`[duplicateNodePrototype] Created duplicate: ${duplicated.name}`);
+      }));
 
-      return newId;
-    })),
+      return created ? newId : null;
+    },
 
     /**
      * Merge one thing into another as a single, undoable action.
@@ -4544,7 +4620,23 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           }
         }
 
+        // Keep the abstraction chain saying what the type says, but only while nobody
+        // has touched it. The chain and typeNodeId encode the same is-a claim, so a
+        // retype that left the old rung standing would put the two in contradiction.
+        // isSeededChain reads the chain BEFORE the write, against the OLD type — a
+        // hand-built ladder fails that test and is left exactly as its author left it.
+        const dim = DEFAULT_ABSTRACTION_DIMENSION;
+        const wasSeeded = isSeededChain(node, node.abstractionChains?.[dim]);
+
         node.typeNodeId = typeNodeId;
+
+        if (wasSeeded) {
+          const reseeded = seededChainFor(nodeId, typeNodeId);
+          if (reseeded) {
+            if (!node.abstractionChains) node.abstractionChains = {};
+            node.abstractionChains[dim] = reseeded;
+          }
+        }
         console.log(`setNodeType: Set type of node ${nodeId} to ${typeNodeId || 'null'}.`);
       }));
     },
@@ -4819,6 +4911,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
               // e.g. wizard-authored nodes stamped with PROV (P2.6).
               ...(node.semanticMetadata ? { semanticMetadata: node.semanticMetadata } : {})
             });
+            seedTypeRung(draft, protoId);
 
             // Save the new prototype by default
             draft.savedNodeIds.add(protoId);
@@ -5121,6 +5214,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           createdAt: new Date().toISOString()
         };
         draft.nodePrototypes.set(definingPrototypeId, definingPrototypeData);
+        seedTypeRung(draft, definingPrototypeId);
 
         // Create a new empty graph
         const newGraphData = {
@@ -5182,6 +5276,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         definitionGraphIds: [graphId],
         createdAt: new Date().toISOString()
       });
+      seedTypeRung(draft, definingPrototypeId);
       const newGraphData = {
         id: graphId,
         name,
@@ -5418,6 +5513,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           definitionGraphIds: [],
           createdAt: new Date().toISOString()
         });
+        seedTypeRung(draft, prototypeId);
         result.prototypeId = prototypeId;
 
         // 2. Create definition graph for it (if it's complex with sub-concepts)
@@ -5441,6 +5537,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
                 definitionGraphIds: [],
                 createdAt: new Date().toISOString()
               });
+              seedTypeRung(draft, subProtoId);
 
               // Add instance to definition graph
               const subInstanceId = uuidv4();
@@ -5888,6 +5985,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
         // Add the defining node to the nodes map
         draft.nodePrototypes.set(definingNodeId, definingNodeData);
+        seedTypeRung(draft, definingNodeId);
 
         // Set this node as the defining node for the graph
         if (!graph.definingNodeIds) {
@@ -7133,21 +7231,6 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
       }
 
-      // Add prototypes that are members of any abstraction chain. Chains can
-      // reference prototypes that exist only in the universe (no instance in any
-      // open graph) — e.g. a more-general/more-specific layer added via the
-      // carousel. Without this, those layers are swept as orphans the moment they
-      // are added, so "Add Above/Below" appears to do nothing.
-      for (const prototype of draft.nodePrototypes.values()) {
-        if (prototype.abstractionChains) {
-          for (const chain of Object.values(prototype.abstractionChains)) {
-            if (Array.isArray(chain)) {
-              chain.forEach(memberId => referencedPrototypeIds.add(memberId));
-            }
-          }
-        }
-      }
-
       // Recursively add prototypes from definition graphs
       const addDefinitionPrototypes = (prototypeId) => {
         const prototype = draft.nodePrototypes.get(prototypeId);
@@ -7213,6 +7296,35 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           }
         });
         newlyDiscovered = collectDefiningPrototypes();
+      }
+
+      // Keep prototypes that are rungs of a LIVE prototype's abstraction chain. A chain
+      // can name prototypes that exist only in the universe, with no instance in any
+      // open graph — a more-general/more-specific layer added via the carousel. Without
+      // this, those layers are swept the moment they are added and "Add Above/Below"
+      // appears to do nothing.
+      //
+      // Reachability has to start from prototypes already known to be live and run to a
+      // fixpoint, NOT sweep every chain unconditionally. Every prototype now carries a
+      // seeded chain naming ITSELF at index 0, so an unconditional pass would have each
+      // one vouch for its own liveness and the sweep would never collect anything again.
+      // Runs last, so it starts from the fully-settled reachable set.
+      let chainGrew = true;
+      while (chainGrew) {
+        chainGrew = false;
+        for (const prototype of draft.nodePrototypes.values()) {
+          if (!prototype.abstractionChains) continue;
+          if (!referencedPrototypeIds.has(prototype.id)) continue;
+          for (const chain of Object.values(prototype.abstractionChains)) {
+            if (!Array.isArray(chain)) continue;
+            for (const memberId of chain) {
+              if (referencedPrototypeIds.has(memberId)) continue;
+              referencedPrototypeIds.add(memberId);
+              addDefinitionPrototypes(memberId);
+              chainGrew = true;
+            }
+          }
+        }
       }
 
       // Step 3: Remove orphaned prototypes
@@ -7606,6 +7718,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return;
       }
 
+      // Thing is the floor of every ladder. Adding below it — reachable by scrolling to
+      // the Thing rung and hitting Add Below — would claim something more general than
+      // the most general thing there is, and leave Thing stranded mid-chain.
+      if (direction === 'below' && insertRelativeToNodeId === THING_PROTOTYPE_ID) {
+        console.warn(`[Store] addToAbstractionChain: nothing is more general than "Thing"; refusing.`);
+        return;
+      }
+
       console.log(`[Store] Found chain owner node:`, {
         id: node.id,
         name: node.name,
@@ -7618,9 +7738,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         node.abstractionChains = {};
       }
 
-      // Initialize this dimension if it doesn't exist
+      // Initialize this dimension if it doesn't exist. On the default axis that means
+      // the seeded chain, not a bare [nodeId] — otherwise a legacy prototype that
+      // predates seeding would permanently diverge from one created after it, losing
+      // both its type rung and the Thing floor on its first hand-added level.
       if (!node.abstractionChains[dimension]) {
-        node.abstractionChains[dimension] = [nodeId]; // Start with just this node
+        node.abstractionChains[dimension] =
+          (dimension === DEFAULT_ABSTRACTION_DIMENSION && seededChainFor(nodeId, node.typeNodeId))
+          || [nodeId];
       }
 
       const chain = node.abstractionChains[dimension];
@@ -7644,21 +7769,19 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             console.log(`Added ${newNodeId} ${direction} ${insertRelativeToNodeId} in ${dimension} dimension. Chain:`, chain);
             return;
           } else {
-            console.warn(`Relative node ${insertRelativeToNodeId} not found in chain, inserting both nodes`);
-            // If the relative node isn't in the chain yet, we need to handle this case
-            // Insert both the relative node and the new node in the correct order
-            const chainOwnerIndex = chain.indexOf(nodeId);
-            if (chainOwnerIndex !== -1) {
-              if (direction === 'above') {
-                // Insert relative node at chain owner position, then new node above it
-                chain.splice(chainOwnerIndex, 0, newNodeId, insertRelativeToNodeId);
-              } else {
-                // Insert relative node at chain owner position, then new node below it  
-                chain.splice(chainOwnerIndex, 0, insertRelativeToNodeId, newNodeId);
-              }
-              console.log(`Added relative node ${insertRelativeToNodeId} and new node ${newNodeId} ${direction} it. Chain:`, chain);
-              return;
-            }
+            // The anchor belongs to a DIFFERENT chain than the one being written to,
+            // which means the caller resolved the wrong owner. This used to splice both
+            // the anchor and the new node in here, which quietly dragged a rung out of
+            // the ladder it belonged to and founded a second chain over the same nodes —
+            // after which the carousel showed a different ladder depending on which node
+            // you opened it from. Refusing is the safe answer: resolveChain in
+            // abstractionSpec.js is what callers should be using to pick the owner.
+            console.warn(
+              `[Store] addToAbstractionChain: ${insertRelativeToNodeId} is not in ${nodeId}'s `
+              + `"${dimension}" chain — refusing to insert ${newNodeId}. Resolve the chain `
+              + `owner with resolveChain() before calling.`
+            );
+            return;
           }
         }
 
@@ -7904,6 +8027,25 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // Clear active definition node if it was this one
       if (draft.activeDefinitionNodeId === prototypeId) {
         draft.activeDefinitionNodeId = null;
+      }
+
+      // Drop the dead id out of every chain and untype anything it typed.
+      //
+      // A chain member that no longer exists is skipped when the carousel draws, but
+      // levels are computed from the RAW array index — so a dangling id leaves a hole
+      // the physics can still snap to: an empty slot the ladder scrolls through. Types
+      // are a routine thing to delete, and every node typed by one carries it as a rung,
+      // so without this a single deletion puts that hole in many carousels at once.
+      for (const proto of draft.nodePrototypes.values()) {
+        if (proto.id === prototypeId) continue;
+        if (proto.typeNodeId === prototypeId) proto.typeNodeId = THING_PROTOTYPE_ID;
+        const chains = proto.abstractionChains;
+        if (!chains) continue;
+        for (const dimension of Object.keys(chains)) {
+          const chain = chains[dimension];
+          if (!Array.isArray(chain) || !chain.includes(prototypeId)) continue;
+          chains[dimension] = chain.filter((id) => id !== prototypeId);
+        }
       }
 
       // Delete the prototype

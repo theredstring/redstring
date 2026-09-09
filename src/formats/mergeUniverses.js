@@ -41,6 +41,7 @@
  */
 
 import { duplicatePairKey, splitDuplicatePairKey } from './duplicatePairKey.js';
+import { isSeededChain } from '../wizard/tools/utils/abstractionSpec.js';
 
 // Scalar fields on a prototype that can conflict during merge.
 // imageRef/imageRefExt merge as scalars like the image fields they stand in
@@ -123,9 +124,14 @@ function mergePrototype(base, incoming) {
   if (semantic !== undefined) result.semanticMetadata = semantic;
 
   // abstractionChains is { [dimension]: orderedPrototypeIds[] }. The array is a
-  // chain (generic → specific), so a set-union would silently invent an order
+  // chain (specific → generic), so a set-union would silently invent an order
   // neither side asserted. Take incoming's only for a dimension base doesn't
   // have; where both have one, base wins and incoming's is banked.
+  //
+  // "Doesn't have" means has no ladder, not has no key. Every prototype now carries a
+  // chain seeded from its type, so a key test alone would make base always win — and
+  // pulling a collaborator's authored ladder onto a locally-plain node would bank it
+  // into _preserved instead of adopting it, on essentially every prototype in the file.
   const bChains = base.abstractionChains;
   const iChains = incoming.abstractionChains;
   if (bChains || iChains) {
@@ -133,7 +139,9 @@ function mergePrototype(base, incoming) {
     const bankedChains = { ...(preserved.abstractionChains || {}) };
     let chainConflict = false;
     for (const [dimension, chain] of Object.entries(iChains || {})) {
-      if (!chains[dimension]) {
+      if (isSeededChain(incoming, chain)) {
+        continue;
+      } else if (isSeededChain(base, chains[dimension])) {
         chains[dimension] = chain;
       } else if (JSON.stringify(chains[dimension]) !== JSON.stringify(chain)) {
         const existing = bankedChains[dimension];

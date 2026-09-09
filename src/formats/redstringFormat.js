@@ -1077,29 +1077,45 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
   });
 
   // Project abstraction chains to skos:broader links (P2.4). A chain is ordered
-  // general → specific, so each more-specific concept is skos:broader its
-  // immediate more-general neighbor. SKOS is the correct register here: it
-  // carries NO logical entailment, matching Redstring's contested/interpretive
-  // hierarchies — unlike rdfs:subClassOf (audit #8), which this replaces. The
-  // native redstring:abstractionChains field is kept verbatim on each prototype.
+  // SPECIFIC → GENERAL: index 0 is the most specific concept and each later entry is
+  // one degree more general, so each entry is skos:broader the one AFTER it. (This
+  // read used to be inverted, which exported every broader link backwards; the order
+  // is fixed by addToAbstractionChain, where 'below' — more general — splices at a
+  // higher index, and by the carousel, which draws positive levels as more generic.)
+  // SKOS is the correct register here: it carries NO logical entailment, matching
+  // Redstring's contested/interpretive hierarchies — unlike rdfs:subClassOf (audit #8),
+  // which this replaces. The native redstring:abstractionChains field is kept verbatim
+  // on each prototype.
+  //
+  // `seenBroader` keeps the duplicate check off the growing array. Every prototype now
+  // carries a seeded chain ending at Thing, so without it the scan would be linear in
+  // the number of links already on a node — quadratic overall, and concentrated on the
+  // handful of types that everything points at.
+  const seenBroader = new Map();
   nodePrototypes.forEach((node, nodeId) => {
     if (node.abstractionChains) {
       for (const dimension in node.abstractionChains) {
         const chain = node.abstractionChains[dimension];
         if (chain && chain.length > 1) {
           for (let i = 1; i < chain.length; i++) {
-            const moreSpecificId = chain[i];
-            const moreGeneralId = chain[i - 1];
+            const moreSpecificId = chain[i - 1];
+            const moreGeneralId = chain[i];
             if (prototypeSpace[moreSpecificId]) {
               if (!prototypeSpace[moreSpecificId]['skos:broader']) {
                 prototypeSpace[moreSpecificId]['skos:broader'] = [];
               }
-              const broaderRef = { "@id": toIri(moreGeneralId) };
+              const generalIri = toIri(moreGeneralId);
               const existing = Array.isArray(prototypeSpace[moreSpecificId]['skos:broader'])
                 ? prototypeSpace[moreSpecificId]['skos:broader']
                 : [prototypeSpace[moreSpecificId]['skos:broader']];
-              if (!existing.some(item => item?.["@id"] === toIri(moreGeneralId))) {
-                existing.push(broaderRef);
+              let seen = seenBroader.get(moreSpecificId);
+              if (!seen) {
+                seen = new Set(existing.map(item => item?.["@id"]));
+                seenBroader.set(moreSpecificId, seen);
+              }
+              if (!seen.has(generalIri)) {
+                seen.add(generalIri);
+                existing.push({ "@id": generalIri });
                 prototypeSpace[moreSpecificId]['skos:broader'] = existing;
               }
             }

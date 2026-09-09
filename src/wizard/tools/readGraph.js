@@ -1,4 +1,5 @@
 import { resolveGraphId, describeGraphAmbiguity } from './resolveGraphId.js';
+import { isSeededChain } from './utils/abstractionSpec.js';
 
 /**
  * readGraph - Return the full active graph as a clean LLM-readable snapshot.
@@ -73,9 +74,16 @@ export async function readGraph(args, graphState) {
             type = nodeNameById.get(proto.typeNodeId) || protoMap.get(proto.typeNodeId)?.name || proto.typeNodeId;
         }
 
+        // Only ladders somebody actually built. Every node carries a seeded
+        // [self, type, Thing] chain now, and reporting those would put a line on every
+        // node in every read — restating the `type` field directly above it and burying
+        // the two or three ladders that carry real meaning. Same reasoning as
+        // MAX_LADDERS_PER_BUILD: a ladder on everything is noise.
         let abstractionChainsSummary = undefined;
-        if (proto?.abstractionChains && Object.keys(proto.abstractionChains).length > 0) {
-            abstractionChainsSummary = Object.entries(proto.abstractionChains)
+        const authoredChains = Object.entries(proto?.abstractionChains || {})
+            .filter(([, chain]) => !isSeededChain(proto, chain));
+        if (authoredChains.length > 0) {
+            abstractionChainsSummary = authoredChains
                 .map(([dim, chain]) => `${dim} (${Array.isArray(chain) ? chain.length : 0} nodes)`)
                 .join(', ');
         }
