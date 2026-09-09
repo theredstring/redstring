@@ -258,38 +258,36 @@ export const DEFAULT_CONNECTION_LABEL_COLOR_MODE = 'light';
 export const DEFAULT_CONNECTION_LABEL_OUTER_RING = true;
 
 /**
- * When connection labels fade out for the duration of a zoom gesture.
+ * When connection labels fade out for the duration of a pan or zoom gesture.
  *
  * A rotated <text> rasterises from glyph outlines rather than from the browser's
- * cached alpha masks, and zoom changes the scale every frame, so every glyph is
- * redrawn from its outline every frame with nothing to reuse. Dropping the
- * labels for the gesture is the single largest saving available on a zoom; the
- * cost is that they visibly leave and come back.
+ * cached alpha masks, which makes connection labels the most expensive thing on
+ * a moving canvas. Dropping them for the gesture is the single largest saving
+ * available on one; the cost is that they visibly leave and come back.
  *
  * - 'off': never fade. The labels are always up.
- * - 'always': fade on every hand-driven zoom, however small the web.
+ * - 'always': fade on every hand-driven pan or zoom, however small the web.
  * - 'large': fade only once there are enough labels on screen for it to be
- *   worth anything — see CONNECTION_LABEL_ZOOM_FADE_MIN_COUNT.
+ *   worth anything — see CONNECTION_LABEL_MOVE_FADE_MIN_COUNT.
  *
  * 'large' is the default because on a small web the saving is not measurable
  * and the labels leaving is, so the trade only starts paying at scale. Animated
  * camera moves are exempt in every mode; see LABEL SUPPRESSION in
  * useCanvasTransform.
  */
-export const CONNECTION_LABEL_ZOOM_FADE_MODES = ['off', 'large', 'always'];
-export const DEFAULT_CONNECTION_LABEL_ZOOM_FADE = 'large';
+export const CONNECTION_LABEL_MOVE_FADE_MODES = ['off', 'large', 'always'];
+export const DEFAULT_CONNECTION_LABEL_MOVE_FADE = 'large';
 
 /**
  * How many connection labels must be on screen before 'large' fades them.
  *
  * Shares its reasoning with LABEL_ANGLE_QUANTUM_MIN_COUNT in NodeCanvas, and
  * deliberately not its value: that one guards the cost of DISTINCT rotations,
- * which a pan pays too, while this guards per-frame outline rasterisation,
- * which only a zoom pays and which is far more expensive per label. Set well
- * above the angle gate so a web that merely wants bucketing doesn't also lose
- * its labels on every zoom.
+ * which is bounded by how many labels exist, while this guards per-frame
+ * outline rasterisation, which is far more expensive per label and which a zoom
+ * pays in full on every frame. Set below the angle gate accordingly.
  */
-export const CONNECTION_LABEL_ZOOM_FADE_MIN_COUNT = 40;
+export const CONNECTION_LABEL_MOVE_FADE_MIN_COUNT = 40;
 
 /**
  * Returns the { fill, stroke } pair for a connection label. Both are drawn from

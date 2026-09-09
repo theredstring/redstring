@@ -59,7 +59,7 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   const onTransformChangeRef = useRef(null);
 
   // Consumer-writable predicate: `() => boolean`, true while a PROGRAMMATIC
-  // zoom animation owns the camera. Assigned the same way as
+  // camera animation owns the view. Assigned the same way as
   // `onTransformChangeRef` above, and for the same reason — the signal lives in
   // a hook that is constructed after this one.
   //
@@ -69,7 +69,7 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   // suppression buys on them is nothing; what it costs is labels blinking out
   // and back inside a quarter-second move, which reads as a glitch rather than
   // as an effect. See LABEL SUPPRESSION below.
-  const isProgrammaticZoomRef = useRef(null);
+  const isProgrammaticMoveRef = useRef(null);
 
   // What each content <g> currently carries, keyed by the element itself. Keying
   // on the element rather than on values is load-bearing: the <svg> and its
@@ -82,40 +82,49 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   const writtenRef = useRef(new WeakMap());
 
   // ---------------------------------------------------------------------------
-  // LABEL SUPPRESSION DURING ZOOM
+  // LABEL SUPPRESSION WHILE THE VIEW MOVES
   //
-  // Zoom is categorically more expensive than pan, and connection labels are
-  // where it lands. A rotated <text> cannot use the browser's cached per-glyph
-  // alpha mask — it rasterises from outlines — and a STROKED rotated text is
-  // the worst case of that. Pan survives it because the glyph matrices are
-  // unchanged frame to frame, so whatever was rasterised once is reused. Zoom
-  // changes the SCALE every frame, so every matrix is new and every glyph is
-  // re-rasterised from its outline, every frame, with nothing to reuse. This is
-  // also why manhattan is fast and straight/lombardi are not: manhattan labels
-  // sit at 0°/90°, which is the axis-aligned fast path, and everything else is
+  // Connection labels are the most expensive thing on a moving canvas. A rotated
+  // <text> cannot use the browser's cached per-glyph alpha mask — it rasterises
+  // from outlines — and a STROKED rotated text is the worst case of that. It is
+  // also why manhattan feels instant next to straight and lombardi: manhattan
+  // labels sit at 0°/90°, the axis-aligned fast path, and everything else is
   // rotated.
   //
-  // The connection-colored outer ring doubles that: SVG paints one stroke per
-  // element, so the ring is a SECOND stroked <text> per label, carrying a
-  // stroke 2.1x wider than the halo's. Two full outline rasterisations per
-  // label per frame, and the wider one covers more pixels.
+  // The connection-colored outer ring doubles it: SVG paints one stroke per
+  // element, so the ring is a SECOND stroked <text> per label, carrying a stroke
+  // 2.1x wider than the halo's, and the wider one covers more pixels.
   //
-  // So the labels leave for the duration of a zoom gesture and come back when
-  // it settles — the ring at once, the text after a delay that doubles as the
-  // detector for whether this is a real gesture or a single wheel notch. All
-  // of the timing lives in CSS next to the rule; this only owns the class.
-  // See CONNECTION LABELS DURING A ZOOM GESTURE in NodeCanvas.css, and note
-  // that the out-delay there is tuned against SETTLE_DELAY below, so the two
-  // move together.
+  // ZOOM is the worse of the two gestures, and it is worth knowing why, because
+  // the fix is the same but the payoff is not. A pan translates: the glyph
+  // matrices are unchanged frame to frame, so whatever was rasterised once is
+  // reused, and what is left is the cost of holding every label's raster at
+  // once. A zoom SCALES: every matrix is new every frame and every glyph is
+  // re-rasterised from its outline with nothing to reuse. So suppression buys
+  // more on a zoom — but the measured table in NodeCanvas.jsx is an animated
+  // PAN, and it still shows 17ms at 80 labels, so a pan is not free either.
+  //
+  // Hence: the labels leave for the duration of ANY hand-driven gesture and come
+  // back when it settles — the ring at once, the text after a delay that doubles
+  // as the detector for whether this is a real gesture or a single wheel notch.
+  // All of the timing lives in CSS next to the rule; this only owns the class.
+  // See CONNECTION LABELS WHILE THE VIEW MOVES in NodeCanvas.css, and note that
+  // the out-delay there is tuned against SETTLE_DELAY below, so the two move
+  // together.
+  //
+  // The trigger lives in `scheduleSettle` rather than in `applyTransform`
+  // because that is the one function every mutator calls and the one that
+  // already means "a gesture is in flight" — reading it off the transform
+  // VALUES instead would need a pan baseline as well as a zoom one, and would
+  // still be answering the question scheduleSettle already answers.
   //
   // Two DOM writes per gesture, one class each way, and NO React render — that
   // distinction is the whole reason this lives here rather than in a memo. The
   // previous attempt at an in-motion shortcut made "is the view moving" React
   // state, and the two renders per gesture cost 143ms each on a real universe,
   // which is more than any shortcut could return. See the header note.
-  const gestureBaseZoomRef = useRef(1);
-  const ringsHiddenRef = useRef(false);
-  const ringedElsRef = useRef([null, null]);
+  const labelsHiddenRef = useRef(false);
+  const labelledElsRef = useRef([null, null]);
 
   // The guard tracks WHICH elements were last written, not just the desired
   // state, for the same reason `writtenRef` above keys on the element: these
@@ -123,15 +132,15 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   // no-universe / no-graph branches, and a remounted one carries no class. A
   // state-only guard would early-return against a stale `true` and leave the
   // fresh element permanently unsuppressed.
-  const setRingsHidden = useCallback((hidden) => {
+  const setLabelsHidden = useCallback((hidden) => {
     const content = contentGroupRef.current;
     const overlay = overlayGroupRef?.current || null;
-    const prev = ringedElsRef.current;
-    if (ringsHiddenRef.current === hidden && prev[0] === content && prev[1] === overlay) return;
-    ringsHiddenRef.current = hidden;
-    ringedElsRef.current = [content, overlay];
-    content?.classList?.toggle('canvas-zooming', hidden);
-    overlay?.classList?.toggle('canvas-zooming', hidden);
+    const prev = labelledElsRef.current;
+    if (labelsHiddenRef.current === hidden && prev[0] === content && prev[1] === overlay) return;
+    labelsHiddenRef.current = hidden;
+    labelledElsRef.current = [content, overlay];
+    content?.classList?.toggle('canvas-moving', hidden);
+    overlay?.classList?.toggle('canvas-moving', hidden);
   }, [contentGroupRef, overlayGroupRef]);
 
   // Write transform directly to the content <g> element via SVG's native
@@ -154,17 +163,6 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
       });
       return;
     }
-    // Only a SCALE change invalidates the glyph rasters, so a pan keeps its
-    // labels; and an animated camera move is exempt outright. See LABEL
-    // SUPPRESSION above.
-    if (isProgrammaticZoomRef.current?.() === true) {
-      // Also un-suppresses when an animation takes over from a live gesture —
-      // a momentum tail or a fit-to-content that follows a pinch.
-      setRingsHidden(false);
-    } else if (z !== gestureBaseZoomRef.current) {
-      setRingsHidden(true);
-    }
-
     // SVG transform attribute: spaces between args, no `px` units.
     const value = `translate(${tx} ${ty}) scale(${z})`;
     const written = writtenRef.current;
@@ -179,30 +177,33 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
     };
     write(contentGroupRef.current);
     write(overlayGroupRef?.current);
-  }, [contentGroupRef, overlayGroupRef, canvasSize, setRingsHidden]);
+  }, [contentGroupRef, overlayGroupRef, canvasSize]);
 
   // Schedule a deferred React state update when interaction settles.
   const scheduleSettle = useCallback(() => {
     movingRef.current = true;
+    // Every pan and every zoom lands here, which is exactly the scope wanted.
+    // An animated camera move is exempt, and asking on the way IN also
+    // un-suppresses when an animation takes over from a live gesture — a
+    // momentum tail, or a fit-to-content that follows a pinch.
+    setLabelsHidden(isProgrammaticMoveRef.current?.() !== true);
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = setTimeout(() => {
       movingRef.current = false;
-      gestureBaseZoomRef.current = zoomRef.current;
-      setRingsHidden(false);
+      setLabelsHidden(false);
       setSettledPan({ ...panRef.current });
       setSettledZoom(zoomRef.current);
     }, SETTLE_DELAY);
-  }, [setRingsHidden]);
+  }, [setLabelsHidden]);
 
   // Immediately flush settled state (for graph switches, navigations, etc.)
   const flushSettle = useCallback(() => {
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     movingRef.current = false;
-    gestureBaseZoomRef.current = zoomRef.current;
-    setRingsHidden(false);
+    setLabelsHidden(false);
     setSettledPan({ ...panRef.current });
     setSettledZoom(zoomRef.current);
-  }, [setRingsHidden]);
+  }, [setLabelsHidden]);
 
   const setPan = useCallback((newPan) => {
     // Support functional updater form:  setPan(prev => newVal)
@@ -249,9 +250,6 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   const jumpTo = useCallback((newPan, newZoom) => {
     panRef.current = typeof newPan === 'function' ? newPan(panRef.current) : newPan;
     zoomRef.current = typeof newZoom === 'function' ? newZoom(zoomRef.current) : newZoom;
-    // A jump is discrete, not a gesture — rebase first so applyTransform below
-    // doesn't strip the rings for the one frame before flushSettle restores them.
-    gestureBaseZoomRef.current = zoomRef.current;
     applyTransform();
     flushSettle();
     onTransformChangeRef.current?.();
@@ -284,7 +282,7 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
     onTransformChangeRef,
 
     // Consumer-writable: assign `() => boolean`, true while an animated camera
-    // move owns the zoom. Exempts it from label suppression.
-    isProgrammaticZoomRef,
+    // move owns the view. Exempts it from label suppression.
+    isProgrammaticMoveRef,
   };
 }

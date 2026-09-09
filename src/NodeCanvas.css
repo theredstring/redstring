@@ -100,24 +100,27 @@ body {
   cursor: pointer !important;
 }
 /* ---------------------------------------------------------------------------
-   CONNECTION LABELS DURING A ZOOM GESTURE
+   CONNECTION LABELS WHILE THE VIEW MOVES
 
-   Zoom is categorically more expensive than pan, and labels are where it
-   lands. A rotated <text> rasterises from glyph outlines rather than from the
-   browser's cached alpha masks, and a stroked one is the expensive form of
-   that. Pan survives it because the glyph matrices don't change frame to
-   frame, so what was rasterised once is reused. Zoom changes the SCALE every
-   frame, so every glyph is redrawn from its outline every frame with nothing
-   to reuse. It is also why manhattan is fast and straight/lombardi are not:
-   manhattan labels sit at 0/90 degrees, the axis-aligned fast path, and
-   everything else is rotated.
+   Labels are the most expensive thing on a moving canvas. A rotated <text>
+   rasterises from glyph outlines rather than from the browser's cached alpha
+   masks, and a stroked one is the expensive form of that. It is also why
+   manhattan feels instant next to straight and lombardi: manhattan labels sit
+   at 0/90 degrees, the axis-aligned fast path, and everything else is rotated.
+
+   Zoom is the worse of the two gestures. A pan translates, so the glyph
+   matrices don't change frame to frame and what was rasterised once is reused;
+   a zoom SCALES, so every matrix is new every frame and every glyph is redrawn
+   from its outline with nothing to reuse. But a pan is not free either — the
+   measured table in NodeCanvas.jsx is an animated PAN and still shows 17ms at
+   80 labels — so both gestures shed them.
 
    So labels leave for the duration of the gesture, and come back when it
-   settles. `canvas-zooming` is toggled straight onto the content <g> by
+   settles. `canvas-moving` is toggled straight onto the content <g> by
    useCanvasTransform, twice per gesture and with no React render — see LABEL
    SUPPRESSION there.
 
-   This is for zooms driven BY HAND. Animated camera moves — the drag lift's
+   This is for movement driven BY HAND. Animated camera moves — the drag lift's
    zoom-out and its restore, orbit fit, decompose framing — are exempt, and the
    exemption is not a nicety: they are short moves to an endpoint that was
    known before they started, so they neither accumulate cost nor need
@@ -130,10 +133,11 @@ body {
    1. THE OUT-DELAY IS THE GESTURE DETECTOR. It is deliberately just under
       useCanvasTransform's SETTLE_DELAY of 150ms, and the two must be changed
       together. A single discrete zoom step holds the class for exactly one
-      settle, so the fade gets ~10ms of its 40ms and dips by about a quarter —
+      settle, so the fade gets ~10ms of its 25ms and dips by under half —
       invisible. A sustained gesture crosses the delay, fades out, and then
       costs nothing at all for as long as it runs. No JS, no thresholds: the
-      delay alone separates "nudged the wheel once" from "zooming".
+      delay alone separates a nudge from a gesture, and it does that for a
+      flick of the pan as much as for one notch of the wheel.
 
    2. FILL/STROKE-OPACITY, NOT OPACITY. Element `opacity` on an SVG node can
       open a transparency group, which means an offscreen buffer per element —
@@ -164,23 +168,23 @@ body {
 /* Leaving. Deliberately much faster than coming back — the labels should be
    out of the way as soon as the gesture proves itself, and every millisecond
    here is spent painting the thing we are trying to stop painting. */
-.canvas-zooming .connection-label,
-.canvas-zooming .connection-label-ring {
+.canvas-moving .connection-label,
+.canvas-moving .connection-label-ring {
   fill-opacity: 0;
   stroke-opacity: 0;
   visibility: hidden;
   transition:
-    fill-opacity 40ms linear 140ms,
-    stroke-opacity 40ms linear 140ms,
-    visibility 0s linear 180ms;
+    fill-opacity 25ms linear 140ms,
+    stroke-opacity 25ms linear 140ms,
+    visibility 0s linear 165ms;
 }
 
 /* The ring alone leaves at once — see the note above. */
-.canvas-zooming .connection-label-ring {
+.canvas-moving .connection-label-ring {
   visibility: hidden;
   transition:
-    fill-opacity 40ms linear 140ms,
-    stroke-opacity 40ms linear 140ms,
+    fill-opacity 25ms linear 140ms,
+    stroke-opacity 25ms linear 140ms,
     visibility 0s;
 }
 
@@ -191,8 +195,8 @@ body {
   .connection-label-ring {
     transition: none;
   }
-  .canvas-zooming .connection-label,
-  .canvas-zooming .connection-label-ring {
+  .canvas-moving .connection-label,
+  .canvas-moving .connection-label-ring {
     transition: none;
   }
 }
