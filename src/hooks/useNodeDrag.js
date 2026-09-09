@@ -7,7 +7,7 @@ import useGraphStore from '../store/graphStore.js';
 import { getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
-import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelLineGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelLineGlyphFrames, labelCurveMinBow, connectionCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from '../utils/canvas/edgeLabelPlacement.js';
 import { glyphQuadAt } from '../services/labelSpriteCache.js';
 import {
@@ -1029,6 +1029,9 @@ export const useNodeDrag = ({
               curveInfo: curCurveInfo.get(edgeId),
               laneSpacing: 200 * (multiConnectionCurveRef?.current ?? 1) * LOMBARDI_LANE_FRACTION,
               connectionWidth: dragConnWidth,
+              // Matches the settled render's threshold, or a connection would
+              // change between arc and line at the moment it was picked up.
+              minBow: connectionCurveMinBow(zoomLevelRef?.current ?? 1),
               sourceBounds: boundsOf(sAnchor),
               destBounds: boundsOf(eAnchor),
             }

@@ -128,7 +128,7 @@ import { useTheme } from './hooks/useTheme.js';
 import { useMobileLandscapeShell } from './hooks/useMobileLandscapeShell.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, trimRoutePreviewEnd, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
+import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, trimRoutePreviewEnd, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
 import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
@@ -4772,6 +4772,10 @@ function NodeCanvas() {
   // the backstop for pathological graphs where visible bends alone are legion.
   const curveLabels = visibleEdges.length <= CURVED_LABEL_BUDGET;
   const labelArcMinBow = labelCurveMinBow(zoomLevel);
+  // The same question one level down, for the CONNECTION rather than its label:
+  // below this a lombardi arc is not an arc, it is a line, and every stage after
+  // routing treats it as one.
+  const lombardiMinBow = connectionCurveMinBow(zoomLevel);
   // Curved labels get their OWN rotation bucket rather than the canvas-wide
   // one, which is zero at every edge count where curving happens — see
   // CURVED_GLYPH_ANGLE_QUANTUM. This is what makes curves affordable at all.
@@ -4956,6 +4960,7 @@ function NodeCanvas() {
             curvature: lombardiCurvature, selectedInstanceIds,
             curveInfo: edgeCurveInfo.get(edgeId), laneSpacing: lombardiLaneSpacing,
             connectionWidth,
+            minBow: lombardiMinBow,
           });
       const placement = placeLabelOnRoute(routing);
       x = placement.x;
@@ -17048,6 +17053,10 @@ function NodeCanvas() {
                               edge, sourceNode, destNode, sNodeDims, eNodeDims, lombardiTangents,
                               { curvature: lombardiCurvature, selectedInstanceIds,
                                 curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing,
+                                // A bow the viewer cannot see is drawn as the line it
+                                // looks like, rather than as an arc of vast radius —
+                                // see connectionCurveMinBow.
+                                minBow: lombardiMinBow,
                                 // The arrowhead polygon is drawn at scale(connectionWidth), so
                                 // the routing has to back its ends off by the same factor.
                                 connectionWidth,

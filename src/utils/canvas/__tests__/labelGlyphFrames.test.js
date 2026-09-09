@@ -15,6 +15,8 @@ import {
   labelArcGlyphFrames,
   labelArcPath,
   labelCurveMinBow,
+  connectionCurveMinBow,
+  CONNECTION_CURVE_MIN_SCREEN_PX,
   labelLineGlyphFrames,
   curvedGlyphQuantum,
   solveLombardiArc,
@@ -451,5 +453,77 @@ describe('labelLineGlyphFrames', () => {
     expect(labelLineGlyphFrames({ x: 0, y: 0 }, NaN, advances)).toBeNull();
     expect(labelLineGlyphFrames({ x: NaN, y: 0 }, 0, advances)).toBeNull();
     expect(labelLineGlyphFrames({ x: 0, y: 0 }, 0, [10, NaN])).toBeNull();
+  });
+});
+
+describe('connectionCurveMinBow', () => {
+  afterEach(() => { delete window.__connectionCurveMinPx; });
+
+  it('asks what the viewer can see, not what the numbers allow', () => {
+    // The whole point: a bow of half a unit on a long chord wants a radius near
+    // 100,000 and is pixel-identical to a line, but the old floor still called
+    // it an arc — and then every stage downstream treated it as one.
+    expect(connectionCurveMinBow(1)).toBeGreaterThan(MIN_VISIBLE_BOW);
+    expect(connectionCurveMinBow(1)).toBe(CONNECTION_CURVE_MIN_SCREEN_PX);
+  });
+
+  it('sheds more curves the further out you zoom', () => {
+    expect(connectionCurveMinBow(0.25)).toBeGreaterThan(connectionCurveMinBow(1));
+    expect(connectionCurveMinBow(1)).toBeGreaterThan(connectionCurveMinBow(4));
+  });
+
+  it('never goes under the numerical floor, however far you zoom in', () => {
+    // Past MIN_VISIBLE_BOW the radius runs away and the arc is ill-conditioned
+    // no matter how good the viewer's eyes are.
+    for (const zoom of [1, 4, 16, 1000]) {
+      expect(connectionCurveMinBow(zoom)).toBeGreaterThanOrEqual(MIN_VISIBLE_BOW);
+    }
+  });
+
+  it('stays below the label threshold, so labels straighten first', () => {
+    // A label riding a curve is a stronger claim than the curve itself.
+    for (const zoom of [0.25, 0.5, 1, 2, 4]) {
+      expect(connectionCurveMinBow(zoom)).toBeLessThanOrEqual(labelCurveMinBow(zoom));
+    }
+  });
+
+  it('can be overridden back to the bare floor at runtime', () => {
+    window.__connectionCurveMinPx = 0;
+    expect(connectionCurveMinBow(1)).toBe(MIN_VISIBLE_BOW);
+  });
+});
+
+describe('solveLombardiArc straightness', () => {
+  const p = { x: 0, y: 0 };
+  const q = { x: 600, y: 0 };
+  // Deviation that produces a given sagitta on this chord.
+  const deltaFor = (bow) => 2 * Math.atan((2 * bow) / 600);
+
+  it('returns an actual line when the bow is under the threshold given', () => {
+    const d = deltaFor(0.6);
+    const solved = solveLombardiArc(p, q, d, Math.PI - d, 1, 2);
+    expect(solved.straight).toBe(true);
+    expect(solved.delta).toBe(0);
+  });
+
+  it('still curves when the bow clears it', () => {
+    const d = deltaFor(8);
+    const solved = solveLombardiArc(p, q, d, Math.PI - d, 1, 2);
+    expect(solved.straight).toBe(false);
+    expect(solved.radius).toBeGreaterThan(0);
+  });
+
+  it('keeps the numerical floor when a caller passes nothing', () => {
+    // Callers without a zoom to consult — layout, clearance — must behave
+    // exactly as before.
+    const d = deltaFor(0.2);
+    expect(solveLombardiArc(p, q, d, Math.PI - d, 1).straight).toBe(true);
+    const d2 = deltaFor(4);
+    expect(solveLombardiArc(p, q, d2, Math.PI - d2, 1).straight).toBe(false);
+  });
+
+  it('cannot be argued below the floor by a small threshold', () => {
+    const d = deltaFor(0.2);
+    expect(solveLombardiArc(p, q, d, Math.PI - d, 1, 0).straight).toBe(true);
   });
 });

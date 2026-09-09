@@ -752,6 +752,51 @@ export const LABEL_CURVE_MIN_SCREEN_PX = 2;
  * Floors at MIN_VISIBLE_BOW: past that, solveLombardiArc already emitted a
  * straight line, so there is nothing left to curve either way.
  */
+/**
+ * How far a CONNECTION must bow on screen, in CSS pixels, before it is drawn as
+ * an arc rather than as a line.
+ *
+ * MIN_VISIBLE_BOW alone is a numerical floor, not a visual one, and the gap
+ * between the two is where the "straight lombardi connection that isn't quite a
+ * straight connection" lived. A bow of half a unit on a 600-unit chord wants a
+ * radius near 100,000: pixel-identical to a line at any zoom anyone works at,
+ * but an ARC as far as the rest of the system is concerned. It takes the arc
+ * path through label placement, the arc branch through the drag updater, and
+ * per-glyph curved label rendering — all to express a curve nobody can see, and
+ * all on geometry that is ill-conditioned by construction.
+ *
+ * Reading the threshold off the zoom answers the question actually being asked,
+ * which is whether the VIEWER can see a bend. Zoomed out, where a graph is
+ * fitted and its arcs are compressed, more of them resolve to lines; zoomed in,
+ * the same connections earn their curves back.
+ *
+ * Safe to be zoom-dependent for the same reason LABEL_CURVE_MIN_SCREEN_PX is:
+ * it is read at SETTLED zoom, and it can only change the form of a connection
+ * whose bow is at the threshold — a transition invisible at the zoom that
+ * triggers it, by construction.
+ *
+ * Deliberately below the label threshold. A label riding a curve is a stronger
+ * claim than the curve itself, so it should be the first thing shed and the
+ * last thing restored.
+ *
+ * `window.__connectionCurveMinPx` overrides at runtime; 0 restores the old
+ * numerical floor.
+ */
+export const CONNECTION_CURVE_MIN_SCREEN_PX = 0.75;
+
+/**
+ * The bow, in canvas units, a connection must clear at this zoom to curve.
+ *
+ * Floors at MIN_VISIBLE_BOW, which remains the hard numerical limit — past it
+ * the radius runs away and the arc is ill-conditioned regardless of what the
+ * viewer can see.
+ */
+export function connectionCurveMinBow(zoom) {
+  const override = (typeof window !== 'undefined') ? Number(window.__connectionCurveMinPx) : NaN;
+  const px = (Number.isFinite(override) && override >= 0) ? override : CONNECTION_CURVE_MIN_SCREEN_PX;
+  return Math.max(MIN_VISIBLE_BOW, px / Math.max(zoom, 0.01));
+}
+
 export function labelCurveMinBow(zoom) {
   const override = (typeof window !== 'undefined') ? Number(window.__labelCurveMinPx) : NaN;
   const px = (Number.isFinite(override) && override >= 0) ? override : LABEL_CURVE_MIN_SCREEN_PX;
@@ -966,7 +1011,7 @@ export function computeLombardiTangents(nodes, edges, dimsById) {
  * @returns {{straight:boolean, cx?:number, cy?:number, radius?:number,
  *            a0?:number, sweep?:number, delta:number} | null}
  */
-export function solveLombardiArc(p, q, thetaP, thetaQ, curvature = 1) {
+export function solveLombardiArc(p, q, thetaP, thetaQ, curvature = 1, minBow = MIN_VISIBLE_BOW) {
   const dx = q.x - p.x;
   const dy = q.y - p.y;
   const chordLength = Math.hypot(dx, dy);
@@ -984,7 +1029,12 @@ export function solveLombardiArc(p, q, thetaP, thetaQ, curvature = 1) {
   // Sagitta of a chord L subtending 2δ. See MIN_VISIBLE_BOW for why an
   // invisibly-shallow arc must become an actual line rather than a huge circle.
   const bow = (chordLength / 2) * Math.abs(Math.tan(delta / 2));
-  if (bow < MIN_VISIBLE_BOW) return { straight: true, delta: 0 };
+  // Callers that know the zoom pass a VISUAL threshold; the rest get the
+  // numerical floor. Either way a connection that does not clear it becomes an
+  // actual line and is handled as one everywhere downstream — same geometry,
+  // same label placement, same rendering form as a straight connection, which
+  // is what it is. See connectionCurveMinBow.
+  if (bow < Math.max(MIN_VISIBLE_BOW, minBow || 0)) return { straight: true, delta: 0 };
 
   // Signed radius: chord subtending 2δ. The centre lies one radius off the
   // tangent at p, on the side the arc curves away from.
@@ -1196,7 +1246,7 @@ export function lombardiArcFor(edge, sourceNode, destNode, sDims, dDims, tangent
     thetaQ = assigned?.destAngle ?? (chord + Math.PI);
   }
 
-  const solved = solveLombardiArc(p, q, thetaP, thetaQ, curvature);
+  const solved = solveLombardiArc(p, q, thetaP, thetaQ, curvature, options.minBow);
   return { p, q, chord, arc: solved && !solved.straight ? solved : null };
 }
 
@@ -1530,7 +1580,7 @@ export function computeLombardiRouting(edge, sourceNode, destNode, sDims, dDims,
   const selected = options.selectedInstanceIds;
   const { p, q, chord, arc } = lombardiArcFor(
     edge, sourceNode, destNode, sDims, dDims, tangents, curvature,
-    { curveInfo: options.curveInfo, laneSpacing: options.laneSpacing }
+    { curveInfo: options.curveInfo, laneSpacing: options.laneSpacing, minBow: options.minBow }
   );
 
   const arrowsToward = edge?.directionality?.arrowsToward instanceof Set
