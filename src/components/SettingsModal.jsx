@@ -8,7 +8,7 @@ import AISection from './settings/AISection.jsx';
 import DebugSection from './settings/DebugSection.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
-import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX } from '../utils/colorUtils.js';
+import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_ZOOM_FADE } from '../utils/colorUtils.js';
 import './ModalChrome.css';
 
 /**
@@ -113,6 +113,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
   const connectionLabelSize = useGraphStore(s => s.connectionLabelSize ?? 1.0);
   const connectionLabelColorMode = useGraphStore(s => s.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
+  const connectionLabelZoomFade = useGraphStore(s => s.connectionLabelZoomFade ?? DEFAULT_CONNECTION_LABEL_ZOOM_FADE);
   const connectionLabelOuterRing = useGraphStore(s => s.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
   const connectionLabelRingWidth = useGraphStore(s => s.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
   const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
@@ -525,6 +526,21 @@ const SettingsModal = ({ isVisible, onClose }) => {
               suffix="x"
               disabled={!connectionLabelOuterRing}
               onChange={(v) => useGraphStore.getState().setConnectionLabelRingWidth?.(v)}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Fade Labels While Zooming
+              <div className="settings-row-description">Hides connection labels during a zoom, where they cost the most to draw</div>
+            </div>
+            <OptionGroup
+              options={[
+                { label: 'Off', value: 'off' },
+                { label: 'Large Webs', value: 'large' },
+                { label: 'Always', value: 'always' }
+              ]}
+              value={connectionLabelZoomFade}
+              onChange={(v) => useGraphStore.getState().setConnectionLabelZoomFade?.(v)}
             />
           </div>
           <div className="settings-slider-row">

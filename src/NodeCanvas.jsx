@@ -21,7 +21,7 @@ import DownloadAppPill from './DownloadAppPill.jsx';
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances } from './services/textMeasurement.js';
-import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_ZOOM_FADE, CONNECTION_LABEL_ZOOM_FADE_MIN_COUNT, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from './utils/clipboard.js';
@@ -1232,6 +1232,7 @@ function NodeCanvas() {
   const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
   const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
   const connectionLabelRingWidth = useGraphStore(state => state.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
+  const connectionLabelZoomFade = useGraphStore(state => state.connectionLabelZoomFade ?? DEFAULT_CONNECTION_LABEL_ZOOM_FADE);
   const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
   const showNodeControlPanel = useGraphStore(state => state.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore(state => state.showMultipleNodesControlPanel ?? true);
@@ -4214,17 +4215,44 @@ function NodeCanvas() {
     return () => { onTransformChangeRef.current = null; };
   }, [onTransformChangeRef, runCulling, sampleViewMotion]);
 
-  // Tell the transform layer when the camera is being animated rather than
-  // driven by hand, so it can leave the connection labels up. `isAnimatingZoomRef`
+  // Tell the transform layer when NOT to drop the connection labels for a zoom.
+  //
+  // Two independent reasons to leave them up, both funnelled through the one
+  // predicate the transform layer reads.
+  //
+  // The camera is being ANIMATED rather than driven by hand. `isAnimatingZoomRef`
   // is already exactly this signal: the drag lift's zoom-out, its restore on
   // release, and animateCanvasView (orbit fit, decompose framing) all raise it,
   // and every one of those is a short move to a target that was known before it
-  // started. See LABEL SUPPRESSION in useCanvasTransform.
+  // started — nothing accumulates, so there is nothing to protect against.
+  //
+  // Or the user has said not to, via `connectionLabelZoomFade`. 'large' reads
+  // the same visible-edge count every other label budget reads, so it tracks
+  // what is ON SCREEN rather than how big the universe is.
+  //
+  // Read through refs rather than closed over: this predicate runs on the
+  // per-frame transform path, and re-assigning it on every settings change or
+  // culling commit would re-run the effect far more often than the signal
+  // actually changes. The count comes from `visibleEdgesRef`, which runCulling
+  // writes synchronously, rather than from the settled React state — a gesture
+  // that pulls a crowd of edges into view should be gated on what is on screen
+  // NOW. See LABEL SUPPRESSION in useCanvasTransform.
+  const zoomFadeModeRef = useRef(connectionLabelZoomFade);
+  zoomFadeModeRef.current = connectionLabelZoomFade;
+
   const isProgrammaticZoomRef = transform.isProgrammaticZoomRef;
   useEffect(() => {
-    isProgrammaticZoomRef.current = () => isAnimatingZoomRef.current === true;
+    isProgrammaticZoomRef.current = () => {
+      if (isAnimatingZoomRef.current === true) return true;
+      const mode = zoomFadeModeRef.current;
+      if (mode === 'off') return true;
+      if (mode === 'large') {
+        return (visibleEdgesRef.current?.length ?? 0) < CONNECTION_LABEL_ZOOM_FADE_MIN_COUNT;
+      }
+      return false;
+    };
     return () => { isProgrammaticZoomRef.current = null; };
-  }, [isProgrammaticZoomRef, isAnimatingZoomRef]);
+  }, [isProgrammaticZoomRef, isAnimatingZoomRef, visibleEdgesRef]);
 
   // Unmount cleanup for any in-flight culling RAF.
   useEffect(() => {

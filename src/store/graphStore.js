@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches } from 'immer';
-import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX } from '../utils/colorUtils.js';
+import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_ZOOM_FADE_MODES, DEFAULT_CONNECTION_LABEL_ZOOM_FADE } from '../utils/colorUtils.js';
 
 // Global listener for patches, used by middleware to capture changes from actions
 let patchListener = null;
@@ -162,6 +162,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {string} connectionLabelColorMode - `'light'|'connection'|'theme'` — what decides a connection label's fill/halo pair: always the light half, the connection's own color, or the app theme.
  * @property {boolean} connectionLabelOuterRing - Whether a connection label wears an outermost ring in the connection's own color.
  * @property {number} connectionLabelRingWidth - How much wider that ring is than the label's halo, as a multiplier.
+ * @property {string} connectionLabelZoomFade - `'off'|'large'|'always'` — when connection labels fade out for the duration of a hand-driven zoom, which is the largest saving available on one. `'large'` gates it on how many are on screen.
  * @property {boolean} showEdgeGlowIndicators - Whether edges show directional glow effects.
  * @property {boolean} showHoverPreview - Whether hovering a node shows a preview card.
  * @property {boolean} hoverPreviewZoomOnly - When true, the hover preview only appears while zoomed out (small on-canvas text); when false it appears at any zoom.
@@ -1464,6 +1465,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return Number.isFinite(saved) ? saved : DEFAULT_CONNECTION_LABEL_RING_WIDTH;
       } catch (_) {
         return DEFAULT_CONNECTION_LABEL_RING_WIDTH;
+      }
+    })(),
+    connectionLabelZoomFade: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_connection_label_zoom_fade');
+        return CONNECTION_LABEL_ZOOM_FADE_MODES.includes(saved) ? saved : DEFAULT_CONNECTION_LABEL_ZOOM_FADE;
+      } catch (_) {
+        return DEFAULT_CONNECTION_LABEL_ZOOM_FADE;
       }
     })(),
     showEdgeGlowIndicators: (() => {
@@ -5951,6 +5960,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.connectionLabelRingWidth = next;
       try {
         localStorage.setItem('redstring_connection_label_ring_width', next);
+      } catch (_) { }
+    })),
+
+    /**
+     * Sets when connection labels fade out during a hand-driven zoom.
+     * One of CONNECTION_LABEL_ZOOM_FADE_MODES; anything else is ignored rather
+     * than written, so a stale value can't disable the setting. Persists to
+     * localStorage.
+     * @param {'off'|'large'|'always'} mode
+     */
+    setConnectionLabelZoomFade: (mode) => set(produce((draft) => {
+      if (!CONNECTION_LABEL_ZOOM_FADE_MODES.includes(mode)) return;
+      draft.connectionLabelZoomFade = mode;
+      try {
+        localStorage.setItem('redstring_connection_label_zoom_fade', mode);
       } catch (_) { }
     })),
 
