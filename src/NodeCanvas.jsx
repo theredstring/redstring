@@ -291,6 +291,13 @@ const LABEL_ANGLE_QUANTUM_MIN_COUNT = 80;
 // and 90°, the quantum divides 90, and snapping is a no-op on both.
 const LABEL_ANGLE_QUANTUM_ALWAYS_STYLES = new Set(['lombardi']);
 
+// How long to keep connection labels down after a node drag ends, covering the
+// drag-zoom restore animation. useNodeDrag's DRAG_ZOOM_ANIMATION_DURATION is
+// 250ms; the margin absorbs the frame the animation finishes on. Releasing at
+// the drop instead would fade the labels back in over a running zoom, which is
+// the one moment with no budget for it.
+const DRAG_ZOOM_RESTORE_HOLD_MS = 300;
+
 // ---------------------------------------------------------------------------
 // ZOOM SCALE QUANTUM — tried, measured, removed. Don't re-add it without
 // re-measuring on the real canvas.
@@ -4266,19 +4273,68 @@ function NodeCanvas() {
   const moveFadeModeRef = useRef(connectionLabelMoveFade);
   moveFadeModeRef.current = connectionLabelMoveFade;
 
+  // Does the setting want the labels faded at all right now? Shared by both
+  // paths — the view-gesture predicate below and the node-drag hold after it —
+  // so a drag can never fade labels the settings say to leave alone.
+  const shouldFadeLabelsRef = useRef(null);
+  shouldFadeLabelsRef.current = () => {
+    const mode = moveFadeModeRef.current;
+    if (mode === 'off') return false;
+    if (mode === 'large') {
+      return (visibleEdgesRef.current?.length ?? 0) >= CONNECTION_LABEL_MOVE_FADE_MIN_COUNT;
+    }
+    return true;
+  };
+
   const isProgrammaticMoveRef = transform.isProgrammaticMoveRef;
   useEffect(() => {
     isProgrammaticMoveRef.current = () => {
-      if (isAnimatingZoomRef.current === true) return true;
-      const mode = moveFadeModeRef.current;
-      if (mode === 'off') return true;
-      if (mode === 'large') {
-        return (visibleEdgesRef.current?.length ?? 0) < CONNECTION_LABEL_MOVE_FADE_MIN_COUNT;
-      }
-      return false;
+      if (!shouldFadeLabelsRef.current()) return true;
+      return isAnimatingZoomRef.current === true;
     };
     return () => { isProgrammaticMoveRef.current = null; };
-  }, [isProgrammaticMoveRef, isAnimatingZoomRef, visibleEdgesRef]);
+  }, [isProgrammaticMoveRef, isAnimatingZoomRef]);
+
+  // Hold the labels down for the WHOLE of a node drag, lift through restore.
+  //
+  // The camera-animation exemption above is right for an orbit fit or a
+  // decompose framing — short moves that neither accumulate cost nor benefit
+  // from shedding anything. It is wrong for the drag lift, and the reason is
+  // that the lift is not the move: it is the opening of a much longer span in
+  // which the user drags a node around a web whose edges all re-route under it.
+  // Exempting the lift left the labels painting through that entire span, which
+  // is exactly where a big web hurts.
+  //
+  // Held as one continuous span rather than re-derived at each end, so the
+  // labels fade once on lift and return once after the drop, instead of
+  // blinking at both ends of the drag.
+  //
+  // The release waits out the restore. `draggingNodeInfo` clears at the drop,
+  // but the camera then animates back over DRAG_ZOOM_ANIMATION_DURATION — and
+  // fading labels back IN over a running zoom animation is the last place there
+  // is budget for it.
+  //
+  // Keyed on the SETTING rather than on `isAnimatingZoomRef`, which looks like
+  // the more precise signal and is actually a race: the restore is kicked off
+  // by the drop handler, so this effect can run in the window before the
+  // animation has raised that flag, read false, and release into exactly the
+  // frames it was meant to protect. Whether drag-zoom is on is knowable without
+  // that timing. A timer rather than a poll — if the animation is interrupted
+  // the labels return a little later, which is harmless.
+  const setDragLabelsHidden = transform.setDragLabelsHidden;
+  const dragZoomEnabled = dragZoomSettings.enabled;
+  useEffect(() => {
+    if (draggingNodeInfo) {
+      setDragLabelsHidden(shouldFadeLabelsRef.current());
+      return undefined;
+    }
+    if (!dragZoomEnabled) {
+      setDragLabelsHidden(false);
+      return undefined;
+    }
+    const id = setTimeout(() => setDragLabelsHidden(false), DRAG_ZOOM_RESTORE_HOLD_MS);
+    return () => clearTimeout(id);
+  }, [draggingNodeInfo, setDragLabelsHidden, dragZoomEnabled]);
 
   // Unmount cleanup for any in-flight culling RAF.
   useEffect(() => {

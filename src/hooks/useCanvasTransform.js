@@ -123,6 +123,16 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   // previous attempt at an in-motion shortcut made "is the view moving" React
   // state, and the two renders per gesture cost 143ms each on a real universe,
   // which is more than any shortcut could return. See the header note.
+  // TWO REASONS, OR'd. A view gesture is one; a node drag is the other, and it
+  // has to be separate because the two don't overlap in time the way they look
+  // like they should. Dragging a node with drag-zoom on moves the camera at the
+  // LIFT and again at the RESTORE, and not at all in between — so the gesture
+  // path alone would fade the labels out for the lift, bring them back the
+  // moment that animation settled, and leave them painting through the whole
+  // drag, which is the expensive part and the reason for any of this. Holding
+  // one reason for the lift-through-drop span fixes that, and also means the
+  // labels fade exactly once per drag instead of blinking at each end.
+  const hideReasonsRef = useRef({ gesture: false, drag: false });
   const labelsHiddenRef = useRef(false);
   const labelledElsRef = useRef([null, null]);
 
@@ -132,7 +142,9 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   // no-universe / no-graph branches, and a remounted one carries no class. A
   // state-only guard would early-return against a stale `true` and leave the
   // fresh element permanently unsuppressed.
-  const setLabelsHidden = useCallback((hidden) => {
+  const applyLabelsHidden = useCallback(() => {
+    const { gesture, drag } = hideReasonsRef.current;
+    const hidden = gesture || drag;
     const content = contentGroupRef.current;
     const overlay = overlayGroupRef?.current || null;
     const prev = labelledElsRef.current;
@@ -142,6 +154,25 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
     content?.classList?.toggle('canvas-moving', hidden);
     overlay?.classList?.toggle('canvas-moving', hidden);
   }, [contentGroupRef, overlayGroupRef]);
+
+  const setLabelsHidden = useCallback((hidden) => {
+    hideReasonsRef.current.gesture = hidden;
+    applyLabelsHidden();
+  }, [applyLabelsHidden]);
+
+  /**
+   * Hold the labels down for a node drag, independently of any view gesture.
+   *
+   * The caller owns the span, which runs from the lift until the camera has
+   * finished putting itself back — releasing at the drop instead would fade
+   * them in over the restore animation, which is the last place there is budget
+   * for it. Gated by the same setting and count the gesture path uses; see
+   * NodeCanvas.
+   */
+  const setDragLabelsHidden = useCallback((hidden) => {
+    hideReasonsRef.current.drag = hidden;
+    applyLabelsHidden();
+  }, [applyLabelsHidden]);
 
   // Write transform directly to the content <g> element via SVG's native
   // transform attribute (not the outer <svg>'s CSS style.transform). This
@@ -284,5 +315,8 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
     // Consumer-writable: assign `() => boolean`, true while an animated camera
     // move owns the view. Exempts it from label suppression.
     isProgrammaticMoveRef,
+
+    // Hold the labels down for a node drag — see setDragLabelsHidden.
+    setDragLabelsHidden,
   };
 }
