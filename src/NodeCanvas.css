@@ -128,16 +128,30 @@ body {
    move reads as a glitch rather than as an effect. useCanvasTransform decides
    this; nothing here can see the difference.
 
+   It leaves INSTANTLY and returns as a fade. The asymmetry is the point:
+   leaving is pure cost — every millisecond of a fade-out is spent painting the
+   exact thing being faded, at the worst possible moment — while returning is
+   free, because the gesture is over, the scale is fixed again, and the glyph
+   rasters are cacheable. A gentle return is also the half a viewer actually
+   reads as intentional; a gentle exit just looks like lag.
+
    Three details carry this:
 
-   1. THE OUT-DELAY IS THE GESTURE DETECTOR. It is deliberately just under
+   1. THE OUT-DELAY IS THE GESTURE DETECTOR, and with an instant hide it is a
+      clean THRESHOLD rather than a soft one. It sits just ABOVE
       useCanvasTransform's SETTLE_DELAY of 150ms, and the two must be changed
-      together. A single discrete zoom step holds the class for exactly one
-      settle, so the fade gets ~10ms of its 25ms and dips by under half —
-      invisible. A sustained gesture crosses the delay, fades out, and then
-      costs nothing at all for as long as it runs. No JS, no thresholds: the
-      delay alone separates a nudge from a gesture, and it does that for a
-      flick of the pan as much as for one notch of the wheel.
+      together — that ordering is the whole trick. A single discrete step (one
+      wheel notch, one arrow-key tap) holds the class for exactly one settle,
+      which expires BEFORE the delay does, so the labels never move at all.
+      Anything still going after the threshold is a real gesture, and loses its
+      labels outright. No JS, no counters: below the line nothing happens,
+      above it everything does.
+
+      This is why the delay went UP when the fade-out went away. While there
+      was a fade, a nudge caught the first few milliseconds of it and dipped
+      part way — tolerable, but visible, and it got worse every time the
+      fade-out got shorter. At zero duration a nudge would blink outright, so
+      the threshold has to exclude it instead of merely clipping it.
 
    2. FILL/STROKE-OPACITY, NOT OPACITY. Element `opacity` on an SVG node can
       open a transparency group, which means an offscreen buffer per element —
@@ -146,14 +160,13 @@ body {
 
    3. VISIBILITY IS WHAT ACTUALLY SAVES THE WORK. Fully transparent is not the
       same as unpainted; `visibility: hidden` skips the element entirely. It
-      flips at the end of the fade (delay + duration) so it never truncates
-      it, and returns instantly on the way back in.
+      flips on the same threshold as the alphas, and returns instantly on the
+      way back in so the fade has something to run on.
 
-   The ring goes immediately rather than waiting out the delay — it is the
-   decorative layer, it is a SECOND stroked <text> per label at 2.1x the halo's
-   width, and it is the single most expensive thing on screen per pixel it
-   contributes. It fades back IN with everything else, so it never returns
-   ahead of the text it belongs to.
+   The ring no longer leaves ahead of the text. It used to, to grab an early
+   win while the text was still fading; with the text leaving instantly there
+   is no window left for it to be early in, and one rule for the whole label is
+   simpler than two.
    --------------------------------------------------------------------------- */
 /* Coming back. Slow enough to read as a fade, which costs nothing: the gesture
    is over, the scale is fixed again, and the glyph rasters are cacheable. */
@@ -165,27 +178,17 @@ body {
     visibility 0s;
 }
 
-/* Leaving. Deliberately much faster than coming back — the labels should be
-   out of the way as soon as the gesture proves itself, and every millisecond
-   here is spent painting the thing we are trying to stop painting. */
+/* Leaving. No duration at all — only the threshold delay, which must stay
+   above SETTLE_DELAY so a nudge expires before reaching it. See note 1. */
 .canvas-moving .connection-label,
 .canvas-moving .connection-label-ring {
   fill-opacity: 0;
   stroke-opacity: 0;
   visibility: hidden;
   transition:
-    fill-opacity 25ms linear 140ms,
-    stroke-opacity 25ms linear 140ms,
-    visibility 0s linear 165ms;
-}
-
-/* The ring alone leaves at once — see the note above. */
-.canvas-moving .connection-label-ring {
-  visibility: hidden;
-  transition:
-    fill-opacity 25ms linear 140ms,
-    stroke-opacity 25ms linear 140ms,
-    visibility 0s;
+    fill-opacity 0s linear 160ms,
+    stroke-opacity 0s linear 160ms,
+    visibility 0s linear 160ms;
 }
 
 /* Motion is a preference. Without it the labels simply cut away for the
