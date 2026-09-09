@@ -58,6 +58,19 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   // settled-state debounce. Consumers assign via `transform.onTransformChangeRef.current = fn`.
   const onTransformChangeRef = useRef(null);
 
+  // Consumer-writable predicate: `() => boolean`, true while a PROGRAMMATIC
+  // zoom animation owns the camera. Assigned the same way as
+  // `onTransformChangeRef` above, and for the same reason — the signal lives in
+  // a hook that is constructed after this one.
+  //
+  // Animated camera moves are exempt from label suppression. They are short,
+  // bounded, and already know their own endpoint, so they don't accumulate the
+  // way a live gesture does, and there is nothing to protect them from. What
+  // suppression buys on them is nothing; what it costs is labels blinking out
+  // and back inside a quarter-second move, which reads as a glitch rather than
+  // as an effect. See LABEL SUPPRESSION below.
+  const isProgrammaticZoomRef = useRef(null);
+
   // What each content <g> currently carries, keyed by the element itself. Keying
   // on the element rather than on values is load-bearing: the <svg> and its
   // content <g> unmount and remount whenever NodeCanvas swings through its
@@ -141,9 +154,16 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
       });
       return;
     }
-    // Only a SCALE change invalidates the glyph rasters; a pan reuses them, so
-    // a pan keeps its rings. See LABEL RING SUPPRESSION above.
-    if (z !== gestureBaseZoomRef.current) setRingsHidden(true);
+    // Only a SCALE change invalidates the glyph rasters, so a pan keeps its
+    // labels; and an animated camera move is exempt outright. See LABEL
+    // SUPPRESSION above.
+    if (isProgrammaticZoomRef.current?.() === true) {
+      // Also un-suppresses when an animation takes over from a live gesture —
+      // a momentum tail or a fit-to-content that follows a pinch.
+      setRingsHidden(false);
+    } else if (z !== gestureBaseZoomRef.current) {
+      setRingsHidden(true);
+    }
 
     // SVG transform attribute: spaces between args, no `px` units.
     const value = `translate(${tx} ${ty}) scale(${z})`;
@@ -262,5 +282,9 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
     // Consumer-writable: assign a function to receive synchronous notification
     // on every pan/zoom mutation (used by culling to read live ref values).
     onTransformChangeRef,
+
+    // Consumer-writable: assign `() => boolean`, true while an animated camera
+    // move owns the zoom. Exempts it from label suppression.
+    isProgrammaticZoomRef,
   };
 }

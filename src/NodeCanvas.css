@@ -115,7 +115,15 @@ body {
    So labels leave for the duration of the gesture, and come back when it
    settles. `canvas-zooming` is toggled straight onto the content <g> by
    useCanvasTransform, twice per gesture and with no React render — see LABEL
-   RING SUPPRESSION there.
+   SUPPRESSION there.
+
+   This is for zooms driven BY HAND. Animated camera moves — the drag lift's
+   zoom-out and its restore, orbit fit, decompose framing — are exempt, and the
+   exemption is not a nicety: they are short moves to an endpoint that was
+   known before they started, so they neither accumulate cost nor need
+   protecting, and blinking the labels out and back inside a quarter-second
+   move reads as a glitch rather than as an effect. useCanvasTransform decides
+   this; nothing here can see the difference.
 
    Three details carry this:
 

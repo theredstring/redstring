@@ -4214,6 +4214,18 @@ function NodeCanvas() {
     return () => { onTransformChangeRef.current = null; };
   }, [onTransformChangeRef, runCulling, sampleViewMotion]);
 
+  // Tell the transform layer when the camera is being animated rather than
+  // driven by hand, so it can leave the connection labels up. `isAnimatingZoomRef`
+  // is already exactly this signal: the drag lift's zoom-out, its restore on
+  // release, and animateCanvasView (orbit fit, decompose framing) all raise it,
+  // and every one of those is a short move to a target that was known before it
+  // started. See LABEL SUPPRESSION in useCanvasTransform.
+  const isProgrammaticZoomRef = transform.isProgrammaticZoomRef;
+  useEffect(() => {
+    isProgrammaticZoomRef.current = () => isAnimatingZoomRef.current === true;
+    return () => { isProgrammaticZoomRef.current = null; };
+  }, [isProgrammaticZoomRef, isAnimatingZoomRef]);
+
   // Unmount cleanup for any in-flight culling RAF.
   useEffect(() => {
     return () => {
