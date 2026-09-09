@@ -21,6 +21,7 @@ import DownloadAppPill from './DownloadAppPill.jsx';
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from './services/textMeasurement.js';
+import { getLabelSprite, spriteScaleForZoom, clearLabelSprites } from './services/labelSpriteCache.js';
 import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
@@ -4801,6 +4802,20 @@ function NodeCanvas() {
   // WHILE THE VIEW MOVES in NodeCanvas.css.
   const labelRingEnabled = typeof window === 'undefined' || window.__labelRing !== false;
 
+  // Draw straight labels as pre-rasterised bitmaps instead of two stroked
+  // rotated <text> elements. `window.__labelSprites = false` returns them to
+  // <text> for an A/B on a real graph; see labelSpriteCache.js for why this is
+  // the fix rather than a tuning of the strokes.
+  const labelSpritesEnabled = typeof window === 'undefined' || window.__labelSprites !== false;
+
+  // Which resolution to bake at. Read from SETTLED zoom, so a gesture never
+  // re-rasterises anything, and bucketed to powers of two so an ordinary zoom
+  // reuses the sprites it already has — a bucket change means re-encoding every
+  // label on screen, which has to be rare rather than merely cheap. Labels are
+  // hidden while the view moves and fade back in on settle, so the rare change
+  // lands while they are off screen and the fade covers it.
+  const labelSpriteScale = spriteScaleForZoom(zoomLevel);
+
   // Reset the label caches when the routing configuration changes.
   //
   // Correctness no longer depends on this: each cached placement now carries a
@@ -4842,6 +4857,12 @@ function NodeCanvas() {
       // too, or the labels re-render at correct sizes into stale positions.
       placedLabelsRef.current.clear();
       clearLabelStabilization();
+      // Sprites baked before the font arrived hold the wrong face permanently —
+      // a bitmap cannot fix itself the way a <text> does, and the font is the
+      // one input the sprite key cannot see. getLabelSprite declines to bake
+      // until EmOne is loadable, so in practice this clears the handful that a
+      // race let through rather than a full set.
+      clearLabelSprites();
       bumpLabelFontVersion((v) => v + 1);
     });
     return () => { cancelled = true; };
@@ -18146,6 +18167,35 @@ function NodeCanvas() {
                                 const labelColors = getConnectionLabelColors(edgeColor, darkMode, connectionLabelColorMode, connectionLabelOuterRing);
                                 const labelHaloWidth = 8 * (connectionFontSize / 54);
 
+                                // A straight label is drawn as a pre-rasterised sprite when one
+                                // is available: ring, halo and fill baked into a bitmap, drawn
+                                // as a single <image>. That replaces TWO stroked rotated <text>
+                                // elements — the form the browser cannot cache glyph masks for —
+                                // with a textured quad, whose rotation is a transform rather
+                                // than glyph work. See labelSpriteCache.js.
+                                //
+                                // Curved labels keep the per-glyph <text> path. They ride an arc
+                                // rather than a baseline, so a single flat bitmap cannot express
+                                // them; that is a glyph-atlas problem rather than a label-sprite
+                                // one and is deliberately left alone here.
+                                //
+                                // Falls back to <text> whenever a sprite is not available, which
+                                // includes the whole period before EmOne has loaded — baking a
+                                // fallback face into a bitmap would freeze the wrong glyphs,
+                                // where <text> fixes itself on the next render.
+                                const labelSprite = (!labelGlyphs && labelSpritesEnabled)
+                                  ? getLabelSprite({
+                                    text: displayName,
+                                    fontSize: connectionFontSize,
+                                    fill: labelColors.fill,
+                                    halo: labelHaloEnabled ? labelColors.stroke : null,
+                                    haloWidth: labelHaloWidth,
+                                    ring: (labelHaloEnabled && labelRingEnabled) ? labelColors.outerStroke : null,
+                                    ringWidth: labelHaloWidth * connectionLabelRingWidth,
+                                    scale: labelSpriteScale,
+                                  })
+                                  : null;
+
                                 // Everything that positions the label, shared by the real label and
                                 // the connection-colored ring drawn underneath it. Both carry
                                 // data-connection-label so the drag updater moves them together —
@@ -18211,6 +18261,32 @@ function NodeCanvas() {
                                       style={{ cursor: 'pointer' }}
                                       {...getEdgeHitboxHandlers(edge.id)}
                                     />
+                                    {labelSprite ? (
+                                      /* The whole label — ring, halo and fill — as one bitmap.
+                                         Wrapped in a <g> carrying the placement so a drag can
+                                         move it by rewriting ONE transform, the same way the
+                                         <text> forms are moved by rewriting theirs. The <image>
+                                         itself sits at a fixed offset from that origin, so the
+                                         group's translate is the label's centre exactly as
+                                         `x`/`y` are for a middle-anchored <text>. */
+                                      <g
+                                        className="connection-label"
+                                        data-connection-label="1"
+                                        data-label-sprite="1"
+                                        data-label-frame={labelFrame}
+                                        transform={`translate(${labelRenderX} ${labelRenderY}) rotate(${adjustedAngle})`}
+                                        style={{ pointerEvents: 'none' }}
+                                      >
+                                        <image
+                                          href={labelSprite.href}
+                                          x={-labelSprite.width / 2}
+                                          y={-labelSprite.height / 2}
+                                          width={labelSprite.width}
+                                          height={labelSprite.height}
+                                          preserveAspectRatio="none"
+                                        />
+                                      </g>
+                                    ) : (<>
                                     {/* Outermost ring, in the connection's own color, so the dark
                                         halo never meets the canvas directly and the label reads as
                                         sitting IN the line rather than on top of it. A separate
@@ -18243,6 +18319,7 @@ function NodeCanvas() {
                                     >
                                       {displayName}
                                     </text>
+                                    </>)}
                                   </g>
                                 );
                               })()}

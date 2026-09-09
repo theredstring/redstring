@@ -365,8 +365,12 @@ export const useNodeDrag = ({
     // frame skip clearing the attributes of a form React had just re-applied.
     const priorLabelState = new Map();
     dragEdgeElsRef.current.forEach(els => {
-      els.forEach(({ labelText, labelTouched }) => {
-        if (labelText && labelTouched) priorLabelState.set(labelText, { labelTouched });
+      els.forEach(({ labelText, labelSprites, labelTouched }) => {
+        if (!labelTouched) return;
+        // Keyed on whichever element carries this label — a <text> or a sprite
+        // wrapper — so the flag survives a mid-drag re-cache for both forms.
+        if (labelText) priorLabelState.set(labelText, { labelTouched });
+        else if (labelSprites?.length) priorLabelState.set(labelSprites[0], { labelTouched });
       });
     });
 
@@ -484,14 +488,35 @@ export const useNodeDrag = ({
     // written each frame — updating only the top one would leave the ring
     // stranded at the label's old pose.
     const labelTextOf = (el) => {
+      // A straight label may be a pre-rasterised sprite instead of two stroked
+      // <text> elements — see labelSpriteCache.js. It moves by ONE transform on
+      // its wrapper <g>, which is strictly less work than the text forms below,
+      // but it has to be collected here or a drag leaves it behind.
+      const labelSprites = Array.from(el.querySelectorAll('g[data-label-sprite]'));
       const labelTexts = Array.from(el.querySelectorAll('text[data-connection-label]'));
       const labelText = labelTexts[0] || null;
-      if (!labelText) return { labelText: null, labelTexts: [], labelAdvances: null, labelTouched: null };
+      if (!labelText) {
+        // A sprite label has no <text> at all, so it reaches here — but it is
+        // still a label this drag has to move, and the updater marks what it
+        // moves via `labelTouched`. Hand back a real one rather than the null
+        // that meant "there is no label here" when <text> was the only form.
+        return {
+          labelText: null,
+          labelTexts: [],
+          labelSprites,
+          labelAdvances: null,
+          labelForm: { current: null },
+          labelTouched: labelSprites.length
+            ? (priorLabelState.get(labelSprites[0])?.labelTouched ?? { current: false })
+            : null,
+        };
+      }
       const fontSize = parseFloat(labelText.getAttribute('font-size'));
       const prior = priorLabelState.get(labelText);
       return {
         labelText,
         labelTexts,
+        labelSprites,
         labelFontSize: fontSize,
         // The uncut name. Absent unless the truncate setting is on, and its
         // absence is exactly what tells retruncateLabel there is nothing to
@@ -1042,7 +1067,7 @@ export const useNodeDrag = ({
         // render uses, so it keeps following the arc for the whole drag instead
         // of straightening the moment you grab a node.
         edgeEls.forEach((entry) => {
-          const { paths, hitPaths, lines, arrows: arrowGs, texts, labelText, labelTexts, labelForm, labelTouched } = entry;
+          const { paths, hitPaths, lines, arrows: arrowGs, texts, labelText, labelTexts, labelSprites, labelForm, labelTouched } = entry;
           const labelAdvances = retruncateLabel(entry, labelSpan);
           const dragLabelGlyphs = (routing.arc && labelText && labelAdvances)
             ? labelArcGlyphFrames(routing.arc, labelPos, labelAdvances, {
@@ -1078,6 +1103,17 @@ export const useNodeDrag = ({
           // clears the other's attributes on the way in — a leftover `rotate`
           // list would scatter a straight label's glyphs, and a leftover
           // `transform` would spin a curved one about its first glyph.
+          // Sprites carry their placement on the wrapper's transform, so this is
+          // the whole update — no anchor, baseline or per-glyph list to rewrite.
+          // Deliberately NOT re-truncated mid-drag: a different cut is a
+          // different bitmap, and re-encoding one per frame would cost more than
+          // the stroked text this replaced. The settled render after the drop
+          // re-cuts it.
+          if (labelSprites && labelSprites.length) {
+            labelTouched.current = true;
+            const spriteTransform = `translate(${labelPos.x} ${labelPos.y}) rotate(${labelAdj})`;
+            labelSprites.forEach((g) => { g.setAttribute('transform', spriteTransform); });
+          }
           if (labelText && dragLabelGlyphs) {
             labelTouched.current = true;
             const gx = dragLabelGlyphs.x.map(v => v.toFixed(2)).join(' ');
@@ -2076,12 +2112,24 @@ export const useNodeDrag = ({
     // Not gated on labelTouched: the text is rewritten by both the routed and
     // the straight per-frame paths, and only the routed one sets that flag.
     dragEdgeElsRef.current.forEach(els => {
-      els.forEach(({ labelTexts, labelTouched }) => {
+      els.forEach(({ labelTexts, labelSprites, labelTouched }) => {
         labelTexts?.forEach(t => {
           if (labelTouched?.current) applyLabelFrame(t, t.getAttribute('data-label-frame'));
           const committed = t.getAttribute('data-label-text');
           if (committed !== null && t.textContent !== committed) t.textContent = committed;
         });
+        // Sprites need the same treatment for the same reason, one attribute
+        // instead of several. Their frame is always the straight form — a sprite
+        // is only ever used for a straight label — so the token's x, y and angle
+        // rebuild the transform React committed.
+        if (labelTouched?.current) {
+          labelSprites?.forEach(g => {
+            const parts = String(g.getAttribute('data-label-frame') || '').split('|');
+            if (parts.length === 4 && parts[0] === 's') {
+              g.setAttribute('transform', `translate(${parts[1]} ${parts[2]}) rotate(${parts[3]})`);
+            }
+          });
+        }
       });
     });
 
