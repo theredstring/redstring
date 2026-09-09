@@ -4662,9 +4662,10 @@ function NodeCanvas() {
   // the halo's stroke width. Set `window.__labelRing = false` and sweep the
   // zoom to price it against a real graph.
   //
-  // Note this is the SETTLED state only. The ring is also dropped for the
-  // duration of every zoom gesture, which is where it actually hurts and which
-  // needs no re-render to do — see LABEL RING SUPPRESSION in useCanvasTransform.
+  // Note this is the SETTLED state only. Every label, ring included, is also
+  // dropped for the duration of a zoom gesture — which is where it actually
+  // hurts, and which needs no re-render to do. See CONNECTION LABELS DURING A
+  // ZOOM GESTURE in NodeCanvas.css.
   const labelRingEnabled = typeof window === 'undefined' || window.__labelRing !== false;
 
   // Reset the label caches when the routing configuration changes.
@@ -18036,6 +18037,7 @@ function NodeCanvas() {
                                     {/* Canvas-colored text creating a "hole" effect in the connection */}
                                     <text
                                       {...labelGeomProps}
+                                      className="connection-label"
                                       fill={labelColors.fill}
                                       {...(labelHaloEnabled ? {
                                         stroke: labelColors.stroke,

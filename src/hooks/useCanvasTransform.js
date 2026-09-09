@@ -69,7 +69,7 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   const writtenRef = useRef(new WeakMap());
 
   // ---------------------------------------------------------------------------
-  // LABEL RING SUPPRESSION DURING ZOOM
+  // LABEL SUPPRESSION DURING ZOOM
   //
   // Zoom is categorically more expensive than pan, and connection labels are
   // where it lands. A rotated <text> cannot use the browser's cached per-glyph
@@ -87,11 +87,13 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   // stroke 2.1x wider than the halo's. Two full outline rasterisations per
   // label per frame, and the wider one covers more pixels.
   //
-  // So the ring comes off for the duration of a zoom gesture. It is the
-  // decorative layer, not the legible one — the halo underneath is what keeps
-  // the text readable over the line, and that stays. Losing a subtle ring while
-  // the whole picture is scaling is very close to invisible; losing the halo
-  // would not be.
+  // So the labels leave for the duration of a zoom gesture and come back when
+  // it settles — the ring at once, the text after a delay that doubles as the
+  // detector for whether this is a real gesture or a single wheel notch. All
+  // of the timing lives in CSS next to the rule; this only owns the class.
+  // See CONNECTION LABELS DURING A ZOOM GESTURE in NodeCanvas.css, and note
+  // that the out-delay there is tuned against SETTLE_DELAY below, so the two
+  // move together.
   //
   // Two DOM writes per gesture, one class each way, and NO React render — that
   // distinction is the whole reason this lives here rather than in a memo. The

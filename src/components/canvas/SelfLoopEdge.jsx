@@ -226,6 +226,7 @@ const SelfLoopEdge = ({
             )}
             <text
               {...geomProps}
+              className="connection-label"
               fill={labelColors.fill}
               stroke={labelColors.stroke}
               strokeWidth={haloWidth}
