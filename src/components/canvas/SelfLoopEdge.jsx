@@ -1,7 +1,8 @@
 import React from 'react';
 import { calculateSelfLoopPath } from '../../utils/canvas/selfLoopUtils.js';
-import { estimateTextWidth } from '../../utils/canvas/edgeLabelPlacement.js';
-import { getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from '../../utils/colorUtils.js';
+import { estimateTextWidth, LABEL_TRUNCATE_FILL } from '../../utils/canvas/edgeLabelPlacement.js';
+import { truncateEdgeLabel } from '../../services/textMeasurement.js';
+import { getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_TRUNCATE } from '../../utils/colorUtils.js';
 import useGraphStore from '../../store/graphStore.js';
 
 const SelfLoopEdge = ({
@@ -26,6 +27,7 @@ const SelfLoopEdge = ({
   const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
   const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
   const connectionLabelRingWidth = useGraphStore(state => state.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
+  const connectionLabelTruncate = useGraphStore(state => state.connectionLabelTruncate ?? DEFAULT_CONNECTION_LABEL_TRUNCATE);
   const arrowsToward = edge.directionality?.arrowsToward instanceof Set
     ? edge.directionality.arrowsToward
     : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
@@ -186,8 +188,16 @@ const SelfLoopEdge = ({
         const lx = loop.loopCx + loop.radius * Math.cos(loop.outwardAngle);
         const ly = loop.loopCy + loop.radius * Math.sin(loop.outwardAngle);
 
+        // A loop has no run to lie along — the label sits horizontally at the
+        // apex of a circle. What bounds it is the circle's own width, which is
+        // also the widest the loop looks from any direction, so a label cut to
+        // that never sticks out further than the loop it names.
+        const displayName = connectionLabelTruncate
+          ? truncateEdgeLabel(connectionName, fontSize, loop.radius * 2 * LABEL_TRUNCATE_FILL)
+          : connectionName;
+
         if (placedLabelsRef?.current) {
-          const halfW = estimateTextWidth(connectionName, fontSize) / 2;
+          const halfW = estimateTextWidth(displayName, fontSize) / 2;
           const halfH = (fontSize * 1.1) / 2;
           placedLabelsRef.current.set(edge.id, {
             rect: { minX: lx - halfW, maxX: lx + halfW, minY: ly - halfH, maxY: ly + halfH },
@@ -221,7 +231,7 @@ const SelfLoopEdge = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
-                {connectionName}
+                {displayName}
               </text>
             )}
             <text
@@ -234,7 +244,7 @@ const SelfLoopEdge = ({
               strokeLinejoin="round"
               paintOrder="stroke fill"
             >
-              {connectionName}
+              {displayName}
             </text>
           </g>
         );

@@ -204,6 +204,78 @@ export function edgeLabelGlyphAdvances(text, fontSize) {
   return raw.map((w) => w * scale);
 }
 
+const ELLIPSIS = '…';
+
+// Width of the ellipsis, per font size. Measured rather than bucketed: it is the
+// one character whose advance the CHAR_EM table has no bucket for (it falls
+// through to `other`, 0.64em, where the real glyph is closer to a full em), and
+// it is also the character the truncated label must always have room for. A
+// bucket that undershoots here spends the shortfall pushing the label past the
+// budget it was cut to fit.
+const ellipsisWidthCache = new Map();
+
+const ellipsisWidth = (fontSize) => {
+  let w = ellipsisWidthCache.get(fontSize);
+  if (w === undefined) {
+    try {
+      w = measureTextWidth(ELLIPSIS, edgeLabelFontString(fontSize));
+    } catch (_) {
+      w = 0;
+    }
+    // Before EmOne loads this measures the fallback font, and with no canvas at
+    // all it measures nothing. Either way a conservative constant is a better
+    // reserve than a wrong one; the fonts-ready handler re-measures.
+    if (!(w > 0)) w = fontSize * 0.9;
+    ellipsisWidthCache.set(fontSize, w);
+  }
+  return w;
+};
+
+/**
+ * Cut a connection label down to what its connection can carry, ending it in an
+ * ellipsis. Returns the text unchanged when it already fits.
+ *
+ * Measured through `edgeLabelGlyphAdvances`, which is the same per-glyph
+ * measurement the curved renderer places characters with — so a label truncated
+ * here and then bent along a Lombardi arc is cut and drawn against one set of
+ * widths. (It also inherits that function's refusal to take apart text where
+ * splitting would be wrong — combining marks, joiners, RTL. There is no correct
+ * place to cut such a string from a per-code-point advance list, so it is
+ * returned whole and simply overhangs, which is what it did before this
+ * existed.)
+ *
+ * @param {string} text
+ * @param {number} fontSize px, the size the label is drawn at
+ * @param {number} maxWidth px of room along the connection
+ * @returns {string} the text to draw
+ */
+export function truncateEdgeLabel(text, fontSize, maxWidth) {
+  if (!text || !(fontSize > 0) || !Number.isFinite(maxWidth)) return text;
+
+  const advances = edgeLabelGlyphAdvances(text, fontSize);
+  if (!advances) return text;
+
+  let total = 0;
+  for (const w of advances) total += w;
+  if (total <= maxWidth) return text;
+
+  const chars = Array.from(text);
+  const budget = maxWidth - ellipsisWidth(fontSize);
+
+  let used = 0;
+  let keep = 0;
+  while (keep < chars.length && used + advances[keep] <= budget) {
+    used += advances[keep];
+    keep += 1;
+  }
+
+  // At least one character survives even when the budget is smaller than the
+  // ellipsis. A bare "…" names nothing at all, and a label that says nothing is
+  // worse than one that overhangs its line by a few pixels.
+  const head = chars.slice(0, Math.max(1, keep)).join('').replace(/\s+$/, '');
+  return (head || chars[0]) + ELLIPSIS;
+}
+
 /**
  * Initialize the text measurement system.
  * Call once at app startup. Sets up font-load listener to clear caches
@@ -214,6 +286,7 @@ export function initTextMeasurement() {
     document.fonts.ready.then(() => {
       preparedCache.clear();
       preparedSegmentsCache.clear();
+      ellipsisWidthCache.clear();
       clearCache();
     });
   }

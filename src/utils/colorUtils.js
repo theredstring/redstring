@@ -258,6 +258,17 @@ export const DEFAULT_CONNECTION_LABEL_COLOR_MODE = 'light';
 export const DEFAULT_CONNECTION_LABEL_OUTER_RING = true;
 
 /**
+ * Whether a connection label too long for its connection is cut to fit and
+ * ended in an ellipsis.
+ *
+ * On by default. An overhanging label runs into the nodes at either end and
+ * across whatever else is behind them, and at that point it has stopped naming
+ * a particular connection — which is the entire job. A cut name still points at
+ * the right line and still reads; the full text is a click away in the panel.
+ */
+export const DEFAULT_CONNECTION_LABEL_TRUNCATE = true;
+
+/**
  * When connection labels fade out for the duration of a pan or zoom gesture.
  *
  * A rotated <text> rasterises from glyph outlines rather than from the browser's

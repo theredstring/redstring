@@ -20,8 +20,8 @@ import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToC
 import DownloadAppPill from './DownloadAppPill.jsx';
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
-import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances } from './services/textMeasurement.js';
-import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
+import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from './services/textMeasurement.js';
+import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from './utils/clipboard.js';
@@ -134,7 +134,7 @@ import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
-import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, labelBoundsFor, labelFrameToken, straightLabelTransform } from './utils/canvas/edgeLabelPlacement.js';
+import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, labelBoundsFor, labelFrameToken, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice, hasNoHover } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -1258,6 +1258,7 @@ function NodeCanvas() {
   const connectionLabelOuterRing = useGraphStore(state => state.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
   const connectionLabelRingWidth = useGraphStore(state => state.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
   const connectionLabelMoveFade = useGraphStore(state => state.connectionLabelMoveFade ?? DEFAULT_CONNECTION_LABEL_MOVE_FADE);
+  const connectionLabelTruncate = useGraphStore(state => state.connectionLabelTruncate ?? DEFAULT_CONNECTION_LABEL_TRUNCATE);
   const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
   const showNodeControlPanel = useGraphStore(state => state.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore(state => state.showMultipleNodesControlPanel ?? true);
@@ -4759,7 +4760,7 @@ function NodeCanvas() {
   useEffect(() => {
     placedLabelsRef.current.clear();
     clearLabelStabilization();
-  }, [enableAutoRouting, routingStyle, manhattanBends, cleanLaneSpacing, lombardiCurvature, showConnectionNames, connectionLabelSize, textSettings?.fontSize]);
+  }, [enableAutoRouting, routingStyle, manhattanBends, cleanLaneSpacing, lombardiCurvature, showConnectionNames, connectionLabelSize, connectionLabelTruncate, textSettings?.fontSize]);
 
   // Re-render once the label font actually arrives.
   //
@@ -17870,6 +17871,34 @@ function NodeCanvas() {
                                   }
                                 }
 
+                                // The label as it is actually DRAWN. With
+                                // connectionLabelTruncate on, a name longer than the run it
+                                // sits along is cut to fit and ellipsed.
+                                //
+                                // Everything downstream measures this string and never the raw
+                                // name: the placement solve, the rect the label reserves against
+                                // its neighbours, the click target, the per-glyph advances a
+                                // Lombardi arc bends it with. Measuring the placement against one
+                                // width and drawing another is precisely the failure the
+                                // labelBoundsFor comment below describes, one input earlier.
+                                //
+                                // The routed branch truncates inside the cache miss instead of
+                                // here, because the run it measures against is the routing's
+                                // (see routedLabelSpan) and reading it costs an arc sample. A
+                                // straight connection's run is the visible chord, which is a
+                                // hypot of endpoints already computed.
+                                let displayName = connectionName;
+                                if (connectionLabelTruncate && !orthoRouting) {
+                                  displayName = truncateEdgeLabel(
+                                    connectionName,
+                                    connectionFontSize,
+                                    Math.hypot(
+                                      visibleEndpoints.x2 - visibleEndpoints.x1,
+                                      visibleEndpoints.y2 - visibleEndpoints.y1
+                                    ) * LABEL_TRUNCATE_FILL
+                                  );
+                                }
+
                                 // Routed styles place the label ON the polyline.
                                 //
                                 // These branches used to call chooseLabelPlacement, whose on-path
@@ -17905,16 +17934,30 @@ function NodeCanvas() {
                                   // after the render it was meant to protect (with nothing
                                   // necessarily re-rendering afterwards), and it would throw away
                                   // the anchors a drag needs to hold its placement.
-                                  const labelSignature = `${orthoRouting.pathD}|${connectionName}|${connectionFontSize}|${labelCrossingIndex?.generation ?? 0}`;
+                                  const labelSignature = `${orthoRouting.pathD}|${connectionName}|${connectionFontSize}|${connectionLabelTruncate ? 1 : 0}|${labelCrossingIndex?.generation ?? 0}`;
                                   const cached = placedLabelsRef.current.get(edge.id);
                                   if (cached && cached.position && cached.signature === labelSignature && !draggingNodeInfo) {
+                                    // The truncation rides on the cache entry alongside the
+                                    // placement. It is a function of the same geometry the
+                                    // signature already covers (pathD), so a hit means the cut is
+                                    // still the right one — and re-deriving it would cost an arc
+                                    // sample per label per render for an answer that cannot have
+                                    // changed.
+                                    displayName = cached.displayName ?? connectionName;
                                     const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
                                     midX = stabilized.x;
                                     midY = stabilized.y;
                                     angle = stabilized.angle || 0;
                                   } else {
+                                    if (connectionLabelTruncate) {
+                                      displayName = truncateEdgeLabel(
+                                        connectionName,
+                                        connectionFontSize,
+                                        routedLabelSpan(orthoRouting) * LABEL_TRUNCATE_FILL
+                                      );
+                                    }
                                     const placement = chooseRoutedLabelPlacement(
-                                      orthoRouting, connectionName, nodes, visibleNodeIds,
+                                      orthoRouting, displayName, nodes, visibleNodeIds,
                                       baseDimsById, placedLabelsRef.current, connectionFontSize,
                                       edge.id, selectedInstanceIds, labelObstacleOptions
                                     );
@@ -17936,11 +17979,12 @@ function NodeCanvas() {
                                     placedLabelsRef.current.set(edge.id, {
                                       rect: labelBoundsFor(
                                         midX, midY,
-                                        estimateTextWidth(connectionName, connectionFontSize),
+                                        estimateTextWidth(displayName, connectionFontSize),
                                         connectionFontSize * 1.1,
                                         angle
                                       ),
                                       signature: labelSignature,
+                                      displayName,
                                       position: { x: midX, y: midY, angle },
                                       // How far along the route this solve landed, so a drag can
                                       // carry it instead of resetting to the midpoint. See ANCHORS
@@ -18012,7 +18056,7 @@ function NodeCanvas() {
                                 // the straight rotated label below, which at that point is the same
                                 // picture for less — one glyph matrix instead of one per character.
                                 const labelGlyphAdvances = (orthoRouting?.arc && curveLabels)
-                                  ? edgeLabelGlyphAdvances(connectionName, connectionFontSize)
+                                  ? edgeLabelGlyphAdvances(displayName, connectionFontSize)
                                   : null;
                                 const labelGlyphs = labelGlyphAdvances
                                   ? labelArcGlyphFrames(
@@ -18039,7 +18083,7 @@ function NodeCanvas() {
 
                                 // Generous hitbox around the label text so the name is as
                                 // clickable as the line itself (labels often sit off the line).
-                                const labelHitW = estimateTextWidth(connectionName, connectionFontSize) + connectionFontSize * 0.9;
+                                const labelHitW = estimateTextWidth(displayName, connectionFontSize) + connectionFontSize * 0.9;
                                 const labelHitH = connectionFontSize * 1.5;
 
                                 const labelColors = getConnectionLabelColors(edgeColor, darkMode, connectionLabelColorMode, connectionLabelOuterRing);
@@ -18052,6 +18096,25 @@ function NodeCanvas() {
                                 const labelGeomProps = {
                                   'data-connection-label': '1',
                                   'data-label-frame': labelFrame,
+                                  // Truncation has to be re-decided per frame during a drag,
+                                  // and the drag owns the DOM rather than re-rendering — so
+                                  // both halves of the decision travel on the element.
+                                  //
+                                  // `full` is the uncut name, because a cut can only ever be
+                                  // taken from the ORIGINAL: re-cutting an already-cut string
+                                  // ratchets it down and it never grows back when the
+                                  // connection lengthens again.
+                                  //
+                                  // `text` is what React committed, and it is here for
+                                  // precisely the reason data-label-frame is — React writes
+                                  // only what changed between its OWN renders, so a settled
+                                  // render that lands on the same text React last rendered
+                                  // skips the write and leaves the drag's last cut in the DOM.
+                                  // See LABEL FRAMES in edgeLabelPlacement.js.
+                                  ...(connectionLabelTruncate ? {
+                                    'data-label-full': connectionName,
+                                    'data-label-text': displayName,
+                                  } : null),
                                   fontSize: connectionFontSize,
                                   fontWeight: 'bold',
                                   dominantBaseline: 'middle',
@@ -18105,7 +18168,7 @@ function NodeCanvas() {
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
                                       >
-                                        {connectionName}
+                                        {displayName}
                                       </text>
                                     )}
                                     {/* Canvas-colored text creating a "hole" effect in the connection */}
@@ -18121,7 +18184,7 @@ function NodeCanvas() {
                                         paintOrder: 'stroke fill',
                                       } : null)}
                                     >
-                                      {connectionName}
+                                      {displayName}
                                     </text>
                                   </g>
                                 );

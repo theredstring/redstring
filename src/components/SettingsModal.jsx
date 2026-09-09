@@ -8,7 +8,7 @@ import AISection from './settings/AISection.jsx';
 import DebugSection from './settings/DebugSection.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
-import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE } from '../utils/colorUtils.js';
+import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE } from '../utils/colorUtils.js';
 import './ModalChrome.css';
 
 /**
@@ -116,6 +116,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const connectionLabelMoveFade = useGraphStore(s => s.connectionLabelMoveFade ?? DEFAULT_CONNECTION_LABEL_MOVE_FADE);
   const connectionLabelOuterRing = useGraphStore(s => s.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
   const connectionLabelRingWidth = useGraphStore(s => s.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
+  const connectionLabelTruncate = useGraphStore(s => s.connectionLabelTruncate ?? DEFAULT_CONNECTION_LABEL_TRUNCATE);
   const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
   const darkMode = useGraphStore(s => s.darkMode);
   const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
@@ -526,6 +527,17 @@ const SettingsModal = ({ isVisible, onClose }) => {
               suffix="x"
               disabled={!connectionLabelOuterRing}
               onChange={(v) => useGraphStore.getState().setConnectionLabelRingWidth?.(v)}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Truncate Long Labels
+              <div className="settings-row-description">Ends a name too long for its connection in an ellipsis instead of letting it overhang the nodes</div>
+            </div>
+            <Toggle
+              checked={!!connectionLabelTruncate}
+              disabled={!showConnectionNames}
+              onChange={() => useGraphStore.getState().toggleConnectionLabelTruncate?.()}
             />
           </div>
           <div className="settings-row">

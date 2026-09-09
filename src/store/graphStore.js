@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches } from 'immer';
-import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE } from '../utils/colorUtils.js';
+import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE } from '../utils/colorUtils.js';
 
 // Global listener for patches, used by middleware to capture changes from actions
 let patchListener = null;
@@ -169,6 +169,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {boolean} connectionLabelOuterRing - Whether a connection label wears an outermost ring in the connection's own color.
  * @property {number} connectionLabelRingWidth - How much wider that ring is than the label's halo, as a multiplier.
  * @property {string} connectionLabelMoveFade - `'off'|'large'|'always'` — when connection labels fade out for the duration of a hand-driven pan or zoom, which is the largest saving available on one. `'large'` gates it on how many are on screen.
+ * @property {boolean} connectionLabelTruncate - Whether a connection label longer than the connection it names is cut to fit and ellipsed, rather than overhanging into the nodes at either end.
  * @property {boolean} showEdgeGlowIndicators - Whether edges show directional glow effects.
  * @property {boolean} showHoverPreview - Whether hovering a node shows a preview card.
  * @property {boolean} hoverPreviewZoomOnly - When true, the hover preview only appears while zoomed out (small on-canvas text); when false it appears at any zoom.
@@ -1507,6 +1508,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return CONNECTION_LABEL_MOVE_FADE_MODES.includes(saved) ? saved : DEFAULT_CONNECTION_LABEL_MOVE_FADE;
       } catch (_) {
         return DEFAULT_CONNECTION_LABEL_MOVE_FADE;
+      }
+    })(),
+    connectionLabelTruncate: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_connection_label_truncate');
+        return saved === null ? DEFAULT_CONNECTION_LABEL_TRUNCATE : saved === 'true';
+      } catch (_) {
+        return DEFAULT_CONNECTION_LABEL_TRUNCATE;
       }
     })(),
     showEdgeGlowIndicators: (() => {
@@ -6077,6 +6086,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.connectionLabelMoveFade = mode;
       try {
         localStorage.setItem('redstring_connection_label_move_fade', mode);
+      } catch (_) { }
+    })),
+
+    /**
+     * Toggles cutting a connection label down to the run it is drawn along and
+     * ending it in an ellipsis. Persists to localStorage.
+     */
+    toggleConnectionLabelTruncate: () => set(produce((draft) => {
+      draft.connectionLabelTruncate = !draft.connectionLabelTruncate;
+      try {
+        localStorage.setItem('redstring_connection_label_truncate', draft.connectionLabelTruncate);
       } catch (_) { }
     })),
 

@@ -1207,6 +1207,54 @@ export const placeLabelOnRoute = (routing, anchor = null) => {
         : placeLabelOnPath(labelPolylineOf(routing));
 };
 
+/**
+ * How much of a connection's run a truncated label may fill (see the
+ * connectionLabelTruncate setting).
+ *
+ * Short of 1 on purpose. The run a label is measured against is already the
+ * VISIBLE one — node border to node border — so filling it exactly would leave
+ * the text touching a node at each end with no line showing between, which reads
+ * as the label plugging the connection rather than naming it. The glyphs also
+ * carry a halo and a ring outside their advances, and neither is in the
+ * measurement. This leaves room for both.
+ */
+export const LABEL_TRUNCATE_FILL = 0.85;
+
+/**
+ * How much room a label has along a routed connection, in canvas px.
+ *
+ * Deliberately the LONGEST SINGLE RUN, not the length of the whole route. A
+ * label is one straight (or one smoothly-curved) piece of text; it cannot turn a
+ * corner, so an L-shaped manhattan route 900px long offers a label whatever its
+ * longer leg is and not a pixel more. Summing the legs would license a label
+ * that overshoots both of them.
+ *
+ * Arcs measure the VISIBLE stretch rather than the full centre-to-centre arc,
+ * for the same reason the arc placer works in `visibleRange`: the ends are
+ * covered by the nodes (or by a whole thing-group's box), and room the reader
+ * cannot see is not room.
+ *
+ * Returns Infinity when there is nothing to measure against, which reads as
+ * "unbounded" at every call site — the safe direction, since it truncates
+ * nothing.
+ */
+export const routedLabelSpan = (routing) => {
+    if (!routing) return Infinity;
+
+    const arc = routing.arc;
+    if (arc && Number.isFinite(arc.radius) && Number.isFinite(arc.sweep)) {
+        const range = routing.visibleRange;
+        const t0 = Number.isFinite(range?.t0) ? range.t0 : 0;
+        const t1 = Number.isFinite(range?.t1) ? range.t1 : 1;
+        const span = arc.radius * Math.abs(arc.sweep) * Math.max(0, t1 - t0);
+        return span > 0 ? span : Infinity;
+    }
+
+    // describeSegments sorts longest-first.
+    const segments = describeSegments(labelPolylineOf(routing));
+    return segments.length > 0 ? segments[0].length : Infinity;
+};
+
 /** Full placement with obstacle avoidance. Used by the settled render. */
 export const chooseRoutedLabelPlacement = (
     routing, connectionName, nodes, visibleNodeIds, baseDimsById,

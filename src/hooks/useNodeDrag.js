@@ -8,7 +8,7 @@ import { getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, g
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
-import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransform } from '../utils/canvas/edgeLabelPlacement.js';
+import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from '../utils/canvas/edgeLabelPlacement.js';
 import {
   computeGroupLayout,
   GROUP_LAYOUT_CONSTANTS,
@@ -17,7 +17,7 @@ import {
   buildShellCutoutPath,
   collectAffectedGroupIds as collectAffectedGroupIdsPure,
 } from '../services/groupLayout.js';
-import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances } from '../services/textMeasurement.js';
+import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from '../services/textMeasurement.js';
 import saveCoordinator from '../services/SaveCoordinator.js';
 import { haptic } from '../services/haptics.js';
 
@@ -64,6 +64,35 @@ const writeEndpointDots = (entry, sourcePos, destPos) => {
       c.setAttribute('cy', destPos.y);
     });
   }
+};
+
+/**
+ * Re-cut a connection label to the run it has THIS frame.
+ *
+ * A drag is exactly when a connection's length changes, so a label cut once at
+ * mousedown is wrong for the rest of the gesture: it keeps overhanging a
+ * connection the drag has shortened, or stays clipped on one the drag has
+ * stretched, until the drop re-renders it. Since the drag owns the DOM for the
+ * whole gesture, re-cutting has to happen here or not at all.
+ *
+ * Always cuts from `labelFullText`, never from what is currently drawn — a cut
+ * taken from an already-cut string can only shorten it, so the label would
+ * ratchet down over a long drag and never grow back.
+ *
+ * @returns the advances for whatever text now stands. A changed label has
+ *   changed advances, and the curved form places every glyph from them, so the
+ *   two must be recomputed together or a re-cut Lombardi label scatters.
+ */
+const retruncateLabel = (entry, span) => {
+  const { labelText, labelTexts, labelFullText, labelFontSize } = entry;
+  if (!labelText || !labelFullText || !Number.isFinite(span)) return entry.labelAdvances;
+
+  const next = truncateEdgeLabel(labelFullText, labelFontSize, span * LABEL_TRUNCATE_FILL);
+  if (next !== labelText.textContent) {
+    labelTexts.forEach(t => { t.textContent = next; });
+    entry.labelAdvances = edgeLabelGlyphAdvances(next, labelFontSize);
+  }
+  return entry.labelAdvances;
 };
 
 /**
@@ -444,9 +473,10 @@ export const useNodeDrag = ({
     // started with, and an attempt to promote one into the other by mutating
     // children left React patching a stale reference and the label frozen.)
     //
-    // The advances are read off the DOM once per drag. They cannot change while
-    // dragging — the text and font size are fixed — and computing them from the
-    // same helper the settled render uses is what keeps the two in step.
+    // The advances are read off the DOM here and recomputed only when the text
+    // itself changes, which it does only when truncation re-cuts it (see
+    // retruncateLabel). Computing them from the same helper the settled render
+    // uses is what keeps the two in step.
     //
     // There can be more than one: the 'light' label color mode draws a second,
     // wider-stroked copy underneath to fake SVG's missing second stroke. Every
@@ -462,6 +492,11 @@ export const useNodeDrag = ({
       return {
         labelText,
         labelTexts,
+        labelFontSize: fontSize,
+        // The uncut name. Absent unless the truncate setting is on, and its
+        // absence is exactly what tells retruncateLabel there is nothing to
+        // re-cut. See data-label-full in NodeCanvas.
+        labelFullText: labelText.getAttribute('data-label-full'),
         labelAdvances: edgeLabelGlyphAdvances(labelText.textContent, fontSize),
         labelForm: { current: null },
         labelTouched: prior?.labelTouched ?? { current: false },
@@ -995,12 +1030,20 @@ export const useNodeDrag = ({
           labelAngleQuantumRef?.current ?? 0
         );
 
+        // Only pay for the span when something on this edge can actually use it.
+        // For an arc it costs a sample of the curve (routedLabelSpan reads
+        // visibleRange), which is not worth spending per frame on labels that
+        // are never re-cut.
+        const labelSpan = edgeEls.some(e => e.labelText && e.labelFullText)
+          ? routedLabelSpan(routing)
+          : NaN;
+
         // A curved Lombardi label is re-solved from the same helper the settled
         // render uses, so it keeps following the arc for the whole drag instead
-        // of straightening the moment you grab a node. The advances come from
-        // the cache — they can't change during a drag.
+        // of straightening the moment you grab a node.
         edgeEls.forEach((entry) => {
-          const { paths, hitPaths, lines, arrows: arrowGs, texts, labelText, labelTexts, labelAdvances, labelForm, labelTouched } = entry;
+          const { paths, hitPaths, lines, arrows: arrowGs, texts, labelText, labelTexts, labelForm, labelTouched } = entry;
+          const labelAdvances = retruncateLabel(entry, labelSpan);
           const dragLabelGlyphs = (routing.arc && labelText && labelAdvances)
             ? labelArcGlyphFrames(routing.arc, labelPos, labelAdvances, {
               minBow: labelArcMinBow,
@@ -1302,6 +1345,12 @@ export const useNodeDrag = ({
         // visible run — no separate slide-off-box step.
         if (texts.length > 0) {
           const visibleEndpoints = borderEndpoints;
+          // A straight connection's run is the visible chord, the same span the
+          // settled render cuts against — so the text does not change on drop.
+          retruncateLabel(entry, Math.hypot(
+            visibleEndpoints.x2 - visibleEndpoints.x1,
+            visibleEndpoints.y2 - visibleEndpoints.y1
+          ));
           const labelPlacementPath = calculateParallelEdgePath(
             visibleEndpoints.x1, visibleEndpoints.y1,
             visibleEndpoints.x2, visibleEndpoints.y2,
@@ -2016,10 +2065,23 @@ export const useNodeDrag = ({
     // React renders alongside the attributes it encodes, so it always describes
     // React's last commit however many times React re-rendered mid-drag. See
     // LABEL FRAMES in edgeLabelPlacement.js.
+    //
+    // A truncated label's TEXT needs the identical treatment for the identical
+    // reason. The drag re-cuts it per frame (see retruncateLabel), so React's
+    // idea of these children is whatever it last rendered — and a settled render
+    // that arrives at that same string writes nothing and leaves the drag's last
+    // cut standing. `data-label-text` carries React's commit for the children the
+    // way `data-label-frame` carries it for the geometry.
+    //
+    // Not gated on labelTouched: the text is rewritten by both the routed and
+    // the straight per-frame paths, and only the routed one sets that flag.
     dragEdgeElsRef.current.forEach(els => {
       els.forEach(({ labelTexts, labelTouched }) => {
-        if (!labelTouched?.current) return;
-        labelTexts?.forEach(t => applyLabelFrame(t, t.getAttribute('data-label-frame')));
+        labelTexts?.forEach(t => {
+          if (labelTouched?.current) applyLabelFrame(t, t.getAttribute('data-label-frame'));
+          const committed = t.getAttribute('data-label-text');
+          if (committed !== null && t.textContent !== committed) t.textContent = committed;
+        });
       });
     });
 
