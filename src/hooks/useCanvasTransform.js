@@ -68,6 +68,57 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   // from this map, so it always gets written.
   const writtenRef = useRef(new WeakMap());
 
+  // ---------------------------------------------------------------------------
+  // LABEL RING SUPPRESSION DURING ZOOM
+  //
+  // Zoom is categorically more expensive than pan, and connection labels are
+  // where it lands. A rotated <text> cannot use the browser's cached per-glyph
+  // alpha mask — it rasterises from outlines — and a STROKED rotated text is
+  // the worst case of that. Pan survives it because the glyph matrices are
+  // unchanged frame to frame, so whatever was rasterised once is reused. Zoom
+  // changes the SCALE every frame, so every matrix is new and every glyph is
+  // re-rasterised from its outline, every frame, with nothing to reuse. This is
+  // also why manhattan is fast and straight/lombardi are not: manhattan labels
+  // sit at 0°/90°, which is the axis-aligned fast path, and everything else is
+  // rotated.
+  //
+  // The connection-colored outer ring doubles that: SVG paints one stroke per
+  // element, so the ring is a SECOND stroked <text> per label, carrying a
+  // stroke 2.1x wider than the halo's. Two full outline rasterisations per
+  // label per frame, and the wider one covers more pixels.
+  //
+  // So the ring comes off for the duration of a zoom gesture. It is the
+  // decorative layer, not the legible one — the halo underneath is what keeps
+  // the text readable over the line, and that stays. Losing a subtle ring while
+  // the whole picture is scaling is very close to invisible; losing the halo
+  // would not be.
+  //
+  // Two DOM writes per gesture, one class each way, and NO React render — that
+  // distinction is the whole reason this lives here rather than in a memo. The
+  // previous attempt at an in-motion shortcut made "is the view moving" React
+  // state, and the two renders per gesture cost 143ms each on a real universe,
+  // which is more than any shortcut could return. See the header note.
+  const gestureBaseZoomRef = useRef(1);
+  const ringsHiddenRef = useRef(false);
+  const ringedElsRef = useRef([null, null]);
+
+  // The guard tracks WHICH elements were last written, not just the desired
+  // state, for the same reason `writtenRef` above keys on the element: these
+  // <g>s unmount and remount when NodeCanvas swings through its loading /
+  // no-universe / no-graph branches, and a remounted one carries no class. A
+  // state-only guard would early-return against a stale `true` and leave the
+  // fresh element permanently unsuppressed.
+  const setRingsHidden = useCallback((hidden) => {
+    const content = contentGroupRef.current;
+    const overlay = overlayGroupRef?.current || null;
+    const prev = ringedElsRef.current;
+    if (ringsHiddenRef.current === hidden && prev[0] === content && prev[1] === overlay) return;
+    ringsHiddenRef.current = hidden;
+    ringedElsRef.current = [content, overlay];
+    content?.classList?.toggle('canvas-zooming', hidden);
+    overlay?.classList?.toggle('canvas-zooming', hidden);
+  }, [contentGroupRef, overlayGroupRef]);
+
   // Write transform directly to the content <g> element via SVG's native
   // transform attribute (not the outer <svg>'s CSS style.transform). This
   // keeps the SVG itself off the GPU compositor's CSS-transform path — the
@@ -88,6 +139,10 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
       });
       return;
     }
+    // Only a SCALE change invalidates the glyph rasters; a pan reuses them, so
+    // a pan keeps its rings. See LABEL RING SUPPRESSION above.
+    if (z !== gestureBaseZoomRef.current) setRingsHidden(true);
+
     // SVG transform attribute: spaces between args, no `px` units.
     const value = `translate(${tx} ${ty}) scale(${z})`;
     const written = writtenRef.current;
@@ -102,7 +157,7 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
     };
     write(contentGroupRef.current);
     write(overlayGroupRef?.current);
-  }, [contentGroupRef, overlayGroupRef, canvasSize]);
+  }, [contentGroupRef, overlayGroupRef, canvasSize, setRingsHidden]);
 
   // Schedule a deferred React state update when interaction settles.
   const scheduleSettle = useCallback(() => {
@@ -110,18 +165,22 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = setTimeout(() => {
       movingRef.current = false;
+      gestureBaseZoomRef.current = zoomRef.current;
+      setRingsHidden(false);
       setSettledPan({ ...panRef.current });
       setSettledZoom(zoomRef.current);
     }, SETTLE_DELAY);
-  }, []);
+  }, [setRingsHidden]);
 
   // Immediately flush settled state (for graph switches, navigations, etc.)
   const flushSettle = useCallback(() => {
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     movingRef.current = false;
+    gestureBaseZoomRef.current = zoomRef.current;
+    setRingsHidden(false);
     setSettledPan({ ...panRef.current });
     setSettledZoom(zoomRef.current);
-  }, []);
+  }, [setRingsHidden]);
 
   const setPan = useCallback((newPan) => {
     // Support functional updater form:  setPan(prev => newVal)
@@ -168,6 +227,9 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   const jumpTo = useCallback((newPan, newZoom) => {
     panRef.current = typeof newPan === 'function' ? newPan(panRef.current) : newPan;
     zoomRef.current = typeof newZoom === 'function' ? newZoom(zoomRef.current) : newZoom;
+    // A jump is discrete, not a gesture — rebase first so applyTransform below
+    // doesn't strip the rings for the one frame before flushSettle restores them.
+    gestureBaseZoomRef.current = zoomRef.current;
     applyTransform();
     flushSettle();
     onTransformChangeRef.current?.();

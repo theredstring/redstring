@@ -426,6 +426,7 @@ const OrbitConnection = React.memo(function OrbitConnection({
         {outerStroke && (
           <text
             {...labelGeomProps}
+            className="connection-label-ring"
             fill="none"
             stroke={outerStroke}
             strokeWidth={haloWidth * connectionLabelRingWidth}

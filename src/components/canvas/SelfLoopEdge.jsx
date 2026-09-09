@@ -214,6 +214,7 @@ const SelfLoopEdge = ({
             {labelColors.outerStroke && (
               <text
                 {...geomProps}
+                className="connection-label-ring"
                 fill="none"
                 stroke={labelColors.outerStroke}
                 strokeWidth={haloWidth * connectionLabelRingWidth}

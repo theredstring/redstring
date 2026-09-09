@@ -4656,6 +4656,17 @@ function NodeCanvas() {
   // re-render. Not wired to a setting — this is a probe, not a preference.
   const labelHaloEnabled = typeof window === 'undefined' || window.__labelHalo !== false;
 
+  // The outer ring alone, separately switchable, because `__labelHalo` kills
+  // both layers and so cannot answer "what does the RING cost" — the question
+  // that matters now that the ring is a second stroked <text> per label at 2.1x
+  // the halo's stroke width. Set `window.__labelRing = false` and sweep the
+  // zoom to price it against a real graph.
+  //
+  // Note this is the SETTLED state only. The ring is also dropped for the
+  // duration of every zoom gesture, which is where it actually hurts and which
+  // needs no re-render to do — see LABEL RING SUPPRESSION in useCanvasTransform.
+  const labelRingEnabled = typeof window === 'undefined' || window.__labelRing !== false;
+
   // Reset the label caches when the routing configuration changes.
   //
   // Correctness no longer depends on this: each cached placement now carries a
@@ -18009,9 +18020,10 @@ function NodeCanvas() {
                                         halo never meets the canvas directly and the label reads as
                                         sitting IN the line rather than on top of it. A separate
                                         <text> because SVG paints exactly one stroke per element. */}
-                                    {labelHaloEnabled && labelColors.outerStroke && (
+                                    {labelHaloEnabled && labelRingEnabled && labelColors.outerStroke && (
                                       <text
                                         {...labelGeomProps}
+                                        className="connection-label-ring"
                                         fill="none"
                                         stroke={labelColors.outerStroke}
                                         strokeWidth={labelHaloWidth * connectionLabelRingWidth}

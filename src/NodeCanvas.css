@@ -99,3 +99,25 @@ body {
 .edge-interact, .edge-interact:hover, .edge-interact:active {
   cursor: pointer !important;
 }
+/* ---------------------------------------------------------------------------
+   Connection-label outer ring, dropped for the duration of a zoom gesture.
+
+   A rotated <text> rasterises from glyph outlines rather than from the
+   browser's cached alpha masks, and a stroked one is the expensive form of
+   that. Pan reuses the rasters (the glyph matrices don't change); zoom changes
+   the scale every frame, so every glyph is redrawn from its outline every
+   frame. The ring is a SECOND stroked <text> per label at 2.1x the halo's
+   width, so it roughly doubles the frame's most expensive work at exactly the
+   moment there is no budget for it.
+
+   It is the decorative layer — the halo underneath is what keeps the text
+   legible over the line, and that stays up throughout. `canvas-zooming` is
+   toggled straight onto the content <g> by useCanvasTransform, twice per
+   gesture and with no React render; see LABEL RING SUPPRESSION there.
+
+   `display: none` rather than `visibility: hidden` or `stroke: none`: the
+   element must be skipped by paint entirely, which is the entire point.
+   --------------------------------------------------------------------------- */
+.canvas-zooming .connection-label-ring {
+  display: none;
+}
