@@ -54,7 +54,7 @@ const colorToRgba = (color, alpha) => {
   return color;
 };
 
-const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = false, dynamicMaxWidth }) => {
+const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = false, dynamicMaxWidth, isGamepadFocused = false }) => {
   const nodePrototypes = useGraphStore(state => state.nodePrototypes);
 
   // Get the defining node's name for fallback matching
@@ -104,7 +104,13 @@ const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = f
     fontWeight: 'bold',
     fontSize: '18px',
     fontFamily: "'EmOne', sans-serif",
-    boxShadow: isActive ? '0 0 8px rgba(0,0,0,0.0)' : 'none',
+    // The controller's header mode moves an outline across the tabs WITHOUT
+    // switching to them — the switch happens on A — so the outline has to read
+    // as "this is where you are", distinct from the active tab's fill. An
+    // outline (not a border) keeps the tab from reflowing as focus moves.
+    boxShadow: isGamepadFocused
+      ? '0 0 0 3px #bdb5b5, 0 0 10px rgba(0,0,0,0.35)'
+      : (isActive ? '0 0 8px rgba(0,0,0,0.0)' : 'none'),
     border: 'none',
     userSelect: 'none',
     maxWidth: dynamicMaxWidth || '220px',

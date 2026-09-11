@@ -259,3 +259,14 @@ div.submenu-item {
     font-family: 'EmOne', sans-serif;
     text-align: center;
 }
+/* --- Game controller focus ---------------------------------------------
+   A controller has no pointer, so :hover never fires while the D-pad walks
+   this menu. The walker in utils/gamepadMenuNav.js moves this class instead;
+   it reuses the mouse's own highlight so a stick-driven menu looks exactly
+   like a moused one, and adds an inset edge so the focused row still reads as
+   focused if the pointer happens to be resting on a different row. */
+.menu-item.gamepad-menu-focus,
+.submenu-item.gamepad-menu-focus {
+    background-color: #F00000;
+    box-shadow: inset 3px 0 0 #DEDADA;
+}

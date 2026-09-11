@@ -189,6 +189,8 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {Object} keyboardSettings - `{ zoomSensitivity, panSensitivity }` in range [0, 1].
  * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
  * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength, trackpadPanGlideEnabled, trackpadPanGlideStrength }`.
+ * @property {Object} gamepadSettings - Game controller settings: `{ scheme }`.
+ * @property {'mouse'|'touch'|'gamepad'} inputMode - Active input modality. Session-only.
  */
 
 // Enable Immer plugins
@@ -1711,10 +1713,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })(),
 
+    // Game controller settings. Deliberately just the scheme for now — the
+    // per-input tuning (deadzones, stick curves, repeat rates) lives as module
+    // constants in useGamepad.js, because none of it is a user-facing choice
+    // yet. The dropdown exists so additional schemes can be added later without
+    // re-plumbing the setting; 'default' is the only one that ships today.
+    gamepadSettings: {
+      scheme: readStoredString('redstring_gamepad_scheme', ['default'], 'default'),
+    },
+
     // Active input modality — flipped per-interaction by pointerdown listener.
     // 'mouse' enables hover affordances; 'touch' forces always-visible affordances
-    // (e.g. connection arrow dots) and suppresses hover previews. Session-only,
-    // not persisted: each pointerdown re-evaluates via PointerEvent.pointerType.
+    // (e.g. connection arrow dots) and suppresses hover previews; 'gamepad' is a
+    // discrete mode driven by a screen-centre crosshair rather than a pointer.
+    // Session-only, not persisted: each pointerdown re-evaluates via
+    // PointerEvent.pointerType, and any gamepad input flips it the other way.
     inputMode: 'mouse',
 
     // Touch interaction settings — sliders in [0, 1], 0.5 maps to the
@@ -6233,12 +6246,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     /**
      * Sets the active input modality. No-ops when value is unchanged to avoid spurious re-renders.
-     * Flipped automatically by the pointerdown handler in NodeCanvas based on `PointerEvent.pointerType`.
+     * Flipped automatically by the pointerdown handler in NodeCanvas based on `PointerEvent.pointerType`,
+     * and by useGamepad when a controller is actually used.
      *
-     * @param {'mouse'|'touch'} mode
+     * @param {'mouse'|'touch'|'gamepad'} mode
      */
     setInputMode: (mode) => {
-      if (mode !== 'mouse' && mode !== 'touch') return;
+      if (mode !== 'mouse' && mode !== 'touch' && mode !== 'gamepad') return;
       if (get().inputMode === mode) return;
       set(produce((draft) => { draft.inputMode = mode; }));
     },
@@ -6686,6 +6700,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       try {
         localStorage.setItem('redstring_node_lift_delay', String(v));
       } catch (_) { }
+    })),
+
+    /**
+     * Sets the active game controller scheme. Persists to localStorage.
+     * @param {'default'} scheme
+     */
+    setGamepadScheme: (scheme) => set(produce((draft) => {
+      const allowed = ['default'];
+      if (!allowed.includes(scheme)) {
+        console.warn(`[setGamepadScheme] Invalid scheme: ${scheme}`);
+        return;
+      }
+      if (!draft.gamepadSettings) draft.gamepadSettings = { scheme: 'default' };
+      draft.gamepadSettings.scheme = scheme;
+      try { localStorage.setItem('redstring_gamepad_scheme', scheme); } catch (_) { }
     })),
 
     /**

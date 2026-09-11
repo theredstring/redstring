@@ -19,6 +19,7 @@ import EdgeGlowIndicator from './components/EdgeGlowIndicator.jsx'; // Import th
 import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToCivilization component
 import DownloadAppPill from './DownloadAppPill.jsx';
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
+import GamepadCrosshair from './components/GamepadCrosshair.jsx'; // Controller-mode reticle
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from './services/textMeasurement.js';
 import { peekLabelSprite, requestLabelSprite, peekGlyphSprite, requestGlyphSprite, onSpritesReady, spritesUsable, hydrateLabelSprites, glyphQuadAt, GLYPH_SPRITE_LAYERS, spriteScaleForZoom } from './services/labelSpriteCache.js';
@@ -122,6 +123,7 @@ import { useNodeActions } from './hooks/useNodeActions';
 import { useControlPanelActions } from './hooks/useControlPanelActions';
 import { useGraphLayout } from './hooks/useGraphLayout';
 import { useCanvasKeyboard } from './hooks/useCanvasKeyboard';
+import { useGamepad } from './hooks/useGamepad';
 import { useCanvasTransform } from './hooks/useCanvasTransform';
 import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
@@ -7407,6 +7409,22 @@ function NodeCanvas() {
     carouselViewAnimRef.current = requestAnimationFrame(step);
   }, [setPanAndZoom, panOffsetRef, zoomLevelRef, isAnimatingZoomRef]);
 
+  /**
+   * Abandons an in-flight animateCanvasView, leaving the view wherever it got
+   * to. Needed because an animated camera move and a live pan both write
+   * panOffsetRef — if a gesture starts mid-animation the two fight, and the
+   * animation wins every frame it runs since it interpolates from its own
+   * captured start point. The controller's auto-aim drift calls this the
+   * instant the stick moves, so a nudge during the drift takes over cleanly
+   * rather than being dragged back.
+   */
+  const cancelCanvasViewAnimation = useCallback(() => {
+    if (!carouselViewAnimRef.current) return;
+    cancelAnimationFrame(carouselViewAnimRef.current);
+    carouselViewAnimRef.current = null;
+    isAnimatingZoomRef.current = false;
+  }, [isAnimatingZoomRef]);
+
   // Center on open. On close we intentionally leave the canvas where it is —
   // the carousel framing becomes the new resting view rather than snapping back.
   useEffect(() => {
@@ -13352,6 +13370,86 @@ function NodeCanvas() {
   }, []);
 
   // Integrated keyboard handling via custom hook
+  // --- Game controller -------------------------------------------------------
+  // Ref mirrors of the values the controller tick reads every frame. They exist
+  // so the tick never has to be rebuilt (and so the rAF that calls it never has
+  // to re-subscribe) when any of these change.
+  const isPausedRef = useRef(isPaused);
+  isPausedRef.current = isPaused;
+  const activeGraphIdRef = useRef(activeGraphId);
+  activeGraphIdRef.current = activeGraphId;
+  const pieMenuButtonsRef = useRef(targetPieMenuButtons);
+  pieMenuButtonsRef.current = targetPieMenuButtons;
+  const pieMenuPageCountRef = useRef(1);
+  pieMenuPageCountRef.current = nodePieMenuPages.length;
+  const pieMenuNodeIdRef = useRef(null);
+  pieMenuNodeIdRef.current = selectedNodeIdForPieMenu;
+  // The controller drops a carried node through the real release path rather
+  // than a parallel one, so group-drop detection, click suppression and the
+  // save signalling all behave exactly as they do for a mouse. handleMouseUp
+  // only ever reads clientX/clientY off its argument, so a plain object does.
+  const releasePointerRef = useRef(null);
+  releasePointerRef.current = handleMouseUp;
+  // Left trigger draws a connection. beginConnectionDrawFromNode refuses unless
+  // the pointer has left the source node OR the gesture began on it — with a
+  // mouse those are the two ways a drag can look. The crosshair is sitting dead
+  // on the node when the trigger goes down, so this is the second case, and
+  // saying so is what lets the same function serve the controller. The draw
+  // then tracks the crosshair as the canvas pans, and releasing over another
+  // node lands the edge through the ordinary release path.
+  const startConnectionFromNodeRef = useRef(null);
+  startConnectionFromNodeRef.current = (instanceId, clientX, clientY) => {
+    startedOnNode.current = true;
+    return beginConnectionDrawFromNode(instanceId, clientX, clientY);
+  };
+
+  const {
+    gamepadTickRef,
+    gamepadActive,
+    pieFocusedIndex: gamepadPieFocusedIndex,
+    headerFocusedGraphId: gamepadHeaderFocusedGraphId,
+  } = useGamepad({
+    containerRef,
+    viewportBoundsRef,
+    panOffsetRef,
+    zoomLevelRef,
+    canvasSizeRef,
+    mousePositionRef,
+    nodesRef,
+    visibleNodeIdsRef,
+    startDragForNodeRef: nodeDrag.startDragForNodeRef,
+    draggingNodeInfoRef: nodeDrag.draggingNodeInfoRef,
+    dragPhaseRef: nodeDrag.dragPhaseRef,
+    releasePointerRef,
+    startConnectionFromNodeRef,
+    drawingConnectionFromRef,
+    setSelectedInstanceIds,
+    commitHoverTarget,
+    clearHoverImmediate,
+    pieMenuButtonsRef,
+    pieMenuPageCountRef,
+    pieMenuNodeIdRef,
+    setPieMenuPage,
+    onPieMenuHoverChange: handlePieMenuHoverChange,
+    animateCanvasView,
+    cancelCanvasViewAnimation,
+    isPausedRef,
+    activeGraphIdRef,
+    minZoom: MIN_ZOOM,
+    maxZoom: MAX_ZOOM,
+  });
+
+  // Raise the pie-menu label chip for whichever bubble the controller is
+  // aiming at, so a stick-aimed menu shows the same chip a moused one does.
+  // Driven from here rather than from inside the tick because it depends on
+  // targetPieMenuButtons, which is rebuilt a commit AFTER the selection that
+  // opened the menu — the tick would chip the previous node's buttons.
+  useEffect(() => {
+    if (gamepadPieFocusedIndex < 0) return;
+    const btn = targetPieMenuButtons?.[gamepadPieFocusedIndex];
+    handlePieMenuHoverChange(btn ? { id: btn.id, label: btn.label } : null);
+  }, [gamepadPieFocusedIndex, targetPieMenuButtons, handlePieMenuHoverChange]);
+
   useCanvasKeyboard({
     activeGraphId,
     storeActions,
@@ -13389,6 +13487,7 @@ function NodeCanvas() {
     isAnimatingZoomRef,
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
+    gamepadTickRef,
     isPaused,
     nodeNamePrompt,
     connectionNamePrompt,
@@ -15417,6 +15516,7 @@ function NodeCanvas() {
         onEditingStateChange={setIsHeaderEditing}
         headerGraphs={headerGraphs}
         onSetActiveGraph={storeActions.setActiveGraph}
+        gamepadFocusedGraphId={gamepadHeaderFocusedGraphId}
         onCreateNewThing={() => storeActions.createNewGraph({ name: 'New Thing' })}
         onOpenComponentSearch={() => setHeaderSearchVisible(true)}
         onOpenAllThingsSearch={() => setHeaderAllThingsSearchVisible(true)}
@@ -17328,6 +17428,7 @@ function NodeCanvas() {
                               (!abstractionCarouselVisible && !(previewingNodeId && previewingNodeId === selectedNodeIdForPieMenu)) ? nodePieMenuPages.length : 1}
                             currentPage={pieMenuPage}
                             onPageChange={setPieMenuPage}
+                            focusedButtonIndex={gamepadPieFocusedIndex}
                             isVisible={(
                               currentPieMenuData?.node?.id === selectedNodeIdForPieMenu &&
                               // Orbit owns the screen while it is up. Hiding via
@@ -17926,6 +18027,15 @@ function NodeCanvas() {
                 hoveredConnection={hoveredConnectionForVision}
                 activePieMenuItem={activePieMenuItemForVision}
                 zoomLevel={zoomLevel}
+              />
+
+              {/* The controller's cursor. Centred on the usable viewport, which
+                  is also where zoom is anchored, so the world scales under it
+                  without sliding. */}
+              <GamepadCrosshair
+                visible={gamepadActive}
+                viewportBounds={viewportBounds}
+                headerHeight={headerHeight}
               />
             </>
           )}

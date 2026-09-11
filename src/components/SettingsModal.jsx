@@ -147,6 +147,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const trackpadPanGlideStrength = useGraphStore(s => s.touchSettings?.trackpadPanGlideStrength ?? TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT);
   const mouseGlideStrength = useGraphStore(s => s.mouseSettings?.glideStrength ?? 0.5);
   const nodeLiftDelay = useGraphStore(s => s.mouseSettings?.nodeLiftDelay ?? 250);
+  const gamepadScheme = useGraphStore(s => s.gamepadSettings?.scheme ?? 'default');
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
   const touchPinchGlideEnabled = useGraphStore(s => s.touchSettings?.pinchGlideEnabled ?? true);
   const touchPinchGlideStrength = useGraphStore(s => s.touchSettings?.pinchGlideStrength ?? 0.5);
@@ -938,6 +939,29 @@ const SettingsModal = ({ isVisible, onClose }) => {
               suffix="x"
               disabled={!focusOnSelectEnabled}
               onChange={(v) => useGraphStore.getState().setFocusOnSelectZoomAmount?.(v)}
+            />
+          </div>
+
+          <hr className="settings-section-divider" />
+
+          {/* A connected controller switches the canvas into a discrete mode —
+              a fixed screen-centre crosshair that the world moves under, rather
+              than a pointer moving over a still world. Nothing here turns that
+              on: it engages the moment a pad is actually used and hands back to
+              the mouse as soon as the mouse moves. Only the scheme is a choice,
+              and there is exactly one of those so far. */}
+          <div className="settings-section-subtitle">Controller</div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Control Scheme
+              <div className="settings-row-description">Button layout for a connected game controller. Controller mode engages automatically when you use one.</div>
+            </div>
+            <OptionGroup
+              options={[
+                { label: 'Default', value: 'default' }
+              ]}
+              value={gamepadScheme || 'default'}
+              onChange={(v) => useGraphStore.getState().setGamepadScheme?.(v)}
             />
           </div>
         </div>

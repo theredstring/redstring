@@ -139,3 +139,27 @@ button:hover {
     background-color: #f9f9f9;
   }
 }
+
+/* --- Game controller focus on header buttons ---------------------------
+   The walker in utils/gamepadMenuNav.js synthesises mouseenter as it moves, so
+   Header's own inline hover styling (scale + drop shadow on .header-btn-circle)
+   already fires. This adds the ring that says "focused" rather than merely
+   "hovered". It has to be an outline, not a box-shadow: Header writes boxShadow
+   inline, and an inline style would win. */
+.header-action-btn.gamepad-menu-focus .header-btn-circle,
+.header-hamburger-button.gamepad-menu-focus .header-btn-circle {
+  outline: 3px solid #bdb5b5;
+  outline-offset: 2px;
+}
+
+/* --- Controller mode hides the mouse pointer ---------------------------
+   The crosshair is the cursor while a controller is driving; a second pointer
+   that aims at nothing only competes with it. The `*` is needed because the
+   app sets `cursor` on lots of individual elements (nodes, resizers, buttons),
+   and a rule on body alone loses to every one of them. The class is removed on
+   the first real mouse movement, so the pointer is never missing when it is
+   the thing actually in use. */
+body.gamepad-cursor-hidden,
+body.gamepad-cursor-hidden * {
+  cursor: none !important;
+}

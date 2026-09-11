@@ -82,6 +82,10 @@ const Header = ({
   onOpenForceSim,
   onAutoLayoutGraph,
   onCondenseNodes,
+  // Open-web tab the game controller's header mode is outlining, or null.
+  // Only ever non-null while that mode is active, so the tabs draw no outline
+  // during ordinary mouse use.
+  gamepadFocusedGraphId = null,
 }) => {
   const theme = useTheme();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -589,8 +593,11 @@ const Header = ({
           zIndex: 1000,
         }}
       >
-        {/* The button stays in the header */}
+        {/* The button stays in the header. The class is a handle for the game
+            controller, which opens this menu by clicking it rather than by
+            reaching into Header's local isMenuOpen state. */}
         <img
+          className="header-logo-button"
           src={logos[currentLogoIndex]}
           alt=""
           style={{
@@ -764,6 +771,7 @@ const Header = ({
           ].map((action) => (
             <div
               key={action.key}
+              className="header-action-btn"
               title={action.title}
               style={{
                 height: `${HEADER_HEIGHT}px`,
@@ -860,6 +868,7 @@ const Header = ({
                   onSelect={() => { }}
                   onDoubleClick={handleTitleDoubleClick}
                   isActive={true}
+                  isGamepadFocused={gamepadFocusedGraphId === graph.id}
                   hideText={isEditing}
                   dynamicMaxWidth={activeTabMaxWidth}
                 />
@@ -906,6 +915,7 @@ const Header = ({
               graph={graph}
               onSelect={onSetActiveGraph}
               isActive={false}
+              isGamepadFocused={gamepadFocusedGraphId === graph.id}
             />
           );
         })}
@@ -938,6 +948,7 @@ const Header = ({
           ].map((action) => (
             <div
               key={action.key}
+              className="header-action-btn"
               title={action.title}
               style={{
                 height: `${HEADER_HEIGHT}px`,
@@ -1011,8 +1022,11 @@ const Header = ({
           zIndex: 10003,
         }}
       >
-        {/* Hamburger trigger */}
+        {/* Hamburger trigger. Classed so the game controller can open the
+            collapsed action column the same way a tap does — see
+            utils/gamepadMenuNav.js. */}
         <div
+          className="header-hamburger-button"
           title={isHamburgerOpen ? 'Close Menu' : 'Open Menu'}
           style={{
             height: `${HEADER_HEIGHT}px`,
@@ -1115,6 +1129,7 @@ const Header = ({
             return (
               <div
                 key={action.key}
+                className="header-action-btn"
                 title={action.title}
                 style={{
                   height: `${HEADER_HEIGHT}px`,

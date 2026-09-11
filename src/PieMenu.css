@@ -125,7 +125,10 @@
   transform: scale(1);
   transition: transform 0.15s ease;
 }
-.pie-bubble-hover:hover {
+.pie-bubble-hover:hover,
+/* A game controller aims with a stick, not a pointer, so there is no :hover to
+   fire. Same grow, driven by a class instead. */
+.pie-bubble-hover.gamepad-focused {
   transform: scale(1.10);
 }
 

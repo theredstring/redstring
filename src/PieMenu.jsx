@@ -58,6 +58,10 @@ const PieMenu = ({
   pageCount = 1, // number of selectable pages; chevrons render only when > 1
   currentPage = 0, // active page index
   onPageChange = null, // (nextPageIndex) => void — invoked by the ◀ / ▶ chevrons
+  // Index of the bubble a game controller is aiming at, or -1. Drives the same
+  // grow the mouse gets on hover; NodeCanvas raises the label chip in step, so
+  // aiming with a stick looks exactly like hovering with a pointer.
+  focusedButtonIndex = -1,
 }) => {
   const pieMenuScale = useGraphStore(s => s.textSettings?.pieMenuScale ?? 1.0);
 
@@ -762,7 +766,10 @@ const PieMenu = ({
               >
                 {/* Hover-grow wrapper: nested so its scale transition does not fight the
                     pop/shrink transform on the parent. */}
-                <g className="pie-bubble-hover">
+                {/* A controller has no pointer to hover with, so the focused
+                    bubble borrows the mouse's own grow via a class rather than
+                    a second, divergent treatment. */}
+                <g className={`pie-bubble-hover${index === focusedButtonIndex ? ' gamepad-focused' : ''}`}>
                   <circle
                     cx="0"
                     cy="0"

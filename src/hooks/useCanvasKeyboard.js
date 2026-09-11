@@ -60,6 +60,13 @@ export const useCanvasKeyboard = ({
     isAnimatingZoomRef,
     minZoom, // dynamic MIN_ZOOM from NodeCanvas — must match wheel/trackpad clamp
     maxZoom, // dynamic MAX_ZOOM from NodeCanvas — must match wheel/trackpad clamp
+    // Game controller tick, called once per frame from this loop rather than
+    // from a second rAF of its own. Pan/zoom are ref-owned and written straight
+    // to the DOM, and the codebase keeps exactly ONE writer per frame (see the
+    // header note in useCanvasTransform.js) — so the gamepad returns deltas and
+    // this loop folds them in alongside the keyboard's, inheriting the clamp,
+    // the label suppression, the drag re-projection and the settle bookkeeping.
+    gamepadTickRef,
     // UI State flags
     isPaused,
     nodeNamePrompt,
@@ -118,6 +125,7 @@ export const useCanvasKeyboard = ({
         isAnimatingZoomRef,
         minZoom,
         maxZoom,
+        gamepadTickRef,
         // UI State flags
         isPaused,
         nodeNamePrompt,
@@ -207,7 +215,8 @@ export const useCanvasKeyboard = ({
                 viewportBounds,
                 keyboardSettings,
                 minZoom,
-                maxZoom
+                maxZoom,
+                gamepadTickRef
             } = params;
 
             // Match the wheel/trackpad zoom bounds (dynamic MIN_ZOOM/MAX_ZOOM from
@@ -240,6 +249,12 @@ export const useCanvasKeyboard = ({
             // reference frame rate for speed constants
             const frameRatio = deltaTime * 60;
 
+            // Poll the controller before anything else reads the frame. It also
+            // dispatches its own discrete button actions (selection, pie menu,
+            // panels) as a side effect and returns only the analog movement,
+            // which folds in below exactly like a held key would.
+            const gamepad = gamepadTickRef?.current?.(deltaTime, frameRatio);
+
             // Calculate movement (use lowercase only to avoid shift conflicts)
             let panDx = 0, panDy = 0;
             const panSensitivity = keyboardSettings?.panSensitivity ?? 0.5;
@@ -249,6 +264,11 @@ export const useCanvasKeyboard = ({
             if (keysPressed.current['ArrowRight'] || keysPressed.current['d']) panDx -= currentPanSpeed;
             if (keysPressed.current['ArrowUp'] || keysPressed.current['w']) panDy += currentPanSpeed;
             if (keysPressed.current['ArrowDown'] || keysPressed.current['s']) panDy -= currentPanSpeed;
+
+            if (gamepad) {
+                panDx += gamepad.panDx;
+                panDy += gamepad.panDy;
+            }
 
             let didMove = false;
 
@@ -281,6 +301,9 @@ export const useCanvasKeyboard = ({
                 let zoomMultiplier = 1;
                 if (keysPressed.current[' ']) zoomMultiplier = 1 / timeAdjustedZoomFactor; // Space = zoom out
                 if (keysPressed.current['Shift']) zoomMultiplier = timeAdjustedZoomFactor; // Shift = zoom in
+                // The right stick multiplies in rather than overriding, so a key
+                // and the stick held together compound instead of one winning.
+                if (gamepad && gamepad.zoomMultiplier !== 1) zoomMultiplier *= gamepad.zoomMultiplier;
 
                 if (zoomMultiplier !== 1) {
                     const prevZoom = zoomLevelRef.current;
