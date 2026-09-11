@@ -773,6 +773,7 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       nodePrototypes = new Map(),
       edges = new Map(),
       edgePrototypes = new Map(),
+      graphViews = new Map(),
       openGraphIds = [],
       activeGraphId = null,
       activeDefinitionNodeId = null,
@@ -789,6 +790,8 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
   // Three-Layer Architecture: Export Spatial Graphs with Instance Collections
   const spatialGraphs = {};
   graphs.forEach((graph, graphId) => {
+    // Live viewport for this graph, if the camera has moved since load.
+    const graphView = graphViews instanceof Map ? graphViews.get(graphId) : graphViews?.[graphId];
     // Export instances as positioned individuals with rdf:type relationships
     const spatialInstances = {};
     if (graph.instances) {
@@ -857,9 +860,16 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       ...(graph.picture != null ? { "redstring:picture": graph.picture } : {}),
       ...(graph.createdAt != null ? { "redstring:createdAt": graph.createdAt } : {}),
 
-      // Viewport state for this graph
-      "redstring:panOffset": graph.panOffset || { x: 0, y: 0 },
-      "redstring:zoomLevel": typeof graph.zoomLevel === 'number' ? graph.zoomLevel : 1.0,
+      // Viewport state for this graph.
+      //
+      // Live pan/zoom lives in the store's graphViews slice, not on the graph —
+      // see graphViews in graphStore's initial state. The graph's own fields are
+      // whatever was last imported, so they are the fallback for a graph the
+      // user has not moved this session. The emitted shape is unchanged.
+      "redstring:panOffset": (graphView?.panOffset) || graph.panOffset || { x: 0, y: 0 },
+      "redstring:zoomLevel": typeof graphView?.zoomLevel === 'number'
+        ? graphView.zoomLevel
+        : (typeof graph.zoomLevel === 'number' ? graph.zoomLevel : 1.0),
       
       // Spatial instances collection
       "redstring:instances": spatialInstances,

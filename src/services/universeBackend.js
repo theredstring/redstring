@@ -1384,9 +1384,22 @@ class UniverseBackend {
                       const currentGraphs = current?.graphs;
                       if (activeGraphId && currentGraphs && (currentGraphs instanceof Map ? currentGraphs.has(activeGraphId) : currentGraphs[activeGraphId])) {
                         const currentGraph = currentGraphs instanceof Map ? currentGraphs.get(activeGraphId) : currentGraphs[activeGraphId];
-                        const prevPan = currentGraph?.panOffset;
-                        const prevZoom = currentGraph?.zoomLevel;
+                        // Live viewport is the graphViews slice; the graph's own
+                        // fields are the fallback for a graph whose camera has
+                        // not moved since it was loaded. See graphViews in
+                        // graphStore.
+                        const currentView = current?.graphViews instanceof Map
+                          ? current.graphViews.get(activeGraphId)
+                          : null;
+                        const prevPan = currentView?.panOffset ?? currentGraph?.panOffset;
+                        const prevZoom = typeof currentView?.zoomLevel === 'number'
+                          ? currentView.zoomLevel
+                          : currentGraph?.zoomLevel;
                         if (prevPan && typeof prevZoom === 'number') {
+                          // Carry it on the incoming graph AND the incoming
+                          // viewport slice: the graph copy is what a subsequent
+                          // export falls back to, the slice is what the canvas
+                          // actually restores from.
                           const nextGraphs = bgState.graphs;
                           if (nextGraphs) {
                             if (nextGraphs instanceof Map) {
@@ -1400,6 +1413,8 @@ class UniverseBackend {
                               nextGraphs[activeGraphId].zoomLevel = prevZoom;
                             }
                           }
+                          if (!(bgState.graphViews instanceof Map)) bgState.graphViews = new Map();
+                          bgState.graphViews.set(activeGraphId, { panOffset: prevPan, zoomLevel: prevZoom });
                         }
                       }
                     } catch (_) {

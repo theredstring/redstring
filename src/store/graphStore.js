@@ -1326,6 +1326,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
   return {
     // Initialize with completely empty state - universe file is required
     graphs: new Map(),
+
+    // PER-GRAPH VIEWPORT, HELD OUTSIDE THE GRAPH OBJECTS.
+    //
+    // Map<graphId, { panOffset: {x, y}, zoomLevel: number }>. Pan and zoom used
+    // to live on the graph itself, which meant persisting them ran an Immer
+    // produce over `draft.graphs` — replacing the whole graphs Map, whose
+    // identity NodeCanvas subscribes to. Every settled gesture therefore cost a
+    // full canvas re-render ~300ms after it ended, purely to record where the
+    // camera was pointing.
+    //
+    // Nothing renders from this slice reactively: NodeCanvas reads it
+    // imperatively when restoring a graph's view, and the exporter reads it when
+    // writing a file. The on-disk format is unchanged — viewport is still
+    // serialised per graph — so this is invisible outside the store.
+    graphViews: new Map(),
     // Prototypes explicitly protected from cleanup (e.g., local Orbit catalog)
     protectedPrototypeIds: new Set(),
     nodePrototypes: (() => {
@@ -7587,6 +7602,27 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
         sanitizeStoreStateReferences(storeState);
 
+        // Lift the imported per-graph viewport into the graphViews slice. The
+        // file format still carries pan/zoom on each graph, and the importer
+        // still puts it there — this is the one place it becomes live state, so
+        // that updateGraphView never has to touch the graphs Map. See graphViews
+        // in the initial state for why.
+        try {
+          const views = new Map();
+          const incoming = storeState.graphs;
+          if (incoming instanceof Map) {
+            for (const [id, g] of incoming) {
+              if (g?.panOffset && typeof g.zoomLevel === 'number') {
+                views.set(id, { panOffset: g.panOffset, zoomLevel: g.zoomLevel });
+              }
+            }
+          }
+          storeState.graphViews = views;
+        } catch (e) {
+          console.warn('[graphStore] Failed to derive graphViews during load:', e);
+          storeState.graphViews = new Map();
+        }
+
         // Mark this as a load operation so SaveCoordinator doesn't treat it as a new edit
         // The incoming universe has entirely different IDs, so every patch on
         // the stack now points at state that no longer exists. Without this,
@@ -7868,6 +7904,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       api.setChangeContext({ type: 'clear-universe' });
       return set(() => ({
       graphs: new Map(),
+      graphViews: new Map(),
       nodePrototypes: new Map(),
       edges: new Map(),
       pendingDeletions: new Map(),
@@ -7920,12 +7957,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       debugLogSync('graphStore.js:updateGraphView', 'updateGraphView called', { graphId, zoomLevel: zoomLevel?.toFixed?.(3) }, 'debug-session', 'C');
       // #endregion
       api.setChangeContext({ type: 'viewport', target: 'graph' });
+      // Writes the viewport slice, NOT the graph — see graphViews in the initial
+      // state. Touching draft.graphs here would replace the graphs Map and
+      // re-render the whole canvas for a camera position nothing reactive reads.
       set(produce((draft) => {
-        const graph = draft.graphs.get(graphId);
-        if (graph) {
-          graph.panOffset = panOffset;
-          graph.zoomLevel = zoomLevel;
-        }
+        if (!draft.graphs.has(graphId)) return;
+        if (!draft.graphViews) draft.graphViews = new Map();
+        draft.graphViews.set(graphId, { panOffset, zoomLevel });
       }));
     },
 

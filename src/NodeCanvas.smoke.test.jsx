@@ -328,6 +328,60 @@ describe('NodeCanvas render smoke', () => {
     window.__edgeCache = false;
   });
 
+  // The imperative painter writes the edge subtree to the DOM itself, so its
+  // output has to match React's exactly — useNodeDrag finds those elements by
+  // selector and writes to them every frame.
+  it('painter-rendered edges match React-rendered ones', async () => {
+    const edgeDom = () => Array.from(document.querySelectorAll('[data-edge-id]'))
+      .map((el) => `${el.getAttribute('data-edge-id')}\n${el.outerHTML}`)
+      .sort()
+      .join('\n\n');
+
+    const capture = async (painterOn) => {
+      window.__edgePainter = painterOn;
+      seedStore();
+      renderCanvas();
+      flushFrames(3);
+      await waitFor(() => {
+        expect(document.querySelectorAll('[data-edge-id]')).toHaveLength(2);
+      });
+      // An async bootstrap effect settles after mount and flips hasUniverseFile
+      // false, which unmounts the canvas. Pin it open and take a settled commit
+      // before capturing, or the comparison races that teardown.
+      const holdUniverseOpen = () => useGraphStore.setState({
+        isUniverseLoading: false, isUniverseLoaded: true,
+        hasUniverseFile: true, universeLoadingError: null,
+      }, false, 'smoke_hold_gate');
+
+      act(() => { holdUniverseOpen(); });
+      flushFrames(2);
+      const initial = edgeDom();
+
+      act(() => {
+        holdUniverseOpen();
+        useGraphStore.getState().updateNodeInstance('g1', 'i2', (inst) => {
+          inst.x = 900; inst.y = 250;
+        });
+      });
+      flushFrames(2);
+      const afterMove = edgeDom();
+
+      cleanup();
+      return { initial, afterMove };
+    };
+
+    const viaReact = await capture(false);
+    const viaPainter = await capture(true);
+    window.__edgePainter = false;
+
+    expect(viaReact.initial.length).toBeGreaterThan(0);
+    expect(viaPainter.initial).toBe(viaReact.initial);
+
+    // And it must track an update, not just a first paint.
+    expect(viaReact.afterMove).not.toBe(viaReact.initial);
+    expect(viaPainter.afterMove).toBe(viaReact.afterMove);
+  });
+
   it('keeps edges inside the pan/zoom content group', async () => {
     renderCanvas();
     flushFrames(3);
