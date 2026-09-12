@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import useGraphStore from '../store/graphStore.js';
 import { isInsideNode } from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
@@ -229,6 +230,39 @@ const ZERO_TICK = { panDx: 0, panDy: 0, zoomMultiplier: 1 };
 export const cameraHeldElsewhere = (isAnimatingZoom, dragPhase) => (
   isAnimatingZoom === true || dragPhase === 'finalizing' || dragPhase === 'restoring'
 );
+
+/**
+ * Run a gesture transition the way a mouse button would run it: committed to
+ * the DOM before the next paint.
+ *
+ * THIS IS THE DROP FLICKER. A drag hands the node between two renderers — the
+ * drag writes an inline transform every frame, and the release clears that
+ * transform and flushes the final position into the store for React to render.
+ * Those two steps have to land in the same frame or the node paints for a
+ * moment at neither position: transform gone, new position not committed yet,
+ * so it snaps back to where it was picked up and then jumps to where it was
+ * dropped. It always LANDS correctly; it just shows the seam on the way.
+ *
+ * A mouse never shows it, and not by luck. `mouseup` is a discrete event, so
+ * React 18 flushes anything it schedules synchronously before the browser
+ * paints. The pad's release is dispatched from inside the rAF loop, which
+ * React cannot know is discrete input — the update gets ordinary priority, the
+ * scheduler is free to yield, and on a big graph the re-render is exactly the
+ * kind of work it yields on. Hence one to five frames, and hence "occasional":
+ * it depends on how much React had to do that frame.
+ *
+ * flushSync says explicitly what the event system infers for a mouse. It is
+ * used ONLY for the handful of gesture edges that cross this seam — a lift, a
+ * drop, the start and end of a connection — never per frame. Selection and
+ * menu changes deliberately do not use it: a frame of latency there is
+ * invisible, and a synchronous render on every button would be real cost for
+ * no gain.
+ */
+const asDiscreteInput = (fn) => {
+  let result;
+  flushSync(() => { result = fn(); });
+  return result;
+};
 
 /**
  * Radial deadzone plus response curve. Returns a vector whose magnitude is 0
@@ -1212,7 +1246,7 @@ export const useGamepad = ({
     // still governs the mouse and only the mouse.
     if (!inMenuMode) {
       if (buttons.justPressed[BTN.RT] && nodeUnderCrosshair && !carryingRef.current) {
-        p.startDragForNodeRef?.current?.(nodeUnderCrosshair, cross.x, cross.y);
+        asDiscreteInput(() => p.startDragForNodeRef?.current?.(nodeUnderCrosshair, cross.x, cross.y));
         carryingRef.current = true;
       } else if (buttons.justReleased[BTN.RT] && carryingRef.current) {
         carryingRef.current = false;
@@ -1221,8 +1255,10 @@ export const useGamepad = ({
         // see suppressAutoAimRef.
         suppressAutoAimRef.current = true;
         // Reuse the real release path so group-drop detection and the save
-        // signalling behave exactly as they do for a mouse drop.
-        p.releasePointerRef?.current?.({ clientX: cross.x, clientY: cross.y });
+        // signalling behave exactly as they do for a mouse drop — including,
+        // via asDiscreteInput, committing in the same frame the way a real
+        // mouseup does.
+        asDiscreteInput(() => p.releasePointerRef?.current?.({ clientX: cross.x, clientY: cross.y }));
       }
 
       // ---- Left trigger: draw a connection ------------------------------
@@ -1231,16 +1267,16 @@ export const useGamepad = ({
       // frame the canvas moves — the host loop already does that for any draw
       // in flight, and the crosshair is what it reads as the pointer.
       if (buttons.justPressed[BTN.LT] && nodeUnderCrosshair && !connectingRef.current && !carryingRef.current) {
-        connectingRef.current = !!p.startConnectionFromNodeRef?.current?.(
+        connectingRef.current = !!asDiscreteInput(() => p.startConnectionFromNodeRef?.current?.(
           nodeUnderCrosshair.id, cross.x, cross.y
-        );
+        ));
         connectStartedAtRef.current = now;
       } else if (buttons.justReleased[BTN.LT] && connectingRef.current) {
         connectingRef.current = false;
         // Same release path as the drop: it is the one that decides whether the
         // gesture landed on a node, makes the edge, and discards the draw if it
         // did not.
-        p.releasePointerRef?.current?.({ clientX: cross.x, clientY: cross.y });
+        asDiscreteInput(() => p.releasePointerRef?.current?.({ clientX: cross.x, clientY: cross.y }));
       }
 
       // A draw can also end from outside this hook (Escape, an abandon path).

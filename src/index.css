@@ -184,6 +184,26 @@ body.gamepad-cursor-hidden * {
   outline-offset: 3px;
 }
 
+/* --- Controller focus in the colour picker -----------------------------
+   The picker's rows are three sliders, the eyedropper and the hex field, and
+   the three sliders are the problem: they are the same shape in the same
+   column, so without a ring there is nothing at all to say which one the
+   stick is about to drive. Every other focus treatment in the app leans on
+   the hover styling the walker synthesises; a native range input has none to
+   lean on, which is why this one has to carry the whole signal itself.
+
+   Offset outward, and further on the sliders: their thumb is 20px and stands
+   proud of the track, so a tighter ring would be half-hidden behind it. */
+.color-picker-panel .gamepad-menu-focus {
+  outline: 3px solid #bdb5b5;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.color-picker-panel input[type="range"].gamepad-menu-focus {
+  outline-offset: 5px;
+}
+
 /* --- Controller focus inside the panels --------------------------------
    Panel rows are discovered rather than declared (see gamepadMenuNav's
    `pointer` surfaces), so this can't name them — it rings whatever the walker

@@ -16533,45 +16533,7 @@ function NodeCanvas() {
                             groupLongPressTimeout.current = setTimeout(() => {
                               if (drawingConnectionFrom) return;
                               setLongPressingInstanceId(null);
-                              const rect = containerRef.current.getBoundingClientRect();
-                              const mouseCanvasX = (downX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-                              const mouseCanvasY = (downY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
-                              const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
-                              if (group.anchorInstanceId) {
-                                const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
-                                if (anchorNode) {
-                                  offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
-                                }
-                              }
-                              // Empty node-group placeholder: track its own independent position
-                              // (never the anchor's) so it drags live using the exact same
-                              // offset-preserving math as a real member — see groupLayout.js for
-                              // why deriving it from the anchor's position doesn't work.
-                              if (isNodeGroup && !(group.memberInstanceIds?.length > 0) && group.emptyPlaceholderOrigin) {
-                                offsets.push({
-                                  id: placeholderIdForGroup(group.id),
-                                  dx: mouseCanvasX - group.emptyPlaceholderOrigin.x,
-                                  dy: mouseCanvasY - group.emptyPlaceholderOrigin.y
-                                });
-                              }
-                              // Nested EMPTY child groups ride along too: their box position
-                              // lives in emptyPlaceholderOrigin (no member instance to move),
-                              // so without an explicit placeholder offset a parent drag would
-                              // leave their shells behind. Non-empty children need nothing —
-                              // their members are already in the parent's offset list.
-                              const nestedChildIds = childGroupIdsByGroupIdRef.current.get(group.id);
-                              if (nestedChildIds) {
-                                nestedChildIds.forEach(childId => {
-                                  const childGroup = groupsByIdRef.current.get(childId);
-                                  if (!childGroup || childGroup.memberInstanceIds?.length > 0 || !childGroup.emptyPlaceholderOrigin) return;
-                                  offsets.push({
-                                    id: placeholderIdForGroup(childId),
-                                    dx: mouseCanvasX - childGroup.emptyPlaceholderOrigin.x,
-                                    dy: mouseCanvasY - childGroup.emptyPlaceholderOrigin.y
-                                  });
-                                });
-                              }
-                              nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
+                              startGroupDragAtPointRef.current?.(group.id, downX, downY);
                             }, nodeLiftDelay);
                           }}
                           onMouseUp={() => {

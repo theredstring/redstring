@@ -397,3 +397,55 @@ describe('walkMenu — activating a text field', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * A colour picker can be opened from the unified selector, from a pie menu's
+ * palette, or from a swatch in a panel. Only the first of those puts a button
+ * in the DOM that toggles it shut, which is why B used to do nothing in the
+ * other two.
+ */
+describe('walkMenu — closing a colour picker from anywhere', () => {
+  const mountPicker = () => {
+    const panel = document.createElement('div');
+    panel.className = 'color-picker-panel';
+    document.body.appendChild(panel);
+    return panel;
+  };
+
+  it('prefers the button that opened it, leaving the selector underneath alone', () => {
+    mountPicker();
+    const opener = document.createElement('button');
+    opener.className = 'unified-selector-color-button';
+    const openerClicks = vi.fn();
+    opener.addEventListener('click', openerClicks);
+    document.body.appendChild(sized(opener, { top: 0, left: 0, width: 30, height: 30 }));
+
+    const away = vi.fn();
+    document.addEventListener('click', away);
+    walkMenu('colorPicker').close();
+    document.removeEventListener('click', away);
+
+    expect(openerClicks).toHaveBeenCalledTimes(1);
+  });
+
+  it('clicks away when there is no such button — a picker from a pie menu or a panel', () => {
+    mountPicker();
+    // The picker's own dismissal is a document-level click listener that fires
+    // whenever the target is outside its box.
+    const outsideClicks = [];
+    const listener = (e) => outsideClicks.push(e.target);
+    document.addEventListener('click', listener);
+
+    expect(walkMenu('colorPicker').close()).toBe(true);
+    document.removeEventListener('click', listener);
+
+    expect(outsideClicks).toContain(document.body);
+  });
+
+  it('reports nothing to do for a surface with no dismissal at all', () => {
+    const grid = document.createElement('div');
+    grid.className = 'node-selection-grid-container';
+    document.body.appendChild(grid);
+    expect(walkMenu('nodeGrid').close()).toBe(false);
+  });
+});

@@ -92,12 +92,18 @@ const SELECTORS = {
     parent: null,
     opener: null,
     grid: true,
-    // The picker has no close control of its own — the button that opened it
-    // toggles it shut. So both B and Y route back to that same button, which
-    // is also what a mouse would click. A picker opened from somewhere other
-    // than the selector (a pie menu, a panel) has no such button in the DOM and
-    // simply won't close this way; that path is not wired yet.
+    // The picker has no close control of its own. When it was opened from the
+    // unified selector, the button that opened it toggles it shut, and routing
+    // B and Y back to that button is both the cleanest close and the one that
+    // leaves the selector underneath still open.
+    //
+    // Opened from anywhere else — a pie menu's palette, a panel swatch — that
+    // button is not in the DOM at all, which is why B used to do nothing there.
+    // The fallback is what a mouse does instead: click somewhere else. The
+    // picker listens on the document for any click outside its own box, from
+    // every one of its call sites, so this closes it wherever it came from.
     closer: '.unified-selector-color-button',
+    closeAway: true,
     palette: '.unified-selector-color-button',
   },
   actions: {
@@ -359,9 +365,23 @@ export const walkMenu = (kind) => {
       if (next !== Number(focused.value)) setNativeValue(focused, next);
       return true;
     },
-    /** Dismiss the surface the way a mouse would, when it has a way to be. */
+    /**
+     * Dismiss the surface the way a mouse would.
+     *
+     * A named closer is preferred where one exists, because clicking the exact
+     * control a mouse would click keeps whatever is underneath untouched. The
+     * click-away fallback is for surfaces whose only dismissal IS clicking off
+     * them; it is dispatched on `document.body` so the target is demonstrably
+     * outside the surface, which is the test those listeners apply.
+     */
     close: () => {
-      if (config.closer) document.querySelector(config.closer)?.click?.();
+      const closer = config.closer ? document.querySelector(config.closer) : null;
+      if (closer) { closer.click?.(); return true; }
+      if (config.closeAway) {
+        document.body.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        return true;
+      }
+      return false;
     },
     /**
      * Toggle this surface's colour picker, if it has one. The same button both
