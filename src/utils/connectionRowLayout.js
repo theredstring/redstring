@@ -48,26 +48,29 @@ export const PANEL_RENDERER_PADDING = 10;
 // the arrow. Plus a little air on each side of the label.
 const ARROWHEAD_REACH_PER_SCALE = 26;
 const LABEL_END_CLEARANCE = 6;
-const arrowheadReach = (boxes) => {
+const arrowheadReach = (boxes, connectionStrokeScale) => {
   if (!boxes.length) return 0;
   const avgNodeSize = boxes.reduce((sum, b) => sum + (b.width + b.height) / 2, 0) / boxes.length;
   const strokeMultiplier = Math.max(0.02, Math.min(0.08, avgNodeSize / 1000));
-  const strokeScale = RENDERER_PRESETS.CONNECTION_PANEL.connectionStrokeScale * CONNECTION_WIDTH_BASE_SCALE;
+  const strokeScale = connectionStrokeScale * CONNECTION_WIDTH_BASE_SCALE;
   const strokeWidth = Math.max(1.5, avgNodeSize * strokeMultiplier * strokeScale);
   const arrowScale = Math.min(4, Math.max(0.5, strokeWidth / 6));
   return ARROWHEAD_REACH_PER_SCALE * arrowScale;
 };
-// The least label room a gap may shrink to (on screen, between the arrowheads)
-// before the boxes start giving instead — enough for a word or a clipped one.
-const GAP_MIN_LABEL_PX = 56;
-// Air around the label when the row has room to give it, in total across both
-// sides. This is what makes the connection read as a length of line with a
-// label on it rather than a label wedged between two boxes; the label alone
-// (GAP_MIN_LABEL_PX) is the floor, not the look.
-const GAP_LABEL_AIR_PX = 40;
-// A gap never grows past this however wide the row is: beyond it the two nodes
-// stop reading as connected.
-const GAP_MAX_PX = 280;
+// The label's span — the part of the gap between the arrowheads — in multiples
+// of the label font, so a preview drawn at a larger text size (the hover aid)
+// gets proportionally more line. At the 15px desktop label: 56 / 40 / 240.
+//
+// MIN: the least a span shrinks to before the boxes start giving instead —
+// enough for a word or a clipped one.
+// AIR: added around the label when the row has room. This is what makes the
+// connection read as a length of line with a label on it rather than a label
+// wedged between two boxes; the label alone is the floor, not the look.
+// MAX: a span never grows past this however wide the row is — beyond it the
+// two nodes stop reading as connected. The arrowheads sit outside it.
+const LABEL_SPAN_MIN_EM = 3.75;
+const LABEL_SPAN_AIR_EM = 2.65;
+const LABEL_SPAN_MAX_EM = 16;
 // The renderer stacks a wrapped label's lines at max(fontSize * 1.1, 26 * scale)
 // — see ConnectionText in UniversalNodeRenderer.jsx. At the label sizes in
 // PREVIEW_TEXT the first term wins, so line height is 1.1× the drawn font.
@@ -155,6 +158,8 @@ const waterFillCap = (widths, budget) => {
  * @param {string[]} [params.duplicateNodeIds] - nodes the renderer will draw a
  *   second copy of, which is how it lays out a self-loop
  * @param {boolean} [params.hasArrows] - whether either end draws an arrowhead
+ * @param {number} [params.connectionStrokeScale] - the renderer prop of the same
+ *   name the caller will pass; the arrowhead size follows it
  * @returns {{
  *   nodes: Array<object>, labels: string[], spacing: number, scale: number,
  *   labelFontScale: number, containerWidth: number, containerHeight: number
@@ -171,89 +176,114 @@ export function layoutConnectionRow({
   padding = 6,
   floors = PREVIEW_FLOOR,
   duplicateNodeIds = [],
-  hasArrows = true
+  hasArrows = true,
+  connectionStrokeScale = RENDERER_PRESETS.CONNECTION_PANEL.connectionStrokeScale
 }) {
   const boxCount = Math.max(1, sourceNodes.length + duplicateNodeIds.length);
   const gaps = Math.max(0, boxCount - 1);
   const available = Math.max(1, maxWidth - padding * 2);
+  const sum = (list) => list.reduce((total, n) => total + n, 0);
 
   // Everything below is in on-screen px unless it says "natural".
-  // The arrowhead is sized from the boxes the row will draw. The uncapped boxes
-  // at the target scale are the widest the row can end up with, and a wider box
-  // means a thicker stroke and a bigger arrowhead, so this errs on the roomy
-  // side once names are truncated.
   const targetScale = previewScaleFor(text);
-  const naturalNodes = buildConnectionPreviewNodes(sourceNodes, floors);
-  const naturalById = new Map(naturalNodes.map(n => [n.id, n]));
-  const boxesForArrow = [
-    ...naturalNodes,
-    ...duplicateNodeIds.map(id => naturalById.get(id) ?? { width: floors.width, height: floors.height })
-  ].map(n => ({ width: n.width * targetScale, height: n.height * targetScale }));
-  const arrowReach = hasArrows ? arrowheadReach(boxesForArrow) : 0;
-  const tipRoom = (scale) => arrowReach * (scale / targetScale) + LABEL_END_CLEARANCE;
-  const gapMin = (scale) => 2 * tipRoom(scale) + GAP_MIN_LABEL_PX;
+  const labelFontPx = text.labelFontPx;
+  const spanMin = LABEL_SPAN_MIN_EM * labelFontPx;
+  const spanAir = LABEL_SPAN_AIR_EM * labelFontPx;
+  const spanMax = LABEL_SPAN_MAX_EM * labelFontPx;
+
+  // The boxes as drawn, duplicates included at the width of the node they copy.
+  const boxesOnScreen = (list, scale) => {
+    const byId = new Map(list.map(n => [n.id, n]));
+    return [
+      ...list,
+      ...duplicateNodeIds.map(id => byId.get(id) ?? { width: floors.width, height: floors.height })
+    ].map(n => ({ width: n.width * scale, height: n.height * scale }));
+  };
+  // How far the arrowheads reach into the gap for these boxes, plus the air
+  // the label keeps from them. Depends on the boxes because the stroke does.
+  const tipFor = (list, scale) =>
+    (hasArrows ? arrowheadReach(boxesOnScreen(list, scale), connectionStrokeScale) : 0) + LABEL_END_CLEARANCE;
 
   // Step 5 first, because it decides the scale everything else is measured at:
   // if even floor-width boxes with floor gaps overrun the row, the target
-  // cannot be honoured and the scale drops just far enough.
-  let scale = targetScale;
+  // cannot be honoured and the scale drops just far enough. Floor boxes draw
+  // the thinnest stroke, so theirs is the smallest arrowhead a row can have.
+  const floorNodes = sourceNodes.map(n => ({ id: n.id, width: floors.width, height: floors.height }));
+  const floorReach = tipFor(floorNodes, targetScale) - LABEL_END_CLEARANCE;
   const floorsWidth = boxCount * floors.width;
-  if (floorsWidth * scale + gaps * gapMin(scale) > available) {
-    // gapMin depends on scale through the arrowheads; solve the linear form.
-    const fixed = gaps * (2 * LABEL_END_CLEARANCE + GAP_MIN_LABEL_PX);
-    const perScale = floorsWidth + gaps * 2 * (arrowReach / targetScale);
+  const gapFloorAt = (scale) => 2 * (floorReach * (scale / targetScale) + LABEL_END_CLEARANCE) + spanMin;
+  let scale = targetScale;
+  if (floorsWidth * scale + gaps * gapFloorAt(scale) > available) {
+    // The floor gap depends on scale through the arrowheads; solve the linear form.
+    const fixed = gaps * (2 * LABEL_END_CLEARANCE + spanMin);
+    const perScale = floorsWidth + gaps * 2 * (floorReach / targetScale);
     scale = Math.max(MIN_SCALE, Math.min(scale, (available - fixed) / Math.max(1, perScale)));
   }
   const labelFontScale = labelFontScaleFor(text, scale);
-  const labelFontPx = text.labelFontPx;
-  const gapFloor = gapMin(scale);
+  const gapFloor = gapFloorAt(scale);
 
-  // Step 1: the gap the label would like, and (step 2) the gap it needs — the
-  // same span minus the air.
+  // The span the label needs (step 2) and the span it would like (step 1).
   const widestLabel = labels.reduce(
     (max, label) => Math.max(max, widestLabelLine(label, labelFont(labelFontPx))),
     0
   );
-  const gapKeep = Math.min(GAP_MAX_PX, Math.max(gapFloor, Math.ceil(widestLabel + 2 * tipRoom(scale))));
-  const gapWanted = Math.min(GAP_MAX_PX, gapKeep + GAP_LABEL_AIR_PX);
+  const labelKeep = Math.min(spanMax, Math.ceil(widestLabel));
+  const labelWant = Math.min(spanMax, Math.ceil(widestLabel + spanAir));
 
-  // Natural boxes, then their on-screen widths — duplicates draw at the width of
-  // the node they copy.
-  const measure = (list) => {
-    const byId = new Map(list.map(n => [n.id, n.width]));
-    return [
-      ...list.map(n => n.width * scale),
-      ...duplicateNodeIds.map(id => (byId.get(id) ?? floors.width) * scale)
-    ];
-  };
-  let nodes = naturalNodes;
-  let widths = measure(nodes);
-  let boxesWidth = widths.reduce((sum, w) => sum + w, 0);
-  const capBoxes = (capPx) => {
-    nodes = buildConnectionPreviewNodes(sourceNodes, floors, { maxWidth: capPx / scale });
-    widths = measure(nodes);
-    boxesWidth = widths.reduce((sum, w) => sum + w, 0);
-  };
+  const naturalNodes = buildConnectionPreviewNodes(sourceNodes, floors);
+  const naturalWidths = boxesOnScreen(naturalNodes, scale).map(b => b.width);
+  const naturalBoxesWidth = sum(naturalWidths);
   const floorBoxes = floorsWidth * scale;
 
-  // Steps 1–4, in that order of concession.
-  let spacing;
-  if (gaps === 0) {
-    spacing = 0;
-  } else if (boxesWidth + gaps * gapWanted <= available) {
-    spacing = gapWanted;
-  } else if (boxesWidth + gaps * gapKeep <= available) {
-    spacing = Math.floor((available - boxesWidth) / gaps);
-  } else if (floorBoxes + gaps * gapKeep <= available) {
-    spacing = gapKeep;
-    capBoxes(waterFillCap(widths, available - gaps * gapKeep));
-  } else {
-    capBoxes(floors.width * scale);
-    spacing = Math.max(gapFloor, Math.floor((available - boxesWidth) / gaps));
+  // Steps 1–4, in that order of concession, for a given arrowhead reach.
+  // `allowNatural` false skips the two branches that keep every name whole.
+  const splitWith = (tip, allowNatural) => {
+    const gapKeep = Math.max(gapFloor, labelKeep + 2 * tip);
+    const gapWanted = Math.max(gapKeep, labelWant + 2 * tip);
+    if (gaps === 0) return { nodes: naturalNodes, spacing: 0, capped: false };
+    if (allowNatural && naturalBoxesWidth + gaps * gapWanted <= available) {
+      return { nodes: naturalNodes, spacing: Math.ceil(gapWanted), capped: false };
+    }
+    if (allowNatural && naturalBoxesWidth + gaps * gapKeep <= available) {
+      return { nodes: naturalNodes, spacing: Math.floor((available - naturalBoxesWidth) / gaps), capped: false };
+    }
+    if (floorBoxes + gaps * gapKeep <= available) {
+      const cap = waterFillCap(naturalWidths, available - gaps * Math.ceil(gapKeep));
+      return {
+        nodes: buildConnectionPreviewNodes(sourceNodes, floors, { maxWidth: cap / scale }),
+        spacing: Math.ceil(gapKeep),
+        capped: true
+      };
+    }
+    const atFloor = buildConnectionPreviewNodes(sourceNodes, floors, { maxWidth: floors.width });
+    const boxesWidth = sum(boxesOnScreen(atFloor, scale).map(b => b.width));
+    return {
+      nodes: atFloor,
+      spacing: Math.max(Math.ceil(gapFloor), Math.floor((available - boxesWidth) / gaps)),
+      capped: true
+    };
+  };
+
+  // The arrowhead follows the stroke and the stroke follows the box size, so
+  // the reach is only known once the boxes are — and the boxes depend on the
+  // reach. The uncapped boxes give the biggest arrowheads a row can have; if
+  // they do not fit, names get capped, the stroke thins, and some of the width
+  // comes back. Re-split from the boxes actually drawn until it settles, never
+  // returning to whole names on the strength of a smaller arrowhead they would
+  // not in fact have.
+  let row = splitWith(tipFor(naturalNodes, scale), true);
+  for (let pass = 0; pass < 4 && row.capped; pass += 1) {
+    const next = splitWith(tipFor(row.nodes, scale), false);
+    const settled = next.spacing === row.spacing
+      && next.nodes.every((n, i) => n.width === row.nodes[i].width);
+    row = next;
+    if (settled) break;
   }
+  const { nodes, spacing } = row;
+  const boxesWidth = sum(boxesOnScreen(nodes, scale).map(b => b.width));
 
   // Step 4: the label gets the span between the arrowheads.
-  const labelBudget = Math.max(0, spacing - 2 * tipRoom(scale));
+  const labelBudget = Math.max(0, spacing - 2 * tipFor(nodes, scale));
   const fittedLabels = labels.map(label => fitLabelToSpan(label, labelFont(labelFontPx), labelBudget));
 
   // The container is the content, so the renderer's fit cannot land below the

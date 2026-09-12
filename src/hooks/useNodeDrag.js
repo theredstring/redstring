@@ -750,9 +750,29 @@ export const useNodeDrag = ({
     // a grid line, so this stays cheap.
     if (draggingInfo.groupId && Array.isArray(draggingInfo.memberOffsets)) {
       return draggingInfo.memberOffsets.map(({ id, dx, dy }) => {
-        const dims = gridMode === 'off' ? null : dimsForDragId(id);
         const xRaw = mouseCanvasX - dx;
         const yRaw = mouseCanvasY - dy;
+        // A group ANCHOR is not a node on the lattice. It is the group's title
+        // pill, and where that sits is SOLVED from the members' box by
+        // computeGroupLayout — the anchor instance only trails it (see the
+        // flush effect in NodeCanvas, and the note in groupLayout.js about the
+        // box's output feeding its own input). Snapping it independently, from
+        // its stored node box rather than the pill's, hands it a position that
+        // agrees with neither the pill nor the members it is supposed to sit
+        // over, and readers that treat it as a real position take the
+        // disagreement literally: a PARENT group folds it into its bbox when
+        // this anchor is one of its members, so the parent's whole shell —
+        // and every connection clipped against it — jitters on the anchor's
+        // private lattice crossings. It rides the drag rigidly instead, which
+        // is exactly what it does with the grid off.
+        //
+        // `derived` marks it for performDOMDragUpdate: an unsnapped position
+        // changes every frame, and without the flag it would defeat the
+        // grid-snap fast path for every group drag.
+        if (nodeByIdRef.current.get(id)?.isGroupAnchor) {
+          return { instanceId: id, x: xRaw, y: yRaw, derived: true };
+        }
+        const dims = gridMode === 'off' ? null : dimsForDragId(id);
         if (!dims) {
           return { instanceId: id, x: xRaw, y: yRaw };
         }
@@ -922,13 +942,31 @@ export const useNodeDrag = ({
       // the label can be pushed off the group's outer bounds the same way.
       const sAnchor = sStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.sourceId) : null;
       const eAnchor = dStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.destinationId) : null;
+      // The pill wins UNCONDITIONALLY, including when the anchor carries a drag
+      // position of its own. It used to defer to `dragPos` (`if
+      // (!dragPos.has(id))`), and that is the whole of "connections into a
+      // node-group tear when the grid is on": a group drag puts the anchor in
+      // the offsets list (see buildGroupDragOffsets), and with the grid engaged
+      // computePositionUpdates snaps every entry to its OWN nearest cell — the
+      // anchor included, sized by its stored node box rather than the pill. The
+      // pill, meanwhile, is solved from the members' bbox. So the two walked
+      // apart by up to half a cell and jumped every time the anchor crossed a
+      // lattice line, while the shell-cutout clip below was still punched at the
+      // real shell — a line drawn from the wrong end, clipped against the right
+      // one, i.e. arriving somewhere off the group and cut short on the way.
+      // Grid off, the same guard was invisible: an unsnapped anchor rides the
+      // group rigidly and lands on the pill anyway.
+      //
+      // Taking the pill always is also what the Lombardi tangent solve above
+      // already does with this same map, and what the settled render does via
+      // anchorGeometryFor. This was the one reader that disagreed.
       if (sAnchor) {
         sDims = { currentWidth: sAnchor.width, currentHeight: sAnchor.height };
-        if (!dragPos.has(edge.sourceId)) sPos = { x: sAnchor.x, y: sAnchor.y };
+        sPos = { x: sAnchor.x, y: sAnchor.y };
       }
       if (eAnchor) {
         dDims = { currentWidth: eAnchor.width, currentHeight: eAnchor.height };
-        if (!dragPos.has(edge.destinationId)) dPos = { x: eAnchor.x, y: eAnchor.y };
+        dPos = { x: eAnchor.x, y: eAnchor.y };
       }
 
       // A group anchor's own dims are its TITLE PILL, but what actually occludes
@@ -1815,8 +1853,15 @@ export const useNodeDrag = ({
     // overwrites the DOM with stale store-based positions — which is the bug
     // that left edge lines/labels stuck at old coords during grid drag.
     const movedNodeIds = new Set();
-    positionUpdates.forEach(({ instanceId, x, y }) => {
+    positionUpdates.forEach(({ instanceId, x, y, derived }) => {
       dragPositionsRef.current.set(instanceId, { x, y });
+      // A derived position (a group anchor — see computePositionUpdates) tracks
+      // the pointer unsnapped, so it differs every frame and would make every
+      // frame of a group drag look like movement. It is never what anything is
+      // drawn from either: the pill box in anchorPositionUpdatesRef is. Keep it
+      // current in dragPositionsRef for the readers that want a live position,
+      // but never let it be the reason to do a frame of DOM work.
+      if (derived) return;
       const prev = appliedPositionsRef.current.get(instanceId);
       if (!prev || prev.x !== x || prev.y !== y) {
         movedNodeIds.add(instanceId);
@@ -1824,21 +1869,25 @@ export const useNodeDrag = ({
     });
     if (movedNodeIds.size === 0) return;
 
-    // Grid detent: one tick per grid line crossed. Read off positionUpdates[0]
-    // — the single node, the multi-drag primary, or the group's first member —
-    // rather than off movedNodeIds, since that set is also non-empty on the
-    // re-apply frame after a React commit, when nothing has actually snapped
-    // anywhere new. Both coordinates share one detent so a diagonal crossing
-    // is one tick, not two the rate limit would fuse anyway.
-    if (gridMode !== 'off') {
-      const anchor = positionUpdates[0];
+    // Grid detent: one tick per grid line crossed. Read off the first SNAPPED
+    // update — the single node, the multi-drag primary, or the group's first
+    // member — rather than off movedNodeIds, since that set is also non-empty
+    // on the re-apply frame after a React commit, when nothing has actually
+    // snapped anywhere new. Both coordinates share one detent so a diagonal
+    // crossing is one tick, not two the rate limit would fuse anyway.
+    //
+    // Skipping derived entries matters for a MEMBERLESS node-group, where the
+    // anchor is the only thing in the list: its position is unsnapped, so
+    // reading it here would report a crossing on every frame of the drag.
+    const detent = gridMode === 'off' ? null : positionUpdates.find(u => !u.derived);
+    if (detent) {
       const prevCell = gridDetentRef.current;
       if (!prevCell) {
         // Seed silently: the drag's first snap lands on the heels of the
         // nodeLift tick, and two haptics that close fuse into one buzz.
-        gridDetentRef.current = { x: anchor.x, y: anchor.y };
-      } else if (prevCell.x !== anchor.x || prevCell.y !== anchor.y) {
-        gridDetentRef.current = { x: anchor.x, y: anchor.y };
+        gridDetentRef.current = { x: detent.x, y: detent.y };
+      } else if (prevCell.x !== detent.x || prevCell.y !== detent.y) {
+        gridDetentRef.current = { x: detent.x, y: detent.y };
         haptic('gridSnap');
       }
     }

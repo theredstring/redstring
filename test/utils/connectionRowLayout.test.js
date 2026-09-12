@@ -72,7 +72,8 @@ describe('layoutConnectionRow — text size is the fixed point', () => {
     });
 
     expect(long.spacing).toBeGreaterThan(short.spacing);
-    expect(absurd.spacing).toBeLessThanOrEqual(280);
+    // 16em of label span at 15px, plus the two arrowheads and their clearance.
+    expect(absurd.spacing).toBeLessThanOrEqual(240 + 2 * 60);
     expect(absurd.labels[0].endsWith('…')).toBe(true);
   });
 

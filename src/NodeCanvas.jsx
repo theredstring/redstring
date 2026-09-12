@@ -11119,7 +11119,14 @@ function NodeCanvas() {
     const startNodeDims = anchorInfo
       ? { currentWidth: anchorInfo.width, currentHeight: anchorInfo.height }
       : getNodeDimensions(srcNode, previewingNodeId === srcNode.id, null);
-    const startPt = { x: srcNode.x + startNodeDims.currentWidth / 2, y: srcNode.y + startNodeDims.currentHeight / 2 };
+    // Take the pill's POSITION from the same place as its size. The stored
+    // anchor instance only trails the pill (the flush effect syncs it a frame
+    // later), so pairing srcNode.x with the pill's dims started the line off
+    // the tab whenever the two hadn't caught up — right after a group drag,
+    // most of all. setDrawingConnectionEnd already reads it this way.
+    const startX = anchorInfo ? anchorInfo.x : srcNode.x;
+    const startY = anchorInfo ? anchorInfo.y : srcNode.y;
+    const startPt = { x: startX + startNodeDims.currentWidth / 2, y: startY + startNodeDims.currentHeight / 2 };
 
     // Validate mouse coordinates before calculating canvas position
     if (!containerRef.current || typeof clientX !== 'number' || typeof clientY !== 'number') {

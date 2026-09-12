@@ -10,6 +10,7 @@ import {
 import { layoutConnectionRow } from '../utils/connectionRowLayout.js';
 import useGraphStore from '../store/graphStore.js';
 import { hasNoHover } from '../utils/inputDeviceAnalysis.js';
+import useMobileDetection from '../hooks/useMobileDetection';
 
 // Minecraft-toolbar-style timing: after the pointer leaves, hold the preview at
 // full opacity for PREFADE_MS, then fade it out over FADE_MS. The preview fades
@@ -38,10 +39,15 @@ const HOVER_PREVIEW_BASE_SCALE = 0.66;
 // The aid draws through the shared preview recipe (utils/connectionPreview.js)
 // and then the CSS transform above scales the whole thing. PREVIEW_TEXT.hover is
 // what the user should see at the slider's 1×, so the layout is asked for those
-// sizes divided by the base scale — the transform multiplies them back.
-const HOVER_LAYOUT_TEXT = {
-  nodeFontPx: PREVIEW_TEXT.hover.nodeFontPx / HOVER_PREVIEW_BASE_SCALE,
-  labelFontPx: PREVIEW_TEXT.hover.labelFontPx / HOVER_PREVIEW_BASE_SCALE
+// sizes divided by the base scale — the transform multiplies them back. At
+// phone widths (a narrow window; touch devices never show the aid) the hover
+// sizes leave no room for names, so the mobile panel sizes are used instead.
+const hoverLayoutText = (isMobile) => {
+  const text = isMobile ? PREVIEW_TEXT.mobile : PREVIEW_TEXT.hover;
+  return {
+    nodeFontPx: text.nodeFontPx / HOVER_PREVIEW_BASE_SCALE,
+    labelFontPx: text.labelFontPx / HOVER_PREVIEW_BASE_SCALE
+  };
 };
 // A lone node chip never grows past this on screen (at 1×); a longer name is
 // truncated, the same as in the control panel.
@@ -75,6 +81,8 @@ const HoverVisionAid = ({
   // preview up unexpectedly, so suppress the node/connection hover previews entirely.
   // (The pie-menu item label is kept; it's driven by the pie menu, not stray hovers.)
   const noHoverDevice = hasNoHover();
+  const { isMobile } = useMobileDetection();
+  const layoutText = hoverLayoutText(isMobile);
 
   // Normalize the current live hover into a single "subject" (or null). The
   // `key` uniquely identifies the subject so we can tell "same thing" from
@@ -260,14 +268,16 @@ const HoverVisionAid = ({
       .map(withoutImage);
     const arrowsToward = hoveredConn.directionality?.arrowsToward;
     const rendererPadding = 8;
+    const strokeScale = 0.7;
     const row = layoutConnectionRow({
       nodes: endpoints,
       labels: [hoveredConn.name || 'Connection'],
       maxWidth: layoutMaxWidth,
-      text: HOVER_LAYOUT_TEXT,
+      text: layoutText,
       padding: rendererPadding,
       duplicateNodeIds: isSelfLoop ? [hoveredConn.source.id] : [],
-      hasArrows: Boolean(arrowsToward?.size)
+      hasArrows: Boolean(arrowsToward?.size),
+      connectionStrokeScale: strokeScale
     });
 
     const connections = [
@@ -297,7 +307,7 @@ const HoverVisionAid = ({
           maxNodeScale={row.scale}
           horizontalSpacing={row.spacing}
           connectionFontScale={row.labelFontScale}
-          connectionStrokeScale={0.7}
+          connectionStrokeScale={strokeScale}
           interactive={false}
           showHoverEffects={false}
           showConnectionDots={true}
@@ -315,7 +325,7 @@ const HoverVisionAid = ({
     const chipPadding = 16;
     const chip = layoutNodeChips({
       nodes: [nodeData],
-      text: HOVER_LAYOUT_TEXT,
+      text: layoutText,
       maxRowWidth: layoutMaxWidth,
       padding: chipPadding,
       maxChipWidth: HOVER_NODE_MAX_WIDTH_PX / HOVER_PREVIEW_BASE_SCALE

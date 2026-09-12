@@ -24,7 +24,7 @@
  */
 import { getNodeDimensions } from '../utils.js';
 import { NODE_HEIGHT } from '../constants.js';
-import { measureTextWidth } from '../services/textMeasurement.js';
+import { measureTextWidth, wrapTextToLines } from '../services/textMeasurement.js';
 import { CONNECTION_LABEL_BASE_FONT_SIZE } from '../UniversalNodeRenderer.presets.js';
 
 // Neutral text settings so previews render at a "standard" size regardless of
@@ -50,7 +50,12 @@ export const PREVIEW_NODE_BASE_FONT_PX = 32;
 // at the canvas's 42px a side, so measuring a candidate through it declared a
 // name too long for a box that in fact had room for two more letters.
 const PREVIEW_NODE_SIDE_PADDING = 22;
+const PREVIEW_NODE_MULTILINE_SIDE_PADDING = 30;
 const PREVIEW_NODE_AVG_CHAR_WIDTH = 16;
+// A capped box may wrap a multi-word name onto this many lines before it is
+// truncated — the floor box's 84 holds two 28px lines with the renderer's
+// padding, and two lines of a name beat four letters of it.
+const PREVIEW_NAME_MAX_LINES = 2;
 // Air between a measured name and the padding, so a glyph-advance difference
 // between the measurer and the browser never turns into a wrapped tail.
 const PREVIEW_NAME_SLACK = 4;
@@ -152,20 +157,30 @@ function previewBox(node, name, floors) {
 }
 
 /**
- * Whether the renderer draws `name` on one line inside a box `width` wide: it
- * fits between the side padding by measurement, and — for a multi-word name —
- * by the character count the renderer's wrap heuristic uses.
+ * Whether the renderer can draw `name` inside a box `width` wide (natural
+ * units) without clipping: a single word on one line, or a multi-word name on
+ * at most PREVIEW_NAME_MAX_LINES lines. Mirrors the renderer's own text model —
+ * it widens the side padding once its character-count heuristic decides the
+ * name wraps, and the browser then wraps the text by width inside what is left.
  */
 function nameFitsBox(name, width) {
-  const room = width - 2 * PREVIEW_NODE_SIDE_PADDING;
-  if (measureTextWidth(name, previewNameFont) + PREVIEW_NAME_SLACK > room) return false;
   const words = name.trim().split(/\s+/);
-  return words.length <= 1 || name.length <= Math.floor(room / PREVIEW_NODE_AVG_CHAR_WIDTH);
+  const singleLineRoom = width - 2 * PREVIEW_NODE_SIDE_PADDING;
+  if (words.length <= 1) {
+    return measureTextWidth(name, previewNameFont) + PREVIEW_NAME_SLACK <= singleLineRoom;
+  }
+  const charsPerLine = Math.max(1, Math.floor(singleLineRoom / PREVIEW_NODE_AVG_CHAR_WIDTH));
+  const wraps = name.length > charsPerLine;
+  const room = (wraps ? width - 2 * PREVIEW_NODE_MULTILINE_SIDE_PADDING : singleLineRoom) - PREVIEW_NAME_SLACK;
+  if (room <= 0) return false;
+  const lines = wrapTextToLines(name, room, previewNameFont);
+  if (lines.length > PREVIEW_NAME_MAX_LINES) return false;
+  return lines.every(line => measureTextWidth(line, previewNameFont) <= room);
 }
 
 /**
- * Longest prefix of `name` (plus an ellipsis) the renderer can draw on one line
- * in a box `maxWidth` wide.
+ * Longest prefix of `name` (plus an ellipsis) the renderer can draw in a box
+ * `maxWidth` wide — see nameFitsBox for what "draw" allows.
  *
  * getNodeDimensions grows a text node's box up to 420px (preview scale) to fit
  * the name, so two long names alone can exceed a row's budget. Trimming the name
