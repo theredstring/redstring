@@ -27,7 +27,12 @@ import {
   clearLabelSprites,
   labelSpriteCount,
   onSpritesReady,
+  peekGlyphSprite,
+  peekLabelSprite,
+  peekNearbyGlyphSprite,
+  peekNearbyLabelSprite,
   requestLabelSprite,
+  setBakingPaused,
   GLYPH_SPRITE_LAYERS,
 } from '../../src/services/labelSpriteCache.js';
 
@@ -215,10 +220,12 @@ describe('bake queue scheduling', () => {
       clock += bakeCost;
       return 'data:image/png;base64,AAAA';
     });
+    setBakingPaused(false);
     clearLabelSprites();
   });
 
   afterEach(() => {
+    setBakingPaused(false);
     vi.useRealTimers();
     delete globalThis.requestIdleCallback;
     clearLabelSprites();
@@ -272,5 +279,100 @@ describe('bake queue scheduling', () => {
     enqueue(5);
     callbacks[0]({ didTimeout: false, timeRemaining: () => 0 });
     expect(labelSpriteCount()).toBe(1);
+  });
+
+  it('stops asking for a label it has already baked', () => {
+    // The loop this module spent its life in. The bake wrote its own spelling
+    // of the cache key and every reader wrote another, so a label was baked,
+    // stored, and then missed by the very next render — which asked again, and
+    // got a landed batch announced at it, and re-rendered the whole canvas, and
+    // asked again. Forever, for as long as one straight label was on screen.
+    //
+    // It is invisible from every other angle: the bake succeeds, the sprite is
+    // real, the cache fills, and a miss looks exactly like a cold start. Only
+    // the round trip catches it, so the round trip is the test.
+    let signals = 0;
+    const off = onSpritesReady(() => { signals += 1; });
+    const job = { ...spec, text: 'once only' };
+
+    expect(getLabelSprite(job)).not.toBeNull();
+    const encodes = HTMLCanvasElement.prototype.toDataURL.mock.calls.length;
+
+    expect(peekLabelSprite(job)).not.toBeNull(); // the reader finds the writer
+    requestLabelSprite(job);                     // what a render does on a miss
+    vi.advanceTimersByTime(2000);
+
+    expect(HTMLCanvasElement.prototype.toDataURL.mock.calls.length).toBe(encodes);
+    expect(signals).toBe(0); // nothing landed, so nothing re-rendered
+    off();
+  });
+
+  it('bakes nothing and announces nothing while the labels are down', () => {
+    // A gesture hides the labels, so every millisecond spent here is spent on
+    // something off screen — against the frame budget of that same gesture.
+    let signals = 0;
+    const off = onSpritesReady(() => { signals += 1; });
+
+    setBakingPaused(true);
+    enqueue(3);
+    vi.advanceTimersByTime(2000);
+    expect(labelSpriteCount()).toBe(0);
+    expect(signals).toBe(0);
+
+    setBakingPaused(false);
+    vi.advanceTimersByTime(2000);
+    expect(labelSpriteCount()).toBe(3);
+    expect(signals).toBe(1); // the held signal, once, not once per slice
+    off();
+  });
+
+  it('holds a big bake back until the canvas has been still for a while', () => {
+    // A PNG encode cannot be interrupted once begun, so the decision to start
+    // one is the only control there is — the slice budget is checked after.
+    setBakingPaused(true);
+    setBakingPaused(false); // the stillness clock starts here
+
+    // At bucket 8 this label rasterises well past BIG_BAKE_PIXELS; at bucket 1
+    // it is a rounding error.
+    requestLabelSprite({ ...spec, text: 'ten charsX', scale: 8 });
+    requestLabelSprite({ ...spec, text: 'ten charsX', scale: 1 });
+
+    vi.advanceTimersByTime(50);
+    expect(labelSpriteCount()).toBe(1); // the cheap one only
+
+    clock += 500; // the view has now been quiet past STILL_MS
+    vi.advanceTimersByTime(500);
+    expect(labelSpriteCount()).toBe(2); // deferred, never refused
+  });
+
+  it('draws the bucket a zoom just left rather than dropping to text', () => {
+    // Crossing a doubling misses EVERY label at once. Falling through to <text>
+    // there is a visible change of form across the whole canvas that undoes
+    // itself a second later.
+    const text = 'is composed of';
+    const at2 = getLabelSprite({ ...spec, text, scale: 2 });
+    expect(at2).not.toBeNull();
+
+    expect(peekLabelSprite({ ...spec, text, scale: 4 })).toBeNull();
+    const stand = peekNearbyLabelSprite({ ...spec, text, scale: 4 });
+    expect(stand).toBe(at2);
+    // Seamless because nothing in the geometry knows its scale.
+    expect(stand.width).toBe(at2.width);
+    expect(stand.height).toBe(at2.height);
+    expect(stand.centerOffsetY).toBe(at2.centerOffsetY);
+  });
+
+  it('prefers the sharper neighbour, since sampling down is what does not show', () => {
+    const text = 'ab';
+    getLabelSprite({ ...spec, text, scale: 2 });
+    const at8 = getLabelSprite({ ...spec, text, scale: 8 });
+    // 2 and 8 are equidistant from 4 in bucket terms; 8 is the one to take.
+    expect(peekNearbyLabelSprite({ ...spec, text, scale: 4 })).toBe(at8);
+  });
+
+  it('substitutes per glyph too, so a curved label never half-swaps', () => {
+    const at2 = getGlyphSprite({ ...spec, ch: 'a', layer: 'fill', scale: 2 });
+    expect(peekGlyphSprite({ ...spec, ch: 'a', layer: 'fill', scale: 4 })).toBeNull();
+    expect(peekNearbyGlyphSprite({ ...spec, ch: 'a', layer: 'fill', scale: 4 })).toBe(at2);
   });
 });

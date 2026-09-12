@@ -22,7 +22,7 @@ import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the Hove
 import GamepadCrosshair from './components/GamepadCrosshair.jsx'; // Controller-mode reticle
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from './services/textMeasurement.js';
-import { peekLabelSprite, requestLabelSprite, peekGlyphSprite, requestGlyphSprite, onSpritesReady, spritesUsable, hydrateLabelSprites, glyphQuadAt, GLYPH_SPRITE_LAYERS, spriteScaleForZoom } from './services/labelSpriteCache.js';
+import { peekLabelSprite, requestLabelSprite, peekGlyphSprite, requestGlyphSprite, onSpritesReady, spritesUsable, hydrateLabelSprites, glyphQuadAt, GLYPH_SPRITE_LAYERS, spriteScaleForZoom, setBakingPaused } from './services/labelSpriteCache.js';
 import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
@@ -4479,6 +4479,27 @@ function NodeCanvas() {
     };
     return () => { isProgrammaticMoveRef.current = null; };
   }, [isProgrammaticMoveRef, isAnimatingZoomRef]);
+
+  // The label sprite bakery follows the labels themselves.
+  //
+  // While they are down, every millisecond it spends is spent on something that
+  // is not on screen — and spent against the frame budget of the gesture that
+  // put them down, since a PNG encode cannot be interrupted once begun and a
+  // landed batch costs a full canvas render. When they are up it runs, which is
+  // the right answer even for the exempt cases: a label visible during a move is
+  // a label being drawn as <text>, which is the expensive form this replaces.
+  //
+  // Wired here rather than inside labelSpriteCache because that module has no
+  // business knowing what a gesture is — see setBakingPaused.
+  const onLabelsHiddenRef = transform.onLabelsHiddenRef;
+  useEffect(() => {
+    onLabelsHiddenRef.current = (hidden) => setBakingPaused(hidden);
+    return () => {
+      onLabelsHiddenRef.current = null;
+      // Never leave the bakery paused behind an unmounting canvas.
+      setBakingPaused(false);
+    };
+  }, [onLabelsHiddenRef]);
 
   // Hold the labels down for the WHOLE of a node drag, lift through restore.
   //

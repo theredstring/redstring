@@ -71,6 +71,11 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   // as an effect. See LABEL SUPPRESSION below.
   const isProgrammaticMoveRef = useRef(null);
 
+  // Consumer-writable: assign `(hidden: boolean) => void` to be told when the
+  // labels go down and come back, from the same non-render path that toggles
+  // the class. Assigned like the two refs above. See applyLabelsHidden.
+  const onLabelsHiddenRef = useRef(null);
+
   // What each content <g> currently carries, keyed by the element itself. Keying
   // on the element rather than on values is load-bearing: the <svg> and its
   // content <g> unmount and remount whenever NodeCanvas swings through its
@@ -153,6 +158,13 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
     labelledElsRef.current = [content, overlay];
     content?.classList?.toggle('canvas-moving', hidden);
     overlay?.classList?.toggle('canvas-moving', hidden);
+    // Anything that exists to make a label cheaper to draw is dead weight while
+    // that label is hidden, and the label sprite bakery is the expensive case:
+    // an uninterruptible PNG encode, plus a full canvas render whenever a batch
+    // of them lands. Both would be spent against the frame budget of the very
+    // gesture they are invisible to. The consumer wires this to the bakery's
+    // pause — see setBakingPaused in labelSpriteCache.
+    onLabelsHiddenRef.current?.(hidden);
   }, [contentGroupRef, overlayGroupRef]);
 
   const setLabelsHidden = useCallback((hidden) => {
@@ -333,6 +345,10 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
     // Consumer-writable: assign `() => boolean`, true while an animated camera
     // move owns the view. Exempts it from label suppression.
     isProgrammaticMoveRef,
+
+    // Consumer-writable: assign `(hidden: boolean) => void` to follow label
+    // suppression from a non-render path.
+    onLabelsHiddenRef,
 
     // Hold the labels down for a node drag — see setDragLabelsHidden.
     setDragLabelsHidden,

@@ -1,7 +1,7 @@
 import React from 'react';
 import { getNodeDimensions } from '../../utils.js';
 import { edgeLabelGlyphAdvances, truncateEdgeLabel } from '../../services/textMeasurement.js';
-import { GLYPH_SPRITE_LAYERS, glyphQuadAt, peekGlyphSprite, peekLabelSprite, requestGlyphSprite, requestLabelSprite, spritesUsable } from '../../services/labelSpriteCache.js';
+import { GLYPH_SPRITE_LAYERS, glyphQuadAt, peekGlyphSprite, peekLabelSprite, peekNearbyGlyphSprite, peekNearbyLabelSprite, requestGlyphSprite, requestLabelSprite, spritesUsable } from '../../services/labelSpriteCache.js';
 import { getConnectionLabelColors } from '../../utils/colorUtils.js';
 import { haptic } from '../../services/haptics.js';
 import { resolveEdgeLabelFontSize } from '../../services/layoutGeometry.js';
@@ -1652,12 +1652,20 @@ export function renderConnectionEdge(edge, ctx) {
         // those ends in a PNG encode. Now the render only reads the
         // cache and registers what it needs; the queue drains in idle
         // time and re-renders when a batch lands.
+        //
+        // A miss asks for the bitmap it wants and draws the nearest
+        // bucket it already has in the meantime — a zoom across a
+        // doubling misses every label at once, and dropping them all to
+        // <text> for the length of a re-bake is a visible change of form
+        // on the whole canvas that gets undone a second later. See
+        // peekNearbyLabelSprite.
         const labelSpriteWanted = !labelGlyphs && labelSpritesEnabled && spritesUsable();
-        const labelSprite = labelSpriteWanted
+        let labelSprite = labelSpriteWanted
           ? peekLabelSprite({ ...spriteAppearance, text: displayName })
           : null;
         if (labelSpriteWanted && !labelSprite) {
           requestLabelSprite({ ...spriteAppearance, text: displayName });
+          labelSprite = peekNearbyLabelSprite({ ...spriteAppearance, text: displayName });
         }
 
         // A CURVED label is the same trick one level down. It has no
@@ -1689,8 +1697,16 @@ export function renderConnectionEdge(edge, ctx) {
             const ch = labelGlyphChars[i];
             if (!ch || ch.trim() === '') continue;
             const glyphSpec = { ...spriteAppearance, ch, layer };
-            const sprite = peekGlyphSprite(glyphSpec);
-            if (!sprite) { requestGlyphSprite(glyphSpec); continue; }
+            let sprite = peekGlyphSprite(glyphSpec);
+            if (!sprite) {
+              requestGlyphSprite(glyphSpec);
+              // The bucket the zoom just left, rather than nothing — the
+              // straight form's substitution, per glyph. A bucket change
+              // misses the whole atlas at once, so every glyph of a label
+              // substitutes together and none of them is left behind.
+              sprite = peekNearbyGlyphSprite(glyphSpec);
+              if (!sprite) continue;
+            }
             const q = glyphQuadAt(labelGlyphs, i, sprite.advance);
             if (!q) continue;
             quads.push({ sprite, q, gi: i });
