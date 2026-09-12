@@ -22,6 +22,7 @@ const SelfLoopEdge = ({
   connectionFontSize,
   connectionWidth = 1,
   placedLabelsRef,
+  labelTruncationRef,
 }) => {
   const darkMode = useGraphStore(state => state.darkMode);
   const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
@@ -195,6 +196,13 @@ const SelfLoopEdge = ({
         const displayName = connectionLabelTruncate
           ? truncateEdgeLabel(connectionName, fontSize, loop.radius * 2 * LABEL_TRUNCATE_FILL)
           : connectionName;
+
+        // Same contract as the straight/routed renderer: record whether the
+        // drawn name is the whole name, so the hover vision aid can step in
+        // when it isn't. See labelTruncationRef in NodeCanvas.
+        if (labelTruncationRef?.current) {
+          labelTruncationRef.current.set(edge.id, displayName !== connectionName);
+        }
 
         if (placedLabelsRef?.current) {
           const halfW = estimateTextWidth(displayName, fontSize) / 2;

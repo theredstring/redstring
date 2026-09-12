@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import useGraphStore from '../store/graphStore.js';
 import { isInsideNode } from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
-import { walkMenu } from '../utils/gamepadMenuNav.js';
+import { walkMenu, detectOpenSelector, isColorPickerOpen } from '../utils/gamepadMenuNav.js';
+import { lineModeLayout } from '../utils/pieMenuLayout.js';
+import { nearestPointOnSegment, panToPlacePointAt, createDriftController } from '../utils/gamepadAim.js';
 
 /**
  * useGamepad — game controller support for the canvas.
@@ -56,11 +58,20 @@ export const AXIS = { LX: 0, LY: 1, RX: 2, RY: 3 };
 export const MODE = {
   CANVAS: 'canvas',
   NODE: 'node',
+  // A connection is selected and its menu is open. Separate from NODE because
+  // that menu is a row laid along the edge, not a ring, so the stick aims it by
+  // position instead of by angle — see stepLineFocus.
+  EDGE: 'edge',
   HEADER: 'header',
   LEFT_PANEL: 'leftPanel',
   RIGHT_PANEL: 'rightPanel',
   MENU: 'menu',
   ACTIONS: 'actions',
+  // A unified selector or node-selection grid is on screen. Entered and left
+  // automatically: these open as the RESULT of some other action (Swap, node
+  // creation, typing), so a controller that waited to be told would strand the
+  // user in front of a dialog it could not touch.
+  SELECTOR: 'selector',
 };
 
 // Radial deadzone. Applied to the stick VECTOR, not per-axis: a per-axis
@@ -102,16 +113,76 @@ const AUTO_AIM_DURATION_MS = 180;
 // drift rather than as aim.
 const AUTO_AIM_MIN_DISTANCE_PX = 8;
 
-// Held-direction repeat for list navigation (header tabs, menu rows). Discrete
-// actions like web-switching stay edge-only; only the walkers repeat.
-const REPEAT_DELAY_MS = 400;
-const REPEAT_INTERVAL_MS = 120;
+// Held-direction repeat for list navigation (header tabs, menu rows, selector
+// grids). Discrete actions like web-switching stay edge-only; only the walkers
+// and the stepped menus repeat.
+//
+// Tuned for stepping a menu of five, not for scrolling a long list: the first
+// step is instant, and the hold-to-repeat delay only has to be long enough that
+// a deliberate single flick doesn't double-fire. Note that a flick back to
+// neutral cancels the delay outright (see stickStep), so this governs HOLDING
+// a direction, not tapping one.
+const REPEAT_DELAY_MS = 260;
+const REPEAT_INTERVAL_MS = 90;
 
 // How long to wait before trusting drawingConnectionFromRef to report whether
 // a draw is still live. It is written from a React effect, so it lags the
 // trigger press by a commit; anything shorter than a few frames would read the
 // lag as an abandoned gesture.
 const CONNECT_SYNC_GRACE_MS = 150;
+
+// Same idea for the menu modes: selection reaches the store (edges) or the
+// pie-menu target (nodes) a commit or two after the press, so re-deriving the
+// mode from it has to wait that out.
+const MODE_SYNC_GRACE_MS = 200;
+
+/**
+ * Hold-to-repeat for directional input, shared by every stepped surface.
+ *
+ * Extracted and exported because the inline version had a bug worth pinning
+ * down: releasing a stick left the last direction latched, so a SECOND flick
+ * inside the delay window was swallowed entirely and the menu felt like it had
+ * a long cooldown after every step. `releasePrefix` is the fix — a return to
+ * neutral ends the gesture outright, so the next flick is instant.
+ *
+ * @param {{delayMs: number, intervalMs: number}} opts
+ */
+export const createRepeater = ({ delayMs, intervalMs }) => {
+  let key = null;
+  let nextAt = 0;
+  return {
+    /** True on the frame this direction should act. */
+    held(k, isDown, now) {
+      if (!isDown) {
+        if (key === k) key = null;
+        return false;
+      }
+      if (key !== k) {
+        key = k;
+        nextAt = now + delayMs;
+        return true;
+      }
+      if (now < nextAt) return false;
+      nextAt = now + intervalMs;
+      return true;
+    },
+    /** End any gesture whose key starts with `prefix` (a stick going neutral). */
+    releasePrefix(prefix) {
+      if (typeof key === 'string' && key.startsWith(prefix)) key = null;
+    },
+  };
+};
+
+// Analog slider drive: portion of a slider's full range covered per 60fps frame
+// at full stick deflection. ~1/75 crosses the whole range in a little over a
+// second, which is quick enough for a 0-360 hue sweep without making precise
+// values unreachable — the carry in nudgeSlider keeps small deflections usable
+// for those.
+const SLIDER_RATE_PER_FRAME = 1 / 75;
+
+// One d-pad press moves a slider this portion of its range: a coarse notch for
+// getting close, where the stick is for sweeping and holding is for fine work.
+const SLIDER_STEP_FRACTION = 0.02;
 
 // Panel scroll speed at full deflection, px per 60fps frame.
 const PANEL_SCROLL_SPEED = 14;
@@ -180,6 +251,120 @@ export const pieButtonIndexForStick = (x, y, buttonCount) => {
   return bestIndex;
 };
 
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/**
+ * The stick as a d-pad: the dominant axis past a threshold, or null.
+ *
+ * Used where a surface is a LIST or a GRID rather than something to aim at —
+ * menus, selectors, and the connection menu's rows. Absolute aiming is right
+ * for a ring, where every option has its own direction; it is wrong for a row
+ * of five, where it would give each option a fifth of the stick's throw and
+ * make the whole menu twitchy. Stepping is what a row wants.
+ */
+export const stickDirection = (x, y, threshold = 0.5) => {
+  if (Math.hypot(x, y) < threshold) return null;
+  if (Math.abs(x) >= Math.abs(y)) return x > 0 ? 'right' : 'left';
+  return y > 0 ? 'down' : 'up';
+};
+
+/**
+ * Steps focus through a LINE-MODE menu as a grid of rows.
+ *
+ * The connection menu is a row of bubbles laid along the edge, wrapping into
+ * further rows stacked toward its upward side — so it behaves like two (or
+ * more) linear rows, and is navigated like them: left/right walks the row,
+ * up/down changes row keeping roughly the same position along it.
+ *
+ * Row structure comes from lineModeLayout, the same function PieMenu lays the
+ * bubbles out with, so the navigation can never disagree with the drawing.
+ *
+ * Movement CLAMPS rather than wraps: on a short menu, wrapping off the end of a
+ * row lands somewhere visually unrelated, which reads as a glitch rather than
+ * as a cycle.
+ *
+ * @param {number} current index of the focused button, or -1
+ * @param {'left'|'right'|'up'|'down'} dir
+ * @param {number} count number of buttons in the menu
+ * @returns {number} the new index
+ */
+export const stepLineFocus = (current, dir, count) => {
+  if (!count || count < 1) return -1;
+  if (count === 1) return 0;
+  const slots = lineModeLayout({ count, angle: 0, step: 1, perpOffset: 0, rowGap: 1 });
+  if (!slots.length) return -1;
+
+  const from = slots[current] ? current : 0;
+  const { row, col } = slots[from];
+
+  if (dir === 'left' || dir === 'right') {
+    const delta = dir === 'right' ? 1 : -1;
+    const found = slots.findIndex(sl => sl.row === row && sl.col === col + delta);
+    return found >= 0 ? found : from;
+  }
+
+  // Rows stack toward the edge's upward side, so "up" is row + 1.
+  const targetRow = row + (dir === 'up' ? 1 : -1);
+  const inTarget = slots.map((sl, i) => ({ sl, i })).filter(({ sl }) => sl.row === targetRow);
+  if (!inTarget.length) return from;
+  // Keep the position along the row: rows can differ in length, so match on the
+  // nearest column rather than assuming the same index exists.
+  return inTarget.reduce((best, cand) => (
+    Math.abs(cand.sl.col - col) < Math.abs(best.sl.col - col) ? cand : best
+  ), inTarget[0]).i;
+};
+
+/**
+ * Where a connection "wants" the crosshair to sit: the point on it nearest the
+ * crosshair, so the drift is a small correction ONTO the line rather than a
+ * yank to its midpoint (which on a long connection is routinely off-screen).
+ *
+ * The nearest point is computed against the straight chord between the two
+ * endpoints, because the real geometry has six routing variants — self-loops,
+ * clean polylines, Lombardi arcs, Manhattan runs, Bézier fans, plain lines —
+ * and the hit test that knows all six returns only a DISTANCE, not a point.
+ * Re-deriving the point per style here would fork geometry that is deliberately
+ * centralised, and would drift out of sync the first time routing changed.
+ *
+ * So the chord is used as a guess and then VERIFIED: if moving the crosshair
+ * there would no longer land on this same connection, the guess was wrong for
+ * this routing style and the drift is simply skipped. One extra hit test buys
+ * correctness for every style, including ones added later, without duplicating
+ * a line of routing maths.
+ *
+ * @returns {{x: number, y: number} | null} canvas-space aim point, or null to
+ *   decline to drift toward this connection.
+ */
+const edgeAimPoint = (p, hit, cross, rect, pan, zoom, canvasSize) => {
+  const nodes = p.nodesRef?.current;
+  if (!nodes || !canvasSize) return null;
+
+  const a = nodes.find(n => n.id === hit.connection?.source?.id);
+  const b = nodes.find(n => n.id === hit.connection?.target?.id);
+  // A self-loop has no chord to project onto, and its geometry is a lobe off
+  // one node — nothing a segment approximates usefully.
+  if (!a || !b || a.id === b.id) return null;
+
+  const da = getNodeDimensions(a, false, null);
+  const db = getNodeDimensions(b, false, null);
+  const near = nearestPointOnSegment(
+    (cross.x - rect.left - pan.x) / zoom + canvasSize.offsetX,
+    (cross.y - rect.top - pan.y) / zoom + canvasSize.offsetY,
+    a.x + da.currentWidth / 2, a.y + da.currentHeight / 2,
+    b.x + db.currentWidth / 2, b.y + db.currentHeight / 2,
+  );
+
+  // Verify against the real geometry: where would that point sit on screen, and
+  // is this same connection still what the crosshair would be over there?
+  const candidatePan = panToPlacePointAt(near.x, near.y, cross.x, cross.y, rect, pan, zoom, canvasSize);
+  const clientX = (near.x - canvasSize.offsetX) * zoom + candidatePan.x + rect.left;
+  const clientY = (near.y - canvasSize.offsetY) * zoom + candidatePan.y + rect.top;
+  const check = p.findEdgeAtClientPointRef?.current?.(clientX, clientY, 'mouse');
+  if (!check || check.edgeId !== hit.edgeId) return null;
+
+  return { x: near.x, y: near.y };
+};
+
 /**
  * Per-frame button edge detection.
  *
@@ -235,6 +420,9 @@ export const useGamepad = ({
   startConnectionFromNodeRef,
   // Non-null while a connection draw is in flight.
   drawingConnectionFromRef,
+  // The plus sign and the things A and B can do to it: `{ sign, halfHit,
+  // create, activate, dismiss }`. See NodeCanvas.
+  plusSignControlRef,
 
   // --- Selection ---
   setSelectedInstanceIds,
@@ -246,6 +434,14 @@ export const useGamepad = ({
   // --- Pie menu ---
   pieMenuButtonsRef,
   pieMenuPageCountRef,
+  // The connection menu's live buttons and the slope of the edge they are laid
+  // along. Kept separate from the node menu's: only one is ever open, but they
+  // are different arrays with different layouts.
+  edgePieMenuButtonsRef,
+  edgeAnchorAngleRef,
+  // Client-space `(x, y, pointerKind) => { edgeId, connection } | null`, the
+  // same nearest-wins hit test the mouse click and hover paths use.
+  findEdgeAtClientPointRef,
   // The instance id the open pie menu belongs to. Pie actions take it as their
   // first argument, exactly as PieMenu passes `node?.id` on a click.
   pieMenuNodeIdRef,
@@ -253,11 +449,19 @@ export const useGamepad = ({
   onPieMenuHoverChange,
 
   // --- Camera ---
-  animateCanvasView,
-  // Abandons an in-flight animateCanvasView. The auto-aim drift and a live
-  // stick pan both write panOffsetRef, so the drift has to be dropped the
-  // moment the stick moves rather than allowed to pull the view back.
-  cancelCanvasViewAnimation,
+  // The drift tweens pan through this. It deliberately does NOT go through
+  // animateCanvasView: that sets the shared isAnimatingZoomRef, and a drift
+  // cancelling itself would then clear a flag belonging to whatever took the
+  // camera next — which is exactly what glitched a node lift. See gamepadAim.js.
+  setPan,
+  // True while something else owns the camera: drag-zoom on lift,
+  // focus-on-select, carousel framing. The drift stands down for all of it.
+  isAnimatingZoomRef,
+  // The carousel locks the view entirely.
+  abstractionCarouselVisibleRef,
+  // Mirrors whether a drift is running, so NodeCanvas can exempt it from
+  // connection-label suppression the same way it exempts its own camera moves.
+  driftingRef,
 
   // --- Gating ---
   isPausedRef,
@@ -292,10 +496,20 @@ export const useGamepad = ({
   const autoAimFiredRef = useRef(false);
 
   // Held-direction repeat for the list walkers.
-  const repeatRef = useRef({ button: -1, nextAt: 0 });
+  const repeatRef = useRef(null);
+  if (!repeatRef.current) {
+    repeatRef.current = createRepeater({
+      delayMs: REPEAT_DELAY_MS,
+      intervalMs: REPEAT_INTERVAL_MS,
+    });
+  }
 
   // DOM focus walker state for MENU / ACTIONS modes.
   const menuWalkerRef = useRef(null);
+  // Which surface the current walker is pointed at. A colour picker opening
+  // over a selector has to swap the walker's target without leaving the mode,
+  // and comparing kinds is how that swap is detected.
+  const walkerKindRef = useRef(null);
 
   // Cached container rect. getBoundingClientRect() forces a synchronous layout,
   // and this runs every frame right after the loop has written a new transform
@@ -306,20 +520,75 @@ export const useGamepad = ({
   // exact invalidation signal.
   const rectCacheRef = useRef({ boundsIdentity: null, rect: null });
 
+  // ---------------------------------------------------------------------------
+  // DRIFT ARBITRATION
+  //
+  // One predicate answers "may the camera drift right now", and it is asked in
+  // two places: before starting a drift, and again on EVERY frame of one. That
+  // second use is what makes the drift yield rather than fight — a node lift, a
+  // focus-on-select or a carousel opening mid-drift simply makes the next frame
+  // return false and the tween stops where it is. Nothing has to reach in and
+  // cancel it, and it never clears a flag that belongs to somebody else.
+  //
+  // A ref holding a function, rather than a useCallback, because the drift
+  // controller is built once and must not be rebuilt when the predicate's
+  // dependencies change.
+  const driftAllowedRef = useRef(() => false);
+  driftAllowedRef.current = () => {
+    if (!activeRef.current) return false;
+    const p = paramsRef.current;
+    // Our own trigger gestures own the camera while they run.
+    if (carryingRef.current || connectingRef.current) return false;
+    // Anything but a settled drag means the drag system is moving the view:
+    // the lift ramp, the drag-zoom out, and the zoom restore on drop.
+    if (p.dragPhaseRef?.current && p.dragPhaseRef.current !== 'idle') return false;
+    // The shared "someone is animating the camera" flag: drag-zoom,
+    // focus-on-select, carousel framing. Read, never written — writing it is
+    // what made a drift cancel clobber a lift.
+    if (p.isAnimatingZoomRef?.current) return false;
+    // The carousel locks the view outright.
+    if (p.abstractionCarouselVisibleRef?.current) return false;
+    // Only the canvas drifts; a menu mode has the stick doing something else.
+    if (modeRef.current !== MODE.CANVAS) return false;
+    return true;
+  };
+
+  // Built once. `shouldContinue` reads through the ref above, so the permission
+  // logic can change freely without the controller being rebuilt mid-drift.
+  const driftRef = useRef(null);
+  if (!driftRef.current) {
+    driftRef.current = createDriftController({
+      panRef: { get current() { return paramsRef.current.panOffsetRef.current; } },
+      setPan: (pan) => paramsRef.current.setPan?.(pan),
+      shouldContinue: () => driftAllowedRef.current(),
+    });
+  }
+
+
+
   const paramsRef = useRef(null);
   paramsRef.current = {
     containerRef, viewportBoundsRef, panOffsetRef, zoomLevelRef, canvasSizeRef,
     mousePositionRef, nodesRef, visibleNodeIdsRef,
     startDragForNodeRef, draggingNodeInfoRef, dragPhaseRef, releasePointerRef,
-    startConnectionFromNodeRef, drawingConnectionFromRef,
+    startConnectionFromNodeRef, drawingConnectionFromRef, plusSignControlRef,
     setSelectedInstanceIds, commitHoverTarget, clearHoverImmediate,
     pieMenuButtonsRef, pieMenuPageCountRef, pieMenuNodeIdRef, setPieMenuPage, onPieMenuHoverChange,
-    animateCanvasView, cancelCanvasViewAnimation, isPausedRef, activeGraphIdRef, minZoom, maxZoom,
+    edgePieMenuButtonsRef, edgeAnchorAngleRef, findEdgeAtClientPointRef,
+    setPan, isAnimatingZoomRef, abstractionCarouselVisibleRef, driftingRef,
+    isPausedRef, activeGraphIdRef, minZoom, maxZoom,
   };
+
+  // When the current mode was entered. The menu modes are re-derived from the
+  // selection each frame (see the re-sync in the tick), but selection lands a
+  // React commit or two after the button that caused it — so a re-sync with no
+  // grace window would bounce straight back out on the very next frame.
+  const modeSinceRef = useRef(0);
 
   const setModeBoth = useCallback((next) => {
     if (modeRef.current === next) return;
     modeRef.current = next;
+    modeSinceRef.current = performance.now();
     setMode(next);
   }, []);
 
@@ -338,6 +607,8 @@ export const useGamepad = ({
     setHeaderFocusedGraphId(null);
     menuWalkerRef.current?.dispose?.();
     menuWalkerRef.current = null;
+    driftRef.current?.stop();
+    if (paramsRef.current?.driftingRef) paramsRef.current.driftingRef.current = false;
     // The crosshair's hover belongs to the crosshair; leaving controller mode
     // must not strand a preview the mouse never raised.
     paramsRef.current?.clearHoverImmediate?.();
@@ -434,23 +705,80 @@ export const useGamepad = ({
    * The node under the crosshair, using the same hit test and the same
    * visibility filter the mouse hover pipeline uses.
    */
-  const getNodeUnderCrosshair = useCallback(() => {
+  /**
+   * What the crosshair is pointing at, resolved ONCE per frame.
+   *
+   * The hover preview, the A button and the drift all read this same answer —
+   * see the note at the top of gamepadAim.js for why they must not each run
+   * their own hit test.
+   *
+   * `aimPoint` is where the target "wants to be": a node's centre, or the point
+   * on a connection nearest the crosshair. It is the drift's target and nothing
+   * else's, so a target with no sensible aim point simply has none.
+   *
+   * @returns {null | {kind, id, node?, connection?, aimPoint: {x,y}|null}}
+   */
+  const resolveCrosshairTarget = useCallback(() => {
     const p = paramsRef.current;
     const cross = getCrosshair();
     if (!cross) return null;
-    const list = p.nodesRef?.current;
-    if (!list || !list.length) return null;
     const rect = getContainerRect();
     if (!rect) return null;
+
+    const list = p.nodesRef?.current;
     const visible = p.visibleNodeIdsRef?.current;
     const pan = p.panOffsetRef?.current;
     const zoom = p.zoomLevelRef?.current;
     const cs = p.canvasSizeRef?.current;
-    return list.find(n => (
-      (!visible || visible.has(n.id))
-      && !n.isGroupAnchor
-      && isInsideNode(n, cross.x, cross.y, rect, pan, zoom, cs)
-    )) || null;
+
+    // Nodes win ties. A connection terminates inside its endpoints' boxes, so
+    // near a node the two hit tests overlap constantly — and every mouse path
+    // in NodeCanvas resolves that the same way, by checking the node first.
+    const node = list?.length
+      ? list.find(n => (
+        (!visible || visible.has(n.id))
+        && !n.isGroupAnchor
+        && isInsideNode(n, cross.x, cross.y, rect, pan, zoom, cs)
+      ))
+      : null;
+
+    if (node) {
+      const dims = getNodeDimensions(node, false, null);
+      return {
+        kind: 'node',
+        id: node.id,
+        node,
+        aimPoint: {
+          x: node.x + dims.currentWidth / 2,
+          y: node.y + dims.currentHeight / 2,
+        },
+      };
+    }
+
+    // The plus sign outranks a connection: it is a transient affordance the
+    // user just placed deliberately, and a connection merely happening to pass
+    // beneath it should not win. It cannot outrank a node, because it is only
+    // ever placed on empty canvas in the first place.
+    const plus = p.plusSignControlRef?.current;
+    if (plus?.sign) {
+      const cx = (cross.x - rect.left - pan.x) / zoom + cs.offsetX;
+      const cy = (cross.y - rect.top - pan.y) / zoom + cs.offsetY;
+      if (Math.abs(cx - plus.sign.x) <= plus.halfHit && Math.abs(cy - plus.sign.y) <= plus.halfHit) {
+        // Same square the component draws for touch, so it drifts to centre and
+        // aims exactly like a node does.
+        return { kind: 'plus', id: 'plus-sign', aimPoint: { x: plus.sign.x, y: plus.sign.y } };
+      }
+    }
+
+    const hit = p.findEdgeAtClientPointRef?.current?.(cross.x, cross.y, 'mouse');
+    if (!hit) return null;
+
+    return {
+      kind: 'connection',
+      id: hit.edgeId,
+      connection: hit.connection,
+      aimPoint: edgeAimPoint(p, hit, cross, rect, pan, zoom, cs),
+    };
   }, [getCrosshair, getContainerRect]);
 
   const tick = useCallback((deltaTime, frameRatio) => {
@@ -484,7 +812,11 @@ export const useGamepad = ({
       useGraphStore.getState().setInputMode?.('gamepad');
     }
 
-    if (p.isPausedRef?.current || !p.activeGraphIdRef?.current) return ZERO_TICK;
+    // Canvas interaction needs a graph to act on. The overlay walkers do NOT —
+    // the loading escape hatch exists precisely for the state where there is no
+    // graph, and a selector can be up during a prompt. So this gates the canvas
+    // modes further down rather than the whole tick.
+    const canvasReady = !p.isPausedRef?.current && !!p.activeGraphIdRef?.current;
 
     const cross = getCrosshair();
     if (!cross) return ZERO_TICK;
@@ -493,28 +825,113 @@ export const useGamepad = ({
     // every other pointer consumer follows it. See the header note.
     if (p.mousePositionRef) p.mousePositionRef.current = { x: cross.x, y: cross.y };
 
+    // Let NodeCanvas exempt the drift from connection-label suppression the way
+    // it exempts its own camera animations. Published from here rather than
+    // from an effect because this function already runs every frame — a second
+    // rAF just to mirror a boolean would be exactly the duplication this hook
+    // exists to avoid.
+    if (p.driftingRef) p.driftingRef.current = driftRef.current?.isActive() === true;
+
     const now = performance.now();
     const currentMode = modeRef.current;
 
     // ---- Held-direction repeat ------------------------------------------
     // Returns true when a direction should act this frame: on the press edge,
     // then again after a delay, then at a steady interval.
-    const repeats = (buttonIndex) => {
-      if (buttons.justPressed[buttonIndex]) {
-        repeatRef.current = { button: buttonIndex, nextAt: now + REPEAT_DELAY_MS };
-        return true;
+    const repeats = (buttonIndex) => repeatRef.current.held(buttonIndex, buttons.pressed[buttonIndex], now);
+    // The stick acting as a d-pad, with the same press/delay/repeat cadence a
+    // held button gets — see stickDirection for why lists and grids step
+    // rather than being aimed at.
+    const stickStep = (stick, prefix) => {
+      const dir = stickDirection(stick.x, stick.y, PIE_AIM_THRESHOLD);
+      if (!dir) {
+        // Neutral ENDS the gesture, so the very next flick steps immediately
+        // rather than waiting out the hold-to-repeat delay.
+        repeatRef.current.releasePrefix(`${prefix}:`);
+        return null;
       }
-      if (!buttons.pressed[buttonIndex]) {
-        if (repeatRef.current.button === buttonIndex) repeatRef.current.button = -1;
-        return false;
-      }
-      if (repeatRef.current.button !== buttonIndex) return false;
-      if (now < repeatRef.current.nextAt) return false;
-      repeatRef.current.nextAt = now + REPEAT_INTERVAL_MS;
-      return true;
+      return repeatRef.current.held(`${prefix}:${dir}`, true, now) ? dir : null;
     };
 
     const store = useGraphStore.getState();
+
+    // ---- SELECTOR: auto-takeover -----------------------------------------
+    // A unified selector or node grid opens as the RESULT of another action
+    // (Swap, node creation, node typing), so nothing presses a button to get
+    // here. Checked before every other mode because while one of these is up it
+    // is modal — it covers the canvas and owns the input.
+    // A colour picker sits ON TOP of whatever opened it, so it wins. Retargeting
+    // the walker at it — rather than nesting a second mode — means B, A and the
+    // stick all keep meaning the same things, just aimed one layer in.
+    const pickerOpen = isColorPickerOpen();
+    const openSelector = pickerOpen ? 'colorPicker' : detectOpenSelector();
+    if (openSelector && (currentMode !== MODE.SELECTOR || walkerKindRef.current !== openSelector)) {
+      menuWalkerRef.current?.dispose?.();
+      menuWalkerRef.current = walkMenu(openSelector);
+      walkerKindRef.current = openSelector;
+      setModeBoth(MODE.SELECTOR);
+      return ZERO_TICK;
+    }
+    if (currentMode === MODE.SELECTOR) {
+      if (!openSelector) {
+        // Dismissed, or its choice was made — either way it is gone.
+        menuWalkerRef.current?.dispose?.();
+        menuWalkerRef.current = null;
+        walkerKindRef.current = null;
+        setModeBoth(MODE.CANVAS);
+        return ZERO_TICK;
+      }
+      const walker = menuWalkerRef.current;
+      walker?.sync();
+
+      // A focused slider takes the stick's horizontal axis as an ANALOG value,
+      // not as a step — see nudgeSlider. Vertical still steps between rows, so
+      // up/down moves off the slider onto whatever is above or below it,
+      // slider or not.
+      const onSlider = walker?.isSliderFocused();
+      if (onSlider && Math.abs(left.x) > STICK_DEADZONE) {
+        walker.nudgeSlider(left.x * SLIDER_RATE_PER_FRAME * frameRatio);
+      }
+      let dir = stickStep(left, 'sel')
+        || (repeats(BTN.DPAD_LEFT) ? 'left' : null)
+        || (repeats(BTN.DPAD_RIGHT) ? 'right' : null)
+        || (repeats(BTN.DPAD_UP) ? 'up' : null)
+        || (repeats(BTN.DPAD_DOWN) ? 'down' : null);
+      // On a slider the stick's horizontal axis is already spoken for. The
+      // d-pad still steps it in whole notches, which is the precise way to
+      // land on an exact value.
+      if (onSlider && (dir === 'left' || dir === 'right')) {
+        if (buttons.pressed[BTN.DPAD_LEFT] || buttons.pressed[BTN.DPAD_RIGHT]) {
+          walker.nudgeSlider(dir === 'left' ? -SLIDER_STEP_FRACTION : SLIDER_STEP_FRACTION);
+        }
+        dir = null;
+      }
+      if (dir) {
+        if (walker?.isGrid()) {
+          if (dir === 'left') walker.moveGrid(-1, 0);
+          else if (dir === 'right') walker.moveGrid(1, 0);
+          else if (dir === 'up') walker.moveGrid(0, -1);
+          else walker.moveGrid(0, 1);
+        } else {
+          // A short vertical list: both axes just step it, so a flick in any
+          // direction does the obvious thing rather than nothing.
+          walker?.move(dir === 'up' || dir === 'left' ? -1 : 1);
+        }
+      } else if (buttons.justPressed[BTN.A]) {
+        walker?.activate();
+      } else if (buttons.justPressed[BTN.Y]) {
+        // Y opens the colour picker. The same button toggles it shut, so this
+        // is also how it closes if Y is pressed again.
+        walker?.togglePalette();
+      } else if (buttons.justPressed[BTN.B]) {
+        // B closes the INNERMOST thing first. With a picker open over the
+        // selector, B that shut the whole selector would throw away the choice
+        // the user was in the middle of making.
+        if (isColorPickerOpen() && walker?.hasPalette()) walker.togglePalette();
+        else walker?.close();
+      }
+      return ZERO_TICK;
+    }
 
     // ---- MENU / ACTIONS: a DOM focus walker over hand-written markup -----
     if (currentMode === MODE.MENU || currentMode === MODE.ACTIONS) {
@@ -540,6 +957,9 @@ export const useGamepad = ({
       }
       return ZERO_TICK;
     }
+
+    // Past this point everything needs a canvas to act on.
+    if (!canvasReady) return ZERO_TICK;
 
     // ---- HEADER: outline walks the open-web tabs, A commits --------------
     if (currentMode === MODE.HEADER) {
@@ -599,8 +1019,28 @@ export const useGamepad = ({
       return ZERO_TICK;
     }
 
-    // ---- CANVAS and NODE modes ------------------------------------------
-    const inNodeMode = currentMode === MODE.NODE;
+    // ---- CANVAS, NODE and EDGE modes ------------------------------------
+    // Selection can end without the pad doing it: a menu action deletes its
+    // own subject (Delete), navigates away (Expand, Open Definition), or the
+    // menu auto-closes. Any of those would strand the stick aiming a menu that
+    // is no longer there, so the mode is re-derived from the selection rather
+    // than trusted to have been cleaned up.
+    const modeSettled = now - modeSinceRef.current > MODE_SYNC_GRACE_MS;
+    if (modeSettled) {
+      const edgeGone = !store.selectedEdgeId && !(store.selectedEdgeIds?.size > 0);
+      const nodeGone = !p.pieMenuNodeIdRef?.current;
+      if ((currentMode === MODE.EDGE && edgeGone) || (currentMode === MODE.NODE && nodeGone)) {
+        setModeBoth(MODE.CANVAS);
+        setPieFocusBoth(-1);
+        p.onPieMenuHoverChange?.(null);
+      }
+    }
+
+    const inNodeMode = modeRef.current === MODE.NODE;
+    const inEdgeMode = modeRef.current === MODE.EDGE;
+    // Both "something is selected and its menu owns the stick" modes. Used
+    // wherever the distinction between a ring and a row doesn't matter.
+    const inMenuMode = inNodeMode || inEdgeMode;
 
     // While a trigger gesture is in flight — carrying a node, or drawing a
     // connection out of one — the only thing the other buttons could do is yank
@@ -621,26 +1061,30 @@ export const useGamepad = ({
     }
     if (!carrying && buttons.justPressed[BTN.L3]) { setModeBoth(MODE.LEFT_PANEL); return ZERO_TICK; }
     if (!carrying && buttons.justPressed[BTN.R3]) { setModeBoth(MODE.RIGHT_PANEL); return ZERO_TICK; }
-    if (!carrying && buttons.justPressed[BTN.DPAD_UP]) {
+    if (!carrying && !inMenuMode && buttons.justPressed[BTN.DPAD_UP]) {
       setHeaderFocusedGraphId(store.activeGraphId ?? null);
       setModeBoth(MODE.HEADER);
       return ZERO_TICK;
     }
-    if (!carrying && buttons.justPressed[BTN.DPAD_DOWN]) {
+    if (!carrying && !inMenuMode && buttons.justPressed[BTN.DPAD_DOWN]) {
       const order = ['connection', 'node', 'component', 'closed'];
       const cur = store.typeListMode || 'closed';
       const next = order[(order.indexOf(cur) + 1) % order.length];
       store.setTypeListMode?.(next);
     }
 
-    const nodeUnderCrosshair = getNodeUnderCrosshair();
+    // ONE resolution per frame, shared by the hover preview, the A button and
+    // the drift — see resolveCrosshairTarget.
+    const target = resolveCrosshairTarget();
+    const nodeUnderCrosshair = target?.kind === 'node' ? target.node : null;
+    const edgeUnderCrosshair = target?.kind === 'connection' ? target : null;
 
     // ---- Right trigger: pick up / put down -------------------------------
     // Zero delay, by design. The long-press timer exists to tell a click from a
     // drag with one button; a trigger is not that button, so there is nothing
     // to disambiguate. This path never touches nodeLiftDelay — that setting
     // still governs the mouse and only the mouse.
-    if (!inNodeMode) {
+    if (!inMenuMode) {
       if (buttons.justPressed[BTN.RT] && nodeUnderCrosshair && !carryingRef.current) {
         p.startDragForNodeRef?.current?.(nodeUnderCrosshair, cross.x, cross.y);
         carryingRef.current = true;
@@ -687,18 +1131,55 @@ export const useGamepad = ({
         if (focused && !focused.hidden) {
           focused.action?.(p.pieMenuNodeIdRef?.current ?? null, { x: cross.x, y: cross.y });
         }
+      } else if (inEdgeMode) {
+        const list = p.edgePieMenuButtonsRef?.current || [];
+        const focused = list[pieFocusedIndexRef.current];
+        // Connection menus are anchor-mode, so PieMenu passes null as the
+        // action's node id on a click; match that exactly.
+        if (focused && !focused.hidden) focused.action?.(null, { x: cross.x, y: cross.y });
+      } else if (target?.kind === 'plus') {
+        // On the plus: commit it, exactly as clicking it does.
+        p.plusSignControlRef?.current?.activate?.();
       } else if (nodeUnderCrosshair) {
         p.setSelectedInstanceIds?.(new Set([nodeUnderCrosshair.id]));
+        // HoverVisionAid ranks hovered-connection, then hovered-node, then the
+        // pie-item chip — so the hover that was live at the moment of selection
+        // would outrank every chip for as long as the menu stayed open. With a
+        // mouse this never shows up, because moving onto a bubble means leaving
+        // the node. A crosshair never leaves.
+        p.clearHoverImmediate?.();
         // Land on slot 0 rather than on nothing. A menu where A does nothing
         // until you have aimed reads as broken, and always having a focused
         // option is what makes a double-tap of A mean "do the first thing".
         setPieFocusBoth(0);
         setModeBoth(MODE.NODE);
+      } else if (edgeUnderCrosshair) {
+        // Same single-select path a plain (unmodified) click takes.
+        store.clearSelectedEdgeIds?.();
+        store.setSelectedEdgeId?.(edgeUnderCrosshair.id);
+        // See the note on the node branch: the live hover outranks the chip.
+        p.clearHoverImmediate?.();
+        p.setSelectedInstanceIds?.(new Set());
+        setPieFocusBoth(0);
+        setModeBoth(MODE.EDGE);
+      } else if (p.plusSignControlRef?.current?.sign) {
+        // Empty canvas with a plus already up: A off the plus dismisses it,
+        // which is what a click on empty canvas does.
+        p.plusSignControlRef.current.dismiss?.();
+      } else {
+        // Empty canvas, nothing up: A puts a plus sign under the crosshair, the
+        // same as clicking empty canvas puts one under the pointer.
+        p.plusSignControlRef?.current?.create?.(cross.x, cross.y);
       }
     }
 
     if (!carrying && buttons.justPressed[BTN.B]) {
+      // B is the universal "back": it drops the plus wherever the crosshair
+      // happens to be, which is the one way out that needs no aiming at all.
+      p.plusSignControlRef?.current?.dismiss?.();
       p.setSelectedInstanceIds?.(new Set());
+      store.setSelectedEdgeId?.(null);
+      store.clearSelectedEdgeIds?.();
       p.onPieMenuHoverChange?.(null);
       setPieFocusBoth(-1);
       setModeBoth(MODE.CANVAS);
@@ -721,6 +1202,10 @@ export const useGamepad = ({
     // ---- Shoulders: panels in canvas mode, pie pages in node mode --------
     if (carrying) {
       // Shoulders are inert mid-carry; see the note above.
+    } else if (inEdgeMode) {
+      // A connection menu has no pages to turn, and its d-pad belongs to the
+      // rows — so the shoulders simply do nothing here rather than reaching
+      // past the open menu to toggle panels.
     } else if (inNodeMode) {
       const pageCount = p.pieMenuPageCountRef?.current ?? 1;
       if (pageCount > 1) {
@@ -734,27 +1219,49 @@ export const useGamepad = ({
         }
       }
     } else {
-      if (buttons.justPressed[BTN.LB]) store.toggleLeftPanel?.();
-      if (buttons.justPressed[BTN.RB]) store.toggleRightPanel?.();
-      // D-pad left/right switch open webs, matching Tab+Q/E.
+      // Bumpers step through the open webs, matching Tab+Q/E. They sit on the
+      // shoulders because that is where a "previous / next" pair belongs — the
+      // same place they switch tabs once you are inside a panel.
       const openIds = store.openGraphIds || [];
       const curIdx = openIds.indexOf(store.activeGraphId);
-      if (buttons.justPressed[BTN.DPAD_LEFT] && curIdx > 0) {
+      if (buttons.justPressed[BTN.LB] && curIdx > 0) {
         store.setActiveGraphTab?.(openIds[curIdx - 1]);
-      } else if (buttons.justPressed[BTN.DPAD_RIGHT] && curIdx >= 0 && curIdx < openIds.length - 1) {
+      } else if (buttons.justPressed[BTN.RB] && curIdx >= 0 && curIdx < openIds.length - 1) {
         store.setActiveGraphTab?.(openIds[curIdx + 1]);
       }
+      // The d-pad's left and right point at the panels they open, which is as
+      // direct a mapping as the layout allows.
+      if (buttons.justPressed[BTN.DPAD_LEFT]) store.toggleLeftPanel?.();
+      if (buttons.justPressed[BTN.DPAD_RIGHT]) store.toggleRightPanel?.();
     }
 
     // ---- Left stick: pie aiming in node mode, pan otherwise --------------
     let panDx = 0;
     let panDy = 0;
 
-    if (inNodeMode) {
-      // Deliberate lockout: with a node selected the left stick belongs to the
-      // pie menu, and B is how you get panning back. Holding the previous
-      // focus below the aim threshold means easing off the stick before
-      // pressing A doesn't drop the selection.
+    if (inEdgeMode) {
+      // A connection's menu is a row (or two) laid along the edge, so it is
+      // STEPPED like a grid rather than aimed at like a ring: flick left/right
+      // to walk the row, up/down to change row. Absolute aiming would hand each
+      // of five buttons a fifth of the stick's throw, which is twitchy on a
+      // layout whose options sit only a few degrees apart.
+      const list = p.edgePieMenuButtonsRef?.current || [];
+      const dir = stickStep(left, 'edge')
+        || (repeats(BTN.DPAD_LEFT) ? 'left' : null)
+        || (repeats(BTN.DPAD_RIGHT) ? 'right' : null)
+        || (repeats(BTN.DPAD_UP) ? 'up' : null)
+        || (repeats(BTN.DPAD_DOWN) ? 'down' : null);
+      if (dir) {
+        const next = stepLineFocus(pieFocusedIndexRef.current, dir, list.length);
+        if (next >= 0) setPieFocusBoth(next);
+      }
+    } else if (inNodeMode) {
+      // A ring, by contrast, IS aimed at: every option has its own direction,
+      // so absolute aiming is both faster and more discoverable than stepping.
+      // Deliberate lockout: with a node selected the left stick belongs to its
+      // menu, and B is how you get panning back. Holding the previous focus
+      // below the aim threshold means easing off the stick before pressing A
+      // doesn't drop the selection.
       if (left.magnitude >= PIE_AIM_THRESHOLD) {
         const list = p.pieMenuButtonsRef?.current || [];
         const idx = pieButtonIndexForStick(left.x, left.y, list.length);
@@ -780,45 +1287,62 @@ export const useGamepad = ({
     }
 
     // ---- Hover + auto-aim ------------------------------------------------
-    if (!inNodeMode) {
-      // Both branches go through commitHoverTarget rather than one of them
+    // Reads modeRef, not the `inMenuMode` computed at the top of this tick: the
+    // A button may have entered a menu mode a few lines ago, and the stale
+    // local would re-commit the hover that entry just cleared — which is what
+    // kept the pie-item chip from ever appearing (see the clear on entry).
+    if (modeRef.current === MODE.CANVAS) {
+      // Every branch goes through commitHoverTarget rather than any of them
       // calling clearHoverImmediate: this runs every frame, and only
       // commitHoverTarget carries the "already showing this" guard that keeps a
       // steady crosshair from re-setting the same state 60 times a second.
-      p.commitHoverTarget?.(nodeUnderCrosshair
-        ? { kind: 'node', id: nodeUnderCrosshair.id, node: nodeUnderCrosshair }
-        : { kind: 'none' });
+      // Connections raise the same triplet preview they do under a mouse.
+      if (target?.kind === 'node') {
+        p.commitHoverTarget?.({ kind: 'node', id: target.id, node: target.node });
+      } else if (target?.kind === 'connection') {
+        p.commitHoverTarget?.({
+          kind: 'connection',
+          id: target.id,
+          edgeInfo: { edgeId: target.id },
+          connection: target.connection,
+        });
+      } else {
+        p.commitHoverTarget?.({ kind: 'none' });
+      }
 
-      const moving = left.magnitude > 0 || Math.abs(zoomInput) > 0
-        || carryingRef.current || connectingRef.current;
-      if (moving) {
-        // Hand the view straight back to the stick. Without this the drift
-        // keeps interpolating toward a target captured before the nudge and
-        // visibly pulls against it for the rest of its duration.
-        if (autoAimFiredRef.current) p.cancelCanvasViewAnimation?.();
+      // ---- Drift arbitration ------------------------------------------
+      // The camera has several claimants and the drift is the most junior of
+      // them. It never cancels anyone; it simply declines to run, and stands
+      // down mid-flight, whenever something else has a claim. See the header
+      // note in gamepadAim.js for why that is ownership rather than courtesy.
+      const inputActive = left.magnitude > 0 || Math.abs(zoomInput) > 0;
+      if (inputActive || !driftAllowedRef.current()) {
+        // Stopping is idempotent, and the drift's own per-frame permission
+        // check would stop it anyway — this just makes it happen on the same
+        // frame as the input rather than one later.
+        driftRef.current?.stop();
         neutralSinceRef.current = 0;
         autoAimFiredRef.current = false;
       } else {
         if (neutralSinceRef.current === 0) neutralSinceRef.current = now;
         const dwelled = now - neutralSinceRef.current >= AUTO_AIM_DWELL_MS;
-        if (dwelled && !autoAimFiredRef.current && nodeUnderCrosshair) {
+        // `aimPoint` is null for targets that have no sensible place to be
+        // pulled to — a self-loop, or a routed connection whose chord guess
+        // failed verification. Those simply don't attract.
+        if (dwelled && !autoAimFiredRef.current && target?.aimPoint) {
           autoAimFiredRef.current = true;
           const zoom = p.zoomLevelRef.current;
           const cs = p.canvasSizeRef.current;
           const rect = getContainerRect();
           if (rect && cs) {
-            // Node records carry position, not size — dimensions are derived,
-            // because they depend on the text that has to fit inside.
-            const dims = getNodeDimensions(nodeUnderCrosshair, false, null);
-            // Where the node's centre would have to sit, in pan space, for it
-            // to land under the crosshair.
-            const centerCanvasX = nodeUnderCrosshair.x + dims.currentWidth / 2;
-            const centerCanvasY = nodeUnderCrosshair.y + dims.currentHeight / 2;
-            const targetPanX = (cross.x - rect.left) - (centerCanvasX - cs.offsetX) * zoom;
-            const targetPanY = (cross.y - rect.top) - (centerCanvasY - cs.offsetY) * zoom;
+            const targetPan = panToPlacePointAt(
+              target.aimPoint.x, target.aimPoint.y,
+              cross.x, cross.y,
+              rect, p.panOffsetRef.current, zoom, cs
+            );
             const cur = p.panOffsetRef.current;
-            if (Math.hypot(targetPanX - cur.x, targetPanY - cur.y) > AUTO_AIM_MIN_DISTANCE_PX) {
-              p.animateCanvasView?.({ x: targetPanX, y: targetPanY }, zoom, AUTO_AIM_DURATION_MS);
+            if (Math.hypot(targetPan.x - cur.x, targetPan.y - cur.y) > AUTO_AIM_MIN_DISTANCE_PX) {
+              driftRef.current?.start(targetPan, AUTO_AIM_DURATION_MS);
             }
           }
         }
@@ -826,7 +1350,7 @@ export const useGamepad = ({
     }
 
     return { panDx, panDy, zoomMultiplier };
-  }, [deactivate, getCrosshair, getContainerRect, getNodeUnderCrosshair, setModeBoth, setPieFocusBoth, headerFocusedGraphId]);
+  }, [deactivate, getCrosshair, getContainerRect, resolveCrosshairTarget, setModeBoth, setPieFocusBoth, headerFocusedGraphId]);
 
   // The host rAF loop calls through this ref, so it never has to re-subscribe
   // when `tick` is rebuilt.

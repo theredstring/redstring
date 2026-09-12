@@ -1733,9 +1733,15 @@ class SaveCoordinator {
    * @param {Object|null} gitSyncEngine - New GitSyncEngine instance, or `null` to disable Git saves.
    */
   setGitSyncEngine(gitSyncEngine) {
+    const previous = this.gitSyncEngine;
     this.gitSyncEngine = gitSyncEngine;
     if (gitAutosavePolicy) {
       gitAutosavePolicy.gitSyncEngine = gitSyncEngine;
+      // A commit timer armed for the OUTGOING engine must not fire against the
+      // incoming one (or against nothing at all, when Git is being unlinked).
+      if (previous !== gitSyncEngine) {
+        gitAutosavePolicy.clearPending();
+      }
     }
   }
 

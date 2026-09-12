@@ -383,6 +383,10 @@ const ColorPicker = ({
   return (
     <div
       ref={pickerRef}
+      // Presence of this class is how the controller knows a picker is open, so
+      // B can close it before whatever surface is underneath. See
+      // utils/gamepadMenuNav.js.
+      className="color-picker-panel"
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}

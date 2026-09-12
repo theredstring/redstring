@@ -241,19 +241,24 @@ export const useCanvasKeyboard = ({
                 abstractionCarouselVisible || // carousel locks the canvas view
                 !activeGraphId;
 
+            // reference frame rate for speed constants
+            const frameRatio = deltaTime * 60;
+
+            // Poll the controller before anything else reads the frame — and
+            // deliberately BEFORE the disable check below. The conditions that
+            // disable the keyboard are mostly "a modal is up" or "no graph is
+            // open", and those are exactly the states the controller still has
+            // work to do in: driving a unified selector, or the two buttons on
+            // the stuck-loading screen. A pad that went silent there would
+            // leave the user looking at a dialog they cannot reach. The tick
+            // applies its own, narrower gate for anything that touches the
+            // canvas, and returns no movement when there is nothing to move.
+            const gamepad = gamepadTickRef?.current?.(deltaTime, frameRatio);
+
             if (shouldDisableKeyboard) {
                 if (wasMoving) { isPanningOrZoomingRef.current = false; flushSettle(); wasMoving = false; }
                 return;
             }
-
-            // reference frame rate for speed constants
-            const frameRatio = deltaTime * 60;
-
-            // Poll the controller before anything else reads the frame. It also
-            // dispatches its own discrete button actions (selection, pie menu,
-            // panels) as a side effect and returns only the analog movement,
-            // which folds in below exactly like a held key would.
-            const gamepad = gamepadTickRef?.current?.(deltaTime, frameRatio);
 
             // Calculate movement (use lowercase only to avoid shift conflicts)
             let panDx = 0, panDy = 0;

@@ -63,6 +63,7 @@ const HoverVisionAid = ({
   const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
   const hoverPreviewZoomOnly = useGraphStore((state) => state.hoverPreviewZoomOnly ?? true);
   const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 1.0);
+  const showConnectionNames = useGraphStore((state) => state.showConnectionNames);
 
   // On no-mouse (touch) devices there is no real hover — a tap would otherwise pop this
   // preview up unexpectedly, so suppress the node/connection hover previews entirely.
@@ -190,7 +191,21 @@ const HoverVisionAid = ({
   // Gated by the "zoom only" setting (on by default): when off, node/connection
   // previews show at any zoom. Pie-menu item chips are always exempt — they're a
   // button label, not a legibility aid, so they show at every zoom level.
-  const zoomGated = hoverPreviewZoomOnly && !isItem && zoomLevel > ZOOM_HIDE_THRESHOLD;
+  // The zoom gate assumes the canvas is already saying everything the preview
+  // would. For a connection that is only true when its name is on screen AND
+  // whole: with connection names switched off the canvas names nothing, and with
+  // them on but truncating it names it only in part. In both cases the one thing
+  // the user is hovering a connection to learn is the thing the canvas is
+  // withholding, so the preview earns its place at any zoom. (`labelTruncated`
+  // is reported by the edge renderer for the label it actually drew — see
+  // labelTruncationRef in NodeCanvas.)
+  const connectionNameUnreadable = isConnection
+    && (!showConnectionNames || displayed.connection?.labelTruncated === true);
+
+  const zoomGated = hoverPreviewZoomOnly
+    && !isItem
+    && !connectionNameUnreadable
+    && zoomLevel > ZOOM_HIDE_THRESHOLD;
   const zoomOpacity = zoomGated ? 0 : 1;
 
   // Pre-resizable fixed preview dimensions (reverted from node-size scaling).

@@ -357,6 +357,10 @@ const UnifiedSelector = ({
                   size={iconSize}
                   color={theme.canvas.textPrimary}
                   active={colorPickerVisible}
+                  // Handles for the game controller: the first marks this as a
+                  // walkable row in the top dialog, the second is what Y clicks
+                  // to open and close the picker.
+                  className="unified-selector-control unified-selector-color-button"
                   onClick={(e) => handleColorPickerToggle(e.currentTarget, e)}
                   title="Change color"
                   ariaExpanded={colorPickerVisible}
@@ -369,6 +373,7 @@ const UnifiedSelector = ({
                 />
               )}
               <input
+                className="unified-selector-control"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -404,6 +409,7 @@ const UnifiedSelector = ({
                   onTouchEnd={(e) => { if (e.cancelable) e.preventDefault(); }}
                 >
                   <PanelIconButton
+                    className="unified-selector-control"
                     icon={Plus}
                     size={iconSize}
                     strokeWidth={2.5}
@@ -500,6 +506,10 @@ const UnifiedSelector = ({
                     {filteredPrototypes.map(prototype => (
                       <div
                         key={prototype.id}
+                        // Handle for the game controller's grid walker — the
+                        // cards are otherwise styled entirely inline, with no
+                        // selector to navigate by. See utils/gamepadMenuNav.js.
+                        className="unified-selector-card"
                         style={{
                           background: prototype.color || '#8B0000',
                           borderRadius: isMobilePortrait ? '14px' : (isSmallScreen ? '16px' : '14px'),

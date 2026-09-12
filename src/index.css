@@ -163,3 +163,23 @@ body.gamepad-cursor-hidden,
 body.gamepad-cursor-hidden * {
   cursor: none !important;
 }
+
+/* --- Controller focus in the selectors ---------------------------------
+   The unified selector's cards and the node grid's items apply their hover
+   treatment with inline styles (transform/filter/boxShadow written in an
+   onMouseEnter handler), which the walker triggers by synthesising the same
+   event. This adds the ring that distinguishes "focused" from "hovered".
+   An outline, not a box-shadow — an inline boxShadow would win over one. */
+.unified-selector-card.gamepad-menu-focus,
+.node-grid-item.gamepad-menu-focus {
+  outline: 3px solid #bdb5b5;
+  outline-offset: 3px;
+}
+
+/* The stuck-loading escape hatch's two buttons, when the controller is on them.
+   Scoped to that container: `.panel-icon-button` is used throughout the app,
+   including by the settings modal's option groups. */
+.canvas-loading-actions .panel-icon-button.gamepad-menu-focus {
+  outline: 3px solid #bdb5b5;
+  outline-offset: 3px;
+}

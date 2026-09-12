@@ -125,11 +125,18 @@
   transform: scale(1);
   transition: transform 0.15s ease;
 }
-.pie-bubble-hover:hover,
-/* A game controller aims with a stick, not a pointer, so there is no :hover to
-   fire. Same grow, driven by a class instead. */
-.pie-bubble-hover.gamepad-focused {
+.pie-bubble-hover:hover {
   transform: scale(1.10);
+}
+
+/* A game controller aims with a stick, not a pointer, so there is no :hover to
+   fire — the class stands in for it. It grows further than the mouse's 1.10 on
+   purpose: with a mouse the cursor is itself sitting on the bubble, so the grow
+   only has to confirm what the pointer already says. A controller has no
+   pointer, so this swell IS the whole indication of what A will do, and it has
+   to read from across the canvas rather than merely on inspection. */
+.pie-bubble-hover.gamepad-focused {
+  transform: scale(1.28);
 }
 
 /* --- Page-switch chevrons: delayed intro, outro, and hover-grow --- */

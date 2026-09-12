@@ -84,6 +84,7 @@ export function renderConnectionEdge(edge, ctx) {
     labelRingEnabled,
     labelSpriteScale,
     labelSpritesEnabled,
+    labelTruncationRef,
     lombardiCurvature,
     lombardiLaneSpacing,
     lombardiMinBow,
@@ -168,6 +169,7 @@ export function renderConnectionEdge(edge, ctx) {
         connectionFontSize={selfFontSize}
         connectionWidth={connectionWidth}
         placedLabelsRef={placedLabelsRef}
+        labelTruncationRef={labelTruncationRef}
       />
     );
   }
@@ -1526,6 +1528,19 @@ export function renderConnectionEdge(edge, ctx) {
           }
         }
         // For straight/curved routing, midX/midY/angle are already set from parallelPath above
+
+        // Whether the name on canvas is the WHOLE name. Recorded here because
+        // this is the one point where every branch above has settled on the
+        // string that gets drawn — straight, routed-solved and routed-cached
+        // alike — so it cannot disagree with what the user is looking at.
+        //
+        // The hover vision aid reads it: a cut label means the canvas is no
+        // longer showing the connection's name, which is exactly the case the
+        // preview exists to cover, so it overrides the zoom gate. See
+        // labelTruncationRef in NodeCanvas.
+        if (labelTruncationRef?.current) {
+          labelTruncationRef.current.set(edge.id, displayName !== connectionName);
+        }
 
         // midX/midY already sit at the center of the visible segment —
         // getVisualConnectionEndpoints clipped against each endpoint's real

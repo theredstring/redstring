@@ -23,7 +23,7 @@ import GamepadCrosshair from './components/GamepadCrosshair.jsx'; // Controller-
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from './services/textMeasurement.js';
 import { peekLabelSprite, requestLabelSprite, peekGlyphSprite, requestGlyphSprite, onSpritesReady, spritesUsable, hydrateLabelSprites, glyphQuadAt, GLYPH_SPRITE_LAYERS, spriteScaleForZoom } from './services/labelSpriteCache.js';
-import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from './utils/clipboard.js';
@@ -789,6 +789,14 @@ function NodeCanvas() {
   const suppressMouseDownResetTimeoutRef = useRef(null);
   /* Ref for label placement to avoid overlap */
   const placedLabelsRef = useRef(new Map());
+  // edgeId → true when the label the renderer last drew for that connection was
+  // cut short of its real name. Written by the edge renderers at the point they
+  // settle on the drawn string, read by the hover hit-test below.
+  //
+  // A ref rather than state on purpose: this is a report of what the last paint
+  // did, consumed only on hover, so it must never itself cause a render. Stale
+  // entries for edges that have gone away are harmless — nothing can hover one.
+  const labelTruncationRef = useRef(new Map());
   const pinchRef = useRef({ active: false, startDist: 0, startZoom: 1, centerClient: { x: 0, y: 0 }, centerWorld: null, lastCenterClient: { x: 0, y: 0 }, lastDist: 0 });
   const pinchSmoothingRef = useRef({ lastFrameTime: 0, velocity: { x: 0, y: 0 } });
   // Cross-platform multi-touch suppression. True from gesture start until ~350ms
@@ -1293,6 +1301,7 @@ function NodeCanvas() {
   const connectionLabelRingWidth = useGraphStore(state => state.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
   const connectionLabelMoveFade = useGraphStore(state => state.connectionLabelMoveFade ?? DEFAULT_CONNECTION_LABEL_MOVE_FADE);
   const connectionLabelTruncate = useGraphStore(state => state.connectionLabelTruncate ?? DEFAULT_CONNECTION_LABEL_TRUNCATE);
+  const connectionLabelSprites = useGraphStore(state => state.connectionLabelSprites ?? DEFAULT_CONNECTION_LABEL_SPRITES);
   const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
   const showNodeControlPanel = useGraphStore(state => state.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore(state => state.showMultipleNodesControlPanel ?? true);
@@ -3005,6 +3014,13 @@ function NodeCanvas() {
   const draggingNodeInfoRef = nodeDrag.draggingNodeInfoRef;
   const dragPhaseRef = nodeDrag.dragPhaseRef;
   const isAnimatingZoomRef = nodeDrag.isAnimatingZoomRef;
+  // True while the game controller's crosshair drift owns the camera.
+  // Deliberately NOT isAnimatingZoomRef: that flag is shared with drag-zoom and
+  // focus-on-select, and letting the drift write it meant a drift standing down
+  // cleared a flag that, by then, belonged to the node lift that displaced it —
+  // which is what made lifting a node glitch for a frame or two. The drift
+  // reads that flag and owns this one. See utils/gamepadAim.js.
+  const gamepadDriftingRef = useRef(false);
   const longPressingInstanceId = nodeDrag.longPressingInstanceId;
   const longPressingInstanceIdRef = nodeDrag.longPressingInstanceIdRef;
   const setLongPressingInstanceId = nodeDrag.setLongPressingInstanceId;
@@ -4371,7 +4387,10 @@ function NodeCanvas() {
   useEffect(() => {
     isProgrammaticMoveRef.current = () => {
       if (!shouldFadeLabelsRef.current()) return true;
-      return isAnimatingZoomRef.current === true;
+      // The controller's aim drift is a short, bounded camera move like the
+      // others here, so it gets the same exemption — but through its own flag,
+      // never by borrowing isAnimatingZoomRef.
+      return isAnimatingZoomRef.current === true || gamepadDriftingRef.current === true;
     };
     return () => { isProgrammaticMoveRef.current = null; };
   }, [isProgrammaticMoveRef, isAnimatingZoomRef]);
@@ -4887,10 +4906,13 @@ function NodeCanvas() {
   const labelRingEnabled = typeof window === 'undefined' || window.__labelRing !== false;
 
   // Draw straight labels as pre-rasterised bitmaps instead of two stroked
-  // rotated <text> elements. `window.__labelSprites = false` returns them to
-  // <text> for an A/B on a real graph; see labelSpriteCache.js for why this is
-  // the fix rather than a tuning of the strokes.
-  const labelSpritesEnabled = typeof window === 'undefined' || window.__labelSprites !== false;
+  // rotated <text> elements — see labelSpriteCache.js for why this is the fix
+  // rather than a tuning of the strokes. Off returns them to <text>, which is
+  // crisper between zoom buckets at the per-frame cost the sprites exist to
+  // avoid. `window.__labelSprites = false` forces the same fallback regardless
+  // of the setting, so an A/B on a real graph needs no trip through Settings.
+  const labelSpritesEnabled = connectionLabelSprites
+    && (typeof window === 'undefined' || window.__labelSprites !== false);
 
   // Which resolution to bake at. Read from SETTLED zoom, so a gesture never
   // re-rasterises anything, and bucketed to powers of two so an ordinary zoom
@@ -7409,21 +7431,6 @@ function NodeCanvas() {
     carouselViewAnimRef.current = requestAnimationFrame(step);
   }, [setPanAndZoom, panOffsetRef, zoomLevelRef, isAnimatingZoomRef]);
 
-  /**
-   * Abandons an in-flight animateCanvasView, leaving the view wherever it got
-   * to. Needed because an animated camera move and a live pan both write
-   * panOffsetRef — if a gesture starts mid-animation the two fight, and the
-   * animation wins every frame it runs since it interpolates from its own
-   * captured start point. The controller's auto-aim drift calls this the
-   * instant the stick moves, so a nudge during the drift takes over cleanly
-   * rather than being dragged back.
-   */
-  const cancelCanvasViewAnimation = useCallback(() => {
-    if (!carouselViewAnimRef.current) return;
-    cancelAnimationFrame(carouselViewAnimRef.current);
-    carouselViewAnimRef.current = null;
-    isAnimatingZoomRef.current = false;
-  }, [isAnimatingZoomRef]);
 
   // Center on open. On close we intentionally leave the canvas where it is —
   // the carousel framing becomes the new resting view rather than snapping back.
@@ -10769,7 +10776,11 @@ function NodeCanvas() {
         typeNodeId: edge.typeNodeId,
         source: flipForCanvasOrder ? targetEndpoint : sourceEndpoint,
         target: flipForCanvasOrder ? sourceEndpoint : targetEndpoint,
-        directionality: edge.directionality
+        directionality: edge.directionality,
+        // Whether the canvas is currently showing this connection's name in
+        // full. The hover aid uses it to decide it is needed at a zoom level
+        // where it would normally stand down — see labelTruncationRef.
+        labelTruncated: labelTruncationRef.current.get(edge.id) === true
       };
     }
 
@@ -13397,6 +13408,43 @@ function NodeCanvas() {
   // saying so is what lets the same function serve the controller. The draw
   // then tracks the crosshair as the canvas pans, and releasing over another
   // node lands the edge through the ordinary release path.
+  // The connection menu's slope, mirrored for the controller's aiming. Its
+  // buttons already live in edgePieMenuButtonsRef.
+  const edgeAnchorAngleRef = useRef(0);
+  edgeAnchorAngleRef.current = selectedEdgeMidpoint?.angle ?? 0;
+  const findEdgeAtClientPointRef = useRef(null);
+  findEdgeAtClientPointRef.current = findEdgeAtClientPoint;
+  // The plus sign, as the controller sees it: where it is, how big its target
+  // is, and the three things A and B can do to it. Bundled into one ref rather
+  // than five because they are only ever used together, and because the hook
+  // needs the CURRENT sign each frame — a captured value would go stale the
+  // moment the sign appeared.
+  const plusSignControlRef = useRef(null);
+  plusSignControlRef.current = {
+    // Only a settled plus sign is a target. One that is animating away, or
+    // morphing into a node, is already committed to an outcome.
+    sign: plusSign && plusSign.mode === 'appear' ? plusSign : null,
+    // Half-extent of the hit square, in canvas units. Mirrors the invisible
+    // rect PlusSign draws for touch (max(44, size)), so the controller's target
+    // is the same size as everyone else's.
+    halfHit: Math.max(44, PLUS_SIGN_SIZE * (textSettings?.plusSignScale ?? 1.0)) / 2,
+    create: (clientX, clientY) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+      const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+      setPlusSign({ x, y, mode: 'appear', tempName: '' });
+      setLastInteractionType('plus_sign_shown');
+    },
+    activate: () => handlePlusSignClick(),
+    dismiss: () => {
+      // Same guard the canvas click path uses: a morphing plus is committed.
+      if (!plusSign || plusSign.mode === 'morph') return;
+      setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
+      setLastInteractionType('plus_sign_hidden');
+    },
+  };
+
   const startConnectionFromNodeRef = useRef(null);
   startConnectionFromNodeRef.current = (instanceId, clientX, clientY) => {
     startedOnNode.current = true;
@@ -13406,6 +13454,7 @@ function NodeCanvas() {
   const {
     gamepadTickRef,
     gamepadActive,
+    gamepadMode,
     pieFocusedIndex: gamepadPieFocusedIndex,
     headerFocusedGraphId: gamepadHeaderFocusedGraphId,
   } = useGamepad({
@@ -13423,32 +13472,27 @@ function NodeCanvas() {
     releasePointerRef,
     startConnectionFromNodeRef,
     drawingConnectionFromRef,
+    plusSignControlRef,
     setSelectedInstanceIds,
     commitHoverTarget,
     clearHoverImmediate,
     pieMenuButtonsRef,
     pieMenuPageCountRef,
     pieMenuNodeIdRef,
+    edgePieMenuButtonsRef,
+    edgeAnchorAngleRef,
+    findEdgeAtClientPointRef,
     setPieMenuPage,
     onPieMenuHoverChange: handlePieMenuHoverChange,
-    animateCanvasView,
-    cancelCanvasViewAnimation,
+    setPan: setPanOffset,
+    isAnimatingZoomRef,
+    abstractionCarouselVisibleRef,
+    driftingRef: gamepadDriftingRef,
     isPausedRef,
     activeGraphIdRef,
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
   });
-
-  // Raise the pie-menu label chip for whichever bubble the controller is
-  // aiming at, so a stick-aimed menu shows the same chip a moused one does.
-  // Driven from here rather than from inside the tick because it depends on
-  // targetPieMenuButtons, which is rebuilt a commit AFTER the selection that
-  // opened the menu — the tick would chip the previous node's buttons.
-  useEffect(() => {
-    if (gamepadPieFocusedIndex < 0) return;
-    const btn = targetPieMenuButtons?.[gamepadPieFocusedIndex];
-    handlePieMenuHoverChange(btn ? { id: btn.id, label: btn.label } : null);
-  }, [gamepadPieFocusedIndex, targetPieMenuButtons, handlePieMenuHoverChange]);
 
   useCanvasKeyboard({
     activeGraphId,
@@ -14395,6 +14439,21 @@ function NodeCanvas() {
       edgePieMenuButtonsRef.current = edgePieMenuButtons;
     }
   }, [edgePieMenuVisible, edgePieMenuButtons]);
+
+  // Raise the pie-menu label chip for whichever bubble the controller is
+  // aiming at, so a stick-aimed menu shows the same chip a moused one does.
+  // Driven from an effect rather than from inside the gamepad tick because it
+  // depends on the button arrays, which are rebuilt a commit AFTER the
+  // selection that opened the menu — the tick would chip the previous
+  // subject's buttons. It lives down here, rather than beside the useGamepad
+  // call, because edgePieMenuButtons is declared above this line and nowhere
+  // earlier: reading it up there is a temporal-dead-zone throw, not a warning.
+  useEffect(() => {
+    if (gamepadPieFocusedIndex < 0) return;
+    const list = gamepadMode === 'edge' ? edgePieMenuButtons : targetPieMenuButtons;
+    const btn = list?.[gamepadPieFocusedIndex];
+    handlePieMenuHoverChange(btn ? { id: btn.id, label: btn.label } : null);
+  }, [gamepadPieFocusedIndex, gamepadMode, targetPieMenuButtons, edgePieMenuButtons, handlePieMenuHoverChange]);
 
   // Focus-on-select for connections: when an edge's pie menu first appears, frame it
   // the same way selecting a node frames its menu. Only on a fresh show (new edge),
@@ -15983,8 +16042,12 @@ function NodeCanvas() {
                     </div>
                   </div>
 
-                  {/* Escape hatch for stuck loading states */}
-                  <div style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
+                  {/* Escape hatch for stuck loading states. Classed so the game
+                      controller can drive it: this screen is one of the few
+                      places with no canvas behind it, so without a handle here
+                      a pad user would be looking at two buttons they cannot
+                      reach. See utils/gamepadMenuNav.js. */}
+                  <div className="canvas-loading-actions" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
                     <PanelIconButton
                       icon={Globe}
                       size={14}
@@ -17115,6 +17178,7 @@ function NodeCanvas() {
                       labelRingEnabled,
                       labelSpriteScale,
                       labelSpritesEnabled,
+                      labelTruncationRef,
                       lombardiCurvature,
                       lombardiLaneSpacing,
                       lombardiMinBow,
@@ -17428,7 +17492,7 @@ function NodeCanvas() {
                               (!abstractionCarouselVisible && !(previewingNodeId && previewingNodeId === selectedNodeIdForPieMenu)) ? nodePieMenuPages.length : 1}
                             currentPage={pieMenuPage}
                             onPageChange={setPieMenuPage}
-                            focusedButtonIndex={gamepadPieFocusedIndex}
+                            focusedButtonIndex={gamepadMode === 'node' ? gamepadPieFocusedIndex : -1}
                             isVisible={(
                               currentPieMenuData?.node?.id === selectedNodeIdForPieMenu &&
                               // Orbit owns the screen while it is up. Hiding via
@@ -17592,6 +17656,7 @@ function NodeCanvas() {
                               anchor={anchor}
                               anchorAngle={anchor.angle ?? 0}
                               buttons={displayButtons}
+                              focusedButtonIndex={gamepadMode === 'edge' ? gamepadPieFocusedIndex : -1}
                               nodeScale={textSettings?.nodeScale ?? 1.0}
                               isVisible={edgePieMenuVisible && !edgeAttachedToDraggedNode}
                               onHoverChange={handlePieMenuHoverChange}

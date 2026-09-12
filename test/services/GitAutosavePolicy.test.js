@@ -14,7 +14,10 @@ const mockGitSyncEngine = {
 
 const mockSaveCoordinator = {
   getState: vi.fn(() => ({ graphs: new Map(), nodePrototypes: new Map(), edges: new Map() })),
-  onStatusChange: vi.fn()
+  onStatusChange: vi.fn(),
+  // Present so the tests below prove the policy does NOT call it, rather than
+  // passing merely because the method is absent.
+  forceSave: vi.fn()
 };
 
 describe('GitAutosavePolicy', () => {
@@ -47,6 +50,58 @@ describe('GitAutosavePolicy', () => {
       expect(policy.isEnabled).toBe(true);
       expect(policy.gitSyncEngine).toBe(mockGitSyncEngine);
       expect(policy.saveCoordinator).toBe(mockSaveCoordinator);
+    });
+  });
+
+  // A local-only universe has no Git engine. This policy schedules work on the
+  // GIT cadence (10s idle / 90s max), so anything it does there is, by
+  // definition, a local save running on Git timing.
+  describe('Local-only universe (no Git engine)', () => {
+    beforeEach(() => {
+      policy.initialize(null, mockSaveCoordinator);
+    });
+
+    it('reports no commit target', () => {
+      expect(policy.hasCommitTarget()).toBe(false);
+    });
+
+    it('does not arm the Git-cadence timers on edit activity', () => {
+      policy.onEditActivity();
+
+      expect(policy.currentBatch).toHaveLength(0);
+      expect(policy.pendingTimeout).toBeNull();
+      expect(policy.maxTimeout).toBeNull();
+    });
+
+    it('never triggers a local save after the Git idle timeout', () => {
+      policy.onEditActivity();
+
+      // Well past both the 10s idle and 90s max Git timeouts.
+      vi.advanceTimersByTime(120000);
+
+      expect(mockSaveCoordinator.forceSave).not.toHaveBeenCalled();
+      expect(mockGitSyncEngine.forceCommit).not.toHaveBeenCalled();
+    });
+
+    it('drops a batch armed before the engine was detached', async () => {
+      // Engine present, edit arms the timers...
+      policy.gitSyncEngine = mockGitSyncEngine;
+      policy.onEditActivity();
+      expect(policy.currentBatch).toHaveLength(1);
+
+      // ...then Git is unlinked before the timer fires.
+      policy.gitSyncEngine = null;
+      await policy.executeBatchCommit('idle_timeout');
+
+      expect(mockSaveCoordinator.forceSave).not.toHaveBeenCalled();
+      expect(policy.currentBatch).toHaveLength(0);
+      expect(policy.pendingTimeout).toBeNull();
+      expect(policy.maxTimeout).toBeNull();
+    });
+
+    it('refuses a manual forceCommit instead of writing locally', async () => {
+      await expect(policy.forceCommit()).rejects.toThrow(/No Git repository/);
+      expect(mockSaveCoordinator.forceSave).not.toHaveBeenCalled();
     });
   });
 

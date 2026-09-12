@@ -73,17 +73,34 @@ class GitAutosavePolicy {
     this.saveCoordinator = saveCoordinator;
     this.isEnabled = true;
 
-    // Subscribe to state changes through SaveCoordinator
-    if (this.saveCoordinator) {
-      this.saveCoordinator.onStatusChange((status) => {
-        if (status.type === 'state_change') {
-          this.onEditActivity();
-        }
-      });
-    }
+    console.log('[GitAutosavePolicy] Initialized with dependencies', {
+      hasCommitTarget: this.hasCommitTarget()
+    });
+    this.notifyStatus('info', this.hasCommitTarget()
+      ? 'Git autosave policy active'
+      : 'Git autosave policy idle (no Git engine attached)');
+  }
 
-    console.log('[GitAutosavePolicy] Initialized with dependencies');
-    this.notifyStatus('info', 'Git autosave policy active');
+  /**
+   * True when there is a Git engine that can actually receive a commit.
+   *
+   * This policy schedules commits on the GIT cadence (10s idle / 90s max, or
+   * the tighter local-primary pair). Without an engine there is nothing to
+   * commit TO — and, critically, nothing about a local-only universe should
+   * run on Git timing. `SaveCoordinator`'s own 3s debounce is the entire save
+   * story for a local-only universe.
+   *
+   * Previously this was never checked: `onEditActivity` armed the Git timers
+   * on every edit regardless, and `performCommit` fell through to
+   * `saveCoordinator.forceSave()`. On a local-only universe that produced a
+   * second, redundant, full re-serialize-and-write of already-saved state 10s
+   * after every edit — which also reset the coordinator's shrinkage baseline
+   * (forceSave carries user-intent semantics) on a background timer.
+   *
+   * @returns {boolean}
+   */
+  hasCommitTarget() {
+    return !!(this.gitSyncEngine && typeof this.gitSyncEngine.forceCommit === 'function');
   }
 
   /**
@@ -117,6 +134,13 @@ class GitAutosavePolicy {
    */
   onEditActivity() {
     if (!this.isEnabled) return;
+
+    // No Git engine attached (local-only universe) — there is nothing to
+    // commit, so don't arm the Git-cadence timers. See `hasCommitTarget`.
+    if (!this.hasCommitTarget()) {
+      if (this.currentBatch.length || this.pendingTimeout || this.maxTimeout) this.clearPending();
+      return;
+    }
 
     const now = Date.now();
     this.lastEditTime = now;
@@ -189,6 +213,16 @@ class GitAutosavePolicy {
    */
   async executeBatchCommit(reason) {
     if (!this.isEnabled || this.currentBatch.length === 0) return;
+
+    // The engine can be detached mid-flight (universe switch, Git unlinked)
+    // while a timer armed for the old one is still pending. Drop the batch
+    // rather than falling into the error/backoff retry loop over a target
+    // that no longer exists.
+    if (!this.hasCommitTarget()) {
+      console.log(`[GitAutosavePolicy] Dropping batch (${reason}): no Git engine attached`);
+      this.clearPending();
+      return;
+    }
 
     // Clear timeouts
     if (this.pendingTimeout) {
@@ -429,13 +463,16 @@ class GitAutosavePolicy {
    * Perform actual commit
    */
   async performCommit(state) {
-    if (this.gitSyncEngine && this.gitSyncEngine.forceCommit) {
-      await this.gitSyncEngine.forceCommit(state);
-    } else if (this.saveCoordinator && this.saveCoordinator.forceSave) {
-      await this.saveCoordinator.forceSave(state);
-    } else {
-      throw new Error('No commit mechanism available');
+    // Git only. This policy must never reach for `saveCoordinator.forceSave`
+    // as a fallback: local persistence is the coordinator's own debounced
+    // pipeline, and `forceSave` carries user-intent semantics (it bypasses the
+    // shrinkage guard and re-baselines `dataBaseline`). A background timer is
+    // not user intent. `executeBatchCommit` refuses to run without a target,
+    // so this throw is a defensive invariant, not a reachable path.
+    if (!this.hasCommitTarget()) {
+      throw new Error('No Git commit mechanism available');
     }
+    await this.gitSyncEngine.forceCommit(state);
   }
 
   /**
@@ -470,6 +507,9 @@ class GitAutosavePolicy {
   async forceCommit() {
     if (!this.isEnabled) {
       throw new Error('Autosave policy not enabled');
+    }
+    if (!this.hasCommitTarget()) {
+      throw new Error('No Git repository linked to this universe');
     }
 
     // Clear any pending timeouts

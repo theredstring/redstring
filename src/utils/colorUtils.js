@@ -269,6 +269,22 @@ export const DEFAULT_CONNECTION_LABEL_OUTER_RING = true;
 export const DEFAULT_CONNECTION_LABEL_TRUNCATE = true;
 
 /**
+ * Whether a straight connection label is drawn as a pre-rasterised bitmap
+ * instead of two stroked rotated <text> elements.
+ *
+ * On by default. A rotated stroked <text> re-rasterises from glyph outlines
+ * every frame; the same label baked once and drawn as an <image> is a textured
+ * quad, which is where nearly all of the per-frame label cost goes. Labels come
+ * from edge TYPE prototypes, so a large web collapses onto a handful of
+ * bitmaps — see labelSpriteCache.js.
+ *
+ * Off returns labels to live <text>: crisper at any zoom between resolution
+ * buckets, and the setting exists because that difference is a matter of taste
+ * on a web small enough not to need the saving.
+ */
+export const DEFAULT_CONNECTION_LABEL_SPRITES = true;
+
+/**
  * When connection labels fade out for the duration of a pan or zoom gesture.
  *
  * A rotated <text> rasterises from glyph outlines rather than from the browser's

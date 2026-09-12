@@ -8,7 +8,7 @@ import AISection from './settings/AISection.jsx';
 import DebugSection from './settings/DebugSection.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
-import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE } from '../utils/colorUtils.js';
+import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES } from '../utils/colorUtils.js';
 import './ModalChrome.css';
 
 /**
@@ -166,6 +166,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const connectionLabelOuterRing = useGraphStore(s => s.connectionLabelOuterRing ?? DEFAULT_CONNECTION_LABEL_OUTER_RING);
   const connectionLabelRingWidth = useGraphStore(s => s.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
   const connectionLabelTruncate = useGraphStore(s => s.connectionLabelTruncate ?? DEFAULT_CONNECTION_LABEL_TRUNCATE);
+  const connectionLabelSprites = useGraphStore(s => s.connectionLabelSprites ?? DEFAULT_CONNECTION_LABEL_SPRITES);
   const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
   const darkMode = useGraphStore(s => s.darkMode);
   const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
@@ -571,6 +572,17 @@ const SettingsModal = ({ isVisible, onClose }) => {
               ]}
               value={connectionLabelMoveFade}
               onChange={(v) => useGraphStore.getState().setConnectionLabelMoveFade?.(v)}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Rasterize Labels
+              <div className="settings-row-description">Bakes each connection name once and reuses it — most of what a label costs to draw. On a large web the first labels arrive a moment late while they bake, and text is slightly softer at some zooms</div>
+            </div>
+            <Toggle
+              checked={!!connectionLabelSprites}
+              disabled={!showConnectionNames}
+              onChange={() => useGraphStore.getState().toggleConnectionLabelSprites?.()}
             />
           </div>
           <div className="settings-slider-row">
