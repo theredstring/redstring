@@ -374,7 +374,7 @@ export const walkMenu = (kind) => {
      */
     nudgeSlider: (fraction) => {
       if (!isRange(focused)) return false;
-      // Light the track for as long as the stick keeps arriving. Outside the
+      // Ring the handle for as long as the stick keeps arriving. Outside the
       // deadzone this is called every frame, so the mark stays up while you
       // drive and lets go shortly after you stop — a stick has no event for
       // "released this control". Raised even on a frame the carry rounds to

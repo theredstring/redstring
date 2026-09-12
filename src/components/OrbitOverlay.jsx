@@ -91,6 +91,14 @@ const ENABLE_ORBIT_SWAY = false;
 const ORBIT_SWAY_DEG = 0.9;        // ±sway about the focus center; ~±12px at ring 1
 const ORBIT_SWAY_PERIOD_SEC = 26;  // one full there-and-back cycle
 
+// How far off the pushed direction an item may sit and still count as lying in
+// it — the half-angle of the controller's aim cone. Ring 1 holds at most ten
+// items, so its slots are ~36° apart and half a step is 18°; a shade over that
+// means a direction between two of them still reaches the nearer, while a
+// direction squarely at one does not also sweep in its neighbour.
+// `window.__orbitAimCone = 30` (degrees) overrides it live.
+const ORBIT_AIM_CONE_RAD = (20 * Math.PI) / 180;
+
 const ITEM_ALPHA = 0.85;
 // What every OTHER triplet fades to while one is hovered, so the hovered
 // subject-predicate-object reads on its own. The focus node is not ours to
@@ -928,6 +936,16 @@ export default function OrbitOverlay({
   ring4Candidates,
   onOrbitItemClick,
   onExtentChange,
+  // Which candidate is under the pointer (or holds the controller's focus), or
+  // null. The canvas raises the hover vision aid from this.
+  onCandidateHover,
+  // Written with the imperative surface the controller drives the orbit
+  // through — aiming, activating, exiting. See orbitControl below.
+  controlRef,
+  // Close the orbit and leave the focus node selected — the same thing a click
+  // on the scrim does. Reached through the control surface so the pad has one
+  // object to talk to rather than two.
+  onExit,
   isLoading = false
 }) {
   // Store reads live in the parent only. Every child subscribing separately put
@@ -1354,6 +1372,14 @@ export default function OrbitOverlay({
     }
   }, [entryFor, ensureRafRunning]);
 
+  // Reported up on every focus change, held in a ref so handleHoverChange does
+  // not have to be rebuilt (and the hover path re-wired) when the parent
+  // re-renders with a fresh callback identity.
+  const onCandidateHoverRef = useRef(onCandidateHover);
+  onCandidateHoverRef.current = onCandidateHover;
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
+
   // Hover highlights and pauses without any React state: touching state here
   // would re-render every item and connection on every mouse cross.
   const handleHoverChange = useCallback((id, hovered) => {
@@ -1385,7 +1411,156 @@ export default function OrbitOverlay({
 
     pausedRef.current = hoveredId !== null;
     if (!pausedRef.current) ensureRafRunning();
+
+    // The candidate itself, not its id: the canvas builds a triplet preview
+    // out of its name, colour and predicate, and has no index of candidates to
+    // look an id up in.
+    onCandidateHoverRef.current?.(
+      hoveredId === null ? null : (paramsRef.current?.byId.get(hoveredId)?.candidate ?? null)
+    );
   }, [ensureRafRunning]);
+
+  /**
+   * Move focus to one item, as if the pointer had crossed onto it.
+   *
+   * Everything the controller does goes through the hover path rather than
+   * around it, so pad focus and mouse hover are the same state: the same
+   * brightening, the same dimming of the rest, the same rotation pause, the
+   * same preview raised in the canvas. The old item has to be released
+   * explicitly — handleHoverChange only ever touches the attributes of the item
+   * it is told about, so a bare enter would leave the previous one lit.
+   */
+  const setFocusTo = useCallback((id) => {
+    const current = hoveredIdRef.current;
+    if (current === id) return;
+    if (current !== null) handleHoverChange(current, false);
+    if (id !== null && id !== undefined) handleHoverChange(id, true);
+  }, [handleHoverChange]);
+
+  /**
+   * Where an item actually IS, in canvas coordinates.
+   *
+   * Live position when the animation loop has placed it, resting placement
+   * before its first frame — the same fallback, and for the same reason, as the
+   * click path. See handleItemClick.
+   */
+  const liveCenter = useCallback((id) => {
+    const live = elsRef.current.get(id);
+    const resting = paramsRef.current?.byId.get(id);
+    const x = live?.cx ?? resting?.baseCx;
+    const y = live?.cy ?? resting?.baseCy;
+    return (x === undefined || y === undefined) ? null : { x, y };
+  }, []);
+
+  // handleItemClick is defined further down; the control surface reaches it
+  // through a ref so neither has to be ordered around the other.
+  const handleItemClickRef = useRef(null);
+
+  /**
+   * The orbit as a surface a controller can aim at.
+   *
+   * A RING IS AIMED AT, not stepped — the same call the pie menu makes, and for
+   * the same reason: every item has a direction of its own, so pointing the
+   * stick at one is both faster and more discoverable than walking to it.
+   *
+   * THE AIM IS A RAY CAST ALONG THE CONNECTION LINE, and what it takes is the
+   * FIRST thing it meets. Every connection in the orbit runs radially — dead
+   * straight from the focus node's centre out to its item — so pushing the
+   * stick in a direction IS picking one of those lines, and travelling out
+   * along it reaches the near item before the far one.
+   *
+   * Which matters because the rings are relevance tiers, not places. Ring 4 is
+   * a weaker relation than ring 1, not a further-away one; how far out the
+   * layout put an item is a fact about drawing it. Nearest-by-ANGLE would let a
+   * fourth-tier item half a degree better aligned take focus from the strong
+   * relation beside it, purely because the layout happened to place it so. So
+   * angle only decides what is IN the direction at all (see
+   * ORBIT_AIM_CONE_RAD); among those, closest to the node wins — which is the
+   * same as saying the strongest relation wins, since that is what radius
+   * encodes here. The effect is that the orbit aims like a much smaller ring
+   * hugging the focus node, with the outer tiers reachable in exactly the
+   * directions nothing nearer occupies.
+   */
+  const orbitControl = useMemo(() => {
+    /**
+     * The first item along `angle`: nearest the focus node among everything
+     * lying in that direction, falling back to the best-aligned item when the
+     * direction is empty, so a push always answers with something.
+     *
+     * Measured from each item's LIVE centre, so a slow rotation can never make
+     * the aim disagree with what is on screen.
+     */
+    const nearestTo = (angle) => {
+      const cone = typeof window !== 'undefined' && window.__orbitAimCone != null
+        ? (Number(window.__orbitAimCone) * Math.PI) / 180
+        : ORBIT_AIM_CONE_RAD;
+      const cx = paramsRef.current.centerX;
+      const cy = paramsRef.current.centerY;
+
+      let inCone = null;
+      let inConeRadius = Infinity;
+      let bestAligned = null;
+      let bestDelta = Infinity;
+
+      for (const p of paramsRef.current?.byId.values() ?? []) {
+        const c = liveCenter(p.id);
+        if (!c) continue;
+        const dx = c.x - cx;
+        const dy = c.y - cy;
+        let delta = Math.abs(Math.atan2(dy, dx) - angle) % (2 * Math.PI);
+        if (delta > Math.PI) delta = 2 * Math.PI - delta;
+
+        if (delta < bestDelta) { bestDelta = delta; bestAligned = p; }
+        if (delta > cone) continue;
+
+        const radius = Math.hypot(dx, dy);
+        if (radius < inConeRadius) { inConeRadius = radius; inCone = p; }
+      }
+
+      return inCone ?? bestAligned;
+    };
+
+    return {
+      /** How many candidates are placed at all — zero means nothing to aim at. */
+      count: () => paramsRef.current?.byId.size ?? 0,
+
+      focusedId: () => hoveredIdRef.current,
+
+      /**
+       * Point the stick and take whatever lies that way. `x`/`y` are the raw
+       * deflection: screen axes, y down, which is also the canvas's convention,
+       * so the angle needs no conversion. Magnitude is deliberately ignored —
+       * how hard you push is not a statement about which tier you meant.
+       */
+      aim: (x, y) => {
+        const hit = nearestTo(Math.atan2(y, x));
+        if (hit) setFocusTo(hit.id);
+      },
+
+      /** Place the focused candidate, exactly as clicking it does. */
+      activate: () => {
+        const id = hoveredIdRef.current;
+        if (id === null) return false;
+        const placement = paramsRef.current?.byId.get(id);
+        if (!placement) return false;
+        handleItemClickRef.current?.(placement.candidate, placement.dims);
+        return true;
+      },
+
+      clear: () => setFocusTo(null),
+
+      /** Close the orbit, focus node still selected. */
+      exit: () => { setFocusTo(null); onExitRef.current?.(); },
+    };
+  }, [liveCenter, setFocusTo]);
+
+  useEffect(() => {
+    if (!controlRef) return undefined;
+    controlRef.current = orbitControl;
+    return () => {
+      if (controlRef.current === orbitControl) controlRef.current = null;
+    };
+  }, [controlRef, orbitControl]);
 
   /**
    * Resolve a clicked item to where it is on screen, and hand that up as the
@@ -1412,6 +1587,12 @@ export default function OrbitOverlay({
     if (cx === undefined || cy === undefined) return;
     onOrbitItemClick?.(candidate, cx, cy, dims);
   }, [onOrbitItemClick, placementsById]);
+  handleItemClickRef.current = handleItemClick;
+
+  // The orbit is going away, and with it the candidate the aid is previewing.
+  // Reported on the way out rather than left to the canvas to infer, so the
+  // preview retires with the thing it was about.
+  useEffect(() => () => { onCandidateHoverRef.current?.(null); }, []);
 
   // Drop registry entries for candidates that are gone, so the loop isn't kept
   // alive by entries nothing renders any more.

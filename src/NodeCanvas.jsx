@@ -826,6 +826,12 @@ function NodeCanvas() {
   const [orbitLoading, setOrbitLoading] = useState(false);
   const [semanticOrbitActive, setSemanticOrbitActive] = useState(false);
   const semanticOrbitActiveRef = useRef(false);
+  // The orbit's imperative surface, written by OrbitOverlay while it is mounted
+  // and read by the controller every frame — aiming, activating, exiting. See
+  // orbitControl there. Declared up here with the rest of the orbit state
+  // because useGamepad is called long before the JSX that hands this to the
+  // overlay.
+  const orbitControlRef = useRef(null);
   // The circle the live orbit occupies, reported by OrbitOverlay: { centerX,
   // centerY, radius }, or null when there is no orbit or nothing placed yet.
   // Drives the framing effect further down.
@@ -7325,10 +7331,15 @@ function NodeCanvas() {
       setHoveredNodeForVision(candidate.node);
       setHoveredConnectionForVision(null);
       setHoveredEdgeInfo(null);
-    } else if (candidate.kind === 'connection') {
+    } else if (candidate.kind === 'connection' || candidate.kind === 'orbitItem') {
+      // An orbit item previews as the triplet it would become — focus node,
+      // predicate, candidate — not as a lone box. The box on its own says
+      // nothing the orbit isn't already showing; the relationship is the whole
+      // reason the thing is out there. It carries no edgeInfo because there is
+      // no edge on the canvas to glow yet.
       setHoveredNodeForVision(null);
       setHoveredConnectionForVision(candidate.connection);
-      setHoveredEdgeInfo(candidate.edgeInfo);
+      setHoveredEdgeInfo(candidate.edgeInfo ?? null);
     } else {
       setHoveredNodeForVision(null);
       setHoveredConnectionForVision(null);
@@ -7353,6 +7364,17 @@ function NodeCanvas() {
   // waits HOVER_ENTER_DELAY_MS; leaving a target (or landing on empty canvas)
   // clears instantly so nothing gets "stuck" behind the pointer.
   const commitHoverTarget = useCallback((candidate) => {
+    // While the orbit is open the graph is behind a scrim and is not what the
+    // user is looking at — so the canvas has nothing to preview, focus node
+    // included. Enforced HERE rather than at each caller because there are
+    // several (the mouse's RAF hover check, the controller's per-frame
+    // resolve), and one of them missing it is how the focus node came to raise
+    // a preview under the pad. Orbit's own items are the exception: they are
+    // the only thing on screen worth previewing while it is open.
+    if (semanticOrbitActiveRef.current
+      && (candidate.kind === 'node' || candidate.kind === 'connection')) {
+      candidate = { kind: 'none' };
+    }
     const key = candidate.kind === 'none' ? 'none' : `${candidate.kind}:${candidate.id}`;
 
     if (key === 'none') {
@@ -12103,10 +12125,17 @@ function NodeCanvas() {
           const { e: mouseEvent, currentX, currentY, nodes: nodeList, visibleNodeIds } = pendingHoverCheck.current;
           pendingHoverCheck.current = null;
 
-          // Suppress all hover effects during semantic orbit mode, or when
-          // the user is interacting via touch (touchscreens fire hover events
-          // inconsistently and the vision-aid preview gets stuck on tap).
-          if (semanticOrbitActiveRef.current || inputModeRef.current === 'touch') {
+          // Orbit mode: the graph is behind a scrim, so there is nothing here
+          // to hover. Deliberately returns WITHOUT clearing — the orbit's own
+          // items sit in a layer above this one and their hovers bubble through
+          // here as ordinary canvas movement, so clearing would wipe the
+          // preview the item just raised. Entering orbit clears once, in the
+          // effect that syncs semanticOrbitActiveRef.
+          if (semanticOrbitActiveRef.current) return;
+
+          // Touch, on the other hand, does need clearing: touchscreens fire
+          // hover events inconsistently and the preview gets stuck on tap.
+          if (inputModeRef.current === 'touch') {
             clearHoverImmediate();
             return;
           }
@@ -13918,6 +13947,8 @@ function NodeCanvas() {
     isAnimatingZoomRef,
     abstractionCarouselVisibleRef,
     driftingRef: gamepadDriftingRef,
+    semanticOrbitActiveRef,
+    orbitControlRef,
     isPausedRef,
     activeGraphIdRef,
     minZoom: MIN_ZOOM,
@@ -14220,7 +14251,13 @@ function NodeCanvas() {
   // Sync semanticOrbitActive ref for RAF callbacks
   useEffect(() => {
     semanticOrbitActiveRef.current = semanticOrbitActive;
-  }, [semanticOrbitActive]);
+    // Crossing the boundary in either direction retires whatever was hovered on
+    // the other side of it. The RAF hover check no longer clears per-frame
+    // during orbit (an orbit item's hover bubbles through it), so this is the
+    // one place the canvas's own hover is dropped on the way in — and on the
+    // way out it drops the candidate, which no longer exists.
+    clearHoverImmediate();
+  }, [semanticOrbitActive, clearHoverImmediate]);
 
   // Keep the orbit dim rect sized to the visible viewport (plus a full viewport
   // of margin per side) instead of the whole 100000px canvas plane. A full-plane
@@ -14350,6 +14387,56 @@ function NodeCanvas() {
       setOrbitData(EMPTY_ORBIT);
     }
   }, [selectedInstanceIds, semanticOrbitActive]);
+
+  /**
+   * An orbit candidate took (or lost) focus — from the pointer crossing it, or
+   * from the stick aiming at it. Goes through the same dwell timer every other
+   * hover does, so the preview behaves identically whichever raised it.
+   *
+   * What gets previewed is the TRIPLET the candidate would become if it were
+   * placed: focus node —predicate→ candidate, in the same payload shape the
+   * edge hit test produces, so the aid draws it with the connection recipe and
+   * knows nothing about orbit. A lone node box would only repeat what the orbit
+   * already draws; the relationship is the thing that is actually on offer.
+   */
+  const handleOrbitCandidateHover = useCallback((candidate) => {
+    const focusInstanceId = selectedInstanceIds.size > 0 ? [...selectedInstanceIds][0] : null;
+    const focus = focusInstanceId ? nodes.find(n => n.id === focusInstanceId) : null;
+    if (!candidate || !focus) {
+      commitHoverTarget({ kind: 'none' });
+      return;
+    }
+
+    const focusDims = baseDimsById.get(focus.id);
+    const predicateLabel = formatPredicate(candidate.predicate || 'relatedTo');
+    commitHoverTarget({
+      kind: 'orbitItem',
+      id: candidate.id,
+      connection: {
+        id: `orbit-${candidate.id}`,
+        name: predicateLabel,
+        color: candidate.color || NODE_DEFAULT_COLOR,
+        source: {
+          id: focus.id,
+          name: focus.name,
+          color: focus.color,
+          width: focusDims?.currentWidth ?? NODE_WIDTH,
+          height: focusDims?.currentHeight ?? NODE_HEIGHT,
+          prototypeId: focus.prototypeId
+        },
+        target: {
+          id: candidate.id,
+          name: candidate.name,
+          color: candidate.color || NODE_DEFAULT_COLOR,
+          width: NODE_WIDTH,
+          height: NODE_HEIGHT
+        },
+        // The arrow the edge would carry if this were placed — see the
+        // directionality on the edge handleOrbitItemClick creates.
+        directionality: { arrowsToward: new Set([candidate.id]) }
+      }
+    });
+  }, [commitHoverTarget, selectedInstanceIds, nodes, baseDimsById]);
 
   // Exit orbit mode callback
   const exitOrbitMode = useCallback(() => {
@@ -18237,6 +18324,9 @@ function NodeCanvas() {
                                     ring4Candidates={orbitData.ring4 || []}
                                     onOrbitItemClick={handleOrbitItemClick}
                                     onExtentChange={setOrbitFrame}
+                                    onCandidateHover={handleOrbitCandidateHover}
+                                    controlRef={orbitControlRef}
+                                    onExit={exitOrbitMode}
                                     isLoading={orbitLoading}
                                   />
                                 )}

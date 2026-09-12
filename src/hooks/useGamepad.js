@@ -68,6 +68,14 @@ export const MODE = {
   // box-selecting several nodes. A ROW rather than a ring, and unlike EDGE a row
   // that sits square to the screen, so the stick steps it like any other list.
   BOTTOM: 'bottom',
+  // The semantic orbit is open. Its own mode because the orbit is the only
+  // thing the pad can act on while it is up — the graph behind it is under a
+  // scrim — and because its inner ring is a RING, aimed at like a pie menu
+  // rather than stepped like a list. Entered and left by watching the orbit
+  // itself, not by a button: it opens from a pie action and closes from a click
+  // on the scrim, and a pad that waited to be told would be left aiming at
+  // nothing. See the orbit block in the tick.
+  ORBIT: 'orbit',
   // There is deliberately no panel or header mode. The d-pad navigates the
   // chrome while the sticks fly the canvas, both at once — see navigate() and
   // the header note in gamepadPanelNav.js. A mode there would have meant the
@@ -719,6 +727,12 @@ export const useGamepad = ({
   // connection-label suppression the same way it exempts its own camera moves.
   driftingRef,
 
+  // --- Semantic orbit ---
+  // Whether the orbit is open, and the surface OrbitOverlay exposes for driving
+  // it. Both are read every frame; see the orbit block in the tick.
+  semanticOrbitActiveRef,
+  orbitControlRef,
+
   // --- Gating ---
   isPausedRef,
   activeGraphIdRef,
@@ -739,6 +753,10 @@ export const useGamepad = ({
   // Which way the stick was last pointed while a connection's menu was open.
   // Held so the octant can latch through jitter — see stickOctant.
   const edgeOctantRef = useRef(null);
+  // The same, for the orbit. Separate because the two are never open together
+  // and a latch carried across would eat the first push into whichever opened
+  // second.
+  const orbitOctantRef = useRef(null);
 
   const buttonStateRef = useRef(makeButtonState());
   const carryingRef = useRef(false);
@@ -889,6 +907,7 @@ export const useGamepad = ({
     pieMenuButtonsRef, pieMenuPageCountRef, pieMenuNodeIdRef, setPieMenuPage, onPieMenuHoverChange,
     edgePieMenuButtonsRef, edgeAnchorAngleRef, findEdgeAtClientPointRef, connectionOrbControlRef,
     setPan, isAnimatingZoomRef, abstractionCarouselVisibleRef, driftingRef,
+    semanticOrbitActiveRef, orbitControlRef,
     isPausedRef, activeGraphIdRef, minZoom, maxZoom,
   };
 
@@ -906,6 +925,7 @@ export const useGamepad = ({
     // would make a stick that never moved read as already-held, and eat the
     // first flick.
     if (next !== MODE.EDGE) edgeOctantRef.current = null;
+    if (next !== MODE.ORBIT) orbitOctantRef.current = null;
     setMode(next);
   }, []);
 
@@ -1504,6 +1524,79 @@ export const useGamepad = ({
 
     // Past this point everything needs a canvas to act on.
     if (!canvasReady) return ZERO_TICK;
+
+    // ---- ORBIT: the semantic orbit owns the pad while it is open ---------
+    //
+    // Entry and exit are DERIVED from whether the orbit is up, not driven by a
+    // button, because neither end of its life belongs to the pad: it opens from
+    // a pie action and closes from materialising an item, from a click on the
+    // scrim, or from the selection going away. Watching the thing itself is the
+    // only version of this that cannot fall out of step with it.
+    const orbitOpen = p.semanticOrbitActiveRef?.current === true;
+    const orbitWasOpen = modeRef.current === MODE.ORBIT;
+    if (orbitOpen && !orbitWasOpen) {
+      // Whatever menu was open is behind the scrim now.
+      p.onPieMenuHoverChange?.(null);
+      bottomWalkerRef.current?.dispose?.();
+      bottomWalkerRef.current = null;
+      setPieFocusBoth(-1);
+      setModeBoth(MODE.ORBIT);
+    } else if (!orbitOpen && orbitWasOpen) {
+      // Back to the focus node's own menu when it still has one. Materialising
+      // an item leaves that node selected and its menu up, and landing on bare
+      // canvas there would mean pressing A again just to get back what is
+      // already on screen.
+      const stillOnNode = Boolean(p.pieMenuNodeIdRef?.current);
+      setModeBoth(stillOnNode ? MODE.NODE : MODE.CANVAS);
+      setPieFocusBoth(stillOnNode ? 0 : -1);
+    }
+
+    if (modeRef.current === MODE.ORBIT) {
+      const orbit = p.orbitControlRef?.current;
+
+      // The right stick still zooms. The canvas frames the orbit when it opens,
+      // but a large one lands at the fit floor with its items small, and the
+      // one thing a controller must never do is put something on screen you
+      // cannot get closer to.
+      let zoomMultiplier = 1;
+      const zoomInput = -right.y;
+      if (Math.abs(zoomInput) > 0) {
+        const base = 1 + (GAMEPAD_ZOOM_BASE - 1) * tuningRef.current.zoom;
+        zoomMultiplier = (base ** zoomInput) ** frameRatio;
+      }
+
+      if (orbit && orbit.count() > 0) {
+        // Aimed, not stepped — the stick's ANGLE is the answer, and the inner
+        // ring is what it answers over. The octant only decides when a push
+        // counts as a NEW one, so a held stick does not re-aim sixty times a
+        // second; see stickAimStep.
+        //
+        // Letting go drops the focus outright, on the frame the stick crosses
+        // back to neutral. The orbit has no resting selection to return to —
+        // pointing IS the selection — so a focus left standing would keep the
+        // rest of the orbit dimmed and its rotation paused around a choice the
+        // user had already let go of. Keyed on the RELEASE edge rather than on
+        // every neutral frame, so a pointer hovering an item with a pad also
+        // connected isn't stomped sixty times a second.
+        const hadDirection = orbitOctantRef.current !== null;
+        if (stickAimStep(left, 'orbit', orbitOctantRef)) orbit.aim(left.x, left.y);
+        else if (hadDirection && orbitOctantRef.current === null) orbit.clear();
+        if (buttons.justPressed[BTN.A]) orbit.activate();
+      }
+
+      if (buttons.justPressed[BTN.B]) {
+        // B is the universal back, here too. Exiting is the overlay's job when
+        // it is mounted to do it — that path keeps the focus node selected and
+        // brings its control panel back, exactly as clicking the scrim does.
+        // Clearing the selection is the fallback, and reaches the same end
+        // through the canvas's own deselect.
+        p.clearHoverImmediate?.();
+        if (orbit?.exit) orbit.exit();
+        else p.setSelectedInstanceIds?.(new Set());
+      }
+
+      return { panDx: 0, panDy: 0, zoomMultiplier };
+    }
 
     // ---- CANVAS, NODE and EDGE modes ------------------------------------
     // Selection can end without the pad doing it: a menu action deletes its

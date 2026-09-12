@@ -7,7 +7,8 @@ import {
   LEGACY_DIM_SCALE,
   CONNECTION_PREVIEW_FLOORS,
   buildConnectionPreviewNodes,
-  connectionPreviewRendererProps
+  connectionPreviewRendererProps,
+  withoutImage
 } from '../utils/connectionPreview.js';
 import { measureTextWidth } from '../services/textMeasurement.js';
 import useGraphStore from '../store/graphStore.js';
@@ -247,8 +248,11 @@ const HoverVisionAid = ({
     const hoveredConn = displayed.connection;
     const isSelfLoop = hoveredConn.source.id === hoveredConn.target.id;
 
+    // Endpoints go through withoutImage for the reason spelled out there: a
+    // preview is a legibility aid, and an image both resizes the box and eats
+    // the label the aid exists to show.
     const nodes = buildConnectionPreviewNodes(
-      isSelfLoop ? [hoveredConn.source] : [hoveredConn.source, hoveredConn.target],
+      (isSelfLoop ? [hoveredConn.source] : [hoveredConn.source, hoveredConn.target]).map(withoutImage),
       HOVER_FLOORS
     );
 
@@ -317,9 +321,11 @@ const HoverVisionAid = ({
       </div>
     );
   } else if (isNode) {
-    const hoveredNodeData = displayed.node;
+    // Images stripped for the reason spelled out on withoutImage: they resize
+    // the box and replace the label the preview exists to show.
+    const nodeData = withoutImage(displayed.node);
     // 1. Prepare node with REAL dimensions (non-preview)
-    const dims = getNodeDimensions(hoveredNodeData, false, null, 39, STANDARD_TEXT_SETTINGS);
+    const dims = getNodeDimensions(nodeData, false, null, 39, STANDARD_TEXT_SETTINGS);
     const nodeWidth = Math.max(dims.currentWidth * LEGACY_DIM_SCALE, 100);
     const nodeHeight = Math.max(dims.currentHeight * LEGACY_DIM_SCALE, 96);
 
@@ -334,7 +340,7 @@ const HoverVisionAid = ({
           renderContext="full"
           nodes={[
             {
-              ...hoveredNodeData,
+              ...nodeData,
               x: 0,
               y: 0,
               width: nodeWidth,

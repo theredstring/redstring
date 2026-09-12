@@ -681,4 +681,168 @@ describe('OrbitOverlay', () => {
     flushFrames(3);
     expect(rafQueue.length).toBe(0);
   });
+
+  it('reports the candidate under the pointer, and its departure', () => {
+    const onCandidateHover = vi.fn();
+    const { container } = renderOverlay({ onCandidateHover });
+    flushFrames(40);
+
+    const item = container.querySelector('.orbit-items > g');
+    fireEvent.mouseEnter(item);
+    // The candidate itself, not its id: the canvas has no index to look one up
+    // in, and the preview needs the name, colour and predicate.
+    expect(onCandidateHover).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 'a', name: 'Candidate a', predicate: 'instanceOf' })
+    );
+
+    fireEvent.mouseLeave(item);
+    expect(onCandidateHover).toHaveBeenLastCalledWith(null);
+  });
+
+  describe('controller surface', () => {
+    // Ring 1 holds two items, evenly spaced: the first at angle 0 (due right of
+    // the focus node) and the second at π (due left). Ring 2 sits further out.
+    const withControl = (props = {}) => {
+      const controlRef = { current: null };
+      const onCandidateHover = vi.fn();
+      const utils = renderOverlay({ controlRef, onCandidateHover, ...props });
+      flushFrames(40);
+      return { ...utils, control: controlRef.current, controlRef, onCandidateHover };
+    };
+
+    it('aims at whichever item lies in the pushed direction', () => {
+      const { container, control } = withControl();
+      const [first, second] = container.querySelectorAll('.orbit-items > g');
+
+      // Stick right: the item drawn to the right takes focus. Screen axes, y
+      // down, exactly as the gamepad reports them.
+      act(() => { control.aim(1, 0); });
+      expect(control.focusedId()).toBe('a');
+      expect(first.hasAttribute('data-hovered')).toBe(true);
+      expect(second.hasAttribute('data-dimmed')).toBe(true);
+
+      act(() => { control.aim(-1, 0); });
+      expect(control.focusedId()).toBe('b');
+      // The item it moved off has to be released, not merely left behind.
+      expect(first.hasAttribute('data-hovered')).toBe(false);
+      expect(second.hasAttribute('data-hovered')).toBe(true);
+    });
+
+    it('reaches an outer ring in a direction nothing nearer occupies', () => {
+      // The rings are relevance tiers, not distances. A lone ring-2 item is
+      // pointed at like anything else, as long as no nearer item is in the way.
+      // With one item per ring the layout puts ring 1 at angle 0 and ring 2 half
+      // a step round, well outside the aim cone of each other.
+      const { container, control } = withControl({
+        ring1Candidates: [candidate('inner', 'instanceOf')],
+        ring2Candidates: [candidate('outer', 'partOf')],
+      });
+      const outerG = [...container.querySelectorAll('.orbit-items > g')][1];
+      const { cx, cy } = itemBox(outerG);
+
+      act(() => { control.aim(cx, cy); }); // push straight at it
+      expect(control.focusedId()).toBe('outer');
+    });
+
+    it('takes the first item along the direction, not the best aligned', () => {
+      // Two items sharing a direction at different radii: the ray reaches the
+      // near one first, and it keeps focus even when the far one is aimed at
+      // dead centre. Radius is what the relevance tier amounts to on screen, so
+      // "closest to the node" and "strongest relation" are the same answer.
+      const { container, control } = withControl({
+        ring1Candidates: [candidate('inner', 'instanceOf')],
+        ring2Candidates: [candidate('outer', 'partOf')],
+      });
+      const [innerG, outerG] = container.querySelectorAll('.orbit-items > g');
+      const inner = itemBox(innerG);
+      const outer = itemBox(outerG);
+
+      // Aim exactly at the outer item, then rotate the push towards the inner
+      // one until the two are within a cone of each other — the moment the near
+      // item is in the direction at all, it takes over.
+      act(() => { control.aim(outer.cx, outer.cy); });
+      expect(control.focusedId()).toBe('outer');
+
+      act(() => { control.aim(inner.cx, inner.cy); });
+      expect(control.focusedId()).toBe('inner');
+
+      // A push a few degrees off the near item still lands on it rather than
+      // skipping past to the better-aligned far one.
+      const nudge = 5 * (Math.PI / 180);
+      const angle = Math.atan2(inner.cy, inner.cx) + nudge;
+      act(() => { control.aim(Math.cos(angle), Math.sin(angle)); });
+      expect(control.focusedId()).toBe('inner');
+    });
+
+    it('still answers a direction that nothing lies in', () => {
+      // A push into a gap has to land somewhere — a stick that selects nothing
+      // reads as a dead control. Falls back to the best-aligned item.
+      const { control } = withControl({
+        ring1Candidates: [candidate('only', 'instanceOf')],
+        ring2Candidates: [],
+      });
+      act(() => { control.aim(0, 1); }); // straight down; the item is at angle 0
+      expect(control.focusedId()).toBe('only');
+    });
+
+    it('clears back to the resting orbit, rotation and all', () => {
+      const { container, control, onCandidateHover } = withControl();
+      const item = container.querySelector('.orbit-items > g');
+
+      act(() => { control.aim(1, 0); });
+      flushFrames(2); // let the hover pause land
+      const frozen = item.getAttribute('transform');
+      flushFrames(4);
+      expect(item.getAttribute('transform')).toBe(frozen); // paused on focus
+
+      act(() => { control.clear(); });
+      expect(control.focusedId()).toBe(null);
+      expect(item.hasAttribute('data-hovered')).toBe(false);
+      expect(container.querySelector('[data-dimmed]')).toBe(null);
+      expect(onCandidateHover).toHaveBeenLastCalledWith(null);
+      flushFrames(6);
+      expect(item.getAttribute('transform')).not.toBe(frozen); // rotating again
+    });
+
+    it('places the focused candidate where it is actually drawn', () => {
+      const onOrbitItemClick = vi.fn();
+      const { container, control } = withControl({ onOrbitItemClick });
+      flushFrames(20, 1000); // rotate well away from the resting placement
+
+      act(() => { control.aim(1, 0); });
+      const focused = [...container.querySelectorAll('.orbit-items > g')]
+        .find((g) => g.hasAttribute('data-hovered'));
+      const box = itemBox(focused);
+
+      act(() => { expect(control.activate()).toBe(true); });
+      const [cand, cx, cy] = onOrbitItemClick.mock.calls[0];
+      expect(cand.id).toBe(control.focusedId());
+      expect(cx).toBeCloseTo(box.cx, 6);
+      expect(cy).toBeCloseTo(box.cy, 6);
+    });
+
+    it('activates nothing when nothing is focused', () => {
+      const onOrbitItemClick = vi.fn();
+      const { control } = withControl({ onOrbitItemClick });
+      expect(control.activate()).toBe(false);
+      expect(onOrbitItemClick).not.toHaveBeenCalled();
+    });
+
+    it('drops focus on the way out of the orbit', () => {
+      const onExit = vi.fn();
+      const { control, onCandidateHover } = withControl({ onExit });
+      act(() => { control.aim(1, 0); });
+      act(() => { control.exit(); });
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(control.focusedId()).toBe(null);
+      expect(onCandidateHover).toHaveBeenLastCalledWith(null);
+    });
+
+    it('retires the preview when the orbit itself goes away', () => {
+      const { unmount, onCandidateHover } = withControl();
+      onCandidateHover.mockClear();
+      unmount();
+      expect(onCandidateHover).toHaveBeenCalledWith(null);
+    });
+  });
 });

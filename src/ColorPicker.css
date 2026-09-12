@@ -9,8 +9,23 @@
  * These used to be three injected <style> blocks keyed by a class name with the
  * current h/s/v baked into it — a new class and a new stylesheet on every frame
  * of every drag. Static classes also mean React stops rewriting the class
- * attribute mid-drag, which is what let the controller's focus ring survive the
- * slider it is focused on actually moving.
+ * attribute mid-drag, which is what lets the marks below survive the slider they
+ * are on actually moving.
+ *
+ * EVERYTHING A SLIDER HAS TO SAY, IT SAYS ON ITS HANDLE. Nothing rings the
+ * track, and nothing rings the input as a whole (see index.css, where the
+ * controller's outer outline is excluded for exactly this reason) — the circle
+ * is the part you are holding and the only part the eye is already on. It
+ * carries two marks, which compose:
+ *
+ *   selected  the circle gets thicker         --thumb-thicken
+ *   in use    a stroke in the chosen colour   --thumb-ring
+ *
+ * Both are box-shadow layers rather than separate `box-shadow` declarations,
+ * because a thumb gets one box-shadow and the two states overlap constantly —
+ * a focused slider being driven is the normal case on a controller. Declaring
+ * them as custom properties on the INPUT lets each state set its own layer
+ * independently; they inherit into the thumb pseudo-element and compose there.
  */
 
 .color-picker-slider {
@@ -21,9 +36,14 @@
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
-  /* The engaged stroke arrives as a box-shadow ring; give it something to
-     animate from so it grows out of the track rather than snapping on. */
-  transition: box-shadow 0.12s ease;
+}
+
+/* The two state layers, off by default. A zero-spread transparent shadow is the
+   no-op: it keeps the list valid and gives the real value something to
+   transition from, so a mark grows in rather than snapping on. */
+.color-picker-slider {
+  --thumb-thicken: inset 0 0 0 0 transparent;
+  --thumb-ring: 0 0 0 0 transparent;
 }
 
 .color-picker-slider::-webkit-slider-thumb {
@@ -35,7 +55,8 @@
   background: var(--slider-thumb);
   border: 2px solid var(--slider-stroke);
   cursor: pointer;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--thumb-thicken), var(--thumb-ring), 0 2px 4px rgba(0, 0, 0, 0.3);
+  transition: box-shadow 0.12s ease;
 }
 
 .color-picker-slider::-moz-range-thumb {
@@ -45,36 +66,56 @@
   background: var(--slider-thumb);
   border: 2px solid var(--slider-stroke);
   cursor: pointer;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--thumb-thicken), var(--thumb-ring), 0 2px 4px rgba(0, 0, 0, 0.3);
+  transition: box-shadow 0.12s ease;
+}
+
+/* --- Selected ----------------------------------------------------------
+   The circle thickens. Drawn INSET, so the weight is taken out of the thumb's
+   own fill and the handle does not change size — a focus mark that resized the
+   thing you are aiming at would be the one mark you cannot use.
+
+   `.gamepad-menu-focus` is the controller's (gamepadMenuNav.js writes it);
+   `:focus-visible` covers the keyboard and deliberately does not fire for a
+   mouse click, which needs no help finding the handle it just grabbed. */
+.color-picker-slider.gamepad-menu-focus,
+.color-picker-slider:focus-visible {
+  --thumb-thicken: inset 0 0 0 2px var(--slider-stroke);
 }
 
 /* --- In use ------------------------------------------------------------
-   The signifier is a stroke, because a stroke is what this picker already
-   speaks in: the panel, the preview swatch and every thumb are drawn as 2px of
-   textPrimary. A slider being driven closes that same stroke around its whole
-   track, so the track and its thumb read as one lit object.
+   A stroke around the circle, in the colour being chosen, while the slider is
+   actually being driven — pointer, keyboard or controller alike. Set
+   imperatively as an attribute by utils/sliderEngagement.js; see that file for
+   how each input mode raises and drops it.
 
-   Set imperatively as an attribute by utils/sliderEngagement.js, from whichever
-   input mode is driving — pointer, keyboard or controller. See that file.
-
-   A ring rather than an outline: the controller's focus ring is already an
-   outline sitting 5px out (index.css), and an element gets only one. This one
-   hugs the track at zero offset, so "focused" and "in use" can be on screen at
-   once and still read as two different statements. */
+   Same colour as the thumb's fill, on purpose. Where the stroke crosses the
+   track it is near-invisible — at the thumb's position every one of these three
+   tracks IS the current colour, by construction — so what reads is the two
+   crescents standing proud above and below the track against the panel. Colour
+   pooling out of the handle, rather than a second border arguing with the one
+   the thumb already has. */
 .color-picker-slider[data-slider-engaged] {
-  box-shadow: 0 0 0 2px var(--slider-stroke);
+  --thumb-ring: 0 0 0 3px var(--slider-thumb);
 }
 
-/* Touch has no hover and a finger covers the thumb outright, so the mark is
-   worth a little more weight where it is the only thing you can see. */
+/* Touch has no hover and a finger covers the handle outright, so those crescents
+   are the only part of this you can see — worth a little more weight there. */
 @media (pointer: coarse) {
   .color-picker-slider[data-slider-engaged] {
-    box-shadow: 0 0 0 3px var(--slider-stroke);
+    --thumb-ring: 0 0 0 5px var(--slider-thumb);
   }
 }
 
+/* Split, not grouped: an engine drops the WHOLE rule when any selector in the
+   list is one it doesn't recognise, so a -webkit- and a -moz- pseudo can never
+   share a selector list. Same reason every pair above is written out twice. */
 @media (prefers-reduced-motion: reduce) {
-  .color-picker-slider {
+  .color-picker-slider::-webkit-slider-thumb {
+    transition: none;
+  }
+
+  .color-picker-slider::-moz-range-thumb {
     transition: none;
   }
 }

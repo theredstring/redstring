@@ -42,6 +42,29 @@ export const CONNECTION_PREVIEW_FLOORS = {
   panelList: { width: 110, height: 72, cornerRadius: 34 }
 };
 
+/**
+ * A copy of `node` with every image-bearing field dropped.
+ *
+ * A preview exists to make a node's NAME legible, and an image is the one thing
+ * that stops it doing that twice over: getNodeDimensions widens the box to the
+ * expanded width and grows it by the image's own aspect, and
+ * UniversalNodeRenderer replaces the label with the image outright. So a preview
+ * of an image node came out as a bare picture, sized by the picture, saying
+ * nothing the canvas was not already saying — and saying it at whatever height
+ * a tall photograph asked for. Stripping the image makes the preview the text
+ * box the node would be if it had never had one.
+ *
+ * Own enumerable properties only, which also sheds the getters on a `Node`
+ * instance (getThumbnailSrc and friends) that getNodeDimensions prefers.
+ */
+export function withoutImage(node) {
+  if (!node) return node;
+  const {
+    thumbnailSrc, imageSrc, imageAspectRatio, imageLoading, imageMissing, ...rest
+  } = node;
+  return rest;
+}
+
 /** Box a name gets under the canvas recipe, at preview (pre-1.4×) scale. */
 function previewBox(node, name, floors) {
   const dims = getNodeDimensions({ ...node, name }, false, null, 39, STANDARD_TEXT_SETTINGS);
