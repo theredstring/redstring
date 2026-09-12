@@ -69,10 +69,12 @@ const INTENTS = [
     surface: SURFACES.THING,
     action: 'connect-thing',
     tier: 'query',
-    // "Does" reads as a question about current state, and the model answered it
-    // that way — reporting the edges it already had, which is on the canvas
-    // already. "Should" asks the design question without presupposing a yes.
-    label: () => 'Should this connect to anything here?',
+    // Plainly an action, not a question put to the user. It was phrased as one
+    // ("Does this connect to anything here?") and the model answered the literal
+    // question — listing the Connections it already had, which is on the canvas.
+    // Coming back empty is still a real result; that lives in the prompt, not in
+    // a hedge on the button.
+    label: () => 'Find connections',
     sublabel: 'Look for relationships to the Things already here that nobody has drawn.',
     // Nothing to check it against in an otherwise empty Web.
     availableWhen: (facts) => (facts?.webInstanceCount ?? 0) > 1
@@ -123,8 +125,8 @@ const INTENTS = [
     surface: SURFACES.CONNECTION,
     action: 'connection-gaps',
     tier: 'query',
-    label: () => 'Is there anything else between these two?',
-    sublabel: "Check for Connections that should exist and don't.",
+    label: () => 'Find missing connections',
+    sublabel: "Look for a relationship these two have that isn't drawn.",
     // Only meaningful about one pair of endpoints.
     availableWhen: (facts) => (facts?.edgeCount ?? 1) === 1
   },

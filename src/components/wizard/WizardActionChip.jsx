@@ -9,11 +9,11 @@ export const CHIP_TITLES = {
   'define-node': 'Define components',
   'refine-abstraction': 'Build abstraction chain',
   'grow-graph': 'Grow this Web',
-  'connect-thing': 'Check for connections',
+  'connect-thing': 'Find connections',
   'fill-details': 'Fill in details',
   'explain-thing': 'Explain this Thing',
   'explain-connection': 'Explain this Connection',
-  'connection-gaps': 'Check for missing connections',
+  'connection-gaps': 'Find missing connections',
   'summarize-web': 'Summarize this Web',
   'audit-web': 'Audit this Web',
   ...Object.fromEntries(

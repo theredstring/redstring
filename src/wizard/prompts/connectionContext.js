@@ -131,6 +131,7 @@ export function connectionContext(edges) {
   return {
     activeGraph,
     activeGraphName,
+    instances,
     nodePrototypesMap,
     resolveTypeForEdge,
     nodeLabelForInstance,

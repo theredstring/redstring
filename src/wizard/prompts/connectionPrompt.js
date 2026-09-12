@@ -14,6 +14,7 @@ export function buildWizardConnectionPrompt(edges, opts = {}) {
   const {
     activeGraph,
     activeGraphName,
+    instances,
     nodePrototypesMap,
     nodeLabelForInstance,
     nodeContextForInstance,

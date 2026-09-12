@@ -18,7 +18,7 @@ describe('WizardIntentModal', () => {
   it('renders every intent plus a permanent Other box', () => {
     render(<WizardIntentModal {...base} />);
     expect(screen.getByText('Define its components')).toBeTruthy();
-    expect(screen.getByText('Should this connect to anything here?')).toBeTruthy();
+    expect(screen.getByText('Find connections')).toBeTruthy();
     expect(screen.getByText('Expand its abstraction ladder')).toBeTruthy();
     expect(screen.getByText('Explain this Thing')).toBeTruthy();
     expect(screen.getByText('Other')).toBeTruthy();

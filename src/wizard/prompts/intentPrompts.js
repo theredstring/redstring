@@ -6,10 +6,10 @@
  *
  * ── The honest no ────────────────────────────────────────────────────────────
  *
- * Two of these are query-first: "should this connect to anything here?" and
- * "is there anything else between these two?". They ask what OUGHT to exist and
- * does not yet — never what already does, which is on the canvas. The answer is
- * frequently no. That is the whole point — it makes a library of Things
+ * Two of these are query-first: the two "find connections" asks. They look for
+ * what OUGHT to exist and does not yet — never what already does, which is on
+ * the canvas. They come back empty often, and that is the point: it makes a
+ * library of Things
  * explorable by experiment. Drag one into any Web, ask whether it belongs, keep
  * it or pull it back out. The moment the wizard starts finding something rather
  * than nothing, the test is worthless and you are back to wiring by hand.
@@ -138,30 +138,21 @@ export function buildExplainThingPrompt(prototype) {
 export function buildConnectThingPrompt(prototype) {
   if (!prototype) return null;
   const name = prototype.name || 'this Thing';
-  const lines = [
-    `Question: SHOULD "${name}" be connected to anything already in this Web?`,
-    '',
-    'Read that carefully. You are not being asked which Connections it already has — those are listed below, the user can see them on the canvas, and repeating them back answers nothing. You are being asked about Connections that DO NOT EXIST YET: relationships that are true of this Thing and something already here, which nobody has drawn.',
-    '',
-    'It is still a QUESTION, not an instruction. "No — nothing here it belongs to" is a complete and correct answer, and often the right one. The user is testing whether this Thing belongs, not asking you to attach it.'
-  ];
+  const lines = [`Find Connections that should exist between "${name}" and the Things already in this Web, and propose them.`];
   const activeGraph = thingHeader(prototype, lines);
   lines.push('',
-    'How to answer:',
-    '- Look for relationships that are genuinely true and would be recognised by someone who knows this subject. Not "these co-occur", not "these are both important" — an actual relation you could name.',
-    '- Do NOT answer by describing the Connections it already has, or by noting which node-groups it belongs to. That is the state of the canvas, not an answer to this question.',
-    '- Do NOT reach for the best-connected Thing in the Web. Attaching a newcomer to whatever hub is already there is the single most common way a false yes gets manufactured, and it produces a Web that says "these things are near each other" where the truth was "nothing, yet".',
-    '- If the honest answer is none, say so in one line AND say why — what this Web is about, and why this Thing sits outside it. "Nothing here it connects to — this Web is about postwar monetary policy and Rotterdam is a place, not an instrument." A no with a reason is something the user can disagree with; a bare no is indistinguishable from you not having looked.',
-    '',
-    'If the answer IS yes:',
-    '- Do not create anything. Call askMultipleChoice with the Connections you would draw, one option per Connection, each written as `"Source" --[Type]--> "Target"` plus a few words on what it asserts. The user decides.',
-    '- Prefer a Connection type already used in this Web over inventing a new one.',
+    'What to do:',
+    '- Look for real relationships between it and what is already here — ones someone who knows the subject would recognise, not ones you can construct by reasoning toward them.',
+    '- Ignore the Connections it already has; those are listed above. You are looking for ones nobody has drawn.',
+    '- Do not wire it to whatever is already best connected. A newcomer hung off the local hub says "these are near each other" where the truth was "nothing yet", and it is the easiest way to come back with a find that is not one.',
+    '- Propose, do not create. Call askMultipleChoice with one option per Connection, written as `"Source" --[Type]--> "Target"` plus a few words on what it asserts. Prefer a Connection type already used in this Web.',
+    '- If there is genuinely nothing, say so in one line and say why — what this Web is about, and why this Thing sits outside it. Finding nothing is a real result; do not pad it into a find.',
     activeGraph?.id ? `- This Web's targetGraphId is "${activeGraph.id}" if you need to read it.` : undefined,
     '',
     READ_TOOL_NOTE
   );
   return result(lines, {
-    summary: `Should "${name}" connect to anything here?`,
+    summary: `Find connections for "${name}"`,
     action: 'connect-thing',
     subjectLabel: `"${name}"`
   });
@@ -241,31 +232,24 @@ export function buildExplainConnectionPrompt(edges) {
 
 export function buildConnectionGapsPrompt(edges) {
   if (!edges || edges.length === 0) return null;
-  const lines = [
-    'Question: is there anything else that should exist between these two Things?',
-    '',
-    'This is a QUESTION. "No — the Connection they already have covers it" is a complete answer, and the usual one. Two Things rarely stand in five relations to each other, and a Web that says they do is harder to read, not richer.'
-  ];
+  const lines = ['Find Connections that should exist between these two Things and do not, and propose them.'];
   const ctx = connectionHeader(edges, lines);
   if (ctx.activeGraphConnectionTypes.length > 0) {
     lines.push('', `Connection types already used in this Web: ${ctx.activeGraphConnectionTypes.join(', ')}.`);
   }
   lines.push('',
-    'How to answer:',
-    '- Only count a relation that is genuinely distinct from the one already drawn. A rewording of the existing Connection is not a gap.',
-    '- Only count one that is well established, not one you can construct. If you find yourself reasoning toward it, it is not missing.',
-    '- If the answer is no, say so in one line and say what the existing Connection already covers.',
-    '',
-    'If the answer IS yes:',
-    '- Do not create anything. Call askMultipleChoice with one option per proposed Connection, written as `"Source" --[Type]--> "Target"` plus a few words on what it would assert.',
-    '- Prefer a Connection type already used in this Web.',
+    'What to do:',
+    '- Look for a relation genuinely distinct from the one already drawn. A rewording of it is not a gap.',
+    '- Two Things rarely stand in more than one or two relations, and a Web that claims they do is harder to read, not richer. Nothing to add is the usual answer.',
+    '- Propose, do not create. Call askMultipleChoice with one option per Connection, written as `"Source" --[Type]--> "Target"` plus a few words on what it asserts. Prefer a Connection type already used in this Web.',
+    '- If there is nothing to add, say so in one line and say what the existing Connection already covers.',
     '',
     READ_TOOL_NOTE
   );
   const sName = ctx.nodeLabelForInstance(edges[0].sourceId);
   const tName = ctx.nodeLabelForInstance(edges[0].destinationId || edges[0].targetId);
   return result(lines, {
-    summary: `Anything else between "${sName}" and "${tName}"?`,
+    summary: `Find missing connections: "${sName}" / "${tName}"`,
     action: 'connection-gaps',
     subjectLabel: `"${sName}" → "${tName}"`
   });
