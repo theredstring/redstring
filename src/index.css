@@ -183,3 +183,14 @@ body.gamepad-cursor-hidden * {
   outline: 3px solid #bdb5b5;
   outline-offset: 3px;
 }
+
+/* --- Controller focus inside the panels --------------------------------
+   Panel rows are discovered rather than declared (see gamepadMenuNav's
+   `pointer` surfaces), so this can't name them — it rings whatever the walker
+   landed on, scoped to a panel so it can't leak onto the rest of the app.
+   The offset goes INWARD here: panel items sit flush against a scrolling
+   column, and an outward ring would be clipped on both sides. */
+.panel-container .gamepad-menu-focus {
+  outline: 2px solid #bdb5b5;
+  outline-offset: -2px;
+}

@@ -2077,6 +2077,8 @@ const Panel = memo(forwardRef(
                 {ENABLE_ALL_THINGS_TAB && (
                   <div
                     title="All Things"
+                    className="panel-view-tab"
+                    data-active={leftViewActive === 'all'}
                     style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'all' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                     onClick={() => setLeftViewActive('all')}
                   >
@@ -2086,6 +2088,8 @@ const Panel = memo(forwardRef(
                 {/* Library Button -> Saved Things */}
                 <div
                   title="Saved Things"
+                  className="panel-view-tab"
+                  data-active={leftViewActive === 'library'}
                   style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'library' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('library')}
                 >
@@ -2094,6 +2098,8 @@ const Panel = memo(forwardRef(
                 {/* Grid Button -> Open Things */}
                 <div
                   title="Open Things"
+                  className="panel-view-tab"
+                  data-active={leftViewActive === 'grid'}
                   style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'grid' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('grid')}
                 >
@@ -2102,6 +2108,8 @@ const Panel = memo(forwardRef(
                 {/* Federation Button -> Solid Pods */}
                 <div
                   title="Federation"
+                  className="panel-view-tab"
+                  data-active={leftViewActive === 'federation'}
                   style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'federation' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('federation')}
                 >
@@ -2111,6 +2119,8 @@ const Panel = memo(forwardRef(
                 {/* Semantic Discovery Button */}
                 <div
                   title="Semantic Discovery"
+                  className="panel-view-tab"
+                  data-active={leftViewActive === 'semantic'}
                   style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'semantic' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('semantic')}
                 >
@@ -2121,6 +2131,8 @@ const Panel = memo(forwardRef(
                 {enableWizard && (
                   <div
                     title="AI Wizard"
+                    className="panel-view-tab"
+                    data-active={leftViewActive === 'ai'}
                     style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'ai' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                     onClick={() => setLeftViewActive('ai')}
                   >
@@ -2131,6 +2143,8 @@ const Panel = memo(forwardRef(
                 {/* History Button */}
                 <div
                   title="Action History"
+                  className="panel-view-tab"
+                  data-active={leftViewActive === 'history'}
                   style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'history' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('history')}
                 >

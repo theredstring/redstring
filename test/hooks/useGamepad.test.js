@@ -5,6 +5,7 @@ import {
   stepLineFocus,
   stickDirection,
   createRepeater,
+  cameraHeldElsewhere,
   BTN,
   AXIS,
 } from '../../src/hooks/useGamepad.js';
@@ -331,5 +332,41 @@ describe('panToPlacePointAt', () => {
       expect(screenX).toBeCloseTo(400, 8);
       expect(screenY).toBeCloseTo(300, 8);
     }
+  });
+});
+
+/**
+ * REGRESSION: releasing a carried node stuttered the canvas.
+ *
+ * The drag system's two zoom animations write pan absolutely from a snapshot
+ * taken when they start, so a pan delta added by the stick in between is
+ * discarded on the next frame rather than merged. The two writers alternate
+ * and the canvas judders for the 250ms the animation runs. A mouse never hits
+ * it — your hand is still at the moment of release — but a pad is almost
+ * always still leaning on the stick, because that is how the node was flown
+ * into place.
+ */
+describe('cameraHeldElsewhere', () => {
+  it('yields while a drag-zoom animation is running', () => {
+    expect(cameraHeldElsewhere(true, 'dragging')).toBe(true);
+    expect(cameraHeldElsewhere(true, 'idle')).toBe(true);
+  });
+
+  it('yields through the drop, animation or not', () => {
+    // `finalizing` is the sliver between the drag ending and the restore
+    // animation starting: no frame may fall between the two guards.
+    expect(cameraHeldElsewhere(false, 'finalizing')).toBe(true);
+    expect(cameraHeldElsewhere(false, 'restoring')).toBe(true);
+  });
+
+  it('leaves the stick alone while merely carrying a node', () => {
+    // Panning IS how a carried node is moved, so a plain drag must not yield.
+    expect(cameraHeldElsewhere(false, 'dragging')).toBe(false);
+  });
+
+  it('does not yield when nothing is driving the camera', () => {
+    expect(cameraHeldElsewhere(false, 'idle')).toBe(false);
+    expect(cameraHeldElsewhere(undefined, undefined)).toBe(false);
+    expect(cameraHeldElsewhere(null, null)).toBe(false);
   });
 });

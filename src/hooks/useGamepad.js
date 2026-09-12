@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import useGraphStore from '../store/graphStore.js';
 import { isInsideNode } from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
-import { walkMenu, detectOpenSelector, isColorPickerOpen } from '../utils/gamepadMenuNav.js';
+import { walkMenu, detectOpenSelector, isColorPickerOpen, stepPanelView } from '../utils/gamepadMenuNav.js';
 import { lineModeLayout } from '../utils/pieMenuLayout.js';
 import { nearestPointOnSegment, panToPlacePointAt, createDriftController } from '../utils/gamepadAim.js';
 
@@ -195,6 +195,38 @@ const PIE_START_ANGLE = -Math.PI / 2;
 const PIE_ANGLE_STEP = (2 * Math.PI) / PIE_SLOTS;
 
 const ZERO_TICK = { panDx: 0, panDy: 0, zoomMultiplier: 1 };
+
+/**
+ * Is the drag system currently flying the camera itself?
+ *
+ * This matters far more to a controller than to a mouse, and the reason is
+ * worth spelling out. Both drag-zoom animations (the zoom-out on lift and the
+ * restore on drop, 250ms each) own pan ABSOLUTELY: every frame they recompute
+ * pan from a snapshot taken when the animation began and write the result. A
+ * second writer adding a delta in between is not merged with them — it is
+ * overwritten on the very next frame. Two writers don't average, they
+ * alternate, and that alternation is the stutter.
+ *
+ * With a mouse this never comes up: you release the button and your hand is
+ * still, so nothing else is writing pan. With a pad you are almost certainly
+ * still leaning on the stick at the moment you release the trigger, because
+ * leaning on the stick is how you flew the node into place. So the pad hits
+ * this on essentially every drop.
+ *
+ * The keyboard loop already yields ZOOM to these animations for exactly this
+ * reason (see the isAnimatingZoomRef guard around its zoom block). Pan was
+ * never given the same treatment because no one holds WASD through a drop.
+ *
+ * `finalizing` covers the sliver between the drag ending and its restore
+ * animation starting, so there is no frame where neither guard is up.
+ *
+ * @param {boolean} isAnimatingZoom the drag system's shared camera-animation flag
+ * @param {string|null|undefined} dragPhase 'idle' | 'dragging' | 'finalizing' | 'restoring'
+ * @returns {boolean} true when the pad must keep its hands off pan and zoom
+ */
+export const cameraHeldElsewhere = (isAnimatingZoom, dragPhase) => (
+  isAnimatingZoom === true || dragPhase === 'finalizing' || dragPhase === 'restoring'
+);
 
 /**
  * Radial deadzone plus response curve. Returns a vector whose magnitude is 0
@@ -494,6 +526,16 @@ export const useGamepad = ({
   // has already fired. Reset on any stick movement.
   const neutralSinceRef = useRef(0);
   const autoAimFiredRef = useRef(false);
+  // Set when a gesture ENDS on a target, and held until the stick moves again.
+  //
+  // The dwell means "the user came to rest over this thing", and after a drop
+  // that reading is simply false: they didn't come to rest over the node, they
+  // put it down. Without this the camera pulls the node's CENTRE onto the
+  // crosshair a beat after every drop — which, if you gripped the node near an
+  // edge, is a lurch of half a node, undoing the placement you just made by
+  // hand. The other latches can't carry this: both are cleared on every frame
+  // the drift is disallowed, and the whole restore animation is such a frame.
+  const suppressAutoAimRef = useRef(false);
 
   // Held-direction repeat for the list walkers.
   const repeatRef = useRef(null);
@@ -510,6 +552,9 @@ export const useGamepad = ({
   // over a selector has to swap the walker's target without leaving the mode,
   // and comparing kinds is how that swap is detected.
   const walkerKindRef = useRef(null);
+  // Whether the pad is the reason the panel it is currently in is open, so
+  // leaving can put the layout back the way it was found.
+  const panelOpenedByPadRef = useRef(false);
 
   // Cached container rect. getBoundingClientRect() forces a synchronous layout,
   // and this runs every frame right after the loop has written a new transform
@@ -544,8 +589,11 @@ export const useGamepad = ({
     if (p.dragPhaseRef?.current && p.dragPhaseRef.current !== 'idle') return false;
     // The shared "someone is animating the camera" flag: drag-zoom,
     // focus-on-select, carousel framing. Read, never written — writing it is
-    // what made a drift cancel clobber a lift.
-    if (p.isAnimatingZoomRef?.current) return false;
+    // what made a drift cancel clobber a lift. Same predicate the stick yields
+    // to at the end of the tick, so the drift and the stick stand down for the
+    // same reason at the same moment rather than each having their own idea of
+    // who owns the camera.
+    if (cameraHeldElsewhere(p.isAnimatingZoomRef?.current, p.dragPhaseRef?.current)) return false;
     // The carousel locks the view outright.
     if (p.abstractionCarouselVisibleRef?.current) return false;
     // Only the canvas drifts; a menu mode has the stick doing something else.
@@ -598,6 +646,48 @@ export const useGamepad = ({
     setPieFocusedIndex(next);
   }, []);
 
+  /**
+   * A stick click owns its panel end to end: it opens the panel if it is shut,
+   * takes it over, and — see exitPanelMode — puts the layout back on the way
+   * out. That is why the panels moved off the d-pad: the d-pad is now the thing
+   * that navigates INSIDE a panel, which it cannot be while it is also the
+   * thing that opens one.
+   */
+  const enterPanelMode = useCallback((isLeft) => {
+    const store = useGraphStore.getState();
+    const expanded = isLeft ? store.leftPanelExpanded : store.rightPanelExpanded;
+    if (!expanded) {
+      (isLeft ? store.setLeftPanelExpanded : store.setRightPanelExpanded)?.(true);
+      panelOpenedByPadRef.current = true;
+    } else {
+      // Already open, so it was the user's doing and it stays open after.
+      panelOpenedByPadRef.current = false;
+    }
+    menuWalkerRef.current?.dispose?.();
+    // The panel is still collapsed on THIS frame — the open commits a frame or
+    // two later. The walker resolves its rows lazily for exactly this reason
+    // and picks them up on whichever frame they appear.
+    menuWalkerRef.current = walkMenu(isLeft ? 'leftPanel' : 'rightPanel');
+    walkerKindRef.current = isLeft ? 'leftPanel' : 'rightPanel';
+    // The crosshair's hover preview belongs to the canvas. Leaving it raised
+    // while the pad is in a panel strands a preview of something the user is no
+    // longer pointing at — the crosshair, unlike a pointer, never moves off.
+    paramsRef.current?.clearHoverImmediate?.();
+    setModeBoth(isLeft ? MODE.LEFT_PANEL : MODE.RIGHT_PANEL);
+  }, [setModeBoth]);
+
+  const exitPanelMode = useCallback((isLeft) => {
+    menuWalkerRef.current?.dispose?.();
+    menuWalkerRef.current = null;
+    walkerKindRef.current = null;
+    if (panelOpenedByPadRef.current) {
+      const store = useGraphStore.getState();
+      (isLeft ? store.setLeftPanelExpanded : store.setRightPanelExpanded)?.(false);
+      panelOpenedByPadRef.current = false;
+    }
+    setModeBoth(MODE.CANVAS);
+  }, [setModeBoth]);
+
   const deactivate = useCallback(() => {
     if (!activeRef.current) return;
     activeRef.current = false;
@@ -607,6 +697,10 @@ export const useGamepad = ({
     setHeaderFocusedGraphId(null);
     menuWalkerRef.current?.dispose?.();
     menuWalkerRef.current = null;
+    // A panel the pad opened stays open when the mouse takes over — the pointer
+    // is now in a position to use it, and yanking it shut mid-reach would be
+    // the layout changing under the user's hand.
+    panelOpenedByPadRef.current = false;
     driftRef.current?.stop();
     if (paramsRef.current?.driftingRef) paramsRef.current.driftingRef.current = false;
     // The crosshair's hover belongs to the crosshair; leaving controller mode
@@ -988,29 +1082,60 @@ export const useGamepad = ({
       return ZERO_TICK;
     }
 
-    // ---- PANEL MODES: tabs on the shoulders, scroll on the stick ---------
+    // ---- PANEL MODES -----------------------------------------------------
+    // The d-pad is the panel's navigator, and it means the same thing in both
+    // panels: up/down through the items, left/right across the tabs. That
+    // uniformity is the point — the two panels are built completely
+    // differently underneath (the right panel's tabs are store state, the
+    // left's are local state in the component) and none of that should be
+    // visible from the pad.
     if (currentMode === MODE.LEFT_PANEL || currentMode === MODE.RIGHT_PANEL) {
       const isLeft = currentMode === MODE.LEFT_PANEL;
-      const exitButton = isLeft ? BTN.L3 : BTN.R3;
 
-      if (buttons.justPressed[exitButton] || buttons.justPressed[BTN.B]) {
-        setModeBoth(MODE.CANVAS);
+      // The other stick click switches panels outright rather than being
+      // ignored, so crossing the screen is one press instead of exit-then-enter.
+      if (buttons.justPressed[isLeft ? BTN.R3 : BTN.L3]) {
+        enterPanelMode(!isLeft);
+        return ZERO_TICK;
+      }
+      if (buttons.justPressed[isLeft ? BTN.L3 : BTN.R3] || buttons.justPressed[BTN.B]) {
+        exitPanelMode(isLeft);
         return ZERO_TICK;
       }
 
-      // Tab stepping. Only the right panel has a tab strip to step through;
-      // index 0 is always the home/info tab, so "info tab stays leftmost"
-      // falls out of the existing indexing with nothing extra to enforce.
-      if (!isLeft) {
+      const walker = menuWalkerRef.current;
+      walker?.sync();
+
+      /**
+       * Step the tabs. Same gesture, two mechanisms: the right panel's tabs are
+       * store state (index 0 is always the home/info tab, so "info stays
+       * leftmost" falls out of the existing indexing with nothing to enforce),
+       * while the left panel's views are local component state with no external
+       * entry point — so those are stepped by clicking, as the mouse would.
+       */
+      const stepTab = (delta) => {
+        if (isLeft) { stepPanelView(delta); return; }
         const tabs = store.rightPanelTabs || [];
         const activeIdx = Math.max(0, tabs.findIndex(t => t.isActive));
-        const back = buttons.justPressed[BTN.LB] || buttons.justPressed[BTN.LT];
-        const fwd = buttons.justPressed[BTN.RB] || buttons.justPressed[BTN.RT];
-        if (back && activeIdx > 0) store.activateRightPanelTab?.(activeIdx - 1);
-        else if (fwd && activeIdx < tabs.length - 1) store.activateRightPanelTab?.(activeIdx + 1);
-      }
+        const next = activeIdx + delta;
+        if (next >= 0 && next < tabs.length) store.activateRightPanelTab?.(next);
+      };
 
-      // Scroll the panel body with the stick that owns this mode.
+      // Shoulders keep doing tabs as well. They were the original way in and
+      // they are still the faster one when you are deep in a list and don't
+      // want to walk the d-pad back out to reach a tab.
+      if (buttons.justPressed[BTN.LB] || buttons.justPressed[BTN.LT]) stepTab(-1);
+      else if (buttons.justPressed[BTN.RB] || buttons.justPressed[BTN.RT]) stepTab(1);
+      else if (repeats(BTN.DPAD_DOWN)) walker?.move(1);
+      else if (repeats(BTN.DPAD_UP)) walker?.move(-1);
+      else if (repeats(BTN.DPAD_LEFT)) stepTab(-1);
+      else if (repeats(BTN.DPAD_RIGHT)) stepTab(1);
+      else if (buttons.justPressed[BTN.A]) walker?.activate();
+
+      // Scroll the panel body with the stick that owns this mode. Free-scrolling
+      // stays on the stick even though the d-pad now walks items, because the
+      // two answer different questions: "show me what's further down" versus
+      // "put me on the next thing".
       const stick = isLeft ? left : right;
       if (stick.magnitude > 0) {
         const el = document.querySelector(`.panel-container.${isLeft ? 'left' : 'right'} .panel-content`);
@@ -1059,8 +1184,10 @@ export const useGamepad = ({
       const walker = walkMenu('actions');
       if (walker) { menuWalkerRef.current = walker; setModeBoth(MODE.ACTIONS); return ZERO_TICK; }
     }
-    if (!carrying && buttons.justPressed[BTN.L3]) { setModeBoth(MODE.LEFT_PANEL); return ZERO_TICK; }
-    if (!carrying && buttons.justPressed[BTN.R3]) { setModeBoth(MODE.RIGHT_PANEL); return ZERO_TICK; }
+    // The stick clicks ARE the panels: left stick, left panel; right stick,
+    // right panel. Each opens its panel if it is shut and hands the pad to it.
+    if (!carrying && buttons.justPressed[BTN.L3]) { enterPanelMode(true); return ZERO_TICK; }
+    if (!carrying && buttons.justPressed[BTN.R3]) { enterPanelMode(false); return ZERO_TICK; }
     if (!carrying && !inMenuMode && buttons.justPressed[BTN.DPAD_UP]) {
       setHeaderFocusedGraphId(store.activeGraphId ?? null);
       setModeBoth(MODE.HEADER);
@@ -1090,6 +1217,10 @@ export const useGamepad = ({
         carryingRef.current = true;
       } else if (buttons.justReleased[BTN.RT] && carryingRef.current) {
         carryingRef.current = false;
+        // The node is where the user put it. Don't let the auto-aim quietly
+        // move the camera to recentre it once the restore animation finishes —
+        // see suppressAutoAimRef.
+        suppressAutoAimRef.current = true;
         // Reuse the real release path so group-drop detection and the save
         // signalling behave exactly as they do for a mouse drop.
         p.releasePointerRef?.current?.({ clientX: cross.x, clientY: cross.y });
@@ -1229,10 +1360,10 @@ export const useGamepad = ({
       } else if (buttons.justPressed[BTN.RB] && curIdx >= 0 && curIdx < openIds.length - 1) {
         store.setActiveGraphTab?.(openIds[curIdx + 1]);
       }
-      // The d-pad's left and right point at the panels they open, which is as
-      // direct a mapping as the layout allows.
-      if (buttons.justPressed[BTN.DPAD_LEFT]) store.toggleLeftPanel?.();
-      if (buttons.justPressed[BTN.DPAD_RIGHT]) store.toggleRightPanel?.();
+      // The d-pad's left and right used to toggle the panels from here. They
+      // don't any more: the panels moved to the stick clicks so that the whole
+      // d-pad could become the panel navigator once you are inside one. A
+      // direction cannot both open a panel and mean something within it.
     }
 
     // ---- Left stick: pie aiming in node mode, pan otherwise --------------
@@ -1323,13 +1454,18 @@ export const useGamepad = ({
         driftRef.current?.stop();
         neutralSinceRef.current = 0;
         autoAimFiredRef.current = false;
+        // Moving the stick is the user asking to aim again, which is the one
+        // thing that lifts a post-drop suppression. Deliberately keyed on
+        // input, not on time: however long they sit looking at what they just
+        // placed, the camera stays put until they ask it not to.
+        if (inputActive) suppressAutoAimRef.current = false;
       } else {
         if (neutralSinceRef.current === 0) neutralSinceRef.current = now;
         const dwelled = now - neutralSinceRef.current >= AUTO_AIM_DWELL_MS;
         // `aimPoint` is null for targets that have no sensible place to be
         // pulled to — a self-loop, or a routed connection whose chord guess
         // failed verification. Those simply don't attract.
-        if (dwelled && !autoAimFiredRef.current && target?.aimPoint) {
+        if (dwelled && !suppressAutoAimRef.current && !autoAimFiredRef.current && target?.aimPoint) {
           autoAimFiredRef.current = true;
           const zoom = p.zoomLevelRef.current;
           const cs = p.canvasSizeRef.current;
@@ -1349,8 +1485,19 @@ export const useGamepad = ({
       }
     }
 
+    // ---- Yield the camera --------------------------------------------------
+    // Last thing in the tick, so everything above still ran: the buttons, the
+    // hover, the trigger gestures. It is only the two camera channels that
+    // stand down, and only while the drag system is flying it — 250ms at each
+    // end of a carry. The stick is not queued or remembered; whatever it is
+    // doing when the animation ends is what takes effect on that frame.
+    if (cameraHeldElsewhere(p.isAnimatingZoomRef?.current, p.dragPhaseRef?.current)) {
+      return ZERO_TICK;
+    }
+
     return { panDx, panDy, zoomMultiplier };
-  }, [deactivate, getCrosshair, getContainerRect, resolveCrosshairTarget, setModeBoth, setPieFocusBoth, headerFocusedGraphId]);
+  }, [deactivate, getCrosshair, getContainerRect, resolveCrosshairTarget, setModeBoth, setPieFocusBoth,
+    enterPanelMode, exitPanelMode, headerFocusedGraphId]);
 
   // The host rAF loop calls through this ref, so it never has to re-subscribe
   // when `tick` is rebuilt.
