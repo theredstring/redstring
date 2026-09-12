@@ -277,7 +277,7 @@ const DIALOGS = [
   {
     key: 'wizard-intent',
     name: 'Ask The Wizard',
-    note: 'The intent picker. Default pre-selected; the free-text row opens a box; destination is sticky.',
+    note: 'The intent picker. Default pre-selected, an always-present Other box, and a sticky add-to-current checkbox.',
     render: (fire, { wizardDestination, setWizardDestination }) => (
       <WizardIntentModal
         isOpen

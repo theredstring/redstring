@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
+import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { intentsForSurface, defaultIntentForSurface, intentLabel } from '../../wizard/prompts/intents.js';
 
 /**
  * Pick what to ask The Wizard about an element.
  *
  * Replaces four near-identical CanvasConfirmDialog blocks that all asked the same
- * narrow question — new conversation, or add to the current one? That question is
- * still here, but demoted to a sticky control at the foot, because the interesting
+ * narrow question — new conversation, or add to the current one? That question
+ * survives as a single sticky checkbox in the header, because the interesting
  * choice is WHICH ask, not where its answer lands.
  *
  * The default intent is pre-selected and is always the ask that button already
@@ -25,7 +26,11 @@ const WizardIntentModal = ({
   onClose
 }) => {
   const theme = useTheme();
-  const intents = useMemo(() => (isOpen ? intentsForSurface(surface, facts) : []), [isOpen, surface, facts]);
+  const all = useMemo(() => (isOpen ? intentsForSurface(surface, facts) : []), [isOpen, surface, facts]);
+  // Free text is not a row in the list — it is the box at the bottom.
+  const rows = all.filter(i => i.tier !== 'freetext');
+  const freeIntent = all.find(i => i.tier === 'freetext') || null;
+
   const [selectedId, setSelectedId] = useState(null);
   const [freeText, setFreeText] = useState('');
   const textareaRef = useRef(null);
@@ -37,17 +42,13 @@ const WizardIntentModal = ({
     setFreeText('');
   }, [isOpen, surface, facts]);
 
-  const selected = intents.find(i => i.id === selectedId) || null;
-  const isFreeText = selected?.tier === 'freetext';
-
-  useEffect(() => {
-    if (isFreeText) textareaRef.current?.focus();
-  }, [isFreeText]);
-
   if (!isOpen) return null;
 
-  // A free-text row with nothing typed in it has no ask to send.
+  const selected = all.find(i => i.id === selectedId) || null;
+  const isFreeText = !!selected && selected.tier === 'freetext';
+  // A free-text ask with an empty box has no question in it.
   const canSubmit = !!selected && (!isFreeText || freeText.trim().length > 0);
+
   const submit = () => {
     if (!canSubmit) return;
     onConfirm({ intent: selected, freeText: freeText.trim(), destination });
@@ -55,13 +56,15 @@ const WizardIntentModal = ({
 
   const onKeyDown = (e) => {
     if (e.key === 'Escape') { e.stopPropagation(); onClose(); return; }
-    // Enter submits, except inside the textarea where it should type a newline —
+    // Enter submits, except inside the box where it should type a newline —
     // Cmd/Ctrl+Enter is the escape hatch there.
     if (e.key === 'Enter' && (!isFreeText || e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       submit();
     }
   };
+
+  const selectedTint = theme.darkMode ? 'rgba(122, 0, 0, 0.22)' : 'rgba(122, 0, 0, 0.08)';
 
   const rowStyle = (isSelected) => ({
     display: 'flex',
@@ -74,40 +77,21 @@ const WizardIntentModal = ({
     textAlign: 'left',
     fontFamily: "'EmOne', sans-serif",
     border: `2px solid ${isSelected ? theme.canvas.textPrimary : 'transparent'}`,
-    backgroundColor: isSelected
-      ? (theme.darkMode ? 'rgba(122, 0, 0, 0.22)' : 'rgba(122, 0, 0, 0.08)')
-      : 'transparent',
+    backgroundColor: isSelected ? selectedTint : 'transparent',
     transition: 'background-color 0.12s, border-color 0.12s'
   });
 
-  const buttonStyle = (isPrimary, disabled = false) => ({
-    padding: '4px 14px',
-    lineHeight: 1.2,
-    borderRadius: 6,
-    fontSize: '0.85rem',
-    fontWeight: 600,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.45 : 1,
-    fontFamily: "'EmOne', sans-serif",
-    transition: 'all 0.2s',
+  const radioStyle = (isSelected) => ({
+    marginTop: 3,
+    width: 12,
+    height: 12,
+    flexShrink: 0,
+    borderRadius: '50%',
     border: `2px solid ${theme.canvas.textPrimary}`,
-    backgroundColor: isPrimary ? theme.canvas.textPrimary : 'transparent',
-    color: isPrimary ? theme.canvas.bg : theme.canvas.textPrimary
+    backgroundColor: isSelected ? '#7A0000' : 'transparent'
   });
 
-  const segmentStyle = (isActive) => ({
-    flex: 1,
-    padding: '5px 10px',
-    fontSize: '0.78rem',
-    fontWeight: 600,
-    fontFamily: "'EmOne', sans-serif",
-    cursor: 'pointer',
-    border: 'none',
-    borderRadius: 5,
-    backgroundColor: isActive ? theme.canvas.textPrimary : 'transparent',
-    color: isActive ? theme.canvas.bg : theme.canvas.textPrimary,
-    transition: 'background-color 0.15s, color 0.15s'
-  });
+  const addToCurrent = destination === 'current';
 
   return (
     <div
@@ -144,146 +128,178 @@ const WizardIntentModal = ({
           outline: 'none'
         }}
       >
+        {/* Header. The destination checkbox rides at its foot as an addendum —
+            it is a modifier on the ask, not one of the things being chosen. */}
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '14px 18px',
+            padding: '14px 18px 10px',
             borderBottom: `2px solid ${theme.canvas.textPrimary}`,
             backgroundColor: theme.canvas.border
           }}
         >
-          <Sparkles size={18} style={{ color: theme.canvas.textPrimary, flexShrink: 0 }} />
-          <div style={{ minWidth: 0 }}>
-            <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: theme.canvas.textPrimary }}>
-              Ask The Wizard
-            </h2>
-            {subjectLabel && (
-              <div
-                style={{
-                  fontSize: '0.78rem',
-                  color: theme.canvas.textPrimary,
-                  opacity: 0.7,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                {subjectLabel}
-              </div>
-            )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Sparkles size={18} style={{ color: theme.canvas.textPrimary, flexShrink: 0 }} />
+            <div style={{ minWidth: 0 }}>
+              <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: theme.canvas.textPrimary }}>
+                Ask The Wizard
+              </h2>
+              {subjectLabel && (
+                <div
+                  style={{
+                    fontSize: '0.78rem',
+                    color: theme.canvas.textPrimary,
+                    opacity: 0.7,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {subjectLabel}
+                </div>
+              )}
+            </div>
           </div>
+
+          <label
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              marginTop: 10,
+              fontSize: '0.78rem',
+              color: theme.canvas.textPrimary,
+              cursor: 'pointer',
+              userSelect: 'none'
+            }}
+          >
+            <span
+              style={{
+                position: 'relative',
+                width: 16,
+                height: 16,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 3,
+                border: `1.5px solid ${theme.canvas.textPrimary}`,
+                backgroundColor: addToCurrent ? '#7A0000' : 'transparent',
+                transition: 'background-color 0.15s'
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={addToCurrent}
+                onChange={(e) => onDestinationChange(e.target.checked ? 'current' : 'new')}
+                style={{ position: 'absolute', inset: 0, opacity: 0, margin: 0, cursor: 'pointer' }}
+              />
+              {addToCurrent && (
+                <svg
+                  width="11" height="11" viewBox="0 0 12 12" fill="none"
+                  stroke="#DEDADA" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ pointerEvents: 'none' }}
+                >
+                  <polyline points="2.5,6.5 5,9 9.5,3.5" />
+                </svg>
+              )}
+            </span>
+            Add to current conversation
+          </label>
         </div>
 
         <div style={{ padding: '10px 12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {intents.map((intent) => {
+          {rows.map((intent) => {
             const isSelected = intent.id === selectedId;
             return (
-              <React.Fragment key={intent.id}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(intent.id)}
-                  onDoubleClick={submit}
-                  style={rowStyle(isSelected)}
-                >
-                  <span
-                    aria-hidden
-                    style={{
-                      marginTop: 3,
-                      width: 12,
-                      height: 12,
-                      flexShrink: 0,
-                      borderRadius: '50%',
-                      border: `2px solid ${theme.canvas.textPrimary}`,
-                      backgroundColor: isSelected ? '#7A0000' : 'transparent'
-                    }}
-                  />
-                  <span style={{ minWidth: 0 }}>
+              <button
+                key={intent.id}
+                type="button"
+                onClick={() => setSelectedId(intent.id)}
+                onDoubleClick={submit}
+                style={rowStyle(isSelected)}
+              >
+                <span aria-hidden style={radioStyle(isSelected)} />
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: '0.88rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
+                    {intentLabel(intent, facts)}
+                  </span>
+                  {intent.sublabel && (
                     <span
                       style={{
                         display: 'block',
-                        fontSize: '0.88rem',
-                        fontWeight: 600,
-                        color: theme.canvas.textPrimary
+                        fontSize: '0.76rem',
+                        lineHeight: 1.35,
+                        marginTop: 1,
+                        color: theme.canvas.textPrimary,
+                        opacity: 0.65
                       }}
                     >
-                      {intentLabel(intent, facts)}
+                      {intent.sublabel}
                     </span>
-                    {intent.sublabel && (
-                      <span
-                        style={{
-                          display: 'block',
-                          fontSize: '0.76rem',
-                          lineHeight: 1.35,
-                          marginTop: 1,
-                          color: theme.canvas.textPrimary,
-                          opacity: 0.65
-                        }}
-                      >
-                        {intent.sublabel}
-                      </span>
-                    )}
-                  </span>
-                </button>
-
-                {isSelected && intent.tier === 'freetext' && (
-                  <textarea
-                    ref={textareaRef}
-                    value={freeText}
-                    onChange={(e) => setFreeText(e.target.value)}
-                    placeholder="What do you want to know about it?"
-                    rows={3}
-                    style={{
-                      margin: '2px 12px 8px 34px',
-                      padding: '8px 10px',
-                      resize: 'vertical',
-                      borderRadius: 6,
-                      border: `2px solid ${theme.canvas.textPrimary}`,
-                      backgroundColor: theme.canvas.bg,
-                      color: theme.canvas.textPrimary,
-                      fontFamily: "'EmOne', sans-serif",
-                      fontSize: '0.85rem',
-                      outline: 'none'
-                    }}
-                  />
-                )}
-              </React.Fragment>
+                  )}
+                </span>
+              </button>
             );
           })}
+
+          {/* "Other" is a box that is always there, not a row you have to find and
+              expand. Typing in it is what picks it — nobody types into a field and
+              means "but not this one". */}
+          {freeIntent && (
+            <div
+              onClick={() => { setSelectedId(freeIntent.id); textareaRef.current?.focus(); }}
+              style={{ ...rowStyle(isFreeText), flexDirection: 'column', gap: 6, cursor: 'text' }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span aria-hidden style={{ ...radioStyle(isFreeText), marginTop: 0 }} />
+                <span style={{ fontSize: '0.88rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
+                  Other
+                </span>
+              </span>
+              <textarea
+                ref={textareaRef}
+                value={freeText}
+                onChange={(e) => { setFreeText(e.target.value); setSelectedId(freeIntent.id); }}
+                onFocus={() => setSelectedId(freeIntent.id)}
+                placeholder="Ask something specific…"
+                rows={2}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '7px 9px',
+                  resize: 'vertical',
+                  borderRadius: 6,
+                  border: `1.5px solid ${theme.canvas.textPrimary}`,
+                  backgroundColor: theme.canvas.bg,
+                  color: theme.canvas.textPrimary,
+                  fontFamily: "'EmOne', sans-serif",
+                  fontSize: '0.85rem',
+                  outline: 'none'
+                }}
+              />
+            </div>
+          )}
         </div>
 
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 10,
+            justifyContent: 'flex-end',
+            gap: 8,
             padding: '10px 18px',
             borderTop: `2px solid ${theme.canvas.textPrimary}`,
             backgroundColor: theme.canvas.border
           }}
         >
-          <div
-            role="group"
-            aria-label="Where the answer goes"
-            style={{
-              display: 'flex',
-              flex: 1,
-              padding: 2,
-              gap: 2,
-              borderRadius: 7,
-              border: `2px solid ${theme.canvas.textPrimary}`
-            }}
-          >
-            <button type="button" style={segmentStyle(destination === 'new')} onClick={() => onDestinationChange('new')}>
-              New conversation
-            </button>
-            <button type="button" style={segmentStyle(destination === 'current')} onClick={() => onDestinationChange('current')}>
-              Add to current
-            </button>
-          </div>
-          <button type="button" onClick={onClose} style={buttonStyle(false)}>Cancel</button>
-          <button type="button" onClick={submit} disabled={!canSubmit} style={buttonStyle(true, !canSubmit)}>Ask</button>
+          <PanelIconButton label="Cancel" variant="outline" labelFontSize={12} onClick={onClose} />
+          <PanelIconButton
+            icon={Sparkles}
+            label="Ask"
+            variant="solid"
+            labelFontSize={12}
+            disabled={!canSubmit}
+            onClick={submit}
+          />
         </div>
       </div>
     </div>
