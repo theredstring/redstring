@@ -4320,9 +4320,23 @@ const LeftAIView = ({ compact = false,
                   question={lastBlock.result.question}
                   options={lastBlock.result.options}
                   onSelect={(option) => {
-                    // We don't need to change currentInput, we just send it
                     setCurrentInput('');
-                    handleSendMessage(option);
+                    // Accepting a proposal from a query-first ask is the moment the
+                    // mutation is allowed to happen. That ask ran read-only, which is
+                    // what made its "nothing here connects" answer worth believing;
+                    // this reply is a fresh turn and deliberately carries NO policy,
+                    // so the accepted change can actually be applied.
+                    //
+                    // It has to say so explicitly. Only the prose of an AI message is
+                    // replayed into history — tool_call blocks are not — so on this
+                    // turn the model has no machine-readable record of what it just
+                    // proposed. The option text is the whole restatement it gets.
+                    const wasProposal = !!lastMessage?.metadata?.wizardAsk?.toolPolicy;
+                    handleSendMessage(
+                      wasProposal
+                        ? `Apply exactly this and nothing else:\n${option}\n\nDo not add anything I did not pick. If it needs a Connection type that does not exist yet, create it and give it a description.`
+                        : option
+                    );
                   }}
                   onDismiss={() => {
                     upsertToolCall({ id: lastBlock.id, isDismissed: true });

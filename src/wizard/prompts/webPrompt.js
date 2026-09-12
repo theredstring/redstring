@@ -59,7 +59,7 @@ export function buildWizardGrowGraphPrompt(opts = {}) {
     } else {
       lines.push('- The direction to grow may be ambiguous. Use the askMultipleChoice tool to ask ONE clarifying question about what to focus on (e.g. which subtopic to expand, breadth vs depth) before making large changes. Only skip this if the intent is obvious.');
     }
-    lines.push('- If you need more information about the subject, call search / searchNodes / readGraph / querySparql first.');
+    lines.push('- If you need more information about the subject, call search / readGraph / querySparql first.');
     lines.push('');
     lines.push('Tool-call rules (important):');
     lines.push(`- Use expandGraph with targetGraphId="${activeGraph.id}" (the EXACT id, not the name) to add nodes and connections to this graph.`);

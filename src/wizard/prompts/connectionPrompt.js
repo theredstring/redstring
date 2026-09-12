@@ -98,7 +98,7 @@ export function buildWizardConnectionPrompt(edges, opts = {}) {
     lines.push('');
     lines.push('Before applying changes (only if needed):');
     lines.push('- If the endpoint descriptions and connection-prototype catalog above already give you enough to choose, proceed directly.');
-    lines.push('- If you genuinely need more context (e.g., the endpoints are unfamiliar concepts or the existing prototype names are ambiguous), FIRST call search / searchNodes / searchConnections / readGraph / inspectPrototype before mutating. Skip this step otherwise — do not call read tools just to be thorough.');
+    lines.push('- If you genuinely need more context (e.g., the endpoints are unfamiliar concepts or the existing prototype names are ambiguous), FIRST call search / readGraph / inspectPrototype before mutating. Skip this step otherwise — do not call read tools just to be thorough.');
     lines.push('');
     lines.push('Tool-call rules (important):');
     edges.forEach((edge, idx) => {

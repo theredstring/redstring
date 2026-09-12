@@ -109,3 +109,12 @@ describe('policyForIntent', () => {
     expect(policyForIntent(getIntent('connection-gaps'))).toBe(TOOL_POLICIES.QUERY_FIRST);
   });
 });
+
+describe('chip titles', () => {
+  it('names every intent, so none renders as the generic fallback', async () => {
+    const { CHIP_TITLES } = await import('../../components/wizard/WizardActionChip.jsx');
+    for (const intent of INTENTS) {
+      expect(CHIP_TITLES[intent.action], `no chip title for "${intent.action}"`).toBeTruthy();
+    }
+  });
+});

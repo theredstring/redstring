@@ -80,7 +80,7 @@ import useGraphStore, {
   TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT,
 } from "./store/graphStore.js";
 import useHistoryStore from './store/historyStore.js';
-import { resolveChain } from './wizard/tools/utils/abstractionSpec.js';
+import { resolveChain, DEFAULT_ABSTRACTION_DIMENSION } from './wizard/tools/utils/abstractionSpec.js';
 import {
   buildWizardConnectionPrompt,
   buildWizardNodeDefinitionPrompt,
@@ -92,8 +92,19 @@ import {
 import {
   SURFACES as WIZARD_SURFACES,
   shouldSkipPicker,
-  defaultIntentForSurface
+  defaultIntentForSurface,
+  policyForIntent
 } from './wizard/prompts/intents.js';
+import {
+  buildExplainThingPrompt,
+  buildConnectThingPrompt,
+  buildFillDetailsPrompt,
+  buildExplainConnectionPrompt,
+  buildConnectionGapsPrompt,
+  buildSummarizeWebPrompt,
+  buildAuditWebPrompt,
+  buildFreeTextPrompt
+} from './wizard/prompts/intentPrompts.js';
 import { thingFacts, connectionFacts, webFacts, ladderFacts } from './wizard/prompts/facts.js';
 import WizardIntentModal from './components/wizard/WizardIntentModal.jsx';
 import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from './services/imageCache.js';
@@ -6076,7 +6087,7 @@ function NodeCanvas() {
   // which is why each declared an empty dependency array — so what remains here is
   // only the part that genuinely belongs to the canvas: the API-key gate, opening
   // the AI panel, and clearing whatever selection the ask consumed.
-  const openWizardAsk = useCallback(async (build, { newConversation, afterSend } = {}) => {
+  const openWizardAsk = useCallback(async (build, { newConversation, afterSend, toolPolicy } = {}) => {
     if (!(await ensureWizardApiKey())) return;
     // Build BEFORE opening the panel. Three of the four openers used to do this the
     // other way round, which left the panel expanded over nothing when a builder
@@ -6087,7 +6098,7 @@ function NodeCanvas() {
       storeActions.setLeftPanelExpanded(true);
     } catch { }
     setLeftPanelInitialView('ai');
-    sendWizardAsk(built, { newConversation });
+    sendWizardAsk(built, { newConversation, toolPolicy });
     afterSend?.();
   }, [ensureWizardApiKey, storeActions]);
 
@@ -6139,23 +6150,52 @@ function NodeCanvas() {
     );
   }, [openWizardAsk]);
 
-  // Run whichever intent the picker settled on. The four openers above are still
-  // the only things that build a prompt; this just routes to the right one.
-  const runWizardIntent = useCallback(async ({ intent, destination, payload }) => {
+  // Run whichever intent the picker settled on.
+  //
+  // Routing is by intent id, not by surface: a Thing has five different asks and
+  // they are not interchangeable. The four original openers keep their own paths
+  // because they carry per-ask side effects (clearing the selection) and the
+  // full/short instruction dedupe; everything else goes through one branch.
+  const runWizardIntent = useCallback(async ({ intent, destination, payload, freeText }) => {
     const newConversation = destination !== 'current';
-    switch (intent.surface) {
-      case WIZARD_SURFACES.CONNECTION:
+    const toolPolicy = policyForIntent(intent);
+
+    switch (intent.id) {
+      // The original four, unchanged.
+      case 'refine-connection':
         return openWizardWithPrompt(payload.edges, { newConversation });
-      case WIZARD_SURFACES.THING:
+      case 'define-components':
         return openNodeWizardWithPrompt(payload.prototype, { newConversation });
-      case WIZARD_SURFACES.LADDER:
+      case 'ladder-build':
         return openAbstractionWizardWithPrompt(payload.prototype, payload.dimension, { newConversation });
-      case WIZARD_SURFACES.WEB:
+      case 'thing-ladder':
+        // Same ask reached from the Thing's own menu rather than the carousel.
+        return openAbstractionWizardWithPrompt(payload.prototype, DEFAULT_ABSTRACTION_DIMENSION, { newConversation });
+      case 'grow-web':
         return openGrowGraphWizardWithPrompt({ newConversation });
       default:
-        return undefined;
+        break;
     }
-  }, [openWizardWithPrompt, openNodeWizardWithPrompt, openAbstractionWizardWithPrompt, openGrowGraphWizardWithPrompt]);
+
+    const build = () => {
+      switch (intent.id) {
+        case 'explain-thing': return buildExplainThingPrompt(payload.prototype);
+        case 'connect-into-web': return buildConnectThingPrompt(payload.prototype);
+        case 'fill-in-details': return buildFillDetailsPrompt(payload.prototype);
+        case 'explain-connection': return buildExplainConnectionPrompt(payload.edges);
+        case 'connection-gaps': return buildConnectionGapsPrompt(payload.edges);
+        case 'summarize-web': return buildSummarizeWebPrompt();
+        case 'audit-web': return buildAuditWebPrompt();
+        default:
+          if (intent.tier === 'freetext') return buildFreeTextPrompt(intent.surface, payload, freeText);
+          return null;
+      }
+    };
+    return openWizardAsk(build, { newConversation, toolPolicy });
+  }, [
+    openWizardWithPrompt, openNodeWizardWithPrompt,
+    openAbstractionWizardWithPrompt, openGrowGraphWizardWithPrompt, openWizardAsk
+  ]);
 
   // The single entry point every Ask The Wizard button now goes through.
   //
@@ -18591,10 +18631,10 @@ function NodeCanvas() {
         destination={wizardDestination}
         onDestinationChange={chooseWizardDestination}
         onClose={() => setAskWizardPicker(null)}
-        onConfirm={({ intent, destination }) => {
+        onConfirm={({ intent, destination, freeText }) => {
           const payload = askWizardPicker?.payload;
           setAskWizardPicker(null);
-          runWizardIntent({ intent, destination, payload });
+          runWizardIntent({ intent, destination, payload, freeText });
         }}
       />
 

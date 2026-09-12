@@ -138,7 +138,7 @@ export function buildWizardNodeDefinitionPrompt(prototype, opts = {}) {
     lines.push('- Where a component has an obvious, uncontested generalization, give it an is-a ladder in the same call: add `isA: [{ "name": "Company", "description": "A legally constituted business entity." }]` (broadest last) to that node. Every rung needs a bio — a rung is created as a real node, and one born with only a name is a dead end. One rung is a complete ladder; leave `isA` off any component whose broader category is arguable. This is the abstraction carousel, not a connection; do not draw an edge for it.');
     lines.push('');
     lines.push('Before applying changes (only if needed):');
-    lines.push('- If you genuinely lack information about what "this node" is composed of, FIRST call search / searchNodes / readGraph to learn more about the project. Skip this step if the description and connections above already give you enough to proceed.');
+    lines.push('- If you genuinely lack information about what "this node" is composed of, FIRST call search / readGraph to learn more about the project. Skip this step if the description and connections above already give you enough to proceed.');
     lines.push('- You may also call inspectPrototype, getPrototype, or querySparql for additional context if relevant — but only if you actually need more info.');
     lines.push('');
     lines.push('Tool-call rules (important):');

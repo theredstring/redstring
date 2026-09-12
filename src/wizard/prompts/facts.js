@@ -8,7 +8,7 @@
  * this Thing already sit on a ladder, how many Connections are selected.
  */
 import useGraphStore from '../../store/graphStore.js';
-import { resolveChain } from '../tools/utils/abstractionSpec.js';
+import { resolveChain, DEFAULT_ABSTRACTION_DIMENSION } from '../tools/utils/abstractionSpec.js';
 
 function instanceCountOf(graph) {
   const instances = graph?.instances;
@@ -29,7 +29,7 @@ function hasLadderFor(prototype, dimension, nodePrototypes) {
   }
 }
 
-export function thingFacts(prototype, { dimension = 'Generalization Axis' } = {}) {
+export function thingFacts(prototype, { dimension = DEFAULT_ABSTRACTION_DIMENSION } = {}) {
   const st = useGraphStore.getState();
   const activeGraph = st.activeGraphId ? st.graphs.get(st.activeGraphId) : null;
   return {

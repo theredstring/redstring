@@ -227,7 +227,15 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
   // ── Feedback ──────────────────────────────────────────────────────────────
   const issues = [];
   if (orphanedNodes.length > 0) {
-    issues.push(`${orphanedNodes.length} orphaned node(s) with no connections: ${orphanedNodes.join(', ')}. Connect them to related nodes.`);
+    // The trailing imperative belongs to the BUILD callers, which rely on it to
+    // finish what they started. It is actively wrong for a caller that is asking
+    // a question rather than building: a Thing can be deliberately unconnected —
+    // that is the correct answer to "does this connect to anything here?" — and
+    // telling the model to connect it manufactures exactly the false yes that
+    // answer exists to avoid. `advisory` reports the observation without the
+    // instruction; the builders' string is left byte-identical.
+    const orphanNote = `${orphanedNodes.length} orphaned node(s) with no connections: ${orphanedNodes.join(', ')}.`;
+    issues.push(opts.advisory ? orphanNote : `${orphanNote} Connect them to related nodes.`);
   }
   if (componentCount > 1) {
     issues.push(`Graph has ${componentCount} disconnected components — should be 1 connected graph. Add edges to bridge them.`);
