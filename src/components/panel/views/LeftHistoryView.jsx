@@ -46,6 +46,7 @@ const LeftHistoryView = () => {
                 <button
                     onClick={() => setFilter('all')}
                     className={`filter-tab ${filter === 'all' ? 'active' : ''}`}
+                    data-nav="tab"
                     title="Show all history"
                 >
                     <Filter size={14} />
@@ -54,6 +55,7 @@ const LeftHistoryView = () => {
                 <button
                     onClick={() => setFilter('graph')}
                     className={`filter-tab ${filter === 'graph' ? 'active' : ''}`}
+                    data-nav="tab"
                     disabled={!activeGraphId}
                     title="Show local history"
                 >
@@ -63,6 +65,7 @@ const LeftHistoryView = () => {
                 <button
                     onClick={() => setFilter('global')}
                     className={`filter-tab ${filter === 'global' ? 'active' : ''}`}
+                    data-nav="tab"
                     title="Show global history"
                 >
                     <Globe size={14} />
@@ -101,6 +104,7 @@ const HistoryItem = ({ entry, isActive, isHead, onClick }) => {
     return (
         <div
             className={`history-item ${isGlobal ? 'global' : 'graph'} ${isActive ? 'active' : 'undone'} ${isHead ? 'head' : ''}`}
+            data-nav="item"
             onClick={onClick}
             title={isActive ? "Restore state to this point" : "Redo to this point"}
         >

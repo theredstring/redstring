@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import useGraphStore from '../store/graphStore.js';
 import { isInsideNode } from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
-import { walkMenu, detectOpenSelector, isColorPickerOpen, stepPanelView } from '../utils/gamepadMenuNav.js';
+import { walkMenu, detectOpenSelector, isColorPickerOpen } from '../utils/gamepadMenuNav.js';
+import { createPanelNavigator } from '../utils/gamepadPanelNav.js';
 import { lineModeLayout } from '../utils/pieMenuLayout.js';
 import { nearestPointOnSegment, panToPlacePointAt, createDriftController } from '../utils/gamepadAim.js';
 
@@ -62,9 +63,10 @@ export const MODE = {
   // that menu is a row laid along the edge, not a ring, so the stick aims it by
   // position instead of by angle — see stepLineFocus.
   EDGE: 'edge',
-  HEADER: 'header',
-  LEFT_PANEL: 'leftPanel',
-  RIGHT_PANEL: 'rightPanel',
+  // There is deliberately no panel or header mode. The d-pad navigates the
+  // chrome while the sticks fly the canvas, both at once — see navigate() and
+  // the header note in gamepadPanelNav.js. A mode there would have meant the
+  // pad going quiet on the canvas every time the user glanced at a list.
   MENU: 'menu',
   ACTIONS: 'actions',
   // A unified selector or node-selection grid is on screen. Entered and left
@@ -546,15 +548,24 @@ export const useGamepad = ({
     });
   }
 
+  // The d-pad's navigator over the panels. Built once and kept for the life of
+  // the session: where the d-pad is standing is a place in the UI, not a mode
+  // that gets entered and left, so it outlives any one interaction.
+  const panelNavRef = useRef(null);
+  if (!panelNavRef.current) panelNavRef.current = createPanelNavigator();
+  // Which panel the user last touched, so "go into a panel" has an answer when
+  // both are open and the direction doesn't say which.
+  const lastPanelSideRef = useRef('left');
+  // Header focus mirrored into a ref. The tick reads it on the same frame it
+  // writes it, and React state is a frame behind.
+  const headerFocusRef = useRef(null);
+
   // DOM focus walker state for MENU / ACTIONS modes.
   const menuWalkerRef = useRef(null);
   // Which surface the current walker is pointed at. A colour picker opening
   // over a selector has to swap the walker's target without leaving the mode,
   // and comparing kinds is how that swap is detected.
   const walkerKindRef = useRef(null);
-  // Whether the pad is the reason the panel it is currently in is open, so
-  // leaving can put the layout back the way it was found.
-  const panelOpenedByPadRef = useRef(false);
 
   // Cached container rect. getBoundingClientRect() forces a synchronous layout,
   // and this runs every frame right after the loop has written a new transform
@@ -647,46 +658,107 @@ export const useGamepad = ({
   }, []);
 
   /**
-   * A stick click owns its panel end to end: it opens the panel if it is shut,
-   * takes it over, and — see exitPanelMode — puts the layout back on the way
-   * out. That is why the panels moved off the d-pad: the d-pad is now the thing
-   * that navigates INSIDE a panel, which it cannot be while it is also the
-   * thing that opens one.
+   * Header focus, written to the ref and to state together.
+   *
+   * The header's outline is declarative (HeaderGraphTab takes isGamepadFocused)
+   * rather than a class the navigator writes, which is why the header is
+   * handled here instead of through the DOM navigator.
    */
-  const enterPanelMode = useCallback((isLeft) => {
-    const store = useGraphStore.getState();
-    const expanded = isLeft ? store.leftPanelExpanded : store.rightPanelExpanded;
-    if (!expanded) {
-      (isLeft ? store.setLeftPanelExpanded : store.setRightPanelExpanded)?.(true);
-      panelOpenedByPadRef.current = true;
-    } else {
-      // Already open, so it was the user's doing and it stays open after.
-      panelOpenedByPadRef.current = false;
-    }
-    menuWalkerRef.current?.dispose?.();
-    // The panel is still collapsed on THIS frame — the open commits a frame or
-    // two later. The walker resolves its rows lazily for exactly this reason
-    // and picks them up on whichever frame they appear.
-    menuWalkerRef.current = walkMenu(isLeft ? 'leftPanel' : 'rightPanel');
-    walkerKindRef.current = isLeft ? 'leftPanel' : 'rightPanel';
-    // The crosshair's hover preview belongs to the canvas. Leaving it raised
-    // while the pad is in a panel strands a preview of something the user is no
-    // longer pointing at — the crosshair, unlike a pointer, never moves off.
-    paramsRef.current?.clearHoverImmediate?.();
-    setModeBoth(isLeft ? MODE.LEFT_PANEL : MODE.RIGHT_PANEL);
-  }, [setModeBoth]);
+  const setHeaderFocusBoth = useCallback((id) => {
+    headerFocusRef.current = id;
+    setHeaderFocusedGraphId(id);
+  }, []);
 
-  const exitPanelMode = useCallback((isLeft) => {
-    menuWalkerRef.current?.dispose?.();
-    menuWalkerRef.current = null;
-    walkerKindRef.current = null;
-    if (panelOpenedByPadRef.current) {
-      const store = useGraphStore.getState();
-      (isLeft ? store.setLeftPanelExpanded : store.setRightPanelExpanded)?.(false);
-      panelOpenedByPadRef.current = false;
+  /**
+   * One d-pad step, dispatched spatially.
+   *
+   * The chrome has a real layout — the header runs across the top, the panels
+   * down either side — and the d-pad simply obeys it. There is no mode to be
+   * in, only a place the focus currently IS, which is why every rule below is
+   * phrased as "what is in that direction from here". Nothing is disabled
+   * while the focus is somewhere: the sticks keep flying the canvas, the
+   * triggers keep picking nodes up.
+   */
+  const navigate = useCallback((dir) => {
+    const store = useGraphStore.getState();
+    const nav = panelNavRef.current;
+    const leftOpen = !!store.leftPanelExpanded;
+    const rightOpen = !!store.rightPanelExpanded;
+    const openFor = (s) => (s === 'left' ? leftOpen : rightOpen);
+
+    // --- The header has the focus ---
+    if (headerFocusRef.current !== null) {
+      const openIds = store.openGraphIds || [];
+      const idx = Math.max(0, openIds.indexOf(headerFocusRef.current));
+      if (dir === 'left' && idx > 0) setHeaderFocusBoth(openIds[idx - 1]);
+      else if (dir === 'right' && idx < openIds.length - 1) setHeaderFocusBoth(openIds[idx + 1]);
+      else if (dir === 'down') {
+        // Down out of the header goes into whichever panel is open, preferring
+        // the one last touched — the header spans both, so the direction alone
+        // cannot say which side was meant.
+        setHeaderFocusBoth(null);
+        const preferred = openFor(lastPanelSideRef.current) ? lastPanelSideRef.current
+          : (leftOpen ? 'left' : (rightOpen ? 'right' : null));
+        if (preferred) { nav.enter(preferred); lastPanelSideRef.current = preferred; }
+      }
+      return;
     }
-    setModeBoth(MODE.CANVAS);
-  }, [setModeBoth]);
+
+    // --- A panel has the focus ---
+    if (nav.hasFocus()) {
+      const dx = dir === 'left' ? -1 : (dir === 'right' ? 1 : 0);
+      const dy = dir === 'up' ? -1 : (dir === 'down' ? 1 : 0);
+      const result = nav.move(dx, dy);
+      if (result !== 'edge') return;
+
+      // Off the top of a panel is the header, which sits above both of them.
+      if (dy < 0) {
+        nav.clear();
+        setHeaderFocusBoth(store.activeGraphId ?? null);
+        return;
+      }
+      // Off the side is the other panel, when the direction points at it and
+      // it is open. The canvas lies between them, but the canvas is the
+      // sticks' business, so the d-pad steps straight across.
+      if (dx) {
+        const here = nav.side();
+        const towardOther = (here === 'left' && dx > 0) || (here === 'right' && dx < 0);
+        const other = here === 'left' ? 'right' : 'left';
+        if (towardOther && openFor(other)) {
+          nav.clear();
+          nav.enter(other);
+          lastPanelSideRef.current = other;
+        }
+      }
+      return;
+    }
+
+    // --- Nothing has the focus: the direction chooses where to start ---
+    if (dir === 'up') {
+      setHeaderFocusBoth(store.activeGraphId ?? null);
+      return;
+    }
+    if (dir === 'left' || dir === 'right') {
+      const side = dir === 'left' ? 'left' : 'right';
+      if (openFor(side) && nav.enter(side)) lastPanelSideRef.current = side;
+      return;
+    }
+    // Down is the bottom of the screen, which is where the TypeList lives.
+    // It keeps the binding it had when the d-pad was a set of shortcuts, and
+    // it keeps it for the same reason the header is up: that is where the
+    // thing actually is.
+    const order = ['connection', 'node', 'component', 'closed'];
+    const cur = store.typeListMode || 'closed';
+    store.setTypeListMode?.(order[(order.indexOf(cur) + 1) % order.length]);
+  }, [setHeaderFocusBoth]);
+
+  /** Give up whatever the d-pad was standing on. B, and leaving the pad. */
+  const clearNavFocus = useCallback(() => {
+    const had = panelNavRef.current.hasFocus() || headerFocusRef.current !== null;
+    panelNavRef.current.clear();
+    if (headerFocusRef.current !== null) setHeaderFocusBoth(null);
+    return had;
+  }, [setHeaderFocusBoth]);
 
   const deactivate = useCallback(() => {
     if (!activeRef.current) return;
@@ -697,10 +769,9 @@ export const useGamepad = ({
     setHeaderFocusedGraphId(null);
     menuWalkerRef.current?.dispose?.();
     menuWalkerRef.current = null;
-    // A panel the pad opened stays open when the mouse takes over — the pointer
-    // is now in a position to use it, and yanking it shut mid-reach would be
-    // the layout changing under the user's hand.
-    panelOpenedByPadRef.current = false;
+    // The d-pad's place in the chrome is given up with the pad itself.
+    panelNavRef.current?.clear();
+    headerFocusRef.current = null;
     driftRef.current?.stop();
     if (paramsRef.current?.driftingRef) paramsRef.current.driftingRef.current = false;
     // The crosshair's hover belongs to the crosshair; leaving controller mode
@@ -1055,95 +1126,6 @@ export const useGamepad = ({
     // Past this point everything needs a canvas to act on.
     if (!canvasReady) return ZERO_TICK;
 
-    // ---- HEADER: outline walks the open-web tabs, A commits --------------
-    if (currentMode === MODE.HEADER) {
-      const openIds = store.openGraphIds || [];
-      const focused = headerFocusedGraphId ?? store.activeGraphId;
-      const idx = Math.max(0, openIds.indexOf(focused));
-
-      if (repeats(BTN.DPAD_LEFT)) {
-        if (idx > 0) setHeaderFocusedGraphId(openIds[idx - 1]);
-      } else if (repeats(BTN.DPAD_RIGHT)) {
-        if (idx < openIds.length - 1) setHeaderFocusedGraphId(openIds[idx + 1]);
-      } else if (buttons.justPressed[BTN.DPAD_UP]) {
-        // Already here; swallow so it doesn't fall through to "exit".
-      } else if (buttons.justPressed[BTN.A]) {
-        const target = openIds[idx];
-        if (target) store.setActiveGraph?.(target);
-        setHeaderFocusedGraphId(null);
-        setModeBoth(MODE.CANVAS);
-      } else if (anyJust(buttons)) {
-        // "Any other button leaves that mode" — the press is consumed by the
-        // exit rather than also firing its canvas action, so leaving is never
-        // a surprise.
-        setHeaderFocusedGraphId(null);
-        setModeBoth(MODE.CANVAS);
-      }
-      return ZERO_TICK;
-    }
-
-    // ---- PANEL MODES -----------------------------------------------------
-    // The d-pad is the panel's navigator, and it means the same thing in both
-    // panels: up/down through the items, left/right across the tabs. That
-    // uniformity is the point — the two panels are built completely
-    // differently underneath (the right panel's tabs are store state, the
-    // left's are local state in the component) and none of that should be
-    // visible from the pad.
-    if (currentMode === MODE.LEFT_PANEL || currentMode === MODE.RIGHT_PANEL) {
-      const isLeft = currentMode === MODE.LEFT_PANEL;
-
-      // The other stick click switches panels outright rather than being
-      // ignored, so crossing the screen is one press instead of exit-then-enter.
-      if (buttons.justPressed[isLeft ? BTN.R3 : BTN.L3]) {
-        enterPanelMode(!isLeft);
-        return ZERO_TICK;
-      }
-      if (buttons.justPressed[isLeft ? BTN.L3 : BTN.R3] || buttons.justPressed[BTN.B]) {
-        exitPanelMode(isLeft);
-        return ZERO_TICK;
-      }
-
-      const walker = menuWalkerRef.current;
-      walker?.sync();
-
-      /**
-       * Step the tabs. Same gesture, two mechanisms: the right panel's tabs are
-       * store state (index 0 is always the home/info tab, so "info stays
-       * leftmost" falls out of the existing indexing with nothing to enforce),
-       * while the left panel's views are local component state with no external
-       * entry point — so those are stepped by clicking, as the mouse would.
-       */
-      const stepTab = (delta) => {
-        if (isLeft) { stepPanelView(delta); return; }
-        const tabs = store.rightPanelTabs || [];
-        const activeIdx = Math.max(0, tabs.findIndex(t => t.isActive));
-        const next = activeIdx + delta;
-        if (next >= 0 && next < tabs.length) store.activateRightPanelTab?.(next);
-      };
-
-      // Shoulders keep doing tabs as well. They were the original way in and
-      // they are still the faster one when you are deep in a list and don't
-      // want to walk the d-pad back out to reach a tab.
-      if (buttons.justPressed[BTN.LB] || buttons.justPressed[BTN.LT]) stepTab(-1);
-      else if (buttons.justPressed[BTN.RB] || buttons.justPressed[BTN.RT]) stepTab(1);
-      else if (repeats(BTN.DPAD_DOWN)) walker?.move(1);
-      else if (repeats(BTN.DPAD_UP)) walker?.move(-1);
-      else if (repeats(BTN.DPAD_LEFT)) stepTab(-1);
-      else if (repeats(BTN.DPAD_RIGHT)) stepTab(1);
-      else if (buttons.justPressed[BTN.A]) walker?.activate();
-
-      // Scroll the panel body with the stick that owns this mode. Free-scrolling
-      // stays on the stick even though the d-pad now walks items, because the
-      // two answer different questions: "show me what's further down" versus
-      // "put me on the next thing".
-      const stick = isLeft ? left : right;
-      if (stick.magnitude > 0) {
-        const el = document.querySelector(`.panel-container.${isLeft ? 'left' : 'right'} .panel-content`);
-        if (el) el.scrollTop += stick.y * PANEL_SCROLL_SPEED * frameRatio;
-      }
-      return ZERO_TICK;
-    }
-
     // ---- CANVAS, NODE and EDGE modes ------------------------------------
     // Selection can end without the pad doing it: a menu action deletes its
     // own subject (Delete), navigates away (Expand, Open Definition), or the
@@ -1184,20 +1166,37 @@ export const useGamepad = ({
       const walker = walkMenu('actions');
       if (walker) { menuWalkerRef.current = walker; setModeBoth(MODE.ACTIONS); return ZERO_TICK; }
     }
-    // The stick clicks ARE the panels: left stick, left panel; right stick,
-    // right panel. Each opens its panel if it is shut and hands the pad to it.
-    if (!carrying && buttons.justPressed[BTN.L3]) { enterPanelMode(true); return ZERO_TICK; }
-    if (!carrying && buttons.justPressed[BTN.R3]) { enterPanelMode(false); return ZERO_TICK; }
-    if (!carrying && !inMenuMode && buttons.justPressed[BTN.DPAD_UP]) {
-      setHeaderFocusedGraphId(store.activeGraphId ?? null);
-      setModeBoth(MODE.HEADER);
-      return ZERO_TICK;
+    // The stick clicks open and close their own panel. That is ALL they do —
+    // no mode, nothing disabled, nothing to leave. Left stick, left panel;
+    // right stick, right panel.
+    // Deliberately not `return`ing: a press here must not cost the frame's
+    // pan. Everything on this pad is meant to be usable at the same time as
+    // everything else.
+    if (!carrying && buttons.justPressed[BTN.L3]) {
+      store.toggleLeftPanel?.();
+      lastPanelSideRef.current = 'left';
+      // Closing the panel focus was sitting in would strand the ring on a
+      // detached element; `leftPanelExpanded` is still the PRE-toggle value.
+      if (panelNavRef.current.side() === 'left' && store.leftPanelExpanded) panelNavRef.current.clear();
     }
-    if (!carrying && !inMenuMode && buttons.justPressed[BTN.DPAD_DOWN]) {
-      const order = ['connection', 'node', 'component', 'closed'];
-      const cur = store.typeListMode || 'closed';
-      const next = order[(order.indexOf(cur) + 1) % order.length];
-      store.setTypeListMode?.(next);
+    if (!carrying && buttons.justPressed[BTN.R3]) {
+      store.toggleRightPanel?.();
+      lastPanelSideRef.current = 'right';
+      if (panelNavRef.current.side() === 'right' && store.rightPanelExpanded) panelNavRef.current.clear();
+    }
+
+    // ---- D-PAD: the navigator over everything that isn't the canvas -------
+    // Runs alongside the sticks rather than instead of them: you can be
+    // walking a list in the right panel and flying the canvas at the same
+    // time, because those are different hands and different surfaces. See
+    // navigate() for the spatial rules.
+    if (!carrying) {
+      panelNavRef.current.sync();
+      const dir = (repeats(BTN.DPAD_UP) ? 'up' : null)
+        || (repeats(BTN.DPAD_DOWN) ? 'down' : null)
+        || (repeats(BTN.DPAD_LEFT) ? 'left' : null)
+        || (repeats(BTN.DPAD_RIGHT) ? 'right' : null);
+      if (dir) navigate(dir);
     }
 
     // ONE resolution per frame, shared by the hover preview, the A button and
@@ -1255,7 +1254,17 @@ export const useGamepad = ({
     }
 
     // ---- Face buttons ----------------------------------------------------
-    if (!carrying && buttons.justPressed[BTN.A]) {
+    // A acts on whatever the d-pad is standing on, when it is standing on
+    // something. This is not a mode stealing the button: the d-pad only ever
+    // holds a focus because the user put it there a moment ago, and B (or
+    // moving off the end of a panel) hands A straight back to the canvas.
+    if (!carrying && buttons.justPressed[BTN.A] && headerFocusRef.current !== null) {
+      const target = headerFocusRef.current;
+      setHeaderFocusBoth(null);
+      if (target) store.setActiveGraph?.(target);
+    } else if (!carrying && buttons.justPressed[BTN.A] && panelNavRef.current.hasFocus()) {
+      panelNavRef.current.activate();
+    } else if (!carrying && buttons.justPressed[BTN.A]) {
       if (inNodeMode) {
         const list = p.pieMenuButtonsRef?.current || [];
         const focused = list[pieFocusedIndexRef.current];
@@ -1304,7 +1313,12 @@ export const useGamepad = ({
       }
     }
 
-    if (!carrying && buttons.justPressed[BTN.B]) {
+    // B gives up the d-pad's place before it does anything on the canvas, so
+    // one button always means "back out of where I am" rather than needing the
+    // user to remember which surface they last touched.
+    if (!carrying && buttons.justPressed[BTN.B] && clearNavFocus()) {
+      // Consumed.
+    } else if (!carrying && buttons.justPressed[BTN.B]) {
       // B is the universal "back": it drops the plus wherever the crosshair
       // happens to be, which is the one way out that needs no aiming at all.
       p.plusSignControlRef?.current?.dismiss?.();
@@ -1377,11 +1391,11 @@ export const useGamepad = ({
       // of five buttons a fifth of the stick's throw, which is twitchy on a
       // layout whose options sit only a few degrees apart.
       const list = p.edgePieMenuButtonsRef?.current || [];
-      const dir = stickStep(left, 'edge')
-        || (repeats(BTN.DPAD_LEFT) ? 'left' : null)
-        || (repeats(BTN.DPAD_RIGHT) ? 'right' : null)
-        || (repeats(BTN.DPAD_UP) ? 'up' : null)
-        || (repeats(BTN.DPAD_DOWN) ? 'down' : null);
+      // The stick alone. The d-pad used to step this row as well, but the
+      // d-pad now belongs to the chrome at all times — a button that means
+      // "next connection option" here and "next thing in the right panel"
+      // one keypress later means neither reliably.
+      const dir = stickStep(left, 'edge');
       if (dir) {
         const next = stepLineFocus(pieFocusedIndexRef.current, dir, list.length);
         if (next >= 0) setPieFocusBoth(next);
@@ -1497,7 +1511,7 @@ export const useGamepad = ({
 
     return { panDx, panDy, zoomMultiplier };
   }, [deactivate, getCrosshair, getContainerRect, resolveCrosshairTarget, setModeBoth, setPieFocusBoth,
-    enterPanelMode, exitPanelMode, headerFocusedGraphId]);
+    navigate, clearNavFocus, setHeaderFocusBoth]);
 
   // The host rAF loop calls through this ref, so it never has to re-subscribe
   // when `tick` is rebuilt.

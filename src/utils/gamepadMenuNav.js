@@ -100,36 +100,6 @@ const SELECTORS = {
     closer: '.unified-selector-color-button',
     palette: '.unified-selector-color-button',
   },
-  // The two side panels.
-  //
-  // Every other surface in here has a class per row. A panel does not, and
-  // cannot: `.panel-content` is a hole that seven different left-hand views and
-  // the entire right panel render into, and their items are hand-styled divs
-  // with an onClick and no className at all. Enumerating them would mean
-  // touching a dozen components and then keeping that list true forever.
-  //
-  // So rows are discovered from `cursor: pointer`. That is not a heuristic
-  // standing in for the real answer — in this codebase it IS the answer:
-  // clickable things set it inline, right next to the onClick, because that is
-  // what makes them look clickable. Reading it back is reading the same signal
-  // the user is reading. The outermost pointer element wins, so a card
-  // collapses to one row instead of fanning out into its icon and its label.
-  leftPanel: {
-    root: '.panel-container.left',
-    scope: '.panel-content',
-    pointer: true,
-    parent: null,
-    opener: null,
-    closer: null,
-  },
-  rightPanel: {
-    root: '.panel-container.right',
-    scope: '.panel-content',
-    pointer: true,
-    parent: null,
-    opener: null,
-    closer: null,
-  },
   actions: {
     // The header's action buttons. In wide layout these are inline in the
     // header bar and always mounted; below EXCLUSIVE_PANEL_MODE_THRESHOLD they
@@ -150,62 +120,6 @@ const visible = (el) => {
   if (!el || !el.isConnected) return false;
   const rect = el.getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;
-};
-
-// How long a discovered row list stays good. Only the `pointer` surfaces use
-// it; their discovery reads computed style for every element in the panel,
-// which is far too much to redo on the frames between two d-pad steps.
-const ROW_CACHE_MS = 200;
-// A ceiling on discovery, so a pathologically long panel (a library with
-// hundreds of saved things) can't turn one step into an unbounded walk.
-const MAX_POINTER_ROWS = 400;
-
-/**
- * Every clickable element under `scope`, outermost-first.
- *
- * Descends until it finds something interactive, takes it, and does NOT look
- * inside it — one card is one row, not a row per glyph it contains. Form
- * controls count as interactive even when they don't carry a pointer cursor,
- * since a text field is somewhere you deliberately land.
- */
-const collectPointerRows = (scope) => {
-  const out = [];
-  const walk = (el) => {
-    for (const child of el.children) {
-      if (out.length >= MAX_POINTER_ROWS) return;
-      if (!visible(child)) continue;
-      const style = window.getComputedStyle?.(child);
-      const interactive = child.matches?.('input, textarea, select, button, a[href]')
-        || (style && style.cursor === 'pointer' && style.pointerEvents !== 'none');
-      if (interactive) out.push(child);
-      else walk(child);
-    }
-  };
-  walk(scope);
-  return out;
-};
-
-/**
- * Step the left panel's view between its header buttons (Saved Things, Open
- * Things, Federation, …).
- *
- * The right panel's tabs live in the store and are stepped through it. The
- * left panel's "tabs" are local component state with no external entry point,
- * so — as with the menu's opener — the way in is to click what a mouse would.
- *
- * @param {number} delta -1 for the view to the left, +1 for the one to its right
- * @returns {boolean} whether a different view was actually reachable
- */
-export const stepPanelView = (delta) => {
-  const root = document.querySelector('.panel-container.left');
-  if (!root) return false;
-  const tabs = Array.from(root.querySelectorAll('.panel-view-tab')).filter(visible);
-  if (!tabs.length) return false;
-  const at = tabs.findIndex(el => el.dataset.active === 'true');
-  const next = tabs[(at < 0 ? 0 : at) + delta];
-  if (!next) return false;
-  next.click?.();
-  return true;
 };
 
 // No `view` on purpose: nothing downstream reads it, and passing it makes the
@@ -292,28 +206,10 @@ export const walkMenu = (kind) => {
   if (!config) return null;
 
   const getRoot = () => document.querySelector(config.root);
-
-  // Discovered rows are cached; class-selected ones are not. Selecting by class
-  // is one querySelectorAll and can afford to be exact every time, which keeps
-  // those surfaces reacting to a re-render on the very next frame.
-  let rowCache = null;
-  let rowCacheAt = 0;
   const rows = () => {
     const root = getRoot();
     if (!root) return [];
-    if (!config.pointer) return Array.from(root.querySelectorAll(config.rows)).filter(visible);
-
-    const now = Date.now();
-    // A stale list is still honoured while fresh, but only if every row in it is
-    // still in the document — a view that swapped underneath us invalidates it
-    // immediately rather than waiting out the interval.
-    if (rowCache && now - rowCacheAt < ROW_CACHE_MS && rowCache.every(el => el.isConnected)) {
-      return rowCache;
-    }
-    const scope = config.scope ? root.querySelector(config.scope) : root;
-    rowCache = scope ? collectPointerRows(scope) : [];
-    rowCacheAt = now;
-    return rowCache;
+    return Array.from(root.querySelectorAll(config.rows)).filter(visible);
   };
 
   // Open the surface if nothing is showing yet, by clicking whatever a mouse

@@ -2078,6 +2078,7 @@ const Panel = memo(forwardRef(
                   <div
                     title="All Things"
                     className="panel-view-tab"
+                  data-nav="tab"
                     data-active={leftViewActive === 'all'}
                     style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'all' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                     onClick={() => setLeftViewActive('all')}
@@ -2089,6 +2090,7 @@ const Panel = memo(forwardRef(
                 <div
                   title="Saved Things"
                   className="panel-view-tab"
+                  data-nav="tab"
                   data-active={leftViewActive === 'library'}
                   style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'library' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('library')}
@@ -2099,6 +2101,7 @@ const Panel = memo(forwardRef(
                 <div
                   title="Open Things"
                   className="panel-view-tab"
+                  data-nav="tab"
                   data-active={leftViewActive === 'grid'}
                   style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'grid' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('grid')}
@@ -2109,6 +2112,7 @@ const Panel = memo(forwardRef(
                 <div
                   title="Federation"
                   className="panel-view-tab"
+                  data-nav="tab"
                   data-active={leftViewActive === 'federation'}
                   style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'federation' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('federation')}
@@ -2120,6 +2124,7 @@ const Panel = memo(forwardRef(
                 <div
                   title="Semantic Discovery"
                   className="panel-view-tab"
+                  data-nav="tab"
                   data-active={leftViewActive === 'semantic'}
                   style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'semantic' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('semantic')}
@@ -2132,6 +2137,7 @@ const Panel = memo(forwardRef(
                   <div
                     title="AI Wizard"
                     className="panel-view-tab"
+                  data-nav="tab"
                     data-active={leftViewActive === 'ai'}
                     style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'ai' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                     onClick={() => setLeftViewActive('ai')}
@@ -2144,6 +2150,7 @@ const Panel = memo(forwardRef(
                 <div
                   title="Action History"
                   className="panel-view-tab"
+                  data-nav="tab"
                   data-active={leftViewActive === 'history'}
                   style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'history' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('history')}
@@ -2178,6 +2185,7 @@ const Panel = memo(forwardRef(
                     <div
                       title="Home"
                       key="home"
+                      data-nav="tab"
                       style={{
                         width: 50,
                         height: 50,

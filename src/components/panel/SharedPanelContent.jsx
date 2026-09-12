@@ -1168,6 +1168,7 @@ const DraggableNodeComponent = ({ node, onOpenNode }) => {
         lineHeight: '1.2'
       }}
       title={node.name}
+      data-nav="item"
       onClick={() => onOpenNode(node.prototypeId || node.id)}
     >
       {node.name}

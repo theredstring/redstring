@@ -180,6 +180,7 @@ const PanelIconButton = forwardRef(({
     <button
       ref={ref}
       className={`panel-icon-button ${variant} ${active ? 'active' : ''} ${className}`}
+      data-nav="action"
       style={{ ...buttonStyle, ...hoverStyles }}
       type="button"
       onClick={handleClick}

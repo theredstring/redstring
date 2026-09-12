@@ -18,6 +18,8 @@ const CollapsibleSection = ({
     <div>
       {/* Section Header */}
       <div
+        data-nav="section"
+        data-nav-expanded={isExpanded}
         onClick={() => setIsExpanded(!isExpanded)}
         style={{
           display: 'flex',

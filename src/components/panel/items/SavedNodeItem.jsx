@@ -42,6 +42,7 @@ const SavedNodeItem = ({ node, onClick, onDoubleClick, onUnsave, isActive }) => 
     <div
       ref={drag}
       key={node.id}
+      data-nav="item"
       title={node.name}
       onClick={() => onClick(node)}
       onDoubleClick={() => onDoubleClick(node)}

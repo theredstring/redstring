@@ -85,6 +85,7 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
     <div
       ref={ref}
       className="panel-tab"
+      data-nav="tab"
       data-has-context-menu="true"
       style={{
         opacity,

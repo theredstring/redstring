@@ -115,6 +115,8 @@ const LeftLibraryView = ({
             <div key={typeId}>
               <div style={{ marginBottom: '10px' }}>
                 <div
+                  data-nav="section"
+                  data-nav-expanded={!isCollapsed}
                   onClick={() => toggleSection(typeId)}
                   style={{
                     backgroundColor: typeInfo.color,

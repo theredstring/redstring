@@ -60,6 +60,7 @@ const AllThingsNodeItem = ({ node, onClick, onDoubleClick, isActive, hasSemantic
       <div
         ref={drag}
         key={node.id}
+        data-nav="item"
         data-has-context-menu="true"
         title={`${node.name}${hasSemanticData ? ' • Connected to semantic web' : ''}`}
         onClick={() => onClick(node)}
