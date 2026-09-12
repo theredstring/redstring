@@ -7,7 +7,7 @@
  * living outside React costs them nothing and makes them testable.
  */
 import useGraphStore from '../../store/graphStore.js';
-import { resolveChain } from '../tools/utils/abstractionSpec.js';
+import { resolveChain, THING_PROTOTYPE_ID } from '../tools/utils/abstractionSpec.js';
 import { buildGraphContextLines, collectTypeAncestry } from './shared.js';
 
 // "Ask The Wizard" from the abstraction carousel: build out or refine the focused
@@ -36,8 +36,18 @@ export function buildWizardAbstractionPrompt(prototype, dimension, opts = {}) {
   // competing chain instead of extending the one on screen.
   const resolvedChain = resolveChain(prototype.id, dimension, nodePrototypesMap.values());
   const chainOwner = nodePrototypesMap.get(resolvedChain.ownerId) || prototype;
-  const chain = resolvedChain.virtual ? null : resolvedChain.chain;
+  // Render whatever the carousel is rendering, INCLUDING a synthesized one.
+  // This used to null out the virtual case and tell the model "there is no chain
+  // yet" — while the user was looking at a carousel showing the node, its type and
+  // Thing, because resolveChain synthesizes exactly that. The model then built a
+  // ladder from scratch and re-added the type that was already on screen, which is
+  // the doubled rung at the type.
+  const chain = resolvedChain.chain;
+  // Seeded means nobody has edited it: it is [node, type, Thing], derived from the
+  // type rather than authored. The rungs are real and on screen either way.
+  const chainIsSeeded = resolvedChain.seeded;
   const ownerName = chainOwner.name || protoName;
+  const chainMemberIdSet = new Set(Array.isArray(chain) ? chain : []);
 
   // Render the chain as the carousel reads it: index order runs specific → generic,
   // with the focused node at level 0. Signed levels are how readAbstractionChain
@@ -49,7 +59,9 @@ export function buildWizardAbstractionPrompt(prototype, dimension, opts = {}) {
       const member = nodePrototypesMap.get(memberId);
       const memberName = member?.name || memberId;
       const level = focusIndex >= 0 ? index - focusIndex : index;
-      const marker = memberId === prototype.id ? ' ← the focused node' : '';
+      const marker = memberId === prototype.id
+        ? ' ← the focused node'
+        : (memberId === THING_PROTOTYPE_ID ? ' ← the base Thing, the floor of every ladder' : '');
       const role = level < 0 ? 'more specific' : level > 0 ? 'more generic' : 'current';
       const memberDesc = (member?.description || '').trim();
       const descPart = memberDesc ? ` — ${memberDesc.length > 120 ? memberDesc.slice(0, 120) + '…' : memberDesc}` : '';
@@ -107,21 +119,35 @@ export function buildWizardAbstractionPrompt(prototype, dimension, opts = {}) {
   if (typeAncestry.length > 0) {
     const ladder = typeAncestry.map((t) => {
       const desc = (t.description || '').trim();
+      const onChain = chainMemberIdSet.has(t.id) ? ' [ALREADY ON THE CHAIN]' : '';
       return desc
-        ? `"${t.name || 'Node'}" (${desc.length > 120 ? desc.slice(0, 120) + '…' : desc})`
-        : `"${t.name || 'Node'}"`;
+        ? `"${t.name || 'Node'}"${onChain} (${desc.length > 120 ? desc.slice(0, 120) + '…' : desc})`
+        : `"${t.name || 'Node'}"${onChain}`;
     });
     lines.push(`- Type ladder (this node's type, then that type's type, …): ${ladder.join(' → ')}`);
-    lines.push('  These are already generalizations of the focused node. Strongly prefer putting THESE on the chain — reusing them keeps the ladder consistent with how the project is typed — before inventing new category nodes.');
+    // Without the exclusion this line actively caused the duplicate: the node's
+    // own type is on the seeded chain by construction, and the model was being
+    // told in as many words to put it there again.
+    const offChain = typeAncestry.filter((t) => !chainMemberIdSet.has(t.id));
+    if (offChain.length > 0) {
+      lines.push('  These are already generalizations of the focused node. Strongly prefer putting the ones NOT yet on the chain onto it — reusing them keeps the ladder consistent with how the project is typed — before inventing new category nodes.');
+    } else {
+      lines.push('  Every one of these is already on the chain above. They are shown as evidence of what this node is, not as rungs to add — adding them again would duplicate them.');
+    }
   } else {
     lines.push('- Type: (untyped, or typed only as the base Thing — no ready-made generalization to reuse)');
   }
 
   lines.push('');
   if (chainLines.length > 0) {
-    lines.push(`Existing "${dimension}" chain (level 0 is the focused node; negative is more specific, positive is more generic):`);
+    lines.push(`The "${dimension}" chain the carousel is showing right now (level 0 is the focused node; negative is more specific, positive is more generic):`);
     lines.push(...chainLines);
     lines.push(`- This chain is owned by the node "${ownerName}".`);
+    if (chainIsSeeded) {
+      lines.push('- It is still the automatic chain: a node\'s type IS a generalization of it, so assigning a type puts the type on this axis, with the base "Thing" as the floor. Nobody has edited it by hand yet.');
+    }
+    lines.push('- EVERY rung listed above already exists on this chain. Do NOT name any of them again: a rung you re-list is inserted a second time, and the carousel then shows it twice. Name only the levels that are MISSING.');
+    lines.push('- In particular, do not re-add the type and do not add another floor beneath "Thing". The useful work is the levels BETWEEN the focused node and the rungs already there.');
   } else {
     lines.push(`There is no "${dimension}" chain yet — the focused node is on its own. You are building the first one, which is owned by "${ownerName}".`);
   }
