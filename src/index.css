@@ -193,7 +193,14 @@ body.gamepad-cursor-hidden * {
    lean on, which is why this one has to carry the whole signal itself.
 
    Offset outward, and further on the sliders: their thumb is 20px and stands
-   proud of the track, so a tighter ring would be half-hidden behind it. */
+   proud of the track, so a tighter ring would be half-hidden behind it.
+
+   This ring says FOCUSED — where the stick's next input lands. It is not the
+   same statement as in use, which the slider makes for itself in a stroke of
+   its own hugging the track (ColorPicker.css, `[data-slider-engaged]`). The
+   controller is the one input mode that shows both at once, so the two are kept
+   apart deliberately: different colour, different weight, and 5px of clear
+   space between them. */
 .color-picker-panel .gamepad-menu-focus {
   outline: 3px solid #bdb5b5;
   outline-offset: 3px;

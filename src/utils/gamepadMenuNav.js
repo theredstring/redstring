@@ -20,6 +20,8 @@
  * mounting, re-rendering or closing underneath it.
  */
 
+import { pulseSlider, releaseSlider } from './sliderEngagement.js';
+
 // The class used to show which row the controller is on. Styled in
 // RedstringMenu.css and index.css alongside the mouse's own hover treatment.
 export const FOCUS_CLASS = 'gamepad-menu-focus';
@@ -260,6 +262,9 @@ export const walkMenu = (kind) => {
   const clearFocus = () => {
     if (!focused) return;
     if (document.activeElement === focused) focused.blur?.();
+    // Stepping off a slider ends any drive that was still pulsing on it, so a
+    // released one can't be left lit behind the walker.
+    releaseSlider(focused);
     focused.classList.remove(FOCUS_CLASS);
     fire(focused, 'mouseout');
     fire(focused, 'mouseleave');
@@ -369,6 +374,12 @@ export const walkMenu = (kind) => {
      */
     nudgeSlider: (fraction) => {
       if (!isRange(focused)) return false;
+      // Light the track for as long as the stick keeps arriving. Outside the
+      // deadzone this is called every frame, so the mark stays up while you
+      // drive and lets go shortly after you stop — a stick has no event for
+      // "released this control". Raised even on a frame the carry rounds to
+      // zero: you are pushing it, the value is simply still catching up.
+      pulseSlider(focused);
       if (sliderCarryEl !== focused) { sliderCarryEl = focused; sliderCarry = 0; }
       const min = Number(focused.min || 0);
       const max = Number(focused.max === '' || focused.max == null ? 100 : focused.max);

@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => ({
     host: true, // listen on all interfaces for LAN testing
     port: Number(process.env.VITE_DEV_PORT) || 4001,
     headers: {
-      'Content-Security-Policy': "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https: wss:; img-src 'self' data: blob: http://localhost:* http://127.0.0.1:* https://*.wikipedia.org https://*.wikidata.org https://upload.wikimedia.org;"
+      'Content-Security-Policy': "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https: wss:; img-src 'self' data: blob: http://localhost:* http://127.0.0.1:* https://*.wikipedia.org https://*.wikidata.org https://*.wikimedia.org;"
     },
     proxy: {
       // Primary API/bridge proxy to the semantic server

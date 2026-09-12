@@ -139,6 +139,7 @@ import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
 import { renderConnectionEdge } from './components/canvas/renderConnectionEdge.jsx';
 import { paintEdgeList } from './utils/canvas/paintElementTree.js';
+import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
 import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, labelBoundsFor, labelFrameToken, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice, hasNoHover } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
@@ -7266,45 +7267,44 @@ function NodeCanvas() {
   // handleArrowClick within this window of a touch toggle is that echo and is ignored.
   const orbToggleEchoRef = useRef(0);
 
-  // Hit-test a client-space point against the visible connection orbs and, on a hit,
-  // toggle that connection's arrow toward the orb's node (mirrors handleArrowClick).
-  // Returns true if a toggle happened so the touch layer can swallow the gesture and
-  // skip node selection / canvas deselection. Prefers the nearest orb on overlap.
-  const tryToggleConnectionOrbAtPoint = useCallback((clientX, clientY) => {
-    const orbsByEdge = connectionOrbHitsRef.current;
-    if (!orbsByEdge || orbsByEdge.size === 0 || !containerRef.current) return false;
+  // Hit-test a client-space point against the visible connection orbs. `padding`
+  // scales each orb's drawn radius — see nearestConnectionOrb.
+  const findConnectionOrbAtPoint = useCallback((clientX, clientY, padding = 1) => {
+    if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
     const px = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
     const py = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
-    let best = null;
-    let bestDist = Infinity;
-    for (const orbs of orbsByEdge.values()) {
-      for (const orb of orbs) {
-        const dx = px - orb.cx;
-        const dy = py - orb.cy;
-        const dist = Math.hypot(dx, dy);
-        // Slight radius padding so a finger that lands just outside the transparent
-        // hit disc still registers (touch is far less precise than a mouse).
-        if (dist <= orb.r * 1.15 && dist < bestDist) {
-          best = orb;
-          bestDist = dist;
-        }
-      }
-    }
-    if (!best) return false;
-    orbToggleEchoRef.current = performance.now();
+    return nearestConnectionOrb(connectionOrbHitsRef.current, px, py, padding);
+  }, [containerRef, panOffsetRef, zoomLevelRef, canvasSize]);
+
+  // Flip the arrow at one end of a connection (mirrors handleArrowClick, which
+  // is the same toggle reached by clicking the orb with a mouse).
+  const toggleConnectionOrbArrow = useCallback((orb) => {
+    if (!orb) return;
     haptic('directionToggle');
-    storeActions.updateEdge(best.edgeId, (draft) => {
+    storeActions.updateEdge(orb.edgeId, (draft) => {
       if (!draft.directionality) draft.directionality = { arrowsToward: new Set() };
       if (!draft.directionality.arrowsToward) draft.directionality.arrowsToward = new Set();
-      if (draft.directionality.arrowsToward.has(best.nodeId)) {
-        draft.directionality.arrowsToward.delete(best.nodeId);
+      if (draft.directionality.arrowsToward.has(orb.nodeId)) {
+        draft.directionality.arrowsToward.delete(orb.nodeId);
       } else {
-        draft.directionality.arrowsToward.add(best.nodeId);
+        draft.directionality.arrowsToward.add(orb.nodeId);
       }
     });
+  }, [storeActions]);
+
+  // The touch path: hit-test, and on a hit toggle that end's arrow. Returns true
+  // if a toggle happened so the touch layer can swallow the gesture and skip node
+  // selection / canvas deselection.
+  const tryToggleConnectionOrbAtPoint = useCallback((clientX, clientY) => {
+    const orb = findConnectionOrbAtPoint(clientX, clientY, ORB_HIT_PADDING_TOUCH);
+    if (!orb) return false;
+    // Only the touch path arms the echo guard: it is there for the synthesized
+    // click that follows a tap, which no other input produces.
+    orbToggleEchoRef.current = performance.now();
+    toggleConnectionOrbArrow(orb);
     return true;
-  }, [containerRef, panOffsetRef, zoomLevelRef, canvasSize, storeActions]);
+  }, [findConnectionOrbAtPoint, toggleConnectionOrbArrow]);
 
   // Hover vision aid state
   const [hoveredNodeForVision, setHoveredNodeForVision] = useState(null);
@@ -13690,6 +13690,19 @@ function NodeCanvas() {
   edgeAnchorAngleRef.current = selectedEdgeMidpoint?.angle ?? 0;
   const findEdgeAtClientPointRef = useRef(null);
   findEdgeAtClientPointRef.current = findEdgeAtClientPoint;
+  // A connection's endpoint orbs, as the controller sees them: what the
+  // crosshair is standing on, and the one thing A does with it.
+  //
+  // Orbs only exist while their connection is hovered or selected, so this is
+  // empty almost all of the time — which is what keeps a target this large from
+  // shadowing the nodes it sits against. The padding is 1 (the disc as drawn):
+  // the crosshair is a cursor, not a finger, and it has the auto-aim drift
+  // pulling the orb under it besides.
+  const connectionOrbControlRef = useRef(null);
+  connectionOrbControlRef.current = {
+    findAt: (clientX, clientY) => findConnectionOrbAtPoint(clientX, clientY, 1),
+    toggle: (orb) => toggleConnectionOrbArrow(orb),
+  };
   // The plus sign, as the controller sees it: where it is, how big its target
   // is, and the three things A and B can do to it. Bundled into one ref rather
   // than five because they are only ever used together, and because the hook
@@ -13898,6 +13911,7 @@ function NodeCanvas() {
     edgePieMenuButtonsRef,
     edgeAnchorAngleRef,
     findEdgeAtClientPointRef,
+    connectionOrbControlRef,
     setPieMenuPage,
     onPieMenuHoverChange: handlePieMenuHoverChange,
     setPan: setPanOffset,

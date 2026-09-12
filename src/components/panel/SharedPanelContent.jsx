@@ -72,6 +72,7 @@ const PanelImageShimmer = () => (
  */
 const PanelImage = ({ src, alt, aspectRatio }) => {
   const [isLoaded, setIsLoaded] = useState(false);
+  const [hasFailed, setHasFailed] = useState(false);
 
   // An image already in the browser cache can be `complete` before React
   // attaches onLoad, and that load event never fires — without this the
@@ -86,9 +87,10 @@ const PanelImage = ({ src, alt, aspectRatio }) => {
       overflow: 'hidden',
       borderRadius: '6px',
       position: 'relative',
-      // Held only until the image can size the box itself.
-      background: isLoaded ? 'transparent' : '#cfcfcf',
-      aspectRatio: isLoaded ? undefined : (aspectRatio ? `1 / ${aspectRatio}` : '1 / 1')
+      // Held only until the image can size the box itself — and held for good
+      // if it never arrives, so a failure reads as a quiet placeholder.
+      background: (isLoaded && !hasFailed) ? 'transparent' : '#cfcfcf',
+      aspectRatio: (isLoaded && !hasFailed) ? undefined : (aspectRatio ? `1 / ${aspectRatio}` : '1 / 1')
     }}>
       <img
         ref={measureRef}
@@ -96,16 +98,18 @@ const PanelImage = ({ src, alt, aspectRatio }) => {
         alt={alt}
         decoding="async"
         // Treat a failed load as settled: a broken image should fall back to
-        // the empty box, not shimmer indefinitely.
+        // the empty box, not shimmer indefinitely. It also stays at opacity 0
+        // — revealing it would show the browser's broken-image glyph, which is
+        // the one thing this box is meant to avoid.
         onLoad={() => setIsLoaded(true)}
-        onError={() => setIsLoaded(true)}
+        onError={() => { setHasFailed(true); setIsLoaded(true); }}
         style={{
           display: 'block',
           width: '100%',
           height: 'auto',
           objectFit: 'contain',
           borderRadius: '6px',
-          opacity: isLoaded ? 1 : 0,
+          opacity: (isLoaded && !hasFailed) ? 1 : 0,
           transition: 'opacity 0.18s ease'
         }}
       />

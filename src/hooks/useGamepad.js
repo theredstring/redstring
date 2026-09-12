@@ -695,6 +695,9 @@ export const useGamepad = ({
   // Client-space `(x, y, pointerKind) => { edgeId, connection } | null`, the
   // same nearest-wins hit test the mouse click and hover paths use.
   findEdgeAtClientPointRef,
+  // A hovered/selected connection's endpoint direction toggles: `{ findAt,
+  // toggle }`. See NodeCanvas.
+  connectionOrbControlRef,
   // The instance id the open pie menu belongs to. Pie actions take it as their
   // first argument, exactly as PieMenu passes `node?.id` on a click.
   pieMenuNodeIdRef,
@@ -884,7 +887,7 @@ export const useGamepad = ({
     startConnectionFromNodeRef, drawingConnectionFromRef, plusSignControlRef, groupControlRef, marqueeControlRef, panelResizeControlRef,
     setSelectedInstanceIds, selectedInstanceIdsRef, commitHoverTarget, clearHoverImmediate,
     pieMenuButtonsRef, pieMenuPageCountRef, pieMenuNodeIdRef, setPieMenuPage, onPieMenuHoverChange,
-    edgePieMenuButtonsRef, edgeAnchorAngleRef, findEdgeAtClientPointRef,
+    edgePieMenuButtonsRef, edgeAnchorAngleRef, findEdgeAtClientPointRef, connectionOrbControlRef,
     setPan, isAnimatingZoomRef, abstractionCarouselVisibleRef, driftingRef,
     isPausedRef, activeGraphIdRef, minZoom, maxZoom,
   };
@@ -1174,7 +1177,13 @@ export const useGamepad = ({
    * on a connection nearest the crosshair. It is the drift's target and nothing
    * else's, so a target with no sensible aim point simply has none.
    *
-   * @returns {null | {kind, id, node?, connection?, aimPoint: {x,y}|null}}
+   * A connection target may also carry an `orb` — the endpoint direction toggle
+   * the crosshair is standing on. It stays a connection rather than becoming a
+   * kind of its own so the hover is unaffected: the orbs only exist BECAUSE the
+   * connection is hovered, and a hover that dropped as the crosshair slid from
+   * the line onto the dot would take the dot down with it.
+   *
+   * @returns {null | {kind, id, node?, connection?, orb?, aimPoint: {x,y}|null}}
    */
   const resolveCrosshairTarget = useCallback(() => {
     const p = paramsRef.current;
@@ -1188,6 +1197,32 @@ export const useGamepad = ({
     const pan = p.panOffsetRef?.current;
     const zoom = p.zoomLevelRef?.current;
     const cs = p.canvasSizeRef?.current;
+
+    // An endpoint orb outranks everything, including the node it is sitting
+    // against. Same rule the touch layer follows, and for the same reason: an
+    // orb is drawn at a node's border, so a ranking that put the node first
+    // would make the half of the dot that overlaps the box unclickable, and the
+    // dot is the whole affordance. It costs nothing the rest of the time —
+    // orbs exist only while their connection is hovered or selected.
+    const orb = p.connectionOrbControlRef?.current?.findAt?.(cross.x, cross.y);
+    if (orb) {
+      // The connection payload the hover aid wants. The orb sits on the drawn
+      // line's end, well inside the edge hit radius, so this normally resolves
+      // to the orb's own connection; when a denser neighbour wins the
+      // nearest-wins test we simply have no payload to offer, which matters
+      // only in the case where the orbs came from a SELECTED connection that
+      // was never hovered.
+      const onLine = p.findEdgeAtClientPointRef?.current?.(cross.x, cross.y, 'mouse');
+      return {
+        kind: 'connection',
+        id: orb.edgeId,
+        connection: onLine?.edgeId === orb.edgeId ? onLine.connection : null,
+        orb,
+        // The orb's own centre, so a dwell pulls the dot under the crosshair
+        // rather than pulling the line under it and sliding the dot away.
+        aimPoint: { x: orb.cx, y: orb.cy },
+      };
+    }
 
     // Nodes win ties. A connection terminates inside its endpoints' boxes, so
     // near a node the two hit tests overlap constantly — and every mouse path
@@ -1794,6 +1829,14 @@ export const useGamepad = ({
         // option is what makes a double-tap of A mean "do the first thing".
         setPieFocusBoth(0);
         setModeBoth(MODE.NODE);
+      } else if (edgeUnderCrosshair?.orb) {
+        // On one of the connection's endpoint dots (or on the arrowhead that
+        // has replaced one): A toggles that end's arrow, exactly as clicking it
+        // does. Deliberately ahead of the select-and-open-the-menu branch —
+        // aiming at the dot rather than at the line IS the request to direct
+        // the connection, and pressing A again on the same spot takes the arrow
+        // back off, since an arrowhead registers its own orb where it stands.
+        p.connectionOrbControlRef?.current?.toggle?.(edgeUnderCrosshair.orb);
       } else if (edgeUnderCrosshair) {
         // Same single-select path a plain (unmodified) click takes.
         store.clearSelectedEdgeIds?.();

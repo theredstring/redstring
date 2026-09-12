@@ -1,0 +1,80 @@
+/* Colour picker sliders.
+ *
+ * The three sliders are styled identically and differ only in their track
+ * gradient, which is the one thing that has to stay inline (it is computed from
+ * the live HSV). Everything else reads two custom properties the component
+ * writes per input: --slider-thumb (the colour being chosen) and
+ * --slider-stroke (the theme's primary text colour, the app's stroke colour).
+ *
+ * These used to be three injected <style> blocks keyed by a class name with the
+ * current h/s/v baked into it — a new class and a new stylesheet on every frame
+ * of every drag. Static classes also mean React stops rewriting the class
+ * attribute mid-drag, which is what let the controller's focus ring survive the
+ * slider it is focused on actually moving.
+ */
+
+.color-picker-slider {
+  width: 100%;
+  height: 20px;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  /* The engaged stroke arrives as a box-shadow ring; give it something to
+     animate from so it grows out of the track rather than snapping on. */
+  transition: box-shadow 0.12s ease;
+}
+
+.color-picker-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--slider-thumb);
+  border: 2px solid var(--slider-stroke);
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.color-picker-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--slider-thumb);
+  border: 2px solid var(--slider-stroke);
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* --- In use ------------------------------------------------------------
+   The signifier is a stroke, because a stroke is what this picker already
+   speaks in: the panel, the preview swatch and every thumb are drawn as 2px of
+   textPrimary. A slider being driven closes that same stroke around its whole
+   track, so the track and its thumb read as one lit object.
+
+   Set imperatively as an attribute by utils/sliderEngagement.js, from whichever
+   input mode is driving — pointer, keyboard or controller. See that file.
+
+   A ring rather than an outline: the controller's focus ring is already an
+   outline sitting 5px out (index.css), and an element gets only one. This one
+   hugs the track at zero offset, so "focused" and "in use" can be on screen at
+   once and still read as two different statements. */
+.color-picker-slider[data-slider-engaged] {
+  box-shadow: 0 0 0 2px var(--slider-stroke);
+}
+
+/* Touch has no hover and a finger covers the thumb outright, so the mark is
+   worth a little more weight where it is the only thing you can see. */
+@media (pointer: coarse) {
+  .color-picker-slider[data-slider-engaged] {
+    box-shadow: 0 0 0 3px var(--slider-stroke);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .color-picker-slider {
+    transition: none;
+  }
+}

@@ -5,7 +5,16 @@ import { useTheme } from './hooks/useTheme.js';
 import useMobileDetection from './hooks/useMobileDetection';
 import { cssColorToHex } from './utils/colorUtils';
 import { sampleColorAt } from './utils/screenColorSample.js';
+import { engageSlider, releaseSlider } from './utils/sliderEngagement.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
+import './ColorPicker.css';
+
+// The keys that actually move a range input. Tab and Escape are leaving, not
+// driving, and lighting the track on the way out would be a lie.
+const SLIDER_KEYS = new Set([
+  'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+  'PageUp', 'PageDown', 'Home', 'End'
+]);
 
 const ColorPicker = ({
   isVisible,
@@ -135,6 +144,59 @@ const ColorPicker = ({
     const newColor = hsvToHex(selectedHue, selectedSaturation / 100, brightness / 100);
     setHexInput(newColor);
     onColorChange(newColor);
+  };
+
+  // ---- "This slider is in use" --------------------------------------------
+  // The stroke around a slider that is being driven. Marked imperatively on the
+  // element rather than held in React state, so the controller — which drives
+  // these inputs from outside React — can raise the same mark on the same
+  // elements without React clobbering it on the next render. See
+  // utils/sliderEngagement.js; the controller's end is in gamepadMenuNav.
+  const engagedSliderRef = useRef(null);
+
+  const endSliderUse = useCallback(() => {
+    releaseSlider(engagedSliderRef.current);
+    engagedSliderRef.current = null;
+  }, []);
+
+  const beginSliderUse = useCallback((e) => {
+    // A pointer that lands on a second slider before the first has released
+    // (possible with two fingers) leaves the first one lit; drop it first.
+    if (engagedSliderRef.current !== e.currentTarget) endSliderUse();
+    engagedSliderRef.current = e.currentTarget;
+    engageSlider(e.currentTarget);
+  }, [endSliderUse]);
+
+  const handleSliderKeyDown = (e) => {
+    if (SLIDER_KEYS.has(e.key)) beginSliderUse(e);
+  };
+
+  // The release for a drag that ends anywhere but on the slider it started on —
+  // which is most of them, since you can throw the pointer off the track and
+  // the input keeps tracking it.
+  useEffect(() => {
+    if (!isVisible) return;
+    window.addEventListener('pointerup', endSliderUse);
+    window.addEventListener('pointercancel', endSliderUse);
+    return () => {
+      window.removeEventListener('pointerup', endSliderUse);
+      window.removeEventListener('pointercancel', endSliderUse);
+      endSliderUse();
+    };
+  }, [isVisible, endSliderUse]);
+
+  // Props every one of the three sliders shares. The track gradient is the only
+  // thing that differs, so it is the only thing passed separately.
+  const sliderProps = {
+    type: 'range',
+    className: 'color-picker-slider',
+    onPointerDown: beginSliderUse,
+    onKeyDown: handleSliderKeyDown,
+    onKeyUp: endSliderUse,
+    onBlur: endSliderUse,
+    onMouseDown: (e) => e.stopPropagation(),
+    onClick: (e) => e.stopPropagation(),
+    onMouseUp: (e) => e.stopPropagation()
   };
 
   // Handle hex input change
@@ -380,6 +442,14 @@ const ColorPicker = ({
   const brightnessGradientStart = hsvToHex(selectedHue, selectedSaturation / 100, 0);
   const brightnessGradientEnd = hsvToHex(selectedHue, selectedSaturation / 100, 1);
 
+  // The two colours ColorPicker.css needs and cannot know: the colour currently
+  // being chosen (every thumb wears it) and the theme's stroke colour, which is
+  // what the in-use ring is drawn in. All three sliders take the same pair.
+  const sliderVars = {
+    '--slider-thumb': currentPreviewColor,
+    '--slider-stroke': theme.canvas.textPrimary
+  };
+
   return (
     <div
       ref={pickerRef}
@@ -522,55 +592,23 @@ const ColorPicker = ({
           Hue
         </label>
         <div style={{ position: 'relative' }}>
-          <style>{`
-            .color-picker-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}::-webkit-slider-thumb {
-              appearance: none;
-              -webkit-appearance: none;
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              background: ${currentPreviewColor};
-              border: 2px solid ${theme.canvas.textPrimary};
-              cursor: pointer;
-              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-            }
-            .color-picker-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}::-moz-range-thumb {
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              background: ${currentPreviewColor};
-              border: 2px solid ${theme.canvas.textPrimary};
-              cursor: pointer;
-              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-            }
-          `}</style>
           <input
-            type="range"
+            {...sliderProps}
             min="0"
             max="360"
             value={selectedHue}
             onChange={handleHueChange}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            onMouseUp={(e) => e.stopPropagation()}
-            className={`color-picker-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}`}
             style={{
-              width: '100%',
-              height: '20px',
-              borderRadius: '4px',
-              background: `linear-gradient(to right, 
-                ${hsvToHex(0, selectedSaturation / 100, selectedBrightness / 100)}, 
-                ${hsvToHex(60, selectedSaturation / 100, selectedBrightness / 100)}, 
-                ${hsvToHex(120, selectedSaturation / 100, selectedBrightness / 100)}, 
-                ${hsvToHex(180, selectedSaturation / 100, selectedBrightness / 100)}, 
-                ${hsvToHex(240, selectedSaturation / 100, selectedBrightness / 100)}, 
-                ${hsvToHex(300, selectedSaturation / 100, selectedBrightness / 100)}, 
+              ...sliderVars,
+              background: `linear-gradient(to right,
+                ${hsvToHex(0, selectedSaturation / 100, selectedBrightness / 100)},
+                ${hsvToHex(60, selectedSaturation / 100, selectedBrightness / 100)},
+                ${hsvToHex(120, selectedSaturation / 100, selectedBrightness / 100)},
+                ${hsvToHex(180, selectedSaturation / 100, selectedBrightness / 100)},
+                ${hsvToHex(240, selectedSaturation / 100, selectedBrightness / 100)},
+                ${hsvToHex(300, selectedSaturation / 100, selectedBrightness / 100)},
                 ${hsvToHex(360, selectedSaturation / 100, selectedBrightness / 100)}
-              )`,
-              outline: 'none',
-              cursor: 'pointer',
-              appearance: 'none',
-              WebkitAppearance: 'none'
+              )`
             }}
           />
         </div>
@@ -588,47 +626,15 @@ const ColorPicker = ({
           Saturation
         </label>
         <div style={{ position: 'relative' }}>
-          <style>{`
-            .color-picker-saturation-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}::-webkit-slider-thumb {
-              appearance: none;
-              -webkit-appearance: none;
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              background: ${hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100)};
-              border: 2px solid ${theme.canvas.textPrimary};
-              cursor: pointer;
-              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-            }
-            .color-picker-saturation-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}::-moz-range-thumb {
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              background: ${hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100)};
-              border: 2px solid ${theme.canvas.textPrimary};
-              cursor: pointer;
-              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-            }
-          `}</style>
           <input
-            type="range"
+            {...sliderProps}
             min="0"
             max="100"
             value={selectedSaturation}
             onChange={handleSaturationChange}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            onMouseUp={(e) => e.stopPropagation()}
-            className={`color-picker-saturation-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}`}
             style={{
-              width: '100%',
-              height: '20px',
-              borderRadius: '4px',
-              background: `linear-gradient(to right, ${saturationGradientStart}, ${saturationGradientEnd})`,
-              outline: 'none',
-              cursor: 'pointer',
-              appearance: 'none',
-              WebkitAppearance: 'none'
+              ...sliderVars,
+              background: `linear-gradient(to right, ${saturationGradientStart}, ${saturationGradientEnd})`
             }}
           />
         </div>
@@ -646,47 +652,15 @@ const ColorPicker = ({
           Brightness
         </label>
         <div style={{ position: 'relative' }}>
-          <style>{`
-            .color-picker-brightness-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}::-webkit-slider-thumb {
-              appearance: none;
-              -webkit-appearance: none;
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              background: ${hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100)};
-              border: 2px solid ${theme.canvas.textPrimary};
-              cursor: pointer;
-              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-            }
-            .color-picker-brightness-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}::-moz-range-thumb {
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              background: ${hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100)};
-              border: 2px solid ${theme.canvas.textPrimary};
-              cursor: pointer;
-              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-            }
-          `}</style>
           <input
-            type="range"
+            {...sliderProps}
             min="0"
             max="100"
             value={selectedBrightness}
             onChange={handleBrightnessChange}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            onMouseUp={(e) => e.stopPropagation()}
-            className={`color-picker-brightness-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}`}
             style={{
-              width: '100%',
-              height: '20px',
-              borderRadius: '4px',
-              background: `linear-gradient(to right, ${brightnessGradientStart}, ${brightnessGradientEnd})`,
-              outline: 'none',
-              cursor: 'pointer',
-              appearance: 'none',
-              WebkitAppearance: 'none'
+              ...sliderVars,
+              background: `linear-gradient(to right, ${brightnessGradientStart}, ${brightnessGradientEnd})`
             }}
           />
         </div>
