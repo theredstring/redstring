@@ -68,6 +68,15 @@ body {
   background-color: rgba(128, 0, 0, 0.1) !important;
 }
 
+/* The controller's focus, alongside the mouse's hover rather than instead of
+   it: a pad and a mouse can both be in play, and the row the stick is on has
+   to read the same way the row the pointer is on does. Slightly stronger than
+   hover because there is no pointer on screen to say where you are. */
+.context-menu-item.gamepad-menu-focus:not([data-disabled="true"]) {
+  background-color: rgba(128, 0, 0, 0.18) !important;
+  box-shadow: inset 3px 0 0 maroon;
+}
+
 .context-menu-item[data-disabled="true"]:hover {
   background-color: transparent !important;
 }

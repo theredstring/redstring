@@ -34,7 +34,7 @@ import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Tria
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
-import { showContextMenu } from './components/GlobalContextMenu';
+import { showContextMenu, hideContextMenu } from './components/GlobalContextMenu';
 import Panel from './Panel';
 import * as fileStorage from './store/fileStorage.js';
 import * as folderPersistence from './services/folderPersistence.js';
@@ -13899,6 +13899,17 @@ function NodeCanvas() {
     },
   };
 
+  /**
+   * The canvas context menu, as the controller raises it.
+   *
+   * Declared here and FILLED IN further down, after getCanvasContextMenuOptions
+   * exists — the options are assembled from clipboard contents and feature
+   * flags that are themselves derived below this point, and the controller only
+   * ever calls through the ref from inside its own tick, long after the render
+   * that populates it.
+   */
+  const canvasContextMenuControlRef = useRef(null);
+
   const startConnectionFromNodeRef = useRef(null);
   startConnectionFromNodeRef.current = (instanceId, clientX, clientY) => {
     startedOnNode.current = true;
@@ -13929,6 +13940,7 @@ function NodeCanvas() {
     plusSignControlRef,
     groupControlRef,
     marqueeControlRef,
+    canvasContextMenuControlRef,
     panelResizeControlRef,
     setSelectedInstanceIds,
     selectedInstanceIdsRef,
@@ -15403,6 +15415,16 @@ function NodeCanvas() {
     });
     return options;
   }, [triggerAutoLayout, snapToGrid, wizardEnabled, openGrowGraphWizardWithPrompt, activeGraphId, graphsMap, storeActions, canvasSize, setSelectedInstanceIds]);
+
+  // The controller's handle on that menu — see the ref's declaration above.
+  // `force`, because the pad's trigger tap is not the long-press gesture the
+  // touch suppression in showContextMenu exists to protect.
+  canvasContextMenuControlRef.current = {
+    open: (clientX, clientY) => {
+      showContextMenu(clientX, clientY, getCanvasContextMenuOptions(clientX, clientY), { force: true });
+    },
+    close: () => hideContextMenu(),
+  };
 
   // Context Menu options for nodes - core functionality without pie menu transition logic
   const getContextMenuOptions = useCallback((instanceId) => {

@@ -5,11 +5,16 @@ import { likelyTouch } from '../utils/inputDeviceAnalysis';
 // Global context menu manager
 let globalContextMenuManager = null;
 
-export const showContextMenu = (x, y, options = []) => {
+export const showContextMenu = (x, y, options = [], { force = false } = {}) => {
   // On touch devices the long-press gesture fires `contextmenu`, but users expect
   // long-press-and-drag to move things — not pop up a menu. Suppress the custom
   // menu entirely on touch; right-click on desktop still works.
-  if (likelyTouch()) return;
+  //
+  // `force` is for callers that are not a pointer at all — the controller's
+  // trigger tap. The suppression is about a gesture CLASH, not about the device:
+  // a touchscreen laptop is `likelyTouch()` and is also exactly where a gamepad
+  // is plausible, and a trigger tap has nothing to be confused with.
+  if (likelyTouch() && !force) return;
   if (globalContextMenuManager) {
     globalContextMenuManager.showMenu(x, y, options);
   }

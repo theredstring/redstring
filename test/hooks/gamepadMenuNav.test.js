@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { walkMenu, detectOpenSelector, isColorPickerOpen, FOCUS_CLASS } from '../../src/utils/gamepadMenuNav.js';
+import { walkMenu, detectOpenSelector, isColorPickerOpen, isContextMenuOpen, FOCUS_CLASS } from '../../src/utils/gamepadMenuNav.js';
 
 /**
  * The walker is DOM-coupled by design (see the header in gamepadMenuNav.js), so
@@ -517,5 +517,94 @@ describe('walkMenu — the bottom control panel', () => {
   it('has no dismissal of its own — the selection owns that', () => {
     mountPanel(['Copy']);
     expect(walkMenu('bottomPanel').close()).toBe(false);
+  });
+});
+
+/**
+ * The canvas context menu — the right-click menu, which the pad raises with a
+ * tap of the left trigger on empty canvas. Its markup is ContextMenu.jsx: a
+ * backdrop, then a box of rows, with disabled rows carrying data-disabled.
+ */
+const mountContextMenu = (labels) => {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'context-menu-backdrop';
+  document.body.appendChild(sized(backdrop, { top: 0, left: 0, width: 1000, height: 800 }));
+
+  const box = document.createElement('div');
+  document.body.appendChild(box);
+
+  const rows = labels.map((entry, i) => {
+    const label = typeof entry === 'string' ? entry : entry.label;
+    const el = document.createElement('div');
+    el.className = 'context-menu-item';
+    el.dataset.label = label;
+    if (typeof entry !== 'string' && entry.disabled) el.dataset.disabled = 'true';
+    box.appendChild(sized(el, { top: i * 32, left: 0, width: 160, height: 32 }));
+    return el;
+  });
+  return { backdrop, rows };
+};
+
+describe('context menu walker', () => {
+  it('is not open on a bare page', () => {
+    expect(isContextMenuOpen()).toBe(false);
+  });
+
+  it('is open once rows are mounted', () => {
+    mountContextMenu(['Auto Layout Web']);
+    expect(isContextMenuOpen()).toBe(true);
+  });
+
+  it('lands on the first row and steps down it', () => {
+    mountContextMenu(['Auto Layout Web', 'Snap to Grid', 'Merge Duplicates']);
+    const w = walkMenu('context');
+    expect(document.querySelector(`.${FOCUS_CLASS}`).dataset.label).toBe('Auto Layout Web');
+    w.move(1);
+    expect(document.querySelector(`.${FOCUS_CLASS}`).dataset.label).toBe('Snap to Grid');
+    w.move(-1);
+    expect(document.querySelector(`.${FOCUS_CLASS}`).dataset.label).toBe('Auto Layout Web');
+  });
+
+  /**
+   * A pad has no way to show that pressing A on a row will do nothing, so a
+   * disabled row must not be somewhere the stick can come to rest at all.
+   */
+  it('skips disabled rows entirely', () => {
+    mountContextMenu([{ label: 'No Tools Here...', disabled: true }, 'Snap to Grid']);
+    const w = walkMenu('context');
+    expect(document.querySelector(`.${FOCUS_CLASS}`).dataset.label).toBe('Snap to Grid');
+    w.move(1);
+    expect(document.querySelector(`.${FOCUS_CLASS}`).dataset.label).toBe('Snap to Grid');
+  });
+
+  it('activates the focused row with a click, as the mouse does', () => {
+    const clicked = [];
+    const { rows } = mountContextMenu(['Auto Layout Web', 'Snap to Grid']);
+    rows.forEach(r => r.addEventListener('click', () => clicked.push(r.dataset.label)));
+    const w = walkMenu('context');
+    w.move(1);
+    w.activate();
+    expect(clicked).toEqual(['Snap to Grid']);
+  });
+
+  it('dismisses through the backdrop', () => {
+    let closed = false;
+    const { backdrop } = mountContextMenu(['Auto Layout Web']);
+    backdrop.addEventListener('click', () => { closed = true; });
+    expect(walkMenu('context').close()).toBe(true);
+    expect(closed).toBe(true);
+  });
+
+  /**
+   * The menu mounts a React commit or two after the trigger release that asked
+   * for it, so the walker is built against an empty page and has to find its
+   * rows later — the same lazy-resolution contract the bottom panel relies on.
+   */
+  it('picks up rows that mount after it was created', () => {
+    const w = walkMenu('context');
+    expect(document.querySelector(`.${FOCUS_CLASS}`)).toBeNull();
+    mountContextMenu(['Paste Web']);
+    w.sync();
+    expect(document.querySelector(`.${FOCUS_CLASS}`).dataset.label).toBe('Paste Web');
   });
 });

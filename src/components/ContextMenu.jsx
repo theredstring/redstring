@@ -6,8 +6,11 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
 
   return (
     <>
-      {/* Invisible backdrop to catch clicks */}
+      {/* Invisible backdrop to catch clicks. Classed because it is also the
+          controller's close control — the pad dismisses this menu by clicking
+          exactly what a mouse clicks. See gamepadMenuNav's `context` config. */}
       <div
+        className="context-menu-backdrop"
         style={{
           position: 'fixed',
           top: 0,

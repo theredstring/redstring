@@ -125,6 +125,24 @@ const SELECTORS = {
     // the pad clears that directly instead of clicking something here.
     closer: null,
   },
+  // The canvas context menu — the right-click menu, which the pad raises with a
+  // tap of the left trigger on empty canvas. A flat vertical list, and the one
+  // walked surface whose rows are FILTERED rather than merely collected:
+  // a disabled row ("No Tools Here...") is not a place the stick should be able
+  // to come to rest, because unlike a mouse there is no way to tell from the
+  // outside that pressing A there will do nothing.
+  context: {
+    // `body`, not the menu box: the menu renders at the document root with no
+    // container of its own, and the box has no class to root at.
+    root: 'body',
+    rows: '.context-menu-item:not([data-disabled="true"])',
+    parent: null,
+    opener: null,
+    grid: false,
+    // The backdrop's onClick is the menu's own dismissal, and clicking it is
+    // exactly what a mouse does to get out of here.
+    closer: '.context-menu-backdrop',
+  },
   actions: {
     // The header's action buttons. In wide layout these are inline in the
     // header bar and always mounted; below EXCLUSIVE_PANEL_MODE_THRESHOLD they
@@ -216,6 +234,16 @@ const fire = (el, type) => {
  * picker shuts the picker rather than the selector holding it.
  */
 export const isColorPickerOpen = () => Boolean(document.querySelector('.color-picker-panel'));
+
+/**
+ * Is the canvas context menu on screen?
+ *
+ * The pad holds CONTEXT mode for as long as this is true. The menu can close
+ * without the pad doing it — activating a row closes it, and so does a click
+ * anywhere — so the mode is derived from the menu rather than trusted to have
+ * been left properly.
+ */
+export const isContextMenuOpen = () => Boolean(document.querySelector('.context-menu-item'));
 
 export const detectOpenSelector = () => {
   for (const kind of ['selector', 'nodeGrid', 'loading']) {

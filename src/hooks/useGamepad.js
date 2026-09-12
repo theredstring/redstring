@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import useGraphStore from '../store/graphStore.js';
 import { isInsideNode } from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
-import { walkMenu, detectOpenSelector, isColorPickerOpen } from '../utils/gamepadMenuNav.js';
+import { walkMenu, detectOpenSelector, isColorPickerOpen, isContextMenuOpen } from '../utils/gamepadMenuNav.js';
 import { createPanelNavigator } from '../utils/gamepadPanelNav.js';
 import { lineModeLayout } from '../utils/pieMenuLayout.js';
 import { panToPlacePointAt, createDriftController, crosshairCenter } from '../utils/gamepadAim.js';
@@ -82,6 +82,11 @@ export const MODE = {
   // pad going quiet on the canvas every time the user glanced at a list.
   MENU: 'menu',
   ACTIONS: 'actions',
+  // The canvas context menu, raised by a TAP of the left trigger on empty
+  // canvas. Its own mode rather than a variant of MENU because of how it is
+  // left: the same trigger that opened it closes it, which no other walked
+  // surface does and which MENU's trigger-is-a-page-turn handling would fight.
+  CONTEXT: 'context',
   // A unified selector or node-selection grid is on screen. Entered and left
   // automatically: these open as the RESULT of some other action (Swap, node
   // creation, typing), so a controller that waited to be told would strand the
@@ -145,6 +150,16 @@ const REPEAT_INTERVAL_MS = 90;
 // trigger press by a commit; anything shorter than a few frames would read the
 // lag as an abandoned gesture.
 const CONNECT_SYNC_GRACE_MS = 150;
+
+// How short a left-trigger press on empty canvas counts as a TAP rather than as
+// the start of a selection box. One control, two meanings — the same
+// click-versus-drag distinction a mouse makes between a click and a marquee,
+// and resolved the same way: on release, by how long it was held.
+//
+// Generous (a quarter second) because an analog trigger has travel: the press
+// only registers past TRIGGER_THRESHOLD and the release only clears below it,
+// so a physically instant pull still reads as several frames of hold.
+const CONTEXT_TAP_MS = 250;
 
 // Same idea for the menu modes: selection reaches the store (edges) or the
 // pie-menu target (nodes) a commit or two after the press, so re-deriving the
@@ -678,6 +693,9 @@ export const useGamepad = ({
   groupControlRef,
   // The selection box: `{ begin, update, end }`. See NodeCanvas.
   marqueeControlRef,
+  // The canvas context menu, as the pad raises it: `{ open, close }`. The same
+  // menu right-click puts up, with the same options. See NodeCanvas.
+  canvasContextMenuControlRef,
   // The overlay panel resizers, faked as a pointer drag: `{ begin, by, end }`.
   // See NodeCanvas.
   panelResizeControlRef,
@@ -768,6 +786,9 @@ export const useGamepad = ({
   const connectStartedAtRef = useRef(0);
   // True while the left trigger is drawing a selection box.
   const marqueeRef = useRef(false);
+  // When the left trigger last went down on empty canvas. Read on release to
+  // tell a tap (open the context menu) from a hold (the box that was drawn).
+  const marqueeStartedAtRef = useRef(0);
   // A stick click held down: which panel it belongs to, and whether it has
   // turned into a resize yet. `resized` is what decides, on release, between
   // "that was a click, toggle the panel" and "that was a drag, commit a width"
@@ -902,7 +923,8 @@ export const useGamepad = ({
     containerRef, viewportBoundsRef, panOffsetRef, zoomLevelRef, canvasSizeRef,
     mousePositionRef, nodesRef, visibleNodeIdsRef,
     startDragForNodeRef, draggingNodeInfoRef, dragPhaseRef, releasePointerRef,
-    startConnectionFromNodeRef, drawingConnectionFromRef, plusSignControlRef, groupControlRef, marqueeControlRef, panelResizeControlRef,
+    startConnectionFromNodeRef, drawingConnectionFromRef, plusSignControlRef, groupControlRef, marqueeControlRef,
+    canvasContextMenuControlRef, panelResizeControlRef,
     setSelectedInstanceIds, selectedInstanceIdsRef, commitHoverTarget, clearHoverImmediate,
     pieMenuButtonsRef, pieMenuPageCountRef, pieMenuNodeIdRef, setPieMenuPage, onPieMenuHoverChange,
     edgePieMenuButtonsRef, edgeAnchorAngleRef, findEdgeAtClientPointRef, connectionOrbControlRef,
@@ -1522,6 +1544,55 @@ export const useGamepad = ({
       return ZERO_TICK;
     }
 
+    // ---- CONTEXT: the canvas right-click menu, raised by a trigger tap ----
+    //
+    // A flat list, so the stick and the d-pad both just step it. What is
+    // particular to this surface is the way OUT: the trigger that opened it
+    // closes it again, alongside B — a tap-to-open that could only be undone
+    // with a different button would leave the user hunting for the way back.
+    if (currentMode === MODE.CONTEXT) {
+      const walker = menuWalkerRef.current;
+      const leaveContext = () => {
+        walker?.dispose?.();
+        menuWalkerRef.current = null;
+        setModeBoth(MODE.CANVAS);
+      };
+
+      // The menu can close without the pad doing it — activating a row closes
+      // it, and so does a click anywhere — so presence is re-derived rather than
+      // trusted. Gated on the mode having settled because it mounts a commit or
+      // two after the trigger release that asked for it, and checking sooner
+      // would read that lag as a menu that had already gone.
+      if (now - modeSinceRef.current > MODE_SYNC_GRACE_MS && !isContextMenuOpen()) {
+        leaveContext();
+        return ZERO_TICK;
+      }
+      walker?.sync();
+
+      const dir = stickStep(left, 'ctx')
+        || (repeats(BTN.DPAD_UP) ? 'up' : null)
+        || (repeats(BTN.DPAD_DOWN) ? 'down' : null);
+      if (dir === 'up' || dir === 'down') {
+        walker?.move(dir === 'up' ? -1 : 1);
+      } else if (buttons.justPressed[BTN.A]) {
+        // The rows are ordinary DOM with their own onClick, which both runs the
+        // action and closes the menu. Clicking the focused one is the whole of
+        // it; the presence check above notices the close on the next frame.
+        walker?.activate();
+      } else if (buttons.justPressed[BTN.B] || buttons.justPressed[BTN.LT]) {
+        // Dismiss through the backdrop, the way a mouse leaves. Pressing the
+        // trigger here consumes its press edge entirely, so the release that
+        // follows cannot begin a selection box back on the canvas.
+        //
+        // The direct close is the fallback for a menu whose backdrop isn't
+        // there to be clicked — the pad must never be the reason something is
+        // left on screen with no way off it.
+        if (!walker?.close()) p.canvasContextMenuControlRef?.current?.close?.();
+        leaveContext();
+      }
+      return ZERO_TICK;
+    }
+
     // Past this point everything needs a canvas to act on.
     if (!canvasReady) return ZERO_TICK;
 
@@ -1832,10 +1903,35 @@ export const useGamepad = ({
         // mirrors the mouse exactly — drag from a node to connect, drag from
         // nothing to select — and it is the pad's only route to a multi-
         // selection, which is in turn the only route to making a plain group.
+        //
+        // The box is begun on the PRESS even though a short press will turn out
+        // to have been a tap for the context menu, because the box's anchor is
+        // the canvas point under the crosshair at the moment the trigger went
+        // down — and with a pad it is the canvas that moves, so that point has
+        // already slid away by the time a tap threshold could have elapsed.
+        // Beginning late would anchor the box somewhere the user never pressed.
+        // A tap's box is zero-size and additive (see selectionFromRect), so it
+        // selects nothing and disturbs nothing on the way back out.
         marqueeRef.current = p.marqueeControlRef?.current?.begin?.(cross.x, cross.y) === true;
+        marqueeStartedAtRef.current = now;
       } else if (buttons.justReleased[BTN.LT] && marqueeRef.current) {
         marqueeRef.current = false;
         const count = p.marqueeControlRef?.current?.end?.() ?? 0;
+        // A tap rather than a box: raise the context menu at the crosshair,
+        // which is the same menu and the same options right-click puts up.
+        // Conditioned on the box having caught nothing as well as on the time,
+        // so a genuinely quick drag across a node still selects it rather than
+        // having its selection thrown away for a menu nobody asked for.
+        if (count === 0 && now - marqueeStartedAtRef.current < CONTEXT_TAP_MS) {
+          p.canvasContextMenuControlRef?.current?.open?.(cross.x, cross.y);
+          // The walker is built lazily and survives finding nothing: the menu
+          // mounts a commit or two after this, and CONTEXT's own block below
+          // re-seats focus on whichever later frame the rows appear.
+          menuWalkerRef.current?.dispose?.();
+          menuWalkerRef.current = walkMenu('context');
+          setModeBoth(MODE.CONTEXT);
+          return ZERO_TICK;
+        }
         // A box that caught something raises the bottom panel; the stick steps
         // it from here, which is where "Group Selection" lives.
         if (count > 0) {
