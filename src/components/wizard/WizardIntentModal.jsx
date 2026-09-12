@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import StandardDivider from '../StandardDivider.jsx';
 import { intentsForSurface, defaultIntentForSurface, intentLabel } from '../../wizard/prompts/intents.js';
 
 /**
@@ -160,12 +161,20 @@ const WizardIntentModal = ({
             </div>
           </div>
 
+          <StandardDivider margin="10px 0 8px" />
+
+          {/* `display: flex`, not inline-flex. An inline-flex box takes its
+              baseline from its first flex item, and the checkbox's baseline moves
+              when the tick appears inside it — so the whole row used to jump by a
+              pixel or two on every check and uncheck, reading as the padding
+              changing. A block-level flex box does not sit on a baseline at all. */}
           <label
             style={{
-              display: 'inline-flex',
+              display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: 8,
-              marginTop: 10,
+              lineHeight: 1,
               fontSize: '0.78rem',
               color: theme.canvas.textPrimary,
               cursor: 'pointer',
@@ -177,7 +186,8 @@ const WizardIntentModal = ({
                 position: 'relative',
                 width: 16,
                 height: 16,
-                display: 'inline-flex',
+                flexShrink: 0,
+                display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 borderRadius: 3,
@@ -263,7 +273,8 @@ const WizardIntentModal = ({
                 placeholder="Ask something specific…"
                 rows={2}
                 style={{
-                  width: '100%',
+                  alignSelf: 'stretch',
+                  minWidth: 0,
                   boxSizing: 'border-box',
                   padding: '7px 9px',
                   resize: 'vertical',
