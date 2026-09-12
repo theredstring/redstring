@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../../hooks/useTheme.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import { DialogButton, DIALOG_Z_INDEX } from '../shared/Dialog.jsx';
 import SlotConflictDialog from '../shared/SlotConflictDialog.jsx';
 import UniverseTargetConflictDialog from '../shared/UniverseTargetConflictDialog.jsx';
 import LocalFileConflictDialog from '../shared/LocalFileConflictDialog.jsx';
@@ -348,35 +349,31 @@ const DialogGallery = () => {
       ))}
 
       {open && typeof document !== 'undefined' && createPortal(
-        // Settings sits at z-index 20201 and every dialog here asks for 10000,
+        // Settings sits at z-index 20201 and every dialog here asks for 20001,
         // so a preview would open behind the page that launched it. The wrapper
         // takes a stacking context above Settings and the dialog's own z-index
         // then applies inside it.
         <div style={{ position: 'relative', zIndex: 30000 }}>
           {open.render(fire, { mergeDest, setMergeDest, foldSameAs, setFoldSameAs, dontAsk, setDontAsk, wizardDestination, setWizardDestination })}
           {/* The working phase of a merge deliberately swallows scrim clicks,
-              and a dialog under review may have no dismiss at all. */}
-          <button
-            type="button"
-            onClick={() => setOpenKey(null)}
-            style={{
-              position: 'fixed',
-              top: 16,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              padding: '6px 14px',
-              borderRadius: 8,
-              border: `2px solid ${theme.canvas.textPrimary}`,
-              backgroundColor: theme.canvas.bg,
-              color: theme.canvas.textPrimary,
-              fontFamily: "'EmOne', sans-serif",
-              fontWeight: 700,
-              fontSize: '0.8rem',
-              cursor: 'pointer'
-            }}
-          >
-            Close Preview
-          </button>
+              and a dialog under review may have no dismiss at all. Above the
+              dialog's own scrim, so it stays reachable over any of them. */}
+          {/* The pill cannot carry the centring itself: PanelIconButton writes
+              its own `transform` for the hover grow, and that wins over any
+              transform passed in as a style. So the wrapper does the placing. */}
+          <div style={{
+            position: 'fixed',
+            top: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: DIALOG_Z_INDEX + 1
+          }}>
+            <DialogButton
+              label="Close Preview"
+              onClick={() => setOpenKey(null)}
+              style={{ backgroundColor: theme.canvas.bg }}
+            />
+          </div>
         </div>,
         document.body
       )}

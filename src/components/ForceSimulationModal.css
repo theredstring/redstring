@@ -1,53 +1,86 @@
-/* ===== Force Simulation Modal — Light/Dark themed ===== */
+/**
+ * Force Simulation Tuner.
+ *
+ * No colours are chosen here. Every one of them is a --rs-modal-* token from
+ * ModalChrome.css, which restates the panel's palette from utils/themeColors.js;
+ * the modal adds `modal-dark` alongside `force-sim-dark` when the app is dark,
+ * and the tokens flip underneath these rules. What this used to be was a full
+ * light palette in literals (#fff buttons with #333 labels, a white header rule,
+ * a Material green for "Running") plus a hand-written dark twin for every one of
+ * them, which is how the two drifted apart.
+ *
+ * `.force-sim-dark` survives for the two places the tokens cannot reach: the
+ * draggable frame's own fill, which is one step lighter than the modal surface
+ * so a floating window reads as being in front of the canvas.
+ */
 
 .force-sim-modal {
   position: fixed;
   z-index: 20000;
-  background: #bdb5b5;
-  border: 2px solid #979090;
-  border-radius: 8px;
+  background: var(--rs-modal-surface);
+  border: 2px solid var(--rs-modal-border);
+  border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   font-family: 'EmOne', sans-serif;
-  color: #260000;
+  color: var(--rs-modal-text);
   width: 500px;
+  /* On a phone the tuner has to fit the screen, not a desktop's 500px. */
+  max-width: calc(100vw - 24px);
   max-height: 90vh;
   display: flex;
   flex-direction: column;
 }
 
 /* --- Header --- */
+
+/*
+ * The dialog family's header: the surface's own dark tone, not a maroon bar with
+ * white text. The tuner was the only window in the app wearing one.
+ */
 .force-sim-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  background: #8B0000;
-  border-bottom: 2px solid #7A0000;
-  border-radius: 6px 6px 0 0;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--rs-modal-nav-active);
+  border-bottom: 2px solid var(--rs-modal-text);
+  border-radius: 10px 10px 0 0;
   user-select: none;
 }
 
 .force-sim-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: bold;
-  color: #ffffff;
+  color: var(--rs-modal-text);
 }
 
+/* The pie hover, at the circular size — same as a PanelIconButton icon button. */
 .force-sim-close {
-  background: transparent;
-  border: none;
-  color: #ffffff;
-  cursor: pointer;
-  padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.2s;
+  flex-shrink: 0;
+  padding: 6px;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: var(--rs-modal-text);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease;
 }
 
 .force-sim-close:hover {
-  opacity: 0.7;
+  background-color: #DEDADA;
+  box-shadow: 0 0 0 3px var(--rs-modal-accent);
+  color: var(--rs-modal-accent);
+  transform: scale(1.1);
 }
 
 /* --- Body --- */
@@ -58,7 +91,7 @@
   padding: 16px;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(38, 0, 0, 0.1) rgba(38, 0, 0, 0.05);
+  scrollbar-color: var(--rs-modal-scroll-thumb) var(--rs-modal-scroll-track);
 }
 
 .force-sim-body::-webkit-scrollbar {
@@ -66,30 +99,31 @@
 }
 
 .force-sim-body::-webkit-scrollbar-track {
-  background: rgba(38, 0, 0, 0.05);
+  background: var(--rs-modal-scroll-track);
   border-radius: 4px;
 }
 
 .force-sim-body::-webkit-scrollbar-thumb {
-  background-color: rgba(38, 0, 0, 0.1);
+  background-color: var(--rs-modal-scroll-thumb);
   border-radius: 4px;
   border: 6px solid transparent;
   background-clip: padding-box;
 }
 
 .force-sim-body:hover::-webkit-scrollbar-thumb {
-  background-color: #260000;
+  background-color: var(--rs-modal-scroll-thumb-hover);
   border-width: 4px;
 }
 
 /* --- Stats box --- */
 .force-sim-stats-box {
   display: flex;
+  flex-wrap: wrap;
   gap: 24px;
   padding: 12px 16px;
-  background: rgba(38, 0, 0, 0.05);
-  border: 1px solid rgba(38, 0, 0, 0.08);
-  border-radius: 6px;
+  background: var(--rs-modal-sunken);
+  border: 1px solid var(--rs-modal-hairline);
+  border-radius: 8px;
 }
 
 .force-sim-stat {
@@ -100,21 +134,24 @@
 
 .force-sim-stat-label {
   font-size: 0.7rem;
-  color: #3F3A3A;
+  color: var(--rs-modal-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .force-sim-stat-value {
   font-size: 15px;
-  color: #8B0000;
+  color: var(--rs-modal-text);
   font-weight: bold;
   user-select: text;
   cursor: text;
 }
 
+/* Running is the state worth spotting across the window, so it takes the brand
+   colour. It used to take a Material green, which is a hue this app does not
+   otherwise have — and the word already says which state it is. */
 .force-sim-stat-value.running {
-  color: #2e7d32;
+  color: var(--rs-modal-brand);
 }
 
 /* --- Info box --- */
@@ -123,50 +160,25 @@
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  background: rgba(139, 0, 0, 0.06);
-  border: 1px solid rgba(139, 0, 0, 0.15);
-  border-radius: 6px;
+  background: var(--rs-modal-nav-hover);
+  border: 1px solid var(--rs-modal-hairline);
+  border-radius: 8px;
   font-size: 0.8rem;
-  color: #3F3A3A;
+  color: var(--rs-modal-text-muted);
 }
 
 .force-sim-info svg {
   flex-shrink: 0;
-  color: #8B0000;
+  color: var(--rs-modal-brand);
 }
 
 /* --- Control buttons --- */
+
+/* The gap clears the pill's hover growth, as in .settings-option-group. */
 .force-sim-buttons {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
-}
-
-.force-sim-btn {
-  background: #fff;
-  color: #260000;
-  border: 1px solid #979090;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-family: 'EmOne', sans-serif;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  transition: all 0.15s ease;
-  user-select: none;
-}
-
-.force-sim-btn:hover {
-  border-color: #8B0000;
-  color: #8B0000;
-}
-
-.force-sim-btn.active {
-  background-color: #8B0000;
-  border-color: #8B0000;
-  color: #fff;
 }
 
 /* --- Presets section --- */
@@ -179,7 +191,7 @@
 .force-sim-preset-label {
   font-size: 0.8rem;
   font-weight: bold;
-  color: #8B0000;
+  color: var(--rs-modal-brand);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -190,9 +202,9 @@
   flex-direction: column;
   gap: 10px;
   padding: 12px;
-  background: rgba(38, 0, 0, 0.03);
-  border: 1px solid rgba(38, 0, 0, 0.08);
-  border-radius: 6px;
+  background: var(--rs-modal-sunken);
+  border: 1px solid var(--rs-modal-hairline);
+  border-radius: 8px;
 }
 
 .force-sim-slider-section .settings-section-subtitle {
@@ -202,7 +214,7 @@
 /* --- Quick presets for Layout Scale / Speed --- */
 .force-sim-quick-presets {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
   margin-top: 4px;
 }
@@ -210,19 +222,20 @@
 /* --- JSON textarea --- */
 .force-sim-json-container {
   padding: 8px;
-  background: rgba(38, 0, 0, 0.05);
-  border: 1px solid rgba(38, 0, 0, 0.08);
-  border-radius: 6px;
+  background: var(--rs-modal-sunken);
+  border: 1px solid var(--rs-modal-hairline);
+  border-radius: 8px;
 }
 
 .force-sim-json-textarea {
   width: 100%;
+  box-sizing: border-box;
   min-height: 180px;
   max-height: 300px;
-  background: #fff;
-  border: 1px solid #979090;
-  border-radius: 4px;
-  color: #260000;
+  background: transparent;
+  border: 1px solid var(--rs-modal-border);
+  border-radius: 6px;
+  color: var(--rs-modal-text);
   font-family: 'Courier New', monospace;
   font-size: 12px;
   padding: 8px;
@@ -233,131 +246,23 @@
 
 /* --- MaroonSlider overrides for this modal --- */
 .force-sim-body .maroon-slider__label {
-  color: #260000;
+  color: var(--rs-modal-text);
   font-weight: bold;
   font-size: 0.8rem;
 }
 
 .force-sim-body .maroon-slider__value {
-  color: #fff;
-  background: #260000;
+  color: var(--rs-modal-slider-chip-fg);
+  background: var(--rs-modal-slider-chip-bg);
   font-weight: bold;
 }
 
-/* ===== Dark Mode ===== */
-
+/* ===== Dark Mode =====
+ *
+ * Everything else flips through `modal-dark`. What is left is the frame's fill:
+ * a floating window over a dark canvas needs to be lighter than the canvas, so
+ * it takes the panel's hover tone rather than the modal surface.
+ */
 .force-sim-dark {
   background: #3F3A3A;
-  border-color: #6a6464;
-  color: #DEDADA;
-}
-
-.force-sim-dark .force-sim-body {
-  scrollbar-color: rgba(222, 218, 218, 0.15) rgba(222, 218, 218, 0.05);
-}
-
-.force-sim-dark .force-sim-body::-webkit-scrollbar-track {
-  background: rgba(222, 218, 218, 0.05);
-}
-
-.force-sim-dark .force-sim-body::-webkit-scrollbar-thumb {
-  background-color: rgba(222, 218, 218, 0.15);
-}
-
-.force-sim-dark .force-sim-body:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(222, 218, 218, 0.4);
-}
-
-.force-sim-dark .force-sim-stats-box {
-  background: rgba(222, 218, 218, 0.05);
-  border-color: rgba(222, 218, 218, 0.1);
-}
-
-.force-sim-dark .force-sim-stat-label {
-  color: #BDB5B5;
-}
-
-.force-sim-dark .force-sim-stat-value {
-  color: #ff9a9a;
-}
-
-.force-sim-dark .force-sim-stat-value.running {
-  color: #a5d6a7;
-}
-
-.force-sim-dark .force-sim-info {
-  background: rgba(139, 0, 0, 0.15);
-  border-color: rgba(139, 0, 0, 0.3);
-  color: #BDB5B5;
-}
-
-.force-sim-dark .force-sim-info svg {
-  color: #ff9a9a;
-}
-
-.force-sim-dark .force-sim-btn {
-  background: #4a4545;
-  color: #DEDADA;
-  border-color: #6a6464;
-}
-
-.force-sim-dark .force-sim-btn:hover {
-  border-color: #8B0000;
-  color: #ff9a9a;
-}
-
-.force-sim-dark .force-sim-btn.active {
-  background-color: #8B0000;
-  border-color: #8B0000;
-  color: #fff;
-}
-
-.force-sim-dark .force-sim-preset-label {
-  color: #ff9a9a;
-}
-
-.force-sim-dark .settings-option-btn {
-  border-color: #6a6464;
-  background: #4a4545;
-  color: #DEDADA;
-}
-
-.force-sim-dark .settings-option-btn:hover {
-  border-color: #8B0000;
-  color: #ff9a9a;
-}
-
-.force-sim-dark .settings-option-btn.active {
-  background-color: #8B0000;
-  border-color: #8B0000;
-  color: #fff;
-}
-
-.force-sim-dark .force-sim-slider-section {
-  background: rgba(222, 218, 218, 0.03);
-  border-color: rgba(222, 218, 218, 0.1);
-}
-
-.force-sim-dark .settings-section-subtitle {
-  color: #ff9a9a;
-}
-
-.force-sim-dark .force-sim-json-container {
-  background: rgba(222, 218, 218, 0.05);
-  border-color: rgba(222, 218, 218, 0.1);
-}
-
-.force-sim-dark .force-sim-json-textarea {
-  background: #2e2a2a;
-  border-color: #6a6464;
-  color: #DEDADA;
-}
-
-.force-sim-dark .force-sim-body .maroon-slider__label {
-  color: #DEDADA;
-}
-
-.force-sim-dark .force-sim-body .maroon-slider__value {
-  color: #DEDADA;
-  background: #6a6464;
 }

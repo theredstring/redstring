@@ -1,6 +1,7 @@
 import React from 'react';
 import { Merge, Globe, Check } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
+import Dialog, { DialogButton, DialogCard, DialogCheckbox, DialogNote } from './Dialog.jsx';
 
 /**
  * The universe-merge flow, as one component with three phases.
@@ -8,9 +9,8 @@ import { useTheme } from '../../hooks/useTheme.js';
  * Deliberately not built on ConfirmDialog: its `onCancel` runs BEFORE `onClose`,
  * so a handler that opens a follow-up dialog gets clobbered by the close that
  * follows it. This flow needs exactly that (result → "disconnect the source?"),
- * so it owns its own phases instead of fighting those semantics. The scrim,
- * border, header and footer language is copied from LocalFileConflictDialog so
- * it still reads as the same family of dialog.
+ * so it owns its own phases instead of fighting those semantics. Everything
+ * below the phase logic is the shared dialog language from Dialog.jsx.
  */
 
 const formatCount = (value) => (
@@ -25,69 +25,15 @@ const countsLine = (universe) => {
   return `${formatCount(webs)} webs · ${formatCount(things)} things · ${formatCount(connections)} connections`;
 };
 
-const DialogButton = ({ onClick, children, tone = 'neutral', disabled = false }) => {
-  const theme = useTheme();
-  const accent = theme.accent.secondary;
-  const isAccent = tone === 'accent';
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        padding: '8px 16px',
-        borderRadius: 8,
-        border: `2px solid ${isAccent ? accent : theme.canvas.textPrimary}`,
-        backgroundColor: isAccent ? accent : 'transparent',
-        color: isAccent ? (theme.darkMode ? theme.canvas.textPrimary : '#EFE8E5') : theme.canvas.textPrimary,
-        fontWeight: 700,
-        fontSize: '0.85rem',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
-        fontFamily: "'EmOne', sans-serif",
-        transition: 'background-color 0.2s'
-      }}
-      onMouseEnter={(e) => {
-        if (disabled) return;
-        e.currentTarget.style.backgroundColor = isAccent ? '#5A0000' : theme.canvas.hover;
-      }}
-      onMouseLeave={(e) => {
-        if (disabled) return;
-        e.currentTarget.style.backgroundColor = isAccent ? accent : 'transparent';
-      }}
-    >
-      {children}
-    </button>
-  );
-};
-
-/** One side of the "which one survives" choice. */
+/** One side of the "which one survives" choice. The card itself is the radio. */
 const SideCard = ({ universe, recommended, selected, onSelect }) => {
   const theme = useTheme();
-  const accent = theme.accent.secondary;
-  const borderColor = selected ? accent : theme.canvas.textPrimary;
 
   return (
-    <div
-      role="radio"
-      aria-checked={selected}
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); }
-      }}
-      style={{
-        border: `2px solid ${borderColor}`,
-        borderRadius: 10,
-        backgroundColor: theme.canvas.bg,
-        padding: '10px 12px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        minWidth: 0,
-        overflow: 'hidden',
-        cursor: 'pointer',
-        transition: 'border-color 0.15s ease'
-      }}
+    <DialogCard
+      selected={selected}
+      onSelect={onSelect}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
     >
       {/* Fixed width so the two cards' text starts on the same line. */}
       <div style={{
@@ -96,7 +42,7 @@ const SideCard = ({ universe, recommended, selected, onSelect }) => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: selected ? accent : theme.canvas.textPrimary
+        color: selected ? theme.accent.secondary : theme.canvas.textPrimary
       }}>
         {selected ? <Check size={26} /> : <Globe size={26} />}
       </div>
@@ -129,7 +75,7 @@ const SideCard = ({ universe, recommended, selected, onSelect }) => {
           {countsLine(universe)}
         </div>
       </div>
-    </div>
+    </DialogCard>
   );
 };
 
@@ -173,223 +119,146 @@ const MergeUniverseDialog = ({
   const destName = destination?.name || 'the destination';
   const incomingName = incomingUniverse?.name || 'the other universe';
   const switched = destination && activeUniverse && destination.slug !== activeUniverse.slug;
+  const working = phase === 'working';
 
   const heading = phase === 'result'
     ? (error ? 'Merge failed' : 'Merge complete')
     : 'Merge universes';
 
+  const footer = working ? null : (
+    <>
+      {phase === 'choose' && (
+        <>
+          <DialogButton label="Cancel" onClick={onClose} />
+          <DialogButton label="Merge" tone="accent" icon={Merge} onClick={onConfirm} />
+        </>
+      )}
+      {phase === 'result' && (
+        <>
+          {/* Deliberately the quiet button: disconnecting is a separate,
+              destructive decision, not the natural end of a merge. */}
+          {!error && onDisconnectSource && (
+            <DialogButton label={`Disconnect ${incomingName}…`} onClick={onDisconnectSource} />
+          )}
+          {/* When the merge brought duplicates in, sorting them out is the
+              real next step, so it takes the accent and Done steps back. */}
+          {!error && duplicateCount > 0 && onReviewDuplicates ? (
+            <>
+              <DialogButton label="Done" onClick={onClose} />
+              <DialogButton
+                label={`Review ${duplicateCount} ${duplicateCount === 1 ? 'duplicate' : 'duplicates'}`}
+                tone="accent"
+                onClick={onReviewDuplicates}
+              />
+            </>
+          ) : (
+            <DialogButton label="Done" tone="primary" onClick={onClose} />
+          )}
+        </>
+      )}
+    </>
+  );
+
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 10000,
-        padding: 20
-      }}
-      onClick={phase === 'working' ? undefined : onClose}
+    <Dialog
+      width={520}
+      // The working phase has no answer to give, so it swallows the scrim and
+      // Escape rather than offering a dismissal that would leave a half-merge.
+      onScrimClick={working ? undefined : onClose}
+      icon={Merge}
+      iconTone={error ? 'accent' : 'neutral'}
+      title={heading}
+      titleTone={error ? 'accent' : 'neutral'}
+      subtitle={phase === 'choose'
+        ? 'Both universes are combined. The one you pick keeps everything; the other is left as it is.'
+        : undefined}
+      footer={footer}
     >
-      <div
-        style={{
-          width: 'min(95vw, 520px)',
-          backgroundColor: theme.canvas.bg,
-          border: `3px solid ${theme.canvas.textPrimary}`,
-          borderRadius: 14,
-          display: 'flex',
-          flexDirection: 'column',
-          fontFamily: "'EmOne', sans-serif",
-          boxShadow: '0 22px 60px rgba(0,0,0,0.55)',
-          margin: '40px 0',
-          maxHeight: 'min(650px, 85vh)',
-          overflow: 'hidden'
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
+      {phase === 'choose' && (
+        <>
+          <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
+            Which universe should the result live in?
+          </div>
+          <div role="radiogroup" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <SideCard
+              universe={activeUniverse}
+              recommended
+              selected={destSlug === activeUniverse?.slug}
+              onSelect={() => onDestChange?.(activeUniverse?.slug)}
+            />
+            <SideCard
+              universe={otherUniverse}
+              selected={destSlug === otherUniverse?.slug}
+              onSelect={() => onDestChange?.(otherUniverse?.slug)}
+            />
+          </div>
+
+          <DialogCheckbox
+            checked={foldSameAs}
+            onChange={(next) => onFoldSameAsChange?.(next)}
+            align="start"
+            style={{ fontSize: '0.8rem', marginTop: 2 }}
+            label="Combine things that share an external link"
+            description="Same Wikidata or DBpedia link means the same thing. Everything else comes through as-is, duplicates included, to sort out later."
+          />
+        </>
+      )}
+
+      {working && (
         <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: '12px 16px',
-          borderBottom: `2px solid ${theme.canvas.textPrimary}`,
-          backgroundColor: theme.canvas.border
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          gap: 12, padding: '30px 0', color: theme.canvas.textSecondary
         }}>
-          <div style={{ color: theme.accent.secondary, display: 'flex', alignItems: 'center' }}>
-            <Merge size={22} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-            <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: theme.canvas.textPrimary }}>
-              {heading}
-            </h2>
-            {phase === 'choose' && (
-              <p style={{ margin: 0, fontSize: '0.85rem', color: theme.canvas.textPrimary, lineHeight: 1.4 }}>
-                Both universes are combined. The one you pick keeps everything; the
-                other is left as it is.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Body */}
-        <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto' }}>
-          {phase === 'choose' && (
-            <>
-              <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
-                Which universe should the result live in?
-              </div>
-              <div role="radiogroup" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <SideCard
-                  universe={activeUniverse}
-                  recommended
-                  selected={destSlug === activeUniverse?.slug}
-                  onSelect={() => onDestChange?.(activeUniverse?.slug)}
-                />
-                <SideCard
-                  universe={otherUniverse}
-                  selected={destSlug === otherUniverse?.slug}
-                  onSelect={() => onDestChange?.(otherUniverse?.slug)}
-                />
-              </div>
-
-              <label style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 8,
-                cursor: 'pointer',
-                fontSize: '0.8rem',
-                color: theme.canvas.textPrimary,
-                lineHeight: 1.4,
-                marginTop: 2
-              }}>
-                <input
-                  type="checkbox"
-                  checked={foldSameAs}
-                  onChange={(e) => onFoldSameAsChange?.(e.target.checked)}
-                  style={{ accentColor: theme.accent.primary, marginTop: 2, flexShrink: 0 }}
-                />
-                <span>
-                  Combine things that share an external link
-                  <span style={{ display: 'block', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
-                    Same Wikidata or DBpedia link means the same thing. Everything else
-                    comes through as-is, duplicates included, to sort out later.
-                  </span>
-                </span>
-              </label>
-            </>
-          )}
-
-          {phase === 'working' && (
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              gap: 12, padding: '30px 0', color: theme.canvas.textSecondary
-            }}>
-              <div style={{
-                width: 16,
-                height: 16,
-                border: `2px solid ${theme.canvas.brand}`,
-                borderTopColor: 'transparent',
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite'
-              }} />
-              <span style={{ fontSize: '0.9rem' }}>Reading "{incomingName}" and merging…</span>
-              <style>{'@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }'}</style>
-            </div>
-          )}
-
-          {phase === 'result' && error && (
-            <div style={{ fontSize: '0.85rem', color: theme.canvas.textPrimary, lineHeight: 1.5 }}>
-              {error}
-              <div style={{ marginTop: 8, color: theme.canvas.textSecondary, fontSize: '0.8rem' }}>
-                Neither universe was changed.
-              </div>
-            </div>
-          )}
-
-          {phase === 'result' && !error && report && (
-            <>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <ReportRow label="Things added" value={report.addedPrototypeIds?.length ?? 0} />
-                <ReportRow label="Things already shared" value={report.dedupedIds?.length ?? 0} />
-                <ReportRow label="Things matched by link" value={report.mergedIds?.length ?? 0} />
-                <ReportRow label="Webs added" value={report.addedGraphIds?.length ?? 0} />
-                <ReportRow label="Webs combined" value={report.mergedGraphIds?.length ?? 0} />
-                <ReportRow label="Connections added" value={report.addedEdgeIds?.length ?? 0} />
-              </div>
-              {duplicateCount > 0 && (
-                <div style={{
-                  marginTop: 4,
-                  padding: '8px 10px',
-                  borderRadius: 8,
-                  border: `1px solid ${theme.canvas.border}`,
-                  fontSize: '0.8rem',
-                  color: theme.canvas.textSecondary,
-                  lineHeight: 1.5
-                }}>
-                  <strong style={{ color: theme.canvas.textPrimary }}>
-                    {duplicateCount} possible {duplicateCount === 1 ? 'duplicate' : 'duplicates'} came through.
-                  </strong>{' '}
-                  They were left as they are rather than combined on a guess. Sorting them
-                  out is a separate step — you can do it now or whenever.
-                </div>
-              )}
-              <div style={{ marginTop: 4, fontSize: '0.75rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
-                {incomingIsInList
-                  ? `Everything now lives in "${destName}". "${incomingName}" was not changed and is still in your list.`
-                  : `Everything now lives in "${destName}". Nothing was written back to the link it came from.`}
-                {switched && ` You're now working in "${destName}".`}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Footer */}
-        {phase !== 'working' && (
           <div style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: 8,
-            padding: '10px 16px',
-            borderTop: `2px solid ${theme.canvas.textPrimary}`,
-            backgroundColor: theme.canvas.border
-          }}>
-            {phase === 'choose' && (
-              <>
-                <DialogButton onClick={onClose}>Cancel</DialogButton>
-                <DialogButton tone="accent" onClick={onConfirm}>Merge</DialogButton>
-              </>
-            )}
-            {phase === 'result' && (
-              <>
-                {/* Deliberately the quiet button: disconnecting is a separate,
-                    destructive decision, not the natural end of a merge. */}
-                {!error && onDisconnectSource && (
-                  <DialogButton onClick={onDisconnectSource}>
-                    Disconnect {incomingName}…
-                  </DialogButton>
-                )}
-                {/* When the merge brought duplicates in, sorting them out is the
-                    real next step, so it takes the accent and Done steps back. */}
-                {!error && duplicateCount > 0 && onReviewDuplicates ? (
-                  <>
-                    <DialogButton onClick={onClose}>Done</DialogButton>
-                    <DialogButton tone="accent" onClick={onReviewDuplicates}>
-                      Review {duplicateCount} {duplicateCount === 1 ? 'duplicate' : 'duplicates'}
-                    </DialogButton>
-                  </>
-                ) : (
-                  <DialogButton tone="accent" onClick={onClose}>Done</DialogButton>
-                )}
-              </>
-            )}
+            width: 16,
+            height: 16,
+            border: `2px solid ${theme.canvas.brand}`,
+            borderTopColor: 'transparent',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite'
+          }} />
+          <span style={{ fontSize: '0.9rem' }}>Reading "{incomingName}" and merging…</span>
+          <style>{'@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }'}</style>
+        </div>
+      )}
+
+      {phase === 'result' && error && (
+        <div style={{ fontSize: '0.85rem', color: theme.canvas.textPrimary, lineHeight: 1.5 }}>
+          {error}
+          <div style={{ marginTop: 8, color: theme.canvas.textSecondary, fontSize: '0.8rem' }}>
+            Neither universe was changed.
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+
+      {phase === 'result' && !error && report && (
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <ReportRow label="Things added" value={report.addedPrototypeIds?.length ?? 0} />
+            <ReportRow label="Things already shared" value={report.dedupedIds?.length ?? 0} />
+            <ReportRow label="Things matched by link" value={report.mergedIds?.length ?? 0} />
+            <ReportRow label="Webs added" value={report.addedGraphIds?.length ?? 0} />
+            <ReportRow label="Webs combined" value={report.mergedGraphIds?.length ?? 0} />
+            <ReportRow label="Connections added" value={report.addedEdgeIds?.length ?? 0} />
+          </div>
+          {duplicateCount > 0 && (
+            <DialogNote>
+              <strong style={{ color: theme.canvas.textPrimary }}>
+                {duplicateCount} possible {duplicateCount === 1 ? 'duplicate' : 'duplicates'} came through.
+              </strong>{' '}
+              They were left as they are rather than combined on a guess. Sorting them
+              out is a separate step — you can do it now or whenever.
+            </DialogNote>
+          )}
+          <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
+            {incomingIsInList
+              ? `Everything now lives in "${destName}". "${incomingName}" was not changed and is still in your list.`
+              : `Everything now lives in "${destName}". Nothing was written back to the link it came from.`}
+            {switched && ` You're now working in "${destName}".`}
+          </div>
+        </>
+      )}
+    </Dialog>
   );
 };
 

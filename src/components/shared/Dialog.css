@@ -1,0 +1,100 @@
+/**
+ * The parts of the dialog shell a media query has to own.
+ *
+ * Everything colour-bearing stays inline in Dialog.jsx, because it comes from
+ * useTheme() and there is no CSS custom property carrying the canvas palette out
+ * here. What lives in this sheet is only what an inline style cannot express:
+ * the width breakpoints, and the footer that has to stop being a row on a phone.
+ */
+
+.rs-dialog-scrim {
+  padding: 20px;
+}
+
+.rs-dialog-header {
+  padding: 14px 18px;
+}
+
+.rs-dialog-body {
+  padding: 12px 18px;
+}
+
+/*
+ * A body whose children are full-width rows carrying their own padding: the
+ * row's selected tint and its hover should reach close to the frame, so the
+ * body gives up most of its own inset rather than double-padding every row.
+ */
+.rs-dialog-body--tight {
+  padding: 10px 12px;
+}
+
+.rs-dialog-footer {
+  padding: 10px 18px;
+}
+
+/*
+ * A footer is a row of pills reading left-to-right in increasing importance, and
+ * below ~420px the two or three of them stop fitting on one line. Wrapping alone
+ * leaves a ragged stack of different-width pills, so they go full width and
+ * column-REVERSE: a reversed column stacks the LAST child at the top, which puts
+ * the primary action where a stacked dialog puts it and leaves the way out at
+ * the bottom — while the DOM order stays cancel-first, so tab order and a screen
+ * reader still meet the safe option before the committing one.
+ *
+ * `width: 100%` is safe against PanelIconButton's inline styles because width is
+ * the one box property it does not set. Its 1.04 hover growth is ~2% a side,
+ * which the footer's own 14px of padding absorbs.
+ */
+@media (max-width: 420px) {
+  .rs-dialog-scrim {
+    padding: 12px;
+  }
+
+  .rs-dialog-header {
+    padding: 12px 14px;
+  }
+
+  .rs-dialog-body {
+    padding: 10px 14px;
+  }
+
+  .rs-dialog-body--tight {
+    padding: 8px 10px;
+  }
+
+  .rs-dialog-footer {
+    padding: 10px 14px;
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .rs-dialog-footer .panel-icon-button {
+    width: 100%;
+  }
+}
+
+/*
+ * A pickable row inside a dialog body (the intent list).
+ *
+ * The tint is stated here rather than inline because a row's resting background
+ * IS an inline style — `transparent` when unselected — and inline beats a class.
+ * `!important` is what lets the hover through, and the :not() keeps it off the
+ * selected row, which already owns its tint. One maroon at two alphas covers
+ * both themes: 8% reads on the light canvas, 18% on the dark one.
+ */
+.rs-dialog-row:not(.is-selected):hover {
+  background-color: rgba(122, 0, 0, 0.08) !important;
+}
+
+.modal-dark .rs-dialog-row:not(.is-selected):hover {
+  background-color: rgba(122, 0, 0, 0.18) !important;
+}
+
+/*
+ * A card's action pill spans the card at every width — the card is the choice,
+ * and a pill floating at one end of it reads as an afterthought rather than as
+ * the way to take it.
+ */
+.rs-dialog-card-action.panel-icon-button {
+  width: 100%;
+}

@@ -133,7 +133,12 @@ const PanelIconButton = forwardRef(({
     padding: isPill ? '6px 14px' : '6px',
     borderWidth: (variant === 'outline' || isSolid) ? '1px' : '0',
     borderStyle: (variant === 'outline' || isSolid) ? 'solid' : 'none',
-    borderColor: variant === 'outline' ? (theme.darkMode ? theme.canvas.border : 'rgba(38, 0, 0, 0.3)') : (isSolid ? theme.canvas.textPrimary : 'transparent'),
+    // An outlined pill has to read as a button before it is hovered. At 0.3 the
+    // maroon resolved to about #8F8080 on the panel's #bdb5b5 — visible on a
+    // white-ish card, all but gone on the canvas.border ground a dialog footer
+    // uses. 0.45 keeps it quiet and keeps it a stroke. Dark mode already had a
+    // solid one.
+    borderColor: variant === 'outline' ? (theme.darkMode ? theme.canvas.border : 'rgba(38, 0, 0, 0.45)') : (isSolid ? theme.canvas.textPrimary : 'transparent'),
     background: isSolid ? theme.canvas.textPrimary : 'transparent',
     backgroundColor: isSolid ? theme.canvas.textPrimary : 'transparent',
     color: actualColor,

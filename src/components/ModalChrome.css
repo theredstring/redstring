@@ -14,10 +14,10 @@
  *   --rs-modal-border      canvas.border      (inputs, selects)
  *   --rs-modal-hairline    the panel card's hairline, from shared/PanelCard.jsx
  *
- * Buttons are deliberately almost absent from this sheet: every button in these
- * modals is a <PanelIconButton>, which is where the panel's icon/pill hover
- * language lives. The lone exception is .settings-option-btn at the bottom,
- * kept only for ForceSimulationModal.
+ * Buttons are almost absent from this sheet: every button in these modals is a
+ * <PanelIconButton>, which is where the panel's icon/pill hover language lives.
+ * The exception is .rs-pill-btn at the bottom, which restates that same pill in
+ * CSS for the sheets that style plain <button>s (the force-sim tuner).
  *
  * The properties sit on :root rather than on a wrapper class because
  * ForceSimulationModal reaches for .settings-option-btn and
@@ -36,6 +36,14 @@
   --rs-modal-scroll-track: rgba(38, 0, 0, 0.05);
   --rs-modal-scroll-thumb: rgba(38, 0, 0, 0.1);
   --rs-modal-scroll-thumb-hover: #260000;
+
+  /* A recessed block inside the surface — a stats readout, a group of sliders.
+     Tinted from the text colour rather than from a grey, so it darkens the
+     surface it sits on instead of introducing a second material. */
+  --rs-modal-sunken: rgba(38, 0, 0, 0.05);
+
+  /* PanelIconButton's outline border, restated for the CSS-only pills. */
+  --rs-modal-pill-border: rgba(38, 0, 0, 0.45);
 
   --rs-modal-toggle-track: #ccc;
   --rs-modal-toggle-thumb: #fff;
@@ -62,6 +70,9 @@
   --rs-modal-scroll-track: rgba(222, 218, 218, 0.05);
   --rs-modal-scroll-thumb: rgba(222, 218, 218, 0.15);
   --rs-modal-scroll-thumb-hover: rgba(222, 218, 218, 0.4);
+
+  --rs-modal-sunken: rgba(222, 218, 218, 0.05);
+  --rs-modal-pill-border: #6a6464;
 
   --rs-modal-toggle-track: #6a6464;
   --rs-modal-toggle-thumb: #DEDADA;
@@ -265,22 +276,19 @@
 
 /* ========== Option group ========== */
 
-/* Base is left as ForceSimulationModal has it — see the legacy note at the
-   bottom of this file. */
+/* The gap has to clear the pill's 1.04 hover growth, which is ~2px a side —
+   below that, hovering one pill makes it collide with its neighbour. */
 .settings-option-group {
   display: flex;
-  gap: 6px;
+  gap: 8px;
+  flex-wrap: wrap;
   flex-shrink: 0;
 }
 
 /* In Settings the group is a row of PanelIconButton pills standing in for a
-   radio group. It wraps because Routing Style has four of them and the modal
-   narrows to 320px, and it right-aligns because it sits opposite a label.
-   The gap has to clear the pill's 1.04 hover growth, which is ~2px a side. */
+   radio group. It right-aligns because it sits opposite a label. */
 .settings-modal-content .settings-option-group {
-  flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 8px;
 }
 
 /* Vertical form, for option groups whose labels are phrases rather than words.
@@ -457,35 +465,82 @@ select.modal-input option {
   }
 }
 
-/* ========== Legacy option buttons ========== */
+/* ========== Pill buttons ========== */
 
 /*
- * ForceSimulationModal is the only remaining consumer of this style — Settings
- * and Help now use PanelIconButton pills (see .settings-option-group above).
- * It is kept verbatim, including its literal colours, so that modal is
- * unchanged; it reaches these rules through the global stylesheet rather than
- * an import of its own, and pairs them with .force-sim-dark overrides in
- * ForceSimulationModal.css. Convert that modal and this block can go.
+ * PanelIconButton's pill, said in CSS.
+ *
+ * A JSX caller should reach for <PanelIconButton> — it is the same shape and the
+ * same gesture, and it carries the touch handling. This class is for the sheets
+ * that style a plain <button> they did not author inline: the force-sim tuner's
+ * five control buttons and its preset groups, which used to be white
+ * rounded-rectangles with a #333 label and a hand-written dark-mode twin.
+ *
+ * The hover is the pie menu's, lifted the same way PanelIconButton lifts it:
+ * the light fill, a 3px accent ring in place of the border, and a small grow.
+ * Keep the two in step — 1.04 and 0.15s are stated in both places because one
+ * is an inline style object and the other is this sheet.
  */
+.rs-pill-btn,
 .settings-option-btn {
-  padding: 5px 10px;
-  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* Tall enough to be a touch target, which the old 5px padding was not. */
+  min-height: 32px;
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
   font-family: 'EmOne', sans-serif;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  background: #fff;
-  color: #333;
+  /* Never borderless: a pill with no stroke reads as a label until you hover it. */
+  border: 1px solid var(--rs-modal-pill-border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--rs-modal-text);
   cursor: pointer;
-  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: manipulation;
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
+.rs-pill-btn:hover,
 .settings-option-btn:hover {
-  border-color: #8B0000;
-  color: #8B0000;
+  /* The light fill is deliberately the same in both themes — a pie bubble does
+     not change colour with the canvas, and neither should the pill echoing it. */
+  background-color: #DEDADA;
+  box-shadow: 0 0 0 3px var(--rs-modal-accent);
+  border-color: transparent;
+  color: var(--rs-modal-accent);
+  transform: scale(1.04);
 }
 
+.rs-pill-btn:focus-visible,
+.settings-option-btn:focus-visible {
+  outline: 2px solid var(--rs-modal-accent);
+  outline-offset: 2px;
+}
+
+/* Selected: PanelIconButton's `solid` variant — filled in the text colour, so
+   the label inverts to the surface. */
+.rs-pill-btn.active,
 .settings-option-btn.active {
-  background-color: #8B0000;
-  border-color: #8B0000;
-  color: #fff;
+  background-color: var(--rs-modal-text);
+  border-color: var(--rs-modal-text);
+  color: var(--rs-modal-surface);
+}
+
+.rs-pill-btn:disabled,
+.settings-option-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }

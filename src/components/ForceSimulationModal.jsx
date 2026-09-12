@@ -1,5 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Play, Pause, RotateCcw, Shuffle, Copy, ChevronDown, ChevronUp, Info } from 'lucide-react';
+// The tuner's sheet is written against ModalChrome's tokens and reuses its
+// pill, so it imports that itself rather than relying on Settings having been
+// mounted at some point to pull the same stylesheet in.
+import './ModalChrome.css';
 import './ForceSimulationModal.css';
 import { useForceSimulation } from '../hooks/useForceSimulation.js';
 import { useTheme } from '../hooks/useTheme.js';
@@ -131,7 +135,9 @@ const ForceSimulationModal = ({
   if (!isOpen) return null;
   if (invisible) return null;
 
-  const darkClass = theme.darkMode ? 'force-sim-dark' : '';
+  // `modal-dark` is what flips the --rs-modal-* tokens this modal's sheet is
+  // written against; `force-sim-dark` carries the one thing left that is its own.
+  const darkClass = theme.darkMode ? 'force-sim-dark modal-dark' : '';
 
   return (
     <div
@@ -179,23 +185,23 @@ const ForceSimulationModal = ({
 
         {/* Control buttons */}
         <div className="force-sim-buttons">
-          <button className="force-sim-btn" onClick={sim.toggleRunning}>
+          <button className="rs-pill-btn" onClick={sim.toggleRunning}>
             {sim.isRunning ? <Pause size={14} /> : <Play size={14} />}
             {sim.isRunning ? 'Pause' : 'Play'}
           </button>
-          <button className="force-sim-btn" onClick={sim.reset}>
+          <button className="rs-pill-btn" onClick={sim.reset}>
             <RotateCcw size={14} />
             Reset
           </button>
-          <button className="force-sim-btn" onClick={sim.randomize}>
+          <button className="rs-pill-btn" onClick={sim.randomize}>
             <Shuffle size={14} />
             Randomize
           </button>
-          <button className="force-sim-btn" onClick={handleCopySettings}>
+          <button className="rs-pill-btn" onClick={handleCopySettings}>
             <Copy size={14} />
             Copy
           </button>
-          <button className="force-sim-btn" onClick={() => setShowJson(!showJson)}>
+          <button className="rs-pill-btn" onClick={() => setShowJson(!showJson)}>
             {showJson ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             {showJson ? 'Hide JSON' : 'Show JSON'}
           </button>

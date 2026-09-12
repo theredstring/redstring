@@ -1,10 +1,20 @@
 import React from 'react';
-import { AlertCircle, Info, HelpCircle } from 'lucide-react';
+import { AlertTriangle, Info, HelpCircle } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
+import Dialog, { DialogButton, DialogCheckbox } from './Dialog.jsx';
 
 /**
- * A confirm dialog positioned absolutely in the canvas at specific coordinates
- * Used for contextual confirmations like adding nodes to groups
+ * The lighter ask that comes out of a canvas gesture — "you dropped this inside
+ * a group, did you mean to?" — with room for a third option and for the
+ * don't-ask-again that a gesture-triggered question earns.
+ *
+ * It is narrower than ConfirmDialog and carries no details block: it interrupts
+ * a drag, so it has to be readable in the time it takes to let go of the mouse.
+ * Everything else — frame, pills, checkbox — is the shared dialog language.
+ *
+ * `containerRect` is still required, and is still the caller's signal that the
+ * canvas is actually mounted; the dialog centres on the viewport either way, as
+ * it already did.
  */
 const CanvasConfirmDialog = ({
   isOpen,
@@ -19,8 +29,10 @@ const CanvasConfirmDialog = ({
   secondaryConfirmLabel = null,
   variant = 'default', // 'default', 'danger', 'warning', 'info'
   showIcon = true,
-  position = { x: 0, y: 0 }, // Canvas coordinates
-  containerRect = null, // Bounding rect for positioning
+  // Accepted and unused: callers hand over the canvas geometry they were
+  // positioning against before this centred on the viewport.
+  position = { x: 0, y: 0 },
+  containerRect = null,
   panOffset = { x: 0, y: 0 },
   zoomLevel = 1,
   showDontAskAgain = false,
@@ -32,288 +44,76 @@ const CanvasConfirmDialog = ({
   if (!isOpen || !containerRect) return null;
 
   const icons = {
-    danger: <AlertCircle size={20} />,
-    warning: <AlertCircle size={20} />,
-    info: <Info size={20} />,
-    default: <HelpCircle size={20} />
+    danger: AlertTriangle,
+    warning: AlertTriangle,
+    info: Info,
+    default: HelpCircle
   };
 
-  const iconColors = {
-    danger: theme.accent.secondary,
-    warning: '#ef6c00',
-    info: '#1565c0',
-    default: theme.canvas.textPrimary
-  };
-
-  const buttonStyle = (isPrimary) => ({
-    padding: '4px 14px',
-    lineHeight: 1.2,
-    borderRadius: 6,
-    fontSize: '0.85rem',
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: "'EmOne', sans-serif",
-    transition: 'all 0.2s',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    border: isPrimary && variant === 'danger'
-      ? `2px solid ${theme.accent.secondary}`
-      : `2px solid ${theme.canvas.textPrimary}`,
-    backgroundColor: isPrimary
-      ? (variant === 'danger' ? theme.accent.secondary : theme.canvas.textPrimary)
-      : 'transparent',
-    color: isPrimary
-      ? (variant === 'danger'
-        ? (theme.darkMode ? theme.canvas.textPrimary : '#EFE8E5')
-        : theme.canvas.bg)
-      : theme.canvas.textPrimary
-  });
-
-  // Dialog dimensions (estimate)
-  const dialogWidth = 360;
-  const dialogHeight = 160;
-
-  // Keep dialog within viewport bounds
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  
-  // Center the dialog on the viewport
-  let left = (viewportWidth - dialogWidth) / 2;
-  let top = (viewportHeight - dialogHeight) / 2;
-
-  // Ensure minimum margins
-  if (left < 20) {
-    left = 20;
-  }
-  if (top < 20) {
-    top = 20;
-  }
+  const isSevere = variant === 'danger' || variant === 'warning';
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'flex-start',
-        zIndex: 10000,
-        pointerEvents: 'auto'
-      }}
-      onClick={onClose}
+    <Dialog
+      width={400}
+      scrim="light"
+      onScrimClick={onClose}
+      icon={showIcon ? (icons[variant] || icons.default) : undefined}
+      iconTone={isSevere ? 'accent' : 'neutral'}
+      title={title}
+      footer={
+        <>
+          <DialogButton
+            label={cancelLabel}
+            onClick={() => {
+              if (onCancel) onCancel();
+              onClose();
+            }}
+          />
+          {secondaryConfirmLabel && onSecondaryConfirm && (
+            <DialogButton
+              label={secondaryConfirmLabel}
+              onClick={() => {
+                onSecondaryConfirm();
+                onClose();
+              }}
+            />
+          )}
+          <DialogButton
+            label={confirmLabel}
+            tone={isSevere ? 'accent' : 'primary'}
+            onClick={() => {
+              onConfirm();
+              onClose();
+            }}
+          />
+        </>
+      }
     >
-      <div
+      <p
         style={{
-          position: 'absolute',
-          left: `${left}px`,
-          top: `${top}px`,
-          width: `${dialogWidth}px`,
-          backgroundColor: theme.canvas.bg,
-          border: `3px solid ${theme.canvas.textPrimary}`,
-          borderRadius: '12px',
-          display: 'flex',
-          flexDirection: 'column',
-          boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
-          fontFamily: "'EmOne', sans-serif",
-          overflow: 'hidden'
+          margin: 0,
+          fontSize: '0.9rem',
+          lineHeight: 1.5,
+          color: theme.canvas.textPrimary,
+          whiteSpace: 'pre-wrap'
         }}
-        onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '14px 18px',
-            borderBottom: `2px solid ${theme.canvas.textPrimary}`,
-            backgroundColor: theme.canvas.border,
-            borderTopLeftRadius: '12px',
-            borderTopRightRadius: '12px'
-          }}
-        >
-          {showIcon && (
-            <div style={{ color: iconColors[variant], flexShrink: 0 }}>
-              {icons[variant]}
-            </div>
-          )}
-          <h2
-            style={{
-              margin: 0,
-              fontSize: '1rem',
-              fontWeight: 700,
-              color: theme.canvas.textPrimary
-            }}
-          >
-            {title}
-          </h2>
-        </div>
+        {message}
+      </p>
 
-        {/* Content */}
-        <div style={{ padding: '16px 18px' }}>
-          <p
-            style={{
-              margin: 0,
-              fontSize: '0.9rem',
-              lineHeight: 1.5,
-              color: theme.canvas.textPrimary,
-              whiteSpace: 'pre-wrap'
-            }}
-          >
-            {message}
-          </p>
-        </div>
-
-        {/* Actions */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 18px',
-            borderTop: `2px solid ${theme.canvas.textPrimary}`,
-            backgroundColor: theme.canvas.border,
-            borderBottomLeftRadius: '12px',
-            borderBottomRightRadius: '12px'
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              gap: 6,
-              alignItems: 'center',
-              justifyContent: showDontAskAgain ? 'center' : 'flex-end',
-              flexWrap: 'wrap',
-              width: showDontAskAgain ? '100%' : 'auto',
-              alignSelf: showDontAskAgain ? 'stretch' : 'flex-end'
-            }}
-          >
-            <button
-              onClick={() => {
-                if (onCancel) {
-                  onCancel();
-                }
-                onClose();
-              }}
-              style={buttonStyle(false)}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(38, 0, 0, 0.2)' : 'rgba(38, 0, 0, 0.1)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-              }}
-            >
-              {cancelLabel}
-            </button>
-            {secondaryConfirmLabel && onSecondaryConfirm && (
-              <button
-                onClick={() => {
-                  onSecondaryConfirm();
-                  onClose();
-                }}
-                style={buttonStyle(false)}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(38, 0, 0, 0.2)' : 'rgba(38, 0, 0, 0.1)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-              >
-                {secondaryConfirmLabel}
-              </button>
-            )}
-            <button
-              onClick={() => {
-                onConfirm();
-                onClose();
-              }}
-              style={buttonStyle(true)}
-              onMouseEnter={(e) => {
-                if (variant === 'danger') {
-                  e.currentTarget.style.backgroundColor = '#5A0000';
-                } else {
-                  e.currentTarget.style.backgroundColor = '#1a0000';
-                  if (theme.darkMode) {
-                    e.currentTarget.style.color = theme.canvas.textPrimary;
-                  }
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = variant === 'danger' ? theme.accent.secondary : theme.canvas.textPrimary;
-                if (variant !== 'danger' && theme.darkMode) {
-                  e.currentTarget.style.color = theme.canvas.bg;
-                }
-              }}
-            >
-              {confirmLabel}
-            </button>
-          </div>
-          {showDontAskAgain && (
-            <label
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                fontSize: '0.78rem',
-                color: theme.canvas.textPrimary,
-                cursor: 'pointer',
-                userSelect: 'none',
-                fontFamily: "'EmOne', sans-serif"
-              }}
-            >
-              <span
-                style={{
-                  position: 'relative',
-                  width: 16,
-                  height: 16,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 3,
-                  border: `1.5px solid ${theme.canvas.textPrimary}`,
-                  backgroundColor: dontAskAgainChecked ? '#7A0000' : 'transparent',
-                  transition: 'background-color 0.15s'
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={!!dontAskAgainChecked}
-                  onChange={(e) => onDontAskAgainChange?.(e.target.checked)}
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    opacity: 0,
-                    margin: 0,
-                    cursor: 'pointer'
-                  }}
-                />
-                {dontAskAgainChecked && (
-                  <svg
-                    width="11"
-                    height="11"
-                    viewBox="0 0 12 12"
-                    fill="none"
-                    stroke="#DEDADA"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    style={{ pointerEvents: 'none' }}
-                  >
-                    <polyline points="2.5,6.5 5,9 9.5,3.5" />
-                  </svg>
-                )}
-              </span>
-              {dontAskAgainLabel}
-            </label>
-          )}
-        </div>
-      </div>
-    </div>
+      {/* Ending the question rather than joining the buttons: it modifies
+          whether this dialog comes back, not which way this one is answered. */}
+      {showDontAskAgain && (
+        <DialogCheckbox
+          checked={dontAskAgainChecked}
+          onChange={(next) => onDontAskAgainChange?.(next)}
+          label={dontAskAgainLabel}
+          align="start"
+          style={{ marginTop: 2 }}
+        />
+      )}
+    </Dialog>
   );
 };
 
 export default CanvasConfirmDialog;
-
