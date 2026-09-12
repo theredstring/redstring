@@ -205,34 +205,54 @@ const PIE_ANGLE_STEP = (2 * Math.PI) / PIE_SLOTS;
 // the user's sensitivity multiplies it. A panel's usable range is roughly 64px
 // to half the viewport, so this crosses it in about a second at 1x.
 const PANEL_RESIZE_SPEED = 10;
-// How far the stick must go sideways, while its button is held, before this
-// counts as a resize rather than as a click that happened to wobble.
-const PANEL_RESIZE_THRESHOLD = 0.35;
+// How far the stick must travel FROM WHERE IT WAS when the bumper went down
+// before the hold becomes a resize. See panelResizeArms.
+const PANEL_RESIZE_ARM_DELTA = 0.35;
 
 const ZERO_TICK = { panDx: 0, panDy: 0, zoomMultiplier: 1 };
 
 /**
- * How much wider a panel gets this frame.
+ * Has this hold become a resize yet?
  *
- * Sign is per side, and it is about the EDGE rather than the panel: the left
- * panel's inner edge moves right as it grows, the right panel's moves left. So
- * pushing the stick toward the canvas widens either one, which means the
- * gesture means "push the edge that way" on both sides rather than "positive
- * is bigger" on one and the reverse on the other.
+ * Measured as travel SINCE the bumper went down, not as absolute deflection,
+ * and that distinction is the whole of it. A bumper can be tapped at any
+ * moment — including in the middle of a pan, with the stick already pushed
+ * hard over. An absolute test would read that resting deflection as a resize
+ * and steal a web switch the user did ask for. Travel-since-press is the same
+ * rule a mouse uses to tell a click from a drag, for the same reason: what
+ * matters is whether the hand MOVED after committing, not where it happened to
+ * be beforehand.
  *
- * Returns 0 below the threshold, so a stick click with a little wobble in it
- * stays a click.
+ * Once armed the rate goes back to absolute deflection — holding the stick over
+ * has to keep the panel moving, which a delta-based rate could never do.
+ *
+ * @param {number} stickX current deadzoned horizontal deflection, [-1, 1]
+ * @param {number} baselineX deflection at the moment the bumper went down
+ * @returns {boolean}
+ */
+export const panelResizeArms = (stickX, baselineX) => {
+  if (!Number.isFinite(stickX) || !Number.isFinite(baselineX)) return false;
+  return Math.abs(stickX - baselineX) >= PANEL_RESIZE_ARM_DELTA;
+};
+
+/**
+ * How far the resize's virtual cursor travels this frame.
+ *
+ * Deliberately in POINTER space rather than in panel width: the pad drives the
+ * same overlay resizer the mouse drags, and that code already knows that
+ * pulling right widens the left panel and narrows the right one. Returning a
+ * width here would mean restating that rule in a second place, where it could
+ * later disagree. A stick pushed right moves the cursor right; everything
+ * about which panel that grows is somebody else's business.
  *
  * @param {number} stickX deadzoned horizontal deflection, [-1, 1]
- * @param {'left'|'right'} side which panel
  * @param {number} sensitivity user multiplier
  * @param {number} frameRatio deltaTime normalised to 60fps
- * @returns {number} signed px to add to the panel's width
+ * @returns {number} signed px of virtual cursor travel
  */
-export const panelResizeDelta = (stickX, side, sensitivity, frameRatio) => {
-  if (!Number.isFinite(stickX) || Math.abs(stickX) < PANEL_RESIZE_THRESHOLD) return 0;
-  const direction = side === 'left' ? 1 : -1;
-  return stickX * direction * PANEL_RESIZE_SPEED * (sensitivity || 1) * frameRatio;
+export const panelResizeDelta = (stickX, sensitivity, frameRatio) => {
+  if (!Number.isFinite(stickX) || stickX === 0) return 0;
+  return stickX * PANEL_RESIZE_SPEED * (sensitivity || 1) * frameRatio;
 };
 
 /**
@@ -370,6 +390,46 @@ export const stickDirection = (x, y, threshold = 0.5) => {
   if (Math.hypot(x, y) < threshold) return null;
   if (Math.abs(x) >= Math.abs(y)) return x > 0 ? 'right' : 'left';
   return y > 0 ? 'down' : 'up';
+};
+
+/**
+ * Stick direction expressed in a LINE MENU'S OWN FRAME rather than the screen's.
+ *
+ * A connection's menu is laid along its edge, so its row runs at whatever angle
+ * that edge happens to have. Screen-absolute directions only agree with it for
+ * a horizontal connection: on a vertical one the row is stacked top to bottom,
+ * and pushing the stick right — the direction that means "next" — points at
+ * nothing at all.
+ *
+ * The fix is a change of basis, not a set of cases. The stick vector is
+ * projected onto the same two unit vectors lineModeLayout PLACES the buttons
+ * with: `along` = (cos θ, sin θ) runs down the row, `perp` = (sin θ, −cos θ)
+ * points to the side the extra rows stack toward. Reading the stick in that
+ * basis makes "along the row" and "across the rows" mean the same thing to the
+ * navigation as they do to the drawing, at every angle, with nothing to keep in
+ * sync and no orientation special-cased. A diagonal connection is not a case
+ * here; it is just another θ.
+ *
+ * The returned names stay in the menu's terms: left/right walk the row,
+ * up/down change row. `perp` is negated on the way out because stickDirection
+ * speaks screen-y, where up is negative, while perp points toward the rows.
+ *
+ * Rotation preserves length, so the threshold means exactly what it does for an
+ * unrotated stick.
+ *
+ * @param {number} x deadzoned horizontal deflection
+ * @param {number} y deadzoned vertical deflection
+ * @param {number} angleRad the menu's anchor angle — PieMenu's anchorAngle
+ * @param {number} [threshold]
+ * @returns {'left'|'right'|'up'|'down'|null}
+ */
+export const lineFrameDirection = (x, y, angleRad, threshold = 0.5) => {
+  const angle = Number.isFinite(angleRad) ? angleRad : 0;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const along = x * cos + y * sin;
+  const perp = x * sin - y * cos;
+  return stickDirection(along, -perp, threshold);
 };
 
 /**
@@ -532,6 +592,9 @@ export const useGamepad = ({
   groupControlRef,
   // The selection box: `{ begin, update, end }`. See NodeCanvas.
   marqueeControlRef,
+  // The overlay panel resizers, faked as a pointer drag: `{ begin, by, end }`.
+  // See NodeCanvas.
+  panelResizeControlRef,
 
   // --- Selection ---
   setSelectedInstanceIds,
@@ -608,7 +671,7 @@ export const useGamepad = ({
   // "that was a click, toggle the panel" and "that was a drag, commit a width"
   // — the same click-versus-drag distinction a mouse makes, needed here for the
   // same reason: one control, two meanings.
-  const panelResizeRef = useRef({ side: null, resized: false });
+  const panelResizeRef = useRef({ side: null, resized: false, baselineX: 0 });
 
   // Auto-aim bookkeeping: when the stick went neutral, and whether this dwell
   // has already fired. Reset on any stick movement.
@@ -726,7 +789,7 @@ export const useGamepad = ({
     containerRef, viewportBoundsRef, panOffsetRef, zoomLevelRef, canvasSizeRef,
     mousePositionRef, nodesRef, visibleNodeIdsRef,
     startDragForNodeRef, draggingNodeInfoRef, dragPhaseRef, releasePointerRef,
-    startConnectionFromNodeRef, drawingConnectionFromRef, plusSignControlRef, groupControlRef, marqueeControlRef,
+    startConnectionFromNodeRef, drawingConnectionFromRef, plusSignControlRef, groupControlRef, marqueeControlRef, panelResizeControlRef,
     setSelectedInstanceIds, selectedInstanceIdsRef, commitHoverTarget, clearHoverImmediate,
     pieMenuButtonsRef, pieMenuPageCountRef, pieMenuNodeIdRef, setPieMenuPage, onPieMenuHoverChange,
     edgePieMenuButtonsRef, edgeAnchorAngleRef, findEdgeAtClientPointRef,
@@ -849,6 +912,26 @@ export const useGamepad = ({
     store.setTypeListMode?.(order[(order.indexOf(cur) + 1) % order.length]);
   }, [setHeaderFocusBoth]);
 
+  /**
+   * End a panel-resize gesture wherever it is, committing the width if one was
+   * actually changed.
+   *
+   * Called from three places, and the third is the one that matters: unplugging
+   * the pad or touching the mouse mid-resize ends the gesture too, and without
+   * this the panel would be left at a live width that was never persisted —
+   * correct on screen, reverted on next load.
+   */
+  const endPanelResizeGesture = useCallback(() => {
+    const gesture = panelResizeRef.current;
+    if (gesture.side && gesture.resized) {
+      // Releases the bar the way a mouse-up does: persists the width, broadcasts
+      // panelWidthChanged, and drops the held look. Synchronous like the deltas,
+      // because a deferred release leaves the bar lit after the hand is off it.
+      asDiscreteInput(() => paramsRef.current?.panelResizeControlRef?.current?.end?.());
+    }
+    panelResizeRef.current = { side: null, resized: false, baselineX: 0 };
+  }, []);
+
   /** Give up whatever the d-pad was standing on. B, and leaving the pad. */
   const clearNavFocus = useCallback(() => {
     const had = panelNavRef.current.hasFocus() || headerFocusRef.current !== null;
@@ -868,6 +951,9 @@ export const useGamepad = ({
     menuWalkerRef.current = null;
     bottomWalkerRef.current?.dispose?.();
     bottomWalkerRef.current = null;
+    // A half-finished resize is still a width the user chose. Commit it rather
+    // than leaving it live-but-unsaved.
+    endPanelResizeGesture();
     // The d-pad's place in the chrome is given up with the pad itself.
     panelNavRef.current?.clear();
     headerFocusRef.current = null;
@@ -880,7 +966,7 @@ export const useGamepad = ({
     // interaction may have claimed it in the meantime.
     const store = useGraphStore.getState();
     if (store.inputMode === 'gamepad') store.setInputMode?.('mouse');
-  }, [setModeBoth, setPieFocusBoth]);
+  }, [setModeBoth, setPieFocusBoth, endPanelResizeGesture]);
 
   // Any real mouse or keyboard activity hands control back.
   //
@@ -1120,8 +1206,12 @@ export const useGamepad = ({
     // The stick acting as a d-pad, with the same press/delay/repeat cadence a
     // held button gets — see stickDirection for why lists and grids step
     // rather than being aimed at.
-    const stickStep = (stick, prefix) => {
-      const dir = stickDirection(stick.x, stick.y, PIE_AIM_THRESHOLD);
+    const stickStep = (stick, prefix, angleRad = null) => {
+      // With an angle, the stick is read in the menu's frame instead of the
+      // screen's — see lineFrameDirection.
+      const dir = angleRad === null
+        ? stickDirection(stick.x, stick.y, PIE_AIM_THRESHOLD)
+        : lineFrameDirection(stick.x, stick.y, angleRad, PIE_AIM_THRESHOLD);
       if (!dir) {
         // Neutral ENDS the gesture, so the very next flick steps immediately
         // rather than waiting out the hold-to-repeat delay.
@@ -1293,61 +1383,105 @@ export const useGamepad = ({
     // The stick clicks open and close their own panel. That is ALL they do —
     // no mode, nothing disabled, nothing to leave. Left stick, left panel;
     // right stick, right panel.
-    // ---- Stick clicks: toggle a panel, or hold and push to resize it ------
-    // Deliberately not `return`ing: a press here must not cost the frame's
-    // pan. Everything on this pad is meant to be usable at the same time as
-    // everything else.
+    // ---- Stick clicks: toggle a panel ------------------------------------
+    // One thing each, immediately. Deliberately not `return`ing: a press here
+    // must not cost the frame's pan.
+    if (!carrying && buttons.justPressed[BTN.L3]) {
+      store.toggleLeftPanel?.();
+      lastPanelSideRef.current = 'left';
+      // Closing the panel focus was sitting in would strand the ring on a
+      // detached element; `leftPanelExpanded` is still the PRE-toggle value.
+      if (panelNavRef.current.side() === 'left' && store.leftPanelExpanded) panelNavRef.current.clear();
+    }
+    if (!carrying && buttons.justPressed[BTN.R3]) {
+      store.toggleRightPanel?.();
+      lastPanelSideRef.current = 'right';
+      if (panelNavRef.current.side() === 'right' && store.rightPanelExpanded) panelNavRef.current.clear();
+    }
+
+    // ---- Bumpers: tap to switch webs, hold and push to resize a panel -----
     //
-    // The press alone commits to nothing. Pushing the stick sideways while it
-    // is held turns the gesture into a resize; releasing without having done so
-    // toggles the panel, which is what the click meant all along. Two meanings
-    // on one control, told apart the way a mouse tells a click from a drag.
-    if (!carrying && buttons.justPressed[BTN.L3]) panelResizeRef.current = { side: 'left', resized: false };
-    if (!carrying && buttons.justPressed[BTN.R3]) panelResizeRef.current = { side: 'right', resized: false };
+    // The bumper is the right home for this and the stick click was not. A
+    // stick click is pressed THROUGH the stick: the thumb that pushes it in
+    // deflects it on the way, so the gesture starts by fighting itself — it
+    // needed a wobble threshold just to stay distinguishable from a click, and
+    // even past that the stick has little travel left to give. A bumper is a
+    // clean digital edge under a different finger entirely, so the thumb keeps
+    // the stick's full range and the panel moves smoothly the whole way.
+    //
+    // Sides follow the layout: left bumper, left panel.
+    //
+    // The tap action (previous / next open web) moves to RELEASE, because the
+    // press cannot yet know which gesture this is. A tap is under a tenth of a
+    // second, and paying that to keep one button honest about two meanings is
+    // a far better trade than the two meanings colliding.
+    const bumperFor = (sideName) => (sideName === 'left' ? BTN.LB : BTN.RB);
+    if (!carrying && !inMenuMode && (buttons.justPressed[BTN.LB] || buttons.justPressed[BTN.RB])) {
+      const wanted = buttons.justPressed[BTN.LB] ? 'left' : 'right';
+      // Pressing the other bumper mid-gesture ends the first rather than
+      // silently replacing it. Its width commits if it changed; it is NOT
+      // treated as a tap, because a button still held down has not been tapped
+      // yet, and switching webs nobody asked to switch is worse than nothing.
+      if (panelResizeRef.current.side && panelResizeRef.current.side !== wanted) endPanelResizeGesture();
+      // Where the stick was at the moment of the press. Everything about
+      // arming is measured from here — see panelResizeArms.
+      const baselineStick = wanted === 'left' ? left : right;
+      panelResizeRef.current = { side: wanted, resized: false, baselineX: baselineStick.x };
+    }
 
     const heldPanel = panelResizeRef.current.side;
     let resizingPanel = false;
     if (heldPanel) {
-      const stillHeld = buttons.pressed[heldPanel === 'left' ? BTN.L3 : BTN.R3];
-      // Each panel is resized by its OWN stick, so the hand that opened it is
-      // the hand that sizes it.
+      const stillHeld = buttons.pressed[bumperFor(heldPanel)];
+      // Each panel is sized by the stick on its own side, under the thumb
+      // nearest the bumper holding it.
       const stick = heldPanel === 'left' ? left : right;
       const expanded = heldPanel === 'left' ? store.leftPanelExpanded : store.rightPanelExpanded;
 
       if (stillHeld) {
         // A collapsed panel has no width to argue about: the hold does nothing
-        // and the release opens it.
-        const dx = expanded
-          ? panelResizeDelta(stick.x, heldPanel, panelResizeSensitivityRef.current, frameRatio)
+        // and the release falls through to the tap action.
+        //
+        // Arming is one-way. Once the stick has moved enough to say this is a
+        // resize, easing it back through the arming distance must not turn the
+        // gesture back into a tap — the user already committed, and a web
+        // switch on release would be a surprise.
+        if (expanded && !panelResizeRef.current.resized
+          && panelResizeArms(stick.x, panelResizeRef.current.baselineX)) {
+          panelResizeRef.current.resized = true;
+          // Grab the bar the mouse would grab, so it shows itself held and
+          // travels with the edge from the first frame.
+          asDiscreteInput(() => p.panelResizeControlRef?.current?.begin?.(heldPanel));
+        }
+        const dx = (expanded && panelResizeRef.current.resized)
+          ? panelResizeDelta(stick.x, panelResizeSensitivityRef.current, frameRatio)
           : 0;
         if (dx !== 0) {
-          panelResizeRef.current.resized = true;
-          // The width lives in Panel's own state, so this asks the owner to
-          // change it rather than writing a second copy anywhere. See the
-          // listener in Panel.jsx.
-          window.dispatchEvent(new CustomEvent('gamepad-panel-resize', {
-            detail: { side: heldPanel, dx },
-          }));
+          // Synchronously, for the reason asDiscreteInput exists: a mouse
+          // resize runs inside a mousemove handler, so React flushes the new
+          // width before the browser paints, every time. This runs in the rAF
+          // loop, where the same update is scheduled at ordinary priority and
+          // the scheduler is free to yield — so the bar would land one frame
+          // late, then three, then one. That irregularity IS the bumpiness; it
+          // is not the rate.
+          asDiscreteInput(() => p.panelResizeControlRef?.current?.by?.(heldPanel, dx));
         }
         // The stick is spoken for while it is resizing — it must not also pan
         // or zoom. Held for the whole gesture, not just the frames that moved,
         // so easing off mid-resize doesn't jolt the canvas.
         resizingPanel = panelResizeRef.current.resized;
       } else {
-        if (panelResizeRef.current.resized) {
-          // Persist once, at the end. See commitPanelWidth in Panel.jsx.
-          window.dispatchEvent(new CustomEvent('gamepad-panel-resize-end', {
-            detail: { side: heldPanel },
-          }));
-        } else {
-          const isLeft = heldPanel === 'left';
-          (isLeft ? store.toggleLeftPanel : store.toggleRightPanel)?.();
-          lastPanelSideRef.current = heldPanel;
-          // Closing the panel focus was sitting in would strand the ring on a
-          // detached element; `expanded` is still the PRE-toggle value.
-          if (panelNavRef.current.side() === heldPanel && expanded) panelNavRef.current.clear();
+        if (!panelResizeRef.current.resized) {
+          // A tap: step to the previous or next open web, as the bumpers
+          // always have.
+          const openIds = store.openGraphIds || [];
+          const curIdx = openIds.indexOf(store.activeGraphId);
+          const step = heldPanel === 'left' ? -1 : 1;
+          const next = openIds[curIdx + step];
+          if (curIdx >= 0 && next) store.setActiveGraphTab?.(next);
         }
-        panelResizeRef.current = { side: null, resized: false };
+        // Persists once, at the end, and only if a width actually moved.
+        endPanelResizeGesture();
       }
     }
 
@@ -1595,16 +1729,9 @@ export const useGamepad = ({
         else if (buttons.justPressed[BTN.RB] && at < openIds.length - 1) store.moveGraphTab?.(held, at + 1);
       }
     } else {
-      // Bumpers step through the open webs, matching Tab+Q/E. They sit on the
-      // shoulders because that is where a "previous / next" pair belongs — the
-      // same place they switch tabs once you are inside a panel.
-      const openIds = store.openGraphIds || [];
-      const curIdx = openIds.indexOf(store.activeGraphId);
-      if (buttons.justPressed[BTN.LB] && curIdx > 0) {
-        store.setActiveGraphTab?.(openIds[curIdx - 1]);
-      } else if (buttons.justPressed[BTN.RB] && curIdx >= 0 && curIdx < openIds.length - 1) {
-        store.setActiveGraphTab?.(openIds[curIdx + 1]);
-      }
+      // Web switching used to fire from here, on the press. It now fires on the
+      // bumper's RELEASE — see the bumper block above, which has to see whether
+      // the stick moved before it can know whether this was a tap at all.
       // The d-pad's left and right used to toggle the panels from here. They
       // don't any more: the panels moved to the stick clicks so that the whole
       // d-pad could become the panel navigator once you are inside one. A
@@ -1626,7 +1753,11 @@ export const useGamepad = ({
       // d-pad now belongs to the chrome at all times — a button that means
       // "next connection option" here and "next thing in the right panel"
       // one keypress later means neither reliably.
-      const dir = stickStep(left, 'edge');
+      //
+      // Read in the MENU's frame: the same angle PieMenu lays the row out
+      // along, so pushing the stick along the row always advances it whether
+      // the connection runs across the screen, up it, or at any angle between.
+      const dir = stickStep(left, 'edge', p.edgeAnchorAngleRef?.current ?? 0);
       if (dir) {
         const next = stepLineFocus(pieFocusedIndexRef.current, dir, list.length);
         if (next >= 0) setPieFocusBoth(next);
@@ -1754,7 +1885,7 @@ export const useGamepad = ({
 
     return { panDx, panDy, zoomMultiplier };
   }, [deactivate, getCrosshair, getContainerRect, resolveCrosshairTarget, setModeBoth, setPieFocusBoth,
-    navigate, clearNavFocus, setHeaderFocusBoth]);
+    navigate, clearNavFocus, setHeaderFocusBoth, endPanelResizeGesture]);
 
   // The host rAF loop calls through this ref, so it never has to re-subscribe
   // when `tick` is rebuilt.

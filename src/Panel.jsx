@@ -1359,49 +1359,6 @@ const Panel = memo(forwardRef(
       }
     }, [handleResizeMouseMove, handleResizeTouchMove, commitPanelWidth]);
 
-    /**
-     * Resizing from a game controller.
-     *
-     * A pointer drag states an absolute position every event, so the mouse path
-     * can derive the width from where the cursor IS. A stick states a velocity,
-     * so this integrates deltas instead — and that difference is the whole
-     * reason it cannot reuse updateWidthForClientX.
-     *
-     * The accumulator is `panelWidthRef`, written synchronously here rather
-     * than being left to the effect that normally mirrors it. Each frame's
-     * delta is applied to the previous frame's result, and React state is a
-     * frame behind inside a rAF loop — reading it would make every frame
-     * recompute from the same stale width and the panel would crawl.
-     *
-     * Commanded by event because the width lives HERE, in this component's
-     * state, and has no store entry to write. Keeping the only writer in the
-     * component that owns it is what stops the controller becoming a second
-     * source of truth for panel layout.
-     */
-    useEffect(() => {
-      const onResizeDelta = (e) => {
-        if (e.detail?.side !== side) return;
-        const dx = Number(e.detail.dx);
-        if (!Number.isFinite(dx) || dx === 0) return;
-        const prev = panelWidthRef.current;
-        const next = clampPanelWidthToViewport(prev + dx);
-        if (next === prev) return;
-        panelWidthRef.current = next;
-        setPanelWidth(next);
-        setIsWideLayout(next > 250);
-      };
-      const onResizeEnd = (e) => {
-        if (e.detail?.side !== side) return;
-        commitPanelWidth();
-      };
-      window.addEventListener('gamepad-panel-resize', onResizeDelta);
-      window.addEventListener('gamepad-panel-resize-end', onResizeEnd);
-      return () => {
-        window.removeEventListener('gamepad-panel-resize', onResizeDelta);
-        window.removeEventListener('gamepad-panel-resize-end', onResizeEnd);
-      };
-    }, [side, commitPanelWidth]);
-
     const handleResizeMouseDown = useCallback((e) => {
       e.preventDefault();
       e.stopPropagation();

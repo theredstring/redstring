@@ -366,7 +366,7 @@ export const getConnectionLabelColors = (
  * <text> underneath the real one carrying this width — see the connection label
  * render sites. Below 1 the ring would hide inside the halo, hence the floor.
  */
-export const DEFAULT_CONNECTION_LABEL_RING_WIDTH = 2.1;
+export const DEFAULT_CONNECTION_LABEL_RING_WIDTH = 3.0;
 export const CONNECTION_LABEL_RING_WIDTH_MIN = 1.1;
 export const CONNECTION_LABEL_RING_WIDTH_MAX = 5.0;
 

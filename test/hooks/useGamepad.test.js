@@ -4,8 +4,11 @@ import {
   pieButtonIndexForStick,
   stepLineFocus,
   stickDirection,
+  lineFrameDirection,
   createRepeater,
   cameraHeldElsewhere,
+  panelResizeDelta,
+  panelResizeArms,
   BTN,
   AXIS,
 } from '../../src/hooks/useGamepad.js';
@@ -368,5 +371,151 @@ describe('cameraHeldElsewhere', () => {
     expect(cameraHeldElsewhere(false, 'idle')).toBe(false);
     expect(cameraHeldElsewhere(undefined, undefined)).toBe(false);
     expect(cameraHeldElsewhere(null, null)).toBe(false);
+  });
+});
+
+/**
+ * Holding a bumper and pushing the stick sideways resizes that panel.
+ *
+ * The value is VIRTUAL CURSOR TRAVEL, not panel width: the pad drives the same
+ * overlay resizer a mouse drags, and which panel a rightward drag widens is
+ * already settled there. Restating it here is how the two would come to
+ * disagree.
+ */
+describe('panelResizeDelta', () => {
+  const FRAME = 1; // one 60fps frame
+
+  it('moves the cursor the way the stick is pushed', () => {
+    expect(panelResizeDelta(1, 1, FRAME)).toBeGreaterThan(0);
+    expect(panelResizeDelta(-1, 1, FRAME)).toBeLessThan(0);
+  });
+
+  it('is symmetric about centre', () => {
+    expect(panelResizeDelta(0.8, 1, FRAME)).toBeCloseTo(-panelResizeDelta(-0.8, 1, FRAME), 10);
+  });
+
+  it('scales with sensitivity and with frame time', () => {
+    const base = panelResizeDelta(1, 1, FRAME);
+    expect(panelResizeDelta(1, 2, FRAME)).toBeCloseTo(base * 2, 10);
+    // A frame that took twice as long moves twice as far, so the rate holds
+    // however the frame time drifts.
+    expect(panelResizeDelta(1, 1, 2)).toBeCloseTo(base * 2, 10);
+  });
+
+  it('defaults a missing sensitivity to 1x rather than to nothing', () => {
+    expect(panelResizeDelta(1, undefined, FRAME)).toBeCloseTo(panelResizeDelta(1, 1, FRAME), 10);
+    expect(panelResizeDelta(1, 0, FRAME)).toBeCloseTo(panelResizeDelta(1, 1, FRAME), 10);
+  });
+
+  it('survives a garbage axis reading', () => {
+    expect(panelResizeDelta(NaN, 1, FRAME)).toBe(0);
+    expect(panelResizeDelta(undefined, 1, FRAME)).toBe(0);
+    expect(panelResizeDelta(0, 1, FRAME)).toBe(0);
+  });
+});
+
+/**
+ * Whether holding a bumper has become a resize.
+ *
+ * The bumper can be tapped at any moment, including mid-pan with the stick
+ * already pushed hard over — so this is travel since the press, never absolute
+ * deflection.
+ */
+describe('panelResizeArms', () => {
+  it('arms when the stick moves after the press', () => {
+    expect(panelResizeArms(0.5, 0)).toBe(true);
+    expect(panelResizeArms(-0.5, 0)).toBe(true);
+  });
+
+  it('does not arm on small movement', () => {
+    expect(panelResizeArms(0.3, 0)).toBe(false);
+    expect(panelResizeArms(0.1, -0.1)).toBe(false);
+  });
+
+  /**
+   * REGRESSION: the case that makes this measure travel rather than position.
+   * Panning hard right and tapping the bumper to switch webs must switch webs
+   * — an absolute test would read the resting deflection as a resize and eat
+   * the tap.
+   */
+  it('does not arm from deflection the stick already had at the press', () => {
+    expect(panelResizeArms(1, 1)).toBe(false);
+    expect(panelResizeArms(0.95, 1)).toBe(false);
+  });
+
+  it('arms from a moving stick that moves further', () => {
+    expect(panelResizeArms(0.2, 1)).toBe(true);
+    expect(panelResizeArms(-1, -0.5)).toBe(true);
+  });
+
+  it('survives a garbage reading', () => {
+    expect(panelResizeArms(NaN, 0)).toBe(false);
+    expect(panelResizeArms(0.5, undefined)).toBe(false);
+  });
+});
+
+/**
+ * A connection's menu is laid along its edge, so its row runs at whatever angle
+ * that edge has. These check the change of basis that makes navigation agree
+ * with the drawing at every angle — the same `along` / `perp` vectors
+ * lineModeLayout places the buttons with.
+ */
+describe('lineFrameDirection', () => {
+  const FULL = 1;
+
+  it('is ordinary screen direction for a horizontal connection', () => {
+    expect(lineFrameDirection(FULL, 0, 0)).toBe('right');
+    expect(lineFrameDirection(-FULL, 0, 0)).toBe('left');
+    expect(lineFrameDirection(0, -FULL, 0)).toBe('up');
+    expect(lineFrameDirection(0, FULL, 0)).toBe('down');
+  });
+
+  /**
+   * The case that motivated this. On a vertical connection the row is stacked
+   * top to bottom, so pushing the stick right — the screen direction that used
+   * to mean "next" — points off the side of a menu that has no width.
+   */
+  it('walks a vertical connection along its own row', () => {
+    const UP_EDGE = Math.PI / 2; // row runs downward on screen
+    expect(lineFrameDirection(0, FULL, UP_EDGE)).toBe('right'); // stick down = next
+    expect(lineFrameDirection(0, -FULL, UP_EDGE)).toBe('left'); // stick up = previous
+    // Across the row changes row, as it does on a horizontal one.
+    expect(lineFrameDirection(FULL, 0, UP_EDGE)).toBe('up');
+    expect(lineFrameDirection(-FULL, 0, UP_EDGE)).toBe('down');
+  });
+
+  it('handles the other vertical sign the same way round', () => {
+    const DOWN_EDGE = -Math.PI / 2;
+    // The row runs upward on screen here, so pushing up is what advances it.
+    expect(lineFrameDirection(0, -FULL, DOWN_EDGE)).toBe('right');
+    expect(lineFrameDirection(0, FULL, DOWN_EDGE)).toBe('left');
+  });
+
+  it('treats a diagonal connection as just another angle', () => {
+    const DIAG = Math.PI / 4;
+    const d = Math.SQRT1_2;
+    // Pushing along the edge advances the row...
+    expect(lineFrameDirection(d, d, DIAG)).toBe('right');
+    expect(lineFrameDirection(-d, -d, DIAG)).toBe('left');
+    // ...and pushing across it changes row.
+    expect(lineFrameDirection(d, -d, DIAG)).toBe('up');
+    expect(lineFrameDirection(-d, d, DIAG)).toBe('down');
+  });
+
+  /**
+   * Rotation preserves length, so the deadzone threshold has to mean exactly
+   * what it means for an unrotated stick — otherwise the menu would get twitchy
+   * at some angles and sluggish at others.
+   */
+  it('thresholds on magnitude, unchanged by the rotation', () => {
+    for (const angle of [0, 0.3, Math.PI / 4, Math.PI / 2, -1.1]) {
+      expect(lineFrameDirection(0.2, 0.2, angle, 0.5)).toBeNull();
+      expect(lineFrameDirection(0.6, 0.6, angle, 0.5)).not.toBeNull();
+    }
+  });
+
+  it('falls back to the screen frame on a missing angle', () => {
+    expect(lineFrameDirection(FULL, 0, undefined)).toBe('right');
+    expect(lineFrameDirection(FULL, 0, NaN)).toBe('right');
   });
 });

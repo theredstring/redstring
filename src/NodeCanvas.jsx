@@ -1126,6 +1126,55 @@ function NodeCanvas() {
     try { document.body.style.overscrollBehavior = ''; } catch { }
   };
 
+  /**
+   * Panel resizing from a game controller, driven through the resizer the mouse
+   * drives rather than alongside it.
+   *
+   * The bars the user actually grabs are these overlay resizers, not the strip
+   * inside the panel — they are positioned from `leftPanelWidth`/`rightPanelWidth`
+   * here, and the panel FOLLOWS them via `panelWidthChanging`. A controller
+   * path that talked to the panel directly moved the panel and left the bar
+   * behind, because the bar's position was never part of that conversation.
+   *
+   * So this fakes a pointer drag instead of inventing a second mechanism: the
+   * same refs `beginDrag` sets, the same `applyResizeUpdate` for clamping and
+   * broadcasting, the same `endDrag` for persistence. The stick's motion is
+   * accumulated into a virtual cursor x, which means even the per-side sign
+   * (dragging right widens the left panel and narrows the right one) stays
+   * where it already lives instead of being restated.
+   *
+   * `isHovering*Resizer` is set for the duration so the bar shows itself held
+   * — the controller has no pointer to hover with, so the look has to be
+   * asserted rather than arrived at.
+   */
+  const panelResizeControlRef = useRef(null);
+  panelResizeControlRef.current = {
+    begin: (side) => {
+      dragStartXRef.current = 0;
+      latestResizeClientXRef.current = 0;
+      if (side === 'left') {
+        startWidthRef.current = leftWidthRef.current;
+        isDraggingLeft.current = true;
+        setIsHoveringLeftResizer(true);
+      } else {
+        startWidthRef.current = rightWidthRef.current;
+        isDraggingRight.current = true;
+        setIsHoveringRightResizer(true);
+      }
+    },
+    /** @param {number} pointerDx px the virtual cursor moved this frame */
+    by: (side, pointerDx) => {
+      const live = side === 'left' ? isDraggingLeft.current : isDraggingRight.current;
+      if (!live) return;
+      latestResizeClientXRef.current += pointerDx;
+      // Called directly rather than through the rAF coalescing the pointer path
+      // uses: this is ALREADY once per frame, and deferring it by a frame is
+      // the thing that made the panel lag the stick.
+      applyResizeUpdate();
+    },
+    end: () => endDrag(),
+  };
+
   // Render overlay resizer bars that sit just outside panels
   const renderPanelResizers = () => {
     const barHeightPct = 0.33;
@@ -13702,6 +13751,7 @@ function NodeCanvas() {
     plusSignControlRef,
     groupControlRef,
     marqueeControlRef,
+    panelResizeControlRef,
     setSelectedInstanceIds,
     selectedInstanceIdsRef,
     commitHoverTarget,

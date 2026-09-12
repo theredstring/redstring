@@ -496,6 +496,10 @@ const SettingsModal = ({ isVisible, onClose }) => {
       title: 'Connections',
       content: (
         <div>
+          {/* Each routing style brings its own one control, and it belongs
+              directly under the style that reveals it rather than stranded at
+              the foot of the page where it used to sit. */}
+          <div className="settings-section-subtitle">Routing</div>
           <div className="settings-row">
             <div className="settings-row-label">Routing Style</div>
             <OptionGroup
@@ -507,118 +511,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
               ]}
               value={routingStyle || 'straight'}
               onChange={(v) => useGraphStore.getState().setRoutingStyle?.(v)}
-            />
-          </div>
-          <div className="settings-row">
-            <div className="settings-row-label">
-              Show Connection Names
-              <div className="settings-row-description">Display labels on connections</div>
-            </div>
-            <Toggle
-              checked={!!showConnectionNames}
-              onChange={() => useGraphStore.getState().toggleShowConnectionNames?.()}
-            />
-          </div>
-          <div className="settings-row">
-            <div className="settings-row-label">Label Color</div>
-            <OptionGroup
-              options={[
-                { label: 'Always Light', value: 'light' },
-                { label: 'Connection Color', value: 'connection' },
-                { label: 'Theme', value: 'theme' }
-              ]}
-              value={connectionLabelColorMode}
-              onChange={(v) => useGraphStore.getState().setConnectionLabelColorMode?.(v)}
-            />
-          </div>
-          <div className="settings-row settings-row--attached">
-            <div className="settings-row-label">Label Ring</div>
-            <Toggle
-              checked={!!connectionLabelOuterRing}
-              onChange={() => useGraphStore.getState().toggleConnectionLabelOuterRing?.()}
-            />
-          </div>
-          <div className="settings-slider-row settings-slider-row--unlabeled">
-            <MaroonSlider
-              ariaLabel="Label Ring Width"
-              value={connectionLabelRingWidth}
-              min={CONNECTION_LABEL_RING_WIDTH_MIN}
-              max={CONNECTION_LABEL_RING_WIDTH_MAX}
-              step={0.05}
-              suffix="x"
-              disabled={!connectionLabelOuterRing}
-              onChange={(v) => useGraphStore.getState().setConnectionLabelRingWidth?.(v)}
-            />
-          </div>
-          <div className="settings-row">
-            <div className="settings-row-label">
-              Truncate Long Labels
-              <div className="settings-row-description">Ends a name too long for its connection in an ellipsis instead of letting it overhang the nodes</div>
-            </div>
-            <Toggle
-              checked={!!connectionLabelTruncate}
-              disabled={!showConnectionNames}
-              onChange={() => useGraphStore.getState().toggleConnectionLabelTruncate?.()}
-            />
-          </div>
-          <div className="settings-row">
-            <div className="settings-row-label">
-              Fade Labels While Moving
-              <div className="settings-row-description">Hides connection labels while panning or zooming, where they cost the most to draw</div>
-            </div>
-            <OptionGroup
-              options={[
-                { label: 'Off', value: 'off' },
-                { label: 'Large Webs', value: 'large' },
-                { label: 'Always', value: 'always' }
-              ]}
-              value={connectionLabelMoveFade}
-              onChange={(v) => useGraphStore.getState().setConnectionLabelMoveFade?.(v)}
-            />
-          </div>
-          <div className="settings-row">
-            <div className="settings-row-label">
-              Rasterize Labels
-              <div className="settings-row-description">Pre-renders connection labels, saving processing time.</div>
-            </div>
-            <Toggle
-              checked={!!connectionLabelSprites}
-              disabled={!showConnectionNames}
-              onChange={() => useGraphStore.getState().toggleConnectionLabelSprites?.()}
-            />
-          </div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Label Size"
-              value={connectionLabelSize}
-              min={0.5}
-              max={2.0}
-              step={0.05}
-              suffix="x"
-              disabled={!showConnectionNames}
-              onChange={(v) => useGraphStore.getState().setConnectionLabelSize?.(v)}
-            />
-          </div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Connection Width"
-              value={textSettings?.connectionWidth ?? 1.0}
-              min={0.25}
-              max={4.0}
-              step={0.05}
-              suffix="x"
-              onChange={(v) => useGraphStore.getState().setConnectionWidth?.(v)}
-            />
-          </div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Multi Connection Curve"
-              value={multiConnectionCurve}
-              min={0}
-              max={3.0}
-              step={0.05}
-              suffix="x"
-              onChange={(v) => useGraphStore.getState().setMultiConnectionCurve?.(v)}
             />
           </div>
           {routingStyle === 'lombardi' && (
@@ -664,6 +556,129 @@ const SettingsModal = ({ isVisible, onClose }) => {
               />
             </div>
           )}
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Multi Connection Curve"
+              value={multiConnectionCurve}
+              min={0}
+              max={3.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setMultiConnectionCurve?.(v)}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Connection Width"
+              value={textSettings?.connectionWidth ?? 1.0}
+              min={0.25}
+              max={4.0}
+              step={0.05}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setConnectionWidth?.(v)}
+            />
+          </div>
+
+          <hr className="settings-section-divider" />
+
+          <div className="settings-section-subtitle">Labels</div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Show Connection Names
+              <div className="settings-row-description">Display labels on connections</div>
+            </div>
+            <Toggle
+              checked={!!showConnectionNames}
+              onChange={() => useGraphStore.getState().toggleShowConnectionNames?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Label Size"
+              value={connectionLabelSize}
+              min={0.5}
+              max={2.0}
+              step={0.05}
+              suffix="x"
+              disabled={!showConnectionNames}
+              onChange={(v) => useGraphStore.getState().setConnectionLabelSize?.(v)}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">Label Color</div>
+            <OptionGroup
+              options={[
+                { label: 'Always Light', value: 'light' },
+                { label: 'Connection Color', value: 'connection' },
+                { label: 'Theme', value: 'theme' }
+              ]}
+              value={connectionLabelColorMode}
+              onChange={(v) => useGraphStore.getState().setConnectionLabelColorMode?.(v)}
+            />
+          </div>
+          <div className="settings-row settings-row--attached">
+            <div className="settings-row-label">Label Ring</div>
+            <Toggle
+              checked={!!connectionLabelOuterRing}
+              onChange={() => useGraphStore.getState().toggleConnectionLabelOuterRing?.()}
+            />
+          </div>
+          <div className="settings-slider-row settings-slider-row--unlabeled">
+            <MaroonSlider
+              ariaLabel="Label Ring Width"
+              value={connectionLabelRingWidth}
+              min={CONNECTION_LABEL_RING_WIDTH_MIN}
+              max={CONNECTION_LABEL_RING_WIDTH_MAX}
+              step={0.05}
+              suffix="x"
+              disabled={!connectionLabelOuterRing}
+              onChange={(v) => useGraphStore.getState().setConnectionLabelRingWidth?.(v)}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Truncate Long Labels
+              <div className="settings-row-description">Ends a name too long for its connection in an ellipsis instead of letting it overhang the nodes</div>
+            </div>
+            <Toggle
+              checked={!!connectionLabelTruncate}
+              disabled={!showConnectionNames}
+              onChange={() => useGraphStore.getState().toggleConnectionLabelTruncate?.()}
+            />
+          </div>
+
+          <hr className="settings-section-divider" />
+
+          {/* Both of these trade some part of how labels look for how cheaply
+              they draw, which is what separates them from the group above
+              rather than any difference in what they act on. */}
+          <div className="settings-section-subtitle">Performance</div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Fade Labels While Moving
+              <div className="settings-row-description">Hides connection labels while panning or zooming, where they cost the most to draw</div>
+            </div>
+            <OptionGroup
+              options={[
+                { label: 'Off', value: 'off' },
+                { label: 'Large Webs', value: 'large' },
+                { label: 'Always', value: 'always' }
+              ]}
+              value={connectionLabelMoveFade}
+              onChange={(v) => useGraphStore.getState().setConnectionLabelMoveFade?.(v)}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Rasterize Labels
+              <div className="settings-row-description">Pre-renders connection labels, saving processing time.</div>
+            </div>
+            <Toggle
+              checked={!!connectionLabelSprites}
+              disabled={!showConnectionNames}
+              onChange={() => useGraphStore.getState().toggleConnectionLabelSprites?.()}
+            />
+          </div>
         </div>
       )
     },
