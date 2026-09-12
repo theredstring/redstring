@@ -61,6 +61,9 @@ export function resolveMaxAskTokens(apiConfig = {}) {
  * @param {string}   [params.systemPrompt]       overrides the built-in prompt
  * @param {Array}    [params.contextItems]
  * @param {Array}    [params.conversationHistory]
+ * @param {string}   [params.toolPolicy]         restricts the toolset for this ask
+ *                                               ('readonly' | 'query'); see toolPolicy.js.
+ *                                               Absent means unrestricted.
  */
 export function buildLlmConfig({
   apiKey,
@@ -68,7 +71,8 @@ export function buildLlmConfig({
   cid,
   systemPrompt,
   contextItems = [],
-  conversationHistory = []
+  conversationHistory = [],
+  toolPolicy
 } = {}) {
   // Callers pass `config.apiConfig` straight through, and that is explicitly
   // null when the user has no provider configured — a default parameter would
@@ -89,7 +93,10 @@ export function buildLlmConfig({
     maxAskTokens: resolveMaxAskTokens(apiConfig),
     // 'plan' (default) or 'goal' — which contract ends a turn. See wizardMode.js.
     wizardMode: normalizeWizardMode(apiConfig.settings?.wizardMode),
-    contextItems
+    contextItems,
+    // Per-ask tool restriction. Left undefined for ordinary chat asks, which is
+    // what keeps them on the normal selectToolsForTurn path.
+    toolPolicy
   };
 }
 

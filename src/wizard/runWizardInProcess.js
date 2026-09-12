@@ -51,6 +51,8 @@ function deepClone(value) {
  * @param {string}   [params.cid]
  * @param {string}   [params.systemPrompt]
  * @param {Array}    [params.contextItems]
+ * @param {string}   [params.toolPolicy]         restricts the toolset for this ask
+ *                                               ('readonly' | 'query'); see toolPolicy.js
  * @param {AbortSignal} [params.signal]          same signal the stop button already uses
  * @param {Function} [params.ensureSchedulerStarted]
  *
@@ -66,6 +68,7 @@ export async function* runWizardInProcess({
   cid,
   systemPrompt,
   contextItems = [],
+  toolPolicy,
   signal = null,
   ensureSchedulerStarted = NOOP_SCHEDULER
 } = {}) {
@@ -105,7 +108,8 @@ export async function* runWizardInProcess({
     cid,
     systemPrompt,
     contextItems,
-    conversationHistory
+    conversationHistory,
+    toolPolicy
   });
 
   // Errors propagate to the caller rather than being converted to events. An

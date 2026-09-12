@@ -119,4 +119,14 @@ describe('buildLlmConfig', () => {
     expect(config.conversationHistory).toEqual([]);
     expect(config.contextItems).toEqual([]);
   });
+
+  // This function is a hard whitelist — a field it does not name never reaches
+  // runAgent, however carefully the caller passed it down.
+  it('carries a per-ask tool policy through to the agent config', () => {
+    expect(buildLlmConfig({ apiKey: 'k', toolPolicy: 'readonly' }).toolPolicy).toBe('readonly');
+  });
+
+  it('leaves the tool policy undefined for an ordinary ask', () => {
+    expect(buildLlmConfig({ apiKey: 'k' }).toolPolicy).toBeUndefined();
+  });
 });

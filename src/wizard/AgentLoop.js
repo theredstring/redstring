@@ -12,6 +12,7 @@ import { isSettled, renderPlanText } from './tools/planTask.js';
 import { isGoalSettled, renderGoalText } from './tools/declareGoal.js';
 import { normalizeWizardMode, WIZARD_MODE_GOAL } from './wizardMode.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
+import { resolveToolPolicy, buildPolicyToolList, isToolAllowed, toolRefusalResult } from './toolPolicy.js';
 import { selectToolsForTurn } from './tools/schemas.js';
 import { buildRequestMessages } from './requestMessages.js';
 import { dedupeHistory, dedupKeyFor } from './historyDedup.js';
@@ -1357,12 +1358,31 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   });
 
   const modelTier = config.modelTier || 'large';
+
+  // Per-ask tool policy (see toolPolicy.js). Absent — the normal case, and every
+  // ask that predates this — means unrestricted, so nothing below changes shape.
+  const toolPolicy = resolveToolPolicy(config.toolPolicy);
+  if (toolPolicy) {
+    // A question is not a continuation of a build. The UI seeds _currentPlan and
+    // _currentGoal from the conversation whenever the graph matches, which for a
+    // restricted ask is actively harmful: the plan-incomplete and goal-unjudged
+    // steering below both demand action tools, and a read-only ask has neither
+    // those nor declareGoal to issue the verdict that would end the turn. It
+    // would be nudged to the nudge limit and stop with nothing shown to the user.
+    // graphState is deep-cloned per ask, so dropping them here is local to this run.
+    graphState._currentPlan = null;
+    graphState._currentGoal = null;
+    console.error(`[AgentLoop] Tool policy "${toolPolicy.id}" active — plan/goal seeding dropped for this ask.`);
+  }
+
   // Goal Based mode (see wizardMode.js): a declared goal, not the plan, ends
   // the turn. Small models cannot maintain model-owned state — planTask is
   // withheld from them for exactly that reason — so the goal contract is too;
-  // they run Plan Based whatever the setting says.
+  // they run Plan Based whatever the setting says. A restricted ask runs Plan
+  // Based for the same reason: declareGoal is not in its toolset, so a goal it
+  // could never judge would be a turn that can never end.
   const wizardMode = normalizeWizardMode(config.wizardMode);
-  const goalMode = wizardMode === WIZARD_MODE_GOAL && modelTier !== 'small';
+  const goalMode = wizardMode === WIZARD_MODE_GOAL && modelTier !== 'small' && !toolPolicy;
   graphState._wizardMode = goalMode ? WIZARD_MODE_GOAL : 'plan';
   if (wizardMode === WIZARD_MODE_GOAL && !goalMode) {
     console.error('[AgentLoop] Goal Based mode requested but the model tier is small — running Plan Based.');
@@ -1574,12 +1594,23 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const userMessageText = typeof userMessage === 'string'
     ? userMessage
     : (Array.isArray(userMessage) ? userMessage.filter(b => b.type === 'text').map(b => b.text).join(' ') : '');
-  let tools = selectToolsForTurn({ graphState, userMessage: userMessageText, hasTabularData, modelTier });
+  //
+  // A restricted ask skips selectToolsForTurn entirely rather than filtering its
+  // output — see buildPolicyToolList for why. Its set is the same whatever the
+  // graph looks like, so the tool block is not merely frozen but identical across
+  // every ask of that kind, which is the best case for the cache.
+  let tools = toolPolicy
+    ? buildPolicyToolList(getToolDefinitions(), toolPolicy)
+    : selectToolsForTurn({ graphState, userMessage: userMessageText, hasTabularData, modelTier });
   // `listTools` sets _unlockAllTools to deliberately widen the toolset mid-ask.
   // That is a real, intentional change, so it earns exactly one recomputation and
   // the single cache write that comes with it — unlike the incidental churn above.
+  // Under a policy the widening is refused outright: listTools is not offered, and
+  // honouring the flag would hand back the mutating tools the policy exists to
+  // withhold. (selectToolsForTurn short-circuits to the full catalog on that flag,
+  // which is a second reason a restricted ask must not route through it.)
   let toolsUnlocked = !!graphState?._unlockAllTools;
-  console.error(`[AgentLoop] Tool set frozen for this ask: ${tools.length} tools.`);
+  console.error(`[AgentLoop] Tool set frozen for this ask: ${tools.length} tools.${toolPolicy ? ` (policy: ${toolPolicy.id})` : ''}`);
 
   // Rebuilt each iteration and injected at the tail of the request only.
   let volatileContext = '';
@@ -1657,8 +1688,16 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // one-time widening `listTools` requests.
       if (!toolsUnlocked && graphState?._unlockAllTools) {
         toolsUnlocked = true;
-        tools = selectToolsForTurn({ graphState, userMessage: userMessageText, hasTabularData, modelTier });
-        console.error(`[AgentLoop] listTools unlocked the full toolset: ${tools.length} tools (one cache write).`);
+        if (toolPolicy) {
+          // Nothing should be able to set this — listTools is not in any policy's
+          // allow-set — but the flag lives on shared state, so refuse rather than
+          // trust that. Widening here would silently void the whole policy.
+          graphState._unlockAllTools = false;
+          console.error(`[AgentLoop] Ignoring an unlock request under tool policy "${toolPolicy.id}".`);
+        } else {
+          tools = selectToolsForTurn({ graphState, userMessage: userMessageText, hasTabularData, modelTier });
+          console.error(`[AgentLoop] listTools unlocked the full toolset: ${tools.length} tools (one cache write).`);
+        }
       }
       // planTask churn used to be handled by filtering the schema out of `tools`,
       // which mutated the cached block for the rest of the ask. The executor
@@ -2088,7 +2127,11 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           continue;
         }
 
-        if (!hasNudgedFirstIteration && iteration === 0 && iterationContent.trim().length > 0
+        // Never under a tool policy. The regex above matches `defin\w*`, `show`,
+        // `graph` and `explore` — so "Explain how this Thing is defined" reads as
+        // task-like and gets steered toward calling tools, when prose is the whole
+        // point of the ask. For a restricted intent, text-only IS the finished answer.
+        if (!toolPolicy && !hasNudgedFirstIteration && iteration === 0 && iterationContent.trim().length > 0
             && userMsgIsTaskLike && !modelEndedWithQuestion) {
           hasNudgedFirstIteration = true;
           console.error(`[AgentLoop] ⚠️ Text-only response on first iteration — nudging model to call tools if applicable.`);
@@ -2109,6 +2152,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
       // Track sparse definition graphs for a post-loop nudge
       const sparseDefinitionGraphs = [];
+      // Set when a tool hands control back to the user (askMultipleChoice). See
+      // the break below for why the turn has to end rather than iterate on.
+      let awaitingUserInput = false;
       // Did a planTask call this iteration actually change the plan? A repeat of
       // the plan already in effect must not read as progress downstream.
       let planTaskChangedThisIter = false;
@@ -2155,6 +2201,25 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(lockedResult) });
             continue;
           }
+        }
+
+        // Tool policy, enforced. Withholding the schema is not sufficient on its
+        // own: a model can emit a call for a name it was never offered (replayed
+        // history, provider quirks), and without this it would simply execute.
+        //
+        // This has to happen HERE, before executeTool. Not in executeTool itself,
+        // which is shared with the MCP server and the bridge and would be a second
+        // differently-scoped notion of the same word. And never in the applier:
+        // updateGraphState below mirrors the mutation into the state the model
+        // reads back, so a refusal downstream of it leaves the agent's own picture
+        // of the graph believing the write landed — it would report success.
+        if (toolPolicy && !isToolAllowed(toolCall.name, toolPolicy)) {
+          const refusal = toolRefusalResult(toolCall.name, toolPolicy);
+          console.error(`[AgentLoop] Tool "${toolCall.name}" refused under policy "${toolPolicy.id}".`);
+          resolvedToolCallIds.add(toolCall.id);
+          yield { type: 'tool_result', name: toolCall.name, result: refusal, id: toolCall.id };
+          messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(refusal) });
+          continue;
         }
 
         try {
@@ -2261,6 +2326,24 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             _dedupKey: dedupKeyFor(toolCall.name, toolCall.args, result)
           });
 
+          // A tool that asks the user something ends the turn. askMultipleChoice
+          // has always returned __requiresUserInput, but nothing here acted on it:
+          // the loop pushed the result and carried on, so the model could keep
+          // calling tools after posing its question. That matters because the UI
+          // only renders the choice overlay when the askMultipleChoice block is
+          // the LAST tool call of the LAST message — one stray readGraph after it
+          // and the question became unreachable, leaving the user a dead chip and
+          // the wizard waiting on an answer it never offered a way to give.
+          //
+          // Breaking (rather than returning here) lets settleUnresolvedToolCalls
+          // below close out any sibling calls the model batched alongside it, so
+          // no chip is left spinning.
+          if (result?.__requiresUserInput) {
+            console.error(`[AgentLoop] "${toolCall.name}" is awaiting user input — ending the turn.`);
+            awaitingUserInput = true;
+            break;
+          }
+
           // Collect sparse definition graphs so we can nudge the model to expand them
           if (toolCall.name === 'populateDefinitionGraph' && typeof result.nodeCount === 'number' && result.nodeCount < 5 && result.graphId) {
             sparseDefinitionGraphs.push({
@@ -2299,6 +2382,14 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         resolvedToolCallIds,
         abortSignal?.aborted ? 'run stopped' : 'no result returned'
       );
+
+      // The model asked the user a question. The turn is over — the answer arrives
+      // as a fresh user message, and for a query-first intent it carries the tool
+      // policy that lets the accepted change actually be applied.
+      if (awaitingUserInput) {
+        yield { type: 'done', iterations: iteration + 1, reason: 'awaiting_user_input' };
+        return;
+      }
 
       // If any definition graph was just populated sparsely (< 5 nodes), nudge the model
       // to expand it before declaring the step done. Takes priority over the plan-complete

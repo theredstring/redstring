@@ -1449,11 +1449,17 @@ const LeftAIView = ({ compact = false,
 
     const handleSendWizardMsg = (e) => {
       if (e.detail && typeof e.detail.message === 'string') {
-        const opts = (e.detail.displayContent || e.detail.replayContent || e.detail.displayMetadata)
+        // Note the guard: this is an explicit whitelist, so any field not named
+        // in BOTH the condition and the object is silently dropped. `toolPolicy`
+        // has to appear in the condition too — an intent that restricts the
+        // toolset without overriding the chip display would otherwise arrive
+        // with opts === undefined and run unrestricted.
+        const opts = (e.detail.displayContent || e.detail.replayContent || e.detail.displayMetadata || e.detail.toolPolicy)
           ? {
               displayContent: e.detail.displayContent,
               displayMetadata: e.detail.displayMetadata,
-              replayContent: e.detail.replayContent
+              replayContent: e.detail.replayContent,
+              toolPolicy: e.detail.toolPolicy
             }
           : undefined;
         handleSendMessage(e.detail.message, opts);
@@ -2190,6 +2196,11 @@ const LeftAIView = ({ compact = false,
     const displayContent = sendOptions?.displayContent;
     const displayMetadata = sendOptions?.displayMetadata;
     const replayContent = sendOptions?.replayContent ?? displayContent;
+    // Restricts the toolset for this ask only (see wizard/toolPolicy.js). It rides
+    // the live send path and is deliberately NOT recoverable from replayed history
+    // — the history projection below sends the model only {role, content}. It is an
+    // enforcement input, not context, so the model never needs to see it.
+    const toolPolicy = sendOptions?.toolPolicy;
 
     // Trigger active mode for faster polling
     if (window.redstringStoreActions && window.redstringStoreActions._markActive) {
@@ -2340,7 +2351,7 @@ const LeftAIView = ({ compact = false,
     if (viewMode === 'druid') {
       try {
         // Reuse the autonomous agent handler but with Druid prompt
-        await handleAutonomousAgent(messagePayload, 'druid');
+        await handleAutonomousAgent(messagePayload, 'druid', { toolPolicy });
         consecutiveAskErrorsRef.current = 0; // a completed ask resets the breaker
       } catch (error) {
         console.error('Druid error:', error);
@@ -2367,7 +2378,7 @@ const LeftAIView = ({ compact = false,
       // The health-probe effect above keeps `isConnected` and the status dot
       // honest on its own poll; it does not need to gate anything here.
       if (viewMode === 'wizard') {
-        await handleAutonomousAgent(messagePayload);
+        await handleAutonomousAgent(messagePayload, 'wizard', { toolPolicy });
       } else {
         await handleQuestion(messagePayload);
       }
@@ -2425,7 +2436,16 @@ const LeftAIView = ({ compact = false,
   const graphInfo = getGraphInfo();
   const graphCount = graphsMap && typeof graphsMap.size === 'number' ? graphsMap.size : 0;
 
-  const handleAutonomousAgent = async (question, persona = 'wizard') => {
+  /**
+   * @param {string|Array} question
+   * @param {string} persona
+   * @param {Object} [askOptions]
+   * @param {string} [askOptions.toolPolicy] restricts this ask's toolset — see
+   *   wizard/toolPolicy.js. Per-ask and per-send: it cannot be recovered from
+   *   replayed history, so every path that needs it must pass it explicitly.
+   */
+  const handleAutonomousAgent = async (question, persona = 'wizard', askOptions = {}) => {
+    const askToolPolicy = askOptions?.toolPolicy;
     // Retire this tab's plan only when it is FINISHED. This used to clear
     // unconditionally on every request, which made continuation impossible: the
     // plan was deleted here and then read back a few hundred lines below when
@@ -2490,7 +2510,21 @@ const LeftAIView = ({ compact = false,
       }
       // Pre-create the AI message so telemetry tool_call events (which fire after the
       // fetch starts) land in this bubble rather than creating a second AI message bubble.
-      const _preCreatedMsg = { id: streamingMessageId, sender: 'ai', content: '', timestamp: new Date().toISOString(), contentBlocks: [], isStreaming: true };
+      // The ask's tool policy is recorded on the ASSISTANT message, not the user's.
+      // When the model proposes something and the user accepts, the accept creates a
+      // NEW user message, so the policy that produced the proposal is only reachable
+      // from the reply it came with. Message metadata is persisted with the
+      // conversation, so this survives a reload; and the history projection sends the
+      // model only {role, content}, so it stays out of the prompt where it belongs.
+      const _preCreatedMsg = {
+        id: streamingMessageId,
+        sender: 'ai',
+        content: '',
+        timestamp: new Date().toISOString(),
+        contentBlocks: [],
+        isStreaming: true,
+        ...(askToolPolicy ? { metadata: { wizardAsk: { toolPolicy: askToolPolicy } } } : {})
+      };
 
       // INVARIANT: at most one message is ever streaming. The thinking-dots row
       // renders per-message, so a leftover isStreaming from a previous run draws
@@ -2775,6 +2809,7 @@ const LeftAIView = ({ compact = false,
         apiConfig: wizardApiConfig,
         cid: `wizard-${Date.now()}`,
         systemPrompt: persona === 'druid' ? DRUID_SYSTEM_PROMPT : undefined,
+        toolPolicy: askToolPolicy,
         signal: abortController.signal
       });
 
