@@ -6,8 +6,9 @@
  *
  * ── The honest no ────────────────────────────────────────────────────────────
  *
- * Two of these are query-first: "does this connect to anything here?" and "is
- * there anything else between these two?". They are QUESTIONS, and the answer is
+ * Two of these are query-first: "should this connect to anything here?" and
+ * "is there anything else between these two?". They ask what OUGHT to exist and
+ * does not yet — never what already does, which is on the canvas. The answer is
  * frequently no. That is the whole point — it makes a library of Things
  * explorable by experiment. Drag one into any Web, ask whether it belongs, keep
  * it or pull it back out. The moment the wizard starts finding something rather
@@ -138,14 +139,17 @@ export function buildConnectThingPrompt(prototype) {
   if (!prototype) return null;
   const name = prototype.name || 'this Thing';
   const lines = [
-    `Question: does "${name}" connect to anything already in this Web?`,
+    `Question: SHOULD "${name}" be connected to anything already in this Web?`,
     '',
-    'This is a QUESTION, not an instruction. "No, nothing here it belongs to" is a complete and correct answer, and often the right one — the user is testing whether this Thing belongs, not asking you to attach it.'
+    'Read that carefully. You are not being asked which Connections it already has — those are listed below, the user can see them on the canvas, and repeating them back answers nothing. You are being asked about Connections that DO NOT EXIST YET: relationships that are true of this Thing and something already here, which nobody has drawn.',
+    '',
+    'It is still a QUESTION, not an instruction. "No — nothing here it belongs to" is a complete and correct answer, and often the right one. The user is testing whether this Thing belongs, not asking you to attach it.'
   ];
   const activeGraph = thingHeader(prototype, lines);
   lines.push('',
     'How to answer:',
     '- Look for relationships that are genuinely true and would be recognised by someone who knows this subject. Not "these co-occur", not "these are both important" — an actual relation you could name.',
+    '- Do NOT answer by describing the Connections it already has, or by noting which node-groups it belongs to. That is the state of the canvas, not an answer to this question.',
     '- Do NOT reach for the best-connected Thing in the Web. Attaching a newcomer to whatever hub is already there is the single most common way a false yes gets manufactured, and it produces a Web that says "these things are near each other" where the truth was "nothing, yet".',
     '- If the honest answer is none, say so in one line AND say why — what this Web is about, and why this Thing sits outside it. "Nothing here it connects to — this Web is about postwar monetary policy and Rotterdam is a place, not an instrument." A no with a reason is something the user can disagree with; a bare no is indistinguishable from you not having looked.',
     '',
@@ -157,7 +161,7 @@ export function buildConnectThingPrompt(prototype) {
     READ_TOOL_NOTE
   );
   return result(lines, {
-    summary: `Does "${name}" connect to anything here?`,
+    summary: `Should "${name}" connect to anything here?`,
     action: 'connect-thing',
     subjectLabel: `"${name}"`
   });

@@ -2340,6 +2340,14 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           // no chip is left spinning.
           if (result?.__requiresUserInput) {
             console.error(`[AgentLoop] "${toolCall.name}" is awaiting user input — ending the turn.`);
+            // Models routinely emit a tool call with no prose alongside it, and
+            // before this halt existed the next iteration is where they wrote
+            // their conclusion. Ending here takes that iteration away, so without
+            // this the turn leaves an empty bubble with nothing in it but a chip.
+            // The question IS the wizard's turn, so say it.
+            if (!iterationHasYieldedText && result.question) {
+              yield { type: 'response', content: result.question };
+            }
             awaitingUserInput = true;
             break;
           }

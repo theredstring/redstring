@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import useScrollFade from '../../hooks/useScrollFade.js';
 import StandardDivider from '../StandardDivider.jsx';
 import { intentsForSurface, defaultIntentForSurface, intentLabel } from '../../wizard/prompts/intents.js';
 
@@ -35,6 +36,7 @@ const WizardIntentModal = ({
   const [selectedId, setSelectedId] = useState(null);
   const [freeText, setFreeText] = useState('');
   const textareaRef = useRef(null);
+  const listScroll = useScrollFade();
 
   // Reset to the default whenever the modal opens on a new element.
   useEffect(() => {
@@ -77,6 +79,9 @@ const WizardIntentModal = ({
     // list that holds it. The list sets overflow-y, which computes overflow-x from
     // `visible` to `auto`, so that overhang showed up as a horizontal scrollbar.
     boxSizing: 'border-box',
+    // Rows are the scrolling column's flex items: without this the column
+    // squeezes them all to fit instead of letting the list scroll.
+    flexShrink: 0,
     padding: '9px 12px',
     borderRadius: 8,
     cursor: 'pointer',
@@ -104,11 +109,20 @@ const WizardIntentModal = ({
       style={{
         position: 'fixed',
         inset: 0,
+        // #root carries a transform (App.css), so a fixed overlay measures from
+        // the app box — already inside the safe-area insets. Padding the BACKDROP
+        // and letting the dialog cap at 100% of it therefore beats any vh sum:
+        // it needs no notch arithmetic and no guess at a mobile URL bar's height.
+        padding: 20,
+        boxSizing: 'border-box',
         backgroundColor: 'rgba(0, 0, 0, 0.3)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 10000
+        // Above the TypeList bar (19999) and its toggle (20000). At 10000 the bar
+        // sat on top of the dialog and covered its footer — Ask and Cancel both —
+        // whenever the TypeList was open.
+        zIndex: 20001
       }}
       onClick={onClose}
     >
@@ -122,8 +136,8 @@ const WizardIntentModal = ({
         style={{
           width: 420,
           boxSizing: 'border-box',
-          maxWidth: 'calc(100vw - 40px)',
-          maxHeight: 'calc(100vh - 40px)',
+          maxWidth: '100%',
+          maxHeight: '100%',
           display: 'flex',
           flexDirection: 'column',
           backgroundColor: theme.canvas.bg,
@@ -139,6 +153,7 @@ const WizardIntentModal = ({
             it is a modifier on the ask, not one of the things being chosen. */}
         <div
           style={{
+            flexShrink: 0,
             padding: '14px 18px 10px',
             borderBottom: `2px solid ${theme.canvas.textPrimary}`,
             backgroundColor: theme.canvas.border
@@ -222,7 +237,18 @@ const WizardIntentModal = ({
           </label>
         </div>
 
-        <div style={{ padding: '10px 12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {/* The intents. `flex: 1 1 auto` with min-height 0 (from .scroll-fade) is
+            what makes the overflow scroll at all: a flex item's automatic minimum
+            size is its content, so this list used to hold itself at full height
+            and push the footer out through the dialog's hidden overflow — worst
+            on a short window and on mobile, where the header and the checkbox
+            have already taken their cut. The scrollbar is hidden and the
+            overflowing edge fades instead, so a list that fits looks untouched. */}
+        <div
+          ref={listScroll.ref}
+          className={listScroll.className}
+          style={{ flex: '1 1 auto', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 2 }}
+        >
           {rows.map((intent) => {
             const isSelected = intent.id === selectedId;
             return (
@@ -299,6 +325,7 @@ const WizardIntentModal = ({
 
         <div
           style={{
+            flexShrink: 0,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-end',

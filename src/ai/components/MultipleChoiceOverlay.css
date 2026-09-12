@@ -11,6 +11,18 @@
     flex-direction: column;
     gap: 12px;
     animation: slideUpFade 0.3s ease-out forwards;
+    /* The card sits between the message list and the composer in a column that
+       cannot grow. Six options, or two long ones, used to push the composer —
+       and the card's own last option — straight out of the panel's hidden
+       overflow. It is worst exactly where there is least room: on mobile, and
+       with the TypeList open, which the panel already gives up HEADER_HEIGHT to.
+       Capping it here and scrolling inside keeps the question and the composer
+       on screen together; the ceiling is a share of the column so the
+       conversation above it never disappears entirely. */
+    flex-shrink: 1;
+    min-height: 0;
+    max-height: 55%;
+    overflow: hidden;
 }
 
 @keyframes slideUpFade {
@@ -31,6 +43,11 @@
     align-items: center;
     gap: 12px;
     margin-bottom: 4px;
+    /* The question stays put while the options scroll under it — it is the
+       context for every row below. A pathologically long one gets to shrink
+       rather than starve the options of the whole card. */
+    flex-shrink: 1;
+    min-height: 0;
 }
 
 .mc-wizard-face {
@@ -46,12 +63,20 @@
     font-family: 'EmOne', sans-serif;
     line-height: 1.4;
     margin-bottom: 0;
+    /* Carries .scroll-fade, which only does anything if the question overflows. */
+    max-height: 8.4em;
+    /* A question can name a URL or an identifier, which carries no break
+       opportunity of its own and would now be clipped rather than run over. */
+    overflow-wrap: anywhere;
 }
 
 .mc-options {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    /* 1px of vertical padding so the option borders are not shaved by the
+       scroll box, and the buttons' 1px hover lift has somewhere to go. */
+    padding: 1px 0;
 }
 
 .mc-option-button {
@@ -66,7 +91,15 @@
     cursor: pointer;
     transition: all 0.2s ease;
     width: 100%;
+    /* box-sizing is not global in this app — App.css sets it on `body` alone —
+       so width:100% plus this padding and border made every option wider than
+       the list. Harmless while nothing clipped; now that the list scrolls, that
+       overhang would be shaved off the right edge of each option. */
+    box-sizing: border-box;
     text-align: left;
+    /* Options are the scroll container's flex items: without this the column
+       squeezes them all to fit instead of letting the list scroll. */
+    flex-shrink: 0;
 }
 
 .mc-option-button:hover {
@@ -105,6 +138,9 @@
     display: flex;
     gap: 8px;
     margin-top: 4px;
+    /* Typed answers stay reachable at the foot of the card, never scrolled
+       away with the options they replace. */
+    flex-shrink: 0;
 }
 
 .mc-other-input {

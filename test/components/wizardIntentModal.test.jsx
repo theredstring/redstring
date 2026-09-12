@@ -18,7 +18,7 @@ describe('WizardIntentModal', () => {
   it('renders every intent plus a permanent Other box', () => {
     render(<WizardIntentModal {...base} />);
     expect(screen.getByText('Define its components')).toBeTruthy();
-    expect(screen.getByText('Does this connect to anything here?')).toBeTruthy();
+    expect(screen.getByText('Should this connect to anything here?')).toBeTruthy();
     expect(screen.getByText('Expand its abstraction ladder')).toBeTruthy();
     expect(screen.getByText('Explain this Thing')).toBeTruthy();
     expect(screen.getByText('Other')).toBeTruthy();
@@ -77,5 +77,31 @@ describe('WizardIntentModal', () => {
     rows.forEach((row) => {
       expect(row.style.boxSizing, `row "${row.textContent.slice(0, 30)}" is not border-box`).toBe('border-box');
     });
+  });
+
+  it('scrolls the intent list instead of pushing the footer off screen', () => {
+    // A flex item's automatic minimum size is its content, so the list has to be
+    // told it may shrink — otherwise overflow-y never engages and the dialog's
+    // own hidden overflow eats Ask and Cancel on a short window.
+    const { container } = render(<WizardIntentModal {...base} />);
+    const list = container.querySelector('.scroll-fade');
+    expect(list, 'the intent list is not a scroll-fade region').toBeTruthy();
+    expect(list.style.flex).toBe('1 1 auto');
+    // Every row of it stays its own height rather than being squeezed to fit.
+    expect(list.querySelector('button').style.flexShrink).toBe('0');
+    // ...and the footer keeps its height no matter how many intents there are.
+    const footer = screen.getByText('Ask').closest('div[style*="border-top"]');
+    expect(footer.style.flexShrink).toBe('0');
+  });
+
+  it('sizes itself against the app box, above the TypeList bar', () => {
+    // vh is the whole screen under viewport-fit=cover, and the TypeList footer
+    // sits at z-index 19999 — at 10000 it covered the dialog's own footer.
+    const { container } = render(<WizardIntentModal {...base} />);
+    const backdrop = container.firstChild;
+    expect(Number(backdrop.style.zIndex)).toBeGreaterThan(20000);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.style.maxHeight).toBe('100%');
+    expect(dialog.style.maxWidth).toBe('100%');
   });
 });

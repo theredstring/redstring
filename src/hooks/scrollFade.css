@@ -1,0 +1,57 @@
+/**
+ * A scroll region that admits it is one without spending a scrollbar on it.
+ *
+ * The scrollbar is hidden and the overflowing edge is faded out instead, so the
+ * cut-off row reads as "there is more here" rather than as a row that happens to
+ * end at the container's edge. The fade only appears on an edge you can actually
+ * scroll toward — a list that fits shows no fade at all, and neither edge fades
+ * once you are against it — which is what keeps it quiet.
+ *
+ * Pair with useScrollFade.js, which measures the element and hands back the
+ * modifier classes.
+ */
+.scroll-fade {
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* A flex item's automatic minimum size is its content, which would let the
+     list push past its own max-height and never scroll at all. */
+  min-height: 0;
+  /* Scrolling the last option must not start scrolling the chat behind it. */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* Edge */
+}
+
+.scroll-fade::-webkit-scrollbar {
+  display: none;
+}
+
+/* The prefixed property is still what WKWebView reads on older iOS, and
+   Capacitor ships whatever the device has. Both are declared, unprefixed last. */
+.scroll-fade--top {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 20px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 20px);
+}
+
+.scroll-fade--bottom {
+  -webkit-mask-image: linear-gradient(to top, transparent 0, #000 20px);
+  mask-image: linear-gradient(to top, transparent 0, #000 20px);
+}
+
+.scroll-fade--top.scroll-fade--bottom {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 20px,
+    #000 calc(100% - 20px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 20px,
+    #000 calc(100% - 20px),
+    transparent 100%
+  );
+}

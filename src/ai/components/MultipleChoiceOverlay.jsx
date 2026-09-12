@@ -3,6 +3,7 @@ import './MultipleChoiceOverlay.css';
 import { sanitizeHtml } from '../../utils/sanitizeHtml.js';
 import headSvg from '../../assets/svg/wizard/head.svg';
 import { useTheme } from '../../hooks/useTheme.js';
+import useScrollFade from '../../hooks/useScrollFade.js';
 
 /**
  * Overlay for rendering a multiple choice question from the AI
@@ -16,6 +17,11 @@ export default function MultipleChoiceOverlay({ question, options, onSelect, onD
     const [otherText, setOtherText] = useState('');
     const [showOtherInput, setShowOtherInput] = useState(false);
     const theme = useTheme();
+    // The card is capped at a share of the chat column (MultipleChoiceOverlay.css)
+    // so it can never push the composer out of the panel. These two make the
+    // overflow scrollable and say so with a faded edge instead of a scrollbar.
+    const optionsScroll = useScrollFade();
+    const questionScroll = useScrollFade();
 
     const renderMarkdown = useMemo(() => {
         const escapeHtml = (str) =>
@@ -72,9 +78,13 @@ export default function MultipleChoiceOverlay({ question, options, onSelect, onD
         <div className="mc-overlay-container">
             <div className="mc-question-header">
                 <img src={headSvg} alt="Wizard" className="mc-wizard-face" />
-                <div className="mc-question" dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(question)) }} />
+                <div
+                    ref={questionScroll.ref}
+                    className={`mc-question ${questionScroll.className}`}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(question)) }}
+                />
             </div>
-            <div className="mc-options">
+            <div ref={optionsScroll.ref} className={`mc-options ${optionsScroll.className}`}>
                 {options.map((opt, i) => (
                     <button
                         key={i}

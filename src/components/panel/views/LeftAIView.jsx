@@ -4331,10 +4331,14 @@ const LeftAIView = ({ compact = false,
                     // replayed into history — tool_call blocks are not — so on this
                     // turn the model has no machine-readable record of what it just
                     // proposed. The option text is the whole restatement it gets.
+                    // Phrased so it survives an option that is not a concrete
+                    // change. The model writes its own options, and they are not
+                    // all proposals — "your call" wrapped in "apply exactly this
+                    // and nothing else" is incoherent, and that is what shipped.
                     const wasProposal = !!lastMessage?.metadata?.wizardAsk?.toolPolicy;
                     handleSendMessage(
                       wasProposal
-                        ? `Apply exactly this and nothing else:\n${option}\n\nDo not add anything I did not pick. If it needs a Connection type that does not exist yet, create it and give it a description.`
+                        ? `I picked: ${option}\n\nIf that names a specific change, make exactly that and nothing else — do not add anything I did not pick. If it needs a Connection type that does not exist yet, create it and give it a description. If it does not name a specific change, use your judgement.`
                         : option
                     );
                   }}

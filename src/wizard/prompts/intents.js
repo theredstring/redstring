@@ -69,8 +69,11 @@ const INTENTS = [
     surface: SURFACES.THING,
     action: 'connect-thing',
     tier: 'query',
-    label: () => 'Does this connect to anything here?',
-    sublabel: 'Check it against the Things already in this Web.',
+    // "Does" reads as a question about current state, and the model answered it
+    // that way — reporting the edges it already had, which is on the canvas
+    // already. "Should" asks the design question without presupposing a yes.
+    label: () => 'Should this connect to anything here?',
+    sublabel: 'Look for relationships to the Things already here that nobody has drawn.',
     // Nothing to check it against in an otherwise empty Web.
     availableWhen: (facts) => (facts?.webInstanceCount ?? 0) > 1
   },
