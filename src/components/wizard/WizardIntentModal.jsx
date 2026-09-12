@@ -308,7 +308,17 @@ const WizardIntentModal = ({
             backgroundColor: theme.canvas.border
           }}
         >
-          <PanelIconButton label="Cancel" variant="outline" labelFontSize={12} onClick={onClose} />
+          {/* The outline variant's default border is a 30%-alpha maroon, which all
+              but disappears against this footer. Matching it to the label colour
+              gives Cancel an edge you can actually see next to the solid Ask.
+              Hover styles are spread after this, so the pie-hover ring still wins. */}
+          <PanelIconButton
+            label="Cancel"
+            variant="outline"
+            labelFontSize={12}
+            onClick={onClose}
+            style={{ borderColor: theme.canvas.textPrimary }}
+          />
           <PanelIconButton
             icon={Sparkles}
             label="Ask"
