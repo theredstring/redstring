@@ -831,6 +831,29 @@ const isGroupContainedInInstances = (group, instanceIdSet) => {
 };
 
 /**
+ * Freezes a memberless node-group's shell position so it can still be drawn.
+ *
+ * `computeGroupLayout` derives an empty node-group's box from `emptyPlaceholderOrigin`
+ * and deliberately refuses to read the anchor's position itself (that would make the
+ * box's output feed its own input — see the placeholder branch in groupLayout.js).
+ * Seeding the origin here sidesteps that: it's written once, outside the render pass,
+ * from the anchor's *stored* coordinates, which nothing syncs back (the title-tab
+ * position lives in `anchorPositionUpdatesRef`, never in the instance). Without a seed
+ * the layout returns `ok: false`, the group is skipped, and its anchor — hidden from
+ * the node layer because it's flagged — leaves a node that renders only when selected.
+ *
+ * @param {Object} graph - Immer draft of the graph.
+ * @param {Object} group - Immer draft of the node-group.
+ * @param {Object} [anchorInstance] - The group's anchor instance, if resolvable.
+ */
+const seedEmptyPlaceholderOrigin = (graph, group, anchorInstance) => {
+  if (!group || group.emptyPlaceholderOrigin || !anchorInstance) return;
+  const hasMember = (group.memberInstanceIds || []).some(id => graph.instances?.has(id));
+  if (hasMember) return;
+  group.emptyPlaceholderOrigin = { x: anchorInstance.x ?? 0, y: anchorInstance.y ?? 0 };
+};
+
+/**
  * Group-to-group containment lives in `isGroupInsideGroup` (groupLayout.js) —
  * the single definition shared with render-time depth. These wrappers resolve
  * it against a live Immer draft.
@@ -2170,14 +2193,24 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     },
 
     /**
-     * Removes any anchor instances in a graph whose group no longer exists.
+     * Repairs anchor instances that no longer anchor anything.
      *
-     * An anchor is normally hidden from rendering while its group is alive; if a group
-     * is ever lost without going through `deleteGroup`/`combineNodeGroup` (e.g. a stale
-     * save, a non-canonical mutation path), its anchor is left behind — still flagged
-     * `isGroupAnchor` and still connected via its edges — and renders invisible forever
-     * since the canvas hides flagged anchors unconditionally. This is the single-graph,
-     * proactive counterpart to `ensureGroupAnchor`'s "group missing its anchor" repair.
+     * An anchor is hidden from the node layer unconditionally while it's flagged, so any
+     * instance left holding the flag without a group that names it back renders invisible
+     * forever — except as the single selection, which takes a render path that doesn't
+     * check the flag. Three ways in, two outcomes:
+     *
+     * - **Group gone entirely** (lost without going through `deleteGroup`/`combineNodeGroup`
+     *   — a stale save, a non-canonical mutation path): the anchor is removed with its edges,
+     *   as it would have been had the group been deleted properly.
+     * - **Group alive but anchored elsewhere**, or **flagged with no `anchorForGroupId` at
+     *   all** (the latter round-trips through save/load intact, since the reader only
+     *   restores a non-null group id): the instance is demoted to a plain node instead of
+     *   deleted. It's a real node carrying real edges — the group it used to represent is
+     *   still on the canvas under its own anchor, so destroying this one would take the
+     *   user's connections with it. Demoting surfaces it and keeps them.
+     *
+     * This is the single-graph, proactive counterpart to `ensureGroupAnchor`'s repairs.
      *
      * @param {string} graphId - ID of the graph to sweep.
      */
@@ -2188,11 +2221,27 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!graph?.instances) return;
 
         const orphanedAnchors = [];
+        const strandedAnchors = [];
         for (const [instId, inst] of graph.instances.entries()) {
-          if (inst.isGroupAnchor && inst.anchorForGroupId && !graph.groups?.has(inst.anchorForGroupId)) {
+          if (!inst.isGroupAnchor) continue;
+          if (!inst.anchorForGroupId) {
+            strandedAnchors.push(instId);
+          } else if (!graph.groups?.has(inst.anchorForGroupId)) {
             orphanedAnchors.push(instId);
+          } else if (graph.groups.get(inst.anchorForGroupId).anchorInstanceId !== instId) {
+            strandedAnchors.push(instId);
           }
         }
+
+        strandedAnchors.forEach(instId => {
+          const inst = graph.instances.get(instId);
+          const staleGroupId = inst.anchorForGroupId;
+          delete inst.isGroupAnchor;
+          delete inst.anchorForGroupId;
+          const why = staleGroupId ? `group ${staleGroupId} anchors a different instance` : 'no anchorForGroupId';
+          console.log(`[cleanupOrphanedGroupAnchors] Demoted stranded anchor ${instId} to a plain node (${why})`);
+        });
+
         if (orphanedAnchors.length === 0) return;
 
         orphanedAnchors.forEach(instId => {
@@ -2239,9 +2288,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!group) return;
         // Only node-groups (linked to a prototype) get an anchor.
         if (!group.linkedNodePrototypeId) return;
-        // Already has a valid anchor instance? Nothing to do (keeps this idempotent).
+        // Already has a valid anchor instance? Nothing to do but seed the memberless
+        // shell origin (keeps this idempotent).
         if (group.anchorInstanceId && graph.instances?.has(group.anchorInstanceId)) {
           anchorId = group.anchorInstanceId;
+          seedEmptyPlaceholderOrigin(graph, group, graph.instances.get(anchorId));
           return;
         }
         const prototype = draft.nodePrototypes.get(group.linkedNodePrototypeId);
@@ -2259,7 +2310,33 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           preferred.anchorForGroupId = groupId;
           group.anchorInstanceId = preferredAnchorInstanceId;
           anchorId = preferredAnchorInstanceId;
+          seedEmptyPlaceholderOrigin(graph, group, preferred);
           console.log(`[ensureGroupAnchor] Adopted instance ${anchorId} as anchor for node-group ${groupId}.`);
+          return;
+        }
+
+        // Reclaim an instance that already believes it anchors this group before minting
+        // a new one. The group's `anchorInstanceId` can go missing or dangle (a stale save,
+        // a non-canonical mutation path) while the instance it used to name is still sitting
+        // in the graph flagged and carrying the group's edges. Minting past it strands that
+        // instance: flagged, so the node layer hides it unconditionally, but no longer the
+        // group's anchor, so neither the group shell nor the orphan sweep accounts for it —
+        // an invisible node that appears only while it's the single selection. Reclaiming
+        // also keeps its edges, which a fresh anchor would leave pointing at the ghost.
+        let reclaimed = null;
+        for (const inst of graph.instances.values()) {
+          if (inst.anchorForGroupId !== groupId) continue;
+          if (inst.prototypeId !== group.linkedNodePrototypeId) continue;
+          reclaimed = inst;
+          // No break: instances iterate oldest-first, and the newest flagged duplicate is
+          // the one the most recent repair produced.
+        }
+        if (reclaimed) {
+          reclaimed.isGroupAnchor = true;
+          group.anchorInstanceId = reclaimed.id;
+          anchorId = reclaimed.id;
+          seedEmptyPlaceholderOrigin(graph, group, reclaimed);
+          console.log(`[ensureGroupAnchor] Reclaimed stranded anchor ${anchorId} for node-group ${groupId}.`);
           return;
         }
 
@@ -2289,6 +2366,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           anchorForGroupId: groupId
         });
         group.anchorInstanceId = anchorId;
+        seedEmptyPlaceholderOrigin(graph, group, graph.instances.get(anchorId));
         console.log(`[ensureGroupAnchor] Created anchor ${anchorId} for node-group ${groupId}.`);
       }));
       return anchorId;

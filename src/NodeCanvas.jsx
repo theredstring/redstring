@@ -1482,8 +1482,17 @@ function NodeCanvas() {
     if (!activeGraphId || !activeGraph?.groups) return;
     const brokenGroupIds = [];
     activeGraph.groups.forEach((group, groupId) => {
-      if (group.linkedNodePrototypeId &&
-        (!group.anchorInstanceId || !activeGraphInstances?.has(group.anchorInstanceId))) {
+      if (!group.linkedNodePrototypeId) return;
+      if (!group.anchorInstanceId || !activeGraphInstances?.has(group.anchorInstanceId)) {
+        brokenGroupIds.push(groupId);
+        return;
+      }
+      // A memberless node-group with no frozen shell origin lays out to ok:false, so the
+      // shell is skipped — and its anchor is hidden from the node layer for being an
+      // anchor, leaving the Thing with nothing on canvas at all. ensureGroupAnchor seeds
+      // the origin on its idempotent path; see seedEmptyPlaceholderOrigin.
+      const hasMember = (group.memberInstanceIds || []).some(id => activeGraphInstances?.has(id));
+      if (!hasMember && !group.emptyPlaceholderOrigin) {
         brokenGroupIds.push(groupId);
       }
     });
@@ -1491,14 +1500,18 @@ function NodeCanvas() {
     brokenGroupIds.forEach(groupId => storeActions.ensureGroupAnchor(activeGraphId, groupId));
   }, [activeGraphId, activeGraph?.groups, activeGraphInstances, storeActions]);
 
-  // Sweep the reverse case: anchor instances left behind after their group is gone.
-  // These are flagged isGroupAnchor and hidden from rendering unconditionally, so without
-  // this they stay invisible-but-connected indefinitely instead of surfacing the render bug.
+  // Sweep the reverse case: anchor instances left holding the flag with no group that
+  // names them back — the group is gone, it anchors a different instance now, or the
+  // anchorForGroupId was lost. All three are hidden from rendering unconditionally, so
+  // without this they stay invisible-but-connected indefinitely (visible only while
+  // singly selected, which takes a render path that doesn't check the flag).
   useEffect(() => {
     if (!activeGraphId || !activeGraphInstances) return;
     let hasOrphan = false;
     for (const inst of activeGraphInstances.values()) {
-      if (inst.isGroupAnchor && inst.anchorForGroupId && !activeGraph?.groups?.has(inst.anchorForGroupId)) {
+      if (!inst.isGroupAnchor) continue;
+      const group = inst.anchorForGroupId ? activeGraph?.groups?.get(inst.anchorForGroupId) : null;
+      if (!group || group.anchorInstanceId !== inst.id) {
         hasOrphan = true;
         break;
       }
