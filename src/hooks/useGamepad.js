@@ -6,7 +6,7 @@ import { getNodeDimensions } from '../utils.js';
 import { walkMenu, detectOpenSelector, isColorPickerOpen } from '../utils/gamepadMenuNav.js';
 import { createPanelNavigator } from '../utils/gamepadPanelNav.js';
 import { lineModeLayout } from '../utils/pieMenuLayout.js';
-import { nearestPointOnSegment, panToPlacePointAt, createDriftController } from '../utils/gamepadAim.js';
+import { panToPlacePointAt, createDriftController, crosshairCenter } from '../utils/gamepadAim.js';
 
 /**
  * useGamepad — game controller support for the canvas.
@@ -154,9 +154,16 @@ const MODE_SYNC_GRACE_MS = 200;
  *
  * @param {{delayMs: number, intervalMs: number}} opts
  */
-export const createRepeater = ({ delayMs, intervalMs }) => {
+export const createRepeater = ({ delayMs, intervalMs, rate }) => {
   let key = null;
   let nextAt = 0;
+  // Read at each schedule rather than captured, so changing the setting takes
+  // effect on the next press instead of on the next reload. Absent or nonsense
+  // means 1x, which is what every existing caller gets.
+  const scale = () => {
+    const value = typeof rate === 'function' ? rate() : 1;
+    return Number.isFinite(value) && value > 0 ? value : 1;
+  };
   return {
     /** True on the frame this direction should act. */
     held(k, isDown, now) {
@@ -166,11 +173,11 @@ export const createRepeater = ({ delayMs, intervalMs }) => {
       }
       if (key !== k) {
         key = k;
-        nextAt = now + delayMs;
+        nextAt = now + delayMs / scale();
         return true;
       }
       if (now < nextAt) return false;
-      nextAt = now + intervalMs;
+      nextAt = now + intervalMs / scale();
       return true;
     },
     /** End any gesture whose key starts with `prefix` (a stick going neutral). */
@@ -191,9 +198,6 @@ const SLIDER_RATE_PER_FRAME = 1 / 75;
 // getting close, where the stick is for sweeping and holding is for fine work.
 const SLIDER_STEP_FRACTION = 0.02;
 
-// Panel scroll speed at full deflection, px per 60fps frame.
-const PANEL_SCROLL_SPEED = 14;
-
 // The circular pie layout: 8 fixed slots, slot 0 due North, stepping clockwise.
 // Mirrors NUM_FIXED_POSITIONS / START_ANGLE_OFFSET / FIXED_ANGLE_STEP in
 // PieMenu.jsx — if those change, this must change with them.
@@ -204,7 +208,25 @@ const PIE_ANGLE_STEP = (2 * Math.PI) / PIE_SLOTS;
 // Panel resize: px of width per 60fps frame at full stick deflection, before
 // the user's sensitivity multiplies it. A panel's usable range is roughly 64px
 // to half the viewport, so this crosses it in about a second at 1x.
-const PANEL_RESIZE_SPEED = 10;
+const PANEL_RESIZE_SPEED = 8;
+
+/**
+ * The resize's own response curve, replacing the pan curve it would otherwise
+ * inherit.
+ *
+ * STICK_RESPONSE_EXP is 1.6 because panning wants fine control near centre —
+ * the same stick nudges a node into place and crosses the whole canvas, so
+ * small deflections are deliberately made very slow. A panel edge is not that
+ * problem. Its whole range is a few hundred pixels, it stops dead at both
+ * limits, and there is nothing to aim at along the way; what a half-pushed
+ * stick should mean here is "about half speed", not "barely moving".
+ *
+ * Below 1, so the curve sits ABOVE the straight line: proportionally more speed
+ * through the small and middle angles, where the gesture actually lives, while
+ * the top of the range grows more slowly into a maximum that is itself lower
+ * than it was.
+ */
+const PANEL_RESIZE_RESPONSE_EXP = 0.85;
 // How far the stick must travel FROM WHERE IT WAS when the bumper went down
 // before the hold becomes a resize. See panelResizeArms.
 const PANEL_RESIZE_ARM_DELTA = 0.35;
@@ -252,7 +274,15 @@ export const panelResizeArms = (stickX, baselineX) => {
  */
 export const panelResizeDelta = (stickX, sensitivity, frameRatio) => {
   if (!Number.isFinite(stickX) || stickX === 0) return 0;
-  return stickX * PANEL_RESIZE_SPEED * (sensitivity || 1) * frameRatio;
+  // `stickX` arrives with the PAN curve already baked in by applyStickDeadzone,
+  // so it is undone before this gesture's own curve goes on. Written as two
+  // steps rather than as the single combined exponent they collapse into,
+  // because the two have nothing to do with each other and will be retuned
+  // separately — folding them would hide that one of these numbers belongs to
+  // panning.
+  const deflection = Math.abs(stickX) ** (1 / STICK_RESPONSE_EXP);
+  const shaped = deflection ** PANEL_RESIZE_RESPONSE_EXP;
+  return Math.sign(stickX) * shaped * PANEL_RESIZE_SPEED * (sensitivity || 1) * frameRatio;
 };
 
 /**
@@ -328,11 +358,12 @@ const asDiscreteInput = (fn) => {
  * @param {number} y raw axis value, [-1, 1]
  * @returns {{x: number, y: number, magnitude: number}}
  */
-export const applyStickDeadzone = (x, y) => {
+export const applyStickDeadzone = (x, y, deadzone = STICK_DEADZONE) => {
+  const dz = Number.isFinite(deadzone) ? deadzone : STICK_DEADZONE;
   const raw = Math.hypot(x, y);
-  if (!Number.isFinite(raw) || raw <= STICK_DEADZONE) return { x: 0, y: 0, magnitude: 0 };
+  if (!Number.isFinite(raw) || raw <= dz) return { x: 0, y: 0, magnitude: 0 };
   // Rescale [deadzone, 1] onto [0, 1] so there is no jump at the boundary.
-  const normalized = Math.min(1, (raw - STICK_DEADZONE) / (1 - STICK_DEADZONE));
+  const normalized = Math.min(1, (raw - dz) / (1 - dz));
   const curved = normalized ** STICK_RESPONSE_EXP;
   return { x: (x / raw) * curved, y: (y / raw) * curved, magnitude: curved };
 };
@@ -479,54 +510,51 @@ export const stepLineFocus = (current, dir, count) => {
 };
 
 /**
- * Where a connection "wants" the crosshair to sit: the point on it nearest the
- * crosshair, so the drift is a small correction ONTO the line rather than a
- * yank to its midpoint (which on a long connection is routinely off-screen).
+ * Hand the DOM's idea of the pointer over to the reticle, once, as controller
+ * mode engages.
  *
- * The nearest point is computed against the straight chord between the two
- * endpoints, because the real geometry has six routing variants — self-loops,
- * clean polylines, Lombardi arcs, Manhattan runs, Bézier fans, plain lines —
- * and the hit test that knows all six returns only a DISTANCE, not a point.
- * Re-deriving the point per style here would fork geometry that is deliberately
- * centralised, and would drift out of sync the first time routing changed.
+ * The physical mouse does not move when the user picks up a controller, and a
+ * web page has no way to move it. So whatever it was resting on stays hovered
+ * for the whole session — a header button lit in the corner, a node holding its
+ * preview open — while the reticle aims somewhere else entirely. Two cursors,
+ * one of which answers to nothing.
  *
- * So the chord is used as a guess and then VERIFIED: if moving the crosshair
- * there would no longer land on this same connection, the guess was wrong for
- * this routing style and the drift is simply skipped. One extra hit test buys
- * correctness for every style, including ones added later, without duplicating
- * a line of routing maths.
+ * The pointer is therefore teleported in the only sense available: fire the
+ * events the browser would have fired had the mouse actually travelled from
+ * where it sits to the middle of the screen. `mouseout`/`mouseover`, not
+ * `mouseleave`/`mouseenter` — those two do not bubble, and React derives its
+ * onMouseLeave/onMouseEnter from the bubbling pair at the root.
  *
- * @returns {{x: number, y: number} | null} canvas-space aim point, or null to
- *   decline to drift toward this connection.
+ * CSS `:hover` cannot be reached this way; it answers only to the real pointer.
+ * That is survivable because the app styles its hovers from onMouseEnter
+ * handlers almost everywhere (see the notes in index.css), and because the
+ * pointer is hidden in controller mode anyway.
+ *
+ * @param {{x: number, y: number} | null} from last known real mouse position
+ * @param {{x: number, y: number}} cross where the reticle is
  */
-const edgeAimPoint = (p, hit, cross, rect, pan, zoom, canvasSize) => {
-  const nodes = p.nodesRef?.current;
-  if (!nodes || !canvasSize) return null;
+export const handPointerToCrosshair = (from, cross) => {
+  if (typeof document === 'undefined' || typeof document.elementFromPoint !== 'function') return;
 
-  const a = nodes.find(n => n.id === hit.connection?.source?.id);
-  const b = nodes.find(n => n.id === hit.connection?.target?.id);
-  // A self-loop has no chord to project onto, and its geometry is a lobe off
-  // one node — nothing a segment approximates usefully.
-  if (!a || !b || a.id === b.id) return null;
+  const next = document.elementFromPoint(cross.x, cross.y);
+  const prev = from && Number.isFinite(from.x) && Number.isFinite(from.y)
+    ? document.elementFromPoint(from.x, from.y)
+    : null;
+  if (!prev && !next) return;
 
-  const da = getNodeDimensions(a, false, null);
-  const db = getNodeDimensions(b, false, null);
-  const near = nearestPointOnSegment(
-    (cross.x - rect.left - pan.x) / zoom + canvasSize.offsetX,
-    (cross.y - rect.top - pan.y) / zoom + canvasSize.offsetY,
-    a.x + da.currentWidth / 2, a.y + da.currentHeight / 2,
-    b.x + db.currentWidth / 2, b.y + db.currentHeight / 2,
-  );
+  // No `view`: nothing downstream reads it, and passing one makes the
+  // constructor environment-dependent (it throws outright under jsdom). Same
+  // reasoning as the walker's synthetic events in gamepadMenuNav.
+  const base = { bubbles: true, cancelable: true, clientX: cross.x, clientY: cross.y };
 
-  // Verify against the real geometry: where would that point sit on screen, and
-  // is this same connection still what the crosshair would be over there?
-  const candidatePan = panToPlacePointAt(near.x, near.y, cross.x, cross.y, rect, pan, zoom, canvasSize);
-  const clientX = (near.x - canvasSize.offsetX) * zoom + candidatePan.x + rect.left;
-  const clientY = (near.y - canvasSize.offsetY) * zoom + candidatePan.y + rect.top;
-  const check = p.findEdgeAtClientPointRef?.current?.(clientX, clientY, 'mouse');
-  if (!check || check.edgeId !== hit.edgeId) return null;
-
-  return { x: near.x, y: near.y };
+  if (prev !== next) {
+    if (prev) prev.dispatchEvent(new MouseEvent('mouseout', { ...base, relatedTarget: next }));
+    if (next) next.dispatchEvent(new MouseEvent('mouseover', { ...base, relatedTarget: prev }));
+  }
+  // Sent even when the element did not change, so anything tracking a position
+  // within one element (the canvas, most of all) learns where the pointer now
+  // is rather than keeping the stale coordinates it last saw.
+  if (next) next.dispatchEvent(new MouseEvent('mousemove', base));
 };
 
 /**
@@ -694,6 +722,7 @@ export const useGamepad = ({
     repeatRef.current = createRepeater({
       delayMs: REPEAT_DELAY_MS,
       intervalMs: REPEAT_INTERVAL_MS,
+      rate: () => tuningRef.current.menuRepeat,
     });
   }
 
@@ -707,7 +736,17 @@ export const useGamepad = ({
   const lastPanelSideRef = useRef('left');
   // The user's resize rate. Mirrored into a ref because the tick runs every
   // frame and must not re-subscribe to the store to read one number.
-  const panelResizeSensitivityRef = useRef(1);
+  // Every live tuning from Settings, mirrored in one ref. The tick runs each
+  // frame and must not re-subscribe to the store to read a handful of numbers;
+  // the repeater and the deadzone read through it too, from outside the tick.
+  const tuningRef = useRef({
+    zoom: 0.5,
+    pan: 0.5,
+    panelResize: 0.5,
+    menuRepeat: 0.5,
+    deadzone: STICK_DEADZONE,
+    resizeBinding: 'stick',
+  });
   // Header focus mirrored into a ref. The tick reads it on the same frame it
   // writes it, and React state is a frame behind.
   const headerFocusRef = useRef(null);
@@ -840,7 +879,19 @@ export const useGamepad = ({
    */
   const navigate = useCallback((dir) => {
     const store = useGraphStore.getState();
-    panelResizeSensitivityRef.current = store.gamepadSettings?.panelResizeSensitivity ?? 1;
+    const tuning = store.gamepadSettings ?? {};
+    tuningRef.current = {
+      // Doubled here rather than in each use, because 0.5 meaning 1x is the
+      // convention these sliders share with Touch, Trackpad and Mouse — and it
+      // should be stated once, where the setting enters the hook.
+      zoom: (tuning.zoomSensitivity ?? 0.5) * 2,
+      pan: (tuning.panSensitivity ?? 0.5) * 2,
+      panelResize: (tuning.panelResizeSensitivity ?? 0.5) * 2,
+      menuRepeat: (tuning.menuRepeatSensitivity ?? 0.5) * 2,
+      // Not doubled: a deadzone is a measurement, not a response curve.
+      deadzone: tuning.stickDeadzone ?? STICK_DEADZONE,
+      resizeBinding: tuning.panelResizeBinding ?? 'stick',
+    };
     const nav = panelNavRef.current;
     const leftOpen = !!store.leftPanelExpanded;
     const rightOpen = !!store.rightPanelExpanded;
@@ -970,17 +1021,25 @@ export const useGamepad = ({
 
   // Any real mouse or keyboard activity hands control back.
   //
-  // "Real" is load-bearing for mousemove. Browsers also fire it when the
-  // content under a STATIONARY cursor moves — which the menu walker's
-  // scrollIntoView does on every step, and which would therefore drop the user
-  // out of controller mode the moment they navigated a menu. So the pointer
-  // has to have actually travelled. A couple of pixels of slack also absorbs
-  // the sub-pixel jitter a resting optical mouse emits.
+  // "Real" is load-bearing for mousemove, in two different ways.
+  //
+  // Hardware. Only a trusted event is the user's hand on the mouse; the app
+  // fires synthetic ones of its own — the menu walker's hovers, and the
+  // pointer hand-off that runs as controller mode engages, which dispatches a
+  // mousemove at the reticle and would otherwise switch the mode off on the
+  // very frame it switched on.
+  //
+  // Travel. Browsers also fire mousemove when the content under a STATIONARY
+  // cursor moves — which the menu walker's scrollIntoView does on every step,
+  // and which would drop the user out the moment they navigated a menu. So the
+  // pointer has to have actually gone somewhere. A couple of pixels of slack
+  // also absorbs the sub-pixel jitter a resting optical mouse emits.
   useEffect(() => {
     const last = { x: null, y: null };
     const MOVE_SLACK_PX = 3;
 
     const onMouseMove = (e) => {
+      if (!e.isTrusted) return;
       if (last.x !== null && Math.hypot(e.clientX - last.x, e.clientY - last.y) <= MOVE_SLACK_PX) {
         return;
       }
@@ -1025,15 +1084,11 @@ export const useGamepad = ({
   }, [deactivate]);
 
   /**
-   * Crosshair position in CLIENT coords — the centre of the usable viewport,
-   * not of the window. Panels, the header and the TypeList all eat into the
-   * canvas, and viewportBounds already accounts for all three, so the reticle
-   * stays centred in what the user can actually see as panels open and close.
+   * Crosshair position in CLIENT coords — the absolute centre of the app box.
+   * Panels, the header and the TypeList do NOT shift it: see crosshairCenter.
    */
   const getCrosshair = useCallback(() => {
-    const b = paramsRef.current.viewportBoundsRef?.current;
-    if (!b) return null;
-    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    return crosshairCenter(paramsRef.current.viewportBoundsRef?.current);
   }, []);
 
   /**
@@ -1051,10 +1106,6 @@ export const useGamepad = ({
     return rect;
   }, []);
 
-  /**
-   * The node under the crosshair, using the same hit test and the same
-   * visibility filter the mouse hover pipeline uses.
-   */
   /**
    * What the crosshair is pointing at, resolved ONCE per frame.
    *
@@ -1141,7 +1192,23 @@ export const useGamepad = ({
       kind: 'connection',
       id: hit.edgeId,
       connection: hit.connection,
-      aimPoint: edgeAimPoint(p, hit, cross, rect, pan, zoom, cs),
+      // The point on the connection's REAL drawn geometry nearest the
+      // crosshair, straight from the hit test — so the drift is a small
+      // correction onto the line rather than a yank to its midpoint (routinely
+      // off-screen on a long connection).
+      //
+      // This used to be derived here, by projecting onto the straight chord
+      // between the two endpoints. That is the right answer for a plain line
+      // and a fiction for every routed style: a Lombardi arc bows well clear of
+      // its chord, so the camera drifted to a patch of empty canvas beside the
+      // connection the user was actually looking at. There was a verification
+      // step meant to catch exactly that, but it re-tested the point the
+      // crosshair was ALREADY on (panToPlacePointAt is the inverse of the
+      // projection that followed it, so the two cancelled), which is trivially
+      // still this same edge — it could never fail. The hit test knows the real
+      // geometry for all six styles; it now hands back the point it measured to
+      // instead of throwing it away.
+      aimPoint: hit.point ?? null,
     };
   }, [getCrosshair, getContainerRect]);
 
@@ -1163,16 +1230,19 @@ export const useGamepad = ({
     readButtons(gamepad, buttons);
 
     const axes = gamepad.axes || [];
-    const left = applyStickDeadzone(axes[AXIS.LX] ?? 0, axes[AXIS.LY] ?? 0);
-    const right = applyStickDeadzone(axes[AXIS.RX] ?? 0, axes[AXIS.RY] ?? 0);
+    const deadzone = tuningRef.current.deadzone;
+    const left = applyStickDeadzone(axes[AXIS.LX] ?? 0, axes[AXIS.LY] ?? 0, deadzone);
+    const right = applyStickDeadzone(axes[AXIS.RX] ?? 0, axes[AXIS.RY] ?? 0, deadzone);
 
     // Engage on real input only. Resting-stick noise is already below the
     // deadzone, so magnitude is a safe test.
     const hasInput = anyJust(buttons) || left.magnitude > 0 || right.magnitude > 0;
+    let justActivated = false;
     if (!activeRef.current) {
       if (!hasInput) return ZERO_TICK;
       activeRef.current = true;
       setActive(true);
+      justActivated = true;
       useGraphStore.getState().setInputMode?.('gamepad');
     }
 
@@ -1184,6 +1254,11 @@ export const useGamepad = ({
 
     const cross = getCrosshair();
     if (!cross) return ZERO_TICK;
+
+    // Exactly once, on engaging: move the pointer to the reticle. Deliberately
+    // BEFORE mousePositionRef is overwritten below — that ref still holds where
+    // the real mouse was left, which is the element the hand-off has to release.
+    if (justActivated) handPointerToCrosshair(p.mousePositionRef?.current, cross);
 
     // The crosshair IS the cursor — publish it so the drag re-projection and
     // every other pointer consumer follows it. See the header note.
@@ -1383,48 +1458,67 @@ export const useGamepad = ({
     // The stick clicks open and close their own panel. That is ALL they do —
     // no mode, nothing disabled, nothing to leave. Left stick, left panel;
     // right stick, right panel.
-    // ---- Stick clicks: toggle a panel ------------------------------------
-    // One thing each, immediately. Deliberately not `return`ing: a press here
-    // must not cost the frame's pan.
-    if (!carrying && buttons.justPressed[BTN.L3]) {
-      store.toggleLeftPanel?.();
-      lastPanelSideRef.current = 'left';
-      // Closing the panel focus was sitting in would strand the ring on a
-      // detached element; `leftPanelExpanded` is still the PRE-toggle value.
-      if (panelNavRef.current.side() === 'left' && store.leftPanelExpanded) panelNavRef.current.clear();
+    // ---- Panels: toggle, switch web, or hold and push to resize ----------
+    //
+    // Two controls, two jobs, and which one carries the resize is a setting
+    // (Settings → Input → Controller) because the two feel genuinely different
+    // in the hand and only a hand can settle it.
+    //
+    // A stick click is pressed THROUGH the stick: the thumb that pushes it in
+    // deflects it on the way, so the gesture starts with the stick already off
+    // centre and with less travel left to give. A bumper is a clean digital
+    // edge under a different finger, leaving the thumb the stick's full range.
+    // The arming rule below is what makes either of them survivable.
+    //
+    // Whichever control holds the resize takes its own action on RELEASE,
+    // because the press cannot yet know which gesture this is. The other keeps
+    // its action on the press, where there is nothing to disambiguate.
+    const resizeOnStick = tuningRef.current.resizeBinding !== 'bumper';
+    const armButtonFor = (sideName) => (sideName === 'left'
+      ? (resizeOnStick ? BTN.L3 : BTN.LB)
+      : (resizeOnStick ? BTN.R3 : BTN.RB));
+
+    const togglePanelSide = (sideName) => {
+      const isLeft = sideName === 'left';
+      const wasExpanded = isLeft ? store.leftPanelExpanded : store.rightPanelExpanded;
+      (isLeft ? store.toggleLeftPanel : store.toggleRightPanel)?.();
+      lastPanelSideRef.current = sideName;
+      // Closing the panel the d-pad was standing in would strand the focus ring
+      // on a detached element; `wasExpanded` is the PRE-toggle value.
+      if (panelNavRef.current.side() === sideName && wasExpanded) panelNavRef.current.clear();
+    };
+    const stepWeb = (delta) => {
+      const openIds = store.openGraphIds || [];
+      const curIdx = openIds.indexOf(store.activeGraphId);
+      const next = openIds[curIdx + delta];
+      if (curIdx >= 0 && next) store.setActiveGraphTab?.(next);
+    };
+
+    // The control that is NOT holding the gesture keeps its immediate action.
+    // Deliberately not `return`ing: a press here must not cost the frame's pan.
+    if (!carrying && !resizeOnStick) {
+      if (buttons.justPressed[BTN.L3]) togglePanelSide('left');
+      if (buttons.justPressed[BTN.R3]) togglePanelSide('right');
     }
-    if (!carrying && buttons.justPressed[BTN.R3]) {
-      store.toggleRightPanel?.();
-      lastPanelSideRef.current = 'right';
-      if (panelNavRef.current.side() === 'right' && store.rightPanelExpanded) panelNavRef.current.clear();
+    if (!carrying && !inMenuMode && resizeOnStick) {
+      if (buttons.justPressed[BTN.LB]) stepWeb(-1);
+      else if (buttons.justPressed[BTN.RB]) stepWeb(1);
     }
 
-    // ---- Bumpers: tap to switch webs, hold and push to resize a panel -----
-    //
-    // The bumper is the right home for this and the stick click was not. A
-    // stick click is pressed THROUGH the stick: the thumb that pushes it in
-    // deflects it on the way, so the gesture starts by fighting itself — it
-    // needed a wobble threshold just to stay distinguishable from a click, and
-    // even past that the stick has little travel left to give. A bumper is a
-    // clean digital edge under a different finger entirely, so the thumb keeps
-    // the stick's full range and the panel moves smoothly the whole way.
-    //
-    // Sides follow the layout: left bumper, left panel.
-    //
-    // The tap action (previous / next open web) moves to RELEASE, because the
-    // press cannot yet know which gesture this is. A tap is under a tenth of a
-    // second, and paying that to keep one button honest about two meanings is
-    // a far better trade than the two meanings colliding.
-    const bumperFor = (sideName) => (sideName === 'left' ? BTN.LB : BTN.RB);
-    if (!carrying && !inMenuMode && (buttons.justPressed[BTN.LB] || buttons.justPressed[BTN.RB])) {
-      const wanted = buttons.justPressed[BTN.LB] ? 'left' : 'right';
-      // Pressing the other bumper mid-gesture ends the first rather than
-      // silently replacing it. Its width commits if it changed; it is NOT
-      // treated as a tap, because a button still held down has not been tapped
-      // yet, and switching webs nobody asked to switch is worse than nothing.
+    const armLeft = armButtonFor('left');
+    const armRight = armButtonFor('right');
+    if (!carrying && !inMenuMode && (buttons.justPressed[armLeft] || buttons.justPressed[armRight])) {
+      const wanted = buttons.justPressed[armLeft] ? 'left' : 'right';
+      // Pressing the other one mid-gesture ends the first rather than silently
+      // replacing it. Its width commits if it changed; it is NOT treated as a
+      // tap, because a button still held down has not been tapped yet, and
+      // doing something nobody asked for is worse than doing nothing.
       if (panelResizeRef.current.side && panelResizeRef.current.side !== wanted) endPanelResizeGesture();
       // Where the stick was at the moment of the press. Everything about
-      // arming is measured from here — see panelResizeArms.
+      // arming is measured from here — see panelResizeArms. This is what makes
+      // the stick-click binding workable at all: pressing the stick in shoves
+      // it off centre, and a baseline taken at that instant means the shove
+      // itself is not movement.
       const baselineStick = wanted === 'left' ? left : right;
       panelResizeRef.current = { side: wanted, resized: false, baselineX: baselineStick.x };
     }
@@ -1432,9 +1526,8 @@ export const useGamepad = ({
     const heldPanel = panelResizeRef.current.side;
     let resizingPanel = false;
     if (heldPanel) {
-      const stillHeld = buttons.pressed[bumperFor(heldPanel)];
-      // Each panel is sized by the stick on its own side, under the thumb
-      // nearest the bumper holding it.
+      const stillHeld = buttons.pressed[armButtonFor(heldPanel)];
+      // Each panel is sized by the stick on its own side.
       const stick = heldPanel === 'left' ? left : right;
       const expanded = heldPanel === 'left' ? store.leftPanelExpanded : store.rightPanelExpanded;
 
@@ -1444,8 +1537,8 @@ export const useGamepad = ({
         //
         // Arming is one-way. Once the stick has moved enough to say this is a
         // resize, easing it back through the arming distance must not turn the
-        // gesture back into a tap — the user already committed, and a web
-        // switch on release would be a surprise.
+        // gesture back into a tap — the user already committed, and acting on
+        // the release would be a surprise.
         if (expanded && !panelResizeRef.current.resized
           && panelResizeArms(stick.x, panelResizeRef.current.baselineX)) {
           panelResizeRef.current.resized = true;
@@ -1454,7 +1547,7 @@ export const useGamepad = ({
           asDiscreteInput(() => p.panelResizeControlRef?.current?.begin?.(heldPanel));
         }
         const dx = (expanded && panelResizeRef.current.resized)
-          ? panelResizeDelta(stick.x, panelResizeSensitivityRef.current, frameRatio)
+          ? panelResizeDelta(stick.x, tuningRef.current.panelResize, frameRatio)
           : 0;
         if (dx !== 0) {
           // Synchronously, for the reason asDiscreteInput exists: a mouse
@@ -1466,19 +1559,14 @@ export const useGamepad = ({
           // is not the rate.
           asDiscreteInput(() => p.panelResizeControlRef?.current?.by?.(heldPanel, dx));
         }
-        // The stick is spoken for while it is resizing — it must not also pan
-        // or zoom. Held for the whole gesture, not just the frames that moved,
-        // so easing off mid-resize doesn't jolt the canvas.
+        // Held for the whole gesture, not just the frames that moved, so
+        // easing off mid-resize doesn't jolt the canvas.
         resizingPanel = panelResizeRef.current.resized;
       } else {
         if (!panelResizeRef.current.resized) {
-          // A tap: step to the previous or next open web, as the bumpers
-          // always have.
-          const openIds = store.openGraphIds || [];
-          const curIdx = openIds.indexOf(store.activeGraphId);
-          const step = heldPanel === 'left' ? -1 : 1;
-          const next = openIds[curIdx + step];
-          if (curIdx >= 0 && next) store.setActiveGraphTab?.(next);
+          // A tap, meaning whatever this control means when it isn't resizing.
+          if (resizeOnStick) togglePanelSide(heldPanel);
+          else stepWeb(heldPanel === 'left' ? -1 : 1);
         }
         // Persists once, at the end, and only if a width actually moved.
         endPanelResizeGesture();
@@ -1785,22 +1873,36 @@ export const useGamepad = ({
         // menu — reading it here would chip the previous node's buttons.
         if (idx >= 0) setPieFocusBoth(idx);
       }
-    } else if (left.magnitude > 0 && !(resizingPanel && heldPanel === 'left')) {
+    } else if (left.magnitude > 0 && !resizingPanel) {
       // Pan moves the WORLD, so the canvas travels opposite the stick. Skipped
-      // while this stick is sizing a panel: it is doing one job at a time.
-      panDx = -left.x * GAMEPAD_PAN_SPEED * frameRatio;
-      panDy = -left.y * GAMEPAD_PAN_SPEED * frameRatio;
+      // outright during a resize: sizing a panel is layout work, and a canvas
+      // sliding around underneath it is noise. The stick doing the resizing
+      // obviously cannot also pan — but neither should the other one, or the
+      // thing you are sizing the panel against keeps moving while you size it.
+      const panSpeed = GAMEPAD_PAN_SPEED * tuningRef.current.pan;
+      panDx = -left.x * panSpeed * frameRatio;
+      panDy = -left.y * panSpeed * frameRatio;
     }
 
     // ---- Right stick Y: zoom, anchored at the crosshair ------------------
-    // The host loop zooms about the viewport centre, which IS the crosshair, so
-    // returning a plain multiplier keeps the reticle pinned with no extra math.
+    // The reticle is fixed to the screen centre, which is NOT where the host
+    // loop's own Shift/Space zoom is anchored (that one uses the usable
+    // viewport, correctly — a keyboard user has no reticle). So the anchor
+    // travels with the multiplier rather than being assumed to coincide: the
+    // world has to scale about the sight, or zooming slides it off whatever it
+    // was aimed at.
     let zoomMultiplier = 1;
-    // Same one-job-at-a-time rule as pan: a right stick sizing the right panel
-    // is not also zooming.
-    const zoomInput = (resizingPanel && heldPanel === 'right') ? 0 : -right.y;
+    // Frozen for the same reason as pan, and on either stick: zooming while
+    // dragging a panel edge changes both sides of the comparison you are
+    // making. Note this covers the left-panel case too, where the right stick
+    // is not the one doing the resizing.
+    const zoomInput = resizingPanel ? 0 : -right.y;
     if (Math.abs(zoomInput) > 0) {
-      zoomMultiplier = (GAMEPAD_ZOOM_BASE ** zoomInput) ** frameRatio;
+      // Scales how far the base is from 1 rather than scaling the base, which
+      // keeps 1 (no zoom) fixed however the sensitivity is set. Same shape the
+      // keyboard's zoom sensitivity uses.
+      const base = 1 + (GAMEPAD_ZOOM_BASE - 1) * tuningRef.current.zoom;
+      zoomMultiplier = (base ** zoomInput) ** frameRatio;
     }
 
     if (inBottomMode) bottomWalkerRef.current?.sync();
@@ -1851,8 +1953,8 @@ export const useGamepad = ({
         if (neutralSinceRef.current === 0) neutralSinceRef.current = now;
         const dwelled = now - neutralSinceRef.current >= AUTO_AIM_DWELL_MS;
         // `aimPoint` is null for targets that have no sensible place to be
-        // pulled to — a self-loop, or a routed connection whose chord guess
-        // failed verification. Those simply don't attract.
+        // pulled to — a connection the hit test matched without resolving a
+        // point on it. Those simply don't attract.
         if (dwelled && !suppressAutoAimRef.current && !autoAimFiredRef.current && target?.aimPoint) {
           autoAimFiredRef.current = true;
           const zoom = p.zoomLevelRef.current;
@@ -1883,7 +1985,7 @@ export const useGamepad = ({
       return ZERO_TICK;
     }
 
-    return { panDx, panDy, zoomMultiplier };
+    return { panDx, panDy, zoomMultiplier, zoomAnchor: cross };
   }, [deactivate, getCrosshair, getContainerRect, resolveCrosshairTarget, setModeBoth, setPieFocusBoth,
     navigate, clearNavFocus, setHeaderFocusBoth, endPanelResizeGesture]);
 

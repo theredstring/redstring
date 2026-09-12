@@ -834,6 +834,16 @@ function NodeCanvas() {
   // current modality without re-binding when it flips.
   const inputModeRef = useRef('mouse');
   const anchorPositionUpdatesRef = useRef(new Map()); // Collects anchor position updates during render
+  // Every group's title pill, keyed by group id — node-groups AND plain ones.
+  //
+  // anchorPositionUpdatesRef cannot serve this: it is keyed by ANCHOR INSTANCE
+  // id and exists to sync that instance's stored position, so a plain group,
+  // which has no anchor instance, is structurally absent from it. The mouse
+  // never noticed, because a pill is a real SVG element with its own handlers —
+  // but the controller has no elements to hit, only rects, and with plain
+  // groups missing from the only rect map it could not see them at all.
+  // Written by the groups render pass and kept fresh mid-drag by useNodeDrag.
+  const groupTitleRectsRef = useRef(new Map());
 
   // Helper to measure text width accurately for the group labels (via Pretext — no DOM reflow)
   const getTextWidth = (text, font) => pretextMeasureTextWidth(text, font);
@@ -3062,6 +3072,7 @@ function NodeCanvas() {
     groupsByIdRef,
     childGroupIdsByGroupIdRef,
     anchorPositionUpdatesRef,
+    groupTitleRectsRef,
   });
   // Aliases for 1:1 replacement of old local state/refs
   const draggingNodeInfo = nodeDrag.draggingNodeInfo;
@@ -4577,6 +4588,43 @@ function NodeCanvas() {
     return () => cancelAnimationFrame(rafId);
   });
 
+  // A thing-group ANCHOR is not drawn as its stored instance box.
+  //
+  // It renders as the group's TITLE PILL, at the position the groups phase of
+  // the JSX solves for it — which is why both renderConnectionEdge (see
+  // sAnchorInfo there) and the DOM-bypass drag updater (see the sAnchor/eAnchor
+  // overrides and tangentDims in useNodeDrag) substitute that box before they
+  // route anything.
+  //
+  // The three WHOLE-GRAPH pre-passes below did not, and that asymmetry is the
+  // whole of the "connections into a node-group are glitchy" behaviour: clean's
+  // ports were staggered along a side of a box nobody draws, lombardi's tangent
+  // fan was spaced from that box's centre, and the label crossing index built
+  // its polyline from those same endpoints and then trimmed it against the
+  // group's real outer bounds — so the indexed line and the drawn line were not
+  // the same line, and labels dodged crossings that weren't there.
+  //
+  // Lombardi is the loudest of the three because its fan is a per-NODE solve:
+  // one wrong box re-spaces every arc incident to that anchor, and (the same
+  // two-hop reach useNodeDrag documents) its neighbours' arcs after that. Every
+  // one of those labels rides its arc, so they all move with it.
+  //
+  // Read from the same ref the renderer reads. It is filled during the groups
+  // phase, so a memo body sees the PREVIOUS commit's boxes — one render behind,
+  // exactly as occluderFor below has always been, and still far closer than the
+  // stored instance box, which is never right at all.
+  const anchorGeometryFor = useCallback((node, dims) => {
+    const info = node?.isGroupAnchor ? anchorPositionUpdatesRef.current.get(node.id) : null;
+    if (!info) return { node, dims };
+    return {
+      node: { ...node, x: info.x, y: info.y },
+      // Mirrors renderConnectionEdge exactly: the pill's box and nothing else.
+      // Carrying the node's own scaledCornerRadius over would round the pill by
+      // a radius taken from a different shape.
+      dims: { currentWidth: info.width, currentHeight: info.height },
+    };
+  }, []);
+
   // Port-based routing with intelligent edge distribution - inspired by circuit board routing
   const prevCleanLaneOffsetsRef = useRef(new Map());
   const cleanLaneOffsets = useMemo(() => {
@@ -4609,13 +4657,18 @@ function NodeCanvas() {
       // line.
       const sideChoices = [];
       for (const edge of edges) {
-        const s = nodeById.get(edge.sourceId);
-        const d = nodeById.get(edge.destinationId);
-        if (!s || !d) continue;
+        const sRaw = nodeById.get(edge.sourceId);
+        const dRaw = nodeById.get(edge.destinationId);
+        if (!sRaw || !dRaw) continue;
 
-        const sDims = baseDimsById.get(s.id);
-        const dDims = baseDimsById.get(d.id);
-        if (!sDims || !dDims) continue;
+        const sDimsRaw = baseDimsById.get(sRaw.id);
+        const dDimsRaw = baseDimsById.get(dRaw.id);
+        if (!sDimsRaw || !dDimsRaw) continue;
+
+        // Ports go on the box the connection actually meets — the title pill
+        // for a group anchor. See anchorGeometryFor.
+        const { node: s, dims: sDims } = anchorGeometryFor(sRaw, sDimsRaw);
+        const { node: d, dims: dDims } = anchorGeometryFor(dRaw, dDimsRaw);
 
         // Calculate node centers
         const sCenterX = s.x + sDims.currentWidth / 2;
@@ -4693,7 +4746,7 @@ function NodeCanvas() {
 
       return new Map();
     }
-  }, [enableAutoRouting, routingStyle, edges, nodeById, baseDimsById, nodes, draggingNodeInfo]);
+  }, [enableAutoRouting, routingStyle, edges, nodeById, baseDimsById, nodes, draggingNodeInfo, anchorGeometryFor]);
 
   // Mirror the port assignments into a ref for the DOM-bypass drag updater.
   useEffect(() => { cleanLaneOffsetsRef.current = cleanLaneOffsets; }, [cleanLaneOffsets]);
@@ -4713,10 +4766,27 @@ function NodeCanvas() {
   const lombardiTangents = useMemo(() => {
     if (!enableAutoRouting || routingStyle !== 'lombardi' || !edges?.length) return new Map();
     if (draggingNodeInfo) return prevLombardiTangentsRef.current;
-    const solved = computeLombardiTangents(nodes, edges, baseDimsById);
+    // Substitute each thing-group anchor's title box, the same correction the
+    // drag's live tangent solve makes (tangentDims in useNodeDrag) and the same
+    // one renderConnectionEdge makes when it draws the arc. Without it the
+    // settled fan was spaced from the anchor's stored instance box while every
+    // arc was drawn from the pill — so the arcs swung on drop, and the labels
+    // riding them swung with them. See anchorGeometryFor.
+    let tangentNodes = nodes;
+    let tangentDims = baseDimsById;
+    if (anchorPositionUpdatesRef.current.size > 0) {
+      tangentDims = new Map(baseDimsById);
+      tangentNodes = nodes.map((n) => {
+        const { node, dims } = anchorGeometryFor(n, baseDimsById.get(n.id));
+        if (node === n) return n;
+        tangentDims.set(n.id, dims);
+        return node;
+      });
+    }
+    const solved = computeLombardiTangents(tangentNodes, edges, tangentDims);
     prevLombardiTangentsRef.current = solved;
     return solved;
-  }, [enableAutoRouting, routingStyle, nodes, edges, baseDimsById, draggingNodeInfo]);
+  }, [enableAutoRouting, routingStyle, nodes, edges, baseDimsById, draggingNodeInfo, anchorGeometryFor]);
 
   useEffect(() => { lombardiTangentsRef.current = lombardiTangents; }, [lombardiTangents]);
 
@@ -4802,12 +4872,19 @@ function NodeCanvas() {
       const destId = edge.destinationId || edge.targetId;
       // Self-loops hug their own node, where a label has nowhere better to go.
       if (!destId || edge.sourceId === destId) continue;
-      const srcNode = nodeById.get(edge.sourceId);
-      const dstNode = nodeById.get(destId);
-      if (!srcNode || !dstNode) continue;
-      const sDims = baseDimsById.get(edge.sourceId);
-      const dDims = baseDimsById.get(destId);
-      if (!sDims || !dDims) continue;
+      const srcRaw = nodeById.get(edge.sourceId);
+      const dstRaw = nodeById.get(destId);
+      if (!srcRaw || !dstRaw) continue;
+      const sDimsRaw = baseDimsById.get(edge.sourceId);
+      const dDimsRaw = baseDimsById.get(destId);
+      if (!sDimsRaw || !dDimsRaw) continue;
+      // Route from the same boxes the renderer routes from. occluderFor below
+      // already trimmed against the group's REAL outer bounds while these
+      // endpoints came from the anchor's stored instance box, so for any
+      // connection into a node-group the indexed polyline and the drawn one
+      // were different lines. See anchorGeometryFor.
+      const { node: srcNode, dims: sDims } = anchorGeometryFor(srcRaw, sDimsRaw);
+      const { node: dstNode, dims: dDims } = anchorGeometryFor(dstRaw, dDimsRaw);
 
       let raw;
       if (routingStyle === 'manhattan') {
@@ -4839,7 +4916,7 @@ function NodeCanvas() {
   }, [showConnectionNames, isRoutedStyle, edges, nodeById, baseDimsById,
     routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing,
     lombardiTangents, lombardiCurvature, edgeCurveInfo,
-    orthogonalLaneSpacing, lombardiLaneSpacing, selectedInstanceIds]);
+    orthogonalLaneSpacing, lombardiLaneSpacing, selectedInstanceIds, anchorGeometryFor]);
 
   // The obstacle set every label dodges. Identical for every edge, so build it
   // once — each placement call used to rebuild it from all visible nodes, which
@@ -9068,15 +9145,41 @@ function NodeCanvas() {
   const clickTimeoutIdRef = useRef(null);
   const potentialClickNodeRef = useRef(null);
   const CLICK_DELAY = 180; // Reduced milliseconds to wait for a potential double-click
-  // Where the previous mousedown on a Thing landed. `event.detail` counts
-  // consecutive clicks by TIME, and the browser's positional slop for that count
-  // is generous — wide enough that on a dense canvas a quick click on one Thing
-  // followed by a click on its neighbour arrives as detail === 2, and used to
-  // open the neighbour's panel tab nobody asked for. A double-click has to be
-  // two clicks on the SAME Thing in the same place; anything else is two
-  // separate single clicks, however fast they came.
-  const lastNodeMouseDownRef = useRef({ instanceId: null, x: 0, y: 0 });
+  // The previous press that could be the first half of a double-click: a
+  // namespaced target key plus where it landed.
+  //
+  // `event.detail` counts consecutive clicks by TIME, and the browser's
+  // positional slop for that count is generous — wide enough that on a dense
+  // canvas a quick click on one Thing followed by a click on its neighbour
+  // arrives as detail === 2. On a Thing that opened the neighbour's panel tab;
+  // on a group title (which for a node-group IS the Thing, drawn without its
+  // pill) it opened the neighbour's inline rename. A double-click has to be two
+  // presses on the SAME target in the same place; anything else is two separate
+  // single clicks, however fast they came.
+  //
+  // One shared record rather than one per kind, so the cross-target runs are
+  // covered too — Thing then group title, group title then Thing.
+  const lastPressRef = useRef({ key: null, x: 0, y: 0 });
   const DOUBLE_CLICK_SLOP_PX = 10;
+
+  /**
+   * Records a press and reports whether it completes a double-click on the same
+   * target. Call exactly once per press — it mutates the record.
+   *
+   * @param {string|null} key - Namespaced target, e.g. `node:<instanceId>`.
+   *   Null for bare canvas, which ends any run without starting one.
+   * @param {number} clientX
+   * @param {number} clientY
+   * @param {number} detail - The event's own click count.
+   */
+  const isDoublePress = useCallback((key, clientX, clientY, detail) => {
+    const prev = lastPressRef.current;
+    const sameTarget = key !== null
+      && prev.key === key
+      && Math.hypot(clientX - prev.x, clientY - prev.y) <= DOUBLE_CLICK_SLOP_PX;
+    lastPressRef.current = { key, x: clientX, y: clientY };
+    return detail >= 2 && sameTarget;
+  }, []);
 
   // Ref to track initial mount completion
   const isMountedRef = useRef(false);
@@ -10779,12 +10882,23 @@ function NodeCanvas() {
   // from where the stroke sits, so the line you aimed at was not the line that
   // got the tap.
   //
-  // Returns { edgeId, distance, connection } for the NEAREST connection within
-  // `threshold` canvas units, or null.
+  // Returns { edgeId, distance, point, connection } for the NEAREST connection
+  // within `threshold` canvas units, or null. `point` is the closest point on
+  // the winner's REAL drawn geometry — the arc, the Manhattan run, the Bézier —
+  // not on the chord between its endpoints. The controller's auto-aim is the
+  // caller that needs it: aiming at a chord in a curved style walks the camera
+  // to a spot with nothing drawn on it. Every style computes that point already
+  // on its way to a distance; it was simply being thrown away.
   const findNearestEdgeAtCanvasPoint = useCallback((cx, cy, threshold) => {
     let foundEdgeId = null;
     let foundConnectionPayload = null;
     let closestDistance = Infinity;
+    // One scratch object reused across the whole scan, copied out only when an
+    // edge actually becomes the winner: this loop runs over every visible edge
+    // on every pointer move, and the styles here were written to avoid exactly
+    // this kind of per-edge garbage.
+    const nearest = { x: 0, y: 0 };
+    let foundPoint = null;
 
     for (let i = visibleEdges.length - 1; i >= 0; i--) {
       const edge = visibleEdges[i];
@@ -10810,14 +10924,15 @@ function NodeCanvas() {
           cx, cy,
           sourceInstance.x, sourceInstance.y,
           sourceDims.currentWidth, sourceDims.currentHeight,
-          edgeCurveInfo.get(edge.id)
+          edgeCurveInfo.get(edge.id),
+          nearest
         );
       } else if (enableAutoRouting && routingStyle === 'clean') {
         const pathPoints = generateCleanRoutingPath(
           edge, sourceInstance, targetInstance, sourceDims, targetDims,
           cleanLaneOffsets, cleanLaneSpacing
         );
-        distance = distanceToPolyline(cx, cy, pathPoints);
+        distance = distanceToPolyline(cx, cy, pathPoints, nearest);
       } else if (enableAutoRouting && routingStyle === 'lombardi') {
         // Closed form, not sampling. This runs for every visible edge on every
         // pointer move; building the full routing descriptor here (sampled
@@ -10832,8 +10947,8 @@ function NodeCanvas() {
           { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing }
         );
         distance = arc
-          ? distanceToArc(cx, cy, arc)
-          : distanceToPolyline(cx, cy, [p, q]);
+          ? distanceToArc(cx, cy, arc, nearest)
+          : distanceToPolyline(cx, cy, [p, q], nearest);
       } else if (enableAutoRouting && routingStyle === 'manhattan') {
         const pathPoints = generateManhattanRoutingPath(
           edge, sourceInstance, targetInstance, sourceDims, targetDims,
@@ -10843,7 +10958,7 @@ function NodeCanvas() {
           // centre route.
           { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing }
         );
-        distance = distanceToPolyline(cx, cy, pathPoints);
+        distance = distanceToPolyline(cx, cy, pathPoints, nearest);
       } else {
         const curveInfo = edgeCurveInfo.get(edge.id);
         if (curveInfo && curveInfo.totalInPair > 1) {
@@ -10859,7 +10974,8 @@ function NodeCanvas() {
               x1, y1,
               ctrlPoint.ctrlX, ctrlPoint.ctrlY,
               x2, y2,
-              40 // finer sampling to disambiguate tightly packed curves
+              40, // finer sampling to disambiguate tightly packed curves
+              nearest
             );
           }
         } else {
@@ -10878,6 +10994,8 @@ function NodeCanvas() {
             const dx = cx - xx;
             const dy = cy - yy;
             distance = Math.sqrt(dx * dx + dy * dy);
+            nearest.x = xx;
+            nearest.y = yy;
           }
         }
       }
@@ -10887,6 +11005,9 @@ function NodeCanvas() {
       // the first one found within the threshold.
       closestDistance = distance;
       foundEdgeId = edge.id;
+      // Copied, not aliased — `nearest` is about to be overwritten by the next
+      // edge in the scan.
+      foundPoint = { x: nearest.x, y: nearest.y };
 
       let connectionName = edge.connectionName || 'Connection';
       let connectionColor = edge.color || '#000000';
@@ -10946,7 +11067,7 @@ function NodeCanvas() {
     }
 
     return foundEdgeId
-      ? { edgeId: foundEdgeId, distance: closestDistance, connection: foundConnectionPayload }
+      ? { edgeId: foundEdgeId, distance: closestDistance, point: foundPoint, connection: foundConnectionPayload }
       : null;
   }, [visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
     enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
@@ -11221,15 +11342,10 @@ function NodeCanvas() {
     setHasMouseMovedSinceDown(false);
 
     // --- Double-click ---
-    // Gated on the previous press, not on e.detail alone — see
-    // lastNodeMouseDownRef. Clicking along a row of Things at speed is an
-    // ordinary thing to do and must stay a run of single clicks.
-    const prevDown = lastNodeMouseDownRef.current;
-    const isRepeatOfSamePress = prevDown.instanceId === instanceId
-      && Math.hypot(e.clientX - prevDown.x, e.clientY - prevDown.y) <= DOUBLE_CLICK_SLOP_PX;
-    lastNodeMouseDownRef.current = { instanceId, x: e.clientX, y: e.clientY };
-
-    if (e.detail >= 2 && isRepeatOfSamePress) {
+    // Gated on the previous press, not on e.detail alone — see lastPressRef.
+    // Clicking along a row of Things at speed is an ordinary thing to do and
+    // must stay a run of single clicks.
+    if (isDoublePress(`node:${instanceId}`, e.clientX, e.clientY, e.detail)) {
       e.preventDefault();
       if (clickTimeoutIdRef.current) { clearTimeout(clickTimeoutIdRef.current); clickTimeoutIdRef.current = null; }
       potentialClickNodeRef.current = null;
@@ -12260,10 +12376,10 @@ function NodeCanvas() {
       clickTimeoutIdRef.current = null;
       potentialClickNodeRef.current = null;
     }
-    // A press on bare canvas ends any run of clicks on a Thing, so the next
-    // press on that Thing starts a fresh one rather than completing a pair the
-    // user broke off in between.
-    lastNodeMouseDownRef.current = { instanceId: null, x: 0, y: 0 };
+    // A press on bare canvas ends any run of clicks on a Thing or a group
+    // title, so the next press on one starts a fresh run rather than completing
+    // a pair the user broke off in between.
+    isDoublePress(null, e.clientX ?? 0, e.clientY ?? 0, 0);
 
     // NOTE: the connection selection is deliberately NOT cleared here. Panning must
     // preserve it — a pointer-down on bare canvas is the start of a gesture that may
@@ -13616,19 +13732,39 @@ function NodeCanvas() {
    */
   const groupControlRef = useRef(null);
   groupControlRef.current = {
-    /** The group whose title pill is under this point, with the pill's rect. */
+    /**
+     * The group whose title pill is under this point, with the pill's rect.
+     *
+     * Reads groupTitleRectsRef, which carries EVERY group — not
+     * findGroupTitleAtPoint, whose map only ever held node-group anchors and so
+     * made plain groups invisible to the pad. Deepest-first, because a nested
+     * group's pill sits on top of its parent's shell and is the one drawn over
+     * the point; findGroupTitleAtPoint's insertion-order scan would hand back
+     * the parent.
+     */
     findAt: (clientX, clientY) => {
-      const hit = findGroupTitleAtPoint(clientX, clientY);
-      if (!hit) return null;
-      const info = anchorPositionUpdatesRef.current.get(hit.anchorInstanceId);
-      if (!info) return null;
-      return {
-        groupId: hit.groupId,
-        anchorInstanceId: hit.anchorInstanceId,
-        // Canvas-space centre of the pill: where the auto-aim drift pulls to,
-        // the same way a node drifts to its centre.
-        center: { x: info.x + info.width / 2, y: info.y + info.height / 2 },
-      };
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return null;
+      const canvasX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + (canvasSize?.offsetX || 0);
+      const canvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + (canvasSize?.offsetY || 0);
+      const depths = groupDepthByGroupIdRef.current;
+      let best = null;
+      let bestDepth = -Infinity;
+      for (const [groupId, info] of groupTitleRectsRef.current.entries()) {
+        if (canvasX < info.x || canvasX > info.x + info.width
+          || canvasY < info.y || canvasY > info.y + info.height) continue;
+        const depth = depths.get(groupId) ?? 0;
+        if (depth < bestDepth) continue;
+        bestDepth = depth;
+        best = {
+          groupId,
+          anchorInstanceId: info.anchorInstanceId,
+          // Canvas-space centre of the pill: where the auto-aim drift pulls to,
+          // the same way a node drifts to its centre.
+          center: { x: info.x + info.width / 2, y: info.y + info.height / 2 },
+        };
+      }
+      return best;
     },
     /**
      * Select a group, exactly as a single click on its title does — including
@@ -16610,6 +16746,10 @@ function NodeCanvas() {
                     // bottom of the stack would bury them. Bucketed by depth and
                     // interleaved with the shells instead — see Phase 2.
                     const nestedRegularByDepth = new Map();
+                    // Rebuilt, not accumulated: a group that is gone (or has become
+                    // undrawable — emptied, or its layout bailed) must leave no rect
+                    // behind, or the controller keeps aiming at a pill nobody draws.
+                    groupTitleRectsRef.current.clear();
 
                     if (!groups.length) {
                       nodeGroupBackgroundsByDepthRef.current = ngBackgroundsByDepth;
@@ -16754,6 +16894,16 @@ function NodeCanvas() {
                       // Sync anchor instance position to group title center. Also record the
                       // group's full outer bounds (title tab + member box) so a connection label
                       // can clip against the whole group box and center on the visible segment.
+                      // Every group records its pill here, including plain ones — this is
+                      // the map the controller aims at. Rebuilt from scratch each pass
+                      // (cleared above), so a deleted group leaves nothing behind.
+                      groupTitleRectsRef.current.set(group.id, {
+                        x: labelX, y: labelY,
+                        width: labelWidth, height: labelHeight,
+                        groupId: group.id,
+                        anchorInstanceId: isNodeGroup ? (group.anchorInstanceId || null) : null,
+                      });
+
                       if (isNodeGroup && group.anchorInstanceId) {
                         const vb = layout.visualBounds;
                         anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
@@ -16802,7 +16952,12 @@ function NodeCanvas() {
                           onClick={(e) => {
                             e.stopPropagation();
                             if (wasDraggingRef.current || mouseMoved.current) return;
-                            if (e.detail === 2) {
+                            // Same gate as a Thing's double-click, and it matters
+                            // more here: a node-group's title IS the Thing (drawn
+                            // without its pill), so clicking along a chain of them
+                            // at speed used to drop the last one into an inline
+                            // rename. See lastPressRef.
+                            if (isDoublePress(`group:${group.id}`, e.clientX, e.clientY, e.detail)) {
                               setEditingGroupId(group.id);
                               setTempGroupName(effectiveGroupName);
                             } else {
@@ -18362,8 +18517,9 @@ function NodeCanvas() {
                 zoomLevel={zoomLevel}
               />
 
-              {/* The controller's cursor. Centred on the usable viewport, which
-                  is also where zoom is anchored, so the world scales under it
+              {/* The controller's cursor. Pinned to the absolute screen centre
+                  so panels opening and closing never move it, and the zoom is
+                  anchored on the same point, so the world scales under it
                   without sliding. */}
               <GamepadCrosshair
                 visible={gamepadActive}

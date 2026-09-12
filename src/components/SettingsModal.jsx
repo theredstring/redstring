@@ -72,6 +72,11 @@ const OptionGroup = ({ options, value, onChange }) => (
  * Full-screen overlay with two-column layout for app settings.
  * Reads/writes settings directly via useGraphStore.
  */
+// Stable fallback for the gamepad tuning selector. A fresh `{}` inside the
+// selector would be a new object on every store read, which Zustand compares by
+// identity — so the modal would re-render on every unrelated state change.
+const EMPTY_GAMEPAD_TUNING = {};
+
 const SettingsModal = ({ isVisible, onClose }) => {
   const theme = useTheme();
   const [activeSection, setActiveSection] = useState('display');
@@ -148,8 +153,11 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const mouseGlideStrength = useGraphStore(s => s.mouseSettings?.glideStrength ?? 0.5);
   const nodeLiftDelay = useGraphStore(s => s.mouseSettings?.nodeLiftDelay ?? 250);
   const gamepadScheme = useGraphStore(s => s.gamepadSettings?.scheme ?? 'default');
-  const gamepadCrosshairScale = useGraphStore(s => s.gamepadSettings?.crosshairScale ?? 1.0);
-  const gamepadPanelResizeSensitivity = useGraphStore(s => s.gamepadSettings?.panelResizeSensitivity ?? 1.0);
+  // One subscription for the whole numeric family: they are set from the same
+  // section, they change together, and seven selectors for seven numbers off
+  // one object is seven chances to forget one.
+  const gamepadTuning = useGraphStore(s => s.gamepadSettings) ?? EMPTY_GAMEPAD_TUNING;
+  const gamepadPanelResizeBinding = useGraphStore(s => s.gamepadSettings?.panelResizeBinding ?? 'stick');
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
   const touchPinchGlideEnabled = useGraphStore(s => s.touchSettings?.pinchGlideEnabled ?? true);
   const touchPinchGlideStrength = useGraphStore(s => s.touchSettings?.pinchGlideStrength ?? 0.5);
@@ -638,7 +646,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-row">
             <div className="settings-row-label">
               Truncate Long Labels
-              <div className="settings-row-description">Ends a name too long for its connection in an ellipsis instead of letting it overhang the nodes</div>
+              <div className="settings-row-description">Ends a name too long for its connection in an ellipsis instead of letting it overhang</div>
             </div>
             <Toggle
               checked={!!connectionLabelTruncate}
@@ -993,33 +1001,102 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={(v) => useGraphStore.getState().setGamepadScheme?.(v)}
             />
           </div>
+          {/* Zoom before pan, and on the same 0.1-1.0 scale, because that is
+              the shape the Touch, Trackpad and Mouse sections above use. A
+              number learned in one of them should still mean something here. */}
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Zoom Sensitivity"
+              value={gamepadTuning.zoomSensitivity ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setGamepadTuning?.('zoomSensitivity', v)}
+              suffix=""
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Pan Sensitivity"
+              value={gamepadTuning.panSensitivity ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setGamepadTuning?.('panSensitivity', v)}
+              suffix=""
+            />
+          </div>
+          {/* How fast a held direction repeats when walking menus, lists and
+              panels. A sensitivity in the same sense as the two above — how
+              much a given input produces — even though what it scales is a
+              rate of repeats rather than a distance. */}
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Menu Repeat Speed"
+              value={gamepadTuning.menuRepeatSensitivity ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setGamepadTuning?.('menuRepeatSensitivity', v)}
+              suffix=""
+            />
+          </div>
+          {/* The one number here that is NOT on the 0.1-1.0 scale, on purpose.
+              A deadzone is a measurement of the hardware rather than a
+              preference about response: sticks wear, and a drifting one needs
+              this raised until the drift stops. Stated in the units the
+              controller itself reports. */}
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Stick Deadzone"
+              value={gamepadTuning.stickDeadzone ?? 0.18}
+              min={0.02}
+              max={0.45}
+              step={0.01}
+              onChange={(v) => useGraphStore.getState().setGamepadTuning?.('stickDeadzone', v)}
+              suffix=""
+            />
+          </div>
           {/* The reticle sits ON what it is aiming at, so its size is a trade
               against how much of the thing underneath it covers — which is a
               matter of display and taste rather than something to hardcode. */}
           <div className="settings-slider-row">
             <MaroonSlider
               label="Crosshair Size"
-              value={gamepadCrosshairScale ?? 1.0}
+              value={gamepadTuning.crosshairScale ?? 1.0}
               min={0.5}
               max={2.5}
               step={0.1}
               suffix="x"
-              onChange={(v) => useGraphStore.getState().setGamepadCrosshairScale?.(v)}
+              onChange={(v) => useGraphStore.getState().setGamepadTuning?.('crosshairScale', v)}
             />
           </div>
-          {/* Hold a stick click and push sideways to resize that side's panel.
-              A stick gives a velocity rather than a position, so there is no
-              1:1 to fall back on the way a pointer drag has — the rate is a
-              choice, and the right one depends on how wide the screen is. */}
+          {/* Which control holds the resize. Hold it and push the stick on that
+              side; a tap does what the control does otherwise — stick clicks
+              toggle their panel, bumpers step through open webs. */}
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Panel Resize Control
+              <div className="settings-row-description">Hold and push the stick sideways to resize that side's panel. Stick clicks keep the thumb on one control; bumpers leave the stick its full range.</div>
+            </div>
+            <OptionGroup
+              options={[
+                { label: 'Stick Click', value: 'stick' },
+                { label: 'Bumper', value: 'bumper' }
+              ]}
+              value={gamepadPanelResizeBinding || 'stick'}
+              onChange={(v) => useGraphStore.getState().setGamepadPanelResizeBinding?.(v)}
+            />
+          </div>
           <div className="settings-slider-row">
             <MaroonSlider
-              label="Panel Resize Speed"
-              value={gamepadPanelResizeSensitivity ?? 1.0}
-              min={0.25}
-              max={3.0}
-              step={0.25}
-              suffix="x"
-              onChange={(v) => useGraphStore.getState().setGamepadPanelResizeSensitivity?.(v)}
+              label="Panel Resize Sensitivity"
+              value={gamepadTuning.panelResizeSensitivity ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setGamepadTuning?.('panelResizeSensitivity', v)}
+              suffix=""
             />
           </div>
         </div>

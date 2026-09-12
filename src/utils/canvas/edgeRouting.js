@@ -1174,21 +1174,38 @@ export function sampleArc(arc, steps = null) {
  * the distance is just |r − radius|; otherwise it's the nearer endpoint. O(1)
  * instead of O(samples), and more accurate than the polyline it replaced.
  */
-export function distanceToArc(px, py, arc) {
+export function distanceToArc(px, py, arc, out) {
   const dx = px - arc.cx;
   const dy = py - arc.cy;
   const r = Math.hypot(dx, dy);
-  if (r < 1e-9) return arc.radius;
+  if (r < 1e-9) {
+    // Dead centre: every point on the arc is equidistant, so the start is as
+    // good an answer as any.
+    if (out) { out.x = arc.cx + arc.radius * Math.cos(arc.a0); out.y = arc.cy + arc.radius * Math.sin(arc.a0); }
+    return arc.radius;
+  }
 
   // MAX_TANGENT_CHORD keeps |sweep| under π, so the shortest signed delta
   // unambiguously identifies whether the bearing lies within the span.
   const s = wrapPi(Math.atan2(dy, dx) - arc.a0) / arc.sweep;
-  if (s >= 0 && s <= 1) return Math.abs(r - arc.radius);
+  if (s >= 0 && s <= 1) {
+    // Inside the span, so the foot of the perpendicular is the radial
+    // projection onto the circle — the same closed form the distance uses.
+    if (out) { out.x = arc.cx + (dx / r) * arc.radius; out.y = arc.cy + (dy / r) * arc.radius; }
+    return Math.abs(r - arc.radius);
+  }
 
   const a0 = arc.a0;
   const a1 = arc.a0 + arc.sweep;
-  const d0 = Math.hypot(px - (arc.cx + arc.radius * Math.cos(a0)), py - (arc.cy + arc.radius * Math.sin(a0)));
-  const d1 = Math.hypot(px - (arc.cx + arc.radius * Math.cos(a1)), py - (arc.cy + arc.radius * Math.sin(a1)));
+  const p0x = arc.cx + arc.radius * Math.cos(a0);
+  const p0y = arc.cy + arc.radius * Math.sin(a0);
+  const p1x = arc.cx + arc.radius * Math.cos(a1);
+  const p1y = arc.cy + arc.radius * Math.sin(a1);
+  const d0 = Math.hypot(px - p0x, py - p0y);
+  const d1 = Math.hypot(px - p1x, py - p1y);
+  if (out) {
+    if (d0 <= d1) { out.x = p0x; out.y = p0y; } else { out.x = p1x; out.y = p1y; }
+  }
   return Math.min(d0, d1);
 }
 

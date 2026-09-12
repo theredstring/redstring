@@ -1,18 +1,22 @@
 import React from 'react';
+import { useDarkMode } from '../hooks/useTheme.js';
+import { crosshairCenter } from '../utils/gamepadAim.js';
 
 /**
  * GamepadCrosshair — the controller's cursor.
  *
- * A Minecraft-style reticle pinned to the centre of the USABLE viewport, not
- * of the window. Panels, the header and the TypeList all eat into the canvas,
- * and `viewportBounds` already accounts for all three, so the crosshair stays
- * centred in what the user can actually see as panels open and close — and it
- * sits exactly where the zoom is anchored, so zooming never slides the world
- * out from under it.
+ * A Minecraft-style reticle pinned to the ABSOLUTE centre of the screen —
+ * deliberately not to the centre of the usable canvas. Panels, the header and
+ * the TypeList move that second point around every time one opens, closes or
+ * is resized, and the reticle is the cursor: one that relocates itself because
+ * a panel appeared is one the user has to go and find again. See
+ * `crosshairCenter`, which is also what the aim resolution and the zoom anchor
+ * read, so all three stay on the same pixel.
  *
  * Rendered as a sibling of the canvas <svg> inside `.canvas-area`, which is
  * `position: relative`, so it is positioned against the same box the mouse
- * coordinates are measured in.
+ * coordinates are measured in — hence the conversion out of app-box space
+ * below.
  */
 
 // Half the length of each arm, in px, at scale 1. Deliberately small: this
@@ -28,22 +32,34 @@ const THICKNESS = 2;
 const OPACITY = 0.5;
 
 const GamepadCrosshair = ({ visible, viewportBounds, headerHeight = 0, scale = 1 }) => {
+  // Hook before the early return: bailing out first would change hook order
+  // between a hidden and a visible crosshair.
+  const darkMode = useDarkMode();
+
   if (!visible || !viewportBounds) return null;
 
   // Rounded so both arms land on whole pixels and the two bars stay visually
   // identical; a half-pixel arm antialiases one end and not the other.
   const arm = Math.max(2, Math.round(ARM * scale));
 
-  // `.canvas-area` starts below the header and to the right of the left panel,
-  // so convert the window-space bounds into offsets within that box.
-  const centerX = viewportBounds.width / 2;
-  const centerY = (viewportBounds.height / 2) + (viewportBounds.y - headerHeight);
+  // App-box centre → offsets within `.canvas-area`.
+  //
+  // The container's origin is (0, headerHeight), NOT (viewportBounds.x,
+  // viewportBounds.y): the panels are position:fixed overlays and take no flow
+  // space, so the canvas area is full-width and starts at the left edge of the
+  // app box whatever the panels are doing. `viewportBounds.x` is the left
+  // panel's width — subtracting it here is what dragged the reticle left when a
+  // panel opened. Only the header has to come off, because it IS in the flow.
+  // See the note above getFramingRegion in NodeCanvas for the same conversion.
+  const center = crosshairCenter(viewportBounds);
+  const centerX = center.x;
+  const centerY = center.y - headerHeight;
 
   // Two bars rather than an SVG: fewer nodes, no rasterisation, and it stays
   // pin-sharp at any devicePixelRatio.
   const bar = {
     position: 'absolute',
-    backgroundColor: '#260000',
+    backgroundColor: darkMode ? '#BDB5B5' : '#260000',
     opacity: OPACITY,
     borderRadius: 1,
     pointerEvents: 'none',

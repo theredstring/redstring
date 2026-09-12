@@ -24,7 +24,45 @@
  * touches no shared flag. It never has to be cancelled from outside, because it
  * re-asks permission every frame (`shouldContinue`) and stands down the instant
  * anything else wants the camera. Nothing else has to know it exists.
+ *
+ * WHY NO ROUTING GEOMETRY LIVES IN HERE.
+ *
+ * A connection's aim point has to be a point on the line as DRAWN. There are
+ * six routing styles and their geometry is centralised in utils/canvas; an
+ * approximation here — the chord between the endpoints was the obvious one —
+ * is correct only for a plain straight line and is a fiction for every curved
+ * or routed style, which is worse than no auto-aim at all, because the camera
+ * then confidently walks to a place with nothing drawn on it. So the hit test
+ * returns the point it measured to, and this module only moves the camera.
  */
+
+/**
+ * Where the reticle sits, in the app-box coordinates `viewportBounds` is
+ * measured in.
+ *
+ * The ABSOLUTE centre of the app box — deliberately NOT the centre of the
+ * usable canvas. Panels opening, closing and being resized would otherwise
+ * slide the reticle around mid-session, and the reticle IS the cursor: one
+ * that wanders because a panel appeared is one you have to go and find again.
+ * Pinned to the screen centre it becomes the single thing on screen that never
+ * moves, which is what makes "the world moves under the sight" legible.
+ *
+ * Three things have to agree on this point or the mode quietly breaks: what is
+ * drawn (GamepadCrosshair), what is aimed (useGamepad's getCrosshair) and what
+ * the zoom is anchored at (the camera loop in useCanvasKeyboard). Hence one
+ * function rather than three copies of `/ 2`.
+ *
+ * @param {object|null} bounds a useViewportBounds result
+ * @returns {{x: number, y: number} | null}
+ */
+export const crosshairCenter = (bounds) => {
+  if (!bounds) return null;
+  // windowWidth/Height are the padded app box; the width/height fallbacks are
+  // for a bounds object measured before the panels reported in.
+  const w = bounds.windowWidth ?? bounds.width;
+  const h = bounds.windowHeight ?? bounds.height;
+  return { x: w / 2, y: h / 2 };
+};
 
 /**
  * Closest point to (px, py) on the segment (x1,y1)-(x2,y2).

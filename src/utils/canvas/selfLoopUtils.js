@@ -99,7 +99,12 @@ export function calculateSelfLoopPath(nodeX, nodeY, nodeW, nodeH, curveInfo) {
   };
 }
 
-export function distanceToSelfLoop(px, py, nodeX, nodeY, nodeW, nodeH, curveInfo) {
+/**
+ * @param {{x:number,y:number}} [out] - Filled with the closest point ON the
+ *   drawn loop when supplied, and left untouched when the point falls in the
+ *   undrawn wedge (there is no such point then, and the distance is Infinity).
+ */
+export function distanceToSelfLoop(px, py, nodeX, nodeY, nodeW, nodeH, curveInfo, out) {
   const geom = calculateSelfLoopPath(nodeX, nodeY, nodeW, nodeH, curveInfo);
   const dx = px - geom.loopCx;
   const dy = py - geom.loopCy;
@@ -112,6 +117,14 @@ export function distanceToSelfLoop(px, py, nodeX, nodeY, nodeW, nodeH, curveInfo
   while (diff > Math.PI) diff -= 2 * Math.PI;
   while (diff < -Math.PI) diff += 2 * Math.PI;
   if (Math.abs(diff) < geom.wedgeHalfAngle) return Infinity;
+  if (out) {
+    // Radial projection onto the loop circle. Degenerate only at the exact
+    // centre, which the wedge test above has already rejected for every loop
+    // (the node sits inside the wedge's half-plane).
+    const r = distToCenter > 1e-9 ? distToCenter : 1;
+    out.x = geom.loopCx + (dx / r) * geom.radius;
+    out.y = geom.loopCy + (dy / r) * geom.radius;
+  }
   return Math.abs(distToCenter - geom.radius);
 }
 

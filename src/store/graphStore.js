@@ -190,7 +190,9 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {Object} keyboardSettings - `{ zoomSensitivity, panSensitivity }` in range [0, 1].
  * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
  * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength, trackpadPanGlideEnabled, trackpadPanGlideStrength }`.
- * @property {Object} gamepadSettings - Game controller settings: `{ scheme, crosshairScale, panelResizeSensitivity }`.
+ * @property {Object} gamepadSettings - Game controller settings: `{ scheme, crosshairScale,
+ *   zoomSensitivity, panSensitivity, panelResizeSensitivity,
+ *   menuRepeatSensitivity, stickDeadzone, panelResizeBinding }`.
  * @property {'mouse'|'touch'|'gamepad'} inputMode - Active input modality. Session-only.
  */
 
@@ -221,6 +223,36 @@ const readStoredNumber = (key, min, max, fallback) => {
     return fallback;
   }
 };
+
+/**
+ * The controller's numeric tunings: storage key, valid range, and default.
+ *
+ * Stated once, and read from BOTH ends — the initial-state block below reads it
+ * to load, `setGamepadTuning` reads it to validate. A range written out twice
+ * is a range that eventually disagrees with itself, and the failure mode is
+ * quiet: a value that saves but won't load, or loads but can't be set back.
+ *
+ * The four sensitivities sit on the same 0.1–1.0 scale as the Touch, Trackpad
+ * and Mouse sections, where 0.5 is neutral and the consuming code doubles it.
+ * `stickDeadzone` deliberately does not: it is a physical measurement of the
+ * stick's dead region, not a preference about response, so it is stated in the
+ * same units the hardware reports.
+ */
+const GAMEPAD_TUNING = {
+  crosshairScale: { key: 'redstring_gamepad_crosshair_scale', min: 0.5, max: 2.5, fallback: 1.0 },
+  zoomSensitivity: { key: 'redstring_gamepad_zoom_sensitivity', min: 0.1, max: 1.0, fallback: 0.5 },
+  panSensitivity: { key: 'redstring_gamepad_pan_sensitivity', min: 0.1, max: 1.0, fallback: 0.5 },
+  panelResizeSensitivity: { key: 'redstring_gamepad_panel_resize', min: 0.1, max: 1.0, fallback: 0.5 },
+  menuRepeatSensitivity: { key: 'redstring_gamepad_menu_repeat', min: 0.1, max: 1.0, fallback: 0.5 },
+  stickDeadzone: { key: 'redstring_gamepad_stick_deadzone', min: 0.02, max: 0.45, fallback: 0.18 },
+};
+
+/** Every gamepad tuning, loaded from storage through its own spec. */
+const readGamepadTuning = () => Object.fromEntries(
+  Object.entries(GAMEPAD_TUNING).map(([name, spec]) => (
+    [name, readStoredNumber(spec.key, spec.min, spec.max, spec.fallback)]
+  ))
+);
 
 const readStoredBool = (key, fallback) => {
   try {
@@ -1761,16 +1793,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // re-plumbing the setting; 'default' is the only one that ships today.
     gamepadSettings: {
       scheme: readStoredString('redstring_gamepad_scheme', ['default'], 'default'),
-      // Multiplier on the reticle's arm length. The crosshair sits over the
-      // thing being aimed at rather than beside it, so how big it wants to be
-      // depends on the display and on how much of a node label the user is
-      // willing to have covered — which is a preference, not a constant.
-      crosshairScale: readStoredNumber('redstring_gamepad_crosshair_scale', 0.5, 2.5, 1.0),
-      // How fast holding a stick click and pushing sideways resizes that
-      // panel. A stick states a velocity rather than a position, so unlike a
-      // pointer drag there is no "1:1" to fall back on — the rate is a choice,
-      // and how fast feels right depends on screen width.
-      panelResizeSensitivity: readStoredNumber('redstring_gamepad_panel_resize_sensitivity', 0.25, 3.0, 1.0),
+      // Every numeric tuning, loaded through GAMEPAD_TUNING so the ranges here
+      // and the ranges setGamepadTuning validates against cannot drift apart.
+      ...readGamepadTuning(),
+      panelResizeBinding: readStoredString('redstring_gamepad_panel_resize_binding', ['stick', 'bumper'], 'stick'),
     },
 
     // Active input modality — flipped per-interaction by pointerdown listener.
@@ -6814,35 +6840,46 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     /**
-     * Sets the controller reticle's size multiplier. Range [0.5, 2.5].
-     * Persists to localStorage.
-     * @param {number} value
+     * Sets which control holds the panel-resize gesture. Persists to localStorage.
+     * @param {'stick'|'bumper'} binding
      */
-    setGamepadCrosshairScale: (value) => set(produce((draft) => {
-      const v = Number(value);
-      if (!Number.isFinite(v) || v < 0.5 || v > 2.5) {
-        console.warn(`[setGamepadCrosshairScale] Invalid value: ${value}`);
+    setGamepadPanelResizeBinding: (binding) => set(produce((draft) => {
+      const allowed = ['stick', 'bumper'];
+      if (!allowed.includes(binding)) {
+        console.warn(`[setGamepadPanelResizeBinding] Invalid binding: ${binding}`);
         return;
       }
       if (!draft.gamepadSettings) draft.gamepadSettings = { scheme: 'default' };
-      draft.gamepadSettings.crosshairScale = v;
-      try { localStorage.setItem('redstring_gamepad_crosshair_scale', String(v)); } catch (_) { }
+      draft.gamepadSettings.panelResizeBinding = binding;
+      try { localStorage.setItem('redstring_gamepad_panel_resize_binding', binding); } catch (_) { }
     })),
 
     /**
-     * Sets how fast a held stick click resizes its panel. Range [0.25, 3].
-     * Persists to localStorage.
+     * Sets one of the controller's numeric tunings. Persists to localStorage.
+     *
+     * One setter over a table rather than seven near-identical ones. These
+     * differ ONLY in their key and their range, and a range written twice —
+     * once where the value is read at startup and once where it is validated on
+     * write — is a range that eventually disagrees with itself. GAMEPAD_TUNING
+     * is the single statement of both.
+     *
+     * @param {keyof GAMEPAD_TUNING} name
      * @param {number} value
      */
-    setGamepadPanelResizeSensitivity: (value) => set(produce((draft) => {
+    setGamepadTuning: (name, value) => set(produce((draft) => {
+      const spec = GAMEPAD_TUNING[name];
+      if (!spec) {
+        console.warn(`[setGamepadTuning] Unknown tuning: ${name}`);
+        return;
+      }
       const v = Number(value);
-      if (!Number.isFinite(v) || v < 0.25 || v > 3.0) {
-        console.warn(`[setGamepadPanelResizeSensitivity] Invalid value: ${value}`);
+      if (!Number.isFinite(v) || v < spec.min || v > spec.max) {
+        console.warn(`[setGamepadTuning] Invalid ${name}: ${value}`);
         return;
       }
       if (!draft.gamepadSettings) draft.gamepadSettings = { scheme: 'default' };
-      draft.gamepadSettings.panelResizeSensitivity = v;
-      try { localStorage.setItem('redstring_gamepad_panel_resize_sensitivity', String(v)); } catch (_) { }
+      draft.gamepadSettings[name] = v;
+      try { localStorage.setItem(spec.key, String(v)); } catch (_) { }
     })),
 
     /**

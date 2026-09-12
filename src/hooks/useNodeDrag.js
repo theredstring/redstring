@@ -213,6 +213,7 @@ export const useNodeDrag = ({
   groupsByIdRef,
   childGroupIdsByGroupIdRef,
   anchorPositionUpdatesRef,
+  groupTitleRectsRef,
 }) => {
   // ---------------------------------------------------------------------------
   // State & Refs
@@ -1522,6 +1523,16 @@ export const useNodeDrag = ({
             (labelAngle > 90 || labelAngle < -90) ? labelAngle + 180 : labelAngle,
             labelAngleQuantumRef?.current ?? 0
           );
+          // Marked as touched for the same reason the sprite branch below is:
+          // these three attributes are being written behind React's back, so
+          // the drop restore has to put them back to React's last commit before
+          // React diffs against them. The routed path sets the flag on every
+          // label it writes (see labelText/labelTexts above); this one only set
+          // it for sprites, so a straight <text> label was mutated all gesture
+          // and then never restored — and any attribute the settled render
+          // happened to land on unchanged was skipped by React and left holding
+          // the drag's last frame. See LABEL FRAMES in edgeLabelPlacement.js.
+          if (texts.length > 0 && labelTouched) labelTouched.current = true;
           texts.forEach(t => {
             t.setAttribute('x', midX);
             t.setAttribute('y', midY);
@@ -1618,6 +1629,19 @@ export const useNodeDrag = ({
       // the drag so connection labels on edges touching this thing-group clip
       // against the live group box (not last-commit bounds). updateEdgesInDOM
       // reads this for the same frame, so it must run after this pass.
+      // The controller aims at pill rects, so a group whose pill is moving this
+      // frame has to keep its rect current or the crosshair is testing against
+      // where the title WAS at the last commit. Plain groups included — they are
+      // absent from the anchor map below and would otherwise never update.
+      if (groupTitleRectsRef?.current) {
+        groupTitleRectsRef.current.set(groupId, {
+          x: labelX, y: labelY,
+          width: groupLabelWidth, height: groupLabelHeight,
+          groupId,
+          anchorInstanceId: layout.isNodeGroup ? (group.anchorInstanceId || null) : null,
+        });
+      }
+
       if (layout.isNodeGroup && group.anchorInstanceId && anchorPositionUpdatesRef?.current) {
         const vb = layout.visualBounds;
         anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {

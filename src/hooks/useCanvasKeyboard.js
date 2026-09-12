@@ -318,12 +318,46 @@ export const useCanvasKeyboard = ({
                         zoomLevelRef.current = newZoom;
                         didMove = true;
 
-                        // Adjust pan to keep view centered
+                        // The fixed point the world scales about.
+                        //
+                        // Keyboard: the middle of the USABLE viewport. A
+                        // keyboard user has no reticle, so the middle of what
+                        // they can actually see is the right thing to hold
+                        // still.
+                        //
+                        // Controller: the anchor that came back with the tick.
+                        // Its reticle is pinned to the ABSOLUTE screen centre
+                        // (see crosshairCenter), which is not the middle of the
+                        // usable viewport once a panel is open — and the world
+                        // has to scale about the sight, or zooming slides the
+                        // canvas off whatever was being aimed at. When a key and
+                        // the stick are held together the controller's anchor
+                        // wins: it is the one with something drawn on screen to
+                        // be wrong about.
+                        //
+                        // Both in CONTAINER-LOCAL coords, the space panOffset
+                        // lives in. The canvas container's origin is (0,
+                        // viewportBounds.y): the panels are position:fixed
+                        // overlays and take no flow space, so it spans the full
+                        // app-box width, while the header IS in the flow and has
+                        // to come off the y. That asymmetry is why only one axis
+                        // is corrected here. Same conversion as the note above
+                        // getFramingRegion in NodeCanvas.
+                        //
+                        // The y used to be `viewportBounds.height / 2 +
+                        // viewportBounds.y`, which counted the header twice and
+                        // pulled the keyboard's zoom centre a full HEADER_HEIGHT
+                        // below the middle of the region it was meant to hold
+                        // still — the same double-count documented for the
+                        // framing region.
                         const zoomRatio = newZoom / prevZoom;
-                        const centerX = viewportBounds.width / 2;
-                        const centerY = viewportBounds.height / 2;
-                        const zoomCenterX = centerX + viewportBounds.x;
-                        const zoomCenterY = centerY + viewportBounds.y;
+                        const gamepadAnchor = (gamepad && gamepad.zoomMultiplier !== 1) ? gamepad.zoomAnchor : null;
+                        const zoomCenterX = gamepadAnchor
+                            ? gamepadAnchor.x
+                            : viewportBounds.x + viewportBounds.width / 2;
+                        const zoomCenterY = gamepadAnchor
+                            ? gamepadAnchor.y - viewportBounds.y
+                            : viewportBounds.height / 2;
                         const prev = panOffsetRef.current;
                         const newPanX = zoomCenterX - (zoomCenterX - prev.x) * zoomRatio;
                         const newPanY = zoomCenterY - (zoomCenterY - prev.y) * zoomRatio;

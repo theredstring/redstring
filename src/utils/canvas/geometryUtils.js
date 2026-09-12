@@ -310,9 +310,13 @@ export function pointToRectDistance(x, y, rect) {
  * @param {number} px
  * @param {number} py
  * @param {Array<{x:number,y:number}>} points
+ * @param {{x:number,y:number}} [out] filled with the closest point ON the
+ *   geometry when supplied. An out-parameter rather than a returned object
+ *   because this runs for every visible edge on every pointer move, and the
+ *   callers that want the point want it for one edge, not for all of them.
  * @returns {number} Infinity when there is nothing to measure against
  */
-export function distanceToPolyline(px, py, points) {
+export function distanceToPolyline(px, py, points, out) {
   if (!points || points.length < 2) return Infinity;
   let best = Infinity;
   for (let i = 0; i < points.length - 1; i++) {
@@ -324,10 +328,13 @@ export function distanceToPolyline(px, py, points) {
     if (lenSq <= 0) continue;
     let t = ((px - a.x) * cx + (py - a.y) * cy) / lenSq;
     if (t < 0) t = 0; else if (t > 1) t = 1;
-    const dx = px - (a.x + t * cx);
-    const dy = py - (a.y + t * cy);
-    const d = Math.hypot(dx, dy);
-    if (d < best) best = d;
+    const nx = a.x + t * cx;
+    const ny = a.y + t * cy;
+    const d = Math.hypot(px - nx, py - ny);
+    if (d < best) {
+      best = d;
+      if (out) { out.x = nx; out.y = ny; }
+    }
   }
   return best;
 }

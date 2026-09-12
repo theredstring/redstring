@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, CheckCircle, AlertCircle, Trash2, RefreshCw, Plug, Save, Pencil, SlidersHorizontal } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import MaroonSlider from '../MaroonSlider.jsx';
 import apiKeyManager from '../../services/apiKeyManager.js';
 import { useProviderModels } from '../../hooks/useProviderModels.js';
 import { getProviderLabel } from '../../services/modelCatalog.js';
@@ -954,46 +955,43 @@ const AISection = () => {
       {/* Wizard Behavior */}
       <div className="settings-section-subtitle">Wizard Behavior</div>
 
-      <div className="settings-row">
+      {/* The description is what keeps these two apart, and a MaroonSlider has
+          no room for one — so the name and description sit in an attached row
+          above the track, the way Label Ring does in Connections. */}
+      <div className="settings-row settings-row--attached">
         <div className="settings-row-label">
-          Local model iterations
+          Local Model Iterations
           <div className="settings-row-description">Max tool calls per turn for local/small models. 0 = max (capped at 300)</div>
         </div>
-        <div className="settings-row-control" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <input
-            type="range"
-            min="0"
-            max="500"
-            step="1"
-            value={maxIterationsLocal}
-            onChange={(e) => { const v = Number(e.target.value); setMaxIterationsLocal(v); localStorage.setItem('rs.wizard.maxIterationsLocal', v); }}
-            style={{ flex: 1, minWidth: '100px' }}
-          />
-          <span style={{ minWidth: '32px', textAlign: 'right', fontSize: '0.8rem' }}>
-            {maxIterationsLocal === 0 ? '∞' : maxIterationsLocal}
-          </span>
-        </div>
+      </div>
+      <div className="settings-slider-row settings-slider-row--unlabeled">
+        <MaroonSlider
+          ariaLabel="Local Model Iterations"
+          value={maxIterationsLocal}
+          min={0}
+          max={500}
+          step={1}
+          displayValue={maxIterationsLocal === 0 ? '∞' : maxIterationsLocal}
+          onChange={(v) => { setMaxIterationsLocal(v); localStorage.setItem('rs.wizard.maxIterationsLocal', v); }}
+        />
       </div>
 
-      <div className="settings-row">
+      <div className="settings-row settings-row--attached">
         <div className="settings-row-label">
-          Cloud model iterations
+          Cloud Model Iterations
           <div className="settings-row-description">Max tool calls per turn for cloud models. 0 = max (capped at 100)</div>
         </div>
-        <div className="settings-row-control" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <input
-            type="range"
-            min="0"
-            max="200"
-            step="1"
-            value={maxIterationsCloud}
-            onChange={(e) => { const v = Number(e.target.value); setMaxIterationsCloud(v); localStorage.setItem('rs.wizard.maxIterationsCloud', v); }}
-            style={{ flex: 1, minWidth: '100px' }}
-          />
-          <span style={{ minWidth: '32px', textAlign: 'right', fontSize: '0.8rem' }}>
-            {maxIterationsCloud === 0 ? '∞' : maxIterationsCloud}
-          </span>
-        </div>
+      </div>
+      <div className="settings-slider-row settings-slider-row--unlabeled">
+        <MaroonSlider
+          ariaLabel="Cloud Model Iterations"
+          value={maxIterationsCloud}
+          min={0}
+          max={200}
+          step={1}
+          displayValue={maxIterationsCloud === 0 ? '∞' : maxIterationsCloud}
+          onChange={(v) => { setMaxIterationsCloud(v); localStorage.setItem('rs.wizard.maxIterationsCloud', v); }}
+        />
       </div>
 
       <div className="settings-row">

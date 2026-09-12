@@ -39,6 +39,12 @@ const DROP_AT_END = '__end__';
 const TAB_AUTOSCROLL_EDGE_PX = 72;
 const TAB_AUTOSCROLL_MAX_PX_PER_FRAME = 14;
 
+// How long the strip keeps re-centring after something changes the tabs' widths.
+// HeaderGraphTab transitions `all` over 200ms and an active tab's max-width is
+// activeTabMaxWidth against an inactive one's 220px, so a switch between two
+// long-named webs moves the geometry for that whole window. Plus margin.
+const TAB_TRANSITION_SETTLE_MS = 260;
+
 const Header = ({
   onTitleChange,
   onEditingStateChange,
@@ -235,6 +241,82 @@ const Header = ({
     }
   }, []);
 
+  /**
+   * Hold the active tab centred through a layout that is still moving.
+   *
+   * Tabs animate their width — HeaderGraphTab carries `transition: all 0.2s`,
+   * and an active tab's max-width is `activeTabMaxWidth` (up to 800px) against
+   * an inactive one's 220px. So on a graph switch the outgoing tab SHRINKS back
+   * to 220px over 200ms while the incoming one grows, and the strip's geometry
+   * keeps changing long after the commit. A single rAF centres against the
+   * pre-transition layout and the tab then slides out from under it.
+   *
+   * This only started mattering when webs began opening NEXT TO the active one.
+   * A newly opened tab used to be unshifted to index 0, where its offsetLeft is
+   * just the leading padding and nothing to its left could move it — so one
+   * measurement was always right. It now lands immediately right of the tab
+   * that is shrinking, which drags it left by the whole width delta. Only long
+   * names show it, because only they are wide enough for the max-width to clamp.
+   *
+   * The tab's own growth is separately caught by the ResizeObserver below; what
+   * that observer cannot see is a NEIGHBOUR resizing, which is this.
+   */
+  const centerSettleRef = useRef(null);
+  // Which run owns `isProgrammaticScroll`. A run that is cancelled and
+  // immediately replaced (switch graphs twice in a row) must not have its
+  // trailing release clear the flag out from under its successor.
+  const centerSettleGenRef = useRef(0);
+
+  const releaseProgrammaticScroll = useCallback((gen) => {
+    // Delayed: scroll events for a scrollLeft write arrive a tick later, and
+    // they have to still see the flag to stay silent.
+    setTimeout(() => {
+      if (centerSettleGenRef.current !== gen) return;
+      isProgrammaticScroll.current = false;
+    }, 50);
+  }, []);
+
+  const cancelHoldCenter = useCallback(() => {
+    if (!centerSettleRef.current) return;
+    cancelAnimationFrame(centerSettleRef.current);
+    centerSettleRef.current = null;
+    releaseProgrammaticScroll(centerSettleGenRef.current);
+  }, [releaseProgrammaticScroll]);
+
+  const holdCenter = useCallback(() => {
+    if (centerSettleRef.current) cancelAnimationFrame(centerSettleRef.current);
+    const gen = ++centerSettleGenRef.current;
+    const start = performance.now();
+    // Held for the whole run rather than re-armed per frame, so the strip's
+    // detent track stays silent and the three-second idle recentre stays unarmed.
+    isProgrammaticScroll.current = true;
+
+    const step = () => {
+      const container = tabsScrollContainerRef.current;
+      const activeTab = activeTabRef.current;
+      if (container && activeTab) {
+        const containerRect = container.getBoundingClientRect();
+        const tabCenterInContent = activeTab.offsetLeft + activeTab.offsetWidth / 2;
+        container.scrollLeft = Math.max(
+          0,
+          containerRect.left + tabCenterInContent - window.innerWidth / 2
+        );
+      }
+      if (performance.now() - start < TAB_TRANSITION_SETTLE_MS) {
+        centerSettleRef.current = requestAnimationFrame(step);
+      } else {
+        centerSettleRef.current = null;
+        releaseProgrammaticScroll(gen);
+      }
+    };
+
+    centerSettleRef.current = requestAnimationFrame(step);
+  }, [releaseProgrammaticScroll]);
+
+  useEffect(() => () => {
+    if (centerSettleRef.current) cancelAnimationFrame(centerSettleRef.current);
+  }, []);
+
   // Scroll event handler with 3-second timeout to recenter
   const handleTabsScroll = useCallback(() => {
     // Detents first, and deliberately ahead of the programmatic-scroll guard:
@@ -394,28 +476,30 @@ const Header = ({
       clearTimeout(recenterTimeoutRef.current);
     }
 
-    // Center immediately on graph change. Run on the next frame so the active
-    // tab is laid out, then re-observe its size: on narrow viewports the tab's
-    // max-width (and therefore its measured width) settles after the
-    // activeTabMaxWidth resize-observer commits, and we need to re-center then.
-    let frameId = requestAnimationFrame(() => {
-      scrollToCenter(true);
-    });
+    // Center on graph change, and KEEP centering for the length of the tabs'
+    // width transition — the outgoing tab is shrinking out of the incoming
+    // one's offsetLeft the whole time. See holdCenter.
+    holdCenter();
 
+    // Still observe the active tab's own size on top of that: it catches the
+    // slower settles the transition doesn't cover (a viewport resize changing
+    // activeTabMaxWidth, a font landing late).
     const tabEl = activeTabRef.current;
     let resizeObserver;
     if (tabEl && typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
+        // Silent while holdCenter owns the scroll, or the two fight for it.
+        if (centerSettleRef.current) return;
         scrollToCenter(true);
       });
       resizeObserver.observe(tabEl);
     }
 
     return () => {
-      cancelAnimationFrame(frameId);
+      cancelHoldCenter();
       if (resizeObserver) resizeObserver.disconnect();
     };
-  }, [activeGraph?.id, scrollToCenter, imagesLoaded]);
+  }, [activeGraph?.id, scrollToCenter, holdCenter, cancelHoldCenter, imagesLoaded]);
 
   // Identity of the strip's ORDER, so effects can watch reordering specifically
   // rather than re-running on every unrelated change to headerGraphs.
@@ -592,6 +676,31 @@ const Header = ({
 
     return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
   }, [isEditing, tempTitle, imagesLoaded]);
+
+  // ...and put the strip back on the TAB when the rename ends.
+  //
+  // The symmetric half of the effect above, and it has to be explicit for the
+  // same reason that one does: the field was what the strip was centred on, and
+  // the tab it collapses back to is a different width. On a name long enough to
+  // be ellipsized it is the SAME width it was before, so the graph never
+  // changed and the tab never resized — neither of the two existing recentring
+  // paths fires, and the strip was left sitting wherever the field had pushed
+  // it. Clicking away from a long name therefore committed it off-centre.
+  //
+  // Fires on Escape as well as on commit: both end in isEditing going false,
+  // which is the only thing this watches.
+  const wasEditingRef = useRef(false);
+  useEffect(() => {
+    const wasEditing = wasEditingRef.current;
+    wasEditingRef.current = isEditing;
+    if (!imagesLoaded || isEditing || !wasEditing) return;
+
+    // holdCenter rather than a single measurement: committing a rename changes
+    // the name, so the tab's clamped width transitions to its new value over
+    // the same 200ms, and one frame would centre against the old one.
+    holdCenter();
+    return () => cancelHoldCenter();
+  }, [isEditing, imagesLoaded, holdCenter, cancelHoldCenter]);
 
   // ─── Reordering the strip by drag ──────────────────────────────────────────
   //

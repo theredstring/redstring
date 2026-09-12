@@ -9,6 +9,7 @@ import {
   cameraHeldElsewhere,
   panelResizeDelta,
   panelResizeArms,
+  handPointerToCrosshair,
   BTN,
   AXIS,
 } from '../../src/hooks/useGamepad.js';
@@ -412,6 +413,43 @@ describe('panelResizeDelta', () => {
     expect(panelResizeDelta(undefined, 1, FRAME)).toBe(0);
     expect(panelResizeDelta(0, 1, FRAME)).toBe(0);
   });
+
+  /**
+   * The curve, which is this gesture's own rather than the pan curve the
+   * deflection arrives carrying. Panning makes small angles deliberately very
+   * slow so the same stick can nudge a node and cross the canvas; a panel edge
+   * has a range of a few hundred pixels and nothing to aim at, so a
+   * half-pushed stick should mean about half speed.
+   */
+  it('gives the small and middle angles more than their linear share', () => {
+    const full = panelResizeDelta(1, 1, FRAME);
+    for (const x of [0.3, 0.5, 0.7]) {
+      const share = panelResizeDelta(x, 1, FRAME) / full;
+      expect(share).toBeGreaterThan(x); // above the straight line
+      expect(share).toBeLessThan(1);    // but still short of full speed
+    }
+  });
+
+  it('still rises all the way to full deflection', () => {
+    let previous = 0;
+    for (const x of [0.2, 0.4, 0.6, 0.8, 1]) {
+      const here = panelResizeDelta(x, 1, FRAME);
+      expect(here).toBeGreaterThan(previous);
+      previous = here;
+    }
+  });
+
+  /**
+   * REGRESSION: the pan curve is undone before this one is applied. If that
+   * step were dropped, the two would compound into an exponent well above 1
+   * and the low end would be slower than a straight line rather than faster —
+   * the exact complaint this curve exists to answer.
+   */
+  it('does not compound with the pan curve it arrives carrying', () => {
+    const half = panelResizeDelta(0.5, 1, FRAME) / panelResizeDelta(1, 1, FRAME);
+    // A compounded 1.6 x 0.85 would put half-deflection near 0.4 of full.
+    expect(half).toBeGreaterThan(0.5);
+  });
 });
 
 /**
@@ -517,5 +555,166 @@ describe('lineFrameDirection', () => {
   it('falls back to the screen frame on a missing angle', () => {
     expect(lineFrameDirection(FULL, 0, undefined)).toBe('right');
     expect(lineFrameDirection(FULL, 0, NaN)).toBe('right');
+  });
+});
+
+/**
+ * The Settings sliders reach the hook through two places that were previously
+ * fixed constants. These check the parameterisation itself — that a supplied
+ * value is honoured, and that callers who supply nothing behave exactly as they
+ * did before it existed.
+ */
+describe('applyStickDeadzone — adjustable deadzone', () => {
+  it('uses the module default when none is given', () => {
+    expect(applyStickDeadzone(0.15, 0).magnitude).toBe(0);   // inside 0.18
+    expect(applyStickDeadzone(0.5, 0).magnitude).toBeGreaterThan(0);
+  });
+
+  it('honours a wider deadzone, for a stick that drifts', () => {
+    expect(applyStickDeadzone(0.3, 0, 0.4).magnitude).toBe(0);
+    expect(applyStickDeadzone(0.5, 0, 0.4).magnitude).toBeGreaterThan(0);
+  });
+
+  it('honours a narrower one', () => {
+    expect(applyStickDeadzone(0.1, 0, 0.05).magnitude).toBeGreaterThan(0);
+  });
+
+  /**
+   * The rescale has to use the SAME deadzone it tested against, or the curve
+   * starts partway up and the stick jumps the moment it leaves the dead region.
+   */
+  it('still starts from zero at the edge of whatever deadzone it was given', () => {
+    for (const dz of [0.05, 0.18, 0.4]) {
+      const justInside = applyStickDeadzone(dz * 0.99, 0, dz).magnitude;
+      const justOutside = applyStickDeadzone(dz + 0.001, 0, dz).magnitude;
+      expect(justInside).toBe(0);
+      expect(justOutside).toBeLessThan(0.01); // continuous, not a step
+    }
+  });
+
+  it('still reaches full magnitude at full deflection', () => {
+    for (const dz of [0.05, 0.18, 0.4]) {
+      expect(applyStickDeadzone(1, 0, dz).magnitude).toBeCloseTo(1, 10);
+    }
+  });
+
+  it('ignores a nonsense deadzone rather than dividing by it', () => {
+    expect(applyStickDeadzone(0.5, 0, NaN).magnitude)
+      .toBeCloseTo(applyStickDeadzone(0.5, 0).magnitude, 10);
+  });
+});
+
+describe('createRepeater — adjustable rate', () => {
+  it('repeats faster when the rate is above 1', () => {
+    let rate = 1;
+    const r = createRepeater({ delayMs: 200, intervalMs: 100, rate: () => rate });
+    expect(r.held('a', true, 0)).toBe(true);      // press edge
+    expect(r.held('a', true, 150)).toBe(false);   // still inside the 200ms delay
+    expect(r.held('a', true, 210)).toBe(true);    // delay elapsed
+
+    rate = 2;
+    r.held('a', false, 220);
+    expect(r.held('a', true, 300)).toBe(true);    // press edge again
+    expect(r.held('a', true, 410)).toBe(true);    // 100ms in: delay is now halved
+  });
+
+  it('behaves exactly as before when no rate is supplied', () => {
+    const r = createRepeater({ delayMs: 200, intervalMs: 100 });
+    expect(r.held('a', true, 0)).toBe(true);
+    expect(r.held('a', true, 150)).toBe(false);
+    expect(r.held('a', true, 210)).toBe(true);
+    expect(r.held('a', true, 260)).toBe(false);
+    expect(r.held('a', true, 320)).toBe(true);
+  });
+
+  it('falls back to 1x on a nonsense or zero rate rather than dividing by it', () => {
+    for (const bad of [0, -1, NaN, undefined]) {
+      const r = createRepeater({ delayMs: 200, intervalMs: 100, rate: () => bad });
+      expect(r.held('a', true, 0)).toBe(true);
+      expect(r.held('a', true, 150)).toBe(false);
+      expect(r.held('a', true, 210)).toBe(true);
+    }
+  });
+});
+
+describe('handPointerToCrosshair', () => {
+  /**
+   * Picking up a controller does not move the physical mouse, and no web page
+   * can move it. So whatever it was resting on stays hovered for the whole
+   * session unless the pointer is handed over deliberately, once, on engaging.
+   */
+  const setup = () => {
+    document.body.innerHTML = '';
+    const wasOver = document.createElement('div');
+    const atReticle = document.createElement('div');
+    document.body.append(wasOver, atReticle);
+
+    const seen = [];
+    for (const el of [wasOver, atReticle]) {
+      for (const type of ['mouseout', 'mouseover', 'mousemove']) {
+        el.addEventListener(type, (e) => seen.push({
+          el: el === wasOver ? 'wasOver' : 'atReticle',
+          type,
+          x: e.clientX,
+          y: e.clientY,
+          trusted: e.isTrusted,
+        }));
+      }
+    }
+
+    // jsdom has no layout, so elementFromPoint always returns null. Stand in
+    // for it with the two points these tests care about.
+    document.elementFromPoint = (x, y) => (x === 10 && y === 20 ? wasOver : atReticle);
+    return { seen, wasOver, atReticle };
+  };
+
+  it('releases the element the mouse was left on and enters the one at the reticle', () => {
+    const { seen } = setup();
+    handPointerToCrosshair({ x: 10, y: 20 }, { x: 800, y: 450 });
+
+    expect(seen.map(s => `${s.el}:${s.type}`)).toEqual([
+      'wasOver:mouseout',
+      'atReticle:mouseover',
+      'atReticle:mousemove',
+    ]);
+  });
+
+  it('reports the reticle as the pointer position, not the old mouse position', () => {
+    const { seen } = setup();
+    handPointerToCrosshair({ x: 10, y: 20 }, { x: 800, y: 450 });
+
+    for (const s of seen) {
+      expect({ x: s.x, y: s.y }).toEqual({ x: 800, y: 450 });
+    }
+  });
+
+  it('still reports the move when the reticle is over the same element', () => {
+    // Nothing to enter or leave, but anything tracking a position WITHIN one
+    // element — the canvas above all — still has stale coordinates to correct.
+    const { seen } = setup();
+    handPointerToCrosshair({ x: 600, y: 300 }, { x: 800, y: 450 });
+
+    expect(seen.map(s => s.type)).toEqual(['mousemove']);
+  });
+
+  it('copes with no known previous mouse position', () => {
+    const { seen } = setup();
+    expect(() => handPointerToCrosshair(null, { x: 800, y: 450 })).not.toThrow();
+    expect(seen.map(s => `${s.el}:${s.type}`)).toEqual([
+      'atReticle:mouseover',
+      'atReticle:mousemove',
+    ]);
+  });
+
+  it('emits untrusted events, which is what keeps the mode from switching itself off', () => {
+    // The window-level mousemove listener hands control back to the mouse. This
+    // hand-off fires a mousemove at the reticle as controller mode engages, so
+    // without the isTrusted guard on that listener the mode would deactivate on
+    // the very frame it activated.
+    const { seen } = setup();
+    handPointerToCrosshair({ x: 10, y: 20 }, { x: 800, y: 450 });
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every(s => s.trusted === false)).toBe(true);
   });
 });

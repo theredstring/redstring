@@ -27,9 +27,12 @@ export const BASE_CURVE_SPACING = 100;
  * @param {number} x1 - End point X (P2)
  * @param {number} y1 - End point Y (P2)
  * @param {number} samples - Number of samples along the curve (default 20)
+ * @param {{x:number,y:number}} [out] - Filled with the closest sampled point ON
+ *   the curve when supplied. An out-parameter, not a returned object: this runs
+ *   for every visible edge on every pointer move.
  * @returns {number} Minimum distance from point to curve
  */
-export function distanceToQuadraticBezier(px, py, x0, y0, cx, cy, x1, y1, samples = 20) {
+export function distanceToQuadraticBezier(px, py, x0, y0, cx, cy, x1, y1, samples = 20, out) {
   let minDist = Infinity;
 
   for (let i = 0; i <= samples; i++) {
@@ -43,7 +46,10 @@ export function distanceToQuadraticBezier(px, py, x0, y0, cx, cy, x1, y1, sample
     const dy = py - by;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (dist < minDist) minDist = dist;
+    if (dist < minDist) {
+      minDist = dist;
+      if (out) { out.x = bx; out.y = by; }
+    }
   }
 
   return minDist;
