@@ -89,6 +89,13 @@ import {
   sendWizardAsk,
   resolveIncludeInstructions
 } from './wizard/prompts/index.js';
+import {
+  SURFACES as WIZARD_SURFACES,
+  shouldSkipPicker,
+  defaultIntentForSurface
+} from './wizard/prompts/intents.js';
+import { thingFacts, connectionFacts, webFacts, ladderFacts } from './wizard/prompts/facts.js';
+import WizardIntentModal from './components/wizard/WizardIntentModal.jsx';
 import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from './services/imageCache.js';
 
 import { getAppViewportSize, getFixedOverlayOrigin } from './utils/appViewport.js';
@@ -6021,18 +6028,21 @@ function NodeCanvas() {
   // Add to group dialog state
   const [addToGroupDialog, setAddToGroupDialog] = useState(null); // { nodeId, groupId, groupName, isNodeGroup, position }
 
-  // Ask The Wizard dialog state (for connection control panel)
-  const [askWizardDialog, setAskWizardDialog] = useState(null); // { edges }
-  const [askWizardDontAskAgain, setAskWizardDontAskAgain] = useState(false);
-  // Ask The Wizard dialog state (for node-define control panel)
-  const [askWizardNodeDialog, setAskWizardNodeDialog] = useState(null); // { prototype }
-  const [askWizardNodeDontAskAgain, setAskWizardNodeDontAskAgain] = useState(false);
-  // Ask The Wizard dialog state (for the abstraction carousel's chain-building action)
-  const [askWizardAbstractionDialog, setAskWizardAbstractionDialog] = useState(null); // { prototype, dimension }
-  const [askWizardAbstractionDontAskAgain, setAskWizardAbstractionDontAskAgain] = useState(false);
-  // Ask The Wizard dialog state (for the canvas "Grow with The Wizard" action)
-  const [askWizardGrowDialog, setAskWizardGrowDialog] = useState(null); // { subjectLabel, isBlank }
-  const [askWizardGrowDontAskAgain, setAskWizardGrowDontAskAgain] = useState(false);
+  // Ask The Wizard intent picker. One piece of state for every entry point —
+  // Connection, Thing, Web and abstraction ladder all open the same modal, which
+  // asks WHAT you want to ask rather than merely where the answer should land.
+  // { surface, facts, subjectLabel, payload }
+  const [askWizardPicker, setAskWizardPicker] = useState(null);
+  // Where the next ask goes. Sticky rather than a per-element tri-state with an
+  // "ask me" option: the modal always opens now, so there is nothing left for an
+  // "ask me" setting to trigger.
+  const [wizardDestination, setWizardDestinationState] = useState(() => {
+    try { return debugConfig.getWizardDestination(); } catch { return 'new'; }
+  });
+  const chooseWizardDestination = useCallback((value) => {
+    setWizardDestinationState(value);
+    try { debugConfig.setWizardDestination(value); } catch { }
+  }, []);
   const [wizardEnabled, setWizardEnabled] = useState(() => {
     try { return debugConfig.isWizardEnabled(); } catch { return false; }
   });
@@ -6129,8 +6139,40 @@ function NodeCanvas() {
     );
   }, [openWizardAsk]);
 
-  // Listen for "Ask The Wizard" requests dispatched from the right panel's empty-components row.
-  // Routes through the same pref-aware flow used by the bottom control panel button.
+  // Run whichever intent the picker settled on. The four openers above are still
+  // the only things that build a prompt; this just routes to the right one.
+  const runWizardIntent = useCallback(async ({ intent, destination, payload }) => {
+    const newConversation = destination !== 'current';
+    switch (intent.surface) {
+      case WIZARD_SURFACES.CONNECTION:
+        return openWizardWithPrompt(payload.edges, { newConversation });
+      case WIZARD_SURFACES.THING:
+        return openNodeWizardWithPrompt(payload.prototype, { newConversation });
+      case WIZARD_SURFACES.LADDER:
+        return openAbstractionWizardWithPrompt(payload.prototype, payload.dimension, { newConversation });
+      case WIZARD_SURFACES.WEB:
+        return openGrowGraphWizardWithPrompt({ newConversation });
+      default:
+        return undefined;
+    }
+  }, [openWizardWithPrompt, openNodeWizardWithPrompt, openAbstractionWizardWithPrompt, openGrowGraphWizardWithPrompt]);
+
+  // The single entry point every Ask The Wizard button now goes through.
+  //
+  // Opens the picker — except on a surface with only one thing to ask, where a
+  // picker would be a confirm dialog wearing a costume. That is the abstraction
+  // ladder today, and the rule maintains itself: give the ladder a second ask and
+  // its picker reappears without anything here changing.
+  const openWizardPicker = useCallback((surface, payload, { facts, subjectLabel }) => {
+    if (shouldSkipPicker(surface, facts)) {
+      const intent = defaultIntentForSurface(surface, facts);
+      if (intent) runWizardIntent({ intent, destination: wizardDestination, payload });
+      return;
+    }
+    setAskWizardPicker({ surface, facts, subjectLabel, payload });
+  }, [runWizardIntent, wizardDestination]);
+
+  // "Ask The Wizard" on a Thing, dispatched from the right panel and the pie menu.
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const handler = (e) => {
@@ -6141,27 +6183,17 @@ function NodeCanvas() {
         console.error('[NodeCanvas] rs-ask-wizard-define-node: prototype not found:', protoId);
         return;
       }
-      const pref = (() => {
-        try { return debugConfig.getWizardNodePref(); } catch { return 'ask'; }
-      })();
-      if (pref === 'new') {
-        openNodeWizardWithPrompt(proto, { newConversation: true });
-        return;
-      }
-      if (pref === 'current') {
-        openNodeWizardWithPrompt(proto, { newConversation: false });
-        return;
-      }
-      setAskWizardNodeDontAskAgain(false);
-      setAskWizardNodeDialog({ prototype: proto });
+      openWizardPicker(WIZARD_SURFACES.THING, { prototype: proto }, {
+        facts: thingFacts(proto),
+        subjectLabel: `"${proto.name || 'this Thing'}"`
+      });
     };
     window.addEventListener('rs-ask-wizard-define-node', handler);
     return () => window.removeEventListener('rs-ask-wizard-define-node', handler);
-  }, [openNodeWizardWithPrompt]);
+  }, [openWizardPicker]);
 
-  // Listen for "Ask The Wizard" requests dispatched from the abstraction carousel.
-  // Shares wizardNodePref with the other node-oriented flows — the preference is about
-  // new-tab-vs-current-tab, not about which prompt is being sent.
+  // "Ask The Wizard" from the abstraction carousel. This surface has a single
+  // intent, so openWizardPicker fires it directly and no modal ever appears.
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const handler = (e) => {
@@ -6173,23 +6205,14 @@ function NodeCanvas() {
         console.error('[NodeCanvas] rs-ask-wizard-abstraction: prototype not found:', protoId);
         return;
       }
-      const pref = (() => {
-        try { return debugConfig.getWizardNodePref(); } catch { return 'ask'; }
-      })();
-      if (pref === 'new') {
-        openAbstractionWizardWithPrompt(proto, dimension, { newConversation: true });
-        return;
-      }
-      if (pref === 'current') {
-        openAbstractionWizardWithPrompt(proto, dimension, { newConversation: false });
-        return;
-      }
-      setAskWizardAbstractionDontAskAgain(false);
-      setAskWizardAbstractionDialog({ prototype: proto, dimension });
+      openWizardPicker(WIZARD_SURFACES.LADDER, { prototype: proto, dimension }, {
+        facts: ladderFacts(proto, dimension),
+        subjectLabel: `"${proto.name || 'this Thing'}" · ${dimension}`
+      });
     };
     window.addEventListener('rs-ask-wizard-abstraction', handler);
     return () => window.removeEventListener('rs-ask-wizard-abstraction', handler);
-  }, [openAbstractionWizardWithPrompt]);
+  }, [openWizardPicker]);
 
   // Pie menu color picker state
   const [pieMenuColorPickerVisible, setPieMenuColorPickerVisible] = useState(false);
@@ -8716,16 +8739,18 @@ function NodeCanvas() {
           } catch { }
         }
       },
-      {
+      // Gated like every other Ask The Wizard entry point. This one and the
+      // carousel's were the two that were not, so turning the wizard off left two
+      // buttons behind that opened it anyway.
+      ...(wizardEnabled ? [{
         id: 'ask-wizard', label: 'Ask The Wizard', icon: Sparkles, action: (instanceId) => {
           const instance = nodes.find(n => n.id === instanceId);
           if (!instance) return;
-          // Route through the same pref-aware "Ask The Wizard" flow used elsewhere.
           window.dispatchEvent(new CustomEvent('rs-ask-wizard-define-node', {
             detail: { prototypeId: instance.prototypeId }
           }));
         }
-      },
+      }] : []),
       {
         id: 'orbit', label: 'Semantic Orbit', icon: Orbit, action: (instanceId) => {
           setSemanticOrbitActive(true);
@@ -9088,7 +9113,7 @@ function NodeCanvas() {
               }
             }
           },
-          {
+          ...(wizardEnabled ? [{
             id: 'carousel-ask-wizard',
             label: 'Ask The Wizard',
             icon: Sparkles,
@@ -9116,7 +9141,7 @@ function NodeCanvas() {
               setSelectedNodeIdForPieMenu(null);
               setIsTransitioningPieMenu(true);
             }
-          }
+          }] : [])
         ];
       } else if (carouselPieMenuStage === 2) {
         // Stage 2: Position selection menu - Back on left-inner, vertical stack on right
@@ -14083,10 +14108,10 @@ function NodeCanvas() {
         label: 'Ask The Wizard',
         icon: Sparkles,
         action: () => {
-          const pref = (() => { try { return debugConfig.getWizardConnectionPref(); } catch { return 'ask'; } })();
-          if (pref === 'new') { openWizardWithPrompt([edge], { newConversation: true }); }
-          else if (pref === 'current') { openWizardWithPrompt([edge], { newConversation: false }); }
-          else { setAskWizardDontAskAgain(false); setAskWizardDialog({ edges: [edge] }); }
+          openWizardPicker(WIZARD_SURFACES.CONNECTION, { edges: [edge] }, {
+            facts: connectionFacts([edge]),
+            subjectLabel: 'this Connection'
+          });
           setEdgePieMenuVisible(false);
         },
       });
@@ -14485,29 +14510,12 @@ function NodeCanvas() {
         label: 'Ask The Wizard',
         icon: <Sparkles size={14} />,
         action: () => {
-          // Reuse the same new/current/ask preference as the node-define wizard flow.
-          const pref = (() => {
-            try { return debugConfig.getWizardNodePref(); } catch { return 'ask'; }
-          })();
-          if (pref === 'new') {
-            openGrowGraphWizardWithPrompt({ newConversation: true });
-            return;
-          }
-          if (pref === 'current') {
-            openGrowGraphWizardWithPrompt({ newConversation: false });
-            return;
-          }
           const st = useGraphStore.getState();
-          const activeGraph = st.activeGraphId ? st.graphs.get(st.activeGraphId) : null;
-          if (!activeGraph) return;
-          const instances = activeGraph.instances;
-          const instanceCount = instances instanceof Map
-            ? instances.size
-            : (instances ? Object.keys(instances).length : 0);
-          setAskWizardGrowDontAskAgain(false);
-          setAskWizardGrowDialog({
-            subjectLabel: activeGraph.name || 'this graph',
-            isBlank: instanceCount === 0
+          if (!st.activeGraphId || !st.graphs.get(st.activeGraphId)) return;
+          const facts = webFacts();
+          openWizardPicker(WIZARD_SURFACES.WEB, {}, {
+            facts,
+            subjectLabel: `"${facts.webName}"`
           });
         }
       });
@@ -18263,19 +18271,10 @@ function NodeCanvas() {
             onStartHurtleAnimationFromPanel={startHurtleAnimationFromPanel}
             onActionHoverChange={handlePieMenuHoverChange}
             onAskWizard={(edges) => {
-              const pref = (() => {
-                try { return debugConfig.getWizardConnectionPref(); } catch { return 'ask'; }
-              })();
-              if (pref === 'new') {
-                openWizardWithPrompt(edges, { newConversation: true });
-                return;
-              }
-              if (pref === 'current') {
-                openWizardWithPrompt(edges, { newConversation: false });
-                return;
-              }
-              setAskWizardDontAskAgain(false);
-              setAskWizardDialog({ edges });
+              openWizardPicker(WIZARD_SURFACES.CONNECTION, { edges }, {
+                facts: connectionFacts(edges),
+                subjectLabel: edges.length > 1 ? `${edges.length} Connections` : 'this Connection'
+              });
             }}
             wizardEnabled={wizardEnabled}
           />
@@ -18582,171 +18581,22 @@ function NodeCanvas() {
         )
       }
 
-      {/* Ask The Wizard dialog (connection control panel) */}
-      {
-        askWizardDialog && (
-          <CanvasConfirmDialog
-            isOpen={true}
-            onClose={() => setAskWizardDialog(null)}
-            onConfirm={() => {
-              const edges = askWizardDialog.edges;
-              const remember = askWizardDontAskAgain;
-              setAskWizardDialog(null);
-              if (remember) {
-                try { debugConfig.setWizardConnectionPref('new'); } catch { }
-              }
-              openWizardWithPrompt(edges, { newConversation: true });
-            }}
-            onSecondaryConfirm={() => {
-              const edges = askWizardDialog.edges;
-              const remember = askWizardDontAskAgain;
-              setAskWizardDialog(null);
-              if (remember) {
-                try { debugConfig.setWizardConnectionPref('current'); } catch { }
-              }
-              openWizardWithPrompt(edges, { newConversation: false });
-            }}
-            title="Ask The Wizard"
-            message={
-              askWizardDialog.edges.length > 1
-                ? `Open the AI Wizard to refine these ${askWizardDialog.edges.length} connections?`
-                : 'Open the AI Wizard to refine this connection?'
-            }
-            confirmLabel="New conversation"
-            secondaryConfirmLabel="Add to current"
-            cancelLabel="Cancel"
-            variant="info"
-            showDontAskAgain={true}
-            dontAskAgainChecked={askWizardDontAskAgain}
-            onDontAskAgainChange={setAskWizardDontAskAgain}
-            containerRect={containerRef.current?.getBoundingClientRect()}
-            panOffset={panOffset}
-            zoomLevel={zoomLevel}
-          />
-        )
-      }
-
-      {/* Ask The Wizard dialog (define-node) */}
-      {
-        askWizardNodeDialog && (
-          <CanvasConfirmDialog
-            isOpen={true}
-            onClose={() => setAskWizardNodeDialog(null)}
-            onConfirm={() => {
-              const proto = askWizardNodeDialog.prototype;
-              const remember = askWizardNodeDontAskAgain;
-              setAskWizardNodeDialog(null);
-              if (remember) {
-                try { debugConfig.setWizardNodePref('new'); } catch { }
-              }
-              openNodeWizardWithPrompt(proto, { newConversation: true });
-            }}
-            onSecondaryConfirm={() => {
-              const proto = askWizardNodeDialog.prototype;
-              const remember = askWizardNodeDontAskAgain;
-              setAskWizardNodeDialog(null);
-              if (remember) {
-                try { debugConfig.setWizardNodePref('current'); } catch { }
-              }
-              openNodeWizardWithPrompt(proto, { newConversation: false });
-            }}
-            title="Ask The Wizard"
-            message={`Open the AI Wizard to define the components of "${askWizardNodeDialog.prototype?.name || 'this node'}"?`}
-            confirmLabel="New conversation"
-            secondaryConfirmLabel="Add to current"
-            cancelLabel="Cancel"
-            variant="info"
-            showDontAskAgain={true}
-            dontAskAgainChecked={askWizardNodeDontAskAgain}
-            onDontAskAgainChange={setAskWizardNodeDontAskAgain}
-            containerRect={containerRef.current?.getBoundingClientRect()}
-            panOffset={panOffset}
-            zoomLevel={zoomLevel}
-          />
-        )
-      }
-
-      {/* Ask The Wizard dialog (abstraction chain) */}
-      {
-        askWizardAbstractionDialog && (
-          <CanvasConfirmDialog
-            isOpen={true}
-            onClose={() => setAskWizardAbstractionDialog(null)}
-            onConfirm={() => {
-              const { prototype, dimension } = askWizardAbstractionDialog;
-              const remember = askWizardAbstractionDontAskAgain;
-              setAskWizardAbstractionDialog(null);
-              if (remember) {
-                try { debugConfig.setWizardNodePref('new'); } catch { }
-              }
-              openAbstractionWizardWithPrompt(prototype, dimension, { newConversation: true });
-            }}
-            onSecondaryConfirm={() => {
-              const { prototype, dimension } = askWizardAbstractionDialog;
-              const remember = askWizardAbstractionDontAskAgain;
-              setAskWizardAbstractionDialog(null);
-              if (remember) {
-                try { debugConfig.setWizardNodePref('current'); } catch { }
-              }
-              openAbstractionWizardWithPrompt(prototype, dimension, { newConversation: false });
-            }}
-            title="Ask The Wizard"
-            message={`Open the AI Wizard to build out the abstraction chain for "${askWizardAbstractionDialog.prototype?.name || 'this node'}"?`}
-            confirmLabel="New conversation"
-            secondaryConfirmLabel="Add to current"
-            cancelLabel="Cancel"
-            variant="info"
-            showDontAskAgain={true}
-            dontAskAgainChecked={askWizardAbstractionDontAskAgain}
-            onDontAskAgainChange={setAskWizardAbstractionDontAskAgain}
-            containerRect={containerRef.current?.getBoundingClientRect()}
-            panOffset={panOffset}
-            zoomLevel={zoomLevel}
-          />
-        )
-      }
-
-      {/* Ask The Wizard dialog (grow-graph) */}
-      {
-        askWizardGrowDialog && (
-          <CanvasConfirmDialog
-            isOpen={true}
-            onClose={() => setAskWizardGrowDialog(null)}
-            onConfirm={() => {
-              const remember = askWizardGrowDontAskAgain;
-              setAskWizardGrowDialog(null);
-              if (remember) {
-                try { debugConfig.setWizardNodePref('new'); } catch { }
-              }
-              openGrowGraphWizardWithPrompt({ newConversation: true });
-            }}
-            onSecondaryConfirm={() => {
-              const remember = askWizardGrowDontAskAgain;
-              setAskWizardGrowDialog(null);
-              if (remember) {
-                try { debugConfig.setWizardNodePref('current'); } catch { }
-              }
-              openGrowGraphWizardWithPrompt({ newConversation: false });
-            }}
-            title="Ask The Wizard"
-            message={
-              askWizardGrowDialog.isBlank
-                ? `Open the AI Wizard to populate "${askWizardGrowDialog.subjectLabel}"?`
-                : `Open the AI Wizard to grow and expand "${askWizardGrowDialog.subjectLabel}"?`
-            }
-            confirmLabel="New conversation"
-            secondaryConfirmLabel="Add to current"
-            cancelLabel="Cancel"
-            variant="info"
-            showDontAskAgain={true}
-            dontAskAgainChecked={askWizardGrowDontAskAgain}
-            onDontAskAgainChange={setAskWizardGrowDontAskAgain}
-            containerRect={containerRef.current?.getBoundingClientRect()}
-            panOffset={panOffset}
-            zoomLevel={zoomLevel}
-          />
-        )
-      }
+      {/* Ask The Wizard — one picker for every entry point. Replaces four
+          near-identical confirm dialogs that only ever asked new-or-current. */}
+      <WizardIntentModal
+        isOpen={!!askWizardPicker}
+        surface={askWizardPicker?.surface}
+        facts={askWizardPicker?.facts}
+        subjectLabel={askWizardPicker?.subjectLabel}
+        destination={wizardDestination}
+        onDestinationChange={chooseWizardDestination}
+        onClose={() => setAskWizardPicker(null)}
+        onConfirm={({ intent, destination }) => {
+          const payload = askWizardPicker?.payload;
+          setAskWizardPicker(null);
+          runWizardIntent({ intent, destination, payload });
+        }}
+      />
 
       {/* Self-referential connection confirmation */}
       {selfLoopDialog && (

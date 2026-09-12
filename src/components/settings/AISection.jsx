@@ -34,32 +34,16 @@ function readStoredIterations(key, def) {
  */
 const KEY_STORAGE_NOTE = 'API key stored locally in browser localStorage (obfuscated but not encrypted)';
 
-const WIZARD_PREF_OPTIONS = [
-  { label: 'Ask each time', value: 'ask' },
+// Where an Ask The Wizard prompt lands. This used to be two settings of three
+// options each — one per element kind, each with an "Ask each time" that opened a
+// confirm dialog. The dialog now always opens, because it is how you choose WHAT
+// to ask, so "ask each time" no longer names anything; and there was never a
+// reason for Connections and Things to remember different destinations. The
+// control also lives in the dialog itself, where it is stickier than it is here.
+const WIZARD_DESTINATION_OPTIONS = [
   { label: 'New conversation', value: 'new' },
   { label: 'Add to current', value: 'current' }
 ];
-
-/**
- * The two "what should Ask The Wizard do" choosers, which are the same three
- * options twice. Stacked rather than in a row because the labels are phrases,
- * and stretched so the pills share an edge and read as one group.
- */
-const WizardPrefGroup = ({ value, onChange }) => (
-  <div className="settings-option-group settings-option-group--stacked">
-    {WIZARD_PREF_OPTIONS.map(opt => (
-      <PanelIconButton
-        key={opt.value}
-        label={opt.label}
-        labelFontSize={11}
-        variant="outline"
-        active={value === opt.value}
-        onClick={() => onChange(opt.value)}
-        style={{ padding: '5px 12px' }}
-      />
-    ))}
-  </div>
-);
 
 /**
  * AI Settings Section - Adapted to Settings Modal patterns
@@ -98,38 +82,24 @@ const AISection = () => {
   const [connectionTestResult, setConnectionTestResult] = useState(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [wizardMode, setWizardMode] = useWizardMode();
-  const [wizardConnectionPref, setWizardConnectionPref] = useState(() => {
-    try { return debugConfig.getWizardConnectionPref(); } catch { return 'ask'; }
-  });
-  const [wizardNodePref, setWizardNodePrefLocal] = useState(() => {
-    try { return debugConfig.getWizardNodePref(); } catch { return 'ask'; }
+  const [wizardDestination, setWizardDestinationLocal] = useState(() => {
+    try { return debugConfig.getWizardDestination(); } catch { return 'new'; }
   });
 
+  // The picker writes this too, so listen rather than assume this panel is the
+  // only thing that can change it.
   useEffect(() => {
     const handler = (newConfig) => {
-      const nextConn = newConfig?.wizardConnectionPref;
-      if (nextConn && nextConn !== wizardConnectionPref) {
-        setWizardConnectionPref(nextConn);
-      }
-      const nextNode = newConfig?.wizardNodePref;
-      if (nextNode && nextNode !== wizardNodePref) {
-        setWizardNodePrefLocal(nextNode);
-      }
+      const next = newConfig?.wizardDestination;
+      if (next && next !== wizardDestination) setWizardDestinationLocal(next);
     };
     return debugConfig.addListener(handler);
-  }, [wizardConnectionPref, wizardNodePref]);
+  }, [wizardDestination]);
 
-  const handleWizardPrefChange = (value) => {
-    setWizardConnectionPref(value);
-    try { debugConfig.setWizardConnectionPref(value); } catch (err) {
-      console.error('Failed to persist wizard connection pref:', err);
-    }
-  };
-
-  const handleWizardNodePrefChange = (value) => {
-    setWizardNodePrefLocal(value);
-    try { debugConfig.setWizardNodePref(value); } catch (err) {
-      console.error('Failed to persist wizard node pref:', err);
+  const handleWizardDestinationChange = (value) => {
+    setWizardDestinationLocal(value);
+    try { debugConfig.setWizardDestination(value); } catch (err) {
+      console.error('Failed to persist wizard destination:', err);
     }
   };
 
@@ -1019,21 +989,24 @@ const AISection = () => {
 
       <div className="settings-row">
         <div className="settings-row-label">
-          Connection Wizard
+          Ask The Wizard
           <div className="settings-row-description">
-            What should happen when you click "Ask The Wizard" on a connection
+            Where an ask lands by default. The picker remembers whichever you chose last.
           </div>
         </div>
-        <WizardPrefGroup value={wizardConnectionPref} onChange={handleWizardPrefChange} />
-      </div>
-      <div className="settings-row">
-        <div className="settings-row-label">
-          Define Node Wizard
-          <div className="settings-row-description">
-            What should happen when you click "Ask The Wizard" on a node with no components
-          </div>
+        <div className="settings-option-group settings-option-group--stacked">
+          {WIZARD_DESTINATION_OPTIONS.map(opt => (
+            <PanelIconButton
+              key={opt.value}
+              label={opt.label}
+              labelFontSize={11}
+              variant="outline"
+              active={wizardDestination === opt.value}
+              onClick={() => handleWizardDestinationChange(opt.value)}
+              style={{ padding: '5px 12px' }}
+            />
+          ))}
         </div>
-        <WizardPrefGroup value={wizardNodePref} onChange={handleWizardNodePrefChange} />
       </div>
     </div>
   );

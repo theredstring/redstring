@@ -8,6 +8,8 @@ import LocalFileConflictDialog from '../shared/LocalFileConflictDialog.jsx';
 import MergeUniverseDialog from '../shared/MergeUniverseDialog.jsx';
 import ConfirmDialog from '../shared/ConfirmDialog.jsx';
 import CanvasConfirmDialog from '../shared/CanvasConfirmDialog.jsx';
+import WizardIntentModal from '../wizard/WizardIntentModal.jsx';
+import { SURFACES as WIZARD_SURFACES } from '../../wizard/prompts/intents.js';
 
 /**
  * Every dialog in the app, openable on demand with stand-in data.
@@ -271,6 +273,23 @@ const DIALOGS = [
         onClose={() => fire('onClose')}
       />
     )
+  },
+  {
+    key: 'wizard-intent',
+    name: 'Ask The Wizard',
+    note: 'The intent picker. Default pre-selected; the free-text row opens a box; destination is sticky.',
+    render: (fire, { wizardDestination, setWizardDestination }) => (
+      <WizardIntentModal
+        isOpen
+        surface={WIZARD_SURFACES.THING}
+        facts={{ webInstanceCount: 6, hasLadder: true }}
+        subjectLabel={'"Rotterdam"'}
+        destination={wizardDestination}
+        onDestinationChange={setWizardDestination}
+        onConfirm={() => fire('onConfirm')}
+        onClose={() => fire('onClose')}
+      />
+    )
   }
 ];
 
@@ -283,6 +302,7 @@ const DialogGallery = () => {
   const [mergeDest, setMergeDest] = useState('nerd');
   const [foldSameAs, setFoldSameAs] = useState(true);
   const [dontAsk, setDontAsk] = useState(false);
+  const [wizardDestination, setWizardDestination] = useState('new');
 
   const open = useMemo(() => DIALOGS.find((d) => d.key === openKey) || null, [openKey]);
 
@@ -333,7 +353,7 @@ const DialogGallery = () => {
         // takes a stacking context above Settings and the dialog's own z-index
         // then applies inside it.
         <div style={{ position: 'relative', zIndex: 30000 }}>
-          {open.render(fire, { mergeDest, setMergeDest, foldSameAs, setFoldSameAs, dontAsk, setDontAsk })}
+          {open.render(fire, { mergeDest, setMergeDest, foldSameAs, setFoldSameAs, dontAsk, setDontAsk, wizardDestination, setWizardDestination })}
           {/* The working phase of a merge deliberately swallows scrim clicks,
               and a dialog under review may have no dismiss at all. */}
           <button

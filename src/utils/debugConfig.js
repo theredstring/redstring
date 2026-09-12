@@ -15,12 +15,23 @@ const DEBUG_STORAGE_KEYS = {
   // Debug menu rendered beside it. The Settings page is nowhere near NodeCanvas,
   // so it lives here with the other debug flags and NodeCanvas subscribes.
   SHOW_DEBUG_OVERLAY: 'redstring_debug_show_overlay',
-  WIZARD_CONNECTION_PREF: 'redstring_wizard_connection_pref',
-  WIZARD_NODE_PREF: 'redstring_wizard_node_pref'
+  WIZARD_DESTINATION: 'redstring_wizard_destination'
 };
 
-// Allowed values for wizard tri-state preferences
-const WIZARD_PREF_VALUES = ['ask', 'new', 'current'];
+// Retired in favour of WIZARD_DESTINATION. Still named here so initialize() can
+// migrate a stored value once and then delete the key — leaving it behind would
+// let a stale 'ask' be inherited by anything that reuses the name later.
+const LEGACY_WIZARD_PREF_KEYS = [
+  'redstring_wizard_connection_pref',
+  'redstring_wizard_node_pref'
+];
+
+// Where an Ask The Wizard prompt goes. This used to be a tri-state per element
+// kind ('ask' | 'new' | 'current', separately for Connections and Things), where
+// 'ask' meant "show the confirm dialog". The dialog now always opens — it is how
+// you choose WHAT to ask — so 'ask' has nothing left to mean, and there was never
+// a reason for Connections and Things to remember different destinations.
+const WIZARD_DESTINATIONS = ['new', 'current'];
 
 const hasBrowserWindow = typeof window !== 'undefined';
 const hasLocalStorage = hasBrowserWindow && typeof window.localStorage !== 'undefined';
@@ -51,8 +62,7 @@ class DebugConfig {
         enableWizard: true,
         showNodeHitboxes: false,
         showDebugOverlay: false,
-        wizardConnectionPref: 'ask',
-        wizardNodePref: 'ask'
+        wizardDestination: 'new'
       };
       this.isInitialized = true;
       return;
@@ -60,8 +70,7 @@ class DebugConfig {
 
     try {
       // Load existing debug settings from localStorage
-      const storedConnectionPref = this.getStringSetting(DEBUG_STORAGE_KEYS.WIZARD_CONNECTION_PREF, 'ask');
-      const storedNodePref = this.getStringSetting(DEBUG_STORAGE_KEYS.WIZARD_NODE_PREF, 'ask');
+      const storedDestination = this.migrateWizardDestination();
       this.config = {
         disableLocalStorage: this.getBooleanSetting(DEBUG_STORAGE_KEYS.DISABLE_LOCAL_STORAGE, false),
         debugMode: this.getBooleanSetting(DEBUG_STORAGE_KEYS.DEBUG_MODE, false),
@@ -70,8 +79,7 @@ class DebugConfig {
         enableWizard: this.getBooleanSetting(DEBUG_STORAGE_KEYS.ENABLE_WIZARD, true),
         showNodeHitboxes: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_NODE_HITBOXES, false),
         showDebugOverlay: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_DEBUG_OVERLAY, false),
-        wizardConnectionPref: WIZARD_PREF_VALUES.includes(storedConnectionPref) ? storedConnectionPref : 'ask',
-        wizardNodePref: WIZARD_PREF_VALUES.includes(storedNodePref) ? storedNodePref : 'ask'
+        wizardDestination: storedDestination
       };
 
       // Check URL parameters for debug overrides
@@ -115,8 +123,7 @@ class DebugConfig {
         enableWizard: false,
         showNodeHitboxes: false,
         showDebugOverlay: false,
-        wizardConnectionPref: 'ask',
-        wizardNodePref: 'ask'
+        wizardDestination: 'new'
       };
       this.isInitialized = true;
     }
@@ -201,16 +208,30 @@ class DebugConfig {
     return this.config.showDebugOverlay || false;
   }
 
-  // Wizard connection preference: 'ask' (default), 'new', or 'current'
-  getWizardConnectionPref() {
-    const v = this.config.wizardConnectionPref;
-    return WIZARD_PREF_VALUES.includes(v) ? v : 'ask';
+  // Where the next Ask The Wizard prompt goes: 'new' conversation or add to 'current'.
+  getWizardDestination() {
+    const v = this.config.wizardDestination;
+    return WIZARD_DESTINATIONS.includes(v) ? v : 'new';
   }
 
-  // Wizard node-definition preference: 'ask' (default), 'new', or 'current'
-  getWizardNodePref() {
-    const v = this.config.wizardNodePref;
-    return WIZARD_PREF_VALUES.includes(v) ? v : 'ask';
+  // One-time move off the retired per-element tri-state prefs. A stored 'current'
+  // is a real choice and carries over; 'ask' (the old default, meaning "show the
+  // dialog") no longer names anything, so it lands on 'new'. The Connection pref
+  // wins where the two disagreed, being the one people actually set.
+  migrateWizardDestination() {
+    const stored = this.getStringSetting(DEBUG_STORAGE_KEYS.WIZARD_DESTINATION, null);
+    if (WIZARD_DESTINATIONS.includes(stored)) return stored;
+
+    let migrated = 'new';
+    for (const key of LEGACY_WIZARD_PREF_KEYS) {
+      const legacy = this.getStringSetting(key, null);
+      if (legacy === 'current' || legacy === 'new') { migrated = legacy; break; }
+    }
+    try {
+      this.setSetting(DEBUG_STORAGE_KEYS.WIZARD_DESTINATION, migrated);
+      LEGACY_WIZARD_PREF_KEYS.forEach((key) => this.storage?.removeItem?.(key));
+    } catch { /* a storage that won't take the write just re-migrates next launch */ }
+    return migrated;
   }
 
   // Enable/disable local storage (for debugging)
@@ -274,22 +295,13 @@ class DebugConfig {
     console.log(`[DebugConfig] Debug overlay ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
 
-  // Set wizard connection preference: 'ask' | 'new' | 'current'
-  setWizardConnectionPref(value) {
-    const next = WIZARD_PREF_VALUES.includes(value) ? value : 'ask';
-    this.config.wizardConnectionPref = next;
-    this.setSetting(DEBUG_STORAGE_KEYS.WIZARD_CONNECTION_PREF, next);
+  // Set where the next Ask The Wizard prompt goes: 'new' | 'current'
+  setWizardDestination(value) {
+    const next = WIZARD_DESTINATIONS.includes(value) ? value : 'new';
+    this.config.wizardDestination = next;
+    this.setSetting(DEBUG_STORAGE_KEYS.WIZARD_DESTINATION, next);
     this.notifyListeners();
-    console.log(`[DebugConfig] Wizard connection pref set to: ${next}`);
-  }
-
-  // Set wizard node-definition preference: 'ask' | 'new' | 'current'
-  setWizardNodePref(value) {
-    const next = WIZARD_PREF_VALUES.includes(value) ? value : 'ask';
-    this.config.wizardNodePref = next;
-    this.setSetting(DEBUG_STORAGE_KEYS.WIZARD_NODE_PREF, next);
-    this.notifyListeners();
-    console.log(`[DebugConfig] Wizard node pref set to: ${next}`);
+    console.log(`[DebugConfig] Wizard destination set to: ${next}`);
   }
 
   // Clear all debug settings
@@ -303,8 +315,7 @@ class DebugConfig {
         enableWizard: false,
         showNodeHitboxes: false,
         showDebugOverlay: false,
-        wizardConnectionPref: 'ask',
-        wizardNodePref: 'ask'
+        wizardDestination: 'new'
       };
       this.notifyListeners();
       return;
@@ -323,8 +334,7 @@ class DebugConfig {
         enableWizard: false,
         showNodeHitboxes: false,
         showDebugOverlay: false,
-        wizardConnectionPref: 'ask',
-        wizardNodePref: 'ask'
+        wizardDestination: 'new'
       };
 
       this.notifyListeners();
@@ -424,10 +434,8 @@ export const isLocalStorageDisabled = () => debugConfig.isLocalStorageDisabled()
 export const isDebugMode = () => debugConfig.isDebugMode();
 export const isGitOnlyForced = () => debugConfig.isGitOnlyForced();
 export const isWizardEnabled = () => debugConfig.isWizardEnabled();
-export const getWizardConnectionPref = () => debugConfig.getWizardConnectionPref();
-export const setWizardConnectionPref = (value) => debugConfig.setWizardConnectionPref(value);
-export const getWizardNodePref = () => debugConfig.getWizardNodePref();
-export const setWizardNodePref = (value) => debugConfig.setWizardNodePref(value);
+export const getWizardDestination = () => debugConfig.getWizardDestination();
+export const setWizardDestination = (value) => debugConfig.setWizardDestination(value);
 export const getDebugConfig = () => debugConfig.getConfig();
 
 export default debugConfig;

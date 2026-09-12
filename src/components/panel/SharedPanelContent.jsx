@@ -1585,7 +1585,7 @@ const SharedPanelContent = ({
         onClick={handleSemanticDiscoverySearch}
         title="Search this in Semantic Discovery"
       />
-      {!isHomeTab && nodeData?.id && (
+      {!isHomeTab && wizardEnabled && nodeData?.id && (
         <PanelIconButton
           icon={Sparkles}
           onClick={handleAskWizard}
