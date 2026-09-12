@@ -4,7 +4,6 @@ import UniversalNodeRenderer from './UniversalNodeRenderer';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from "./store/graphStore.js";
-import { getNodeDimensions } from './utils.js';
 import useMobileDetection from './hooks/useMobileDetection';
 import { getTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from './utils/colorUtils.js';
 import { haptic } from './services/haptics.js';
@@ -158,18 +157,19 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
 };
 
 import {
-  STANDARD_TEXT_SETTINGS,
-  LEGACY_DIM_SCALE,
-  CONNECTION_PREVIEW_FLOORS,
-  buildConnectionPreviewNodes,
-  connectionPreviewRendererProps
+  previewTextFor,
+  previewScaleFor,
+  connectionPreviewRendererProps,
+  layoutNodeChips
 } from './utils/connectionPreview.js';
-import { layoutConnectionRow, widestWrappedLabel } from './utils/connectionRowLayout.js';
+import { layoutConnectionRow } from './utils/connectionRowLayout.js';
 
-// Node-box floors for the connection representation, shared with the hover aid and
-// the right panel's connection list (see utils/connectionPreview.js).
-const CONNECTION_FLOORS = CONNECTION_PREVIEW_FLOORS.controlPanel;
-const CONNECTION_NODE_MIN_WIDTH = CONNECTION_FLOORS.width;
+// Every preview in this panel — the connection row, the node chips, the
+// node-group and group pills — draws its text at the fixed on-screen size for
+// the platform (PREVIEW_TEXT in utils/connectionPreview.js) and truncates when
+// it runs out of room. The sizing math lives there and in
+// utils/connectionRowLayout.js, shared with the hover aid and the right panel's
+// Connections list, so all of them read as the same node.
 
 /**
  * Honest usable layout width for the panel.
@@ -193,10 +193,15 @@ const measureAppWidth = () => {
   }
   return document.documentElement?.clientWidth || window.innerWidth || 1024;
 };
-// Node-box floors for the single/multi-select node representation. Mirror HoverVisionAid's
-// single-node preview (100×96) so the control-panel pills match the hover aid.
-const NODE_PREVIEW_MIN_WIDTH = 100;
-const NODE_PREVIEW_MIN_HEIGHT = 96;
+// The node-chip grid stops growing here and starts scaling instead — past this
+// the panel would be taller than the screen it sits on.
+const NODE_GRID_MAX_HEIGHT = { desktop: 220, mobile: 200 };
+// One chip never takes more than this much of a row, so a single long name is
+// truncated instead of turning the strip into one wide pill.
+const NODE_CHIP_MAX_WIDTH = 260;
+// Widest a desktop row of chips gets before wrapping to a second row. Mobile
+// rows are bounded by the viewport (and the CSS width cap on the content box).
+const NODE_GRID_MAX_ROW_WIDTH = 560;
 
 // Modes: 'nodes' | 'connections' | 'abstraction' | 'group' | 'nodegroup'
 const UnifiedBottomControlPanel = ({
@@ -488,24 +493,6 @@ const UnifiedBottomControlPanel = ({
     && connectionPieMenuButtons.length > 0
     && !!connectionPieMenuTargetEdgeId;
 
-  const nodeDimensionEntries = useMemo(() => {
-    if (!(isNodes || isDecompose) || !Array.isArray(selectedNodes)) {
-      return [];
-    }
-
-    return selectedNodes.map((node) => {
-      const dims = getNodeDimensions(node, false, null, 39, STANDARD_TEXT_SETTINGS);
-      // Match the ÷1.4 (LEGACY_DIM_SCALE) convention used by HoverVisionAid and the
-      // connection/nodegroup previews so each pill hugs its label the same way. Passing
-      // the raw 1.4×-inflated currentWidth/Height left the boxes a factor of 1.4 too loose.
-      return {
-        node,
-        width: Math.max(dims.currentWidth * LEGACY_DIM_SCALE, NODE_PREVIEW_MIN_WIDTH),
-        height: Math.max(dims.currentHeight * LEGACY_DIM_SCALE, NODE_PREVIEW_MIN_HEIGHT)
-      };
-    });
-  }, [isNodes, isDecompose, selectedNodes]);
-
   // Mobile-responsive icon sizing. Tracks the .piemenu-button footprint in
   // UnifiedBottomControlPanel.css — the glyph has to grow with the bubble or a
   // wider button just buys more empty margin around the same small icon.
@@ -520,135 +507,33 @@ const UnifiedBottomControlPanel = ({
     Math.min(mobileState.width, appWidth) - (mobileState.isMobile ? 48 : 24)
   );
 
+  // Text targets for every preview in this panel; see PREVIEW_TEXT.
+  const previewText = previewTextFor(mobileState.isMobile);
+
   const nodeRendererMetrics = useMemo(() => {
-    const padding = mobileState.isMobile ? 0 : 8;
-    if (!nodeDimensionEntries.length) {
-      return {
-        nodesForRenderer: [],
-        containerWidth: Math.min(360, viewportLimit),
-        containerHeight: mobileState.isMobile ? 72 : 84,
-        padding
-      };
+    const padding = mobileState.isMobile ? 4 : 8;
+    if (!(isNodes || isDecompose) || !Array.isArray(selectedNodes) || selectedNodes.length === 0) {
+      return { nodesForRenderer: [], containerWidth: 0, containerHeight: 0, padding };
     }
-
-    const PADDING = padding;
-    const BASE_CONTAINER_WIDTH = mobileState.isMobile
-      ? Math.min(180, viewportLimit)
-      : Math.min(360, viewportLimit);
-    const MAX_CONTAINER_WIDTH = Math.min(520, viewportLimit);
-    const BASE_CONTAINER_HEIGHT = mobileState.isMobile ? 64 : 92;
-    const ROW_HEIGHT_INCREMENT = mobileState.isMobile ? 56 : 60;
-    const MAX_CONTAINER_HEIGHT = mobileState.isMobile ? 200 : 220;
-    const COLUMN_SPACING = mobileState.isMobilePortrait ? 12 : 16;
-    const ROW_SPACING = mobileState.isMobilePortrait ? 10 : 14;
-    const MAX_ITEMS_PER_ROW = mobileState.isMobilePortrait ? 3 : 4;
-    const MIN_SCALE = mobileState.isMobile ? 0.5 : 0.45;
-
-    const count = nodeDimensionEntries.length;
-    const rowCount = Math.max(1, Math.ceil(count / MAX_ITEMS_PER_ROW));
-
-    const narrow = mobileState.isMobile;
-    const desiredScale = (() => {
-      if (count === 1) return narrow ? 0.85 : 0.5;
-      if (count === 2) return narrow ? 0.75 : 0.44;
-      if (count === 3) return narrow ? 0.65 : 0.39;
-      if (count === 4) return narrow ? 0.6 : 0.35;
-      if (count <= 6) return narrow ? 0.5 : 0.31;
-      if (count <= 8) return narrow ? 0.42 : 0.27;
-      if (count <= 12) return narrow ? 0.36 : 0.25;
-      return MIN_SCALE * 0.5;
-    })();
-
-    const rows = [];
-    let cursor = 0;
-    let remaining = count;
-
-    for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
-      const remainingRows = rowCount - rowIndex;
-      const itemsThisRow = Math.min(
-        MAX_ITEMS_PER_ROW,
-        Math.ceil(remaining / remainingRows)
-      );
-
-      const rowEntries = [];
-      let rowWidth = 0;
-      let rowHeight = 0;
-
-      for (let i = 0; i < itemsThisRow && cursor < nodeDimensionEntries.length; i += 1) {
-        const entry = nodeDimensionEntries[cursor++];
-        rowEntries.push(entry);
-        rowWidth += entry.width;
-        if (i < itemsThisRow - 1) {
-          rowWidth += COLUMN_SPACING;
-        }
-        rowHeight = Math.max(rowHeight, entry.height);
-      }
-
-      rows.push({
-        entries: rowEntries,
-        width: rowWidth,
-        height: rowHeight
-      });
-
-      remaining -= itemsThisRow;
-    }
-
-    const positionedNodes = [];
-    let currentY = 0;
-    let boundingWidth = 0;
-
-    rows.forEach((row, rowIndex) => {
-      let currentX = 0;
-      row.entries.forEach(({ node, width, height }, entryIndex) => {
-        positionedNodes.push({
-          ...node,
-          x: currentX,
-          y: currentY,
-          width,
-          height
-        });
-        currentX += width;
-        if (entryIndex < row.entries.length - 1) {
-          currentX += COLUMN_SPACING;
-        }
-      });
-
-      boundingWidth = Math.max(boundingWidth, currentX);
-      currentY += row.height;
-      if (rowIndex < rows.length - 1) {
-        currentY += ROW_SPACING;
-      }
+    // Chips draw at the platform's fixed text size, packed into rows; a long
+    // name is truncated, and only a selection too tall for the panel scales.
+    const grid = layoutNodeChips({
+      nodes: selectedNodes,
+      text: previewText,
+      maxRowWidth: mobileState.isMobile ? viewportLimit : Math.min(viewportLimit, NODE_GRID_MAX_ROW_WIDTH),
+      maxHeight: mobileState.isMobile ? NODE_GRID_MAX_HEIGHT.mobile : NODE_GRID_MAX_HEIGHT.desktop,
+      padding,
+      columnGap: mobileState.isMobilePortrait ? 10 : 12,
+      rowGap: mobileState.isMobilePortrait ? 8 : 10,
+      maxChipWidth: NODE_CHIP_MAX_WIDTH
     });
-
-    const boundingHeight = currentY;
-    const safeBoundingWidth = Math.max(boundingWidth, 1);
-    const safeBoundingHeight = Math.max(boundingHeight, 1);
-
-    const containerWidth = Math.min(
-      MAX_CONTAINER_WIDTH,
-      Math.max(
-        BASE_CONTAINER_WIDTH,
-        safeBoundingWidth * Math.max(MIN_SCALE, desiredScale) + PADDING * 2
-      )
-    );
-
-    const baseHeightForRows =
-      BASE_CONTAINER_HEIGHT + ROW_HEIGHT_INCREMENT * Math.max(0, rows.length - 1);
-    const heightForDesiredScale =
-      safeBoundingHeight * Math.max(MIN_SCALE, desiredScale) + PADDING * 2;
-
-    const containerHeight = Math.min(
-      MAX_CONTAINER_HEIGHT,
-      Math.max(baseHeightForRows, heightForDesiredScale)
-    );
-
     return {
-      nodesForRenderer: positionedNodes,
-      containerWidth,
-      containerHeight,
-      padding: PADDING
+      nodesForRenderer: grid.nodes,
+      containerWidth: grid.containerWidth,
+      containerHeight: grid.containerHeight,
+      padding
     };
-  }, [nodeDimensionEntries, viewportLimit, mobileState.isMobilePortrait]);
+  }, [isNodes, isDecompose, selectedNodes, previewText, viewportLimit, mobileState.isMobile, mobileState.isMobilePortrait]);
 
   // Subscribed, not a getState() snapshot: the linked prototype owns the node-group's
   // name and color, so renaming or recoloring it (from here or anywhere else) has to
@@ -658,48 +543,32 @@ const UnifiedBottomControlPanel = ({
     state => (linkedPrototypeId ? state.nodePrototypes.get(linkedPrototypeId) || null : null)
   );
 
-  const nodeGroupRendererNode = useMemo(() => {
-    if (!isNodeGroup || !selectedGroup) return null;
-
-    const baseNode = {
-      id: selectedGroup.linkedNodePrototypeId || selectedGroup.id || 'nodegroup-preview',
-      name: nodeGroupPrototype?.name || selectedGroup.name || 'Thing Group',
-      color: nodeGroupPrototype?.color || selectedGroup.color || '#800000',
-      definitionGraphIds: nodeGroupPrototype?.definitionGraphIds || []
-    };
-
-    const dimensions = getNodeDimensions(baseNode, false, null, 39, STANDARD_TEXT_SETTINGS);
-
-    // Match the ÷1.4 (LEGACY_DIM_SCALE) convention used by HoverVisionAid and the
-    // connection-panel nodes so the pill hugs its label the same way. Passing the raw
-    // 1.4×-inflated currentWidth here left the box a factor of 1.4 too loose.
-    return {
-      ...baseNode,
-      x: 0,
-      y: 0,
-      width: Math.max(dimensions.currentWidth * LEGACY_DIM_SCALE, 150),
-      height: Math.max(dimensions.currentHeight * LEGACY_DIM_SCALE, 96)
-    };
-  }, [isNodeGroup, selectedGroup, nodeGroupPrototype]);
-
+  // The node-group preview is one chip under the same recipe as the node grid.
   const nodeGroupRendererMetrics = useMemo(() => {
-    const minHeight = mobileState.isMobile ? 72 : 120;
-    const heightExtra = mobileState.isMobile ? 8 : 40;
-    const pad = mobileState.isMobile ? 6 : 16;
-    if (!nodeGroupRendererNode) {
-      return {
-        containerWidth: Math.min(340, viewportLimit),
-        containerHeight: minHeight,
-        padding: pad
-      };
+    const padding = mobileState.isMobile ? 6 : 12;
+    if (!isNodeGroup || !selectedGroup) {
+      return { node: null, containerWidth: 0, containerHeight: 0, padding };
     }
-
+    const grid = layoutNodeChips({
+      nodes: [{
+        id: selectedGroup.linkedNodePrototypeId || selectedGroup.id || 'nodegroup-preview',
+        name: nodeGroupPrototype?.name || selectedGroup.name || 'Thing Group',
+        color: nodeGroupPrototype?.color || selectedGroup.color || '#800000',
+        definitionGraphIds: nodeGroupPrototype?.definitionGraphIds || []
+      }],
+      text: previewText,
+      maxRowWidth: viewportLimit,
+      padding,
+      maxChipWidth: NODE_CHIP_MAX_WIDTH
+    });
     return {
-      containerWidth: Math.min(viewportLimit, Math.max(280, nodeGroupRendererNode.width + 80)),
-      containerHeight: Math.max(minHeight, nodeGroupRendererNode.height + heightExtra),
-      padding: pad
+      node: grid.nodes[0],
+      containerWidth: grid.containerWidth,
+      containerHeight: grid.containerHeight,
+      padding
     };
-  }, [nodeGroupRendererNode, viewportLimit, mobileState.isMobile]);
+  }, [isNodeGroup, selectedGroup, nodeGroupPrototype, previewText, viewportLimit, mobileState.isMobile]);
+  const nodeGroupRendererNode = nodeGroupRendererMetrics.node;
 
   const handleNodeGroupDefinitionClick = useCallback(() => {
     if (!onDiveIntoDefinition) return;
@@ -756,24 +625,23 @@ const UnifiedBottomControlPanel = ({
     };
   }, [isGroup, selectedGroup]);
 
+  // The group tag keeps its own box recipe (it wraps like the canvas tab) but is
+  // drawn at the same fixed scale as everything else here: a container that is
+  // exactly the tag at that scale pins the renderer's fit to it. The tag's font
+  // is 30/32 of a node's, so it lands a hair under the node target.
   const groupRendererMetrics = useMemo(() => {
-    const minHeight = mobileState.isMobile ? 64 : 110;
-    const heightExtra = mobileState.isMobile ? 6 : 20;
-    const pad = mobileState.isMobile ? 4 : 8;
+    const padding = mobileState.isMobile ? 4 : 8;
     if (!groupRendererNode) {
-      return {
-        containerWidth: Math.min(320, viewportLimit),
-        containerHeight: minHeight,
-        padding: pad
-      };
+      return { containerWidth: 0, containerHeight: 0, padding };
     }
-
+    const scale = previewScaleFor(previewText);
+    const width = Math.min(viewportLimit, Math.ceil(groupRendererNode.width * scale + padding * 2));
     return {
-      containerWidth: Math.min(viewportLimit, Math.max(200, groupRendererNode.width + 48)),
-      containerHeight: Math.max(minHeight, groupRendererNode.height + heightExtra),
-      padding: pad
+      containerWidth: width,
+      containerHeight: Math.ceil(groupRendererNode.height * scale + padding * 2),
+      padding
     };
-  }, [groupRendererNode, viewportLimit, mobileState.isMobile]);
+  }, [groupRendererNode, previewText, viewportLimit, mobileState.isMobile]);
 
   if (!shouldRender) return null;
 
@@ -918,64 +786,23 @@ const UnifiedBottomControlPanel = ({
                 };
               });
 
-              // Dynamic sizing based on actual content needs, clamped to viewport.
-              // Mobile rebalances the budget so predicate labels stop crowding out the node previews.
-              const isMobile = mobileState.isMobile;
-              const baseSpacing = isMobile ? 90 : 140;
-              // Self-loops render as two side-by-side copies in UniversalNodeRenderer; budget width accordingly.
+              // Self-loops render as two side-by-side copies in UniversalNodeRenderer;
+              // the layout budgets a second box for each.
               const selfLoopNodeIds = connections
                 .filter(c => c.sourceId && c.destinationId && c.sourceId === c.destinationId)
                 .map(c => c.sourceId);
-              const selfLoopCount = selfLoopNodeIds.length;
-              const layoutNodeCount = previewNodes.length + selfLoopCount;
-              // Budget width for the actual (floored) node boxes so the larger
-              // previews get enough room instead of being fit-scaled back down.
-              const naturalNodes = buildConnectionPreviewNodes(previewNodes, CONNECTION_FLOORS);
-              const nodeWidthBudget = naturalNodes.reduce((sum, n) => sum + n.width * 0.4, 0)
-                + selfLoopCount * CONNECTION_NODE_MIN_WIDTH * 0.4;
-              const nodeSpacing = nodeWidthBudget + layoutNodeCount * (isMobile ? 90 : 70);
 
-              // Room to ask for on the label's behalf. Measured through the wrap the
-              // renderer applies, not across the unwrapped string — a long predicate
-              // draws as two short lines, so measuring it flat asks for a container
-              // far wider than the label ever needs.
-              const longestConnectionLabelWidth = widestWrappedLabel(
-                connections.map(conn => conn.connectionName)
-              );
-
-              const connectionLabelSpace = Math.max(
-                isMobile ? 140 : 230,
-                Math.ceil(longestConnectionLabelWidth + (isMobile ? 100 : 200))
-              );
-
-              // Container width — never exceeds available viewport.
-              const calculatedWidth = Math.min(
-                viewportLimit,
-                1600,
-                baseSpacing + nodeSpacing + connectionLabelSpace
-              );
-
-              // Height tracks the 84px node boxes — enough for full-scale text without
-              // leaving the panel unnecessarily tall. The floor keeps the box from
-              // clipping the node height (and forcing a vertical downscale) on short
-              // panels: floor height + padding on both sides + label clearance.
+              // Names and labels draw at the platform's fixed size; the row fits
+              // the viewport by narrowing its gaps and then truncating its longest
+              // names, never by shrinking the text. The container comes back
+              // sized to the content so the renderer lands on that scale.
               const rendererPadding = 6;
-              const minRendererHeight = CONNECTION_FLOORS.height + rendererPadding * 2 + 16;
-              const calculatedHeight = isMobile
-                ? Math.min(130, Math.max(minRendererHeight, calculatedWidth * 0.23))
-                : Math.min(150, Math.max(minRendererHeight, calculatedWidth * 0.25));
-
-              // Split that width between boxes and gaps with the connection budgeted
-              // first — the viewport clamp above means the container often can't be as
-              // wide as the content wants, and it was the gaps that absorbed the
-              // shortfall.
               const row = layoutConnectionRow({
                 nodes: previewNodes,
                 labels: connections.map(conn => conn.connectionName),
-                containerWidth: calculatedWidth,
-                containerHeight: calculatedHeight,
+                maxWidth: viewportLimit,
+                text: previewText,
                 padding: rendererPadding,
-                floors: CONNECTION_FLOORS,
                 duplicateNodeIds: selfLoopNodeIds,
                 hasArrows: connections.some(c => c.directionality?.arrowsToward?.size > 0)
               });
@@ -987,12 +814,13 @@ const UnifiedBottomControlPanel = ({
               return (
                 <UniversalNodeRenderer
                   {...RENDERER_PRESETS.CONNECTION_PANEL}
-                  {...connectionPreviewRendererProps(CONNECTION_FLOORS)}
+                  {...connectionPreviewRendererProps()}
                   nodes={row.nodes}
                   connections={fittedConnections}
                   padding={rendererPadding}
-                  containerWidth={calculatedWidth}
-                  containerHeight={calculatedHeight}
+                  containerWidth={row.containerWidth}
+                  containerHeight={row.containerHeight}
+                  maxNodeScale={row.scale}
                   horizontalSpacing={row.spacing}
                   connectionFontScale={row.labelFontScale}
                   forceShowConnectionDots={inputMode === 'touch'}

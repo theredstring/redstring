@@ -1,16 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import UniversalNodeRenderer from '../UniversalNodeRenderer';
 import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
-import { getNodeDimensions } from '../utils.js';
 import {
-  STANDARD_TEXT_SETTINGS,
-  LEGACY_DIM_SCALE,
-  CONNECTION_PREVIEW_FLOORS,
-  buildConnectionPreviewNodes,
+  PREVIEW_TEXT,
   connectionPreviewRendererProps,
+  layoutNodeChips,
   withoutImage
 } from '../utils/connectionPreview.js';
-import { measureTextWidth } from '../services/textMeasurement.js';
+import { layoutConnectionRow } from '../utils/connectionRowLayout.js';
 import useGraphStore from '../store/graphStore.js';
 import { hasNoHover } from '../utils/inputDeviceAnalysis.js';
 
@@ -32,15 +29,23 @@ const FADE_IN_MS = 120;
 const ZOOM_HIDE_THRESHOLD = 0.25;
 const ZOOM_FADE_MS = 200;
 
-// Node-box floors and the shared sizing recipe for preview representations
-// (control panel, hover aid, right-panel connection list).
-const HOVER_FLOORS = CONNECTION_PREVIEW_FLOORS.hover;
-
 // The "Hover Preview Size" slider is a relative multiplier around a sensible
 // baseline: 1x on the slider = HOVER_PREVIEW_BASE_SCALE actual scale. Keeping the
 // slider centered on 1x (rather than exposing the raw 0.6 factor) makes the
 // default read as "normal" while still letting users scale up or down from there.
 const HOVER_PREVIEW_BASE_SCALE = 0.66;
+
+// The aid draws through the shared preview recipe (utils/connectionPreview.js)
+// and then the CSS transform above scales the whole thing. PREVIEW_TEXT.hover is
+// what the user should see at the slider's 1×, so the layout is asked for those
+// sizes divided by the base scale — the transform multiplies them back.
+const HOVER_LAYOUT_TEXT = {
+  nodeFontPx: PREVIEW_TEXT.hover.nodeFontPx / HOVER_PREVIEW_BASE_SCALE,
+  labelFontPx: PREVIEW_TEXT.hover.labelFontPx / HOVER_PREVIEW_BASE_SCALE
+};
+// A lone node chip never grows past this on screen (at 1×); a longer name is
+// truncated, the same as in the control panel.
+const HOVER_NODE_MAX_WIDTH_PX = 360;
 
 /**
  * HoverVisionAid displays a high-fidelity preview of nodes or connections
@@ -209,21 +214,20 @@ const HoverVisionAid = ({
     && zoomLevel > ZOOM_HIDE_THRESHOLD;
   const zoomOpacity = zoomGated ? 0 : 1;
 
-  // Pre-resizable fixed preview dimensions (reverted from node-size scaling).
-  const CONNECTION_PREVIEW_HEIGHT = 180;
-  const connectionLabelFont = '28px "EmOne", sans-serif';
-
   let content = null;
 
   // Hover Preview Size setting scales node and connection previews: slider 1x maps
   // to HOVER_PREVIEW_BASE_SCALE actual scale. The pie-menu item label is a fixed
   // text pill, not a node preview, so it renders at its original full size (1.0)
-  // and ignores the slider entirely (chips must not scale down). Connection previews
-  // get a small extra boost so the triplet reads a touch larger than a lone node.
-  const CONNECTION_PREVIEW_SCALE_BOOST = 1.1;
+  // and ignores the slider entirely (chips must not scale down).
   const previewScale = isItem
     ? 1.0
-    : hoverPreviewSize * HOVER_PREVIEW_BASE_SCALE * (isConnection ? CONNECTION_PREVIEW_SCALE_BOOST : 1);
+    : hoverPreviewSize * HOVER_PREVIEW_BASE_SCALE;
+
+  // The layout is measured before the CSS transform, so the width it may take is
+  // the on-screen budget (maxWidth: 94vw below) divided by that transform.
+  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024;
+  const layoutMaxWidth = Math.max(240, (viewportWidth * 0.94) / Math.max(previewScale, 0.05));
 
   const containerStyle = {
     position: 'absolute',
@@ -250,18 +254,28 @@ const HoverVisionAid = ({
 
     // Endpoints go through withoutImage for the reason spelled out there: a
     // preview is a legibility aid, and an image both resizes the box and eats
-    // the label the aid exists to show.
-    const nodes = buildConnectionPreviewNodes(
-      (isSelfLoop ? [hoveredConn.source] : [hoveredConn.source, hoveredConn.target]).map(withoutImage),
-      HOVER_FLOORS
-    );
+    // the label the aid exists to show. A self-loop is drawn by the renderer as
+    // two copies of the one node, so the layout budgets a duplicate for it.
+    const endpoints = (isSelfLoop ? [hoveredConn.source] : [hoveredConn.source, hoveredConn.target])
+      .map(withoutImage);
+    const arrowsToward = hoveredConn.directionality?.arrowsToward;
+    const rendererPadding = 8;
+    const row = layoutConnectionRow({
+      nodes: endpoints,
+      labels: [hoveredConn.name || 'Connection'],
+      maxWidth: layoutMaxWidth,
+      text: HOVER_LAYOUT_TEXT,
+      padding: rendererPadding,
+      duplicateNodeIds: isSelfLoop ? [hoveredConn.source.id] : [],
+      hasArrows: Boolean(arrowsToward?.size)
+    });
 
     const connections = [
       {
         id: hoveredConn.id,
         sourceId: hoveredConn.source.id,
         destinationId: hoveredConn.target.id,
-        connectionName: hoveredConn.name || 'Connection',
+        connectionName: row.labels[0],
         color: hoveredConn.color,
         definitionNodeIds: hoveredConn.definitionNodeIds,
         typeNodeId: hoveredConn.typeNodeId,
@@ -269,49 +283,20 @@ const HoverVisionAid = ({
       }
     ];
 
-    // Port sizing formulas EXACTLY from UnifiedBottomControlPanel.jsx
-    // Self-loops render as two side-by-side copies inside UniversalNodeRenderer,
-    // so budget width for a 2-node layout even though `nodes` holds one entry.
-    const baseSpacing = 200;
-    const layoutNodeCount = isSelfLoop ? 2 : nodes.length;
-    const nodeSpacing = nodes.reduce((sum, n) => sum + (n.width * 0.4), 0) * (isSelfLoop ? 2 : 1)
-                      + (layoutNodeCount * 90);
-
-    const longestConnectionLabelWidth = connections.reduce((max, conn) => {
-      const width = measureTextWidth(conn.connectionName, connectionLabelFont);
-      return Math.max(max, width);
-    }, 0);
-
-    const connectionLabelSpace = Math.max(
-      320,
-      Math.ceil(longestConnectionLabelWidth + 220)
-    );
-
-    const calculatedWidth = Math.min(
-      1800,
-      baseSpacing + nodeSpacing + connectionLabelSpace
-    );
-
-    const dynamicMinHorizontalSpacing = Math.round(Math.max(
-      120,
-      Math.min(
-        connectionLabelSpace - 80,
-        400
-      )
-    ) * 1.15); // Slightly more room between nodes for the connection line
-
     containerStyle.marginTop = -20;
     content = (
       <div style={{ display: 'inline-flex', padding: 0, borderRadius: '44px', background: 'transparent', overflow: 'visible' }}>
         <UniversalNodeRenderer
           {...RENDERER_PRESETS.CONNECTION_PANEL}
-          {...connectionPreviewRendererProps(HOVER_FLOORS)}
-          nodes={nodes}
+          {...connectionPreviewRendererProps()}
+          nodes={row.nodes}
           connections={connections}
-          containerWidth={calculatedWidth}
-          containerHeight={CONNECTION_PREVIEW_HEIGHT}
-          minHorizontalSpacing={dynamicMinHorizontalSpacing}
-          connectionFontScale={1.2}
+          padding={rendererPadding}
+          containerWidth={row.containerWidth}
+          containerHeight={row.containerHeight}
+          maxNodeScale={row.scale}
+          horizontalSpacing={row.spacing}
+          connectionFontScale={row.labelFontScale}
           connectionStrokeScale={0.7}
           interactive={false}
           showHoverEffects={false}
@@ -324,36 +309,29 @@ const HoverVisionAid = ({
     // Images stripped for the reason spelled out on withoutImage: they resize
     // the box and replace the label the preview exists to show.
     const nodeData = withoutImage(displayed.node);
-    // 1. Prepare node with REAL dimensions (non-preview)
-    const dims = getNodeDimensions(nodeData, false, null, 39, STANDARD_TEXT_SETTINGS);
-    const nodeWidth = Math.max(dims.currentWidth * LEGACY_DIM_SCALE, 100);
-    const nodeHeight = Math.max(dims.currentHeight * LEGACY_DIM_SCALE, 96);
-
-    // 2. Calculate container to fit (sync with Control Panel logic)
-    const nodeContainerWidth = Math.max(340, nodeWidth + 80);
-    const nodeContainerHeight = Math.max(120, nodeHeight + 40);
+    // One chip under the same recipe as the control panel's node preview: the
+    // container is exactly the chip at the target scale, so the renderer's fit
+    // lands there.
+    const chipPadding = 16;
+    const chip = layoutNodeChips({
+      nodes: [nodeData],
+      text: HOVER_LAYOUT_TEXT,
+      maxRowWidth: layoutMaxWidth,
+      padding: chipPadding,
+      maxChipWidth: HOVER_NODE_MAX_WIDTH_PX / HOVER_PREVIEW_BASE_SCALE
+    });
 
     containerStyle.marginTop = -18;
     content = (
       <div style={{ display: 'inline-flex', padding: 0, borderRadius: '36px', background: 'transparent', overflow: 'visible' }}>
         <UniversalNodeRenderer
-          renderContext="full"
-          nodes={[
-            {
-              ...nodeData,
-              x: 0,
-              y: 0,
-              width: nodeWidth,
-              height: nodeHeight
-            }
-          ]}
+          {...connectionPreviewRendererProps()}
+          nodes={chip.nodes}
           connections={[]}
-          containerWidth={nodeContainerWidth}
-          containerHeight={nodeContainerHeight}
-          padding={16}
+          containerWidth={chip.containerWidth}
+          containerHeight={chip.containerHeight}
+          padding={chipPadding}
           scaleMode="fit"
-          cornerRadiusMultiplier={44}
-          ignoreGlobalScale={true}
           interactive={false}
           showHoverEffects={false}
           backgroundColor="transparent"

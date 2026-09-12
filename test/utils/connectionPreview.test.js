@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
-import { withoutImage, buildConnectionPreviewNodes, CONNECTION_PREVIEW_FLOORS } from '../../src/utils/connectionPreview.js';
+import { withoutImage, buildConnectionPreviewNodes, PREVIEW_FLOOR } from '../../src/utils/connectionPreview.js';
 
 /**
  * The preview representations — the hover vision aid, the connection control
@@ -61,7 +61,7 @@ describe('withoutImage', () => {
 });
 
 describe('preview sizing', () => {
-  const floors = CONNECTION_PREVIEW_FLOORS.hover;
+  const floors = PREVIEW_FLOOR;
   const name = 'Ada Lovelace';
 
   it('sizes an image node exactly as the same node without one', () => {

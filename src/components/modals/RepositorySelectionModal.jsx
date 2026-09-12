@@ -323,7 +323,7 @@ const RepositorySelectionModal = ({
             size={14}
             style={{
               position: 'absolute',
-              left: '8px',
+              left: '12px',
               top: '50%',
               transform: 'translateY(-50%)',
               opacity: 0.6,
@@ -337,9 +337,12 @@ const RepositorySelectionModal = ({
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
               width: '100%',
-              padding: '8px 8px 8px 28px',
+              // The panel's field: a 20px pill outlined in canvas.border, the
+              // same one .modal-input draws in Settings. A 4px box next to a row
+              // of 20px pills read as a different kit.
+              padding: '9px 14px 9px 32px',
               border: `1px solid ${theme.canvas.border}`,
-              borderRadius: '4px',
+              borderRadius: '20px',
               fontSize: '0.8rem',
               backgroundColor: 'transparent',
               color: theme.canvas.textPrimary,
@@ -349,11 +352,19 @@ const RepositorySelectionModal = ({
           />
         </div>
 
-        {/* Compact controls */}
+        {/*
+          Two clusters — how the list is sorted, and what you can do to it —
+          that must be allowed to WRAP. Every pill in here is a PanelIconButton,
+          which sets `flex-shrink: 0`, so at this modal's 380px the two clusters
+          had nothing to give and simply overlapped: the bare repo count ended up
+          underneath the A-Z pill. `margin-left: auto` on the actions keeps them
+          right-aligned whether they share the line or take their own.
+        */}
         <div style={{
           display: 'flex',
-          justifyContent: 'space-between',
+          flexWrap: 'wrap',
           alignItems: 'center',
+          gap: '8px',
           fontSize: '0.7rem'
         }}>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -372,12 +383,14 @@ const RepositorySelectionModal = ({
                 style={{ minHeight: 28, padding: '4px 12px' }}
               />
             ))}
+
+            {/* Sits with the sort it describes, and says what it counts. */}
+            <span style={{ color: theme.canvas.textSecondary, whiteSpace: 'nowrap' }}>
+              {filteredAndSortedRepos.length} repo{filteredAndSortedRepos.length === 1 ? '' : 's'}
+            </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ color: theme.canvas.textSecondary }}>
-              {filteredAndSortedRepos.length}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
             <PanelIconButton
               icon={RefreshCw}
               size={14}
@@ -617,42 +630,33 @@ const RepositorySelectionModal = ({
                 </div>
 
                 <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                  {/* Expand/collapse button */}
-                  <button
+                  {/* Expand/collapse. A PanelIconButton like the bookmark two
+                      places along — these three icons sit in one cluster, and
+                      this one used to fade from 0.6 opacity while its neighbour
+                      grew and took a maroon ring. */}
+                  <PanelIconButton
+                    icon={isExpanded ? ChevronDown : ChevronRight}
+                    size={14}
+                    title={isExpanded ? 'Hide universes' : 'Show universes'}
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleRepoExpansion(repo.id);
                     }}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: theme.canvas.textPrimary,
-                      cursor: 'pointer',
-                      padding: '2px',
-                      opacity: 0.6,
-                      transition: 'opacity 0.2s'
-                    }}
-                    onMouseEnter={(e) => e.target.style.opacity = '1'}
-                    onMouseLeave={(e) => e.target.style.opacity = '0.6'}
-                    title={isExpanded ? 'Hide universes' : 'Show universes'}
-                  >
-                    {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                  </button>
+                  />
+                  {/* Stays an <a>, so middle-click and open-in-new-tab still
+                      work, but wears the same hover as the two buttons beside
+                      it — .rs-icon-link in Dialog.css draws it. */}
                   {repo.html_url && (
                     <a
+                      className="rs-icon-link"
                       href={repo.html_url}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      style={{
-                        color: theme.canvas.textPrimary,
-                        opacity: 0.6,
-                        textDecoration: 'none',
-                        padding: '2px'
-                      }}
+                      style={{ color: theme.canvas.textPrimary }}
                       title="View on GitHub"
                     >
-                      <ExternalLink size={12} />
+                      <ExternalLink size={14} />
                     </a>
                   )}
 

@@ -7,12 +7,12 @@ import Dropdown from './Dropdown.jsx';
 import { useTheme } from '../hooks/useTheme.js';
 import UniversalNodeRenderer from '../UniversalNodeRenderer';
 import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
-import { connectionPreviewRendererProps } from '../utils/connectionPreview.js';
+import { connectionPreviewRendererProps, previewTextFor } from '../utils/connectionPreview.js';
 import {
-  PANEL_FLOORS,
   PANEL_RENDERER_PADDING,
   layoutPanelConnection
 } from '../utils/connectionRowLayout.js';
+import useMobileDetection from '../hooks/useMobileDetection';
 import './ConnectionBrowser.css';
 
 /**
@@ -28,10 +28,10 @@ const ConnectionTriplet = ({
   objectColor,
   onMaterialize,
   connection,
-  isUltraSlim = false,
   containerWidth = 400
 }) => {
   const defaultColor = '#8B0000';
+  const { isMobile } = useMobileDetection();
 
   // Confidence badge for semantic connections
   const showConfidence = connection?.type === 'semantic' && connection?.confidence;
@@ -83,9 +83,10 @@ const ConnectionTriplet = ({
     arrowsToward.add('object');
   }
 
-  // Divide the row between the two node boxes and the connection between them —
-  // node names and the predicate come back already truncated to their budgets.
-  const { nodes, span, height, labelFontScale, predicate: displayPredicate } =
+  // Divide the row between the two node boxes and the connection between them at
+  // the platform's fixed text size — node names and the predicate come back
+  // already truncated to their budgets, and the scale pins the renderer there.
+  const { nodes, span, height, scale, labelFontScale, predicate: displayPredicate } =
     layoutPanelConnection({
       nodes: [
         { id: 'subject', name: subjectName, color: subjectColor || defaultColor },
@@ -94,7 +95,7 @@ const ConnectionTriplet = ({
       predicate: predicateName,
       containerWidth,
       hasArrows: arrowsToward.size > 0,
-      isUltraSlim
+      text: previewTextFor(isMobile)
     });
 
   const connections = [{
@@ -164,12 +165,13 @@ const ConnectionTriplet = ({
 
       <UniversalNodeRenderer
         {...RENDERER_PRESETS.CONNECTION_BROWSER}
-        {...connectionPreviewRendererProps(PANEL_FLOORS)}
+        {...connectionPreviewRendererProps()}
         nodes={nodes}
         connections={connections}
         padding={PANEL_RENDERER_PADDING}
         containerWidth={containerWidth}
         containerHeight={height}
+        maxNodeScale={scale}
         horizontalSpacing={span}
         connectionFontScale={labelFontScale}
       />
@@ -181,7 +183,7 @@ const ConnectionTriplet = ({
  * Connection Browser Component
  * Shows connections with dropdown: In Graph | Universe | Semantic Web
  */
-const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = false }) => {
+const ConnectionBrowser = ({ nodeData, onMaterializeConnection }) => {
   const theme = useTheme();
   const [connectionScope, setConnectionScope] = useState('graph'); // 'graph' | 'universe' | 'semantic'
   const [semanticConnections, setSemanticConnections] = useState([]);
@@ -707,7 +709,6 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
               objectColor={getNodeColor(connection.object)}
               onMaterialize={() => handleMaterializeConnection(connection)}
               connection={connection}
-              isUltraSlim={isUltraSlim}
               // minus the triplet's own 8px padding + 1px border per side
               containerWidth={Math.max(160, containerWidth - 18)}
             />

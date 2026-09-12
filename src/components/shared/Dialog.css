@@ -74,6 +74,37 @@
 }
 
 /*
+ * An icon that is a LINK, sitting in a cluster of icon buttons.
+ *
+ * It has to stay an <a> — middle-click and open-in-new-tab are the point of a
+ * "view on GitHub" — so it cannot be a PanelIconButton. This gives it that
+ * button's shape and hover instead: the pie menu's light fill, a 3px accent
+ * ring in place of a border, and the same 1.1 grow at the circular size. Keep
+ * the numbers in step with PIE_HOVER_SCALE in PanelIconButton.jsx.
+ */
+.rs-icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 50%;
+  text-decoration: none;
+  touch-action: manipulation;
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease;
+}
+
+.rs-icon-link:hover {
+  background-color: #DEDADA;
+  box-shadow: 0 0 0 3px #8B0000;
+  color: #8B0000 !important;
+  transform: scale(1.1);
+}
+
+/*
  * A busy icon button. The icon inside a PanelIconButton is not reachable from
  * the caller, so the spin is put on the button and inherited by the one <svg>
  * it holds. Its own @keyframes rather than the bare `spin` that a handful of

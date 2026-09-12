@@ -1,75 +1,79 @@
 /**
  * Width budgeting for a row of connection-preview nodes — the canvas bottom
- * control panel and the right panel's Connections list.
+ * control panel, the hover vision aid, and the right panel's Connections list.
  *
- * Both draw the same picture (node —label→ node, sometimes a longer chain) and
- * both have the same failure mode when the split between boxes and gaps is left
- * to the renderer's defaults. getNodeDimensions grows a text node's box to as
- * much as 420px (preview scale) to fit its name, so two ordinary names can
- * consume the row and leave the label a sliver; and when the boxes do overflow,
- * the renderer's answer is to fit-scale the whole drawing down, which drags the
- * label's font down with it. Either way the connection loses — which is
- * backwards, because the connection is the thing these views exist to show.
+ * All three draw the same picture (node —label→ node, sometimes a longer chain)
+ * at the fixed text sizes in connectionPreview.js's PREVIEW_TEXT, and this is
+ * where that promise is kept. The renderer is handed a container it cannot
+ * scale below the target, and the row is made to fit that container in a fixed
+ * order of concessions:
  *
- * So the gap budget is reserved first, the node boxes are capped against what's
- * left (truncating names too long for the cap), and only then is the label
- * measured against the span it actually got. The renderer takes the result
- * verbatim via its `horizontalSpacing` prop rather than re-negotiating it.
+ *   1. The gaps between boxes grow to hold the label with air around it, up to
+ *      GAP_MAX_PX. A wide row spends its slack on the connection, since that is
+ *      what these views exist to show.
+ *   2. Under pressure the air goes first: the gaps shrink to exactly what the
+ *      label's widest line needs between the arrowheads.
+ *   3. Then the widest boxes are capped (water-filling, so a short name keeps
+ *      its whole box while a long one is truncated with an ellipsis) — down to
+ *      the floor box, with the label still whole. A predicate is the subject
+ *      of the row and is nearly always the shortest thing in it; a name can
+ *      lose its tail and still be recognised.
+ *   4. Only then does the gap give below the label, down to a floor that still
+ *      clears the arrowheads and shows some of the label, which is clipped to
+ *      the span it actually got.
+ *   5. Only if the floor boxes and floor gaps still do not fit — many nodes on a
+ *      phone — does the scale itself drop, as a last resort.
+ *
+ * The renderer takes the result verbatim via `horizontalSpacing` and
+ * `maxNodeScale` rather than re-negotiating it.
  */
 import {
-  CONNECTION_PREVIEW_FLOORS,
-  buildConnectionPreviewNodes
+  PREVIEW_FLOOR,
+  PREVIEW_TEXT,
+  buildConnectionPreviewNodes,
+  previewScaleFor,
+  labelFontScaleFor
 } from './connectionPreview.js';
-import {
-  CONNECTION_LABEL_BASE_FONT_SIZE,
-  wrapConnectionLabel
-} from '../UniversalNodeRenderer.presets.js';
+import { wrapConnectionLabel, RENDERER_PRESETS } from '../UniversalNodeRenderer.presets.js';
 import { measureTextWidth } from '../services/textMeasurement.js';
+import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 
-// Same sizing recipe as the canvas connection control panel and the hover aid, at
-// the smaller floor a ~280px-wide panel column can actually fit.
-export const PANEL_FLOORS = CONNECTION_PREVIEW_FLOORS.panelList;
 export const PANEL_RENDERER_PADDING = 10;
 
-// Share of the row that goes to the gaps, in total across however many there
-// are: the connection never gets less than `min`, nor more than `max`.
-//
-// The canvas control panel sizes its container to the content, so leftover width
-// naturally lands in the gaps and a loose floor is enough. The right panel's
-// column is 2–3× narrower, and there the same ratios read wrong: two node boxes
-// can't drop below ~120px each (getNodeDimensions' own minimum), so "whatever is
-// left over" leaves the boxes dominating a column that never had room for them
-// at full size. That row asks for half the width up front and scales the boxes
-// down to fit, which is what keeps the proportions reading like the wide one.
-const CONTROL_PANEL_SPAN = { min: 0.3, max: 0.52 };
-const PANEL_LIST_SPAN = { min: 0.5, max: 0.62 };
-const MIN_SPAN_PX = 72;
-// How far past the floor a box may grow before its name is truncated. This is a
-// guard against the pathological box (getNodeDimensions will go to 420px for one
-// name, and two of those drag the whole drawing's text down with them) — not the
-// thing that sets the row's proportions, which the span reservation above
-// already handles. So it sits high enough to let an ordinary two-word name
-// through whole and only clip the genuinely long ones. The panel's is the larger
-// multiple because its floor is the smaller box (110 vs 130).
-const CONTROL_PANEL_NODE_BOX_RATIO = 2.2;
-const PANEL_LIST_NODE_BOX_RATIO = 2.8;
-// Below this the label stops being worth reading, so clip the text instead of
-// shrinking it further.
-const MIN_LABEL_FONT_PX = 13;
-// The Connections list's row is fit-scaled down so two node boxes fit a panel
-// column, and letting the label ride that scale left it drawing at the renderer's
-// 8px floor in a narrow panel. It gets a size of its own instead — a step up from
-// the surrounding panel text (12–13px) without taking over the row the way the
-// control panel's full 24px did in a column this narrow. Tune here.
-const PANEL_LIST_LABEL_FONT_PX = 16;
-// The renderer stacks a wrapped label's lines at max(fontSize * 1.1, 26 * scale)
-// — see ConnectionText in UniversalNodeRenderer.jsx. The first term wins at
-// every size the base font produces, so line height is 1.1× the drawn font.
-const LABEL_LINE_HEIGHT_RATIO = 1.1;
-// Arrowhead length at full scale, plus a little air, so the label never collides
-// with the arrow it sits between.
-const ARROW_TIP_LENGTH = 24;
+// How far an arrowhead reaches into the gap, in on-screen px. The renderer
+// draws it as a polygon 26·arrowScale long past the node edge, where arrowScale
+// follows the stroke width and the stroke width follows the average box size
+// (see adaptiveStrokeWidth and arrowScale in UniversalNodeRenderer) — so it is
+// derived here from the same boxes rather than guessed, or the label lands on
+// the arrow. Plus a little air on each side of the label.
+const ARROWHEAD_REACH_PER_SCALE = 26;
 const LABEL_END_CLEARANCE = 6;
+const arrowheadReach = (boxes) => {
+  if (!boxes.length) return 0;
+  const avgNodeSize = boxes.reduce((sum, b) => sum + (b.width + b.height) / 2, 0) / boxes.length;
+  const strokeMultiplier = Math.max(0.02, Math.min(0.08, avgNodeSize / 1000));
+  const strokeScale = RENDERER_PRESETS.CONNECTION_PANEL.connectionStrokeScale * CONNECTION_WIDTH_BASE_SCALE;
+  const strokeWidth = Math.max(1.5, avgNodeSize * strokeMultiplier * strokeScale);
+  const arrowScale = Math.min(4, Math.max(0.5, strokeWidth / 6));
+  return ARROWHEAD_REACH_PER_SCALE * arrowScale;
+};
+// The least label room a gap may shrink to (on screen, between the arrowheads)
+// before the boxes start giving instead — enough for a word or a clipped one.
+const GAP_MIN_LABEL_PX = 56;
+// Air around the label when the row has room to give it, in total across both
+// sides. This is what makes the connection read as a length of line with a
+// label on it rather than a label wedged between two boxes; the label alone
+// (GAP_MIN_LABEL_PX) is the floor, not the look.
+const GAP_LABEL_AIR_PX = 40;
+// A gap never grows past this however wide the row is: beyond it the two nodes
+// stop reading as connected.
+const GAP_MAX_PX = 280;
+// The renderer stacks a wrapped label's lines at max(fontSize * 1.1, 26 * scale)
+// — see ConnectionText in UniversalNodeRenderer.jsx. At the label sizes in
+// PREVIEW_TEXT the first term wins, so line height is 1.1× the drawn font.
+const LABEL_LINE_HEIGHT_RATIO = 1.1;
+// Last-resort floor for the scale (step 5 above).
+const MIN_SCALE = 0.3;
 
 const labelFont = (px) => `bold ${px}px 'EmOne', sans-serif`;
 
@@ -77,17 +81,6 @@ const labelFont = (px) => `bold ${px}px 'EmOne', sans-serif`;
 export const widestLabelLine = (text, fontString) =>
   wrapConnectionLabel(text).reduce(
     (max, line) => Math.max(max, measureTextWidth(line, fontString)),
-    0
-  );
-
-/**
- * Widest line any of these labels wraps to at the renderer's base font size —
- * what a container has to make room for, as opposed to the width of the
- * unwrapped strings, which over-reserves for anything long.
- */
-export const widestWrappedLabel = (labels) =>
-  labels.reduce(
-    (max, text) => Math.max(max, widestLabelLine(text, labelFont(CONNECTION_LABEL_BASE_FONT_SIZE))),
     0
   );
 
@@ -134,159 +127,179 @@ const fitLabelToSpan = (text, fontString, maxWidth) => {
 };
 
 /**
- * Divide a row's width between its node boxes and the gaps between them.
+ * Uniform cap `c` such that Σ min(w, c) fits `budget`. Boxes narrower than the
+ * cap keep their width and donate the difference to the wider ones.
+ */
+const waterFillCap = (widths, budget) => {
+  const sorted = [...widths].sort((a, b) => a - b);
+  let remaining = budget;
+  for (let i = 0; i < sorted.length; i += 1) {
+    const share = remaining / (sorted.length - i);
+    if (sorted[i] > share) return share;
+    remaining -= sorted[i];
+  }
+  return Infinity;
+};
+
+/**
+ * Divide a row between its node boxes and the gaps between them, at the fixed
+ * preview scale for `text`.
  *
  * @param {object} params
  * @param {Array<{id:string,name:string,color:string}>} params.nodes - in row order
  * @param {string[]} params.labels - connection names competing for the gaps
- * @param {number} params.containerWidth - width handed to UniversalNodeRenderer
- * @param {number} params.containerHeight - height handed to UniversalNodeRenderer
- * @param {number} params.padding - the renderer's padding prop
- * @param {{width:number,height:number}} params.floors - CONNECTION_PREVIEW_FLOORS entry
+ * @param {number} params.maxWidth - on-screen px the container may take, edge to edge
+ * @param {{nodeFontPx:number,labelFontPx:number}} params.text - a PREVIEW_TEXT entry
+ * @param {number} [params.padding] - the renderer's padding prop
+ * @param {{width:number,height:number}} [params.floors]
  * @param {string[]} [params.duplicateNodeIds] - nodes the renderer will draw a
  *   second copy of, which is how it lays out a self-loop
  * @param {boolean} [params.hasArrows] - whether either end draws an arrowhead
- * @param {{min:number,max:number}} [params.spanRatio] - share of the row the gaps take
- * @param {number} [params.nodeBoxRatio] - how far past the floor a box may grow
- *   before its name is truncated
- * @param {number} [params.labelFontPx] - target font size for the label, instead
- *   of letting it ride the row's fit scale. For rows that had to scale down to fit
- *   a fixed-width column (the right panel's Connections list), which would
- *   otherwise shrink the label along with the boxes. Still subject to the width
- *   and height budgets below.
- * @returns {{nodes:Array<object>, spacing:number, labelFontScale:number,
- *   labels:string[]}} — node names and labels already truncated to their budgets,
- *   spacing for the renderer's `horizontalSpacing`, and the label font scale for
- *   its `connectionFontScale`.
+ * @returns {{
+ *   nodes: Array<object>, labels: string[], spacing: number, scale: number,
+ *   labelFontScale: number, containerWidth: number, containerHeight: number
+ * }} nodes in natural units with names already truncated; spacing (on screen)
+ *   for the renderer's `horizontalSpacing`; scale for its `maxNodeScale`; the
+ *   label font scale for `connectionFontScale`; and the container that pins the
+ *   renderer to that scale (containerWidth ≤ maxWidth).
  */
 export function layoutConnectionRow({
   nodes: sourceNodes,
   labels,
-  containerWidth,
-  containerHeight,
-  padding,
-  floors,
+  maxWidth,
+  text = PREVIEW_TEXT.desktop,
+  padding = 6,
+  floors = PREVIEW_FLOOR,
   duplicateNodeIds = [],
-  hasArrows = true,
-  spanRatio = CONTROL_PANEL_SPAN,
-  nodeBoxRatio = CONTROL_PANEL_NODE_BOX_RATIO,
-  labelFontPx = null
+  hasArrows = true
 }) {
-  const availableWidth = Math.max(1, containerWidth - padding * 2);
   const boxCount = Math.max(1, sourceNodes.length + duplicateNodeIds.length);
-  const gaps = Math.max(1, boxCount - 1);
+  const gaps = Math.max(0, boxCount - 1);
+  const available = Math.max(1, maxWidth - padding * 2);
 
-  const minTotalGap = Math.max(MIN_SPAN_PX * gaps, availableWidth * spanRatio.min);
-  const maxTotalGap = Math.max(minTotalGap, availableWidth * spanRatio.max);
+  // Everything below is in on-screen px unless it says "natural".
+  // The arrowhead is sized from the boxes the row will draw. The uncapped boxes
+  // at the target scale are the widest the row can end up with, and a wider box
+  // means a thicker stroke and a bigger arrowhead, so this errs on the roomy
+  // side once names are truncated.
+  const targetScale = previewScaleFor(text);
+  const naturalNodes = buildConnectionPreviewNodes(sourceNodes, floors);
+  const naturalById = new Map(naturalNodes.map(n => [n.id, n]));
+  const boxesForArrow = [
+    ...naturalNodes,
+    ...duplicateNodeIds.map(id => naturalById.get(id) ?? { width: floors.width, height: floors.height })
+  ].map(n => ({ width: n.width * targetScale, height: n.height * targetScale }));
+  const arrowReach = hasArrows ? arrowheadReach(boxesForArrow) : 0;
+  const tipRoom = (scale) => arrowReach * (scale / targetScale) + LABEL_END_CLEARANCE;
+  const gapMin = (scale) => 2 * tipRoom(scale) + GAP_MIN_LABEL_PX;
 
-  // Cap each box at its share of what the gap floor leaves behind, or at the
-  // long-name threshold, whichever is more generous — a wide row can afford full
-  // names, and a narrow one shouldn't truncate every name down to the floor.
-  const nodes = buildConnectionPreviewNodes(sourceNodes, floors, {
-    maxWidth: Math.max(
-      floors.width * nodeBoxRatio,
-      (availableWidth - minTotalGap) / boxCount
-    )
-  });
+  // Step 5 first, because it decides the scale everything else is measured at:
+  // if even floor-width boxes with floor gaps overrun the row, the target
+  // cannot be honoured and the scale drops just far enough.
+  let scale = targetScale;
+  const floorsWidth = boxCount * floors.width;
+  if (floorsWidth * scale + gaps * gapMin(scale) > available) {
+    // gapMin depends on scale through the arrowheads; solve the linear form.
+    const fixed = gaps * (2 * LABEL_END_CLEARANCE + GAP_MIN_LABEL_PX);
+    const perScale = floorsWidth + gaps * 2 * (arrowReach / targetScale);
+    scale = Math.max(MIN_SCALE, Math.min(scale, (available - fixed) / Math.max(1, perScale)));
+  }
+  const labelFontScale = labelFontScaleFor(text, scale);
+  const labelFontPx = text.labelFontPx;
+  const gapFloor = gapMin(scale);
 
-  // Whatever the boxes don't need belongs to the connections, between the two
-  // bounds. This is what makes the span grow with the container instead of
-  // holding a fixed gap while the row around it gets wider.
-  const widthById = new Map(nodes.map(n => [n.id, n.width]));
-  const boxesWidth = nodes.reduce((sum, n) => sum + n.width, 0)
-    + duplicateNodeIds.reduce((sum, id) => sum + (widthById.get(id) ?? floors.width), 0);
-  const totalGap = Math.min(maxTotalGap, Math.max(minTotalGap, availableWidth - boxesWidth));
-  const spacing = Math.round(totalGap / gaps);
-
-  // The fit scale the renderer will land on, recomputed here because the label's
-  // font size rides on it and the label has to be measured at the size it will
-  // actually render at.
-  const availableHeight = containerHeight - padding * 2;
-  const nodeScale = Math.min(
-    1,
-    (availableWidth - spacing * gaps) / Math.max(1, boxesWidth),
-    availableHeight / Math.max(1, ...nodes.map(n => n.height))
-  );
-
-  // The label's font normally rides the row's fit scale, because that is what the
-  // renderer derives it from. In a row that had to scale down to fit its column
-  // that drags the label along with the boxes — the failure this module exists to
-  // prevent, just applied to the label instead. labelFontPx pins the label to a
-  // size of its own instead; the budgets below still bound it, so nothing overflows.
-  const labelFitScale = labelFontPx != null
-    ? labelFontPx / CONNECTION_LABEL_BASE_FONT_SIZE
-    : nodeScale;
-  const naturalFontSize = Math.max(8, CONNECTION_LABEL_BASE_FONT_SIZE * labelFitScale);
-  const budget = Math.max(
-    0,
-    spacing - 2 * ((hasArrows ? ARROW_TIP_LENGTH * nodeScale : 0) + LABEL_END_CLEARANCE)
-  );
-
-  const naturalWidth = labels.reduce(
-    (max, text) => Math.max(max, widestLabelLine(text, labelFont(naturalFontSize))),
+  // Step 1: the gap the label would like, and (step 2) the gap it needs — the
+  // same span minus the air.
+  const widestLabel = labels.reduce(
+    (max, label) => Math.max(max, widestLabelLine(label, labelFont(labelFontPx))),
     0
   );
-  const widthShrink = naturalWidth > budget
-    ? Math.min(1, budget / Math.max(1, naturalWidth))
-    : 1;
+  const gapKeep = Math.min(GAP_MAX_PX, Math.max(gapFloor, Math.ceil(widestLabel + 2 * tipRoom(scale))));
+  const gapWanted = Math.min(GAP_MAX_PX, gapKeep + GAP_LABEL_AIR_PX);
 
-  // A label that wraps into several short lines clears the width budget untouched,
-  // so its height is a constraint of its own: the block is centred on the
-  // connection, and whatever runs past the row's half-height the SVG viewport
-  // simply clips away.
-  const lineCount = labels.reduce((max, text) => Math.max(max, wrapConnectionLabel(text).length), 1);
-  const heightShrink = Math.min(
-    1,
-    availableHeight / ((lineCount - 1) * LABEL_LINE_HEIGHT_RATIO + 1) / naturalFontSize
-  );
+  // Natural boxes, then their on-screen widths — duplicates draw at the width of
+  // the node they copy.
+  const measure = (list) => {
+    const byId = new Map(list.map(n => [n.id, n.width]));
+    return [
+      ...list.map(n => n.width * scale),
+      ...duplicateNodeIds.map(id => (byId.get(id) ?? floors.width) * scale)
+    ];
+  };
+  let nodes = naturalNodes;
+  let widths = measure(nodes);
+  let boxesWidth = widths.reduce((sum, w) => sum + w, 0);
+  const capBoxes = (capPx) => {
+    nodes = buildConnectionPreviewNodes(sourceNodes, floors, { maxWidth: capPx / scale });
+    widths = measure(nodes);
+    boxesWidth = widths.reduce((sum, w) => sum + w, 0);
+  };
+  const floorBoxes = floorsWidth * scale;
 
-  // Shrink the labels toward the legibility floor before clipping them — a 13px
-  // label that reads in full beats a 24px one cut down to two words.
-  const labelShrink = Math.max(
-    Math.min(1, MIN_LABEL_FONT_PX / naturalFontSize),
-    Math.min(widthShrink, heightShrink)
-  );
+  // Steps 1–4, in that order of concession.
+  let spacing;
+  if (gaps === 0) {
+    spacing = 0;
+  } else if (boxesWidth + gaps * gapWanted <= available) {
+    spacing = gapWanted;
+  } else if (boxesWidth + gaps * gapKeep <= available) {
+    spacing = Math.floor((available - boxesWidth) / gaps);
+  } else if (floorBoxes + gaps * gapKeep <= available) {
+    spacing = gapKeep;
+    capBoxes(waterFillCap(widths, available - gaps * gapKeep));
+  } else {
+    capBoxes(floors.width * scale);
+    spacing = Math.max(gapFloor, Math.floor((available - boxesWidth) / gaps));
+  }
 
-  // Mirror the renderer's own 8px floor, or a label would be measured smaller
-  // than it draws and clipped too late to help.
-  const renderedFontSize = Math.max(8, naturalFontSize * labelShrink);
+  // Step 4: the label gets the span between the arrowheads.
+  const labelBudget = Math.max(0, spacing - 2 * tipRoom(scale));
+  const fittedLabels = labels.map(label => fitLabelToSpan(label, labelFont(labelFontPx), labelBudget));
+
+  // The container is the content, so the renderer's fit cannot land below the
+  // target: its width ratio is (available − gaps·spacing) / Σ natural widths,
+  // which is exactly `scale` once the ceil rounds up rather than down.
+  const contentWidth = boxesWidth + gaps * spacing;
+  const containerWidth = Math.min(maxWidth, Math.ceil(contentWidth + padding * 2));
+
+  // A wrapped label is centred on the connection line, so it needs half its
+  // block above and below the row's midline — usually inside the box height,
+  // but not for three lines at the mobile size.
+  const lineCount = fittedLabels.reduce((max, label) => Math.max(max, wrapConnectionLabel(label).length), 1);
+  const labelBlock = lineCount * labelFontPx * LABEL_LINE_HEIGHT_RATIO + 4;
+  const boxHeight = Math.max(...nodes.map(n => n.height), floors.height) * scale;
+  const containerHeight = Math.ceil(Math.max(boxHeight, labelBlock) + padding * 2);
 
   return {
     nodes,
+    labels: fittedLabels,
     spacing,
-    // The renderer multiplies the base font by its own fit scale before applying
-    // this, so divide that scale back out — otherwise holding the label at the
-    // base size above would just be undone there.
-    labelFontScale: labelShrink * (labelFitScale / Math.max(nodeScale, 0.01)),
-    labels: labels.map(text => fitLabelToSpan(text, labelFont(renderedFontSize), budget))
+    scale,
+    labelFontScale,
+    containerWidth,
+    containerHeight
   };
 }
 
 /**
- * The right panel's Connections list: a fixed two-node row in a column whose
- * width is the panel's, not the content's.
+ * The right panel's Connections list: a two-node row in a column whose width is
+ * the panel's, not the content's. The renderer is still handed the full column
+ * so the row centres in it.
  */
-export function layoutPanelConnection({ nodes, predicate, containerWidth, hasArrows, isUltraSlim = false }) {
-  // Height derives from the node floor rather than a magic number, so the box can
-  // never clip the node and force a vertical downscale (which is what shrank the
-  // text and collapsed the corners into pills).
-  const height = PANEL_FLOORS.height + PANEL_RENDERER_PADDING * 2 + (isUltraSlim ? 8 : 20);
+export function layoutPanelConnection({ nodes, predicate, containerWidth, hasArrows, text }) {
   const row = layoutConnectionRow({
     nodes,
     labels: [predicate],
-    containerWidth,
-    containerHeight: height,
+    maxWidth: containerWidth,
+    text,
     padding: PANEL_RENDERER_PADDING,
-    floors: PANEL_FLOORS,
-    hasArrows,
-    spanRatio: PANEL_LIST_SPAN,
-    nodeBoxRatio: PANEL_LIST_NODE_BOX_RATIO,
-    labelFontPx: PANEL_LIST_LABEL_FONT_PX
+    hasArrows
   });
   return {
     nodes: row.nodes,
     span: row.spacing,
-    height,
+    scale: row.scale,
+    height: row.containerHeight,
     labelFontScale: row.labelFontScale,
     predicate: row.labels[0]
   };

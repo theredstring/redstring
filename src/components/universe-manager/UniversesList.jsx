@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check } from 'lucide-react';
+import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
 import PanelSegment from './shared/PanelSegment.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import SourceOfTruthPill from './shared/SourceOfTruthPill.jsx';
 import { isCapacitor } from '../../utils/capacitorAdapter.js';
 
 
@@ -1063,47 +1064,18 @@ const UniversesList = ({
                                 );
                               })()}
 
-                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                                 {(() => {
                                   const isSourceOfTruth = resolvedSource === 'git';
                                   const hasOtherStorage = !!(universe.raw?.localFile?.enabled);
                                   const canToggle = hasOtherStorage;
 
                                   return onSetPrimarySource && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (canToggle) {
-                                          onSetPrimarySource(universe.slug, 'git');
-                                        }
-                                      }}
-                                      onMouseEnter={(e) => { if (canToggle) e.currentTarget.style.transform = 'scale(1.04)'; }}
-                                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
-                                      style={{
-                                        fontSize: '0.65rem',
-                                        padding: '2px 6px',
-                                        borderRadius: 6,
-                                        cursor: canToggle ? 'pointer' : 'default',
-                                        fontWeight: 600,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 4,
-                                        border: `1px solid ${theme.darkMode ? '#CCAAA8' : theme.canvas.brand}`,
-                                        backgroundColor: isSourceOfTruth
-                                          ? (theme.darkMode ? '#CCAAA8' : theme.canvas.brand)
-                                          : 'transparent',
-                                        color: isSourceOfTruth
-                                          ? (theme.darkMode ? '#260000' : '#DEDADA')
-                                          : (theme.darkMode ? '#CCAAA8' : theme.canvas.brand),
-
-                                        opacity: canToggle ? 1 : 0.85
-                                      }}
-                                      title={!canToggle ? 'Only storage option (must remain source of truth)' : isSourceOfTruth ? 'Currently source of truth' : 'Click to make source of truth'}
-                                    >
-                                      <Star size={10} fill={isSourceOfTruth ? (theme.darkMode ? '#260000' : '#DEDADA') : 'none'} />
-
-                                      {isSourceOfTruth ? 'Source of Truth' : 'Not Source of Truth'}
-                                    </button>
+                                    <SourceOfTruthPill
+                                      isSourceOfTruth={isSourceOfTruth}
+                                      canToggle={canToggle}
+                                      onSelect={() => onSetPrimarySource(universe.slug, 'git')}
+                                    />
                                   );
                                 })()}
                                 {onSaveRepoSource && (
@@ -1383,43 +1355,18 @@ const UniversesList = ({
                                       </div>
                                     )}
 
-                                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                                       {(() => {
                                         const isSourceOfTruth = resolvedSource === 'local';
                                         const hasOtherStorage = !!(universe.raw?.gitRepo?.linkedRepo);
                                         const canToggle = hasOtherStorage;
 
                                         return onSetPrimarySource && (
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (canToggle) {
-                                                onSetPrimarySource(universe.slug, 'local');
-                                              }
-                                            }}
-                                            onMouseEnter={(e) => { if (canToggle) e.currentTarget.style.transform = 'scale(1.04)'; }}
-                                            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
-                                            style={{
-                                              fontSize: '0.65rem',
-                                              padding: '2px 6px',
-                                              borderRadius: 6,
-                                              cursor: canToggle ? 'pointer' : 'default',
-                                              fontWeight: 600,
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              gap: 4,
-                                              border: `1px solid ${theme.canvas.brand}`,
-                                              backgroundColor: isSourceOfTruth ? theme.canvas.brand : 'transparent',
-                                              color: isSourceOfTruth ? '#DEDADA' : theme.canvas.brand,
-
-                                              opacity: canToggle ? 1 : 0.85
-                                            }}
-                                            title={!canToggle ? 'Only storage option (must remain source of truth)' : isSourceOfTruth ? 'Currently source of truth' : 'Click to make source of truth'}
-                                          >
-                                            <Star size={10} fill={isSourceOfTruth ? (theme.darkMode ? '#260000' : '#DEDADA') : 'none'} />
-
-                                            {isSourceOfTruth ? 'Source of Truth' : 'Not Source of Truth'}
-                                          </button>
+                                          <SourceOfTruthPill
+                                            isSourceOfTruth={isSourceOfTruth}
+                                            canToggle={canToggle}
+                                            onSelect={() => onSetPrimarySource(universe.slug, 'local')}
+                                          />
                                         );
                                       })()}
                                     </div>

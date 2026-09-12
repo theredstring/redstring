@@ -23,6 +23,8 @@
  * ellipsis — the font never moves.
  */
 import { getNodeDimensions } from '../utils.js';
+import { NODE_HEIGHT } from '../constants.js';
+import { measureTextWidth } from '../services/textMeasurement.js';
 import { CONNECTION_LABEL_BASE_FONT_SIZE } from '../UniversalNodeRenderer.presets.js';
 
 // Neutral text settings so previews render at a "standard" size regardless of
@@ -41,6 +43,18 @@ export const LEGACY_DIM_SCALE = 1 / 1.4;
  * scale, so choosing a scale is choosing the on-screen font, and vice versa.
  */
 export const PREVIEW_NODE_BASE_FONT_PX = 32;
+// The rest of the renderer's single-line text model at scale 1, from the same
+// place: side padding either side of the name, and the average character width
+// it uses to decide whether a multi-word name wraps. A truncated name has to be
+// measured against THIS box, not the canvas's — getNodeDimensions pads a name
+// at the canvas's 42px a side, so measuring a candidate through it declared a
+// name too long for a box that in fact had room for two more letters.
+const PREVIEW_NODE_SIDE_PADDING = 22;
+const PREVIEW_NODE_AVG_CHAR_WIDTH = 16;
+// Air between a measured name and the padding, so a glyph-advance difference
+// between the measurer and the browser never turns into a wrapped tail.
+const PREVIEW_NAME_SLACK = 4;
+const previewNameFont = `bold ${PREVIEW_NODE_BASE_FONT_PX}px 'EmOne', sans-serif`;
 
 /**
  * On-screen text targets, in CSS px, per platform. The whole point of this
@@ -82,6 +96,13 @@ export const labelFontScaleFor = (text, scale) =>
  * stub — and a height under ~88px makes the corner radius cap at height/2 (a
  * full pill instead of a rounded rectangle).
  *
+ * `height` is also the height of every single-line box, not only a floor: the
+ * canvas box is 100 natural for one line of text, which at the preview scale
+ * is a strip taller than the controls beside it. 84 holds a 32px line with the
+ * renderer's padding and lands at 47px on desktop / 42px on mobile, level with
+ * the pie-menu bubbles. A name that wraps (a single very long word) grows from
+ * there by what the canvas would add.
+ *
  * One floor for every preview. There used to be three, but they were
  * compensating for the different fit scales each consumer happened to land on;
  * with the scale fixed per platform the same floor draws the same box everywhere
@@ -116,31 +137,48 @@ export function withoutImage(node) {
   return rest;
 }
 
-/** Box a name gets under the canvas recipe, at preview (pre-1.4×) scale. */
+/**
+ * Box a name gets under the canvas recipe, at preview (pre-1.4×) scale. The
+ * canvas gives one line of text a 100-high box; previews take the floor height
+ * for that line and only grow past it by what the canvas would add for more.
+ */
 function previewBox(node, name, floors) {
   const dims = getNodeDimensions({ ...node, name }, false, null, 39, STANDARD_TEXT_SETTINGS);
+  const naturalHeight = dims.currentHeight * LEGACY_DIM_SCALE;
   return {
     width: Math.max(dims.currentWidth * LEGACY_DIM_SCALE, floors.width),
-    height: Math.max(dims.currentHeight * LEGACY_DIM_SCALE, floors.height)
+    height: Math.max(floors.height, naturalHeight - (NODE_HEIGHT - floors.height))
   };
 }
 
 /**
- * Longest prefix of `name` whose preview box still fits `maxWidth`.
+ * Whether the renderer draws `name` on one line inside a box `width` wide: it
+ * fits between the side padding by measurement, and — for a multi-word name —
+ * by the character count the renderer's wrap heuristic uses.
+ */
+function nameFitsBox(name, width) {
+  const room = width - 2 * PREVIEW_NODE_SIDE_PADDING;
+  if (measureTextWidth(name, previewNameFont) + PREVIEW_NAME_SLACK > room) return false;
+  const words = name.trim().split(/\s+/);
+  return words.length <= 1 || name.length <= Math.floor(room / PREVIEW_NODE_AVG_CHAR_WIDTH);
+}
+
+/**
+ * Longest prefix of `name` (plus an ellipsis) the renderer can draw on one line
+ * in a box `maxWidth` wide.
  *
  * getNodeDimensions grows a text node's box up to 420px (preview scale) to fit
  * the name, so two long names alone can exceed a row's budget. Trimming the name
  * keeps the boxes inside that budget so nothing has to shrink.
  */
-function truncateNameToWidth(node, name, maxWidth, floors) {
-  if (previewBox(node, name, floors).width <= maxWidth) return name;
+function truncateNameToWidth(name, maxWidth) {
   const ellipsis = '…';
   let lo = 0;
   let hi = name.length;
   while (lo < hi) {
     const mid = Math.ceil((lo + hi) / 2);
     const candidate = name.slice(0, mid).trimEnd() + ellipsis;
-    if (previewBox(node, candidate, floors).width <= maxWidth) lo = mid;
+    if (nameFitsBox(candidate, maxWidth)) lo = mid;
     else hi = mid - 1;
   }
   return lo > 0 ? name.slice(0, lo).trimEnd() + ellipsis : ellipsis;
@@ -159,7 +197,9 @@ function truncateNameToWidth(node, name, maxWidth, floors) {
  * @param {Array<object>} nodes - node-ish objects ({ id, name, color, ... })
  * @param {{width:number,height:number}} [floors] - defaults to PREVIEW_FLOOR
  * @param {{maxWidth?:number}} [options] - maxWidth (natural units) truncates
- *   names whose box would exceed it.
+ *   names whose box would exceed it. A truncated name gets the widest box the
+ *   cap allows, measured the way the renderer will draw it — a name the canvas
+ *   recipe would pad wider than the cap can still fit the cap's box whole.
  * @returns {Array<object>} nodes with x/y/width/height set
  */
 export function buildConnectionPreviewNodes(nodes, floors = PREVIEW_FLOOR, { maxWidth } = {}) {
@@ -167,10 +207,12 @@ export function buildConnectionPreviewNodes(nodes, floors = PREVIEW_FLOOR, { max
   // unsatisfiable — clamp rather than truncate a name down to nothing.
   const cap = maxWidth != null ? Math.max(maxWidth, floors.width) : Infinity;
   return nodes.map((node) => {
-    const name = cap === Infinity
-      ? node.name
-      : truncateNameToWidth(node, node.name, cap, floors);
-    return { ...node, name, x: 0, y: 0, ...previewBox(node, name, floors) };
+    const natural = previewBox(node, node.name, floors);
+    if (natural.width <= cap) {
+      return { ...node, x: 0, y: 0, ...natural };
+    }
+    const name = nameFitsBox(node.name, cap) ? node.name : truncateNameToWidth(node.name, cap);
+    return { ...node, name, x: 0, y: 0, width: cap, height: floors.height };
   });
 }
 
