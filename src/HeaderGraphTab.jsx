@@ -79,7 +79,11 @@ const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = f
     type: SPAWNABLE_NODE,
     item: () => ({
       prototypeId: graph.definingNodeId,
-      nodeName: definingNodeName // Include node name for fallback matching
+      nodeName: definingNodeName, // Include node name for fallback matching
+      // Marks this drag as coming from a tab. Dropped on the canvas it spawns a
+      // Thing like any other drag of this type; dropped back on the strip the
+      // header reads this and reorders instead. See Header.jsx.
+      graphId: graph.id
     }),
     canDrag: () => canDrag,
     collect: (monitor) => ({

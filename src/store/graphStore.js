@@ -190,7 +190,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {Object} keyboardSettings - `{ zoomSensitivity, panSensitivity }` in range [0, 1].
  * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
  * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength, trackpadPanGlideEnabled, trackpadPanGlideStrength }`.
- * @property {Object} gamepadSettings - Game controller settings: `{ scheme, crosshairScale }`.
+ * @property {Object} gamepadSettings - Game controller settings: `{ scheme, crosshairScale, panelResizeSensitivity }`.
  * @property {'mouse'|'touch'|'gamepad'} inputMode - Active input modality. Session-only.
  */
 
@@ -367,6 +367,38 @@ const seedTypeRung = (draft, prototypeId) => {
   if (!prototype.abstractionChains) prototype.abstractionChains = {};
   if (prototype.abstractionChains[DEFAULT_ABSTRACTION_DIMENSION]) return;
   prototype.abstractionChains[DEFAULT_ABSTRACTION_DIMENSION] = chain;
+};
+
+/**
+ * Places a web immediately to the RIGHT of the one you are currently in.
+ *
+ * Every "open this web" path funnels through here — the pie menu's Expand, the
+ * panel's expand button, a search result, a freshly created definition — so
+ * they all obey one rule: opening a web is a step sideways from where you
+ * stand, never a jump to the front of the strip. A web that is already open
+ * MOVES to that slot rather than being duplicated or left where it was, which
+ * is what makes the strip read as the trail you actually walked instead of a
+ * most-recently-touched stack that reshuffles under you.
+ *
+ * Call BEFORE writing `draft.activeGraphId`: the anchor is the web being left,
+ * not the one being entered.
+ *
+ * @param {Object} draft - Immer draft of the store.
+ * @param {string} graphId - Web to place.
+ */
+const placeTabAfterActive = (draft, graphId) => {
+  const from = draft.openGraphIds.indexOf(graphId);
+  // Already the active web AND already in the strip: it is by definition where
+  // it belongs, and removing it would strand the anchor we measure from. The
+  // two halves are separate conditions because `activeGraphId` can name a web
+  // that is not open — recovery paths and tests both set it that way — and such
+  // a web still has to be inserted.
+  if (draft.activeGraphId === graphId && from > -1) return;
+  if (from > -1) draft.openGraphIds.splice(from, 1);
+  // No active web (or it isn't open): indexOf gives -1, so this lands at 0 —
+  // the front, which is the only sensible "after nothing".
+  const anchor = draft.openGraphIds.indexOf(draft.activeGraphId);
+  draft.openGraphIds.splice(anchor + 1, 0, graphId);
 };
 
 const _createAndAssignGraphDefinition = (draft, prototypeId) => {
@@ -1734,6 +1766,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // depends on the display and on how much of a node label the user is
       // willing to have covered — which is a preference, not a constant.
       crosshairScale: readStoredNumber('redstring_gamepad_crosshair_scale', 0.5, 2.5, 1.0),
+      // How fast holding a stick click and pushing sideways resizes that
+      // panel. A stick states a velocity rather than a position, so unlike a
+      // pointer drag there is no "1:1" to fall back on — the rate is a choice,
+      // and how fast feels right depends on screen width.
+      panelResizeSensitivity: readStoredNumber('redstring_gamepad_panel_resize_sensitivity', 0.25, 3.0, 1.0),
     },
 
     // Active input modality — flipped per-interaction by pointerdown listener.
@@ -4805,9 +4842,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     /**
      * Opens a graph in the tab bar and makes it the active graph.
      *
-     * If the graph is already open, it is simply activated (not duplicated). Also
-     * sets `activeDefinitionNodeId` to the provided `definitionNodeId`, or clears it
-     * if none is given. Auto-expands the graph in the "Open Things" list.
+     * If the graph is already open it is MOVED rather than duplicated — see
+     * `placeTabAfterActive`, which puts it immediately right of the web being
+     * left. Also sets `activeDefinitionNodeId` to the provided `definitionNodeId`,
+     * or clears it if none is given. Auto-expands the graph in the "Open Things" list.
      *
      * @param {string} graphId - ID of the graph to open.
      * @param {string|null} [definitionNodeId=null] - Prototype ID to track as the active definition context.
@@ -4815,10 +4853,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     openGraphTab: (graphId, definitionNodeId = null) => navSet('tab_open', produce((draft) => {
       console.log(`[Store openGraphTab] Called with graphId: ${graphId}, definitionNodeId: ${definitionNodeId}`);
       if (draft.graphs.has(graphId)) { // Ensure graph exists
-        // Add to open list if not already there (add to TOP of list)
-        if (!draft.openGraphIds.includes(graphId)) {
-          draft.openGraphIds.unshift(graphId);
-        }
+        // Slot it in to the right of where the user currently is.
+        placeTabAfterActive(draft, graphId);
         // Set this graph as the active one
         draft.activeGraphId = graphId;
 
@@ -4857,6 +4893,48 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       if (draft.activeGraphId === graphId) {
         draft.activeGraphId = draft.openGraphIds.length > 0 ? draft.openGraphIds[0] : null;
       }
+    })),
+
+    /**
+     * Moves an already-open graph to a new slot in the tab order.
+     *
+     * The order lives in `openGraphIds`, which both the header strip and the
+     * left panel's "Open Things" list render straight through — so one write
+     * restructures both. Does not change which graph is active: reordering the
+     * strip and walking it are separate gestures.
+     *
+     * @param {string} graphId - Graph to move. Ignored if not open.
+     * @param {number} toIndex - Destination index, clamped to the list.
+     */
+    moveGraphTab: (graphId, toIndex) => navSet('tab_move', produce((draft) => {
+      const from = draft.openGraphIds.indexOf(graphId);
+      if (from === -1) return;
+      const to = Math.max(0, Math.min(Math.trunc(toIndex), draft.openGraphIds.length - 1));
+      if (to === from) return;
+      draft.openGraphIds.splice(from, 1);
+      draft.openGraphIds.splice(to, 0, graphId);
+    })),
+
+    /**
+     * Moves an open graph to sit immediately before `beforeGraphId`, or to the
+     * end of the strip when that is null.
+     *
+     * Anchored rather than indexed because the header renders a FILTERED view of
+     * `openGraphIds` — webs whose defining prototype has gone missing are skipped
+     * — so a slot in the strip is not an index in the list. Dropping between two
+     * tabs means "put it before that one", which survives the filter.
+     *
+     * @param {string} graphId - Graph to move. Ignored if not open.
+     * @param {string|null} [beforeGraphId=null] - Graph to land in front of; null appends.
+     */
+    moveGraphTabBefore: (graphId, beforeGraphId = null) => navSet('tab_move', produce((draft) => {
+      if (beforeGraphId === graphId) return;
+      const from = draft.openGraphIds.indexOf(graphId);
+      if (from === -1) return;
+      draft.openGraphIds.splice(from, 1);
+      const at = beforeGraphId ? draft.openGraphIds.indexOf(beforeGraphId) : -1;
+      if (at === -1) draft.openGraphIds.push(graphId);
+      else draft.openGraphIds.splice(at, 0, graphId);
     })),
 
     /**
@@ -5288,15 +5366,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         };
         draft.graphs.set(newGraphId, newGraphData);
 
+        // Manage open/expanded lists. Placed BEFORE activeGraphId moves, so the
+        // new web lands next to the one it was created from.
+        placeTabAfterActive(draft, newGraphId);
+        draft.expandedGraphIds.add(newGraphId);
+
         // Set active state
         draft.activeGraphId = newGraphId;
         draft.activeDefinitionNodeId = definingPrototypeId; // The defining prototype ID
-
-        // Manage open/expanded lists
-        if (!draft.openGraphIds.includes(newGraphId)) {
-          draft.openGraphIds.unshift(newGraphId);
-        }
-        draft.expandedGraphIds.add(newGraphId);
 
         // Save the defining node by default
         draft.savedNodeIds.add(definingPrototypeId);
@@ -5347,9 +5424,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         zoomLevel: null,
       };
       draft.graphs.set(graphId, newGraphData);
-      if (!draft.openGraphIds.includes(graphId)) {
-        draft.openGraphIds.unshift(graphId);
-      }
+      placeTabAfterActive(draft, graphId);
       draft.expandedGraphIds.add(graphId);
       draft.activeGraphId = graphId;
       console.log(`[Store createGraphWithId] Created and activated graph ${graphId} ('${name}')`);
@@ -5418,10 +5493,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         newGraphId = _createAndAssignGraphDefinition(draft, prototypeId);
         if (!newGraphId) return;
 
-        // Open and activate the new graph (add to TOP of list)
-        if (!draft.openGraphIds.includes(newGraphId)) {
-          draft.openGraphIds.unshift(newGraphId);
-        }
+        // Open and activate the new graph (slotted beside the current one)
+        placeTabAfterActive(draft, newGraphId);
         draft.activeGraphId = newGraphId;
         draft.activeDefinitionNodeId = prototypeId;
 
@@ -5474,9 +5547,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
         if (draft.graphs.has(graphId)) {
           console.log(`[Store createDefinitionGraphWithId] Graph ${graphId} already exists. Ensuring it is open.`);
-          if (!draft.openGraphIds.includes(graphId)) {
-            draft.openGraphIds.unshift(graphId);
-          }
+          // Background path (the wizard), so it only ever ADDS — a web already in
+          // the strip keeps the slot the user put it in.
+          if (!draft.openGraphIds.includes(graphId)) placeTabAfterActive(draft, graphId);
           draft.expandedGraphIds.add(graphId);
           return;
         }
@@ -5498,9 +5571,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
         prototype.definitionGraphIds.push(graphId);
         // Open the tab but don't change activeGraphId
-        if (!draft.openGraphIds.includes(graphId)) {
-          draft.openGraphIds.unshift(graphId);
-        }
+        if (!draft.openGraphIds.includes(graphId)) placeTabAfterActive(draft, graphId);
         draft.expandedGraphIds.add(graphId);
         console.log(`[Store createDefinitionGraphWithId] Created graph ${graphId} for prototype ${prototypeId} (${prototype.name}).`);
       }));
@@ -6759,6 +6830,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     /**
+     * Sets how fast a held stick click resizes its panel. Range [0.25, 3].
+     * Persists to localStorage.
+     * @param {number} value
+     */
+    setGamepadPanelResizeSensitivity: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.25 || v > 3.0) {
+        console.warn(`[setGamepadPanelResizeSensitivity] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.gamepadSettings) draft.gamepadSettings = { scheme: 'default' };
+      draft.gamepadSettings.panelResizeSensitivity = v;
+      try { localStorage.setItem('redstring_gamepad_panel_resize_sensitivity', String(v)); } catch (_) { }
+    })),
+
+    /**
      * Sets touch pinch-zoom sensitivity. Range [0, 1]. Persists to localStorage.
      * @param {number} value
      */
@@ -7184,10 +7271,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     /**
-     * Opens or moves a graph tab to the front of the tab list and activates it.
-     * Equivalent to the Panel.jsx double-click navigation behavior.
+     * Opens a graph tab immediately to the right of the active one and activates it.
+     * This is where the Expand button (and the hurtle animation it launches) lands.
      *
-     * @param {string} graphId - Graph to open/bring to front.
+     * Kept under its historical name because a dozen call sites say it; "top" now
+     * means "the slot next to where you were", not the front of the strip.
+     *
+     * @param {string} graphId - Graph to open / move alongside the current one.
      * @param {string|null} [definitionNodeId=null] - Prototype to set as active definition context.
      */
     openGraphTabAndBringToTop: (graphId, definitionNodeId = null) => navSet('tab_open', produce((draft) => {
@@ -7197,19 +7287,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return;
       }
 
-      // Check if graph is already open
-      const existingIndex = draft.openGraphIds.indexOf(graphId);
-
-      if (existingIndex > -1) {
-        // Graph is already open, move it to the front
-        draft.openGraphIds.splice(existingIndex, 1); // Remove from current position
-        draft.openGraphIds.unshift(graphId); // Add to front
-        console.log(`[Store openGraphTabAndBringToTop] Moved existing graph ${graphId} to front.`);
-      } else {
-        // Graph is not open, add it to the front
-        draft.openGraphIds.unshift(graphId);
-        console.log(`[Store openGraphTabAndBringToTop] Added new graph ${graphId} to front.`);
-      }
+      placeTabAfterActive(draft, graphId);
 
       // Set this graph as the active one
       draft.activeGraphId = graphId;

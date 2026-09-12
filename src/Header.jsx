@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useDrop } from 'react-dnd';
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
 import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search, Menu, CircleX } from 'lucide-react';
 import { useTheme } from './hooks/useTheme.js';
+import useGraphStore from './store/graphStore.js';
 import HeaderGraphTab from './HeaderGraphTab';
 import { showContextMenu } from './components/GlobalContextMenu';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
@@ -17,6 +19,25 @@ import logo4 from './assets/redstring_button/header_logo_4.svg';
 import logo5 from './assets/redstring_button/header_logo_5.svg';
 import logo6 from './assets/redstring_button/header_logo_6.svg';
 import logo7 from './assets/redstring_button/header_logo_7.svg';
+
+// The one drag type in the app. A header tab's drag is the SAME gesture that
+// spawns a Thing on the canvas — the tab carries a prototype, and where you let
+// go decides what that means: over the strip it reorders, over the canvas it
+// spawns. Only tab drags carry a `graphId`, which is how the strip tells the two
+// apart from the panel's saved-node and semantic-concept drags.
+const SPAWNABLE_NODE = 'spawnable_node';
+
+// Sentinel for the slot past the last tab. Slots are identified by the tab they
+// land IN FRONT OF, because the strip renders a filtered view of openGraphIds —
+// an index here is not an index there. See moveGraphTabBefore.
+const DROP_AT_END = '__end__';
+
+// How close to an edge of the strip a drag has to get before the strip scrolls
+// itself, and how fast it goes at the very edge. Without this a web parked
+// off-screen is unreachable by drag: the strip is 50vw-padded on both sides, and
+// on touch there is no second pointer to scroll it with.
+const TAB_AUTOSCROLL_EDGE_PX = 72;
+const TAB_AUTOSCROLL_MAX_PX_PER_FRAME = 14;
 
 const Header = ({
   onTitleChange,
@@ -396,6 +417,37 @@ const Header = ({
     };
   }, [activeGraph?.id, scrollToCenter, imagesLoaded]);
 
+  // Identity of the strip's ORDER, so effects can watch reordering specifically
+  // rather than re-running on every unrelated change to headerGraphs.
+  const headerOrderKey = useMemo(() => headerGraphs.map(g => g.id).join('|'), [headerGraphs]);
+
+  // Keep the controller's outlined tab on screen. The strip only ever centred
+  // the ACTIVE tab, which is not where the pad is standing once it steps away
+  // from it — and the shoulders can now carry a tab clean off the edge. Nudged
+  // just inside the edge rather than centred, so stepping along the strip reads
+  // as walking it instead of as the strip spinning under you.
+  useEffect(() => {
+    if (!gamepadFocusedGraphId || !imagesLoaded) return;
+    const container = tabsScrollContainerRef.current;
+    if (!container) return;
+    const el = Array.from(container.querySelectorAll('[data-header-tab-id]'))
+      .find(n => n.getAttribute('data-header-tab-id') === gamepadFocusedGraphId);
+    if (!el) return;
+
+    const margin = 24;
+    const rect = el.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    let delta = 0;
+    if (rect.left < containerRect.left + margin) delta = rect.left - (containerRect.left + margin);
+    else if (rect.right > containerRect.right - margin) delta = rect.right - (containerRect.right - margin);
+    if (!delta) return;
+
+    isProgrammaticScroll.current = true;
+    container.scrollLeft += delta;
+    const timer = setTimeout(() => { isProgrammaticScroll.current = false; }, 50);
+    return () => clearTimeout(timer);
+  }, [gamepadFocusedGraphId, headerOrderKey, imagesLoaded]);
+
   const logos = [logo1, logo2, logo3, logo4, logo5, logo6, logo7];
 
   // Preload images
@@ -506,6 +558,182 @@ const Header = ({
       inputRef.current.style.width = 'auto'; // Reset if editing becomes false
     }
   }, [isEditing]);
+
+  // Re-centre the strip on the RENAMING FIELD, not on the tab behind it.
+  //
+  // The field grows out of the tab to the right: it is absolutely positioned
+  // inside the tab, so the tab keeps whatever truncated width it had and the
+  // strip's layout never changes — which means the existing centring, which
+  // measures the tab and its ResizeObserver, never fires. On a long name that
+  // had already been cut short with an ellipsis, the field opened well right of
+  // centre before a single character was typed. Centre on the field the moment
+  // it opens, and keep centring as it grows under the keystrokes, so the name
+  // expands symmetrically out of the middle of the header.
+  useEffect(() => {
+    if (!isEditing || !imagesLoaded) return;
+    const container = tabsScrollContainerRef.current;
+    const input = inputRef.current;
+    if (!container || !input) return;
+
+    // Next frame: the sibling effect above sizes the field in this same commit,
+    // and there is nothing to centre until it has its width.
+    const frame = requestAnimationFrame(() => {
+      const rect = input.getBoundingClientRect();
+      if (!rect.width) return;
+      // Client-rect maths rather than offsetLeft: the field's offsetParent is
+      // the tab wrapper, so its offsetLeft is a constant 5px and says nothing
+      // about where it sits in the strip.
+      const delta = (rect.left + rect.width / 2) - window.innerWidth / 2;
+      if (Math.abs(delta) < 1) return;
+      isProgrammaticScroll.current = true;
+      container.scrollLeft = Math.max(0, container.scrollLeft + delta);
+    });
+    const timer = setTimeout(() => { isProgrammaticScroll.current = false; }, 80);
+
+    return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
+  }, [isEditing, tempTitle, imagesLoaded]);
+
+  // ─── Reordering the strip by drag ──────────────────────────────────────────
+  //
+  // The strip IS the order: both this header and the left panel's "Open Things"
+  // list render `openGraphIds` straight through, so one write restructures both.
+  // The drop is committed once, on release, rather than shuffling live on every
+  // hover tick — partly so a tab dragged out to the canvas to spawn a Thing
+  // doesn't silently reorder the strip on its way past the other tabs, and
+  // partly so one gesture is one store write.
+
+  const moveGraphTabBefore = useGraphStore(state => state.moveGraphTabBefore);
+
+  // The tab the drop caret currently sits in front of, DROP_AT_END for the far
+  // right slot, or null when no reorderable drag is over the strip. Mirrored in
+  // a ref so the slot-crossing haptic fires from the event rather than from a
+  // state updater — StrictMode runs updaters twice, and a double tick is audible.
+  const [dropTargetId, setDropTargetId] = useState(null);
+  const dropTargetRef = useRef(null);
+  const autoScrollRef = useRef({ raf: null, x: null });
+
+  const setDropTarget = useCallback((next) => {
+    if (dropTargetRef.current === next) return;
+    // A detent per slot crossed — the same feedback flicking the strip gives,
+    // which is what makes the reorder legible with no cursor on a touch device.
+    if (dropTargetRef.current !== null && next !== null) haptic('headerScroll');
+    dropTargetRef.current = next;
+    setDropTargetId(next);
+  }, []);
+
+  /** Which slot a pointer x lands in: the first tab whose midpoint it hasn't passed. */
+  const computeDropTargetId = useCallback((clientX) => {
+    const container = tabsScrollContainerRef.current;
+    if (!container) return DROP_AT_END;
+    for (const el of container.querySelectorAll('[data-header-tab-id]')) {
+      const rect = el.getBoundingClientRect();
+      if (clientX < (rect.left + rect.right) / 2) return el.getAttribute('data-header-tab-id');
+    }
+    return DROP_AT_END;
+  }, []);
+
+  const stopTabAutoScroll = useCallback(() => {
+    const raf = autoScrollRef.current.raf;
+    autoScrollRef.current.raf = null;
+    autoScrollRef.current.x = null;
+    if (!raf) return; // never started — don't touch a guard we didn't set
+    cancelAnimationFrame(raf);
+    // Release the programmatic-scroll guard a beat later, once the scroll events
+    // this loop generated have drained — otherwise the next real scroll is eaten.
+    setTimeout(() => { isProgrammaticScroll.current = false; }, 50);
+  }, []);
+
+  const runTabAutoScroll = useCallback(() => {
+    const el = tabsScrollContainerRef.current;
+    const x = autoScrollRef.current.x;
+    if (!el || x == null) { autoScrollRef.current.raf = null; return; }
+
+    const rect = el.getBoundingClientRect();
+    let dx = 0;
+    if (x < rect.left + TAB_AUTOSCROLL_EDGE_PX) {
+      dx = -((rect.left + TAB_AUTOSCROLL_EDGE_PX - x) / TAB_AUTOSCROLL_EDGE_PX);
+    } else if (x > rect.right - TAB_AUTOSCROLL_EDGE_PX) {
+      dx = (x - (rect.right - TAB_AUTOSCROLL_EDGE_PX)) / TAB_AUTOSCROLL_EDGE_PX;
+    }
+    if (dx) {
+      // Flagged programmatic so it neither ticks the scroll detents nor arms the
+      // three-second recenter, which would yank the strip out from under the drag.
+      isProgrammaticScroll.current = true;
+      el.scrollLeft += Math.max(-1, Math.min(1, dx)) * TAB_AUTOSCROLL_MAX_PX_PER_FRAME;
+    }
+    autoScrollRef.current.raf = requestAnimationFrame(runTabAutoScroll);
+  }, []);
+
+  // A drag is a reorder only if it started on a tab of a web that is still open.
+  // Everything else riding this drag type (saved Things, semantic concepts) falls
+  // through to the canvas, which is the only place it means anything.
+  const isReorderDrag = useCallback((item) => {
+    const id = item?.graphId;
+    return !!id && headerGraphs.some(g => g.id === id);
+  }, [headerGraphs]);
+
+  const [{ isReorderOver }, tabStripDrop] = useDrop(() => ({
+    accept: SPAWNABLE_NODE,
+    canDrop: (item) => isReorderDrag(item),
+    hover: (item, monitor) => {
+      if (!isReorderDrag(item)) return;
+      const offset = monitor.getClientOffset();
+      if (!offset) return;
+      autoScrollRef.current.x = offset.x;
+      if (!autoScrollRef.current.raf) {
+        autoScrollRef.current.raf = requestAnimationFrame(runTabAutoScroll);
+      }
+      setDropTarget(computeDropTargetId(offset.x));
+    },
+    drop: (item) => {
+      stopTabAutoScroll();
+      // The slot the caret was last showing — what the user actually saw when
+      // they let go, rather than a fresh measurement of a strip that is about
+      // to lose the caret's 14px of gap.
+      const target = dropTargetRef.current;
+      setDropTarget(null);
+      if (!isReorderDrag(item) || target === null) return undefined;
+      haptic('nodeDrop', { force: true });
+      moveGraphTabBefore(item.graphId, target === DROP_AT_END ? null : target);
+      // Claimed, so nothing downstream treats this as a spawn.
+      return { reordered: true };
+    },
+    collect: (monitor) => ({
+      isReorderOver: monitor.isOver() && isReorderDrag(monitor.getItem()),
+    }),
+  }), [isReorderDrag, computeDropTargetId, setDropTarget, runTabAutoScroll, stopTabAutoScroll, moveGraphTabBefore]);
+
+  // Dragging back out of the strip (or dropping elsewhere) takes the caret and
+  // the auto-scroll with it — react-dnd fires no "leave" of its own.
+  useEffect(() => {
+    if (isReorderOver) return;
+    setDropTarget(null);
+    stopTabAutoScroll();
+  }, [isReorderOver, setDropTarget, stopTabAutoScroll]);
+
+  useEffect(() => () => stopTabAutoScroll(), [stopTabAutoScroll]);
+
+  /** Attaches the wheel listener and the reorder drop target to the same node. */
+  const attachTabsContainer = useCallback((node) => {
+    tabsContainerRefCallback(node);
+    tabStripDrop(node);
+  }, [tabsContainerRefCallback, tabStripDrop]);
+
+  /** The insertion caret: a bar that opens a gap where the tab would land. */
+  const renderDropCaret = (key) => (
+    <div
+      key={key}
+      aria-hidden="true"
+      style={{
+        flexShrink: 0,
+        width: '4px',
+        height: '32px',
+        borderRadius: '2px',
+        backgroundColor: '#bdb5b5',
+        boxShadow: '0 0 8px rgba(0,0,0,0.35)',
+      }}
+    />
+  );
 
   const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -837,7 +1065,7 @@ const Header = ({
           offset when only one tab was present. An actual sibling element
           (spacer) is honored by every engine. */}
       <div
-        ref={tabsContainerRefCallback}
+        ref={attachTabsContainer}
         onScroll={handleTabsScroll}
         className="hide-scrollbar"
         style={{
@@ -856,23 +1084,32 @@ const Header = ({
       >
         {headerGraphs.map((graph) => {
           const isGraphActive = graph.isActive;
+          // The caret renders as a real flex child rather than an overlay, so
+          // the tabs actually part to make room for the one being dropped.
+          const caret = dropTargetId === graph.id ? renderDropCaret(`caret-${graph.id}`) : null;
 
           if (isGraphActive) {
             return (
-              <div key={graph.id} ref={activeTabRef} style={{ position: 'relative', display: 'inline-block', flexShrink: 0 }}>
-                <HeaderGraphTab
-                  graph={{
-                    ...graph,
-                    name: isEditing ? tempTitle : graph.name
-                  }}
-                  onSelect={() => { }}
-                  onDoubleClick={handleTitleDoubleClick}
-                  isActive={true}
-                  isGamepadFocused={gamepadFocusedGraphId === graph.id}
-                  hideText={isEditing}
-                  dynamicMaxWidth={activeTabMaxWidth}
-                />
-                {isEditing && (
+              <React.Fragment key={graph.id}>
+                {caret}
+                <div
+                  ref={activeTabRef}
+                  data-header-tab-id={graph.id}
+                  style={{ position: 'relative', display: 'inline-block', flexShrink: 0 }}
+                >
+                  <HeaderGraphTab
+                    graph={{
+                      ...graph,
+                      name: isEditing ? tempTitle : graph.name
+                    }}
+                    onSelect={() => { }}
+                    onDoubleClick={handleTitleDoubleClick}
+                    isActive={true}
+                    isGamepadFocused={gamepadFocusedGraphId === graph.id}
+                    hideText={isEditing}
+                    dynamicMaxWidth={activeTabMaxWidth}
+                  />
+                  {isEditing && (
                   <input
                     ref={inputRef}
                     type="text"
@@ -904,21 +1141,27 @@ const Header = ({
                     }}
                     autoFocus
                   />
-                )}
-              </div>
+                  )}
+                </div>
+              </React.Fragment>
             );
           }
 
           return (
-            <HeaderGraphTab
-              key={graph.id}
-              graph={graph}
-              onSelect={onSetActiveGraph}
-              isActive={false}
-              isGamepadFocused={gamepadFocusedGraphId === graph.id}
-            />
+            <React.Fragment key={graph.id}>
+              {caret}
+              <div data-header-tab-id={graph.id} style={{ display: 'inline-block', flexShrink: 0 }}>
+                <HeaderGraphTab
+                  graph={graph}
+                  onSelect={onSetActiveGraph}
+                  isActive={false}
+                  isGamepadFocused={gamepadFocusedGraphId === graph.id}
+                />
+              </div>
+            </React.Fragment>
           );
         })}
+        {dropTargetId === DROP_AT_END && renderDropCaret('caret-end')}
         {/* Right-side spacer (functions as paddingRight: 50vw, but as real
             content so iOS WebKit includes it in scrollWidth even with a
             single tab — otherwise scrollLeft gets clamped below the target). */}

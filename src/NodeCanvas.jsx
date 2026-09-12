@@ -9019,6 +9019,15 @@ function NodeCanvas() {
   const clickTimeoutIdRef = useRef(null);
   const potentialClickNodeRef = useRef(null);
   const CLICK_DELAY = 180; // Reduced milliseconds to wait for a potential double-click
+  // Where the previous mousedown on a Thing landed. `event.detail` counts
+  // consecutive clicks by TIME, and the browser's positional slop for that count
+  // is generous — wide enough that on a dense canvas a quick click on one Thing
+  // followed by a click on its neighbour arrives as detail === 2, and used to
+  // open the neighbour's panel tab nobody asked for. A double-click has to be
+  // two clicks on the SAME Thing in the same place; anything else is two
+  // separate single clicks, however fast they came.
+  const lastNodeMouseDownRef = useRef({ instanceId: null, x: 0, y: 0 });
+  const DOUBLE_CLICK_SLOP_PX = 10;
 
   // Ref to track initial mount completion
   const isMountedRef = useRef(false);
@@ -9305,43 +9314,11 @@ function NodeCanvas() {
         }
       },
       {
-        // Cycle this instance's per-instance size, stored in instance.sizeMul (a
-        // continuous float persisted in the .redstring file). NOT instance.scale —
-        // that field is the transient drag-lift transform register (1 at rest), so
-        // reusing it would make nodes re-wrap text on grab and lose their size on
-        // drop. nextNodeSizeStep snaps the current value to the nearest named step
-        // and advances (M → L → XL → XS → S → M). getNodeDimensions + Node.jsx fold
-        // sizeMul into an effective node scale, so both the box and its label grow
-        // together, on top of the global node-size scope.
-        id: 'change-size',
-        label: (() => {
-          // Whichever menu is actually up. The control panel can outlive the pie
-          // menu on the same Thing, and reading only the pie menu's target left
-          // this reporting "Size: M" for an XL node in the panel's tooltip.
-          const targetId = selectedNodeIdForPieMenu ?? singleSelectedInstanceId;
-          const inst = nodes.find(n => n.id === targetId);
-          return `Size: ${nodeSizeLabel(inst?.sizeMul ?? 1.0)}`;
-        })(),
-        icon: Scaling,
-        action: (instanceId) => {
+        id: 'open-in-panel', label: 'Open in Panel', icon: NotebookText, action: (instanceId) => {
           const instance = nodes.find(n => n.id === instanceId);
-          if (!instance || !activeGraphId) return;
-          const next = nextNodeSizeStep(instance.sizeMul ?? 1.0);
-          storeActions.updateNodeInstance(
-            activeGraphId,
-            instanceId,
-            (inst) => { inst.sizeMul = next; },
-            { type: 'node_resize', finalize: true }
-          );
-          // The hover chip snapshots its label when the pointer enters the
-          // button, so it would otherwise keep showing the pre-click size.
-          // Refresh it in place (same id → same chip, instant text swap) so it
-          // tracks the new size while the pointer stays on the button.
-          if (activePieMenuItemRef.current?.id === 'change-size') {
-            const refreshedItem = { id: 'change-size', label: `Size: ${nodeSizeLabel(next)}` };
-            setActivePieMenuItemForVision(refreshedItem);
-            activePieMenuItemRef.current = refreshedItem;
-          }
+          if (!instance) return;
+          storeActions.openRightPanelNodeTab(instance.prototypeId, instance.name);
+          if (!rightPanelExpanded) storeActions.setRightPanelExpanded(true);
         }
       }
     ];
@@ -9480,11 +9457,43 @@ function NodeCanvas() {
         }
       },
       {
-        id: 'open-in-panel', label: 'Open in Panel', icon: NotebookText, action: (instanceId) => {
+        // Cycle this instance's per-instance size, stored in instance.sizeMul (a
+        // continuous float persisted in the .redstring file). NOT instance.scale —
+        // that field is the transient drag-lift transform register (1 at rest), so
+        // reusing it would make nodes re-wrap text on grab and lose their size on
+        // drop. nextNodeSizeStep snaps the current value to the nearest named step
+        // and advances (M → L → XL → XS → S → M). getNodeDimensions + Node.jsx fold
+        // sizeMul into an effective node scale, so both the box and its label grow
+        // together, on top of the global node-size scope.
+        id: 'change-size',
+        label: (() => {
+          // Whichever menu is actually up. The control panel can outlive the pie
+          // menu on the same Thing, and reading only the pie menu's target left
+          // this reporting "Size: M" for an XL node in the panel's tooltip.
+          const targetId = selectedNodeIdForPieMenu ?? singleSelectedInstanceId;
+          const inst = nodes.find(n => n.id === targetId);
+          return `Size: ${nodeSizeLabel(inst?.sizeMul ?? 1.0)}`;
+        })(),
+        icon: Scaling,
+        action: (instanceId) => {
           const instance = nodes.find(n => n.id === instanceId);
-          if (!instance) return;
-          storeActions.openRightPanelNodeTab(instance.prototypeId, instance.name);
-          if (!rightPanelExpanded) storeActions.setRightPanelExpanded(true);
+          if (!instance || !activeGraphId) return;
+          const next = nextNodeSizeStep(instance.sizeMul ?? 1.0);
+          storeActions.updateNodeInstance(
+            activeGraphId,
+            instanceId,
+            (inst) => { inst.sizeMul = next; },
+            { type: 'node_resize', finalize: true }
+          );
+          // The hover chip snapshots its label when the pointer enters the
+          // button, so it would otherwise keep showing the pre-click size.
+          // Refresh it in place (same id → same chip, instant text swap) so it
+          // tracks the new size while the pointer stays on the button.
+          if (activePieMenuItemRef.current?.id === 'change-size') {
+            const refreshedItem = { id: 'change-size', label: `Size: ${nodeSizeLabel(next)}` };
+            setActivePieMenuItemForVision(refreshedItem);
+            activePieMenuItemRef.current = refreshedItem;
+          }
         }
       }
     ];
@@ -11163,7 +11172,15 @@ function NodeCanvas() {
     setHasMouseMovedSinceDown(false);
 
     // --- Double-click ---
-    if (e.detail === 2) {
+    // Gated on the previous press, not on e.detail alone — see
+    // lastNodeMouseDownRef. Clicking along a row of Things at speed is an
+    // ordinary thing to do and must stay a run of single clicks.
+    const prevDown = lastNodeMouseDownRef.current;
+    const isRepeatOfSamePress = prevDown.instanceId === instanceId
+      && Math.hypot(e.clientX - prevDown.x, e.clientY - prevDown.y) <= DOUBLE_CLICK_SLOP_PX;
+    lastNodeMouseDownRef.current = { instanceId, x: e.clientX, y: e.clientY };
+
+    if (e.detail >= 2 && isRepeatOfSamePress) {
       e.preventDefault();
       if (clickTimeoutIdRef.current) { clearTimeout(clickTimeoutIdRef.current); clickTimeoutIdRef.current = null; }
       potentialClickNodeRef.current = null;
@@ -11177,7 +11194,11 @@ function NodeCanvas() {
     }
 
     // --- Single click initiation & Long press ---
-    if (e.detail === 1) {
+    // Deliberately not `e.detail === 1`: a fast click that the browser counted
+    // as the second of a pair but which landed on a DIFFERENT Thing is still a
+    // first click on this one, and dropping it on the floor was the other half
+    // of the same bug.
+    {
       // Touching a node freezes any in-flight auto-layout tween so it can't yank
       // the node out from under the grab during the lift delay (the wizard keeps
       // re-triggering layout as it streams new nodes).
@@ -12190,6 +12211,10 @@ function NodeCanvas() {
       clickTimeoutIdRef.current = null;
       potentialClickNodeRef.current = null;
     }
+    // A press on bare canvas ends any run of clicks on a Thing, so the next
+    // press on that Thing starts a fresh one rather than completing a pair the
+    // user broke off in between.
+    lastNodeMouseDownRef.current = { instanceId: null, x: 0, y: 0 };
 
     // NOTE: the connection selection is deliberately NOT cleared here. Panning must
     // preserve it — a pointer-down on bare canvas is the start of a gesture that may
@@ -14351,6 +14376,38 @@ function NodeCanvas() {
     hurtleAnimationRef.current = requestAnimationFrame(animate);
   }, [storeActions]);
 
+  /**
+   * Where the hurtling orb should land: the centre of the header's active tab,
+   * in viewport coords (the orb is position:fixed).
+   *
+   * MEASURED off the tab rather than computed from the canvas container, which
+   * is what both callers used to do. The strip centres its active tab on the
+   * WINDOW (see scrollToCenter in Header.jsx) while the container is inset by
+   * whichever side panels are open — so half the container's width is only the
+   * right answer with both panels shut, and the orb otherwise sailed past the
+   * tab and landed on empty header. Measuring also picks up the real vertical
+   * centre, which a safe-area inset can push below HEADER_HEIGHT / 2.
+   *
+   * The tab being measured is the one we are LEAVING, which is fine: the web
+   * being opened takes that same centred slot when it arrives.
+   */
+  const getHeaderTabTarget = useCallback(() => {
+    const activeId = useGraphStore.getState().activeGraphId;
+    const el = activeId ? document.querySelector(`[data-header-tab-id="${activeId}"]`) : null;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0) {
+        return {
+          x: Math.round(rect.left + rect.width / 2),
+          y: Math.round(rect.top + rect.height / 2),
+        };
+      }
+    }
+    // Nothing in the strip yet (the first web of a fresh universe): it is about
+    // to appear centred on the window, so aim there.
+    return { x: Math.round(window.innerWidth / 2), y: Math.round(HEADER_HEIGHT / 2) };
+  }, []);
+
   // Simple Particle Transfer Animation - always use fresh coordinates
   const startHurtleAnimation = useCallback((nodeId, targetGraphId, definitionNodeId, sourceGraphId = null) => {
     const currentState = useGraphStore.getState();
@@ -14402,10 +14459,6 @@ function NodeCanvas() {
     const nodeScreenY = containerRect.top
       + (nodeCenterCanvasY * currentZoom + (panNow.y - canvasSize.offsetY * currentZoom));
 
-    // Target is the header center, in viewport coords (orb is position:fixed).
-    const headerCenterX = Math.round(containerRect.left + containerRect.width / 2);
-    const headerCenterY = Math.round(HEADER_HEIGHT / 2);
-
     // Calculate orb size proportional to current zoom
     const orbSize = Math.max(12, Math.round(30 * currentZoom));
 
@@ -14416,14 +14469,14 @@ function NodeCanvas() {
       startTime: performance.now(),
       duration: 400, // slower, more satisfying arc
       startPos: { x: nodeScreenX, y: nodeScreenY },
-      targetPos: { x: headerCenterX, y: headerCenterY },
+      targetPos: getHeaderTabTarget(),
       nodeColor: nodeData.color || NODE_DEFAULT_COLOR,
       orbSize,
     };
 
     setHurtleAnimation(animationData);
     runHurtleAnimation(animationData);
-  }, [containerRef, runHurtleAnimation, previewingNodeId]);
+  }, [containerRef, runHurtleAnimation, previewingNodeId, getHeaderTabTarget]);
 
   const startHurtleAnimationFromPanel = useCallback((nodeId, targetGraphId, definitionNodeId, startRect) => {
     const currentState = useGraphStore.getState();
@@ -14454,11 +14507,6 @@ function NodeCanvas() {
     const startX = startRect.left + startRect.width / 2;
     const startY = startRect.top + startRect.height / 2;
 
-    // Target is header center
-    const screenWidth = containerElement.offsetWidth;
-    const headerCenterX = Math.round(screenWidth / 2);
-    const headerCenterY = Math.round(HEADER_HEIGHT / 2);
-
     // Calculate orb size proportional to current zoom, same as pie menu animation
     const orbSize = Math.max(12, Math.round(30 * currentZoom));
 
@@ -14469,14 +14517,17 @@ function NodeCanvas() {
       startTime: performance.now(),
       duration: 400, // Slower arc
       startPos: { x: startX, y: startY },
-      targetPos: { x: headerCenterX, y: headerCenterY },
+      // Was the canvas container's half-width used as a client x, which ignored
+      // the container's own left edge entirely — so with the panel this button
+      // lives in open, the orb aimed a whole panel-width left of the tab.
+      targetPos: getHeaderTabTarget(),
       nodeColor: nodeData.color || NODE_DEFAULT_COLOR,
       orbSize: orbSize, // Use calculated, zoom-dependent size
     };
 
     setHurtleAnimation(animationData);
     runHurtleAnimation(animationData);
-  }, [containerRef, runHurtleAnimation]);
+  }, [containerRef, runHurtleAnimation, getHeaderTabTarget]);
 
   /**
    * The connection menu's buttons, in display order.

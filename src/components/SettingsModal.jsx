@@ -149,6 +149,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const nodeLiftDelay = useGraphStore(s => s.mouseSettings?.nodeLiftDelay ?? 250);
   const gamepadScheme = useGraphStore(s => s.gamepadSettings?.scheme ?? 'default');
   const gamepadCrosshairScale = useGraphStore(s => s.gamepadSettings?.crosshairScale ?? 1.0);
+  const gamepadPanelResizeSensitivity = useGraphStore(s => s.gamepadSettings?.panelResizeSensitivity ?? 1.0);
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
   const touchPinchGlideEnabled = useGraphStore(s => s.touchSettings?.pinchGlideEnabled ?? true);
   const touchPinchGlideStrength = useGraphStore(s => s.touchSettings?.pinchGlideStrength ?? 0.5);
@@ -578,7 +579,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-row">
             <div className="settings-row-label">
               Rasterize Labels
-              <div className="settings-row-description">Bakes each connection name once and reuses it — most of what a label costs to draw. On a large web the first labels arrive a moment late while they bake, and text is slightly softer at some zooms</div>
+              <div className="settings-row-description">Pre-renders connection labels, saving processing time.</div>
             </div>
             <Toggle
               checked={!!connectionLabelSprites}
@@ -989,6 +990,21 @@ const SettingsModal = ({ isVisible, onClose }) => {
               step={0.1}
               suffix="x"
               onChange={(v) => useGraphStore.getState().setGamepadCrosshairScale?.(v)}
+            />
+          </div>
+          {/* Hold a stick click and push sideways to resize that side's panel.
+              A stick gives a velocity rather than a position, so there is no
+              1:1 to fall back on the way a pointer drag has — the rate is a
+              choice, and the right one depends on how wide the screen is. */}
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Panel Resize Speed"
+              value={gamepadPanelResizeSensitivity ?? 1.0}
+              min={0.25}
+              max={3.0}
+              step={0.25}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setGamepadPanelResizeSensitivity?.(v)}
             />
           </div>
         </div>

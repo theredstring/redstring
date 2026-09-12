@@ -822,6 +822,7 @@ const Panel = memo(forwardRef(
 
     // <<< ADD Ref to track previous open IDs >>>
     const prevOpenGraphIdsRef = useRef(openGraphIds);
+    const prevActiveGraphIdRef = useRef(activeGraphId);
 
     // <<< ADD BACK: Derive data for open graphs for the left panel list view >>>
     const openGraphsForList = useMemo(() => {
@@ -992,32 +993,35 @@ const Panel = memo(forwardRef(
       // });
     }, [sectionCollapsed, sectionMaxHeights, leftViewActive]);
 
-    // <<< Effect to scroll to TOP when new item added >>>
+    // <<< Effect to keep the just-opened web visible in the list >>>
+    //
+    // This used to scroll to the top, which worked only because opening a web
+    // unshifted it there. A web now opens NEXT TO the one you were standing in —
+    // wherever that happens to be — so the list follows the web instead of
+    // assuming it knows where it landed.
     useEffect(() => {
-      // Only scroll if it's the left panel and the ref exists
-      if (side === 'left' && listContainerRef.current) {
-        // Check if the first ID is new compared to the previous render
-        const firstId = openGraphIds.length > 0 ? openGraphIds[0] : null;
-        const prevFirstId = prevOpenGraphIdsRef.current.length > 0 ? prevOpenGraphIdsRef.current[0] : null;
-
-        // Only scroll if the first ID actually changed (and isn't null)
-        if (firstId && firstId !== prevFirstId) {
-          const container = listContainerRef.current;
-          // Remove requestAnimationFrame to start scroll sooner
-          // requestAnimationFrame(() => {
-          if (container) {
-            console.log(`[Panel Effect] New item detected at top. Scrolling list container to top. Current scrollTop: ${container.scrollTop}`);
-            container.scrollTo({ top: 0, behavior: 'smooth' }); // <<< Keep smooth
-          }
-          // });
-        }
-      }
-
-      // Update the ref for the next render *after* the effect runs
+      const prevOrder = prevOpenGraphIdsRef.current;
+      const prevActive = prevActiveGraphIdRef.current;
       prevOpenGraphIdsRef.current = openGraphIds;
+      prevActiveGraphIdRef.current = activeGraphId;
 
-      // Run when openGraphIds array reference changes OR side changes
-    }, [openGraphIds, side]);
+      if (side !== 'left' || !listContainerRef.current) return;
+      if (!activeGraphId || activeGraphId === prevActive) return;
+
+      // Clicking an entry in this list activates a web without touching the
+      // order, and the list must not jump out from under that click. Only a
+      // change to the strip itself — an open, or a reorder that carried the
+      // active web with it — earns a scroll.
+      const orderChanged = prevOrder.length !== openGraphIds.length
+        || prevOrder.some((id, i) => id !== openGraphIds[i]);
+      if (!orderChanged) return;
+
+      const el = listContainerRef.current.querySelector(`[data-graph-id="${activeGraphId}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+      // Run when the strip's contents/order change, when the active web changes,
+      // or when the panel switches sides.
+    }, [openGraphIds, activeGraphId, side]);
 
     // Effect to update maxHeights for all sections when content changes or visibility toggles
     const recalcSectionMaxHeights = useCallback(() => {
@@ -1309,6 +1313,39 @@ const Panel = memo(forwardRef(
       }
     }, [updateWidthForClientX]);
 
+    /**
+     * End of a resize, whatever drove it: persist, remember it as the custom
+     * width, and tell the rest of the app.
+     *
+     * The ONE place a width is written to storage. During a resize the width is
+     * live state and nothing else — a localStorage write per frame would be
+     * both wasteful and wrong, since an abandoned drag should leave nothing
+     * behind. Deferred a frame so the measurement is of a laid-out panel rather
+     * than of the state update that is still pending.
+     */
+    const commitPanelWidth = useCallback(() => {
+      requestAnimationFrame(() => {
+        try {
+          const finalWidth = panelRef.current?.offsetWidth; // Get final width
+          if (finalWidth) {
+            // Save current width
+            localStorage.setItem(`panelWidth_${side}`, JSON.stringify(finalWidth));
+            // If it's not the default AND different from the current lastCustomWidth, save as last custom width
+            if (finalWidth !== INITIAL_PANEL_WIDTH && finalWidth !== lastCustomWidth) {
+              setLastCustomWidth(finalWidth); // Update state inside RAF only if different
+              localStorage.setItem(`lastCustomPanelWidth_${side}`, JSON.stringify(finalWidth));
+            }
+            // Notify global listeners (e.g., NodeCanvas overlay resizers)
+            try {
+              window.dispatchEvent(new CustomEvent('panelWidthChanged', { detail: { side, width: finalWidth } }));
+            } catch { }
+          }
+        } catch (error) {
+          console.error(`Error saving panelWidth_${side} to localStorage:`, error);
+        }
+      });
+    }, [side, lastCustomWidth]);
+
     const handleResizeMouseUp = useCallback(() => {
       if (isResizing.current) {
         isResizing.current = false;
@@ -1318,30 +1355,52 @@ const Panel = memo(forwardRef(
         window.removeEventListener('touchend', handleResizeMouseUp);
         document.body.style.userSelect = '';
         document.body.style.cursor = '';
-
-        // Wrap state update and localStorage access in requestAnimationFrame
-        requestAnimationFrame(() => {
-          try {
-            const finalWidth = panelRef.current?.offsetWidth; // Get final width
-            if (finalWidth) {
-              // Save current width
-              localStorage.setItem(`panelWidth_${side}`, JSON.stringify(finalWidth));
-              // If it's not the default AND different from the current lastCustomWidth, save as last custom width
-              if (finalWidth !== INITIAL_PANEL_WIDTH && finalWidth !== lastCustomWidth) {
-                setLastCustomWidth(finalWidth); // Update state inside RAF only if different
-                localStorage.setItem(`lastCustomPanelWidth_${side}`, JSON.stringify(finalWidth));
-              }
-              // Notify global listeners (e.g., NodeCanvas overlay resizers)
-              try {
-                window.dispatchEvent(new CustomEvent('panelWidthChanged', { detail: { side, width: finalWidth } }));
-              } catch { }
-            }
-          } catch (error) {
-            console.error(`Error saving panelWidth_${side} to localStorage:`, error);
-          }
-        });
+        commitPanelWidth();
       }
-    }, [side, handleResizeMouseMove, handleResizeTouchMove, lastCustomWidth]); // <<< Added lastCustomWidth to dependencies
+    }, [handleResizeMouseMove, handleResizeTouchMove, commitPanelWidth]);
+
+    /**
+     * Resizing from a game controller.
+     *
+     * A pointer drag states an absolute position every event, so the mouse path
+     * can derive the width from where the cursor IS. A stick states a velocity,
+     * so this integrates deltas instead — and that difference is the whole
+     * reason it cannot reuse updateWidthForClientX.
+     *
+     * The accumulator is `panelWidthRef`, written synchronously here rather
+     * than being left to the effect that normally mirrors it. Each frame's
+     * delta is applied to the previous frame's result, and React state is a
+     * frame behind inside a rAF loop — reading it would make every frame
+     * recompute from the same stale width and the panel would crawl.
+     *
+     * Commanded by event because the width lives HERE, in this component's
+     * state, and has no store entry to write. Keeping the only writer in the
+     * component that owns it is what stops the controller becoming a second
+     * source of truth for panel layout.
+     */
+    useEffect(() => {
+      const onResizeDelta = (e) => {
+        if (e.detail?.side !== side) return;
+        const dx = Number(e.detail.dx);
+        if (!Number.isFinite(dx) || dx === 0) return;
+        const prev = panelWidthRef.current;
+        const next = clampPanelWidthToViewport(prev + dx);
+        if (next === prev) return;
+        panelWidthRef.current = next;
+        setPanelWidth(next);
+        setIsWideLayout(next > 250);
+      };
+      const onResizeEnd = (e) => {
+        if (e.detail?.side !== side) return;
+        commitPanelWidth();
+      };
+      window.addEventListener('gamepad-panel-resize', onResizeDelta);
+      window.addEventListener('gamepad-panel-resize-end', onResizeEnd);
+      return () => {
+        window.removeEventListener('gamepad-panel-resize', onResizeDelta);
+        window.removeEventListener('gamepad-panel-resize-end', onResizeEnd);
+      };
+    }, [side, commitPanelWidth]);
 
     const handleResizeMouseDown = useCallback((e) => {
       e.preventDefault();
