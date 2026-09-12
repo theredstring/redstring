@@ -37,6 +37,12 @@
   --rs-modal-scroll-thumb: rgba(38, 0, 0, 0.1);
   --rs-modal-scroll-thumb-hover: #260000;
 
+  /* The header/footer band: the surface with a little shadow in it. Stated as a
+     relationship rather than a colour because canvas.border, which these used
+     to use, is a step DOWN from the canvas in light mode and a sixty-point step
+     UP in dark — a pale grey bar across a dark modal. See BAND in Dialog.jsx. */
+  --rs-modal-band: rgba(0, 0, 0, 0.22);
+
   /* A recessed block inside the surface — a stats readout, a group of sliders.
      Tinted from the text colour rather than from a grey, so it darkens the
      surface it sits on instead of introducing a second material. */
@@ -528,9 +534,14 @@ select.modal-input option {
   outline-offset: 2px;
 }
 
-/* Selected: PanelIconButton's `solid` variant — filled in the text colour, so
-   the label inverts to the surface. */
+/* Selected (`.active`, a pill standing in for a radio) and the one action a
+   footer is really offering (`--primary`) are the same picture: PanelIconButton's
+   `solid` variant, filled in the text colour with the label inverted to the
+   surface. Two names because they mean different things — one is state, the
+   other is rank — and a sheet reading `.active` on a Cancel-and-Generate footer
+   would be reading it wrong. */
 .rs-pill-btn.active,
+.rs-pill-btn--primary,
 .settings-option-btn.active {
   background-color: var(--rs-modal-text);
   border-color: var(--rs-modal-text);

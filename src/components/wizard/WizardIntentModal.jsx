@@ -114,7 +114,6 @@ const WizardIntentModal = ({
       onScrimClick={onClose}
       onKeyDown={onKeyDown}
       icon={Sparkles}
-      iconTone="neutral"
       title="Ask The Wizard"
       subtitle={subjectLabel}
       subtitleTruncate

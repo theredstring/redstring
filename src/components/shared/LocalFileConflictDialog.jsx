@@ -47,6 +47,7 @@ const LocalFileConflictDialog = ({
     width={520}
     onScrimClick={onCancel}
     icon={AlertTriangle}
+    tone="alert"
     title="Resolve Local File Conflict"
     subtitle={`We found multiple local files associated with "${universeName}". Choose which file should act as the source of truth going forward.`}
     footer={<DialogButton label="Cancel" onClick={onCancel} />}

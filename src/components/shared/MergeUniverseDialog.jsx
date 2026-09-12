@@ -42,7 +42,9 @@ const SideCard = ({ universe, recommended, selected, onSelect }) => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: selected ? theme.accent.secondary : theme.canvas.textPrimary
+        // The card's edge and role take DialogCard's brand ink; this mark has
+        // to be the same colour or the card says two things.
+        color: selected ? theme.canvas.brandText : theme.canvas.textPrimary
       }}>
         {selected ? <Check size={26} /> : <Globe size={26} />}
       </div>
@@ -166,9 +168,8 @@ const MergeUniverseDialog = ({
       // Escape rather than offering a dismissal that would leave a half-merge.
       onScrimClick={working ? undefined : onClose}
       icon={Merge}
-      iconTone={error ? 'accent' : 'neutral'}
+      tone={error ? 'alert' : 'neutral'}
       title={heading}
-      titleTone={error ? 'accent' : 'neutral'}
       subtitle={phase === 'choose'
         ? 'Both universes are combined. The one you pick keeps everything; the other is left as it is.'
         : undefined}

@@ -38,7 +38,7 @@ const UniverseTargetConflictDialog = ({
       onScrimClick={onCancel}
       icon={AlertTriangle}
       title="Two universes, one file"
-      titleTone="accent"
+      tone="alert"
       subtitle="These universes all save to the same file, so each one overwrites the others. Saving is paused for all of them until you pick which keeps it — the rest move to their own file."
     >
       <div style={{

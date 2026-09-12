@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Check } from 'lucide-react';
 import Modal from '../shared/Modal.jsx';
+import { DialogButton, DialogInput } from '../shared/Dialog.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
 
 
@@ -72,43 +73,22 @@ const UniverseLinkingModal = ({
           backgroundColor: theme.canvas.bg,
           flexShrink: 0
         }}>
-          <button
+          {/* A pill standing in for a radio, as the Settings option groups do.
+              `flex: 1` is what keeps the pair sharing the row rather than each
+              sizing to its own label. */}
+          <DialogButton
+            label="Select Existing"
+            tone={mode === 'select' ? 'primary' : 'neutral'}
             onClick={() => setMode('select')}
-            style={{
-              flex: 1,
-              padding: '8px 12px',
-              border: `1px solid ${theme.canvas.textPrimary}`,
-              borderRadius: '4px',
-              backgroundColor: mode === 'select' ? theme.canvas.textPrimary : 'transparent',
-              color: mode === 'select' ? theme.canvas.bg : theme.canvas.textPrimary,
-              cursor: 'pointer',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              fontFamily: "'EmOne', sans-serif",
-              transition: 'all 0.2s'
-            }}
-          >
-            Select Existing
-          </button>
-          <button
+            style={{ flex: 1 }}
+          />
+          <DialogButton
+            icon={Plus}
+            label="Create New"
+            tone={mode === 'create' ? 'primary' : 'neutral'}
             onClick={() => setMode('create')}
-            style={{
-              flex: 1,
-              padding: '8px 12px',
-              border: `1px solid ${theme.canvas.textPrimary}`,
-              borderRadius: '4px',
-              backgroundColor: mode === 'create' ? theme.canvas.textPrimary : 'transparent',
-              color: mode === 'create' ? theme.canvas.bg : theme.canvas.textPrimary,
-              cursor: 'pointer',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              fontFamily: "'EmOne', sans-serif",
-              transition: 'all 0.2s'
-            }}
-          >
-            <Plus size={14} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
-            Create New
-          </button>
+            style={{ flex: 1 }}
+          />
         </div>
 
         {/* Content area */}
@@ -195,23 +175,12 @@ const UniverseLinkingModal = ({
                 }}>
                   Universe Name
                 </label>
-                <input
+                <DialogInput
                   type="text"
                   value={newUniverseName}
                   onChange={(e) => setNewUniverseName(e.target.value)}
                   placeholder="Enter universe name"
                   autoFocus
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: `1px solid ${theme.canvas.border}`,
-                    borderRadius: '4px',
-                    fontSize: '0.85rem',
-                    backgroundColor: theme.canvas.bg,
-                    color: theme.canvas.textPrimary,
-                    fontFamily: "'EmOne', sans-serif",
-                    boxSizing: 'border-box'
-                  }}
                 />
               </div>
               <div style={{
@@ -239,40 +208,13 @@ const UniverseLinkingModal = ({
           justifyContent: 'flex-end',
           flexShrink: 0
         }}>
-          <button
-            onClick={onClose}
-            style={{
-              padding: '8px 16px',
-              border: `1px solid ${theme.canvas.border}`,
-              borderRadius: '4px',
-              backgroundColor: 'transparent',
-              color: theme.canvas.textPrimary,
-              cursor: 'pointer',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              fontFamily: "'EmOne', sans-serif"
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfirm}
+          <DialogButton label="Cancel" onClick={onClose} />
+          <DialogButton
+            label={mode === 'select' ? 'Link to Universe' : 'Create & Link'}
+            tone="accent"
             disabled={!canConfirm}
-            style={{
-              padding: '8px 16px',
-              border: `1px solid ${theme.canvas.brand}`,
-              borderRadius: '4px',
-              backgroundColor: canConfirm ? theme.canvas.brand : theme.canvas.border,
-              color: '#fff',
-              cursor: canConfirm ? 'pointer' : 'not-allowed',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              fontFamily: "'EmOne', sans-serif",
-              opacity: canConfirm ? 1 : 0.6
-            }}
-          >
-            {mode === 'select' ? 'Link to Universe' : 'Create & Link'}
-          </button>
+            onClick={handleConfirm}
+          />
         </div>
       </div>
     </Modal>

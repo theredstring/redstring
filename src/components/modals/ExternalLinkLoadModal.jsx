@@ -14,6 +14,7 @@ import {
   Merge
 } from 'lucide-react';
 import Modal from '../shared/Modal.jsx';
+import { DialogButton, DialogOption } from '../shared/Dialog.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
 import {
   classifyUrl,
@@ -278,26 +279,13 @@ const ExternalLinkLoadModal = ({
             backgroundColor: theme.canvas.bg,
             flexShrink: 0
           }}>
-            <button
-              onClick={() => { setPublishPhase(false); setSelectedRepo(null); setError(null); }}
+            <DialogButton
+              icon={ArrowLeft}
+              label="Back to preview"
               disabled={busy}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: theme.canvas.textSecondary,
-                padding: 0,
-                fontSize: '0.7rem',
-                cursor: busy ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                marginBottom: '8px',
-                opacity: busy ? 0.5 : 1
-              }}
-            >
-              <ArrowLeft size={12} />
-              Back to preview
-            </button>
+              onClick={() => { setPublishPhase(false); setSelectedRepo(null); setError(null); }}
+              style={{ minHeight: 28, padding: '4px 12px', marginBottom: 8 }}
+            />
             <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
               Copy <strong style={{ color: theme.canvas.textPrimary }}>{preview.suggestedName}</strong> into one of your repositories.
             </div>
@@ -333,7 +321,7 @@ const ExternalLinkLoadModal = ({
                   border: `1px solid ${theme.canvas.border}`,
                   borderRadius: '4px',
                   fontSize: '0.75rem',
-                  backgroundColor: theme.canvas.border,
+                  backgroundColor: 'transparent',
                   color: theme.canvas.textPrimary,
                   boxSizing: 'border-box',
                   fontFamily: "'EmOne', sans-serif"
@@ -441,7 +429,7 @@ const ExternalLinkLoadModal = ({
                   border: `1px solid ${theme.canvas.border}`,
                   borderRadius: '4px',
                   fontSize: '0.75rem',
-                  backgroundColor: theme.canvas.border,
+                  backgroundColor: 'transparent',
                   color: theme.canvas.textPrimary,
                   fontFamily: "'EmOne', sans-serif"
                 }}
@@ -458,35 +446,20 @@ const ExternalLinkLoadModal = ({
                   border: `1px solid ${theme.canvas.border}`,
                   borderRadius: '4px',
                   fontSize: '0.75rem',
-                  backgroundColor: theme.canvas.border,
+                  backgroundColor: 'transparent',
                   color: theme.canvas.textPrimary,
                   fontFamily: "'EmOne', sans-serif"
                 }}
               />
             </div>
-            <button
-              onClick={runPublish}
+            <DialogButton
+              icon={GitBranch}
+              label={busy ? 'Copying…' : selectedRepo ? `Copy to ${selectedRepo.full_name || `${selectedRepo.owner?.login}/${selectedRepo.name}`}` : 'Pick a repository first'}
+              tone="accent"
               disabled={busy || !selectedRepo || !folder.trim() || !file.trim()}
-              style={{
-                background: theme.canvas.brand,
-                border: `1px solid ${theme.canvas.brand}`,
-                color: '#fff',
-                padding: '8px 12px',
-                borderRadius: '4px',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                cursor: (busy || !selectedRepo) ? 'not-allowed' : 'pointer',
-                opacity: (busy || !selectedRepo) ? 0.6 : 1,
-                fontFamily: "'EmOne', sans-serif",
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px'
-              }}
-            >
-              <GitBranch size={14} />
-              {busy ? 'Copying…' : selectedRepo ? `Copy to ${selectedRepo.full_name || `${selectedRepo.owner?.login}/${selectedRepo.name}`}` : 'Pick a repository first'}
-            </button>
+              onClick={runPublish}
+              style={{ width: '100%' }}
+            />
           </div>
         </div>
       </Modal>
@@ -504,26 +477,13 @@ const ExternalLinkLoadModal = ({
             backgroundColor: theme.canvas.bg,
             flexShrink: 0
           }}>
-            <button
-              onClick={() => { setPreview(null); setError(null); }}
+            <DialogButton
+              icon={ArrowLeft}
+              label="Back"
               disabled={busy}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: theme.canvas.textSecondary,
-                padding: 0,
-                fontSize: '0.7rem',
-                cursor: busy ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                marginBottom: '8px',
-                opacity: busy ? 0.5 : 1
-              }}
-            >
-              <ArrowLeft size={12} />
-              Back
-            </button>
+              onClick={() => { setPreview(null); setError(null); }}
+              style={{ minHeight: 28, padding: '4px 12px', marginBottom: 8 }}
+            />
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -589,64 +549,22 @@ const ExternalLinkLoadModal = ({
               </div>
             )}
 
-            <button
-              onClick={startPublishPhase}
+            <DialogOption
+              icon={GitBranch}
+              label="Copy to a new repo..."
+              description="Copy into one of your repositories as a new universe."
               disabled={busy}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '12px 14px',
-                border: `1px solid ${theme.canvas.brand}`,
-                borderRadius: '6px',
-                background: theme.canvas.brand,
-                color: '#fff',
-                cursor: busy ? 'not-allowed' : 'pointer',
-                opacity: busy ? 0.6 : 1,
-                fontFamily: "'EmOne', sans-serif",
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                textAlign: 'left'
-              }}
-            >
-              <GitBranch size={16} />
-              <div style={{ flex: 1 }}>
-                <div>Copy to a new repo...</div>
-                <div style={{ fontSize: '0.7rem', fontWeight: 400, opacity: 0.9, marginTop: '2px' }}>
-                  Copy into one of your repositories as a new universe.
-                </div>
-              </div>
-            </button>
+              onClick={startPublishPhase}
+            />
 
             {canAccessLocalFiles && (
-              <button
-                onClick={() => runSimpleDestination(onSaveAsLocalFile)}
+              <DialogOption
+                icon={HardDrive}
+                label="Save as local file..."
+                description="Pick a save location. Persists across reload."
                 disabled={busy}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  padding: '12px 14px',
-                  border: `1px solid ${theme.canvas.brand}`,
-                  borderRadius: '6px',
-                  background: theme.canvas.brand,
-                  color: '#fff',
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                  opacity: busy ? 0.6 : 1,
-                  fontFamily: "'EmOne', sans-serif",
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                  textAlign: 'left'
-                }}
-              >
-                <HardDrive size={16} />
-                <div style={{ flex: 1 }}>
-                  <div>Save as local file...</div>
-                  <div style={{ fontSize: '0.7rem', fontWeight: 400, opacity: 0.9, marginTop: '2px' }}>
-                    Pick a save location. Persists across reload.
-                  </div>
-                </div>
-              </button>
+                onClick={() => runSimpleDestination(onSaveAsLocalFile)}
+              />
             )}
 
             {/* The three options above all make a NEW universe. This one is the
@@ -658,36 +576,14 @@ const ExternalLinkLoadModal = ({
                 paddingTop: '10px',
                 borderTop: `1px dashed ${theme.canvas.border}`
               }}>
-                <button
-                  onClick={() => runSimpleDestination(onMergeIntoCurrent)}
+                <DialogOption
+                  icon={Merge}
+                  tone="neutral"
+                  label={`Merge into "${currentUniverseName}"`}
+                  description="Combine it with what you're working in. No new universe. Duplicates come through to sort out later."
                   disabled={busy}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    padding: '12px 14px',
-                    border: `1px solid ${theme.canvas.brand}`,
-                    borderRadius: '6px',
-                    background: 'transparent',
-                    color: theme.canvas.brandText,
-                    cursor: busy ? 'not-allowed' : 'pointer',
-                    opacity: busy ? 0.6 : 1,
-                    fontFamily: "'EmOne', sans-serif",
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    textAlign: 'left',
-                    width: '100%'
-                  }}
-                >
-                  <Merge size={16} style={{ flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div>Merge into "{currentUniverseName}"</div>
-                    <div style={{ fontSize: '0.7rem', fontWeight: 400, opacity: 0.9, marginTop: '2px' }}>
-                      Combine it with what you're working in. No new universe. Duplicates
-                      come through to sort out later.
-                    </div>
-                  </div>
-                </button>
+                  onClick={() => runSimpleDestination(onMergeIntoCurrent)}
+                />
               </div>
             )}
 
@@ -696,35 +592,15 @@ const ExternalLinkLoadModal = ({
               paddingTop: '10px',
               borderTop: `1px dashed ${theme.canvas.border}`
             }}>
-              <button
-                onClick={() => runSimpleDestination(onKeepInMemory)}
+              <DialogOption
+                icon={EyeOff}
+                // The way out of the choice rather than one of its doors.
+                tone="quiet"
+                label="Just view (won't persist)"
+                description="Data lives in memory only. Lost on reload."
                 disabled={busy}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '8px 10px',
-                  border: `1px dashed ${theme.canvas.border}`,
-                  borderRadius: '4px',
-                  background: 'transparent',
-                  color: theme.canvas.textSecondary,
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                  opacity: busy ? 0.5 : 0.85,
-                  fontFamily: "'EmOne', sans-serif",
-                  fontSize: '0.75rem',
-                  fontWeight: 500,
-                  textAlign: 'left',
-                  width: '100%'
-                }}
-              >
-                <EyeOff size={12} />
-                <div style={{ flex: 1 }}>
-                  <div>Just view (won't persist)</div>
-                  <div style={{ fontSize: '0.65rem', marginTop: '1px', opacity: 0.9 }}>
-                    Data lives in memory only. Lost on reload.
-                  </div>
-                </div>
-              </button>
+                onClick={() => runSimpleDestination(onKeepInMemory)}
+              />
             </div>
           </div>
         </div>
@@ -766,7 +642,7 @@ const ExternalLinkLoadModal = ({
                 border: `1px solid ${theme.canvas.border}`,
                 borderRadius: '4px',
                 fontSize: '0.8rem',
-                backgroundColor: theme.canvas.border,
+                backgroundColor: 'transparent',
                 color: theme.canvas.textPrimary,
                 boxSizing: 'border-box',
                 fontFamily: "'EmOne', sans-serif"
@@ -792,27 +668,16 @@ const ExternalLinkLoadModal = ({
 
           {(classification.kind === 'github-file' || classification.kind === 'raw-file') && (
             <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'flex-end' }}>
-              <button
+              <DialogButton
+                label={busy ? 'Fetching…' : 'Fetch & preview'}
+                tone="accent"
+                disabled={busy}
                 onClick={() => fetchAndPreview(
                   classification.rawUrl,
                   suggestUniverseNameFromUrl(classification.path || classification.rawUrl)
                 )}
-                disabled={busy}
-                style={{
-                  background: theme.canvas.brand,
-                  border: `1px solid ${theme.canvas.brand}`,
-                  color: '#fff',
-                  padding: '6px 12px',
-                  borderRadius: '4px',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                  opacity: busy ? 0.6 : 1,
-                  fontFamily: "'EmOne', sans-serif"
-                }}
-              >
-                {busy ? 'Fetching…' : 'Fetch & preview'}
-              </button>
+                style={{ minHeight: 28, padding: '4px 12px' }}
+              />
             </div>
           )}
         </div>
@@ -872,25 +737,13 @@ const ExternalLinkLoadModal = ({
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => fetchAndPreview(f.downloadUrl, suggestUniverseNameFromUrl(f.name))}
+                <DialogButton
+                  label="Preview"
+                  tone="accent"
                   disabled={busy}
-                  style={{
-                    background: theme.canvas.brand,
-                    border: `1px solid ${theme.canvas.brand}`,
-                    color: '#fff',
-                    padding: '4px 10px',
-                    borderRadius: '4px',
-                    fontSize: '0.7rem',
-                    fontWeight: 600,
-                    cursor: busy ? 'not-allowed' : 'pointer',
-                    opacity: busy ? 0.6 : 1,
-                    flexShrink: 0,
-                    fontFamily: "'EmOne', sans-serif"
-                  }}
-                >
-                  Preview
-                </button>
+                  onClick={() => fetchAndPreview(f.downloadUrl, suggestUniverseNameFromUrl(f.name))}
+                  style={{ minHeight: 26, padding: '3px 12px' }}
+                />
               </div>
             ))}
           </div>

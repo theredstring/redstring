@@ -28,7 +28,7 @@ const ConfirmDialog = ({
   showIcon = true,
   inputField = null, // { placeholder: string, defaultValue: string, label: string }
   // Kept for callers that were passing theme.accent.secondary to mark a
-  // destructive ask. Any colour given now means the same thing as titleTone.
+  // destructive ask. Any colour given now means the same thing as tone="alert".
   titleColor = null
 }) => {
   const theme = useTheme();
@@ -68,9 +68,8 @@ const ConfirmDialog = ({
     <Dialog
       onScrimClick={onClose}
       icon={showIcon ? (icons[variant] || icons.default) : undefined}
-      iconTone={isSevere ? 'accent' : 'neutral'}
+      tone={(titleColor || isSevere) ? 'alert' : 'neutral'}
       title={title}
-      titleTone={(titleColor || isSevere) ? 'accent' : 'neutral'}
       // The field owns the focus when there is one, so typing can start
       // immediately rather than after a click.
       autoFocus={!inputField}

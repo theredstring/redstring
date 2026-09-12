@@ -58,7 +58,7 @@ const CanvasConfirmDialog = ({
       scrim="light"
       onScrimClick={onClose}
       icon={showIcon ? (icons[variant] || icons.default) : undefined}
-      iconTone={isSevere ? 'accent' : 'neutral'}
+      tone={isSevere ? 'alert' : 'neutral'}
       title={title}
       footer={
         <>

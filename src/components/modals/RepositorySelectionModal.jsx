@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import Modal from '../shared/Modal.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import { DialogButton } from '../shared/Dialog.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
 import { listUserRepos, createRepository } from '../../services/githubRepoService.js';
@@ -340,7 +341,7 @@ const RepositorySelectionModal = ({
               border: `1px solid ${theme.canvas.border}`,
               borderRadius: '4px',
               fontSize: '0.8rem',
-              backgroundColor: theme.canvas.border,
+              backgroundColor: 'transparent',
               color: theme.canvas.textPrimary,
               boxSizing: 'border-box',
               fontFamily: "'EmOne', sans-serif"
@@ -360,22 +361,16 @@ const RepositorySelectionModal = ({
               { key: 'updated', label: 'Recent' },
               { key: 'name', label: 'A-Z' }
             ].map(({ key, label }) => (
-              <button
+              // A pill standing in for a radio, as the Settings option groups
+              // do — these were 3px-cornered 2px-tall chips, the last of the
+              // shape this modal was full of.
+              <DialogButton
                 key={key}
-                 onClick={() => handleSort(key)}
-                 style={{
-                   background: sortBy === key ? theme.canvas.textPrimary : 'none',
-                   color: sortBy === key ? theme.canvas.bg : theme.canvas.textSecondary,
-                   border: `1px solid ${theme.canvas.textPrimary}`,
-                   padding: '2px 6px',
-                  borderRadius: '3px',
-                  cursor: 'pointer',
-                  fontSize: '0.7rem',
-                  fontFamily: "'EmOne', sans-serif"
-                }}
-              >
-                {label}
-              </button>
+                label={label}
+                tone={sortBy === key ? 'primary' : 'neutral'}
+                onClick={() => handleSort(key)}
+                style={{ minHeight: 28, padding: '4px 12px' }}
+              />
             ))}
           </div>
 
@@ -383,44 +378,24 @@ const RepositorySelectionModal = ({
             <span style={{ color: theme.canvas.textSecondary }}>
               {filteredAndSortedRepos.length}
             </span>
-            <button
-              onClick={loadRepositories}
+            <PanelIconButton
+              icon={RefreshCw}
+              size={14}
+              title="Refresh"
               disabled={loading}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: theme.canvas.textPrimary,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                padding: '2px',
-                opacity: loading ? 0.6 : 0.8
-              }}
-            >
-              <RefreshCw size={10} style={{
-                animation: loading ? 'spin 1s linear infinite' : 'none'
-              }} />
-            </button>
-            <button
+              onClick={loadRepositories}
+              className={loading ? 'rs-spin' : ''}
+            />
+            <DialogButton
+              icon={Plus}
+              label={intent === 'import' ? 'New Repo & Universe' : 'New Repo'}
+              tone="accent"
               onClick={() => {
                 setShowCreateRepo(prev => !prev);
                 setCreateRepoError(null);
               }}
-              style={{
-                 background: theme.canvas.brand,
-                 border: `1px solid ${theme.canvas.brand}`,
-                 color: '#fff',
-                 padding: '4px 8px',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '0.7rem',
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              <Plus size={10} />
-              {intent === 'import' ? 'New Repo & Universe' : 'New Repo'}
-            </button>
+              style={{ minHeight: 28, padding: '4px 12px' }}
+            />
           </div>
         </div>
 
@@ -483,23 +458,12 @@ const RepositorySelectionModal = ({
             )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-               <button
-                 onClick={handleCreateRepository}
-                 disabled={creatingRepo || !newRepoName.trim()}
-                 style={{
-                   background: theme.canvas.brand,
-                   color: '#fff',
-                   border: `1px solid ${theme.canvas.brand}`,
-                   padding: '6px 12px',
-                  borderRadius: '4px',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  cursor: (creatingRepo || !newRepoName.trim()) ? 'not-allowed' : 'pointer',
-                  opacity: (creatingRepo || !newRepoName.trim()) ? 0.6 : 1
-                }}
-              >
-                {creatingRepo ? 'Creating…' : intent === 'import' ? 'Create Repo & Universe' : 'Create Repository'}
-              </button>
+              <DialogButton
+                label={creatingRepo ? 'Creating…' : intent === 'import' ? 'Create Repo & Universe' : 'Create Repository'}
+                tone="accent"
+                disabled={creatingRepo || !newRepoName.trim()}
+                onClick={handleCreateRepository}
+              />
             </div>
           </div>
         )}
@@ -640,9 +604,12 @@ const RepositorySelectionModal = ({
                     <span style={{
                       fontSize: '0.7rem',
                       color: theme.canvas.textSecondary,
-                      backgroundColor: theme.canvas.border,
-                      padding: '1px 4px',
-                      borderRadius: '2px'
+                      // A recess in the surface, not canvas.border — which is a
+                      // pale slab on the dark theme. Same relationship as the
+                      // header band, a little shallower.
+                      backgroundColor: 'rgba(0, 0, 0, 0.14)',
+                      padding: '1px 5px',
+                      borderRadius: '4px'
                     }}>
                       {universes.length} universe{universes.length === 1 ? '' : 's'}
                     </span>
@@ -739,8 +706,8 @@ const RepositorySelectionModal = ({
               {/* Expandable universe section */}
               {isExpanded && (
                 <div style={{
-                  backgroundColor: theme.canvas.border,
-                  borderTop: `1px solid ${theme.darkMode ? '#555' : '#808080'}`,
+                  backgroundColor: 'rgba(0, 0, 0, 0.14)',
+                  borderTop: `1px solid ${theme.canvas.border}`,
                   padding: '8px 12px'
                 }}>
                   {isScanning ? (
@@ -776,44 +743,16 @@ const RepositorySelectionModal = ({
                       )}
                       {onCreateUniverseFile && (
                         <div style={{ display: 'flex', justifyContent: 'center' }}>
-                          <button
+                          <DialogButton
+                            icon={FilePlus}
+                            label="New Universe File"
+                            title="Create a new .redstring file in this repository"
                             onClick={(e) => {
                               e.stopPropagation();
                               onCreateUniverseFile(repo);
                             }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.backgroundColor = '#D0CACA';
-                              e.currentTarget.style.transform = 'scale(1.02)';
-                              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor = '#DEDADA';
-                              e.currentTarget.style.transform = 'scale(1)';
-                              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                            }}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 5,
-                              padding: '6px 12px',
-                              backgroundColor: '#DEDADA',
-                              border: '2px solid #7A0000',
-                              borderRadius: 20,
-                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s ease',
-                              fontFamily: "'EmOne', sans-serif",
-                              fontSize: '0.7rem',
-                              fontWeight: 700,
-                              color: '#7A0000',
-                              whiteSpace: 'nowrap'
-                            }}
-                            title="Create a new .redstring file in this repository"
-                          >
-                            <FilePlus size={14} />
-                            New Universe File
-                          </button>
+                            style={{ minHeight: 28, padding: '4px 12px' }}
+                          />
                         </div>
                       )}
                       {universes.map((universe, index) => {
@@ -869,84 +808,28 @@ const RepositorySelectionModal = ({
                                   (an existing slot may want to pull the repo's universe in
                                   rather than overwrite it). */}
                               {(onImportDiscovered && (intent === 'import' || intent === 'attach' || intent === null)) && (
-                                <button
+                                <DialogButton
+                                  icon={Download}
+                                  label="Load from Repo"
+                                  title="Load this file from the repository"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     onImportDiscovered(universe, repoInfo);
                                   }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#D0CACA';
-                                    e.currentTarget.style.transform = 'scale(1.02)';
-                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#DEDADA';
-                                    e.currentTarget.style.transform = 'scale(1)';
-                                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                                  }}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: 5,
-                                    padding: '6px 12px',
-                                    backgroundColor: '#DEDADA',
-                                    border: '2px solid #7A0000',
-                                    borderRadius: 20,
-                                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: "'EmOne', sans-serif",
-                                    fontSize: '0.7rem',
-                                    fontWeight: 700,
-                                    color: '#7A0000',
-                                    whiteSpace: 'nowrap'
-                                  }}
-                                  title="Load this file from the repository"
-                                >
-                                  <Download size={14} />
-                                  Load from Repo
-                                </button>
+                                  style={{ minHeight: 28, padding: '4px 12px' }}
+                                />
                               )}
                               {(onSyncDiscovered && (intent === 'attach' || intent === null)) && (
-                                <button
+                                <DialogButton
+                                  icon={Upload}
+                                  label="Save to Repo"
+                                  title="Save current state to this file in the repository"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     onSyncDiscovered(universe, repoInfo);
                                   }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#D0CACA';
-                                    e.currentTarget.style.transform = 'scale(1.02)';
-                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#DEDADA';
-                                    e.currentTarget.style.transform = 'scale(1)';
-                                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                                  }}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: 5,
-                                    padding: '6px 12px',
-                                    backgroundColor: '#DEDADA',
-                                    border: '2px solid #7A0000',
-                                    borderRadius: 20,
-                                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: "'EmOne', sans-serif",
-                                    fontSize: '0.7rem',
-                                    fontWeight: 700,
-                                    color: '#7A0000',
-                                    whiteSpace: 'nowrap'
-                                  }}
-                                  title="Save current state to this file in the repository"
-                                >
-                                  <Upload size={14} />
-                                  Save to Repo
-                                </button>
+                                  style={{ minHeight: 28, padding: '4px 12px' }}
+                                />
                               )}
                             </div>
                           </div>

@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import React, { forwardRef, useState } from 'react';
 import { useTheme } from '../../hooks/useTheme.js';
 import useScrollFade from '../../hooks/useScrollFade.js';
 import PanelIconButton from './PanelIconButton.jsx';
@@ -19,9 +19,9 @@ import './Dialog.css';
  * So the language is fixed in one place:
  *
  *   frame    canvas.bg, 3px canvas.textPrimary, 12px corners
- *   header   canvas.border ground, 2px rule under it, icon + title + subtitle
+ *   header   the band, a 2px rule under it, icon + title + subtitle in one ink
  *   body     a scroll-fade region that shrinks so the footer cannot be pushed out
- *   footer   canvas.border ground, 2px rule over it, pills right-aligned
+ *   footer   the band, a 2px rule over it, pills right-aligned
  *
  * Sizing is the WizardIntentModal's, which is the one that had already been
  * worked over for a phone: the SCRIM carries the padding and the frame caps at
@@ -39,6 +39,47 @@ export const DIALOG_Z_INDEX = 20001;
 /** The frame's own corner, restated by the cards that sit inside it. */
 const FRAME_RADIUS = 12;
 
+/**
+ * The header and footer band.
+ *
+ * It used to be canvas.border, which is a step DOWN from the canvas in light
+ * mode (#979090 under #bdb5b5) and a step of sixty luminance points UP in dark
+ * mode (#6a6464 over #2E2A2A) — so the dark dialog wore a pale grey bar top and
+ * bottom while the light one wore a quiet recess.
+ *
+ * Stating the relationship instead of the colour fixes both at once: a band is
+ * the surface with a little shadow in it. Over #bdb5b5 this lands on #938D8D,
+ * within three points of the light band that was already there; over #2E2A2A it
+ * lands just under the surface, which is what the light one does.
+ */
+const BAND = 'rgba(0, 0, 0, 0.22)';
+
+/**
+ * The title line's box, and the icon's, which must be the same number.
+ *
+ * A header icon aligns to the FIRST LINE of the title, not to the middle of the
+ * whole text column — a two-line subtitle under it must not push the icon down
+ * past the thing it belongs to. Aligning to a line means matching that line's
+ * box, so the line-height is stated rather than left to `normal` (which varies
+ * by font and platform) and the icon gets a box of exactly that height to centre
+ * itself in.
+ */
+const TITLE_LINE_HEIGHT = 24;
+
+/** The same arrangement one level down, for a card's role line and its icon. */
+const ROLE_LINE_HEIGHT = 16;
+
+/**
+ * Brand maroon that has to be READ rather than filled with.
+ *
+ * accent.secondary (#7A0000) is a fill colour. As text or as an icon on the
+ * canvas surface it is nearly invisible in dark mode — the "Newly Picked" label
+ * on a dark local-file conflict was maroon-on-near-black. canvas.brandText is
+ * the same maroon in light mode and lifts to a warm rose in dark, which is
+ * exactly what themeColors.js keeps it for.
+ */
+const brandInk = (theme) => theme.canvas.brandText;
+
 const Dialog = ({
   isOpen = true,
   /** Click on the scrim. Omit to make the dialog undismissable (a working phase). */
@@ -47,11 +88,15 @@ const Dialog = ({
   onEscape,
   ariaLabel,
   icon: IconComponent,
-  /** 'accent' paints the header icon maroon — for the dialogs that announce a fault. */
-  iconTone = 'accent',
   title,
-  /** 'accent' paints the title maroon. Reserve it for a genuine stop sign. */
-  titleTone = 'neutral',
+  /**
+   * 'alert' paints the header maroon — for the dialogs that announce a fault.
+   *
+   * ONE tone for the icon and the title together. They were separate, and
+   * defaulted differently, which is how the local-file conflict ended up with a
+   * red warning triangle beside a white heading: two colours for one statement.
+   */
+  tone = 'neutral',
   subtitle,
   /** For a subtitle that names one thing rather than explaining the situation. */
   subtitleTruncate = false,
@@ -93,8 +138,7 @@ const Dialog = ({
     onKeyDown?.(e);
   };
 
-  const headerColor = titleTone === 'accent' ? theme.accent.secondary : theme.canvas.textPrimary;
-  const iconColor = iconTone === 'accent' ? theme.accent.secondary : theme.canvas.textPrimary;
+  const headerInk = tone === 'alert' ? brandInk(theme) : theme.canvas.textPrimary;
 
   return (
     <div
@@ -150,19 +194,34 @@ const Dialog = ({
             style={{
               flexShrink: 0,
               borderBottom: `2px solid ${theme.canvas.textPrimary}`,
-              backgroundColor: theme.canvas.border
+              backgroundColor: BAND
             }}
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               {IconComponent && (
-                <IconComponent
-                  size={20}
-                  style={{ color: iconColor, flexShrink: 0, marginTop: 1 }}
-                />
+                // A box the height of the title's line, with the icon centred in
+                // it. `align-items: flex-start` plus a nudge margin was a guess
+                // at where that line's middle is, and it sat a pixel or two high.
+                <span className="rs-dialog-header-icon" style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: TITLE_LINE_HEIGHT,
+                  flexShrink: 0,
+                  color: headerInk
+                }}>
+                  <IconComponent size={18} />
+                </span>
               )}
               <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {title && (
-                  <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: headerColor }}>
+                  <h2 style={{
+                    margin: 0,
+                    fontSize: '1.05rem',
+                    lineHeight: `${TITLE_LINE_HEIGHT}px`,
+                    fontWeight: 700,
+                    color: headerInk
+                  }}>
                     {title}
                   </h2>
                 )}
@@ -224,7 +283,7 @@ const Dialog = ({
               flexWrap: 'wrap',
               gap: 8,
               borderTop: `2px solid ${theme.canvas.textPrimary}`,
-              backgroundColor: theme.canvas.border
+              backgroundColor: BAND
             }}
           >
             {footer}
@@ -304,6 +363,94 @@ export const DialogButton = forwardRef(({
 });
 
 DialogButton.displayName = 'DialogButton';
+
+/**
+ * A destination: one full-width option with a line explaining what taking it
+ * does. Where a DialogButton is a verb, this is a door.
+ *
+ * It takes the pie hover's fill and ring but NOT its grow. The grow is a gesture
+ * for a shape whose size you can take in at a glance — a bubble, a pill; on a
+ * box that already spans the dialog, 1.04 is 20 horizontal pixels of lurch and
+ * it collides with whatever is above and below.
+ */
+export const DialogOption = forwardRef(({
+  icon: IconComponent,
+  label,
+  description,
+  /**
+   * 'primary' fills it — the ways forward. 'neutral' outlines it in the brand,
+   * for a door that is still a door but not the expected one. 'quiet' drops to
+   * the plain border and muted text, for the way OUT of the choice.
+   */
+  tone = 'primary',
+  disabled = false,
+  onClick,
+  title,
+  style
+}, ref) => {
+  const theme = useTheme();
+  const [hovered, setHovered] = useState(false);
+
+  const active = hovered && !disabled;
+
+  const resting = {
+    primary: { background: theme.canvas.brand, borderColor: theme.canvas.brand, color: '#EFE8E5' },
+    neutral: { background: 'transparent', borderColor: theme.canvas.brand, color: theme.canvas.brandText },
+    quiet: { background: 'transparent', borderColor: theme.canvas.border, color: theme.canvas.textSecondary }
+  }[tone] || {};
+
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onBlur={() => setHovered(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        width: '100%',
+        boxSizing: 'border-box',
+        padding: '12px 14px',
+        border: '1px solid',
+        borderRadius: 8,
+        textAlign: 'left',
+        fontFamily: "'EmOne', sans-serif",
+        fontSize: '0.85rem',
+        fontWeight: 600,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
+        touchAction: 'manipulation',
+        transition: 'background-color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, color 0.15s ease',
+        ...resting,
+        ...(active ? {
+          background: '#DEDADA',
+          backgroundColor: '#DEDADA',
+          borderColor: 'transparent',
+          boxShadow: `0 0 0 3px ${theme.accent.primary}`,
+          color: theme.accent.primary
+        } : {}),
+        ...style
+      }}
+    >
+      {IconComponent && <IconComponent size={16} style={{ flexShrink: 0 }} />}
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block' }}>{label}</span>
+        {description && (
+          <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: 400, opacity: 0.9, marginTop: 2 }}>
+            {description}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+});
+
+DialogOption.displayName = 'DialogOption';
 
 /**
  * The dialog family's checkbox: a maroon-filling square with a drawn tick.
@@ -413,7 +560,10 @@ export const DialogCard = ({
 }) => {
   const theme = useTheme();
   const accented = tone === 'accent' || selected;
-  const edgeColor = accented ? theme.accent.secondary : theme.canvas.textPrimary;
+  // One colour for the card's edge, its icon and its role label, so the three
+  // read as one mark. It is the brand INK, not accent.secondary: this colour has
+  // to be legible as 12px text on the canvas, and the fill maroon is not.
+  const edgeColor = accented ? brandInk(theme) : theme.canvas.textPrimary;
   const isRadio = !!onSelect && !actionLabel;
 
   return (
@@ -436,22 +586,37 @@ export const DialogCard = ({
         flexDirection: 'column',
         gap: 6,
         minWidth: 0,
-        overflow: 'hidden',
+        // Deliberately NOT `overflow: hidden`. The pill at the foot of the card
+        // spans it, and its hover grows 2% a side plus a 3px ring — on a 520px
+        // dialog that is a whisker past the card's 12px of padding, and a hidden
+        // overflow clips the ring off the ends. Nothing here needs the clip:
+        // every line that truncates carries its own overflow and ellipsis.
         cursor: isRadio ? 'pointer' : 'default',
         transition: 'border-color 0.15s ease',
         ...style
       }}
     >
+      {/* Same treatment as the header: the icon gets a box the height of the
+          label's line and centres itself in it, rather than relying on the flex
+          row's `center` against two differently-sized inline boxes. */}
       {(icon || role) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           {icon && (
-            <span style={{ color: edgeColor, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            <span style={{
+              color: edgeColor,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: ROLE_LINE_HEIGHT,
+              flexShrink: 0
+            }}>
               {icon}
             </span>
           )}
           {role && (
             <span style={{
               fontSize: '0.75rem',
+              lineHeight: `${ROLE_LINE_HEIGHT}px`,
               fontWeight: 700,
               color: edgeColor,
               letterSpacing: '0.04em',

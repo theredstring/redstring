@@ -43,7 +43,7 @@
   justify-content: space-between;
   gap: 8px;
   padding: 10px 14px;
-  background: var(--rs-modal-nav-active);
+  background: var(--rs-modal-band);
   border-bottom: 2px solid var(--rs-modal-text);
   border-radius: 10px 10px 0 0;
   user-select: none;

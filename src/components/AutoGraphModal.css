@@ -1,73 +1,101 @@
 /**
- * Auto Graph Modal Styles
+ * Auto Graph Modal.
+ *
+ * Like ForceSimulationModal.css, this sheet now reads the --rs-modal-* tokens
+ * from ModalChrome.css instead of a private palette. What it had before was a
+ * set of --autograph-* properties WRITTEN ONTO document.documentElement from a
+ * React effect — every one of them a duplicate of a panel token, and all of them
+ * still set on :root after the modal closed. Deleting that effect is most of the
+ * point of this rewrite; `modal-dark` on the modal does the same job in one
+ * class, scoped to the subtree that wants it.
+ *
+ * The teal (#4ECDC4 and its rgba tints) is gone with it. It was the only hue in
+ * the app outside the maroon family, and it was carrying nothing that the
+ * maroon at 6% does not carry.
  */
 
 .autograph-modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
+  inset: 0;
+  padding: 20px;
+  box-sizing: border-box;
+  background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 20000;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
 }
 
 .autograph-modal {
-  background: var(--autograph-modal-bg);
+  background: var(--rs-modal-surface);
+  border: 3px solid var(--rs-modal-text);
   border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-  max-width: 600px;
-  width: 90%;
-  max-height: 90vh;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+  width: 600px;
+  max-width: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   font-family: 'EmOne', sans-serif;
+  color: var(--rs-modal-text);
 }
 
+/* The dialog family's header: the surface's own dark tone, not a maroon bar. */
 .autograph-modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 24px;
-  border-bottom: 2px solid var(--autograph-modal-border);
-  background: var(--autograph-modal-header-bg);
-  border-radius: 12px 12px 0 0;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 2px solid var(--rs-modal-text);
+  background: var(--rs-modal-band);
+  border-radius: 9px 9px 0 0;
 }
 
 .autograph-modal-title {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--autograph-modal-header-text);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--rs-modal-text);
 }
 
+/* The pie hover at the circular size, as in the force-sim tuner's close. */
 .autograph-modal-close {
-  background: none;
-  border: none;
-  color: var(--autograph-modal-header-text);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  padding: 6px;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  color: var(--rs-modal-text);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease;
 }
 
 .autograph-modal-close:hover {
-  background-color: rgba(255, 255, 255, 0.2);
+  background-color: #DEDADA;
+  box-shadow: 0 0 0 3px var(--rs-modal-accent);
+  color: var(--rs-modal-accent);
+  transform: scale(1.1);
 }
 
 .autograph-modal-content {
-  padding: 24px;
+  padding: 18px;
   overflow-y: auto;
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .autograph-section {
@@ -80,97 +108,77 @@
 
 .autograph-label {
   display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--autograph-modal-text);
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: var(--rs-modal-brand);
   margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
+/* The gap clears the pill's 1.04 hover growth. */
 .autograph-button-group {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
-.autograph-button {
-  flex: 1;
-  padding: 10px 16px;
-  background: var(--autograph-modal-input-bg);
-  border: 2px solid var(--autograph-modal-text);
-  border-radius: 6px;
-  font-family: 'EmOne', sans-serif;
-  font-size: 14px;
-  color: var(--autograph-modal-text);
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
+/* The two data-source choices share the row rather than sizing to their labels;
+   .rs-pill-btn in ModalChrome.css supplies everything else. */
+.autograph-button-group .rs-pill-btn {
+  flex: 1 1 140px;
 }
 
-.autograph-button:hover {
-  background: var(--autograph-modal-hover);
-  border-color: var(--autograph-modal-accent);
-}
-
-.autograph-button.active {
-  background: var(--autograph-modal-accent);
-  color: var(--autograph-modal-header-text);
-  border-color: var(--autograph-modal-accent);
-}
-
+/* Fields: the panel's outlined pill, as .modal-input in Settings. A select and
+   a textarea keep a 6px corner — a pill reads as something you type one line
+   into, and neither of these is that. */
 .autograph-select,
-.autograph-input {
+.autograph-input,
+.autograph-textarea {
   width: 100%;
-  padding: 10px 12px;
-  background: var(--autograph-modal-input-bg);
-  border: 2px solid var(--autograph-modal-text);
+  box-sizing: border-box;
+  padding: 9px 12px;
+  background: var(--rs-modal-surface);
+  border: 1px solid var(--rs-modal-border);
   border-radius: 6px;
   font-family: 'EmOne', sans-serif;
-  font-size: 14px;
-  color: var(--autograph-modal-text);
-  transition: border-color 0.2s;
+  font-size: 0.85rem;
+  color: var(--rs-modal-text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .autograph-select:focus,
-.autograph-input:focus {
+.autograph-input:focus,
+.autograph-textarea:focus {
   outline: none;
-  border-color: var(--autograph-modal-accent);
+  border-color: var(--rs-modal-accent);
+  box-shadow: 0 0 0 2px var(--rs-modal-nav-active);
+}
+
+.autograph-select option {
+  background: var(--rs-modal-surface);
+  color: var(--rs-modal-text);
 }
 
 .autograph-textarea {
-  width: 100%;
-  padding: 12px;
-  background: var(--autograph-modal-input-bg);
-  border: 2px solid var(--autograph-modal-text);
-  border-radius: 6px;
   font-family: 'Courier New', monospace;
   font-size: 13px;
-  color: var(--autograph-modal-text);
   resize: vertical;
-  transition: border-color 0.2s;
-}
-
-.autograph-textarea:focus {
-  outline: none;
-  border-color: var(--autograph-modal-accent);
 }
 
 .autograph-textarea::placeholder {
-  color: var(--autograph-modal-text-secondary);
+  color: var(--rs-modal-text-muted);
   font-family: 'Courier New', monospace;
 }
 
 .autograph-preview {
   margin-top: 12px;
   padding: 12px;
-  background: var(--autograph-modal-info-bg);
-  border: 1px solid var(--autograph-modal-info-border);
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--autograph-modal-text);
+  background: var(--rs-modal-sunken);
+  border: 1px solid var(--rs-modal-hairline);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--rs-modal-text);
   white-space: pre-line;
   line-height: 1.5;
 }
@@ -185,23 +193,23 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
-  color: var(--autograph-modal-text);
+  font-size: 0.85rem;
+  color: var(--rs-modal-text);
   cursor: pointer;
   padding: 8px 12px;
-  border-radius: 6px;
-  transition: background-color 0.2s;
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
 }
 
 .autograph-radio:hover {
-  background: var(--autograph-modal-info-bg);
+  background: var(--rs-modal-nav-hover);
 }
 
 .autograph-radio input[type="radio"] {
   width: 18px;
   height: 18px;
   cursor: pointer;
-  accent-color: var(--autograph-modal-accent);
+  accent-color: var(--rs-modal-accent);
 }
 
 .autograph-radio input[type="radio"]:disabled {
@@ -215,60 +223,41 @@
 }
 
 .autograph-hint {
-  font-size: 12px;
-  color: var(--autograph-modal-text-secondary);
+  font-size: 0.75rem;
+  color: var(--rs-modal-text-muted);
   font-style: italic;
 }
 
 .autograph-modal-footer {
-  padding: 20px 24px;
-  border-top: 2px solid var(--autograph-modal-border);
+  padding: 10px 18px;
+  border-top: 2px solid var(--rs-modal-text);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  background: var(--autograph-modal-footer-bg);
-  border-radius: 0 0 12px 12px;
-}
-
-.autograph-button-secondary,
-.autograph-button-primary {
-  padding: 10px 20px;
-  border-radius: 6px;
-  font-family: 'EmOne', sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  border: 2px solid transparent;
+  background: var(--rs-modal-band);
+  border-radius: 0 0 9px 9px;
 }
 
-.autograph-button-secondary {
-  background: transparent;
-  color: var(--autograph-modal-text);
-  border-color: var(--autograph-modal-text);
-}
+/* Below ~420px the footer's pills stack, as a dialog's do — see Dialog.css. */
+@media (max-width: 420px) {
+  .autograph-modal-overlay {
+    padding: 12px;
+  }
 
-.autograph-button-secondary:hover {
-  background: var(--autograph-modal-info-bg);
-}
+  .autograph-modal-content {
+    padding: 14px;
+  }
 
-.autograph-button-primary {
-  background: var(--autograph-modal-accent);
-  color: var(--autograph-modal-header-text);
-  border-color: var(--autograph-modal-accent);
-}
+  .autograph-modal-footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
 
-.autograph-button-primary:hover:not(:disabled) {
-  background: #6B0000;
-  border-color: #6B0000;
-}
-
-.autograph-button-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  .autograph-modal-footer .rs-pill-btn {
+    width: 100%;
+  }
 }
 
 /* Scrollbar styling for modal content */
@@ -277,31 +266,31 @@
 }
 
 .autograph-modal-content::-webkit-scrollbar-track {
-  background: var(--autograph-modal-info-bg);
+  background: var(--rs-modal-scroll-track);
   border-radius: 5px;
 }
 
 .autograph-modal-content::-webkit-scrollbar-thumb {
-  background: var(--autograph-modal-info-border);
+  background: var(--rs-modal-scroll-thumb);
   border-radius: 5px;
 }
 
 .autograph-modal-content::-webkit-scrollbar-thumb:hover {
-  background: var(--autograph-modal-accent);
+  background: var(--rs-modal-scroll-thumb-hover);
 }
 
 .autograph-info-box {
   padding: 12px 16px;
-  background: var(--autograph-modal-info-bg);
-  border: 2px solid var(--autograph-modal-info-border);
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--autograph-modal-text);
+  background: var(--rs-modal-nav-hover);
+  border: 1px solid var(--rs-modal-hairline);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--rs-modal-text);
   line-height: 1.5;
 }
 
 .autograph-info-box strong {
-  color: var(--autograph-modal-accent);
+  color: var(--rs-modal-brand);
   font-weight: 700;
 }
 
@@ -310,8 +299,8 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: var(--autograph-modal-info-bg);
-  border-radius: 4px;
+  background: var(--rs-modal-sunken);
+  border-radius: 6px;
 }
 
 .autograph-info .autograph-label {
@@ -320,7 +309,6 @@
 }
 
 .autograph-value {
-  color: #4ECDC4;
-  font-weight: 500;
+  color: var(--rs-modal-text);
+  font-weight: 600;
 }
-

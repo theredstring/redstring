@@ -48,7 +48,7 @@ const SlotConflictDialog = ({
     onScrimClick={onCancel}
     icon={AlertTriangle}
     title="Data Conflict Detected"
-    titleTone="accent"
+    tone="alert"
     subtitle={`The local file and Git repository for "${universeName}" have different data. Choose which version to keep.`}
   >
     <DialogCard

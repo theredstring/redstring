@@ -74,6 +74,20 @@
 }
 
 /*
+ * A busy icon button. The icon inside a PanelIconButton is not reachable from
+ * the caller, so the spin is put on the button and inherited by the one <svg>
+ * it holds. Its own @keyframes rather than the bare `spin` that a handful of
+ * components each assume someone else has defined.
+ */
+.rs-spin svg {
+  animation: rs-spin 1s linear infinite;
+}
+
+@keyframes rs-spin {
+  to { transform: rotate(360deg); }
+}
+
+/*
  * A pickable row inside a dialog body (the intent list).
  *
  * The tint is stated here rather than inline because a row's resting background

@@ -1,6 +1,17 @@
 import React, { useEffect, useRef } from 'react';
 import { useTheme } from '../../hooks/useTheme.js';
 import { X } from 'lucide-react';
+import PanelIconButton from './PanelIconButton.jsx';
+
+/**
+ * The general-purpose modal shell.
+ *
+ * Its frame is deliberately the same one Dialog.jsx draws — a 3px canvas.textPrimary
+ * edge, 12px corners, and a header on the same band with a 2px rule under it —
+ * so a modal and a dialog read as the same surface at different sizes.
+ * The close is a PanelIconButton, which is where the panel's pie-menu hover and
+ * the touch double-fire guard live.
+ */
 
 const Modal = ({
   isOpen,
@@ -37,13 +48,9 @@ const Modal = ({
     onClose();
   };
 
-  const handleCloseTouchEnd = (e) => {
-    e.stopPropagation();
-    touchHandledRef.current = true;
-    onClose();
-    setTimeout(() => { touchHandledRef.current = false; }, 400);
-  };
-
+  // The close button no longer needs a touch handler of its own: PanelIconButton
+  // carries the same guard internally and stops the touch from reaching the
+  // backdrop. This ref is now only about a touch that lands on the backdrop.
   const handleCloseClick = (e) => {
     if (touchHandledRef.current) return;
     onClose();
@@ -70,7 +77,7 @@ const Modal = ({
           ...sizeStyles[size],
           ...style,
           backgroundColor: theme.canvas.bg,
-          border: `1px solid ${theme.canvas.textPrimary}`,
+          border: `3px solid ${theme.canvas.textPrimary}`,
           borderRadius: 12,
           display: 'flex',
           flexDirection: 'column',
@@ -89,8 +96,12 @@ const Modal = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '16px 20px',
-            borderBottom: `1px solid ${theme.canvas.textPrimary}`,
-            backgroundColor: theme.canvas.border,
+            borderBottom: `2px solid ${theme.canvas.textPrimary}`,
+            // The band is the surface with a shadow in it, not canvas.border —
+            // which is darker than the canvas in light mode but much LIGHTER
+            // than it in dark, and read as a pale grey bar. Same value as
+            // Dialog.jsx's BAND and ModalChrome's --rs-modal-band.
+            backgroundColor: 'rgba(0, 0, 0, 0.22)',
             flexShrink: 0
           }}
         >
@@ -105,30 +116,13 @@ const Modal = ({
             {title}
           </h2>
           {showCloseButton && (
-            <button
+            <PanelIconButton
+              icon={X}
+              size={20}
+              title="Close modal"
               onClick={handleCloseClick}
-              onTouchEnd={handleCloseTouchEnd}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: theme.canvas.textPrimary,
-                cursor: 'pointer',
-                padding: '8px',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background-color 0.2s',
-                minWidth: '36px',
-                minHeight: '36px',
-                touchAction: 'manipulation'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-              aria-label="Close modal"
-            >
-              <X size={20} />
-            </button>
+              style={{ minWidth: 36, minHeight: 36, touchAction: 'manipulation' }}
+            />
           )}
         </div>
 
