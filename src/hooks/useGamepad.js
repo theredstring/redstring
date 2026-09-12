@@ -61,12 +61,12 @@ export const MODE = {
   CANVAS: 'canvas',
   NODE: 'node',
   // A connection is selected and its menu is open. Separate from NODE because
-  // that menu is a row laid along the edge, not a ring, so the stick aims it by
-  // position instead of by angle — see stepLineFocus.
+  // that menu is a row laid along the edge, not a ring, so the stick moves
+  // between bubbles by position instead of by angle — see stepLineFocusToward.
   EDGE: 'edge',
   // A bottom control panel is up — raised either by selecting a group or by
-  // box-selecting several nodes. Like EDGE it is a ROW rather than a ring, so
-  // the stick steps it.
+  // box-selecting several nodes. A ROW rather than a ring, and unlike EDGE a row
+  // that sits square to the screen, so the stick steps it like any other list.
   BOTTOM: 'bottom',
   // There is deliberately no panel or header mode. The d-pad navigates the
   // chrome while the sticks fly the canvas, both at once — see navigate() and
@@ -411,11 +411,15 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 /**
  * The stick as a d-pad: the dominant axis past a threshold, or null.
  *
- * Used where a surface is a LIST or a GRID rather than something to aim at —
- * menus, selectors, and the connection menu's rows. Absolute aiming is right
- * for a ring, where every option has its own direction; it is wrong for a row
- * of five, where it would give each option a fifth of the stick's throw and
- * make the whole menu twitchy. Stepping is what a row wants.
+ * Used where a surface is a LIST or a GRID in the CHROME — menus, selectors,
+ * the bottom panel's row — whose axes are the screen's own and whose items have
+ * no position worth pointing at. Absolute aiming is right for a ring, where
+ * every option has its own direction; it is wrong for a row of five, where it
+ * would give each option a fifth of the stick's throw and make the whole menu
+ * twitchy. Stepping is what a list wants.
+ *
+ * A connection's menu is neither: it is drawn on the canvas at an angle of its
+ * own, so it is pointed at rather than stepped — see stepLineFocusToward.
  */
 export const stickDirection = (x, y, threshold = 0.5) => {
   if (Math.hypot(x, y) < threshold) return null;
@@ -423,90 +427,136 @@ export const stickDirection = (x, y, threshold = 0.5) => {
   return y > 0 ? 'down' : 'up';
 };
 
+// The eight directions a stick is quantised into for REPEAT purposes, starting
+// due east and stepping clockwise in screen-y (down-positive) terms.
+const OCTANTS = ['right', 'downRight', 'down', 'downLeft', 'left', 'upLeft', 'up', 'upRight'];
+const OCTANT_STEP = (2 * Math.PI) / 8;
+// How far past an octant's boundary the stick must travel before the octant
+// changes. Without it a stick resting on a boundary flickers between two names,
+// and since the repeater treats a NEW name as a fresh press, every flicker
+// would fire another step — a menu walking itself while the hand holds still.
+const OCTANT_HYSTERESIS = OCTANT_STEP / 4;
+
 /**
- * Stick direction expressed in a LINE MENU'S OWN FRAME rather than the screen's.
+ * The stick as one of eight named directions, with hysteresis.
  *
- * A connection's menu is laid along its edge, so its row runs at whatever angle
- * that edge happens to have. Screen-absolute directions only agree with it for
- * a horizontal connection: on a vertical one the row is stacked top to bottom,
- * and pushing the stick right — the direction that means "next" — points at
- * nothing at all.
- *
- * The fix is a change of basis, not a set of cases. The stick vector is
- * projected onto the same two unit vectors lineModeLayout PLACES the buttons
- * with: `along` = (cos θ, sin θ) runs down the row, `perp` = (sin θ, −cos θ)
- * points to the side the extra rows stack toward. Reading the stick in that
- * basis makes "along the row" and "across the rows" mean the same thing to the
- * navigation as they do to the drawing, at every angle, with nothing to keep in
- * sync and no orientation special-cased. A diagonal connection is not a case
- * here; it is just another θ.
- *
- * The returned names stay in the menu's terms: left/right walk the row,
- * up/down change row. `perp` is negated on the way out because stickDirection
- * speaks screen-y, where up is negative, while perp points toward the rows.
- *
- * Rotation preserves length, so the threshold means exactly what it does for an
- * unrotated stick.
+ * Eight rather than four because a staggered menu has real diagonal neighbours;
+ * a name rather than an angle because what this feeds is the hold-to-repeat
+ * cadence, which needs to know when the user CHANGED direction, not where they
+ * are pointing to the degree. The aiming itself uses the raw vector.
  *
  * @param {number} x deadzoned horizontal deflection
  * @param {number} y deadzoned vertical deflection
- * @param {number} angleRad the menu's anchor angle — PieMenu's anchorAngle
- * @param {number} [threshold]
- * @returns {'left'|'right'|'up'|'down'|null}
+ * @param {number} [threshold] magnitude below which the stick names nothing
+ * @param {string|null} [previous] the name last returned, held on to through jitter
+ * @returns {string|null} one of OCTANTS, or null when the stick is near neutral
  */
-export const lineFrameDirection = (x, y, angleRad, threshold = 0.5) => {
-  const angle = Number.isFinite(angleRad) ? angleRad : 0;
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const along = x * cos + y * sin;
-  const perp = x * sin - y * cos;
-  return stickDirection(along, -perp, threshold);
+export const stickOctant = (x, y, threshold = 0.5, previous = null) => {
+  if (Math.hypot(x, y) < threshold) return null;
+  const angle = Math.atan2(y, x);
+
+  // Shortest signed angular distance from `angle` to an octant's centre.
+  const offsetFrom = (index) => {
+    let delta = Math.abs(angle - index * OCTANT_STEP) % (2 * Math.PI);
+    if (delta > Math.PI) delta = 2 * Math.PI - delta;
+    return delta;
+  };
+
+  const held = OCTANTS.indexOf(previous);
+  if (held >= 0 && offsetFrom(held) <= OCTANT_STEP / 2 + OCTANT_HYSTERESIS) return previous;
+
+  const index = ((Math.round(angle / OCTANT_STEP) % 8) + 8) % 8;
+  return OCTANTS[index];
 };
 
+// How far off the pushed direction a bubble may sit and still count as lying in
+// it: a 130°-wide cone. Wide enough that a staggered neighbour a quarter step to
+// the side is comfortably inside, narrow enough that the bubble BESIDE you never
+// answers a push straight up.
+const LINE_NAV_CONE_COS = Math.cos((65 * Math.PI) / 180);
+// Sideways drift costs this much more than distance along the push. Above 1 it
+// breaks the ties a staggered grid is full of — from a corner bubble, the
+// diagonal and the two bubbles flanking it are all about equally far away, and
+// the one actually pointed at should win.
+const LINE_NAV_LATERAL_WEIGHT = 3;
+
 /**
- * Steps focus through a LINE-MODE menu as a grid of rows.
+ * Moves focus through a LINE-MODE menu to whichever bubble LIES in the pushed
+ * direction, on screen.
  *
- * The connection menu is a row of bubbles laid along the edge, wrapping into
- * further rows stacked toward its upward side — so it behaves like two (or
- * more) linear rows, and is navigated like them: left/right walks the row,
- * up/down changes row keeping roughly the same position along it.
+ * This used to be a change of basis: the stick was read in the menu's own frame
+ * — `along` the edge and `perp` to it — and focus stepped through the layout as
+ * a grid, left/right walking a row and up/down changing row. It was correct and
+ * it did not follow. On a connection running at 40° the row runs at 40° too, so
+ * "left" meant a bubble sitting down-and-left; the rows stagger by a quarter
+ * step, so the bubble visually above you often wasn't the one "up" selected; and
+ * a diagonal neighbour, which is what a staggered grid mostly HAS, could not be
+ * reached by pushing diagonally at all. Every one of those is the same mismatch:
+ * the navigation was reasoning in the menu's frame about something the user is
+ * reading in the screen's.
  *
- * Row structure comes from lineModeLayout, the same function PieMenu lays the
- * bubbles out with, so the navigation can never disagree with the drawing.
+ * So there is no frame conversion here and no notion of "next" — the stick names
+ * a direction on screen, and focus goes to the bubble that is in it. Candidates
+ * are every other bubble within a cone of the push (see LINE_NAV_CONE_COS);
+ * among those, the winner is the nearest once sideways drift is penalised. The
+ * geometry comes from lineModeLayout at unit scale, the same function PieMenu
+ * draws with — step and rowGap are equal there, so a unit layout is similar to
+ * the drawn one and the directions come out identical.
  *
- * Movement CLAMPS rather than wraps: on a short menu, wrapping off the end of a
- * row lands somewhere visually unrelated, which reads as a glitch rather than
- * as a cycle.
+ * The consequence worth stating: on a single-row menu hung off a near-VERTICAL
+ * connection, the row runs up the screen, so up/down walks it and left/right
+ * does nothing. That is the honest answer — there is no bubble to the left — and
+ * it is the price of every other direction meaning exactly what it looks like.
+ *
+ * Movement CLAMPS rather than wraps, as it always did: on a short menu, wrapping
+ * off the end lands somewhere visually unrelated and reads as a glitch.
  *
  * @param {number} current index of the focused button, or -1
- * @param {'left'|'right'|'up'|'down'} dir
+ * @param {number} x deadzoned stick x (screen: +x right)
+ * @param {number} y deadzoned stick y (screen: +y down, as the gamepad reports)
  * @param {number} count number of buttons in the menu
- * @returns {number} the new index
+ * @param {number} angleRad the menu's anchor angle — PieMenu's anchorAngle
+ * @returns {number} the new index, or the old one when nothing lies that way
  */
-export const stepLineFocus = (current, dir, count) => {
+export const stepLineFocusToward = (current, x, y, count, angleRad = 0) => {
   if (!count || count < 1) return -1;
   if (count === 1) return 0;
-  const slots = lineModeLayout({ count, angle: 0, step: 1, perpOffset: 0, rowGap: 1 });
+
+  const slots = lineModeLayout({
+    count,
+    angle: Number.isFinite(angleRad) ? angleRad : 0,
+    step: 1,
+    perpOffset: 0,
+    rowGap: 1,
+  });
   if (!slots.length) return -1;
 
   const from = slots[current] ? current : 0;
-  const { row, col } = slots[from];
+  const magnitude = Math.hypot(x, y);
+  if (!magnitude) return from;
+  const dirX = x / magnitude;
+  const dirY = y / magnitude;
+  const origin = slots[from];
 
-  if (dir === 'left' || dir === 'right') {
-    const delta = dir === 'right' ? 1 : -1;
-    const found = slots.findIndex(sl => sl.row === row && sl.col === col + delta);
-    return found >= 0 ? found : from;
+  let best = from;
+  let bestScore = Infinity;
+  for (let i = 0; i < slots.length; i += 1) {
+    if (i === from) continue;
+    const vx = slots[i].x - origin.x;
+    const vy = slots[i].y - origin.y;
+    const distance = Math.hypot(vx, vy);
+    if (!distance) continue;
+    const along = vx * dirX + vy * dirY;
+    // Behind the push, or off to one side of the cone: not in this direction.
+    if (along <= 0 || along / distance < LINE_NAV_CONE_COS) continue;
+    const lateral = Math.abs(vy * dirX - vx * dirY);
+    const score = along + LINE_NAV_LATERAL_WEIGHT * lateral;
+    if (score < bestScore) {
+      bestScore = score;
+      best = i;
+    }
   }
-
-  // Rows stack toward the edge's upward side, so "up" is row + 1.
-  const targetRow = row + (dir === 'up' ? 1 : -1);
-  const inTarget = slots.map((sl, i) => ({ sl, i })).filter(({ sl }) => sl.row === targetRow);
-  if (!inTarget.length) return from;
-  // Keep the position along the row: rows can differ in length, so match on the
-  // nearest column rather than assuming the same index exists.
-  return inTarget.reduce((best, cand) => (
-    Math.abs(cand.sl.col - col) < Math.abs(best.sl.col - col) ? cand : best
-  ), inTarget[0]).i;
+  return best;
 };
 
 /**
@@ -683,6 +733,9 @@ export const useGamepad = ({
   const activeRef = useRef(false);
   const modeRef = useRef(MODE.CANVAS);
   const pieFocusedIndexRef = useRef(-1);
+  // Which way the stick was last pointed while a connection's menu was open.
+  // Held so the octant can latch through jitter — see stickOctant.
+  const edgeOctantRef = useRef(null);
 
   const buttonStateRef = useRef(makeButtonState());
   const carryingRef = useRef(false);
@@ -846,6 +899,10 @@ export const useGamepad = ({
     if (modeRef.current === next) return;
     modeRef.current = next;
     modeSinceRef.current = performance.now();
+    // The latched push belongs to one open menu. Carried into the next one it
+    // would make a stick that never moved read as already-held, and eat the
+    // first flick.
+    if (next !== MODE.EDGE) edgeOctantRef.current = null;
     setMode(next);
   }, []);
 
@@ -1281,12 +1338,8 @@ export const useGamepad = ({
     // The stick acting as a d-pad, with the same press/delay/repeat cadence a
     // held button gets — see stickDirection for why lists and grids step
     // rather than being aimed at.
-    const stickStep = (stick, prefix, angleRad = null) => {
-      // With an angle, the stick is read in the menu's frame instead of the
-      // screen's — see lineFrameDirection.
-      const dir = angleRad === null
-        ? stickDirection(stick.x, stick.y, PIE_AIM_THRESHOLD)
-        : lineFrameDirection(stick.x, stick.y, angleRad, PIE_AIM_THRESHOLD);
+    const stickStep = (stick, prefix) => {
+      const dir = stickDirection(stick.x, stick.y, PIE_AIM_THRESHOLD);
       if (!dir) {
         // Neutral ENDS the gesture, so the very next flick steps immediately
         // rather than waiting out the hold-to-repeat delay.
@@ -1294,6 +1347,19 @@ export const useGamepad = ({
         return null;
       }
       return repeatRef.current.held(`${prefix}:${dir}`, true, now) ? dir : null;
+    };
+    // The same cadence for a surface that is AIMED at rather than stepped: the
+    // octant only decides when a push counts as new, while the caller aims with
+    // the raw vector. Latched through the previous octant so a stick resting on
+    // a boundary doesn't read as a change of direction every other frame.
+    const stickAimStep = (stick, prefix, octantRef) => {
+      const octant = stickOctant(stick.x, stick.y, PIE_AIM_THRESHOLD, octantRef.current);
+      octantRef.current = octant;
+      if (!octant) {
+        repeatRef.current.releasePrefix(`${prefix}:`);
+        return false;
+      }
+      return repeatRef.current.held(`${prefix}:${octant}`, true, now);
     };
 
     const store = useGraphStore.getState();
@@ -1831,29 +1897,30 @@ export const useGamepad = ({
     let panDy = 0;
 
     if (inEdgeMode) {
-      // A connection's menu is a row (or two) laid along the edge, so it is
-      // STEPPED like a grid rather than aimed at like a ring: flick left/right
-      // to walk the row, up/down to change row. Absolute aiming would hand each
-      // of five buttons a fifth of the stick's throw, which is twitchy on a
-      // layout whose options sit only a few degrees apart.
+      // A connection's menu is a row (or two) of bubbles laid along the edge, so
+      // the stick MOVES BETWEEN THEM by pointing: each flick hands focus to the
+      // bubble that lies that way on screen, diagonals included. It is not aimed
+      // absolutely the way the ring is — five bubbles a few degrees apart would
+      // each own a sliver of the stick's throw, which is twitchy — and it is no
+      // longer stepped in the menu's own rotated frame either, which was steady
+      // but didn't follow the layout. See stepLineFocusToward.
       const list = p.edgePieMenuButtonsRef?.current || [];
       // The stick alone. The d-pad used to step this row as well, but the
       // d-pad now belongs to the chrome at all times — a button that means
       // "next connection option" here and "next thing in the right panel"
       // one keypress later means neither reliably.
-      //
-      // Read in the MENU's frame: the same angle PieMenu lays the row out
-      // along, so pushing the stick along the row always advances it whether
-      // the connection runs across the screen, up it, or at any angle between.
-      const dir = stickStep(left, 'edge', p.edgeAnchorAngleRef?.current ?? 0);
-      if (dir) {
-        const next = stepLineFocus(pieFocusedIndexRef.current, dir, list.length);
+      if (stickAimStep(left, 'edge', edgeOctantRef)) {
+        const next = stepLineFocusToward(
+          pieFocusedIndexRef.current, left.x, left.y, list.length,
+          p.edgeAnchorAngleRef?.current ?? 0
+        );
         if (next >= 0) setPieFocusBoth(next);
       }
     } else if (inBottomMode) {
-      // One linear row of actions, so it is stepped exactly as a connection's
-      // menu is. The walker's synthesised hover raises the panel's own label
-      // chip on the way past, which is the same vision aid the pie menus give.
+      // One linear row of actions in the chrome, always horizontal — so this one
+      // really is a list, stepped left and right. The walker's synthesised hover
+      // raises the panel's own label chip on the way past, which is the same
+      // vision aid the pie menus give.
       const dir = stickStep(left, 'group');
       if (dir === 'left') bottomWalkerRef.current?.move(-1);
       else if (dir === 'right') bottomWalkerRef.current?.move(1);

@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   applyStickDeadzone,
   pieButtonIndexForStick,
-  stepLineFocus,
+  stepLineFocusToward,
   stickDirection,
-  lineFrameDirection,
+  stickOctant,
   createRepeater,
   cameraHeldElsewhere,
   panelResizeDelta,
@@ -146,62 +146,135 @@ describe('stickDirection', () => {
   });
 });
 
-describe('stepLineFocus', () => {
-  // The connection menu behaves as linear rows: left/right walks a row,
-  // up/down changes row. Rows stack toward the edge's upward side.
+/**
+ * Focus in a connection's menu follows the SCREEN: whichever bubble lies in the
+ * direction pushed is the one that takes focus, whatever angle the connection
+ * runs at. These check that against the layout PieMenu actually draws, since
+ * that agreement is the whole point — the old rotated-frame stepping was
+ * self-consistent and still didn't land where the user was pointing.
+ */
+describe('stepLineFocusToward', () => {
+  const RIGHT = [1, 0];
+  const LEFT = [-1, 0];
+  const UP = [0, -1];
+  const DOWN = [0, 1];
+  const UP_RIGHT = [Math.SQRT1_2, -Math.SQRT1_2];
 
-  it('walks a single row and stops at the ends', () => {
-    expect(stepLineFocus(0, 'right', 4)).toBe(1);
-    expect(stepLineFocus(1, 'left', 4)).toBe(0);
+  const slotsFor = (count, angle = 0) =>
+    lineModeLayout({ count, angle, step: 1, perpOffset: 0, rowGap: 1 });
+  const toward = (from, [x, y], count, angle = 0) =>
+    stepLineFocusToward(from, x, y, count, angle);
+
+  it('walks a horizontal menu left and right, and stops at the ends', () => {
+    expect(toward(0, RIGHT, 4)).toBe(1);
+    expect(toward(1, LEFT, 4)).toBe(0);
     // Clamps rather than wrapping — wrapping off a row lands somewhere
     // visually unrelated, which reads as a glitch.
-    expect(stepLineFocus(0, 'left', 4)).toBe(0);
-    expect(stepLineFocus(3, 'right', 4)).toBe(3);
+    expect(toward(0, LEFT, 4)).toBe(0);
+    expect(toward(3, RIGHT, 4)).toBe(3);
+  });
+
+  it('leaves focus alone when nothing lies that way', () => {
+    // One row on a horizontal connection has no bubble above or below anything.
+    expect(toward(1, UP, 4)).toBe(1);
+    expect(toward(1, DOWN, 4)).toBe(1);
+  });
+
+  /**
+   * The case that motivated the change. On a near-vertical connection the row is
+   * stacked top to bottom on screen, so the stick should walk it with up and
+   * down — not with left and right, which is what a menu-frame "next" used to
+   * mean and which points at nothing at all.
+   */
+  it('walks a vertical connection with up and down', () => {
+    const VERTICAL = Math.PI / 2; // row runs downward on screen
+    const slots = slotsFor(4, VERTICAL);
+    const next = toward(1, DOWN, 4, VERTICAL);
+    expect(next).not.toBe(1);
+    expect(slots[next].y).toBeGreaterThan(slots[1].y);
+    const back = toward(next, UP, 4, VERTICAL);
+    expect(back).toBe(1);
+    expect(toward(1, RIGHT, 4, VERTICAL)).toBe(1);
+  });
+
+  it('follows a diagonal connection along the screen, not along the row', () => {
+    const DIAG = Math.PI / 4; // row runs down-right
+    const slots = slotsFor(4, DIAG);
+    const next = toward(1, [Math.SQRT1_2, Math.SQRT1_2], 4, DIAG);
+    expect(slots[next].x).toBeGreaterThan(slots[1].x);
+    expect(slots[next].y).toBeGreaterThan(slots[1].y);
   });
 
   it('changes row on up, and comes back on down', () => {
     const count = LINE_MODE_MAX_PER_ROW + 2;
-    const slots = lineModeLayout({ count, angle: 0, step: 1, perpOffset: 0, rowGap: 1 });
-    const up = stepLineFocus(0, 'up', count);
+    const slots = slotsFor(count);
+    const up = toward(0, UP, count);
     expect(slots[up].row).toBe(1);
-    expect(slots[stepLineFocus(up, 'down', count)].row).toBe(0);
+    expect(slots[toward(up, DOWN, count)].row).toBe(0);
   });
 
   it('does not leave the menu at the row extremes', () => {
     const count = LINE_MODE_MAX_PER_ROW + 2;
-    const slots = lineModeLayout({ count, angle: 0, step: 1, perpOffset: 0, rowGap: 1 });
+    const slots = slotsFor(count);
     const topRow = slots.findIndex(sl => sl.row === 1);
-    expect(stepLineFocus(topRow, 'up', count)).toBe(topRow);
-    expect(stepLineFocus(0, 'down', count)).toBe(0);
+    expect(toward(topRow, UP, count)).toBe(topRow);
+    expect(toward(0, DOWN, count)).toBe(0);
+  });
+
+  it('takes the nearest bubble above, not the one merely next in the row', () => {
+    // Rows of equal parity are staggered a quarter step, so the bubble above is
+    // offset sideways. Straight up has to find it anyway.
+    const count = 8; // two rows of four, staggered
+    const slots = slotsFor(count);
+    const up = toward(0, UP, count);
+    expect(slots[up].row).toBe(1);
+    const gaps = slots.filter(sl => sl.row === 1).map(sl => Math.abs(sl.x - slots[0].x));
+    expect(Math.abs(slots[up].x - slots[0].x)).toBe(Math.min(...gaps));
+  });
+
+  it('reaches the diagonal neighbour a staggered grid is full of', () => {
+    const count = 8;
+    const slots = slotsFor(count);
+    const diag = toward(0, UP_RIGHT, count);
+    // Up a row AND along it — the bubble actually pointed at, which the old
+    // row-at-a-time stepping could not select at all.
+    expect(slots[diag].row).toBe(1);
+    expect(slots[diag].x).toBeGreaterThan(slots[0].x + 1);
   });
 
   it('keeps roughly the same position when rows differ in length', () => {
     // Row 0 is full, row 1 holds the remainder — stepping up from the far end
     // must still land on a real button, as near the same column as exists.
     const count = LINE_MODE_MAX_PER_ROW + 2;
-    const slots = lineModeLayout({ count, angle: 0, step: 1, perpOffset: 0, rowGap: 1 });
+    const slots = slotsFor(count);
     const lastOfRow0 = slots.map((sl, i) => ({ sl, i }))
       .filter(({ sl }) => sl.row === 0).pop().i;
-    const up = stepLineFocus(lastOfRow0, 'up', count);
+    const up = toward(lastOfRow0, UP, count);
     expect(slots[up].row).toBe(1);
-    expect(up).toBeGreaterThanOrEqual(0);
-    expect(up).toBeLessThan(count);
   });
 
-  it('always lands on a real button from any start', () => {
+  it('always lands on a real button from any start, at any angle', () => {
+    const angles = [0, 0.4, Math.PI / 4, Math.PI / 2, -Math.PI / 2, -1.1];
     for (let count = 1; count <= 9; count++) {
-      for (const dir of ['left', 'right', 'up', 'down']) {
-        for (let from = -1; from < count; from++) {
-          const idx = stepLineFocus(from, dir, count);
-          expect(idx).toBeGreaterThanOrEqual(0);
-          expect(idx).toBeLessThan(count);
+      for (const angle of angles) {
+        for (const dir of [RIGHT, LEFT, UP, DOWN, UP_RIGHT]) {
+          for (let from = -1; from < count; from++) {
+            const idx = toward(from, dir, count, angle);
+            expect(idx).toBeGreaterThanOrEqual(0);
+            expect(idx).toBeLessThan(count);
+          }
         }
       }
     }
   });
 
+  it('holds focus on a neutral stick and a missing angle', () => {
+    expect(toward(2, [0, 0], 4)).toBe(2);
+    expect(stepLineFocusToward(0, 1, 0, 4, NaN)).toBe(1);
+  });
+
   it('returns -1 when there is nothing to step through', () => {
-    expect(stepLineFocus(0, 'right', 0)).toBe(-1);
+    expect(toward(0, RIGHT, 0)).toBe(-1);
   });
 });
 
@@ -493,68 +566,45 @@ describe('panelResizeArms', () => {
 });
 
 /**
- * A connection's menu is laid along its edge, so its row runs at whatever angle
- * that edge has. These check the change of basis that makes navigation agree
- * with the drawing at every angle — the same `along` / `perp` vectors
- * lineModeLayout places the buttons with.
+ * The octant names a push so the repeater can tell one flick from the next. It
+ * decides CADENCE only — the aiming itself uses the raw vector — so what matters
+ * here is that it is stable while a hand holds still.
  */
-describe('lineFrameDirection', () => {
-  const FULL = 1;
+describe('stickOctant', () => {
+  const at = (deg, ...rest) =>
+    stickOctant(Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180), ...rest);
 
-  it('is ordinary screen direction for a horizontal connection', () => {
-    expect(lineFrameDirection(FULL, 0, 0)).toBe('right');
-    expect(lineFrameDirection(-FULL, 0, 0)).toBe('left');
-    expect(lineFrameDirection(0, -FULL, 0)).toBe('up');
-    expect(lineFrameDirection(0, FULL, 0)).toBe('down');
+  it('names all eight directions in screen terms', () => {
+    // +y is down, as the gamepad reports it.
+    expect(at(0)).toBe('right');
+    expect(at(45)).toBe('downRight');
+    expect(at(90)).toBe('down');
+    expect(at(135)).toBe('downLeft');
+    expect(at(180)).toBe('left');
+    expect(at(-135)).toBe('upLeft');
+    expect(at(-90)).toBe('up');
+    expect(at(-45)).toBe('upRight');
+  });
+
+  it('names nothing below the threshold', () => {
+    expect(stickOctant(0.2, 0.2, 0.5)).toBeNull();
+    expect(stickOctant(0.6, 0.6, 0.5)).not.toBeNull();
   });
 
   /**
-   * The case that motivated this. On a vertical connection the row is stacked
-   * top to bottom, so pushing the stick right — the screen direction that used
-   * to mean "next" — points off the side of a menu that has no width.
+   * The repeater treats a new name as a fresh press, so a stick wobbling across
+   * a boundary would fire a step per wobble — the menu walking itself while the
+   * hand holds still. Past the hysteresis the name still changes.
    */
-  it('walks a vertical connection along its own row', () => {
-    const UP_EDGE = Math.PI / 2; // row runs downward on screen
-    expect(lineFrameDirection(0, FULL, UP_EDGE)).toBe('right'); // stick down = next
-    expect(lineFrameDirection(0, -FULL, UP_EDGE)).toBe('left'); // stick up = previous
-    // Across the row changes row, as it does on a horizontal one.
-    expect(lineFrameDirection(FULL, 0, UP_EDGE)).toBe('up');
-    expect(lineFrameDirection(-FULL, 0, UP_EDGE)).toBe('down');
+  it('holds the previous direction through boundary jitter', () => {
+    expect(at(25, 0.5, 'right')).toBe('right');
+    expect(at(25, 0.5, null)).toBe('downRight');
+    expect(at(40, 0.5, 'right')).toBe('downRight');
   });
 
-  it('handles the other vertical sign the same way round', () => {
-    const DOWN_EDGE = -Math.PI / 2;
-    // The row runs upward on screen here, so pushing up is what advances it.
-    expect(lineFrameDirection(0, -FULL, DOWN_EDGE)).toBe('right');
-    expect(lineFrameDirection(0, FULL, DOWN_EDGE)).toBe('left');
-  });
-
-  it('treats a diagonal connection as just another angle', () => {
-    const DIAG = Math.PI / 4;
-    const d = Math.SQRT1_2;
-    // Pushing along the edge advances the row...
-    expect(lineFrameDirection(d, d, DIAG)).toBe('right');
-    expect(lineFrameDirection(-d, -d, DIAG)).toBe('left');
-    // ...and pushing across it changes row.
-    expect(lineFrameDirection(d, -d, DIAG)).toBe('up');
-    expect(lineFrameDirection(-d, d, DIAG)).toBe('down');
-  });
-
-  /**
-   * Rotation preserves length, so the deadzone threshold has to mean exactly
-   * what it means for an unrotated stick — otherwise the menu would get twitchy
-   * at some angles and sluggish at others.
-   */
-  it('thresholds on magnitude, unchanged by the rotation', () => {
-    for (const angle of [0, 0.3, Math.PI / 4, Math.PI / 2, -1.1]) {
-      expect(lineFrameDirection(0.2, 0.2, angle, 0.5)).toBeNull();
-      expect(lineFrameDirection(0.6, 0.6, angle, 0.5)).not.toBeNull();
-    }
-  });
-
-  it('falls back to the screen frame on a missing angle', () => {
-    expect(lineFrameDirection(FULL, 0, undefined)).toBe('right');
-    expect(lineFrameDirection(FULL, 0, NaN)).toBe('right');
+  it('latches across the ±180° wrap', () => {
+    expect(at(-155, 0.5, 'left')).toBe('left');
+    expect(at(155, 0.5, 'left')).toBe('left');
   });
 });
 
