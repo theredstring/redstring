@@ -148,6 +148,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const mouseGlideStrength = useGraphStore(s => s.mouseSettings?.glideStrength ?? 0.5);
   const nodeLiftDelay = useGraphStore(s => s.mouseSettings?.nodeLiftDelay ?? 250);
   const gamepadScheme = useGraphStore(s => s.gamepadSettings?.scheme ?? 'default');
+  const gamepadCrosshairScale = useGraphStore(s => s.gamepadSettings?.crosshairScale ?? 1.0);
   const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
   const touchPinchGlideEnabled = useGraphStore(s => s.touchSettings?.pinchGlideEnabled ?? true);
   const touchPinchGlideStrength = useGraphStore(s => s.touchSettings?.pinchGlideStrength ?? 0.5);
@@ -974,6 +975,20 @@ const SettingsModal = ({ isVisible, onClose }) => {
               ]}
               value={gamepadScheme || 'default'}
               onChange={(v) => useGraphStore.getState().setGamepadScheme?.(v)}
+            />
+          </div>
+          {/* The reticle sits ON what it is aiming at, so its size is a trade
+              against how much of the thing underneath it covers — which is a
+              matter of display and taste rather than something to hardcode. */}
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Crosshair Size"
+              value={gamepadCrosshairScale ?? 1.0}
+              min={0.5}
+              max={2.5}
+              step={0.1}
+              suffix="x"
+              onChange={(v) => useGraphStore.getState().setGamepadCrosshairScale?.(v)}
             />
           </div>
         </div>

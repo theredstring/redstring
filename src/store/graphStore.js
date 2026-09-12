@@ -190,7 +190,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {Object} keyboardSettings - `{ zoomSensitivity, panSensitivity }` in range [0, 1].
  * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
  * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength, trackpadPanGlideEnabled, trackpadPanGlideStrength }`.
- * @property {Object} gamepadSettings - Game controller settings: `{ scheme }`.
+ * @property {Object} gamepadSettings - Game controller settings: `{ scheme, crosshairScale }`.
  * @property {'mouse'|'touch'|'gamepad'} inputMode - Active input modality. Session-only.
  */
 
@@ -1729,6 +1729,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // re-plumbing the setting; 'default' is the only one that ships today.
     gamepadSettings: {
       scheme: readStoredString('redstring_gamepad_scheme', ['default'], 'default'),
+      // Multiplier on the reticle's arm length. The crosshair sits over the
+      // thing being aimed at rather than beside it, so how big it wants to be
+      // depends on the display and on how much of a node label the user is
+      // willing to have covered — which is a preference, not a constant.
+      crosshairScale: readStoredNumber('redstring_gamepad_crosshair_scale', 0.5, 2.5, 1.0),
     },
 
     // Active input modality — flipped per-interaction by pointerdown listener.
@@ -6735,6 +6740,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       if (!draft.gamepadSettings) draft.gamepadSettings = { scheme: 'default' };
       draft.gamepadSettings.scheme = scheme;
       try { localStorage.setItem('redstring_gamepad_scheme', scheme); } catch (_) { }
+    })),
+
+    /**
+     * Sets the controller reticle's size multiplier. Range [0.5, 2.5].
+     * Persists to localStorage.
+     * @param {number} value
+     */
+    setGamepadCrosshairScale: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.5 || v > 2.5) {
+        console.warn(`[setGamepadCrosshairScale] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.gamepadSettings) draft.gamepadSettings = { scheme: 'default' };
+      draft.gamepadSettings.crosshairScale = v;
+      try { localStorage.setItem('redstring_gamepad_crosshair_scale', String(v)); } catch (_) { }
     })),
 
     /**

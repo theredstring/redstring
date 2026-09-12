@@ -11,7 +11,7 @@
  * A stub context is enough to run it for real, and a bake that throws is a
  * failing test rather than a broken canvas.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // The real measurer wraps an engine that needs a canvas and throws without one,
 // which would send getLabelSprite down its catch and skip the drawing again.
@@ -26,6 +26,8 @@ import {
   getGlyphSprite,
   clearLabelSprites,
   labelSpriteCount,
+  onSpritesReady,
+  requestLabelSprite,
   GLYPH_SPRITE_LAYERS,
 } from '../../src/services/labelSpriteCache.js';
 
@@ -178,5 +180,97 @@ describe('getGlyphSprite (drawing)', () => {
       return `${s.width}x${s.height}@${s.advance}`;
     });
     expect(new Set(sizes).size).toBe(1);
+  });
+});
+
+/**
+ * How the queue SPENDS the main thread, which is a different question from
+ * whether a bake draws the right thing.
+ *
+ * Both behaviours here exist because the canvas pays twice for a sprite: once
+ * to encode it, and again to re-render every edge when it lands. Get the ratio
+ * between those wrong and the sprite path costs more than the stroked <text> it
+ * replaced — which is what "rasterisation makes the canvas slow" turned out to
+ * mean.
+ *
+ * A stub clock drives it, because the real thing depends on how fast this
+ * machine encodes a PNG. `bakeCost` is what one bake is charged; the queue's
+ * own slice budget is 6ms.
+ */
+describe('bake queue scheduling', () => {
+  let clock;
+  let bakeCost;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    installCanvasStub();
+    clock = 0;
+    bakeCost = 5;
+    // Fake timers first: they replace performance.now themselves, so a stub
+    // installed before this one would be the one thrown away.
+    vi.useFakeTimers();
+    vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    // Charge the encode, which is where a bake's time actually goes.
+    HTMLCanvasElement.prototype.toDataURL = vi.fn(() => {
+      clock += bakeCost;
+      return 'data:image/png;base64,AAAA';
+    });
+    clearLabelSprites();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete globalThis.requestIdleCallback;
+    clearLabelSprites();
+  });
+
+  const enqueue = (n) => {
+    for (let i = 0; i < n; i++) requestLabelSprite({ ...spec, text: `label ${i}` });
+  };
+
+  it('coalesces the landed signal instead of firing once per slice', () => {
+    // Each signal re-renders every edge on the canvas. At one bake per slice —
+    // which is what a 5ms encode against a 6ms budget gives — firing per slice
+    // means a full re-solve per PNG.
+    let signals = 0;
+    const off = onSpritesReady(() => { signals += 1; });
+
+    enqueue(6);
+    vi.advanceTimersByTime(50);
+    expect(labelSpriteCount()).toBe(6);
+    expect(signals).toBe(0); // all six baked, nothing announced yet
+
+    vi.advanceTimersByTime(600);
+    expect(signals).toBe(1);
+    off();
+  });
+
+  it('spends its own slice when the idle deadline is a timeout', () => {
+    // requestIdleCallback fires on its timeout when the thread is busy, and
+    // reports zero time remaining. Believed, that bakes one sprite per callback
+    // — and the re-render each batch provokes is what keeps the thread busy, so
+    // the queue never gets a real idle slice again.
+    const callbacks = [];
+    globalThis.requestIdleCallback = (fn) => { callbacks.push(fn); return callbacks.length; };
+    bakeCost = 2;
+
+    enqueue(5);
+    expect(callbacks).toHaveLength(1);
+    callbacks[0]({ didTimeout: true, timeRemaining: () => 0 });
+
+    // 6ms of budget at 2ms an encode: three, not one.
+    expect(labelSpriteCount()).toBe(3);
+  });
+
+  it('still yields to a real idle deadline that says it is out of time', () => {
+    // The other direction: genuine idle time is the browser's to give, and a
+    // deadline that has run out must end the slice however cheap the bakes are.
+    const callbacks = [];
+    globalThis.requestIdleCallback = (fn) => { callbacks.push(fn); return callbacks.length; };
+    bakeCost = 0;
+
+    enqueue(5);
+    callbacks[0]({ didTimeout: false, timeRemaining: () => 0 });
+    expect(labelSpriteCount()).toBe(1);
   });
 });

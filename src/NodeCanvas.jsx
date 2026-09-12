@@ -1307,6 +1307,7 @@ function NodeCanvas() {
   const showMultipleNodesControlPanel = useGraphStore(state => state.showMultipleNodesControlPanel ?? true);
   const showConnectionControlPanel = useGraphStore(state => state.showConnectionControlPanel ?? true);
   const showGroupControlPanel = useGraphStore(state => state.showGroupControlPanel ?? true);
+  const gamepadCrosshairScale = useGraphStore(state => state.gamepadSettings?.crosshairScale ?? 1.0);
   const showAbstractionControlPanel = useGraphStore(state => state.showAbstractionControlPanel ?? true);
   const darkMode = useGraphStore(state => state.darkMode);
   const inputMode = useGraphStore(state => state.inputMode);
@@ -2662,6 +2663,10 @@ function NodeCanvas() {
 
   const [selectionRect, setSelectionRect] = useState(null);
   const [selectionStart, setSelectionStart] = useState(null);
+  // Mirrored for the controller's marquee, which reads the anchor from inside
+  // the rAF tick that sets it — React state is a frame behind there.
+  const selectionStartRef = useRef(null);
+  useEffect(() => { selectionStartRef.current = selectionStart; }, [selectionStart]);
 
   // Drop every cached connection-label placement and the jitter deadband.
   //
@@ -10495,6 +10500,36 @@ function NodeCanvas() {
     return GeometryUtils.isInsideNode(nodeData, clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize, previewingNodeId);
   };
 
+  /**
+   * Which instances a live selection box covers, merged with whatever was
+   * already selected when the box began.
+   *
+   * Additive against `selectionBaseRef`, not absolute: dragging a box while
+   * holding a prior selection extends it, and shrinking the box back off a node
+   * only deselects nodes the box itself added. Anchors are skipped — they are
+   * invisible bookkeeping instances for node-groups, and selecting one selects
+   * something the user cannot see.
+   *
+   * Shared by the mouse's live marquee and the controller's, so the two cannot
+   * drift into selecting different things from the same rectangle.
+   */
+  const selectionFromRect = (rect) => {
+    const base = selectionBaseRef.current || new Set();
+    const final = new Set([...base]);
+    nodes.forEach(nd => {
+      if (nd.isGroupAnchor) return;
+      if (base.has(nd.id)) return;
+      const dims = getNodeDimensions(nd, previewingNodeId === nd.id, null);
+      const intersects = !(rect.x > nd.x + dims.currentWidth ||
+        rect.x + rect.width < nd.x ||
+        rect.y > nd.y + dims.currentHeight ||
+        rect.y + rect.height < nd.y);
+      if (intersects) final.add(nd.id);
+      else final.delete(nd.id);
+    });
+    return final;
+  };
+
   // Check if a client-space point hits a thing group's title area, returns the group or null
   const findGroupTitleAtPoint = (clientX, clientY) => {
     if (!containerRef.current) return null;
@@ -10511,6 +10546,74 @@ function NodeCanvas() {
       }
     }
     return null;
+  };
+
+  /**
+   * The member/anchor/placeholder offsets a group drag needs, measured from one
+   * canvas-space grab point.
+   *
+   * Hoisted out of the title pill's long-press handler so the controller can
+   * start the SAME drag rather than a parallel reimplementation of it. The list
+   * is not obvious — an empty node-group tracks its placeholder rather than its
+   * anchor, and nested EMPTY child groups need explicit entries or a parent drag
+   * leaves their shells behind — which is exactly why there must only be one
+   * copy of it.
+   */
+  const buildGroupDragOffsets = (group, members, isNodeGroup, canvasX, canvasY) => {
+    const offsets = members.map(m => ({ id: m.id, dx: canvasX - m.x, dy: canvasY - m.y }));
+    if (group.anchorInstanceId) {
+      const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
+      if (anchorNode) {
+        offsets.push({ id: anchorNode.id, dx: canvasX - anchorNode.x, dy: canvasY - anchorNode.y });
+      }
+    }
+    // Empty node-group placeholder: track its own independent position (never
+    // the anchor's) so it drags live using the exact same offset-preserving
+    // math as a real member — see groupLayout.js for why deriving it from the
+    // anchor's position doesn't work.
+    if (isNodeGroup && !(group.memberInstanceIds?.length > 0) && group.emptyPlaceholderOrigin) {
+      offsets.push({
+        id: placeholderIdForGroup(group.id),
+        dx: canvasX - group.emptyPlaceholderOrigin.x,
+        dy: canvasY - group.emptyPlaceholderOrigin.y
+      });
+    }
+    // Nested EMPTY child groups ride along too: their box position lives in
+    // emptyPlaceholderOrigin (no member instance to move), so without an
+    // explicit placeholder offset a parent drag would leave their shells
+    // behind. Non-empty children need nothing — their members are already in
+    // the parent's offset list.
+    const nestedChildIds = childGroupIdsByGroupIdRef.current.get(group.id);
+    if (nestedChildIds) {
+      nestedChildIds.forEach(childId => {
+        const childGroup = groupsByIdRef.current.get(childId);
+        if (!childGroup || childGroup.memberInstanceIds?.length > 0 || !childGroup.emptyPlaceholderOrigin) return;
+        offsets.push({
+          id: placeholderIdForGroup(childId),
+          dx: canvasX - childGroup.emptyPlaceholderOrigin.x,
+          dy: canvasY - childGroup.emptyPlaceholderOrigin.y
+        });
+      });
+    }
+    return offsets;
+  };
+
+  /**
+   * Start a group drag from a client point — the pill's long-press path and the
+   * controller's trigger both end up here.
+   */
+  const startGroupDragAtPointRef = useRef(null);
+  startGroupDragAtPointRef.current = (groupId, clientX, clientY) => {
+    const group = groupsByIdRef.current.get(groupId);
+    if (!group || !containerRef.current) return false;
+    const rect = containerRef.current.getBoundingClientRect();
+    const canvasX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + (canvasSize?.offsetX || 0);
+    const canvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + (canvasSize?.offsetY || 0);
+    const memberIdSet = new Set(group.memberInstanceIds || []);
+    const members = nodes.filter(n => memberIdSet.has(n.id));
+    const offsets = buildGroupDragOffsets(group, members, !!group.linkedNodePrototypeId, canvasX, canvasY);
+    nodeDrag.startGroupDrag(groupId, offsets, clientX, clientY);
+    return true;
   };
 
   // What a connection release at this point would attach to — the same test
@@ -11874,24 +11977,7 @@ function NodeCanvas() {
       try {
         const selectionRes = await canvasWorker.calculateSelection({ selectionStart, currentX, currentY });
         setSelectionRect(selectionRes);
-        const currentIds = new Set();
-        nodes.forEach(nd => {
-          if (nd.isGroupAnchor) return; // Skip anchor instances from selection
-          if (!(selectionRes.x > nd.x + getNodeDimensions(nd, previewingNodeId === nd.id, null).currentWidth ||
-            selectionRes.x + selectionRes.width < nd.x ||
-            selectionRes.y > nd.y + getNodeDimensions(nd, previewingNodeId === nd.id, null).currentHeight ||
-            selectionRes.y + selectionRes.height < nd.y)) {
-            currentIds.add(nd.id);
-          }
-        });
-        const finalSelection = new Set([...selectionBaseRef.current]);
-        nodes.forEach(nd => {
-          if (!selectionBaseRef.current.has(nd.id)) {
-            if (currentIds.has(nd.id)) finalSelection.add(nd.id);
-            else finalSelection.delete(nd.id);
-          }
-        });
-        setSelectedInstanceIds(finalSelection);
+        setSelectedInstanceIds(selectionFromRect(selectionRes));
       } catch (error) {
 
       }
@@ -13445,6 +13531,122 @@ function NodeCanvas() {
     },
   };
 
+  /**
+   * Groups, as the controller sees them: what the crosshair is over, and the
+   * three things it can do with one.
+   *
+   * A group's whole interactive surface is its title pill — that is what the
+   * mouse clicks to select, double-clicks to rename, and long-presses to drag
+   * the group by — so the pad aims at the same pill rather than at the box,
+   * which would otherwise swallow every node inside it.
+   */
+  const groupControlRef = useRef(null);
+  groupControlRef.current = {
+    /** The group whose title pill is under this point, with the pill's rect. */
+    findAt: (clientX, clientY) => {
+      const hit = findGroupTitleAtPoint(clientX, clientY);
+      if (!hit) return null;
+      const info = anchorPositionUpdatesRef.current.get(hit.anchorInstanceId);
+      if (!info) return null;
+      return {
+        groupId: hit.groupId,
+        anchorInstanceId: hit.anchorInstanceId,
+        // Canvas-space centre of the pill: where the auto-aim drift pulls to,
+        // the same way a node drifts to its centre.
+        center: { x: info.x + info.width / 2, y: info.y + info.height / 2 },
+      };
+    },
+    /**
+     * Select a group, exactly as a single click on its title does — including
+     * clearing the node and edge selections. Those clears are not tidiness:
+     * without them the Node and Connection panel effects see a stale selection
+     * and stomp selectedGroup back to null in the same flush.
+     */
+    select: (groupId) => {
+      const group = groupsByIdRef.current.get(groupId);
+      if (!group) return false;
+      setSelectedGroup(group);
+      setSelectedInstanceIds(new Set());
+      storeActions.setSelectedEdgeId(null);
+      storeActions.clearSelectedEdgeIds();
+      setGroupControlPanelShouldShow(true);
+      setNodeControlPanelShouldShow(false);
+      setNodeControlPanelVisible(false);
+      setAbstractionControlPanelVisible(false);
+      setAbstractionControlPanelShouldShow(false);
+      setConnectionControlPanelVisible(false);
+      setConnectionControlPanelShouldShow(false);
+      return true;
+    },
+    dismiss: () => setSelectedGroup(null),
+    /** Whether a group is selected right now — the pad re-derives its mode from this. */
+    selectedId: () => selectedGroup?.id ?? null,
+    startDrag: (groupId, clientX, clientY) => startGroupDragAtPointRef.current?.(groupId, clientX, clientY) === true,
+  };
+
+  /**
+   * The selection box, as the controller draws it.
+   *
+   * A mouse marquee is a pointer travelling across a still canvas. A pad's is
+   * the opposite — the crosshair is nailed to the middle of the screen and the
+   * CANVAS travels underneath it — but the rectangle itself is in canvas
+   * coordinates either way, so anchoring one corner and tracking the crosshair
+   * with the other produces the same box from the opposite motion.
+   */
+  const marqueeCountRef = useRef(0);
+  const marqueeControlRef = useRef(null);
+  marqueeControlRef.current = {
+    begin: (clientX, clientY) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return false;
+      const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+      const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+      setSelectionStart({ x, y });
+      selectionStartRef.current = { x, y };
+      setSelectionRect({ x, y, width: 0, height: 0 });
+      marqueeCountRef.current = selectedInstanceIds.size;
+      // Extend whatever was already selected, exactly as the mouse's box does.
+      selectionBaseRef.current = new Set([...selectedInstanceIds]);
+      return true;
+    },
+    /**
+     * Called every frame the box is live. Deliberately synchronous rather than
+     * going through canvasWorker like the mouse path: this runs inside the
+     * controller's rAF tick, and posting to a worker per frame would land the
+     * answer a frame or two late — the box would visibly lag the canvas it is
+     * being drawn on. The rectangle is four subtractions; it does not need a
+     * worker.
+     */
+    update: (clientX, clientY) => {
+      const start = selectionStartRef.current;
+      if (!start) return;
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+      const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+      const box = {
+        x: Math.min(start.x, x),
+        y: Math.min(start.y, y),
+        width: Math.abs(x - start.x),
+        height: Math.abs(y - start.y),
+      };
+      setSelectionRect(box);
+      const next = selectionFromRect(box);
+      marqueeCountRef.current = next.size;
+      setSelectedInstanceIds(next);
+    },
+    /** Ends the box and reports how many instances it leaves selected. */
+    end: () => {
+      setSelectionStart(null);
+      selectionStartRef.current = null;
+      setSelectionRect(null);
+      // The selection itself stands — `update` already committed it. The count
+      // comes from the ref rather than from selectedInstanceIdsRef, which is
+      // synced by an effect and so still holds the pre-box value here.
+      return marqueeCountRef.current;
+    },
+  };
+
   const startConnectionFromNodeRef = useRef(null);
   startConnectionFromNodeRef.current = (instanceId, clientX, clientY) => {
     startedOnNode.current = true;
@@ -13473,7 +13675,10 @@ function NodeCanvas() {
     startConnectionFromNodeRef,
     drawingConnectionFromRef,
     plusSignControlRef,
+    groupControlRef,
+    marqueeControlRef,
     setSelectedInstanceIds,
+    selectedInstanceIdsRef,
     commitHoverTarget,
     clearHoverImmediate,
     pieMenuButtonsRef,
@@ -18063,6 +18268,7 @@ function NodeCanvas() {
                 visible={gamepadActive}
                 viewportBounds={viewportBounds}
                 headerHeight={headerHeight}
+                scale={gamepadCrosshairScale}
               />
             </>
           )}

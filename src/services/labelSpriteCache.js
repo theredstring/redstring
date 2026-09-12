@@ -222,10 +222,14 @@ export function spriteScaleForZoom(zoom) {
   return Math.min(MAX_SPRITE_SCALE, Math.max(MIN_SPRITE_SCALE, bucket));
 }
 
+/** Eviction passes since load, for `window.__spritePerf` — see drainBakeQueue. */
+let evictions = 0;
+
 function evictOldest() {
   // Map iterates in insertion order, so the first key is the least recently
   // ADDED. Entries are re-inserted on read (see getLabelSprite), which turns
   // that into least-recently-USED.
+  evictions++;
   const drop = Math.max(1, Math.floor(MAX_SPRITES * 0.2));
   let n = 0;
   for (const key of cache.keys()) {
@@ -480,6 +484,19 @@ export function getGlyphSprite(spec) {
  * subscribers when a batch has landed so the canvas can re-render into the
  * cache it now has. The network paints first and the labels arrive behind it.
  *
+ * THE SECOND COST
+ *
+ * Deferring the bakes is only half of it. Telling the canvas a batch has landed
+ * is itself expensive — the subscriber re-renders, and the sprite generation is
+ * part of the edge element cache key, so every edge is re-solved. Announcing
+ * each drained slice spends a full edge pass per slice, and an idle callback
+ * that fires on its TIMEOUT reports no time remaining, so each of those slices
+ * held a single bake. That pairing is self-sustaining: the re-render keeps the
+ * thread busy, which makes the next callback time out too, and the canvas
+ * appears to lock up for as long as there are labels left. Both halves are
+ * fixed below — READY_NOTIFY_MIN_MS coalesces the signal, and a timed-out
+ * deadline spends BAKE_SLICE_MS rather than nothing.
+ *
  * A worker was the other option and is deliberately not what this is. It would
  * move the encode off-thread entirely, which is strictly better on paper — but
  * an OffscreenCanvas in a worker has its own font set, so EmOne would have to
@@ -496,10 +513,48 @@ const BAKE_SLICE_MS = 6;
 /** How long a pending bake may wait before it stops being deferred. */
 const BAKE_IDLE_TIMEOUT_MS = 300;
 
+/**
+ * Minimum gap between "a batch landed" signals.
+ *
+ * The signal is not free to send. Its subscriber re-renders the canvas, and the
+ * sprite generation is part of the edge element cache key, so EVERY edge is
+ * re-solved — placement, crossings, routing, the lot. That is the work sprites
+ * exist to avoid, and sending the signal once per drained slice spends it over
+ * and over while the queue empties: on a large web the notifications cost far
+ * more than the baking they are announcing.
+ *
+ * Nothing is lost by batching them. A label with no sprite yet renders as
+ * <text>, not as nothing, so a later signal costs a slightly longer wait before
+ * the bitmap swaps in — and the signal carries no payload, so one fire always
+ * picks up everything baked since the last.
+ */
+const READY_NOTIFY_MIN_MS = 500;
+
 /** key -> {glyph:boolean, spec} */
 const pending = new Map();
 const readyListeners = new Set();
 let bakeScheduled = false;
+let lastNotifyAt = 0;
+let notifyTimer = null;
+
+const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+function emitReady() {
+  notifyTimer = null;
+  lastNotifyAt = nowMs();
+  readyListeners.forEach((fn) => { try { fn(); } catch (_) { /* a listener must not stall the queue */ } });
+}
+
+/** Tell subscribers a batch has landed, at most every READY_NOTIFY_MIN_MS. */
+function notifyReady() {
+  if (notifyTimer !== null) return;
+  const wait = READY_NOTIFY_MIN_MS - (nowMs() - lastNotifyAt);
+  if (wait <= 0) {
+    emitReady();
+    return;
+  }
+  notifyTimer = setTimeout(emitReady, wait);
+}
 
 /**
  * Set once a bake has failed for a reason that will not fix itself — no canvas
@@ -514,7 +569,10 @@ export function spritesUsable() {
   return !bakingBroken;
 }
 
-/** Called after each drained batch. Returns an unsubscribe. */
+/**
+ * Called when baked sprites have landed, coalesced to READY_NOTIFY_MIN_MS.
+ * Returns an unsubscribe.
+ */
 export function onSpritesReady(fn) {
   readyListeners.add(fn);
   return () => readyListeners.delete(fn);
@@ -522,8 +580,10 @@ export function onSpritesReady(fn) {
 
 function drainBakeQueue(deadline) {
   bakeScheduled = false;
-  const started = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const started = nowMs();
+  const perf = typeof window !== 'undefined' && window.__spritePerf;
   let baked = 0;
+  let worstBakeMs = 0;
 
   for (const [key, job] of pending) {
     pending.delete(key);
@@ -534,8 +594,10 @@ function drainBakeQueue(deadline) {
     // the labels invisible and keeps retrying forever. Latching turns that into
     // "render as <text>", which is the direction a failure should fall.
     let made = null;
+    const bakeStarted = perf ? nowMs() : 0;
     try {
       made = job.glyph ? getGlyphSprite(job.spec) : getLabelSprite(job.spec);
+      if (perf) worstBakeMs = Math.max(worstBakeMs, nowMs() - bakeStarted);
     } catch (err) {
       bakingBroken = true;
       pending.clear();
@@ -551,13 +613,48 @@ function drainBakeQueue(deadline) {
       break;
     }
     baked++;
-    const left = deadline?.timeRemaining
+
+    // How much longer this slice may run.
+    //
+    // An idle callback that fired because its TIMEOUT expired reports zero time
+    // remaining: the thread is busy. Taken at face value that stops the slice
+    // after a single bake — and the canvas re-render each batch provokes is
+    // itself what keeps the thread busy, so every subsequent callback times out
+    // too. The queue then drains one sprite per full edge re-solve, which is
+    // the worst ratio available and reads as the canvas locking up for as long
+    // as there are labels left to bake.
+    //
+    // A timed-out deadline means "no idle time is coming", not "do nothing", so
+    // spend our own slice instead and let the budget below bound it.
+    const elapsed = nowMs() - started;
+    const left = (deadline && !deadline.didTimeout && deadline.timeRemaining)
       ? deadline.timeRemaining()
-      : BAKE_SLICE_MS - ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - started);
+      : BAKE_SLICE_MS - elapsed;
     if (left <= 1) break;
   }
 
-  if (baked > 0 || bakingBroken) readyListeners.forEach((fn) => { try { fn(); } catch (_) { /* a listener must not stall the queue */ } });
+  // `window.__spritePerf = true` in the console, then open a universe with
+  // labels on. Each slice reports what it actually cost and how much is left,
+  // which is what separates "the bakes are slow" from "the queue is drained in
+  // useless slivers" — the two have opposite fixes. Pair it with
+  // `window.__edgePerf` to see the re-render each landed batch provokes.
+  if (perf && baked > 0) {
+    console.log('[spritePerf] slice', {
+      baked,
+      sliceMs: Number((nowMs() - started).toFixed(2)),
+      worstBakeMs: Number(worstBakeMs.toFixed(2)),
+      queued: pending.size,
+      timedOut: !!deadline?.didTimeout,
+      // A queue that never empties on a settled canvas means the working set
+      // is bigger than MAX_SPRITES and the cache is evicting entries it is
+      // about to be asked for again — curved labels key per COLOUR as well as
+      // per character and layer, so a web of many connection colours can reach
+      // that. Rising evictions with a queue that keeps refilling is the tell.
+      evictions,
+    });
+  }
+
+  if (baked > 0 || bakingBroken) notifyReady();
   if (pending.size) scheduleBake();
 }
 
@@ -599,8 +696,9 @@ export function hydrateLabelSprites() {
     if (added > 0) {
       // Same signal a finished bake sends, so the canvas re-renders into the
       // cache it just gained without needing to know where the sprites came
-      // from.
-      readyListeners.forEach((fn) => { try { fn(); } catch (_) { /* ignore */ } });
+      // from — and coalesced with those, since hydration typically lands while
+      // the first bakes are already draining.
+      notifyReady();
     }
   }).catch(() => { /* best effort */ });
 }
@@ -668,6 +766,19 @@ export function clearLabelSprites({ persisted = false } = {}) {
   cache.clear();
   metricsCache.clear();
   pending.clear();
+  // A queued "a batch landed" is about sprites that no longer exist, and the
+  // caller clearing the cache is re-rendering anyway — a font swap bumps the
+  // font version. Dropping it also means the coalescing window cannot carry
+  // across a clear and swallow the next real signal.
+  if (notifyTimer !== null) {
+    clearTimeout(notifyTimer);
+    notifyTimer = null;
+  }
+  lastNotifyAt = 0;
+  // The callback a cleared queue no longer needs will still run and find
+  // nothing; releasing the flag here means the next request schedules its own
+  // rather than waiting on that one.
+  bakeScheduled = false;
   // A font swap is a fresh start, including for a canvas that looked broken.
   bakingBroken = false;
   // Off by default. Clearing memory is cheap and self-healing; clearing the

@@ -248,6 +248,19 @@
   transform: scale(1.1);
 }
 
+/* Controller focus. The swell is the canvas pie menu's gamepad swell, not its
+   hover swell, and for the same reason: with a mouse the cursor is already
+   sitting on the button, so 1.1 only confirms what the pointer says. A pad has
+   no pointer, so this has to BE the statement of what A will do. The ring is
+   the extra this row needs over the canvas ring — eight near-identical circles
+   side by side, where scale alone leaves you comparing neighbours to work out
+   which one grew. */
+.piemenu-button.gamepad-menu-focus {
+  transform: scale(1.28);
+  outline: 3px solid #bdb5b5;
+  outline-offset: 3px;
+}
+
 /* Page-turn arrows. Taller than the bubbles they flank, the way the canvas
    menu's chevrons stand taller than its ring — they read as edges of the set
    rather than as another item in it.

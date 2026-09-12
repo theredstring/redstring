@@ -64,6 +64,10 @@ export const MODE = {
   // that menu is a row laid along the edge, not a ring, so the stick aims it by
   // position instead of by angle — see stepLineFocus.
   EDGE: 'edge',
+  // A bottom control panel is up — raised either by selecting a group or by
+  // box-selecting several nodes. Like EDGE it is a ROW rather than a ring, so
+  // the stick steps it.
+  BOTTOM: 'bottom',
   // There is deliberately no panel or header mode. The d-pad navigates the
   // chrome while the sticks fly the canvas, both at once — see navigate() and
   // the header note in gamepadPanelNav.js. A mode there would have meant the
@@ -491,9 +495,17 @@ export const useGamepad = ({
   // The plus sign and the things A and B can do to it: `{ sign, halfHit,
   // create, activate, dismiss }`. See NodeCanvas.
   plusSignControlRef,
+  // Groups, as the controller sees them: `{ findAt, select, dismiss,
+  // selectedId, startDrag }`. See NodeCanvas.
+  groupControlRef,
+  // The selection box: `{ begin, update, end }`. See NodeCanvas.
+  marqueeControlRef,
 
   // --- Selection ---
   setSelectedInstanceIds,
+  // The live instance selection, read per frame to tell whether the bottom
+  // panel still has anything to be about.
+  selectedInstanceIdsRef,
 
   // --- Hover ---
   commitHoverTarget,
@@ -557,6 +569,8 @@ export const useGamepad = ({
   // goes down — the abandon check below has to outlast that window or it would
   // cancel every draw on the frame after it began.
   const connectStartedAtRef = useRef(0);
+  // True while the left trigger is drawing a selection box.
+  const marqueeRef = useRef(false);
 
   // Auto-aim bookkeeping: when the stick went neutral, and whether this dwell
   // has already fired. Reset on any stick movement.
@@ -593,6 +607,13 @@ export const useGamepad = ({
   // Header focus mirrored into a ref. The tick reads it on the same frame it
   // writes it, and React state is a frame behind.
   const headerFocusRef = useRef(null);
+
+  // The bottom control panel's walker, kept SEPARATE from the menu walker on
+  // purpose: a selector can open on top of a selected group (naming a new
+  // node-group does exactly that), and the selector takeover disposes whatever
+  // the menu walker was holding. Sharing one ref would tear down the group's
+  // panel walker as a side effect of a dialog the group itself opened.
+  const bottomWalkerRef = useRef(null);
 
   // DOM focus walker state for MENU / ACTIONS modes.
   const menuWalkerRef = useRef(null);
@@ -664,8 +685,8 @@ export const useGamepad = ({
     containerRef, viewportBoundsRef, panOffsetRef, zoomLevelRef, canvasSizeRef,
     mousePositionRef, nodesRef, visibleNodeIdsRef,
     startDragForNodeRef, draggingNodeInfoRef, dragPhaseRef, releasePointerRef,
-    startConnectionFromNodeRef, drawingConnectionFromRef, plusSignControlRef,
-    setSelectedInstanceIds, commitHoverTarget, clearHoverImmediate,
+    startConnectionFromNodeRef, drawingConnectionFromRef, plusSignControlRef, groupControlRef, marqueeControlRef,
+    setSelectedInstanceIds, selectedInstanceIdsRef, commitHoverTarget, clearHoverImmediate,
     pieMenuButtonsRef, pieMenuPageCountRef, pieMenuNodeIdRef, setPieMenuPage, onPieMenuHoverChange,
     edgePieMenuButtonsRef, edgeAnchorAngleRef, findEdgeAtClientPointRef,
     setPan, isAnimatingZoomRef, abstractionCarouselVisibleRef, driftingRef,
@@ -803,6 +824,8 @@ export const useGamepad = ({
     setHeaderFocusedGraphId(null);
     menuWalkerRef.current?.dispose?.();
     menuWalkerRef.current = null;
+    bottomWalkerRef.current?.dispose?.();
+    bottomWalkerRef.current = null;
     // The d-pad's place in the chrome is given up with the pad itself.
     panelNavRef.current?.clear();
     headerFocusRef.current = null;
@@ -967,6 +990,20 @@ export const useGamepad = ({
         // aims exactly like a node does.
         return { kind: 'plus', id: 'plus-sign', aimPoint: { x: plus.sign.x, y: plus.sign.y } };
       }
+    }
+
+    // A group's title pill. Below the plus for the same reason the plus is
+    // below a node — the more deliberate, more transient affordance wins — and
+    // above connections, whose hit test is the loosest of the four and would
+    // otherwise claim a pill that merely has an edge passing behind it.
+    const group = p.groupControlRef?.current?.findAt?.(cross.x, cross.y);
+    if (group) {
+      return {
+        kind: 'group',
+        id: group.groupId,
+        group,
+        aimPoint: group.center,
+      };
     }
 
     const hit = p.findEdgeAtClientPointRef?.current?.(cross.x, cross.y, 'mouse');
@@ -1170,6 +1207,16 @@ export const useGamepad = ({
     if (modeSettled) {
       const edgeGone = !store.selectedEdgeId && !(store.selectedEdgeIds?.size > 0);
       const nodeGone = !p.pieMenuNodeIdRef?.current;
+      // The bottom panel has two possible subjects, and it is gone only when
+      // BOTH are: a selected group, or a box selection of instances.
+      const groupGone = !p.groupControlRef?.current?.selectedId?.();
+      const selectionGone = !(p.selectedInstanceIdsRef?.current?.size > 0);
+      if (currentMode === MODE.BOTTOM && groupGone && selectionGone) {
+        bottomWalkerRef.current?.dispose?.();
+        bottomWalkerRef.current = null;
+        setModeBoth(MODE.CANVAS);
+        setPieFocusBoth(-1);
+      }
       if ((currentMode === MODE.EDGE && edgeGone) || (currentMode === MODE.NODE && nodeGone)) {
         setModeBoth(MODE.CANVAS);
         setPieFocusBoth(-1);
@@ -1179,9 +1226,10 @@ export const useGamepad = ({
 
     const inNodeMode = modeRef.current === MODE.NODE;
     const inEdgeMode = modeRef.current === MODE.EDGE;
+    const inBottomMode = modeRef.current === MODE.BOTTOM;
     // Both "something is selected and its menu owns the stick" modes. Used
     // wherever the distinction between a ring and a row doesn't matter.
-    const inMenuMode = inNodeMode || inEdgeMode;
+    const inMenuMode = inNodeMode || inEdgeMode || inBottomMode;
 
     // While a trigger gesture is in flight — carrying a node, or drawing a
     // connection out of one — the only thing the other buttons could do is yank
@@ -1189,7 +1237,7 @@ export const useGamepad = ({
     // over the drop point, switching webs mid-carry. The trigger owns the pad
     // until it is released. The sticks stay live, because moving the canvas is
     // how you aim both gestures.
-    const carrying = carryingRef.current || connectingRef.current;
+    const carrying = carryingRef.current || connectingRef.current || marqueeRef.current;
 
     // Mode entries that are available from both canvas and node mode.
     if (!carrying && buttons.justPressed[BTN.START]) {
@@ -1248,6 +1296,13 @@ export const useGamepad = ({
       if (buttons.justPressed[BTN.RT] && nodeUnderCrosshair && !carryingRef.current) {
         asDiscreteInput(() => p.startDragForNodeRef?.current?.(nodeUnderCrosshair, cross.x, cross.y));
         carryingRef.current = true;
+      } else if (buttons.justPressed[BTN.RT] && target?.kind === 'group' && !carryingRef.current) {
+        // A group is carried by its title, which is the only part of it the
+        // mouse can grab either — and with no long-press, since the trigger has
+        // nothing to disambiguate itself from.
+        carryingRef.current = asDiscreteInput(
+          () => p.groupControlRef?.current?.startDrag?.(target.id, cross.x, cross.y)
+        ) === true;
       } else if (buttons.justReleased[BTN.RT] && carryingRef.current) {
         carryingRef.current = false;
         // The node is where the user put it. Don't let the auto-aim quietly
@@ -1271,6 +1326,24 @@ export const useGamepad = ({
           nodeUnderCrosshair.id, cross.x, cross.y
         ));
         connectStartedAtRef.current = now;
+      } else if (buttons.justPressed[BTN.LT] && !target && !connectingRef.current
+        && !carryingRef.current && !marqueeRef.current && !inMenuMode) {
+        // Empty canvas: the same trigger draws a selection box instead. This
+        // mirrors the mouse exactly — drag from a node to connect, drag from
+        // nothing to select — and it is the pad's only route to a multi-
+        // selection, which is in turn the only route to making a plain group.
+        marqueeRef.current = p.marqueeControlRef?.current?.begin?.(cross.x, cross.y) === true;
+      } else if (buttons.justReleased[BTN.LT] && marqueeRef.current) {
+        marqueeRef.current = false;
+        const count = p.marqueeControlRef?.current?.end?.() ?? 0;
+        // A box that caught something raises the bottom panel; the stick steps
+        // it from here, which is where "Group Selection" lives.
+        if (count > 0) {
+          bottomWalkerRef.current?.dispose?.();
+          bottomWalkerRef.current = walkMenu('bottomPanel');
+          setPieFocusBoth(0);
+          setModeBoth(MODE.BOTTOM);
+        }
       } else if (buttons.justReleased[BTN.LT] && connectingRef.current) {
         connectingRef.current = false;
         // Same release path as the drop: it is the one that decides whether the
@@ -1278,6 +1351,10 @@ export const useGamepad = ({
         // did not.
         asDiscreteInput(() => p.releasePointerRef?.current?.({ clientX: cross.x, clientY: cross.y }));
       }
+
+      // The box is redrawn every frame, because with a pad it is the CANVAS
+      // that moves under the fixed crosshair rather than the other way round.
+      if (marqueeRef.current) p.marqueeControlRef?.current?.update?.(cross.x, cross.y);
 
       // A draw can also end from outside this hook (Escape, an abandon path).
       // Re-sync so the pad doesn't stay locked to a gesture that is over —
@@ -1313,9 +1390,25 @@ export const useGamepad = ({
         // Connection menus are anchor-mode, so PieMenu passes null as the
         // action's node id on a click; match that exactly.
         if (focused && !focused.hidden) focused.action?.(null, { x: cross.x, y: cross.y });
+      } else if (inBottomMode) {
+        // The panel's buttons are ordinary DOM with their own onClick, so the
+        // walker clicks the focused one — the same event the mouse produces.
+        bottomWalkerRef.current?.activate();
       } else if (target?.kind === 'plus') {
         // On the plus: commit it, exactly as clicking it does.
         p.plusSignControlRef?.current?.activate?.();
+      } else if (target?.kind === 'group') {
+        // Selecting a group raises its bottom control panel, and the stick then
+        // steps that panel — see the GROUP branch in the stick section.
+        if (p.groupControlRef?.current?.select?.(target.id)) {
+          p.clearHoverImmediate?.();
+          bottomWalkerRef.current?.dispose?.();
+          // Lazily resolved: the panel mounts a commit or two after the
+          // selection that asks for it, and the walker is built to wait.
+          bottomWalkerRef.current = walkMenu('bottomPanel');
+          setPieFocusBoth(0);
+          setModeBoth(MODE.BOTTOM);
+        }
       } else if (nodeUnderCrosshair) {
         p.setSelectedInstanceIds?.(new Set([nodeUnderCrosshair.id]));
         // HoverVisionAid ranks hovered-connection, then hovered-node, then the
@@ -1361,6 +1454,11 @@ export const useGamepad = ({
       p.setSelectedInstanceIds?.(new Set());
       store.setSelectedEdgeId?.(null);
       store.clearSelectedEdgeIds?.();
+      // A selected group is its own selection, held outside selectedInstanceIds
+      // — clearing the node set does not touch it, so B has to say so.
+      p.groupControlRef?.current?.dismiss?.();
+      bottomWalkerRef.current?.dispose?.();
+      bottomWalkerRef.current = null;
       p.onPieMenuHoverChange?.(null);
       setPieFocusBoth(-1);
       setModeBoth(MODE.CANVAS);
@@ -1436,6 +1534,13 @@ export const useGamepad = ({
         const next = stepLineFocus(pieFocusedIndexRef.current, dir, list.length);
         if (next >= 0) setPieFocusBoth(next);
       }
+    } else if (inBottomMode) {
+      // One linear row of actions, so it is stepped exactly as a connection's
+      // menu is. The walker's synthesised hover raises the panel's own label
+      // chip on the way past, which is the same vision aid the pie menus give.
+      const dir = stickStep(left, 'group');
+      if (dir === 'left') bottomWalkerRef.current?.move(-1);
+      else if (dir === 'right') bottomWalkerRef.current?.move(1);
     } else if (inNodeMode) {
       // A ring, by contrast, IS aimed at: every option has its own direction,
       // so absolute aiming is both faster and more discoverable than stepping.
@@ -1466,6 +1571,8 @@ export const useGamepad = ({
     if (Math.abs(zoomInput) > 0) {
       zoomMultiplier = (GAMEPAD_ZOOM_BASE ** zoomInput) ** frameRatio;
     }
+
+    if (inBottomMode) bottomWalkerRef.current?.sync();
 
     // ---- Hover + auto-aim ------------------------------------------------
     // Reads modeRef, not the `inMenuMode` computed at the top of this tick: the

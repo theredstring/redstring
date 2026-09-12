@@ -15,14 +15,24 @@ import React from 'react';
  * coordinates are measured in.
  */
 
-// Half the length of each arm, in px. Big enough to aim with, small enough not
-// to obscure a node label underneath it.
-const ARM = 9;
+// Half the length of each arm, in px, at scale 1. Deliberately small: this
+// thing sits ON the node being aimed at, not beside it, so every pixel of arm
+// is a pixel of node label covered. Settings → Input scales it, because how
+// big a reticle wants to be depends on the display and on how much occlusion
+// the user will trade for visibility.
+const ARM = 6;
+// Not scaled with the arms. A bar under 2px lands on fractional device pixels
+// and turns into a grey smear; above 2 it reads as a shape rather than as a
+// sight. Length is what conveys size here.
 const THICKNESS = 2;
 const OPACITY = 0.5;
 
-const GamepadCrosshair = ({ visible, viewportBounds, headerHeight = 0 }) => {
+const GamepadCrosshair = ({ visible, viewportBounds, headerHeight = 0, scale = 1 }) => {
   if (!visible || !viewportBounds) return null;
+
+  // Rounded so both arms land on whole pixels and the two bars stay visually
+  // identical; a half-pixel arm antialiases one end and not the other.
+  const arm = Math.max(2, Math.round(ARM * scale));
 
   // `.canvas-area` starts below the header and to the right of the left panel,
   // so convert the window-space bounds into offsets within that box.
@@ -53,9 +63,9 @@ const GamepadCrosshair = ({ visible, viewportBounds, headerHeight = 0 }) => {
       <div
         style={{
           ...bar,
-          left: centerX - ARM,
+          left: centerX - arm,
           top: centerY - THICKNESS / 2,
-          width: ARM * 2,
+          width: arm * 2,
           height: THICKNESS,
         }}
       />
@@ -63,9 +73,9 @@ const GamepadCrosshair = ({ visible, viewportBounds, headerHeight = 0 }) => {
         style={{
           ...bar,
           left: centerX - THICKNESS / 2,
-          top: centerY - ARM,
+          top: centerY - arm,
           width: THICKNESS,
-          height: ARM * 2,
+          height: arm * 2,
         }}
       />
     </div>

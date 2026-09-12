@@ -106,6 +106,23 @@ const SELECTORS = {
     closeAway: true,
     palette: '.unified-selector-color-button',
   },
+  // The bottom control panel — the row of actions that appears for a selected
+  // group, a node-group, or a multi-selection. Not a pie menu despite the class
+  // name: it is one linear row, so it is stepped rather than aimed at.
+  //
+  // Its buttons raise the same label chip the pie menu's do, through their own
+  // onMouseEnter — so the walker's synthesised hover gets the controller the
+  // hover vision aid here for free, with nothing extra wired.
+  bottomPanel: {
+    root: '.unified-bottom-panel',
+    rows: '.piemenu-button',
+    parent: null,
+    opener: null,
+    grid: false,
+    // Dismissal belongs to whoever owns the selection this panel is about, so
+    // the pad clears that directly instead of clicking something here.
+    closer: null,
+  },
   actions: {
     // The header's action buttons. In wide layout these are inline in the
     // header bar and always mounted; below EXCLUSIVE_PANEL_MODE_THRESHOLD they

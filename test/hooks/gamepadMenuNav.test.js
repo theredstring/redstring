@@ -449,3 +449,73 @@ describe('walkMenu — closing a colour picker from anywhere', () => {
     expect(walkMenu('nodeGrid').close()).toBe(false);
   });
 });
+
+/**
+ * The bottom control panel is the surface a selected group, a node-group, and
+ * a multi-selection all raise. Its buttons carry their own onMouseEnter that
+ * raises the same label chip the canvas pie menu uses, so the walker's
+ * synthesised hover gets the controller that vision aid with nothing extra
+ * wired — which is what these pin down.
+ */
+describe('walkMenu — the bottom control panel', () => {
+  const mountPanel = (labels) => {
+    const panel = document.createElement('div');
+    panel.className = 'unified-bottom-panel';
+    document.body.appendChild(panel);
+    const hovered = [];
+    const clicked = [];
+    labels.forEach((label, i) => {
+      const btn = document.createElement('div');
+      btn.className = 'piemenu-button';
+      btn.dataset.label = label;
+      btn.addEventListener('mouseenter', () => hovered.push(label));
+      btn.addEventListener('click', () => clicked.push(label));
+      panel.appendChild(sized(btn, { top: 0, left: i * 50, width: 44, height: 44 }));
+    });
+    return { panel, hovered, clicked };
+  };
+
+  it('steps the row and activates the focused action', () => {
+    const { clicked } = mountPanel(['Group Selection', 'Copy', 'Delete']);
+    const w = walkMenu('bottomPanel');
+    expect(document.querySelector(`.${FOCUS_CLASS}`).dataset.label).toBe('Group Selection');
+    w.move(1);
+    expect(document.querySelector(`.${FOCUS_CLASS}`).dataset.label).toBe('Copy');
+    w.activate();
+    expect(clicked).toEqual(['Copy']);
+  });
+
+  it('raises each button label chip on the way past', () => {
+    const { hovered } = mountPanel(['Ungroup', 'Edit', 'Color']);
+    const w = walkMenu('bottomPanel');
+    w.move(1);
+    w.move(1);
+    expect(hovered).toEqual(['Ungroup', 'Edit', 'Color']);
+  });
+
+  /**
+   * The panel re-renders constantly — every selection change rebuilds its
+   * button row — so the walker has to find its rows on whichever later frame
+   * they appear rather than capturing them when it was built.
+   */
+  it('picks up buttons that mount after it was created', () => {
+    const panel = document.createElement('div');
+    panel.className = 'unified-bottom-panel';
+    document.body.appendChild(panel);
+
+    const w = walkMenu('bottomPanel');
+    expect(document.querySelector(`.${FOCUS_CLASS}`)).toBeNull();
+
+    const btn = document.createElement('div');
+    btn.className = 'piemenu-button';
+    btn.dataset.label = 'late';
+    panel.appendChild(sized(btn, { top: 0, left: 0, width: 44, height: 44 }));
+    w.sync();
+    expect(document.querySelector(`.${FOCUS_CLASS}`).dataset.label).toBe('late');
+  });
+
+  it('has no dismissal of its own — the selection owns that', () => {
+    mountPanel(['Copy']);
+    expect(walkMenu('bottomPanel').close()).toBe(false);
+  });
+});
