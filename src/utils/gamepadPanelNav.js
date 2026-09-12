@@ -41,6 +41,10 @@ export { FOCUS_CLASS };
 export const NAV_ATTR = 'data-nav';
 /** On a `section`, whether it is currently open. Drives left/right. */
 export const NAV_EXPANDED_ATTR = 'data-nav-expanded';
+/** The panel's own tab strip — see stepTab. */
+export const TABSTRIP_ATTR = 'data-panel-tabstrip';
+/** On a `tab`, whether it is the one currently showing. */
+export const NAV_ACTIVE_ATTR = 'data-active';
 
 export const PANEL_ROOTS = {
   left: '.panel-container.left',
@@ -72,15 +76,16 @@ const fire = (el, type) => {
  * list has its own scroller with its own extent. Walking up from the focused
  * element finds whichever one the focused element actually lives in.
  */
-const scrollParent = (el, root) => {
+const scrollParent = (el, root, axis = 'y') => {
+  const overflowProp = axis === 'x' ? 'overflowX' : 'overflowY';
   let node = el?.parentElement;
   while (node && node !== root?.parentElement) {
     const style = window.getComputedStyle?.(node);
-    const overflowY = style?.overflowY;
-    if ((overflowY === 'auto' || overflowY === 'scroll')
-      && node.scrollHeight > node.clientHeight + 1) {
-      return node;
-    }
+    const overflow = style?.[overflowProp];
+    const extent = axis === 'x'
+      ? node.scrollWidth > node.clientWidth + 1
+      : node.scrollHeight > node.clientHeight + 1;
+    if ((overflow === 'auto' || overflow === 'scroll') && extent) return node;
     node = node.parentElement;
   }
   return null;
@@ -91,6 +96,41 @@ const scrollParent = (el, root) => {
  * out in rows. DOM order is kept as the tiebreak so two elements that happen
  * to share a centre still have a stable order.
  */
+/**
+ * Step the panel's own tabs — the left panel's view icons, the right panel's
+ * Home + open node tabs.
+ *
+ * Bound to the bumpers rather than to a walk up to the tab strip, because
+ * switching tabs is the one panel action you want from anywhere in the panel:
+ * a strip at the top that had to be walked to would put five presses between
+ * you and the view next door. Stepping is done by CLICKING the neighbouring
+ * tab, not by calling a store action, because the two sides hold their
+ * selection in different places — the left panel's view is local component
+ * state — and a click is the one instruction both of them already understand.
+ *
+ * @param {'left'|'right'} side
+ * @param {-1|1} delta
+ * @returns {boolean} whether a tab was actually stepped to
+ */
+export const stepTab = (side, delta) => {
+  const root = document.querySelector(PANEL_ROOTS[side]);
+  const strip = root?.querySelector(`[${TABSTRIP_ATTR}]`);
+  if (!strip) return false;
+  const tabs = Array.from(strip.querySelectorAll(`[${NAV_ATTR}="tab"]`)).filter(visible);
+  if (tabs.length < 2) return false;
+  // No tab marked active means the strip is mid-render; doing nothing is
+  // better than stepping from a guessed origin.
+  const at = tabs.findIndex(el => el.getAttribute(NAV_ACTIVE_ATTR) === 'true');
+  if (at < 0) return false;
+  const next = tabs[at + delta];
+  if (!next) return false;
+  // The right panel's strip scrolls horizontally, so the tab stepped onto is
+  // routinely outside the visible run of it.
+  next.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  next.click?.();
+  return true;
+};
+
 const collect = (side) => {
   const root = document.querySelector(PANEL_ROOTS[side]);
   if (!root) return { root: null, boxes: [] };
@@ -217,6 +257,19 @@ export const createPanelNavigator = () => {
         const idx = row.findIndex(b => b.el === focused);
         const next = row[idx + dx];
         if (next) return setFocus(next.el) ? 'moved' : 'none';
+        // The right panel's tab strip scrolls sideways, so running out of row
+        // is not the same as running out of tabs — the same distinction the
+        // vertical branch makes for virtualised lists, for the same reason.
+        const across = scrollParent(focused, root, 'x');
+        if (across) {
+          const room = dx > 0
+            ? across.scrollWidth - across.clientWidth - across.scrollLeft
+            : across.scrollLeft;
+          if (room > 1) {
+            across.scrollLeft += dx * Math.min(SCROLL_STEP_PX, room);
+            return 'scrolled';
+          }
+        }
         return 'edge';
       }
 

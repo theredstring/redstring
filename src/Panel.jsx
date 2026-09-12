@@ -2036,6 +2036,11 @@ const Panel = memo(forwardRef(
         {/* Main Sliding Panel Container */}
         <div
           ref={panelRef} // Assign ref here
+          // The handle the game controller's panel navigator roots at, and the
+          // scope the controller focus ring is written against (see
+          // gamepadPanelNav's PANEL_ROOTS and index.css). It carries no layout:
+          // everything geometric about this element is inline, right below.
+          className={`panel-container ${side}`}
           data-panel-ready={isStoreReady ? 'ready' : 'loading'}
           style={{
             position: 'fixed',
@@ -2059,6 +2064,11 @@ const Panel = memo(forwardRef(
 
           {/* Main Header Row Container */}
           <div
+            // The panel's tab strip, whichever kind of tabs this side has. The
+            // controller's bumpers step the tabs INSIDE this row specifically —
+            // `data-nav="tab"` alone is not enough to find them, because a view
+            // can have its own sub-tabs further down (LeftHistoryView does).
+            data-panel-tabstrip="true"
             style={{
               height: 50,
               backgroundColor: (() => {
@@ -2202,6 +2212,7 @@ const Panel = memo(forwardRef(
                       title="Home"
                       key="home"
                       data-nav="tab"
+                      data-active={isActive}
                       style={{
                         width: 50,
                         height: 50,

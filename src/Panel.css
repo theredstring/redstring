@@ -102,67 +102,18 @@ header .editable-title-input {
   animation: spin 1s linear infinite;
 }
 
-/* Base styles for panels */
-.panel-container {
-  position: relative; /* Changed from absolute */
-  height: 100%; /* Full height of parent container */
-  display: flex;
-  flex-direction: column;
-  background-color: var(--canvas-bg); /* Match active tab color */
-  box-shadow: 0 0 5px rgba(0,0,0,0.1);
-  z-index: 100;
-  margin: 0; /* Removed margin */
-  border-radius: 0; /* Removed border-radius */
-  transition: width 0.3s ease; /* Animate width changes */
-  overflow: hidden; /* Hide content when collapsed */
-  font-family: 'EmOne', sans-serif;
-}
-
-/* Left-side panel specifics */
-.panel-container.left {
-  border-right: 1px solid #260000;
-  width: 300px; /* Example starting width */
-}
-
-/* Collapsed left panel styles */
-.panel-container.left.collapsed {
-  width: 0; /* Collapse fully */
-  border-right: none; /* Hide border when collapsed */
-  padding: 0; /* Remove padding */
-}
-/* Add a class for the container when the left panel is collapsed */
-.left-panel-collapsed .panel-container.left {
-    /* Styles when left panel specifically is collapsed */
-    width: 0;
-}
-
-
-/* Right-side panel specifics */
-.panel-container.right {
-  /* border-left: 1px solid #ccc; */ /* Remove border */
-  width: 350px; /* Default expanded width */
-  /* height: calc(100vh - 60px); */ /* Remove explicit height, rely on flexbox */
-  /* position: absolute; */ /* Remove absolute positioning */
-  /* right: 0; */
-  /* top: 60px; */
-  /* bottom: 0; */
-  flex-shrink: 0; /* Prevent shrinking */
-  /* Ensure other styles like background, transition are kept */
-}
-
-/* Collapsed right panel styles */
-.panel-container.right.collapsed {
-  width: 40px; /* Narrow width when collapsed */
-  /* border-left: none; */ /* Border already removed */
-  padding: 0; /* Remove padding */
-  overflow: hidden; /* Ensure content is hidden when collapsed */
-  /* Ensure toggle button remains visible/accessible */
-}
-
-/* Remove the specific class for right-panel-collapsed as we use .collapsed directly */
-/* .right-panel-collapsed .panel-container.right {
-    width: 0;
-} */
+/* `.panel-container` is a HANDLE, NOT A STYLE.
+ *
+ * It used to carry this file's panel layout — position, fixed 300px/350px
+ * widths, a `.collapsed` variant — from a version of Panel that laid the panels
+ * out in normal flow. Panel now positions itself entirely with inline styles
+ * (fixed, dynamic width, transform-driven collapse), and for a long while the
+ * class was simply not rendered at all: the rules below applied to nothing, and
+ * so did everything else that named the class — including the game controller's
+ * panel navigator, which roots at `.panel-container.left` / `.right`, and the
+ * controller focus ring in index.css. The class is rendered again so those work;
+ * the dead layout is gone so it cannot fight the inline styles that replaced it.
+ */
 
 
 /* --- Toggle Button --- */

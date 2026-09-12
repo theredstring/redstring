@@ -86,6 +86,9 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
       ref={ref}
       className="panel-tab"
       data-nav="tab"
+      // Which tab the controller's bumpers are stepping FROM. The left panel's
+      // view tabs declare the same thing; both sides answer it the same way.
+      data-active={isActive}
       data-has-context-menu="true"
       style={{
         opacity,

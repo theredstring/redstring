@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createPanelNavigator, FOCUS_CLASS } from '../../src/utils/gamepadPanelNav.js';
+import { createPanelNavigator, stepTab, FOCUS_CLASS } from '../../src/utils/gamepadPanelNav.js';
 
 /**
  * The navigator reads declared structure (`data-nav`) and real geometry, so
@@ -233,5 +233,108 @@ describe('panel navigator — focus lifecycle', () => {
     expect(n.enter('left')).toBe(false);
     expect(n.hasFocus()).toBe(false);
     expect(n.move(0, 1)).toBe('none');
+  });
+});
+
+/**
+ * The right panel's tab strip scrolls sideways, so "no tab further along this
+ * row" is not "no further tabs" — the same distinction the vertical walk makes
+ * for the virtualised grids.
+ */
+describe('panel navigator — scrolling sideways', () => {
+  const mountStrip = (side, { scrollWidth, clientWidth }) => {
+    const panel = mountPanel(side);
+    const strip = document.createElement('div');
+    strip.style.overflowX = 'auto';
+    Object.defineProperty(strip, 'scrollWidth', { value: scrollWidth, configurable: true });
+    Object.defineProperty(strip, 'clientWidth', { value: clientWidth, configurable: true });
+    strip.scrollLeft = 0;
+    panel.appendChild(at(strip, { top: 0, left: 0, width: clientWidth, height: 50 }));
+    return strip;
+  };
+
+  it('scrolls the strip instead of reporting an edge', () => {
+    const strip = mountStrip('right', { scrollWidth: 800, clientWidth: 200 });
+    nav(strip, 'tab', 'last-rendered', { top: 0, left: 0, width: 60, height: 50 });
+
+    const n = createPanelNavigator();
+    n.enter('right');
+    expect(n.move(1, 0)).toBe('scrolled');
+    expect(strip.scrollLeft).toBeGreaterThan(0);
+    expect(focusedLabel()).toBe('last-rendered');
+  });
+
+  it('reports an edge once the strip is at its end', () => {
+    const strip = mountStrip('right', { scrollWidth: 200, clientWidth: 200 });
+    nav(strip, 'tab', 'only', { top: 0, left: 0, width: 60, height: 50 });
+
+    const n = createPanelNavigator();
+    n.enter('right');
+    expect(n.move(1, 0)).toBe('edge');
+  });
+});
+
+describe('stepping the panel tabs', () => {
+  const mountTabs = (side, active) => {
+    const panel = mountPanel(side);
+    const strip = document.createElement('div');
+    strip.setAttribute('data-panel-tabstrip', 'true');
+    panel.appendChild(at(strip, { top: 0, left: 0, width: 200, height: 50 }));
+    return ['one', 'two', 'three'].map((label, i) => {
+      const el = nav(strip, 'tab', label, { top: 0, left: i * 50, width: 50, height: 50 });
+      el.setAttribute('data-active', String(label === active));
+      el.click = vi.fn();
+      return el;
+    });
+  };
+
+  it('clicks the next tab along', () => {
+    const [, two, three] = mountTabs('left', 'two');
+    expect(stepTab('left', 1)).toBe(true);
+    expect(three.click).toHaveBeenCalledTimes(1);
+    expect(two.click).not.toHaveBeenCalled();
+  });
+
+  it('clicks the previous tab', () => {
+    const [one, two] = mountTabs('right', 'two');
+    expect(stepTab('right', -1)).toBe(true);
+    expect(one.click).toHaveBeenCalledTimes(1);
+    expect(two.click).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Stopping at the ends rather than wrapping, and saying so — the caller
+   * falls back to stepping WEBS when the tabs have nothing left to give, so a
+   * wrap would make the far end of a strip a place you could never leave.
+   */
+  it('stops at the ends instead of wrapping', () => {
+    mountTabs('left', 'three');
+    expect(stepTab('left', 1)).toBe(false);
+  });
+
+  it('does nothing while no tab is marked active', () => {
+    const tabs = mountTabs('left', 'none-of-them');
+    expect(stepTab('left', 1)).toBe(false);
+    tabs.forEach(t => expect(t.click).not.toHaveBeenCalled());
+  });
+
+  /**
+   * A view can carry its own sub-tabs (LeftHistoryView does), and those are
+   * not the panel's tabs. Only the declared strip counts.
+   */
+  it('ignores tabs outside the panel’s own strip', () => {
+    const tabs = mountTabs('left', 'two');
+    const panel = document.querySelector('.panel-container.left');
+    const stray = nav(panel, 'tab', 'sub-tab', { top: 200, left: 0 });
+    stray.setAttribute('data-active', 'true');
+    stray.click = vi.fn();
+
+    expect(stepTab('left', 1)).toBe(true);
+    expect(tabs[2].click).toHaveBeenCalledTimes(1);
+    expect(stray.click).not.toHaveBeenCalled();
+  });
+
+  it('has no tabs to step when the panel is not mounted', () => {
+    expect(stepTab('right', 1)).toBe(false);
   });
 });

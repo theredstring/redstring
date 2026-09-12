@@ -247,6 +247,16 @@ const GAMEPAD_TUNING = {
   stickDeadzone: { key: 'redstring_gamepad_stick_deadzone', min: 0.02, max: 0.45, fallback: 0.18 },
 };
 
+/**
+ * Whether only one panel may be open at a time — see the PANEL LAYOUT section
+ * for why controller mode counts alongside a narrow window.
+ *
+ * @param {{ inputMode?: string }} state
+ */
+const panelsAreExclusive = (state) => (
+  state?.inputMode === 'gamepad' || isExclusivePanelMode()
+);
+
 /** Every gamepad tuning, loaded from storage through its own spec. */
 const readGamepadTuning = () => Object.fromEntries(
   Object.entries(GAMEPAD_TUNING).map(([name, spec]) => (
@@ -1936,36 +1946,49 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // --- Actions --- (Operating on plain data)
 
     // ─── PANEL LAYOUT ────────────────────────────────────────────────────────────
-    // Opening a panel below EXCLUSIVE_PANEL_MODE_THRESHOLD closes the other one
-    // here, in the store, so every open path gets it — not just the toggle
-    // buttons. Callers like the node double-tap/double-click only ask for the
-    // right panel; without this the two panels end up open together and
-    // NodeCanvas's exclusivity effect closes the right one right back.
+    // Opening a panel while panels are EXCLUSIVE closes the other one here, in
+    // the store, so every open path gets it — not just the toggle buttons.
+    // Callers like the node double-tap/double-click only ask for the right
+    // panel; without this the two panels end up open together and NodeCanvas's
+    // exclusivity effect closes the right one right back.
+    //
+    // Two things make panels exclusive, and they are exclusive for the same
+    // reason rather than by coincidence: a window below
+    // EXCLUSIVE_PANEL_MODE_THRESHOLD has no room for two, and a game controller
+    // has no room for two either — not on screen, but in the hand. The d-pad is
+    // the panels' instrument and it is one instrument, so it has to have one
+    // unambiguous answer to "which panel am I in". See useGamepad's d-pad block.
+    //
+    // Note this is the exclusivity RULE only. Controller mode deliberately does
+    // NOT adopt the rest of the narrow-window layout: panels keep pushing the
+    // canvas rather than overlaying it, because the crosshair is centred on the
+    // canvas the panels leave behind, and an overlaying panel would sit on top
+    // of the reticle.
     /**
-     * Sets whether the left panel is expanded. In exclusive panel mode, opening
-     * it closes the right panel.
+     * Sets whether the left panel is expanded. While panels are exclusive,
+     * opening it closes the right panel.
      * @param {boolean} expanded
      */
-    setLeftPanelExpanded: (expanded) => set(
-      expanded && isExclusivePanelMode()
+    setLeftPanelExpanded: (expanded) => set(state => (
+      expanded && panelsAreExclusive(state)
         ? { leftPanelExpanded: true, rightPanelExpanded: false }
         : { leftPanelExpanded: expanded }
-    ),
+    )),
     /** @param {boolean} expanded */
-    setRightPanelExpanded: (expanded) => set(
-      expanded && isExclusivePanelMode()
+    setRightPanelExpanded: (expanded) => set(state => (
+      expanded && panelsAreExclusive(state)
         ? { rightPanelExpanded: true, leftPanelExpanded: false }
         : { rightPanelExpanded: expanded }
-    ),
+    )),
     /** Toggles the left panel open/closed. */
     toggleLeftPanel: () => set(state => (
-      !state.leftPanelExpanded && isExclusivePanelMode()
+      !state.leftPanelExpanded && panelsAreExclusive(state)
         ? { leftPanelExpanded: true, rightPanelExpanded: false }
         : { leftPanelExpanded: !state.leftPanelExpanded }
     )),
     /** Toggles the right panel open/closed. */
     toggleRightPanel: () => set(state => (
-      !state.rightPanelExpanded && isExclusivePanelMode()
+      !state.rightPanelExpanded && panelsAreExclusive(state)
         ? { rightPanelExpanded: true, leftPanelExpanded: false }
         : { rightPanelExpanded: !state.rightPanelExpanded }
     )),

@@ -4,7 +4,7 @@ import useGraphStore from '../store/graphStore.js';
 import { isInsideNode } from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
 import { walkMenu, detectOpenSelector, isColorPickerOpen, isContextMenuOpen } from '../utils/gamepadMenuNav.js';
-import { createPanelNavigator } from '../utils/gamepadPanelNav.js';
+import { createPanelNavigator, stepTab } from '../utils/gamepadPanelNav.js';
 import { lineModeLayout } from '../utils/pieMenuLayout.js';
 import { panToPlacePointAt, createDriftController, crosshairCenter } from '../utils/gamepadAim.js';
 
@@ -1377,7 +1377,19 @@ export const useGamepad = ({
       activeRef.current = true;
       setActive(true);
       justActivated = true;
-      useGraphStore.getState().setInputMode?.('gamepad');
+      const engaged = useGraphStore.getState();
+      engaged.setInputMode?.('gamepad');
+      // Controller mode is one panel at a time (see the PANEL LAYOUT note in
+      // graphStore). Arriving with both open, the honest answer to "which one"
+      // is neither: closing one and keeping the other would be picking for the
+      // user, on no evidence, and leaving both would strand the d-pad between
+      // two panels it cannot both be in. Arriving with one open keeps it — that
+      // IS the answer. This can only ever bite on the first engage, since after
+      // it the store will not let two be open at once.
+      if (engaged.leftPanelExpanded && engaged.rightPanelExpanded) {
+        engaged.setLeftPanelExpanded?.(false);
+        engaged.setRightPanelExpanded?.(false);
+      }
     }
 
     // Canvas interaction needs a graph to act on. The overlay walkers do NOT —
@@ -1759,6 +1771,26 @@ export const useGamepad = ({
       if (curIdx >= 0 && next) store.setActiveGraphTab?.(next);
     };
 
+    // At most one panel is open in controller mode, so "the panel" is a
+    // question with an answer. See the PANEL LAYOUT note in graphStore.
+    const openPanelSide = store.leftPanelExpanded ? 'left'
+      : (store.rightPanelExpanded ? 'right' : null);
+
+    /**
+     * The shoulder pair steps WHATEVER IS IN FRONT OF YOU — the open panel's
+     * tabs, or the open webs when no panel is up.
+     *
+     * One pair, two meanings, and they never collide because they are never
+     * both on screen: a panel covers its side of the app and its tabs are the
+     * nearest thing to step. The bumpers are where the hand expects a tab
+     * switch, and they sit at the top of the controller the way both strips sit
+     * at the top of what they belong to.
+     */
+    const stepSideways = (delta) => {
+      if (openPanelSide && stepTab(openPanelSide, delta)) return;
+      stepWeb(delta);
+    };
+
     // The control that is NOT holding the gesture keeps its immediate action.
     // Deliberately not `return`ing: a press here must not cost the frame's pan.
     if (!carrying && !resizeOnStick) {
@@ -1766,8 +1798,8 @@ export const useGamepad = ({
       if (buttons.justPressed[BTN.R3]) togglePanelSide('right');
     }
     if (!carrying && !inMenuMode && resizeOnStick) {
-      if (buttons.justPressed[BTN.LB]) stepWeb(-1);
-      else if (buttons.justPressed[BTN.RB]) stepWeb(1);
+      if (buttons.justPressed[BTN.LB]) stepSideways(-1);
+      else if (buttons.justPressed[BTN.RB]) stepSideways(1);
     }
 
     const armLeft = armButtonFor('left');
@@ -1831,7 +1863,7 @@ export const useGamepad = ({
         if (!panelResizeRef.current.resized) {
           // A tap, meaning whatever this control means when it isn't resizing.
           if (resizeOnStick) togglePanelSide(heldPanel);
-          else stepWeb(heldPanel === 'left' ? -1 : 1);
+          else stepSideways(heldPanel === 'left' ? -1 : 1);
         }
         // Persists once, at the end, and only if a width actually moved.
         endPanelResizeGesture();
@@ -1845,6 +1877,33 @@ export const useGamepad = ({
     // navigate() for the spatial rules.
     if (!carrying) {
       panelNavRef.current.sync();
+      // An open panel HAS the d-pad, immediately and always. The d-pad's whole
+      // job is the UI that isn't the canvas — the sticks and triggers fly the
+      // graph — and while a panel is open the panel is nearly all of that UI.
+      // So there is nothing to enter: opening a panel seats the focus, and it
+      // is re-seated here rather than at the toggle because a panel opens from
+      // half a dozen places (L3/R3, a pie action, a node double-click, the
+      // toggle tabs) and every one of them should land the same way.
+      //
+      // The header is the deliberate exception: pressing up hands the d-pad to
+      // the web tabs, and re-seating out from under that would make the header
+      // unreachable. Pressing down gives it back.
+      //
+      // Stated as "the focus belongs in the open panel" rather than "opening a
+      // panel moves the focus", so it is also true when the panel the d-pad was
+      // in is the one that CLOSED — a collapsed panel is transformed off screen
+      // rather than unmounted, so its rows stay findable and focus would
+      // otherwise sit in a panel nobody can see.
+      const nav = panelNavRef.current;
+      if (!openPanelSide) {
+        if (nav.hasFocus()) nav.clear();
+      } else if (headerFocusRef.current === null && nav.side() !== openPanelSide) {
+        nav.clear();
+        nav.enter(openPanelSide);
+        lastPanelSideRef.current = openPanelSide;
+      } else if (headerFocusRef.current === null && !nav.hasFocus()) {
+        nav.enter(openPanelSide);
+      }
       const dir = (repeats(BTN.DPAD_UP) ? 'up' : null)
         || (repeats(BTN.DPAD_DOWN) ? 'down' : null)
         || (repeats(BTN.DPAD_LEFT) ? 'left' : null)
@@ -2049,7 +2108,19 @@ export const useGamepad = ({
     // B gives up the d-pad's place before it does anything on the canvas, so
     // one button always means "back out of where I am" rather than needing the
     // user to remember which surface they last touched.
-    if (!carrying && buttons.justPressed[BTN.B] && clearNavFocus()) {
+    //
+    // With a panel open there is one place B canNOT back out of, and that is
+    // the panel itself: the seat is permanent while the panel is up, so B would
+    // be swallowed on every press and re-seated on the next frame, costing the
+    // canvas its deselect and giving nothing back. B still leaves the header,
+    // which lands back in the panel — and closing the panel, which is what
+    // actually releases the d-pad, is the stick click's job.
+    const backOutOfChrome = () => {
+      if (headerFocusRef.current !== null) { setHeaderFocusBoth(null); return true; }
+      if (openPanelSide) return false;
+      return clearNavFocus();
+    };
+    if (!carrying && buttons.justPressed[BTN.B] && backOutOfChrome()) {
       // Consumed.
     } else if (!carrying && buttons.justPressed[BTN.B]) {
       // B is the universal "back": it drops the plus wherever the crosshair
