@@ -66,4 +66,16 @@ describe('WizardIntentModal', () => {
     fireEvent.click(screen.getByText('Ask'));
     expect(onConfirm).not.toHaveBeenCalled();
   });
+
+  it('sizes rows inside the list rather than 28px past it', () => {
+    // box-sizing is not global in this app (App.css sets it on `body` only), so a
+    // row with width:100% plus padding and a border overhangs its container and
+    // the list's overflow-y turns that into a horizontal scrollbar.
+    const { container } = render(<WizardIntentModal {...base} />);
+    const rows = container.querySelectorAll('button[style*="border-radius: 8px"], div[style*="border-radius: 8px"]');
+    expect(rows.length).toBeGreaterThan(0);
+    rows.forEach((row) => {
+      expect(row.style.boxSizing, `row "${row.textContent.slice(0, 30)}" is not border-box`).toBe('border-box');
+    });
+  });
 });

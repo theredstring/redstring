@@ -72,6 +72,11 @@ const WizardIntentModal = ({
     alignItems: 'flex-start',
     gap: 10,
     width: '100%',
+    // box-sizing is NOT global in this app — App.css sets it on `body` alone — so
+    // width:100% plus this padding and border made every row 28px wider than the
+    // list that holds it. The list sets overflow-y, which computes overflow-x from
+    // `visible` to `auto`, so that overhang showed up as a horizontal scrollbar.
+    boxSizing: 'border-box',
     padding: '9px 12px',
     borderRadius: 8,
     cursor: 'pointer',
@@ -116,6 +121,7 @@ const WizardIntentModal = ({
         onClick={(e) => e.stopPropagation()}
         style={{
           width: 420,
+          boxSizing: 'border-box',
           maxWidth: 'calc(100vw - 40px)',
           maxHeight: 'calc(100vh - 40px)',
           display: 'flex',
