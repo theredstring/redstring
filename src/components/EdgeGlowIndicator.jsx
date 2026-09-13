@@ -1,61 +1,94 @@
-import React, { useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useViewportBounds } from '../hooks/useViewportBounds';
 import { getNodeDimensions } from '../utils';
-import { HEADER_HEIGHT, NODE_HEIGHT } from '../constants';
+import { NODE_HEIGHT } from '../constants';
 import useGraphStore from '../store/graphStore.js';
+import { resolveEdgeGlowQuality } from '../utils/colorUtils.js';
+
+// Where the canvas coordinate system's origin sits inside the 100k x 100k sheet.
+// NodeCanvas draws with offsetX/offsetY of -50000, so a node at canvas (0,0) is
+// half the sheet in from the corner.
+const CANVAS_ORIGIN = 50000;
 
 // How many distinct flare appearances exist. Every off-screen node draws a
-// blurred, gradient-filled, box-shadowed flare, and all of that geometry is
-// derived from `intensity`. Left continuous, each flare gets five freshly-built
-// style strings on every pan/zoom frame, which React must diff and write, and
-// which the compositor must re-rasterise. Quantised, the whole population
-// collapses onto this many cached appearances.
+// gradient-filled flare whose geometry is derived from `intensity`; left
+// continuous, that is a freshly-built style string per flare per frame.
+// Quantised, the whole population collapses onto this many cached appearances,
+// and a flare that only moved costs one transform write.
 const GLOW_INTENSITY_STEPS = 8;
 
-// Cache of the inner flare's style object, keyed by everything it depends on.
-// Returning the SAME object reference between frames is the point: React's
-// style diff then finds nothing to update, so a flare that only moved costs one
-// transform write instead of a full restyle.
+// Ceiling on how many flares are drawn at once.
+//
+// Flares live on a one-dimensional border, so past a few hundred they are
+// stacked several deep on every pixel of it and the ones underneath are not
+// telling anyone anything. This bounds the DOM the overlay can build when
+// someone picks a fixed appearance on a web far larger than that appearance was
+// meant for — 'adaptive' never gets near it. Overflow is dropped in node order,
+// which is stable for as long as the web is.
+const MAX_FLARES = 600;
+
+// Pool growth granularity. The flare count moves by ones as you pan; rounding
+// the pool up to a block means a gesture mounts DOM a handful of times instead
+// of on most of its frames.
+const POOL_CHUNK = 16;
+
+// Cache of the inner flare's CSS text, keyed by everything it depends on.
+// Assigning the SAME string is skipped outright by the paint below, so a flare
+// that only moved never touches its appearance.
 const glowStyleCache = new Map();
-const getFlareStyle = (color, intensity, isExclusiveMode) => {
-  const key = `${color}|${intensity}|${isExclusiveMode ? 1 : 0}`;
+
+/**
+ * The flare's own CSS, as one declaration block.
+ *
+ * A flare is a soft glow, and 'fancy' draws it as THREE soft glows stacked on
+ * top of each other: a radial-gradient fading out to transparent, a blur()
+ * filter over the top of it, and a blurred box-shadow around the border box
+ * which the filter then blurs a second time. Each one costs a full repaint for
+ * every flare on every frame it moves. Measured on the live app, 150 flares,
+ * median / p90 frame time against an 8.3ms floor:
+ *
+ *   gradient + blur + shadow ....  9.3 / 30.4    55 of 126 frames over 16ms
+ *   gradient + shadow ...........  8.4 / 15.8    14 of 142
+ *   gradient + blur .............  8.8 / 17.2    51 of 135
+ *   gradient alone ..............  8.3 /  9.3     3 of 142   <- at the floor
+ *
+ * A gradient that already runs to `transparent` IS a soft edge, so 'fast' drops
+ * the other two and does the whole job with the gradient, grown by BLEED to
+ * cover the area the blur used to reach into.
+ *
+ * That measurement is why the flares were cut back to 'fast' everywhere. What it
+ * does not say is that nobody should ever get the deeper glow — on a web whose
+ * flares number in the dozens, none of those p90s exist. Which one you get is
+ * now the edgeGlowMode setting's business, not this function's.
+ */
+const getFlareCss = (color, intensity, isExclusiveMode, quality) => {
+  const key = `${color}|${intensity}|${isExclusiveMode ? 1 : 0}|${quality}`;
   const hit = glowStyleCache.get(key);
   if (hit) return hit;
 
-  // A flare is a soft glow, and it used to be drawn as THREE soft glows stacked
-  // on top of each other: a radial-gradient fading out to transparent, a blur()
-  // filter over the top of it, and a blurred box-shadow around the border box
-  // which the filter then blurred a second time. Each one costs a full repaint
-  // for every flare on every frame it moves, and with a graph's worth of
-  // off-screen nodes there are a lot of flares. Measured on the live app, 150
-  // flares, median / p90 frame time against an 8.3ms floor:
-  //
-  //   gradient + blur + shadow ....  9.3 / 30.4    55 of 126 frames over 16ms
-  //   gradient + shadow ...........  8.4 / 15.8    14 of 142
-  //   gradient + blur .............  8.8 / 17.2    51 of 135
-  //   gradient alone ..............  8.3 /  9.3     3 of 142   <- at the floor
-  //
-  // A gradient that already runs to `transparent` IS the soft edge; the other
-  // two were re-softening something soft. So the gradient does the whole job
-  // now, grown to cover the area the blur used to bleed into and with its stops
-  // pulled inward to keep the same falloff.
-  const BLEED = 1.4; // what blur() used to add beyond the box
+  const fancy = quality === 'fancy';
+  // 'fast' has no blur to bleed past its box, so it grows to cover the same area.
+  const BLEED = fancy ? 1 : 1.4;
   const flareLength = (isExclusiveMode ? 10 + intensity * 4 : 14 + intensity * 6) * BLEED;
   const flareThickness = (isExclusiveMode ? 20 + intensity * 6 : 28 + intensity * 8) * BLEED;
   const glowAlpha = Math.round(intensity * 255 * 0.6).toString(16).padStart(2, '0');
 
-  const style = {
-    position: 'absolute',
-    left: -flareLength / 2,
-    top: -flareThickness / 2,
-    width: flareLength,
-    height: flareThickness,
-    borderRadius: flareThickness,
-    background: `radial-gradient(ellipse, ${color}${glowAlpha} 0%, ${color}30 45%, transparent 100%)`,
-  };
-  glowStyleCache.set(key, style);
-  return style;
+  let css = 'position:absolute;'
+    + `left:${-flareLength / 2}px;top:${-flareThickness / 2}px;`
+    + `width:${flareLength}px;height:${flareThickness}px;`
+    + `border-radius:${flareThickness}px;`
+    + `background:radial-gradient(ellipse, ${color}${glowAlpha} 0%, ${color}30 45%, transparent 100%);`;
+
+  if (fancy) {
+    css += `filter:blur(${(4 + intensity * 6).toFixed(1)}px);`
+      + `box-shadow:0 0 ${(8 + intensity * 14).toFixed(1)}px ${color}${glowAlpha};`;
+  }
+
+  glowStyleCache.set(key, css);
+  return css;
 };
+
+const roundUpToChunk = (n) => Math.min(MAX_FLARES, Math.ceil(n / POOL_CHUNK) * POOL_CHUNK);
 
 const EdgeGlowIndicator = ({
   nodes,
@@ -65,7 +98,6 @@ const EdgeGlowIndicator = ({
   panOffsetRef,
   zoomLevelRef,
   glowUpdateRef,
-  isViewMovingRef,
   leftPanelExpanded,
   rightPanelExpanded,
   previewingNodeId,
@@ -74,65 +106,9 @@ const EdgeGlowIndicator = ({
   showDirectionLines = false,
   canvasViewportSize // Pass in the fixed canvas viewport size
 }) => {
-  // Live pan/zoom state for rendering. Updated by an event-driven callback
-  // registered into `glowUpdateRef` — NodeCanvas's RAF-coalesced culling loop
-  // fires this on every transform change. No free-running RAF polling; zero
-  // work during idle.
-  const [livePan, setLivePan] = useState(panOffset);
-  const [liveZoom, setLiveZoom] = useState(zoomLevel);
-  const lastPanRef = useRef(panOffset);
-  const lastZoomRef = useRef(zoomLevel);
+  const edgeGlowMode = useGraphStore(state => state.edgeGlowMode);
+  const quality = resolveEdgeGlowQuality(edgeGlowMode, nodes?.length ?? 0);
 
-  useEffect(() => {
-    if (!glowUpdateRef || !panOffsetRef || !zoomLevelRef) return;
-    const update = () => {
-      // SUSPENDED WHILE THE VIEW MOVES.
-      //
-      // This fires once per RAF for the whole of a gesture, and each call used
-      // to commit two setStates — which re-runs `allNodeData` below over EVERY
-      // node in the graph (not the visible ones; off-screen nodes are the whole
-      // point of this component) allocating one object each. On a 120Hz
-      // trackpad that is up to 120 O(N) React commits per second, landing on
-      // exactly the frames where the browser is also re-rasterising a scaled
-      // SVG. Zoom is the worse client of the two gestures: the ease loop has a
-      // momentum tail, so it emits more mutations for longer than the input
-      // does, and the off-screen set changes monotonically under a scale, so
-      // flares mount and unmount every frame rather than just translating.
-      //
-      // Freezing the flares for the duration of a gesture and letting the
-      // settled props below put them right is invisible in practice — they are
-      // peripheral indicators — and turns O(nodes) x 60Hz into O(nodes) once.
-      if (isViewMovingRef?.current) return;
-      const curPan = panOffsetRef.current;
-      const curZoom = zoomLevelRef.current;
-      const last = lastPanRef.current;
-      if (curPan.x !== last.x || curPan.y !== last.y || curZoom !== lastZoomRef.current) {
-        lastPanRef.current = curPan;
-        lastZoomRef.current = curZoom;
-        setLivePan(curPan);
-        setLiveZoom(curZoom);
-      }
-    };
-    glowUpdateRef.current = update;
-    return () => {
-      if (glowUpdateRef.current === update) glowUpdateRef.current = null;
-    };
-  }, [glowUpdateRef, panOffsetRef, zoomLevelRef, isViewMovingRef]);
-
-  // The settle is now the recompute trigger, not just a fallback for when the
-  // refs are absent. `panOffset`/`zoomLevel` are NodeCanvas's settled state and
-  // change exactly once per gesture, SETTLE_DELAY ms after the last mutation —
-  // which is precisely when the suppressed `update` above should be made good.
-  // These must therefore run unconditionally; the old `if (!panOffsetRef)`
-  // guards meant they never fired whenever the live refs were supplied.
-  useEffect(() => {
-    lastPanRef.current = panOffset;
-    setLivePan(panOffset);
-  }, [panOffset]);
-  useEffect(() => {
-    lastZoomRef.current = zoomLevel;
-    setLiveZoom(zoomLevel);
-  }, [zoomLevel]);
   // Get TypeList visibility from store
   const typeListMode = useGraphStore(state => state.typeListMode);
   const typeListVisible = typeListMode !== 'closed';
@@ -145,15 +121,15 @@ const EdgeGlowIndicator = ({
 
   // The container's own rect, measured OUT of band.
   //
-  // allNodeData below re-runs on every pan/zoom tick (livePan/liveZoom are set
-  // from the transform callback), and it used to call getBoundingClientRect()
-  // on each one. That read lands immediately after the canvas has written its
-  // new SVG transform, so it forces a synchronous layout of a subtree that was
-  // just dirtied — and the cost of that flush is not symmetric between the two
-  // kinds of motion. A translate leaves SVG text layout intact; a SCALE change
-  // invalidates it, so every glyph, every rotation and every <textPath>
-  // arc-length parameterisation is resolved again before the rect can be
-  // returned. Measured on the label harness (median cost of the read alone):
+  // The paint below runs on every pan/zoom tick, and it used to call
+  // getBoundingClientRect() once per node on that path. That read lands
+  // immediately after the canvas has written its new SVG transform, so it forces
+  // a synchronous layout of a subtree that was just dirtied — and the cost of
+  // that flush is not symmetric between the two kinds of motion. A translate
+  // leaves SVG text layout intact; a SCALE change invalidates it, so every
+  // glyph, every rotation and every <textPath> arc-length parameterisation is
+  // resolved again before the rect can be returned. Measured on the label
+  // harness (median cost of the read alone):
   //
   //             labels     pan     zoom
   //   lines only   600     0.1      0.3
@@ -187,34 +163,28 @@ const EdgeGlowIndicator = ({
     // Panel/type-list toggles resize the container without firing `resize`.
   }, [containerRef, leftPanelExpanded, rightPanelExpanded, typeListVisible, viewportBounds]);
 
-  const nodeLookup = useMemo(() => {
-    if (!nodes?.length) return new Map();
-    const map = new Map();
-    nodes.forEach(node => {
-      map.set(node.id, node);
-    });
-    return map;
-  }, [nodes]);
+  // Per-node geometry that a moving view cannot change: the node's centre in
+  // canvas coordinates, and its colour.
+  //
+  // This is the O(nodes) half of the work — it calls getNodeDimensions, reads
+  // prototypes, and allocates — and none of it depends on pan or zoom, so it has
+  // no business running per frame. Split out here it runs when the web changes,
+  // and the paint below is left with flat arithmetic over typed arrays.
+  //
+  // Off-screen nodes are the whole point of this component, so this covers every
+  // node in the web rather than the visible ones. Which is exactly why it had to
+  // come off the per-frame path.
+  const geometry = useMemo(() => {
+    const list = nodes || [];
+    const count = list.length;
+    const cx = new Float64Array(count);
+    const cy = new Float64Array(count);
+    const colors = new Array(count);
+    const ids = new Array(count);
+    const labels = new Array(count);
 
-  const allNodeData = useMemo(() => {
-    if (!nodes?.length || !viewportBounds) return [];
-
-    // Container bounds, from the out-of-band measurement above — never read
-    // layout here, this memo is on the per-frame path.
-    const rect = containerRect;
-    if (!rect) return []; // Not measured yet, no coordinate calculations possible
-
-    // Calculate the actual visible viewport area in canvas coordinates
-    // Use the fixed canvas size for consistent coordinate system
-    const canvasViewportMinX = (-livePan.x) / liveZoom;
-    const canvasViewportMinY = (-livePan.y) / liveZoom;
-    const canvasViewportMaxX = canvasViewportMinX + canvasSize.width / liveZoom;
-    const canvasViewportMaxY = canvasViewportMinY + canvasSize.height / liveZoom;
-
-    const nodeData = [];
-
-    nodes.forEach(node => {
-      // Get node dimensions using the same pattern as working connections
+    for (let i = 0; i < count; i++) {
+      const node = list[i];
       const isNodePreviewing = previewingNodeId === node.id;
       const precomputedDims = baseDimensionsById instanceof Map
         ? baseDimensionsById.get(node.id)
@@ -223,172 +193,245 @@ const EdgeGlowIndicator = ({
         ? getNodeDimensions(node, true, null)
         : precomputedDims || getNodeDimensions(node, false, null);
 
-      // Calculate the center of the node using the EXACT same pattern as working connections
-      // From NodeCanvas.jsx line 6040-6043: const x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-      // and line 6041: const y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
-      const nodeCenterX = node.x + dims.currentWidth / 2;
-      const nodeCenterY = node.y + (isNodePreviewing ? NODE_HEIGHT / 2 : dims.currentHeight / 2);
+      cx[i] = node.x + dims.currentWidth / 2;
+      cy[i] = node.y + (isNodePreviewing ? NODE_HEIGHT / 2 : dims.currentHeight / 2);
+      colors[i] = node.color || node.prototype?.color || '#8B0000';
+      ids[i] = node.id;
+      labels[i] = node.name || node.prototype?.name || node.id;
+    }
 
-      // Calculate where the node center appears in screen coordinates
-      // Account for the canvas offset system (-50000, -50000) used in NodeCanvas
-      // The canvas coordinate system: (0,0) is at center of 100k x 100k canvas
-      // Node positions are in canvas coordinates, need to transform to screen coordinates
-      const canvasOffsetX = -50000; // From canvasSize.offsetX
-      const canvasOffsetY = -50000; // From canvasSize.offsetY
+    return { count, cx, cy, colors, ids, labels };
+  }, [nodes, baseDimensionsById, previewingNodeId]);
 
-      // Transform from canvas coordinates to screen coordinates
-      // NodeCanvas transform: translate(livePan.x - canvasOffsetX * liveZoom, livePan.y - canvasOffsetY * liveZoom) scale(liveZoom)
-      // Simplified: screenPos = (canvasPos + (-canvasOffset)) * liveZoom + livePan
-      // Since canvasOffset is -50000, -canvasOffset is +50000
-      // IMPORTANT: Add rect.left and rect.top like the original working version
-      const nodeScreenX = (nodeCenterX + (-canvasOffsetX)) * liveZoom + livePan.x + rect.left;
-      const nodeScreenY = (nodeCenterY + (-canvasOffsetY)) * liveZoom + livePan.y + rect.top;
+  // Everything the paint reads, held in refs so it can run from a transform
+  // callback without a stale closure and without re-subscribing per frame.
+  const geometryRef = useRef(geometry);
+  const viewportBoundsRef = useRef(viewportBounds);
+  const containerRectRef = useRef(containerRect);
+  const qualityRef = useRef(quality);
+  const settledPanRef = useRef(panOffset);
+  const settledZoomRef = useRef(zoomLevel);
+  geometryRef.current = geometry;
+  viewportBoundsRef.current = viewportBounds;
+  containerRectRef.current = containerRect;
+  qualityRef.current = quality;
+  settledPanRef.current = panOffset;
+  settledZoomRef.current = zoomLevel;
 
-      // Convert to overlay coordinates relative to the viewport bounds
-      const nodeOverlayX = nodeScreenX - viewportBounds.x;
-      const nodeOverlayY = nodeScreenY - viewportBounds.y;
+  // The flare pool. React owns how many slots exist; the paint owns what is in
+  // them. Slots carry the last values written to them so an unchanged frame
+  // costs zero DOM writes.
+  const [poolSize, setPoolSize] = useState(0);
+  const slotsRef = useRef([]);
+  const lastUsedRef = useRef(0);
 
-      // Check if the node center is outside the visible viewport area
-      // Use viewportBounds for the actual visible area (accounts for panels)
-      const isNodeCenterOutsideViewport = (
-        nodeOverlayX < 0 ||  // to the left of visible viewport
-        nodeOverlayX > viewportBounds.width ||   // to the right of visible viewport
-        nodeOverlayY < 0 || // above visible viewport
-        nodeOverlayY > viewportBounds.height       // below visible viewport
-      );
-
-      // Store all node data (for debug visualization)
-      const nodeInfo = {
-        id: node.id,
-        nodeCenterX,
-        nodeCenterY,
-        nodeOverlayX,
-        nodeOverlayY,
-        isOutsideViewport: isNodeCenterOutsideViewport,
-        label: node.name || node.prototype?.name || node.id
+  // Ref callbacks, cached per index. A fresh closure per render would make React
+  // detach and re-attach every slot on every commit, throwing away the
+  // last-written transform and CSS that let an unchanged frame cost nothing.
+  const slotRefCallbacks = useRef([]);
+  const setSlotRef = useCallback((index) => {
+    const cached = slotRefCallbacks.current[index];
+    if (cached) return cached;
+    const cb = (el) => {
+      const slots = slotsRef.current;
+      if (!el) {
+        slots[index] = null;
+        return;
+      }
+      slots[index] = {
+        outer: el,
+        inner: el.firstChild,
+        transform: null,
+        css: null,
+        // Matches the `display: none` React mounts the slot with. Getting this
+        // wrong leaves a written flare invisible, since the paint only clears
+        // `display` when it believes the slot is hidden.
+        hidden: true
       };
+    };
+    slotRefCallbacks.current[index] = cb;
+    return cb;
+  }, []);
 
-      nodeData.push(nodeInfo);
-    });
+  /**
+   * Places every off-screen node's flare on the viewport border, writing DOM
+   * directly.
+   *
+   * THIS RUNS DURING MOTION, which is the whole point of it. It used to be a
+   * pair of setStates, which re-ran an O(nodes) memo and committed the entire
+   * flare list through React on every frame of a gesture — so it was suppressed
+   * for the duration of one and left to catch up on settle. That is what made
+   * the flares look broken on a large web: they sat still through the pan and
+   * jumped into place SETTLE_DELAY after it, which reads as "the glow stopped
+   * working", and the bigger the web the longer the gesture and the more obvious
+   * the jump.
+   *
+   * Going around React is what makes tracking affordable. There is nothing here
+   * to reconcile: a frame is a transform string per visible flare and nothing
+   * else, since the appearance only changes when a flare crosses an intensity
+   * bucket. Mounting is bounded by the pool, which grows in blocks and only
+   * shrinks once the view has settled, so the mount/unmount churn that made zoom
+   * worse than pan — the off-screen set changes monotonically under a scale —
+   * does not happen either.
+   */
+  const paint = useCallback(() => {
+    const geo = geometryRef.current;
+    const vb = viewportBoundsRef.current;
+    const rect = containerRectRef.current;
+    const q = qualityRef.current;
+    const slots = slotsRef.current;
+    if (!geo || !geo.count || !vb || !rect || q === 'off') {
+      lastUsedRef.current = 0;
+      return;
+    }
 
-    return nodeData;
-  }, [nodes, livePan, liveZoom, viewportBounds, previewingNodeId, containerRect, canvasSize, baseDimensionsById]);
+    const pan = panOffsetRef?.current || settledPanRef.current;
+    const zoom = zoomLevelRef?.current || settledZoomRef.current;
+    if (!pan || !zoom) return;
 
-  const offScreenGlows = useMemo(() => {
-    const glows = [];
+    const { count, cx, cy, colors } = geo;
+    const W = vb.width;
+    const H = vb.height;
+    const halfW = W / 2;
+    const halfH = H / 2;
+    const exclusive = vb.isExclusiveMode ? 1 : 0;
 
-    allNodeData.forEach(nodeInfo => {
-      if (!nodeInfo.isOutsideViewport) return; // Only create glows for nodes outside viewport
+    // Canvas centre -> overlay coordinates collapses to one multiply-add per
+    // axis once the constant part is lifted out of the loop.
+    const originX = CANVAS_ORIGIN * zoom + pan.x + rect.left - vb.x;
+    const originY = CANVAS_ORIGIN * zoom + pan.y + rect.top - vb.y;
 
-      // Calculate line intersection: where the line from viewport center to node intersects viewport boundary
-      const containerW = viewportBounds.width;
-      const containerH = viewportBounds.height;
-      const centerX = containerW / 2;
-      const centerY = containerH / 2;
+    const poolLen = slots.length;
+    let used = 0;
 
-      // Use the node position from nodeInfo
-      const nodePxX = nodeInfo.nodeOverlayX;
-      const nodePxY = nodeInfo.nodeOverlayY;
+    for (let i = 0; i < count; i++) {
+      const px = cx[i] * zoom + originX;
+      const py = cy[i] * zoom + originY;
+      if (px >= 0 && px <= W && py >= 0 && py <= H) continue; // on screen, no flare
 
-      // Calculate direction vector from center to node
-      const dx = nodePxX - centerX;
-      const dy = nodePxY - centerY;
+      if (used >= MAX_FLARES) { used = MAX_FLARES; break; }
+      const slot = used < poolLen ? slots[used] : null;
+      used++;
+      if (!slot) continue; // pool too small; grown below and repainted
 
-      // Find intersection with viewport rectangle edges
-      let screenX, screenY;
+      // Where the ray from the viewport centre to the node leaves the viewport.
+      // The rectangle is centred on that ray's origin, so the exit is whichever
+      // of the two axis crossings comes first — no candidate list needed.
+      const dx = px - halfW;
+      const dy = py - halfH;
+      const tx = dx !== 0 ? halfW / Math.abs(dx) : Infinity;
+      const ty = dy !== 0 ? halfH / Math.abs(dy) : Infinity;
 
-      // Calculate intersection with each edge and find the valid one
-      const intersections = [];
-
-      // Left edge (x = 0)
-      if (dx !== 0) {
-        const t = -centerX / dx;
-        const y = centerY + t * dy;
-        if (t > 0 && y >= 0 && y <= containerH) {
-          intersections.push({ x: 0, y, t });
-        }
-      }
-
-      // Right edge (x = containerW)
-      if (dx !== 0) {
-        const t = (containerW - centerX) / dx;
-        const y = centerY + t * dy;
-        if (t > 0 && y >= 0 && y <= containerH) {
-          intersections.push({ x: containerW, y, t });
-        }
-      }
-
-      // Top edge (y = 0)
-      if (dy !== 0) {
-        const t = -centerY / dy;
-        const x = centerX + t * dx;
-        if (t > 0 && x >= 0 && x <= containerW) {
-          intersections.push({ x, y: 0, t });
-        }
-      }
-
-      // Bottom edge (y = containerH)
-      if (dy !== 0) {
-        const t = (containerH - centerY) / dy;
-        const x = centerX + t * dx;
-        if (t > 0 && x >= 0 && x <= containerW) {
-          intersections.push({ x, y: containerH, t });
-        }
-      }
-
-      // Use the intersection with the smallest t (closest to center)
-      if (intersections.length > 0) {
-        const closestIntersection = intersections.reduce((min, curr) => curr.t < min.t ? curr : min);
-        screenX = closestIntersection.x;
-        screenY = closestIntersection.y;
+      let translateX;
+      let translateY;
+      let rotation;
+      if (tx <= ty) {
+        // Leaves through a vertical edge. Rides 3px further out for visibility.
+        translateY = Math.round(halfH + tx * dy);
+        if (dx < 0) { translateX = -3; rotation = 0; }
+        else { translateX = Math.round(W) + 3; rotation = 180; }
       } else {
-        // Fallback to center if no intersection found (shouldn't happen)
-        screenX = centerX;
-        screenY = centerY;
+        translateX = Math.round(halfW + ty * dx);
+        if (dy < 0) { translateY = -3; rotation = 90; }
+        else { translateY = Math.round(H) + 3; rotation = -90; }
       }
 
-      // Calculate intensity based on distance from viewport center
-      const viewportCenterPxX = containerW / 2;
-      const viewportCenterPxY = containerH / 2;
-      const distance = Math.sqrt((nodePxX - viewportCenterPxX) ** 2 + (nodePxY - viewportCenterPxY) ** 2);
-      // Snapped into buckets. Intensity feeds the flare's size, alpha, blur
-      // radius, gradient stops and box-shadow — so a continuously-varying value
-      // rebuilds five style strings per flare per frame, and React then diffs
-      // and writes every one of them. Nobody can see a 1% change in a blur
-      // radius; bucketing makes the appearance identical between frames so the
-      // style objects below can be reused outright. See GLOW_INTENSITY_STEPS.
+      // Bucketed. Intensity feeds the flare's size, alpha, gradient stops and —
+      // in 'fancy' — its blur radius and shadow, so a continuously-varying value
+      // rebuilds the whole declaration block every frame. Nobody can see a 1%
+      // change in a blur radius. See GLOW_INTENSITY_STEPS.
+      const distance = Math.sqrt(dx * dx + dy * dy);
       const rawIntensity = Math.max(0.4, Math.min(1, 2000 / (distance + 200)));
       const intensity = Math.round(rawIntensity * GLOW_INTENSITY_STEPS) / GLOW_INTENSITY_STEPS;
 
-      // Get node color (fallback to default if not specified)
-      const node = nodeLookup.get(nodeInfo.id);
-      const nodeColor = node?.color || node?.prototype?.color || '#8B0000';
+      const outer = slot.outer;
+      const inner = slot.inner;
+      if (!outer || !inner) continue;
 
-      // Determine which edge we're on (to orient the flare)
-      const edgeEpsilon = 0.75;
-      let edge = 'left';
-      if (Math.abs(screenX - 0) < edgeEpsilon) edge = 'left';
-      else if (Math.abs(screenX - containerW) < edgeEpsilon) edge = 'right';
-      else if (Math.abs(screenY - 0) < edgeEpsilon) edge = 'top';
-      else if (Math.abs(screenY - containerH) < edgeEpsilon) edge = 'bottom';
+      if (slot.hidden) { outer.style.display = ''; slot.hidden = false; }
 
-      glows.push({
-        id: nodeInfo.id,
-        screenX, // Already relative to overlay container
-        screenY, // Already relative to overlay container
-        color: nodeColor,
-        intensity,
-        edge,
-        nodeCenterX: nodeInfo.nodeCenterX,
-        nodeCenterY: nodeInfo.nodeCenterY,
-        label: nodeInfo.label
+      const transform = `translate(${translateX}px, ${translateY}px) rotate(${rotation}deg)`;
+      if (slot.transform !== transform) {
+        outer.style.transform = transform;
+        slot.transform = transform;
+      }
+
+      const css = getFlareCss(colors[i], intensity, exclusive, q);
+      if (slot.css !== css) {
+        inner.style.cssText = css;
+        slot.css = css;
+      }
+    }
+
+    for (let j = used; j < poolLen; j++) {
+      const slot = slots[j];
+      if (!slot || slot.hidden || !slot.outer) continue;
+      slot.outer.style.display = 'none';
+      slot.hidden = true;
+    }
+
+    lastUsedRef.current = used;
+    // Grow only. Shrinking mid-gesture would unmount flares that the next frame
+    // wants back; the settle below gives the pool back its slack.
+    if (used > poolLen) setPoolSize(prev => Math.max(prev, roundUpToChunk(used)));
+  }, [panOffsetRef, zoomLevelRef]);
+
+  // Per-frame entry point. NodeCanvas's RAF-coalesced transform tick fires this
+  // on every pan/zoom mutation; no free-running RAF, and nothing at all on idle.
+  useEffect(() => {
+    if (!glowUpdateRef) return;
+    glowUpdateRef.current = paint;
+    return () => {
+      if (glowUpdateRef.current === paint) glowUpdateRef.current = null;
+    };
+  }, [glowUpdateRef, paint]);
+
+  // Repaint whenever something other than the transform changed the answer —
+  // including the pool having just resized, which is why poolSize is a
+  // dependency.
+  useLayoutEffect(() => {
+    // React detaches the refs of slots it just unmounted, leaving holes past the
+    // end of the pool. The paint indexes slots by flare number and would hand
+    // one of those holes a flare it then never draws, so cut the array back to
+    // what is actually mounted first.
+    if (slotsRef.current.length > poolSize) slotsRef.current.length = poolSize;
+    paint();
+  }, [paint, poolSize, geometry, viewportBounds, containerRect, quality, canvasSize]);
+
+  // The settle. `panOffset`/`zoomLevel` are NodeCanvas's settled state and change
+  // once per gesture, SETTLE_DELAY ms after the last mutation — the moment at
+  // which the pool can safely be handed back whatever slack the gesture claimed.
+  useLayoutEffect(() => {
+    paint();
+    const want = roundUpToChunk(lastUsedRef.current);
+    setPoolSize(prev => (prev === want ? prev : want));
+  }, [paint, panOffset, zoomLevel]);
+
+  // Debug overlays only. Deliberately driven by the SETTLED transform rather
+  // than the live one: these are diagnostics, and putting an O(nodes) React memo
+  // back on the per-frame path is the exact thing the paint above exists to
+  // avoid.
+  const debugNodes = useMemo(() => {
+    if (!showViewportDebug && !showDirectionLines) return [];
+    if (!viewportBounds || !containerRect || !geometry.count) return [];
+    const originX = CANVAS_ORIGIN * zoomLevel + panOffset.x + containerRect.left - viewportBounds.x;
+    const originY = CANVAS_ORIGIN * zoomLevel + panOffset.y + containerRect.top - viewportBounds.y;
+    const out = [];
+    for (let i = 0; i < geometry.count; i++) {
+      const x = geometry.cx[i] * zoomLevel + originX;
+      const y = geometry.cy[i] * zoomLevel + originY;
+      out.push({
+        id: geometry.ids[i],
+        label: geometry.labels[i],
+        nodeOverlayX: x,
+        nodeOverlayY: y,
+        isOutsideViewport: x < 0 || x > viewportBounds.width || y < 0 || y > viewportBounds.height
       });
-    });
+    }
+    return out;
+  }, [showViewportDebug, showDirectionLines, geometry, viewportBounds, containerRect, panOffset, zoomLevel]);
 
-    return glows;
-  }, [allNodeData, nodeLookup, viewportBounds]);
-
-  if (!viewportBounds) return null;
+  if (!viewportBounds || quality === 'off') return null;
 
   return (
     <div
@@ -420,23 +463,6 @@ const EdgeGlowIndicator = ({
         />
       )}
 
-      {/* Debug container outline */}
-      {showViewportDebug && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            width: '100%',
-            height: '100%',
-            border: '2px solid rgba(0, 255, 0, 0.8)',
-            boxSizing: 'border-box',
-            pointerEvents: 'none',
-            zIndex: 999998
-          }}
-        />
-      )}
-
       {/* Debug direction lines */}
       {showDirectionLines && (
         <svg
@@ -450,129 +476,66 @@ const EdgeGlowIndicator = ({
             zIndex: 999998
           }}
         >
-          {allNodeData.map(nodeInfo => {
-            const centerX = viewportBounds.width / 2;
-            const centerY = viewportBounds.height / 2;
-
-            const nodeOverlayX = nodeInfo.nodeOverlayX;
-            const nodeOverlayY = nodeInfo.nodeOverlayY;
-
-            // Find the corresponding glow (if any)
-            const glow = offScreenGlows.find(g => g.id === nodeInfo.id);
-
-            return (
-              <g key={`debug-${nodeInfo.id}`}>
-                {/* Line from center to actual node position */}
-                <line
-                  x1={centerX}
-                  y1={centerY}
-                  x2={nodeOverlayX}
-                  y2={nodeOverlayY}
-                  stroke="rgba(0, 255, 0, 0.8)"
-                  strokeWidth="2"
-                  strokeDasharray="5,5"
-                />
-                {/* Line from center to dot (only if glow exists) */}
-                {glow && (
-                  <line
-                    x1={centerX}
-                    y1={centerY}
-                    x2={glow.screenX}
-                    y2={glow.screenY}
-                    stroke="rgba(255, 0, 0, 0.6)"
-                    strokeWidth="1"
-                    strokeDasharray="2,2"
-                  />
-                )}
-                {/* Mark the actual node position */}
-                <circle
-                  cx={nodeOverlayX}
-                  cy={nodeOverlayY}
-                  r="4"
-                  fill={nodeInfo.isOutsideViewport ? "rgba(0, 255, 0, 0.8)" : "rgba(0, 255, 0, 0.3)"}
-                  stroke="white"
-                  strokeWidth="1"
-                />
-              </g>
-            );
-          })}
+          {debugNodes.map(nodeInfo => (
+            <g key={`debug-${nodeInfo.id}`}>
+              {/* Line from center to actual node position */}
+              <line
+                x1={viewportBounds.width / 2}
+                y1={viewportBounds.height / 2}
+                x2={nodeInfo.nodeOverlayX}
+                y2={nodeInfo.nodeOverlayY}
+                stroke="rgba(0, 255, 0, 0.8)"
+                strokeWidth="2"
+                strokeDasharray="5,5"
+              />
+              {/* Mark the actual node position */}
+              <circle
+                cx={nodeInfo.nodeOverlayX}
+                cy={nodeInfo.nodeOverlayY}
+                r="4"
+                fill={nodeInfo.isOutsideViewport ? "rgba(0, 255, 0, 0.8)" : "rgba(0, 255, 0, 0.3)"}
+                stroke="white"
+                strokeWidth="1"
+              />
+            </g>
+          ))}
         </svg>
       )}
 
-
       {/* Debug corner labels */}
       {showViewportDebug && (
-        <>
-          <div style={{ position: 'absolute', top: '5px', left: '5px', color: 'red', fontSize: '16px', fontWeight: 'bold', backgroundColor: 'yellow', padding: '4px', zIndex: 999999 }}>
-            🔴 DEBUG MODE ON - VIEWPORT: {Math.round(viewportBounds.x)},{Math.round(viewportBounds.y)} {Math.round(viewportBounds.width)}x{Math.round(viewportBounds.height)}
-          </div>
-          <div style={{ position: 'absolute', top: '25px', left: '5px', color: 'red', fontSize: '10px' }}>
-            TypeList: {typeListVisible ? 'VISIBLE' : 'HIDDEN'} | Left: {leftPanelExpanded ? 'OPEN' : 'CLOSED'} | Right: {rightPanelExpanded ? 'OPEN' : 'CLOSED'}
-          </div>
-          <div style={{ position: 'absolute', top: '40px', left: '5px', color: 'red', fontSize: '10px' }}>
-            Header: {HEADER_HEIGHT}px | Window: {viewportBounds?.windowWidth || 'N/A'}x{viewportBounds?.windowHeight || 'N/A'}
-          </div>
-          <div style={{ position: 'absolute', top: '55px', left: '5px', color: 'red', fontSize: '10px' }}>
-            Y Offset: {viewportBounds?.y || 'N/A'} | Expected: {HEADER_HEIGHT}
-          </div>
-          <div style={{ position: 'absolute', top: '70px', left: '5px', color: 'red', fontSize: '10px' }}>
-            Container: left={Math.max(0, viewportBounds.x)} | Flares: {offScreenGlows.length}
-          </div>
-          {offScreenGlows.slice(0, 3).map((glow, idx) => (
-            <div key={`debug-${glow.id}`} style={{ position: 'absolute', top: `${85 + idx * 15}px`, left: '5px', color: 'red', fontSize: '10px' }}>
-              {glow.label}: edge={glow.edge}, pos=({Math.round(glow.screenX)},{Math.round(glow.screenY)})
-            </div>
-          ))}
-        </>
+        <div style={{ position: 'absolute', top: '5px', left: '5px', color: 'red', fontSize: '12px', fontWeight: 'bold', backgroundColor: 'yellow', padding: '4px', zIndex: 999999 }}>
+          🔴 EDGE GLOW: mode={edgeGlowMode} quality={quality} | flares={lastUsedRef.current}/{poolSize}
+          {' '}| viewport {Math.round(viewportBounds.x)},{Math.round(viewportBounds.y)} {Math.round(viewportBounds.width)}x{Math.round(viewportBounds.height)}
+        </div>
       )}
 
-      {/* Render individual glow dots.
+      {/* The flare pool.
           Split deliberately in two: the OUTER div carries the only thing that
           genuinely changes as the view moves (a transform), and the INNER div
-          carries the expensive appearance — gradient, blur, shadow — from a
-          cached, quantised style object. React then has one property to diff
-          per flare per frame instead of a dozen freshly-built strings. */}
-      {offScreenGlows.map(glow => {
-        const { id, screenX, screenY, color, intensity, edge } = glow;
-
-        // Orientation by edge
-        const rotation = edge === 'left' ? 0
-          : edge === 'right' ? 180
-            : edge === 'top' ? 90
-              : -90; // bottom
-
-        // Position to ride slightly further out from the screen edge (3px offset)
-        // The EdgeGlowIndicator container is positioned at viewportBounds.x/y
-        // So flares should be positioned at the actual screen edge coordinates
-        let translateX = screenX;
-        let translateY = screenY;
-
-        // Position 3px further out from each edge for better visibility
-        if (edge === 'left') translateX = -3; // 3px to the left of left edge
-        else if (edge === 'right') translateX = viewportBounds.width + 3; // 3px to the right of right edge
-        else if (edge === 'top') translateY = -3; // 3px above top edge
-        else if (edge === 'bottom') translateY = viewportBounds.height + 3; // 3px below bottom edge
-
-        return (
-          <div
-            key={id}
-            style={{
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              width: 0,
-              height: 0,
-              pointerEvents: 'none',
-              transform: `translate(${translateX}px, ${translateY}px) rotate(${rotation}deg)`,
-              transformOrigin: 'center',
-              zIndex: 1
-            }}
-          >
-            {/* Single optimized glow layer */}
-            <div style={getFlareStyle(color, intensity, viewportBounds.isExclusiveMode)} />
-          </div>
-        );
-      })}
+          carries the appearance, which only changes when a flare crosses an
+          intensity bucket. React never renders either one's contents — see the
+          paint above — so these are empty shells it mounts and then leaves
+          alone. */}
+      {Array.from({ length: poolSize }, (_, i) => (
+        <div
+          key={i}
+          ref={setSlotRef(i)}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: 0,
+            height: 0,
+            display: 'none',
+            pointerEvents: 'none',
+            transformOrigin: 'center',
+            zIndex: 1
+          }}
+        >
+          <div />
+        </div>
+      ))}
     </div>
   );
 };

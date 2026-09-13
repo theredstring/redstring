@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches } from 'immer';
-import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES } from '../utils/colorUtils.js';
+import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, EDGE_GLOW_MODES, DEFAULT_EDGE_GLOW_MODE } from '../utils/colorUtils.js';
 
 // Global listener for patches, used by middleware to capture changes from actions
 let patchListener = null;
@@ -172,7 +172,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {string} connectionLabelMoveFade - `'off'|'large'|'always'` — when connection labels fade out for the duration of a hand-driven pan or zoom, which is the largest saving available on one. `'large'` gates it on how many are on screen.
  * @property {boolean} connectionLabelTruncate - Whether a connection label longer than the connection it names is cut to fit and ellipsed, rather than overhanging into the nodes at either end.
  * @property {boolean} connectionLabelSprites - Whether connection labels are drawn as pre-rasterised bitmaps rather than live stroked <text>. On costs a little crispness between zoom buckets and buys most of the per-frame label cost back.
- * @property {boolean} showEdgeGlowIndicators - Whether edges show directional glow effects.
+ * @property {string} edgeGlowMode - `'off'|'fast'|'fancy'|'adaptive'` — how the flares that ride the viewport border pointing at off-screen Things are drawn. `'adaptive'` picks between the other two by how many Things the open web holds.
  * @property {boolean} showHoverPreview - Whether hovering a node shows a preview card.
  * @property {boolean} hoverPreviewZoomOnly - When true, the hover preview only appears while zoomed out (small on-canvas text); when false it appears at any zoom.
  * @property {number} hoverPreviewSize - Scale multiplier for hover preview cards.
@@ -1638,12 +1638,19 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return DEFAULT_CONNECTION_LABEL_SPRITES;
       }
     })(),
-    showEdgeGlowIndicators: (() => {
+    edgeGlowMode: (() => {
       try {
-        const saved = localStorage.getItem('redstring_show_edge_glow');
-        return saved === null ? true : saved === 'true';
+        const saved = localStorage.getItem('redstring_edge_glow_mode');
+        if (EDGE_GLOW_MODES.includes(saved)) return saved;
+        // The setting was a plain on/off switch before it had appearances, and
+        // someone who turned the flares off meant it. Anything else — on, or
+        // never touched — lands on the default rather than pinning them to the
+        // cut-back appearance that was all the switch could offer.
+        const legacy = localStorage.getItem('redstring_show_edge_glow');
+        if (legacy === 'false') return 'off';
+        return DEFAULT_EDGE_GLOW_MODE;
       } catch (_) {
-        return true;
+        return DEFAULT_EDGE_GLOW_MODE;
       }
     })(),
     darkMode: (() => {
@@ -6355,11 +6362,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         localStorage.setItem('redstring_show_connection_names', draft.showConnectionNames);
       } catch (_) { }
     })),
-    /** Toggles directional glow effects on edges. Persists to localStorage. */
-    toggleShowEdgeGlowIndicators: () => set(produce((draft) => {
-      draft.showEdgeGlowIndicators = !draft.showEdgeGlowIndicators;
+    /**
+     * Sets how the off-screen Thing glow indicators are drawn. One of
+     * EDGE_GLOW_MODES; anything else is ignored rather than written, so a stale
+     * value can't disable the setting. Persists to localStorage.
+     * @param {'off'|'fast'|'fancy'|'adaptive'} mode
+     */
+    setEdgeGlowMode: (mode) => set(produce((draft) => {
+      if (!EDGE_GLOW_MODES.includes(mode)) return;
+      draft.edgeGlowMode = mode;
       try {
-        localStorage.setItem('redstring_show_edge_glow', draft.showEdgeGlowIndicators);
+        localStorage.setItem('redstring_edge_glow_mode', mode);
       } catch (_) { }
     })),
     /** Toggles the hover-preview card shown when hovering over a node. Persists to localStorage. */

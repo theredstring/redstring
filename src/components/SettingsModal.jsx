@@ -8,7 +8,7 @@ import AISection from './settings/AISection.jsx';
 import DebugSection from './settings/DebugSection.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
-import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES } from '../utils/colorUtils.js';
+import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, DEFAULT_EDGE_GLOW_MODE } from '../utils/colorUtils.js';
 import './ModalChrome.css';
 
 /**
@@ -177,7 +177,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const connectionLabelRingWidth = useGraphStore(s => s.connectionLabelRingWidth ?? DEFAULT_CONNECTION_LABEL_RING_WIDTH);
   const connectionLabelTruncate = useGraphStore(s => s.connectionLabelTruncate ?? DEFAULT_CONNECTION_LABEL_TRUNCATE);
   const connectionLabelSprites = useGraphStore(s => s.connectionLabelSprites ?? DEFAULT_CONNECTION_LABEL_SPRITES);
-  const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
+  const edgeGlowMode = useGraphStore(s => s.edgeGlowMode) ?? DEFAULT_EDGE_GLOW_MODE;
   const darkMode = useGraphStore(s => s.darkMode);
   const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
   const hoverPreviewZoomOnly = useGraphStore(s => s.hoverPreviewZoomOnly ?? true);
@@ -249,12 +249,18 @@ const SettingsModal = ({ isVisible, onClose }) => {
           </div>
           <div className="settings-row">
             <div className="settings-row-label">
-              Offscreen Thing Glow Indicators
-              <div className="settings-row-description">Glow indicators on canvas edges for Things outside the viewport. Disable to improve panning performance on large Webs.</div>
+              Offscreen Thing Glow
+              <div className="settings-row-description">Glow flares on the canvas edges pointing at Things outside the viewport. Fancy adds a blur and a halo, which costs more to draw the more Things are offscreen; Adaptive drops to Fast, then off, as a Web grows.</div>
             </div>
-            <Toggle
-              checked={!!showEdgeGlowIndicators}
-              onChange={() => useGraphStore.getState().toggleShowEdgeGlowIndicators?.()}
+            <OptionGroup
+              options={[
+                { label: 'Off', value: 'off' },
+                { label: 'Fast', value: 'fast' },
+                { label: 'Fancy', value: 'fancy' },
+                { label: 'Adaptive', value: 'adaptive' }
+              ]}
+              value={edgeGlowMode}
+              onChange={(v) => useGraphStore.getState().setEdgeGlowMode?.(v)}
             />
           </div>
           <div className="settings-row settings-row--attached">

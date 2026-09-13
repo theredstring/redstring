@@ -349,8 +349,9 @@ const DRAG_ZOOM_RESTORE_HOLD_MS = 300;
 // So the snap bought nothing here and cost something visible: zoom advancing in
 // 6% jumps, which reads as exactly the choppiness it was meant to cure. What
 // actually made zooming stutter was the edge-glow overlay repainting a blurred
-// box-shadow per off-screen node per frame — see getFlareStyle in
-// EdgeGlowIndicator.
+// box-shadow per off-screen node per frame — see getFlareCss in
+// EdgeGlowIndicator, where that appearance is now the 'fancy' branch of the
+// edgeGlowMode setting rather than what everyone gets at every size.
 // ---------------------------------------------------------------------------
 
 // A hard ceiling on how many labels may curve at once.
@@ -1394,7 +1395,7 @@ function NodeCanvas() {
   const connectionLabelMoveFade = useGraphStore(state => state.connectionLabelMoveFade ?? DEFAULT_CONNECTION_LABEL_MOVE_FADE);
   const connectionLabelTruncate = useGraphStore(state => state.connectionLabelTruncate ?? DEFAULT_CONNECTION_LABEL_TRUNCATE);
   const connectionLabelSprites = useGraphStore(state => state.connectionLabelSprites ?? DEFAULT_CONNECTION_LABEL_SPRITES);
-  const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
+  const edgeGlowMode = useGraphStore(state => state.edgeGlowMode);
   const showNodeControlPanel = useGraphStore(state => state.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore(state => state.showMultipleNodesControlPanel ?? true);
   const showConnectionControlPanel = useGraphStore(state => state.showConnectionControlPanel ?? true);
@@ -17820,7 +17821,7 @@ function NodeCanvas() {
           )}
 
           {/* Edge glow indicators for off-screen nodes */}
-          {showEdgeGlowIndicators && (
+          {edgeGlowMode !== 'off' && (
             <EdgeGlowIndicator
               nodes={hydratedNodes}
               baseDimensionsById={baseDimsById}
@@ -17829,7 +17830,6 @@ function NodeCanvas() {
               panOffsetRef={panOffsetRef}
               zoomLevelRef={zoomLevelRef}
               glowUpdateRef={glowUpdateRef}
-              isViewMovingRef={isViewMovingRef}
               leftPanelExpanded={leftPanelExpanded}
               rightPanelExpanded={rightPanelExpanded}
               previewingNodeId={previewingNodeId}

@@ -317,6 +317,57 @@ export const DEFAULT_CONNECTION_LABEL_MOVE_FADE = 'large';
 export const CONNECTION_LABEL_MOVE_FADE_MIN_COUNT = 40;
 
 /**
+ * How the off-screen Thing glow indicators — the flares that ride the viewport
+ * border pointing at Things outside it — are drawn.
+ *
+ * - 'off': no flares at all.
+ * - 'fast': one radial gradient per flare. The gradient already runs out to
+ *   transparent, so it IS a soft edge; this is the cheapest thing that still
+ *   reads as a glow.
+ * - 'fancy': the gradient plus a blur() over it and a blurred box-shadow around
+ *   it, which is how the flares looked before they were cut back for speed.
+ *   Softer, deeper, and roughly three times the paint cost per flare.
+ * - 'adaptive': 'fancy' up to EDGE_GLOW_FANCY_MAX_COUNT Things, 'fast' up to
+ *   EDGE_GLOW_FAST_MAX_COUNT, 'off' beyond that.
+ *
+ * 'adaptive' is the default: the flare count scales with the web, so the point
+ * at which the expensive version stops being affordable is a property of the
+ * web rather than of the machine or of anyone's taste.
+ */
+export const EDGE_GLOW_MODES = ['off', 'fast', 'fancy', 'adaptive'];
+export const DEFAULT_EDGE_GLOW_MODE = 'adaptive';
+
+/**
+ * The two counts 'adaptive' steps down at, measured in Things in the open web
+ * rather than in flares actually on screen. Flare count is what drives the cost,
+ * but it changes continuously as you pan — gating on it would have the whole
+ * population change appearance mid-gesture, which is far more noticeable than
+ * either appearance is on its own. Thing count is stable for as long as you are
+ * looking at the same web, so the choice is made once and stays made.
+ *
+ * The fancy ceiling comes from the measurement recorded in EdgeGlowIndicator:
+ * 150 flares of gradient + blur + shadow ran a 30ms p90 against an 8.3ms floor,
+ * so the expensive appearance has to stop well below that.
+ */
+export const EDGE_GLOW_FANCY_MAX_COUNT = 120;
+export const EDGE_GLOW_FAST_MAX_COUNT = 800;
+
+/**
+ * Resolves an EDGE_GLOW_MODES value to the appearance actually drawn: one of
+ * 'off', 'fast' or 'fancy'. Only 'adaptive' consults `nodeCount`.
+ * @param {string} mode
+ * @param {number} nodeCount Things in the open web.
+ * @returns {'off'|'fast'|'fancy'}
+ */
+export const resolveEdgeGlowQuality = (mode, nodeCount) => {
+  if (mode === 'fast' || mode === 'fancy') return mode;
+  if (mode !== 'adaptive') return 'off';
+  if (nodeCount <= EDGE_GLOW_FANCY_MAX_COUNT) return 'fancy';
+  if (nodeCount <= EDGE_GLOW_FAST_MAX_COUNT) return 'fast';
+  return 'off';
+};
+
+/**
  * Returns the { fill, stroke } pair for a connection label. Both are drawn from
  * the connection's own hue — one near-white, one near-black — so the halo is
  * always the opposite lightness of the glyph fill.
