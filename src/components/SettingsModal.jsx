@@ -8,6 +8,7 @@ import AISection from './settings/AISection.jsx';
 import DebugSection from './settings/DebugSection.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
+import { useShellPreference, setShellPreference } from '../hooks/useMobileLandscapeShell.js';
 import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, EDGE_GLOW_INTENSITY_MIN, EDGE_GLOW_INTENSITY_MAX } from '../utils/colorUtils.js';
 import './ModalChrome.css';
 
@@ -180,6 +181,9 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const edgeGlowMode = useGraphStore(s => s.edgeGlowMode) ?? DEFAULT_EDGE_GLOW_MODE;
   const edgeGlowIntensity = useGraphStore(s => s.edgeGlowIntensity) ?? DEFAULT_EDGE_GLOW_INTENSITY;
   const darkMode = useGraphStore(s => s.darkMode);
+  // Lives outside the store on purpose — the shell decision has to be correct
+  // before React mounts. See hooks/useMobileLandscapeShell.js.
+  const shellPreference = useShellPreference();
   const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
   const hoverPreviewZoomOnly = useGraphStore(s => s.hoverPreviewZoomOnly ?? true);
   const hoverPreviewSize = useGraphStore(s => s.hoverPreviewSize ?? 1.0);
@@ -246,6 +250,21 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <Toggle
               checked={!!darkMode}
               onChange={() => useGraphStore.getState().toggleDarkMode?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Fullscreen Landscape
+              <div className="settings-row-description">Drop the header and the Type footer in landscape and hand the whole screen to the canvas. Adaptive turns it on for phone-sized screens, but stands down while a controller is in use — a handheld needs the chrome its d-pad navigates.</div>
+            </div>
+            <OptionGroup
+              options={[
+                { label: 'Off', value: 'off' },
+                { label: 'On', value: 'on' },
+                { label: 'Adaptive', value: 'adaptive' }
+              ]}
+              value={shellPreference}
+              onChange={(v) => setShellPreference(v)}
             />
           </div>
           <div className="settings-row">

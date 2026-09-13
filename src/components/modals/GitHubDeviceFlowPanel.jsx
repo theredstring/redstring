@@ -3,6 +3,7 @@ import { Copy, ExternalLink, Github, Loader2 } from 'lucide-react';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
 import { openVerificationUrl } from '../../services/githubDeviceFlow.js';
+import { copyText } from '../../utils/systemClipboard.js';
 
 /**
  * Presentational device-flow UI — the user code, verification URL, and poll
@@ -50,17 +51,17 @@ const GitHubDeviceFlowPanel = ({
 
   const handleCopy = async () => {
     if (!userCode) return;
-    try {
-      if (window.electron?.clipboard?.writeText) {
-        await window.electron.clipboard.writeText(userCode);
-      } else if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(userCode);
-      }
+    // Only confirm on a copy that actually landed. The previous version awaited
+    // navigator.clipboard.writeText inside a try/catch, which on Android WebView
+    // rejects with NotAllowedError however secure the context is — so the button
+    // did nothing at all there. copyText falls through to execCommand, which
+    // that WebView does permit; see utils/clipboard.js.
+    if (await copyText(userCode)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // ignore — UI still shows the code so the user can copy manually
     }
+    // On failure the code stays on screen to be copied by hand, and the button
+    // stays un-ticked rather than claiming a clipboard the user hasn't got.
   };
 
   const handleOpenBrowser = async () => {

@@ -7,6 +7,7 @@ import { walkMenu, detectOpenSelector, isColorPickerOpen, isContextMenuOpen } fr
 import { createPanelNavigator, stepTab } from '../utils/gamepadPanelNav.js';
 import { lineModeLayout } from '../utils/pieMenuLayout.js';
 import { panToPlacePointAt, createDriftController, crosshairCenter } from '../utils/gamepadAim.js';
+import { setControllerPresent } from './useMobileLandscapeShell.js';
 
 /**
  * useGamepad — game controller support for the canvas.
@@ -1179,7 +1180,13 @@ export const useGamepad = ({
   useEffect(() => {
     const onDisconnect = () => {
       const pads = navigator.getGamepads?.() || [];
-      if (!Array.from(pads).some(Boolean)) deactivate();
+      if (!Array.from(pads).some(Boolean)) {
+        deactivate();
+        // The pad is gone, so the handheld hint it set must go with it —
+        // otherwise a phone that was once paired to a controller would never
+        // return to the fullscreen shell, touch being unable to clear it.
+        setControllerPresent(false);
+      }
     };
     window.addEventListener('gamepaddisconnected', onDisconnect);
     return () => window.removeEventListener('gamepaddisconnected', onDisconnect);
@@ -1379,6 +1386,12 @@ export const useGamepad = ({
       justActivated = true;
       const engaged = useGraphStore.getState();
       engaged.setInputMode?.('gamepad');
+      // Separate from inputMode, and stickier: inputMode is the LAST
+      // interaction (a touch reclaims it a moment later, by design), while this
+      // is "a controller drives this device" and survives touch. It is what
+      // tells the fullscreen landscape shell it is looking at a handheld rather
+      // than a phone — see useMobileLandscapeShell.
+      setControllerPresent(true);
       // Controller mode is one panel at a time (see the PANEL LAYOUT note in
       // graphStore). Arriving with both open, the honest answer to "which one"
       // is neither: closing one and keeping the other would be picking for the

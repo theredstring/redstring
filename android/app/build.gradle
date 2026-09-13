@@ -32,6 +32,11 @@ repositories {
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
+    // Declared rather than inherited: MainActivity compiles against WindowCompat
+    // and WindowInsetsControllerCompat to go fullscreen, and a compile-time API
+    // should not ride in transitively off capacitor-android. The version was
+    // already sitting unused in variables.gradle waiting for this.
+    implementation "androidx.core:core:$androidxCoreVersion"
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"

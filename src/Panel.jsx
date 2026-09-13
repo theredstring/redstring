@@ -1375,6 +1375,16 @@ const Panel = memo(forwardRef(
       });
     }, [side, lastCustomWidth]);
 
+    /**
+     * Ends a resize however it finished — released, or cancelled out from under
+     * us.
+     *
+     * A cancel commits at wherever the drag landed rather than reverting. The
+     * panel is already rendered at that width, and the failure this guards
+     * against is divergence: if commitPanelWidth never runs, panelWidthChanged
+     * never broadcasts, and useViewportBounds — along with every fixed element
+     * positioned off it — keeps a width the panel no longer has.
+     */
     const handleResizeMouseUp = useCallback(() => {
       if (isResizing.current) {
         isResizing.current = false;
@@ -1382,6 +1392,7 @@ const Panel = memo(forwardRef(
         window.removeEventListener('touchmove', handleResizeTouchMove);
         window.removeEventListener('mouseup', handleResizeMouseUp);
         window.removeEventListener('touchend', handleResizeMouseUp);
+        window.removeEventListener('touchcancel', handleResizeMouseUp);
         document.body.style.userSelect = '';
         document.body.style.cursor = '';
         commitPanelWidth();
@@ -1398,6 +1409,9 @@ const Panel = memo(forwardRef(
       window.addEventListener('mouseup', handleResizeMouseUp);
       window.addEventListener('touchmove', handleResizeTouchMove, { passive: false });
       window.addEventListener('touchend', handleResizeMouseUp);
+      // See the note on handleResizeMouseUp: a cancelled touch sequence must
+      // end the resize too, or the drag stays latched onto the next touch.
+      window.addEventListener('touchcancel', handleResizeMouseUp);
       document.body.style.userSelect = 'none';
       document.body.style.cursor = 'col-resize';
     }, [handleResizeMouseMove, handleResizeMouseUp, handleResizeTouchMove, panelWidth]);
@@ -1411,6 +1425,7 @@ const Panel = memo(forwardRef(
       resizeStartWidth.current = panelRef.current?.offsetWidth || panelWidth;
       window.addEventListener('touchmove', handleResizeTouchMove, { passive: false });
       window.addEventListener('touchend', handleResizeMouseUp);
+      window.addEventListener('touchcancel', handleResizeMouseUp);
       document.body.style.userSelect = 'none';
       document.body.style.cursor = 'col-resize';
     }, [handleResizeTouchMove, handleResizeMouseUp, panelWidth]);
@@ -1512,11 +1527,18 @@ const Panel = memo(forwardRef(
         if (isResizing.current) {
           window.removeEventListener('mousemove', handleResizeMouseMove);
           window.removeEventListener('mouseup', handleResizeMouseUp);
+          // The touch listeners were missing here, so unmounting mid-resize on
+          // a touch device left them bound to window with nothing left to
+          // remove them — they then drove a panel that no longer existed.
+          window.removeEventListener('touchmove', handleResizeTouchMove);
+          window.removeEventListener('touchend', handleResizeMouseUp);
+          window.removeEventListener('touchcancel', handleResizeMouseUp);
+          isResizing.current = false;
           document.body.style.userSelect = '';
           document.body.style.cursor = '';
         }
       };
-    }, [handleResizeMouseMove, handleResizeMouseUp]);
+    }, [handleResizeMouseMove, handleResizeTouchMove, handleResizeMouseUp]);
 
     // Scrollbar hover detection
     const handleScrollbarMouseEnter = useCallback((e) => {

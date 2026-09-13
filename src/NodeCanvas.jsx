@@ -153,7 +153,7 @@ import { useGamepad } from './hooks/useGamepad';
 import { useCanvasTransform } from './hooks/useCanvasTransform';
 import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
-import { useMobileLandscapeShell } from './hooks/useMobileLandscapeShell.js';
+import { useMobileLandscapeShell, setControllerPresent } from './hooks/useMobileLandscapeShell.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
 import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, trimRoutePreviewEnd, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
@@ -1088,6 +1088,12 @@ function NodeCanvas() {
     const handlePointerDown = (e) => {
       if (e.pointerType === 'mouse') {
         setInputMode('mouse');
+        // A real mouse is the one input no handheld has, so it is the only
+        // pointer that retires the controller hint. Touch and pen fall through
+        // deliberately — a handheld's screen is still a touchscreen, and
+        // tapping it says nothing about what kind of device this is. See
+        // useMobileLandscapeShell.
+        setControllerPresent(false);
       } else if (e.pointerType === 'touch' || e.pointerType === 'pen') {
         setInputMode('touch');
       }
@@ -13347,6 +13353,19 @@ function NodeCanvas() {
     window.addEventListener('mouseup', up);
     window.addEventListener('touchend', up);
     window.addEventListener('pointerup', up);
+    // A touch sequence does NOT have to end in touchend. Android fires
+    // touchcancel instead whenever the system takes the gesture over — an edge
+    // swipe (which the fullscreen build makes routine, since that is how the
+    // system bars are summoned), the notification shade, a focus loss, some
+    // multi-touch. Without these the drag never ends: the isDragging refs stay
+    // latched, so `up` and `move` keep firing on the NEXT unrelated touch and
+    // go on resizing the panel, and endDrag never runs, so panelWidthChanged
+    // never broadcasts and useViewportBounds keeps the stale width while the
+    // panel renders at the new one — every fixed element measured off those
+    // bounds then sits at the wrong offset with the panel peeking out from
+    // under it.
+    window.addEventListener('touchcancel', up);
+    window.addEventListener('pointercancel', up);
     window.addEventListener('wheel', blockWheelWhileDragging, { passive: false });
     return () => {
       window.removeEventListener('mousemove', move);
@@ -13355,6 +13374,8 @@ function NodeCanvas() {
       window.removeEventListener('mouseup', up);
       window.removeEventListener('touchend', up);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('touchcancel', up);
+      window.removeEventListener('pointercancel', up);
       window.removeEventListener('wheel', blockWheelWhileDragging);
     };
   }, []);

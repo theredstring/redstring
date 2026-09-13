@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './BackToCivilization.css';
 import { useViewportBounds } from './hooks/useViewportBounds';
+import { useMobileLandscapeShell } from './hooks/useMobileLandscapeShell.js';
 import useGraphStore from './store/graphStore.js';
 import { haptic } from './services/haptics.js';
 
@@ -18,6 +19,7 @@ const BackToCivilization = ({
   const leftPanelExpanded = useGraphStore(state => state.leftPanelExpanded);
   const rightPanelExpanded = useGraphStore(state => state.rightPanelExpanded);
   const typeListMode = useGraphStore(state => state.typeListMode);
+  const mobileLandscapeShell = useMobileLandscapeShell();
   const viewportBounds = useViewportBounds(
     leftPanelExpanded,
     rightPanelExpanded,
@@ -71,7 +73,19 @@ const BackToCivilization = ({
   // on desktop. In exclusive (mobile-style) mode the hook returns full-window
   // bounds, so the button stays centered on screen there too.
   const centerX = viewportBounds.x + viewportBounds.width / 2;
-  const centerY = 120; // Fixed position below header (header is ~80px)
+
+  // Measured DOWN FROM THE TOP OF THE CANVAS, not from the top of the screen.
+  // viewportBounds.y is the header's height, which the fullscreen landscape
+  // shell drops to 0 — so the old fixed 120 stopped meaning "70px into the
+  // canvas" there and started meaning "120px into a 396px-tall screen", nearly
+  // a third of the way down.
+  //
+  // The gap tightens in the shell for the same reason the header went: with the
+  // whole screen barely taller than a desktop canvas is wide, a constant inset
+  // reads as a much deeper one. 40 keeps the pill at roughly the proportion of
+  // the canvas that 70 puts it at on desktop.
+  const topGap = mobileLandscapeShell ? 40 : 70;
+  const centerY = viewportBounds.y + topGap;
 
   // Dynamic class name based on animation state
   let className = 'back-to-civilization';
