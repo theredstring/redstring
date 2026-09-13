@@ -4025,6 +4025,14 @@ class UniverseBackend {
     if (sourceOfTruth === SOURCE_OF_TRUTH.LOCAL) {
       const localRes = resultsMap.get(SOURCE_OF_TRUTH.LOCAL);
       if (localRes?.data) {
+        // Mirror of branch B: never apply an empty primary while the other
+        // slot holds data, in either direction.
+        const gitSlot = resultsMap.get(SOURCE_OF_TRUTH.GIT);
+        if (isEffectivelyEmpty(localRes.data) && gitSlot?.data && !isEffectivelyEmpty(gitSlot.data)) {
+          umWarn('[UniverseBackend] Local primary is empty but the repository holds data — refusing to apply the empty primary.');
+          return this._surfaceEmptyPrimaryConflict(universe, sourceOfTruth, localRes.data, gitSlot.data, SOURCE_OF_TRUTH.GIT);
+        }
+
         return this.syncAndReturn(universe, localRes.data, {
           force: true,
           source: SOURCE_OF_TRUTH.LOCAL,
@@ -4047,56 +4055,15 @@ class UniverseBackend {
     if (sourceOfTruth === SOURCE_OF_TRUTH.GIT) {
       const gitRes = resultsMap.get(SOURCE_OF_TRUTH.GIT);
       if (gitRes?.data) {
-        // Never apply an empty primary while the other slot holds data. This
-        // is the same rule `detectSlotConflict` enforces, repeated here
-        // because this branch is also reached when conflict detection was
-        // skipped or threw — which is exactly how the empty git primary was
-        // applied over a populated local file on 2026-09-12.
+        // Never apply an empty primary while the other slot holds data. Same
+        // rule `detectSlotConflict` enforces, repeated here because this
+        // branch is also reached when conflict detection was skipped or
+        // threw — exactly how the empty git primary was applied over a
+        // populated local file on 2026-09-12.
         const localSlot = resultsMap.get(SOURCE_OF_TRUTH.LOCAL);
         if (isEffectivelyEmpty(gitRes.data) && localSlot?.data && !isEffectivelyEmpty(localSlot.data)) {
           umWarn('[UniverseBackend] Git primary is empty but the local file holds data — refusing to apply the empty primary.');
-          this.notifyStatus('warning', 'The repository copy looks empty while your local file has data. Choose which to keep.');
-
-          // Build the conflict from what we ALREADY loaded. Calling
-          // detectSlotConflict here would re-fetch both slots (a second
-          // multi-MB git read) and, worse, its local read runs without a
-          // permission prompt — so a locked handle would return null and the
-          // user would get a toast with no dialog to act on.
-          const localInfo = this.analyzeStoreData(localSlot.data);
-          const gitInfo = this.analyzeStoreData(gitRes.data);
-          const decision = decideSlotConflict({ localInfo, gitInfo, sourceOfTruth });
-          const conflict = {
-            universeSlug: universe.slug,
-            universeName: universe.name || universe.slug,
-            sourceOfTruth,
-            localData: {
-              storeState: localSlot.data,
-              nodeCount: localInfo.nodeCount,
-              userNodeCount: localInfo.userNodeCount,
-              graphCount: localInfo.graphCount,
-              timestamp: localInfo.timestamp
-            },
-            gitData: {
-              storeState: gitRes.data,
-              nodeCount: gitInfo.nodeCount,
-              userNodeCount: gitInfo.userNodeCount,
-              graphCount: gitInfo.graphCount,
-              timestamp: gitInfo.timestamp
-            },
-            primaryData: gitRes.data,
-            requiresPrimarySelection: !!decision.requiresPrimarySelection,
-            areIdentical: false,
-            riskOverwriteEmptyPrimary: true
-          };
-          this.pendingConflict = conflict;
-          this.pendingPrimarySelection.add(universe.slug);
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('redstring:slot-conflict', { detail: conflict }));
-          }
-
-          // Return the populated slot as the safe working state. Nothing is
-          // written to either destination until the user decides.
-          return localSlot.data;
+          return this._surfaceEmptyPrimaryConflict(universe, sourceOfTruth, gitRes.data, localSlot.data, SOURCE_OF_TRUTH.LOCAL);
         }
 
         return this.syncAndReturn(universe, gitRes.data, {
@@ -4579,6 +4546,74 @@ class UniverseBackend {
   /**
    * Resolve a conflict by choosing which slot to use
    */
+  /**
+   * The source of truth came back empty while the other slot holds data.
+   *
+   * Raise the conflict dialog and hand back the POPULATED slot as the working
+   * state, so nothing is applied or written until the user decides. Used by
+   * both load branches — this case is reachable even when `detectSlotConflict`
+   * was skipped or threw, which is how an empty git primary was applied over a
+   * populated local file on 2026-09-12.
+   *
+   * The conflict is built from the states already in hand. Calling
+   * `detectSlotConflict` here would re-fetch both slots (a second multi-MB git
+   * read) and its local read runs without a permission prompt — so a locked
+   * handle would yield no dialog at all, leaving the user a toast they cannot
+   * act on.
+   *
+   * @private
+   * @param {Object} universe
+   * @param {string} sourceOfTruth - The configured primary.
+   * @param {Object} emptyState - The primary slot's (empty) state.
+   * @param {Object} populatedState - The other slot's state, which has data.
+   * @param {string} populatedSource - Which slot `populatedState` came from.
+   * @returns {Object} `populatedState` — the safe state to work from.
+   */
+  _surfaceEmptyPrimaryConflict(universe, sourceOfTruth, emptyState, populatedState, populatedSource) {
+    const populatedIsLocal = populatedSource === SOURCE_OF_TRUTH.LOCAL;
+    const localState = populatedIsLocal ? populatedState : emptyState;
+    const gitState = populatedIsLocal ? emptyState : populatedState;
+
+    this.notifyStatus(
+      'warning',
+      populatedIsLocal
+        ? 'The repository copy looks empty while your local file has data. Choose which to keep.'
+        : 'Your local file looks empty while the repository has data. Choose which to keep.'
+    );
+
+    const localInfo = this.analyzeStoreData(localState);
+    const gitInfo = this.analyzeStoreData(gitState);
+    const conflict = {
+      universeSlug: universe.slug,
+      universeName: universe.name || universe.slug,
+      sourceOfTruth,
+      localData: {
+        storeState: localState,
+        nodeCount: localInfo.nodeCount,
+        userNodeCount: localInfo.userNodeCount,
+        graphCount: localInfo.graphCount,
+        timestamp: localInfo.timestamp
+      },
+      gitData: {
+        storeState: gitState,
+        nodeCount: gitInfo.nodeCount,
+        userNodeCount: gitInfo.userNodeCount,
+        graphCount: gitInfo.graphCount,
+        timestamp: gitInfo.timestamp
+      },
+      primaryData: emptyState,
+      requiresPrimarySelection: false,
+      areIdentical: false,
+      riskOverwriteEmptyPrimary: true
+    };
+    this.pendingConflict = conflict;
+    this.pendingPrimarySelection.add(universe.slug);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('redstring:slot-conflict', { detail: conflict }));
+    }
+    return populatedState;
+  }
+
   async resolveConflict(universeSlug, chosenSource) {
     const universe = this.universes.get(universeSlug);
     if (!universe) {
@@ -4596,6 +4631,25 @@ class UniverseBackend {
     const chosenData = chosenSource === 'local'
       ? conflict.localData.storeState
       : conflict.gitData.storeState;
+    const otherData = chosenSource === 'local'
+      ? conflict.gitData.storeState
+      : conflict.localData.storeState;
+
+    // Choosing the EMPTY side when the other holds data cannot be carried out:
+    // every write guard refuses an empty state over a destination with data,
+    // by design. This used to proceed anyway — the writes were silently
+    // skipped and the user was told "Conflict resolved", with the store left
+    // empty and the same dialog waiting on the next reload. Refuse up front
+    // and say why, rather than reporting a success that did not happen.
+    if (isEffectivelyEmpty(chosenData) && otherData && !isEffectivelyEmpty(otherData)) {
+      const message = `The ${chosenSource} copy has nothing in it, and Redstring will not overwrite the copy that does. `
+        + 'Keep the other one, or reload and try again if you think this copy should have data.';
+      umWarn(`[UniverseBackend] Refusing to resolve conflict for ${universeSlug} onto the empty ${chosenSource} slot.`);
+      this.notifyStatus('warning', message);
+      const error = new Error(message);
+      error.code = 'EMPTY_RESOLUTION_REFUSED';
+      throw error;
+    }
 
     // Always set source of truth to the user's explicit choice
     umLog('[UniverseBackend] Setting source of truth to:', chosenSource);

@@ -1042,7 +1042,13 @@ class SaveCoordinator {
     // HMR re-instantiating an empty store, accidental reset paths, and other
     // surprise-empty states. forceSave() (user-triggered) bypasses this.
     if (this._isCatastrophicShrinkage(state)) {
-      this.notifyStatus('warning', 'Save blocked: data shrank unexpectedly. Reload to recover, or use Save Now to confirm.');
+      // Save Now confirms a PARTIAL shrink, but it cannot persist a universe
+      // emptied completely — the destination guards refuse that, by design.
+      // Naming Save Now unconditionally sent people down a dead end.
+      const cleared = this._countDataItems(state).nodes === 0;
+      this.notifyStatus('warning', cleared
+        ? 'Save blocked: this universe now has no things but the saved copy does. Reload to recover it. Emptying a universe completely is not supported yet; leaving one thing in place and pressing Save Now does work.'
+        : 'Save blocked: data shrank unexpectedly. Reload to recover, or use Save Now to confirm.');
       // Don't clear pending — leave state as-is so a future legitimate save can fire.
       this.isSaving = false;
       return;
@@ -1268,7 +1274,7 @@ class SaveCoordinator {
         console.warn('[SaveCoordinator] Refusing to save: data appears catastrophically reduced', {
           baseline,
           current,
-          message: 'If this was intentional, use forceSave() (e.g. via "Save Now" in the UI).'
+          message: 'If this was intentional, use forceSave() ("Save Now"). Note that a shrink to ZERO cannot be persisted — the destination guards refuse it; leave at least one thing in place.'
         });
       }
       return collapsed;
@@ -1700,7 +1706,7 @@ class SaveCoordinator {
       console.warn(
         `[SaveCoordinator] ${reason}: state has no user things but the existing baseline was`,
         prior,
-        '— keeping the higher baseline so the shrinkage guard stays armed. If this universe really was cleared, use Save Now.'
+        '— keeping the higher baseline so the shrinkage guard stays armed. A universe emptied completely cannot be saved at all (the destination guards refuse it); leaving one thing in place and pressing Save Now does work.'
       );
       return {
         nodes: Math.max(prior.nodes || 0, counts.nodes),

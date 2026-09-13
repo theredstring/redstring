@@ -109,6 +109,13 @@ class GitSyncEngine {
     // asked to adjudicate.
     this.remoteConflictPending = false;
 
+    // Latched when the remote file exists but cannot be read as a universe
+    // (unparseable, or an API envelope served by a cache). Informational —
+    // the real protection is that `lastKnownRemoteSha` stays undefined, so
+    // first contact re-reads and re-refuses on every write attempt. Cleared
+    // by any clean read.
+    this.remoteUnrecognized = false;
+
     // Restore the persisted commit floor for this universe slug. Without this,
     // a fresh engine after page refresh has lastCommittedNodeCount=0 — meaning
     // the empty-state guard in updateState is disarmed for the first save,
@@ -1321,7 +1328,7 @@ class GitSyncEngine {
         const incomingCount = this._countNodes(storeState);
         if (incomingCount === 0) {
           console.warn('[GitSyncEngine] Refusing forceCommit: state has 0 nodes but last commit had', this.lastCommittedNodeCount, '— pass allowEmpty to clear intentionally.');
-          this.notifyStatus('warning', 'Commit blocked: state is empty but the repository has prior data.');
+          this.notifyStatus('warning', 'Commit blocked: this universe has no things but the repository copy does. Reload to recover it. Emptying a universe completely is not supported yet.');
           return false;
         }
       }

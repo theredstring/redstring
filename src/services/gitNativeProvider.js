@@ -121,6 +121,13 @@ async function responseToTextWithBytes(response) {
     const buffer = await response.arrayBuffer();
     return { content: new TextDecoder().decode(buffer), byteLength: buffer.byteLength };
   }
+  // No arrayBuffer means something replaced global fetch with a shim (a
+  // Capacitor HTTP patch, an interceptor). The size check silently stops
+  // applying, so say so loudly rather than degrading in silence.
+  console.warn(
+    '[GitHubSemanticProvider] Response has no arrayBuffer() — the read-size verification is DISABLED for this request. '
+    + 'Something has replaced global fetch; a truncated body cannot be detected.'
+  );
   return { content: await response.text(), byteLength: null };
 }
 

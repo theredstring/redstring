@@ -212,6 +212,36 @@ describe('the 2026-09-12 wipe: an unreadable remote is never overwritten', () =>
     expect(provider.writes.length).toBe(0);
   });
 
+  it('a genuinely ZERO-BYTE remote is still writable, on both paths', async () => {
+    // The refusal must distinguish "cannot read it" from "there is nothing
+    // there". A bare JSON.parse('') throws, which would have blocked every
+    // save for the session against an empty file.
+    provider.readFileRawWithMeta = async () => ({ content: '', sha: 'sha-empty' });
+    await expect(engine.forceCommit(storeWithNodes(2))).resolves.toBe(true);
+    expect(provider.writes.length).toBe(1);
+
+    // Same through the divergence path: the write 409s, we pull, and find
+    // zero bytes.
+    const diverging = new GitSyncEngine(makeProvider(), 'git', 'u', 'u', 'u');
+    diverging.lastCommitTime = 0;
+    diverging.lastKnownRemoteSha = 'sha-stale';
+    let firstWrite = true;
+    diverging.provider.writeFileRaw = async function (path, content) {
+      if (firstWrite) {
+        firstWrite = false;
+        const e = new Error('Remote file changed since last sync');
+        e.code = 'REMOTE_DIVERGED';
+        throw e;
+      }
+      this.writes.push({ path, content });
+      return { content: { sha: 'sha-new' } };
+    };
+    diverging.provider.readFileRawWithMeta = async () => ({ content: '   ', sha: 'sha-empty' });
+
+    await expect(diverging.forceCommit(storeWithNodes(2))).resolves.toBe(true);
+    expect(diverging.provider.writes.length).toBe(1);
+  });
+
   it('an unrecognized remote is not handed to the divergence handler', async () => {
     provider.readFileRawWithMeta = async () => ({ content: ENVELOPE, sha: 'sha-remote' });
     let handlerCalled = false;
