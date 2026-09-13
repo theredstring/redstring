@@ -46,6 +46,18 @@ const glowStyleCache = new Map();
 // map of strings nothing reads.
 const GLOW_STYLE_CACHE_MAX = 512;
 
+// What a strength of 1.0x means, against the numbers the flare geometry below is
+// written in.
+//
+// Those numbers are the ones the flares have always been drawn at, and they are
+// a shade hotter than they want to be — the flares are peripheral indicators, and
+// at the old baseline they pull more attention than the thing they point at. The
+// baseline is rebased here rather than by shipping a default of 0.75x, because a
+// slider that starts off-centre says the neutral setting is the wrong one and
+// invites everyone to correct it. 1.0x should BE the intended appearance; the
+// slider exists for taste either side of it.
+const BASE_GAIN = 0.75;
+
 /** A 0-255 channel as two hex digits, clamped. */
 const hex2 = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
 
@@ -85,13 +97,14 @@ const getFlareCss = (color, intensity, isExclusiveMode, quality, strength) => {
   // flare's own distance falloff. Size and opacity move together under the gain
   // so a flare stays the same shape as it brightens — scaling one alone reads as
   // a different effect rather than as more of the same one.
-  const flareLength = (isExclusiveMode ? 10 + intensity * 4 : 14 + intensity * 6) * BLEED * strength;
-  const flareThickness = (isExclusiveMode ? 20 + intensity * 6 : 28 + intensity * 8) * BLEED * strength;
+  const gain = strength * BASE_GAIN;
+  const flareLength = (isExclusiveMode ? 10 + intensity * 4 : 14 + intensity * 6) * BLEED * gain;
+  const flareThickness = (isExclusiveMode ? 20 + intensity * 6 : 28 + intensity * 8) * BLEED * gain;
   // Both gradient stops take the gain, or the core would brighten against a mid
-  // stop that stayed put and the falloff would change shape. Clamped, since the
-  // slider goes past the point where the core alpha would overflow a byte.
-  const coreAlpha = hex2(intensity * 255 * 0.6 * strength);
-  const midAlpha = hex2(0x30 * strength);
+  // stop that stayed put and the falloff would change shape. Clamped because the
+  // top of the slider's range is past where the core alpha fits in a byte.
+  const coreAlpha = hex2(intensity * 255 * 0.6 * gain);
+  const midAlpha = hex2(0x30 * gain);
 
   let css = 'position:absolute;'
     + `left:${-flareLength / 2}px;top:${-flareThickness / 2}px;`
@@ -102,8 +115,8 @@ const getFlareCss = (color, intensity, isExclusiveMode, quality, strength) => {
   if (fancy) {
     // The blur and the halo scale too, so turning the gain up spreads the glow
     // rather than just making a hard-edged blob of it.
-    css += `filter:blur(${((4 + intensity * 6) * strength).toFixed(1)}px);`
-      + `box-shadow:0 0 ${((8 + intensity * 14) * strength).toFixed(1)}px ${color}${coreAlpha};`;
+    css += `filter:blur(${((4 + intensity * 6) * gain).toFixed(1)}px);`
+      + `box-shadow:0 0 ${((8 + intensity * 14) * gain).toFixed(1)}px ${color}${coreAlpha};`;
   }
 
   if (glowStyleCache.size >= GLOW_STYLE_CACHE_MAX) glowStyleCache.clear();

@@ -249,10 +249,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
             />
           </div>
           <div className="settings-row">
-            <div className="settings-row-label">
-              Offscreen Thing Glow
-              <div className="settings-row-description">Glow flares on the canvas edges pointing at Things outside the viewport. Fancy adds a blur and a halo, which costs more to draw the more Things are offscreen; Adaptive drops to Fast, then off, as a Web grows.</div>
-            </div>
+            <div className="settings-row-label">Offscreen Thing Glow</div>
             <OptionGroup
               options={[
                 { label: 'Off', value: 'off' },

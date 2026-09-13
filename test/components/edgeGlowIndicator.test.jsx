@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import EdgeGlowIndicator from '../../src/components/EdgeGlowIndicator.jsx';
 import useGraphStore from '../../src/store/graphStore.js';
 import { HEADER_HEIGHT } from '../../src/constants';
+import { EDGE_GLOW_INTENSITY_MIN, EDGE_GLOW_INTENSITY_MAX } from '../../src/utils/colorUtils.js';
 
 const WIN_W = 1000;
 const WIN_H = 800;
@@ -310,16 +311,20 @@ describe('EdgeGlowIndicator', () => {
     expect(loud.width / loud.height).toBeCloseTo(mid.width / mid.height, 6);
   });
 
-  it('keeps the alpha channel a valid byte at maximum strength', () => {
-    // intensity * 255 * 0.6 * 2 overflows 255, and an unclamped value would
-    // produce a three-digit hex that silently breaks the whole colour.
+  it('keeps every gradient stop a valid byte across the whole slider range', () => {
+    // The alphas are computed, not written down, and an unclamped one over 255
+    // produces a three-digit hex that silently breaks the entire colour rather
+    // than just over-brightening it. Nothing in the shipped range overflows
+    // today; this holds the line if the gain constants are ever raised.
     const { container } = mount([nodeAt('close', -520, VB.h / 2)]);
-    act(() => { useGraphStore.getState().setEdgeGlowIntensity(2); });
 
-    const background = visibleFlares(container)[0].firstChild.style.background;
-    const stops = background.match(/#[0-9a-f]{6,}/gi) || [];
-    expect(stops.length).toBeGreaterThan(0);
-    stops.forEach(stop => expect(stop).toMatch(/^#[0-9a-f]{8}$/i));
+    for (const strength of [EDGE_GLOW_INTENSITY_MIN, 0.5, 1, 1.5, EDGE_GLOW_INTENSITY_MAX]) {
+      act(() => { useGraphStore.getState().setEdgeGlowIntensity(strength); });
+      const background = visibleFlares(container)[0].firstChild.style.background;
+      const stops = background.match(/#[0-9a-f]{6,}/gi) || [];
+      expect(stops.length).toBeGreaterThan(0);
+      stops.forEach(stop => expect(stop).toMatch(/^#[0-9a-f]{8}$/i));
+    }
   });
 
   it('renders nothing at all when adaptive steps down to off', () => {
