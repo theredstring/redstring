@@ -331,3 +331,23 @@ header .editable-title-input {
     border-top: 1px solid #333;
   }
 }
+/* Left header view tabs: the strip switches between its full row and the
+   collapsed "active tab + ellipsis" row by growing/shrinking each tab's own
+   width, so tabs slide out toward the right-aligned edge instead of popping.
+   Widths and opacities are set inline in Panel.jsx; only the timing lives here. */
+.panel-view-tab {
+  transition: width 180ms ease, opacity 130ms ease;
+}
+
+/* No transition for the first layout pass: the strip renders assuming every tab
+   fits and corrects itself the moment it is measured, which must not read as a
+   collapse animation on load. Panel.jsx stamps data-measured a frame later. */
+.panel-left-tab-strip:not([data-measured]) .panel-view-tab {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-view-tab {
+    transition: none;
+  }
+}

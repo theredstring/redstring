@@ -1602,7 +1602,10 @@ const SharedPanelContent = ({
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: '8px'
+        marginBottom: '8px',
+        // Only matters when the buttons share this row: a long node name grows
+        // to its max width and would otherwise touch the icon column.
+        gap: isUltraSlim ? 0 : '12px'
       }}>
         <DraggableTitleComponent
           nodeData={nodeData}
@@ -1615,7 +1618,7 @@ const SharedPanelContent = ({
         />
 
         {!isUltraSlim && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', alignSelf: 'center' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', alignSelf: 'center', flexShrink: 0 }}>
             {actionButtons}
             {secondaryButtons}
           </div>

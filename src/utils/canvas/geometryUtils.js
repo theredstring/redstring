@@ -339,6 +339,34 @@ export function distanceToPolyline(px, py, points, out) {
   return best;
 }
 
+/**
+ * Ranking key for one candidate in a connection hit-test scan, with optional
+ * hysteresis toward the connection the caller is already showing.
+ *
+ * Nearest-wins is right for a CLICK — one point, one instant, no history. It is
+ * wrong for HOVER, which is re-decided every frame: wherever two connections
+ * are near-tied the winner alternates under a pixel of cursor jitter, and since
+ * arriving at a new target restarts the dwell delay, a single flickering frame
+ * costs the user the whole delay. Flicker that outpaces the delay means hover
+ * never settles at all.
+ *
+ * So the incumbent is graded on a curve AND released later than it is caught:
+ * both halves are needed, since a margin that only sharpens the score still
+ * drops the incumbent the instant it crosses the plain threshold.
+ *
+ * Infinity means "not a candidate", so a caller can rank with a plain `<`.
+ *
+ * @param {number} distance - true distance to the connection's geometry
+ * @param {number} threshold - grab radius, in canvas units
+ * @param {boolean} isSticky - whether this is the incumbent
+ * @param {number} stickyMargin - how much closer a rival must be to take over
+ * @returns {number}
+ */
+export function edgeHitScore(distance, threshold, isSticky, stickyMargin) {
+  if (!isSticky) return distance <= threshold ? distance : Infinity;
+  return distance <= threshold + stickyMargin ? distance - stickyMargin : Infinity;
+}
+
 export function rectIntersectsAny(rect, obstacles) {
   return obstacles.some(obs => {
     return !(rect.x > obs.x + obs.width || rect.x + rect.width < obs.x ||

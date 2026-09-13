@@ -1,8 +1,23 @@
 import React from 'react';
+import { Check } from 'lucide-react';
 
 const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
   // If no options provided, show default message
   const displayOptions = options.length > 0 ? options : [{ label: 'No Tools Here...', disabled: true }];
+
+  // A menu opened from a button on touch has a click still in flight: the
+  // browser emits one after touchend, and it lands on this backdrop — mounted
+  // in the meantime, right under the finger — closing the menu before it is
+  // ever seen. So the backdrop ignores clicks that arrive too soon to be a
+  // second, deliberate tap.
+  const openedAtRef = React.useRef(0);
+  // Keyed on the menu's identity, not just mount: opening a second menu while
+  // one is up reuses this instance rather than remounting it.
+  React.useEffect(() => { openedAtRef.current = Date.now(); }, [x, y, options]);
+  const handleBackdropClick = (e) => {
+    if (Date.now() - openedAtRef.current < 300) return;
+    onClose?.(e);
+  };
 
   return (
     <>
@@ -19,7 +34,7 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
           bottom: 0,
           zIndex: 999998
         }}
-        onClick={onClose}
+        onClick={handleBackdropClick}
       />
 
       {/* Context menu - positioned with top-left corner at cursor */}
@@ -44,6 +59,10 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
             style={{
               padding: '8px 12px',
               color: option.disabled ? 'rgba(128, 0, 0, 0.5)' : 'maroon', // PlusSign maroon text
+              // `active` is for chooser-style menus — the ones that replaced an
+              // anchored dropdown, where a row is the current setting rather
+              // than a command. Tinted here and check-marked below.
+              backgroundColor: option.active ? 'rgba(128, 0, 0, 0.12)' : 'transparent',
               cursor: option.disabled ? 'default' : 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -54,6 +73,7 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
             }}
             className="context-menu-item"
             data-disabled={option.disabled}
+            title={option.title}
             onClick={() => {
               if (!option.disabled && onSelect) {
                 onSelect(option);
@@ -74,6 +94,9 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
               </div>
             )}
             <span>{option.label}</span>
+            {option.active && !option.shortcut && (
+              <Check size={14} style={{ marginLeft: 'auto', flexShrink: 0 }} />
+            )}
             {option.shortcut && (
               <span style={{
                 marginLeft: 'auto',

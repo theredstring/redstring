@@ -9,7 +9,7 @@ import PlanCard from '../../../ai/components/PlanCard.jsx';
 import GoalCard from '../../../ai/components/GoalCard.jsx';
 import ThinkingBlock from '../../../ai/components/ThinkingBlock.jsx';
 import SteeringBlock from '../../../ai/components/SteeringBlock.jsx';
-import { showContextMenu } from '../../GlobalContextMenu.jsx';
+import { showContextMenu, showContextMenuForElement } from '../../GlobalContextMenu.jsx';
 import { bridgeFetch, bridgeEventSource, getBridgeBaseUrl } from '../../../services/bridgeConfig.js';
 import { setLinkState, LINK_STATES } from '../../../formats/linkState.js';
 import StandardDivider from '../../StandardDivider.jsx';
@@ -587,8 +587,20 @@ const LeftAIView = ({ compact = false,
   const [viewMode, setViewMode] = React.useState('wizard'); // 'wizard', 'chat', 'druid'
   // 'plan' | 'goal' — which contract ends a Wizard turn. Shared with AI settings.
   const [wizardMode, setWizardMode] = useWizardMode();
+  // Kept only so the trigger's chevron can point at an open menu — the menu
+  // itself is the global context menu, which owns its own dismissal.
   const [showModeMenu, setShowModeMenu] = React.useState(false);
-  const modeMenuRef = React.useRef(null);
+  const openModeMenu = React.useCallback((e) => {
+    setShowModeMenu(true);
+    showContextMenuForElement(e.currentTarget, [
+      { value: 'wizard', label: 'The Wizard' },
+      { value: 'chat', label: 'Chat' },
+    ].map((opt) => ({
+      label: opt.label,
+      active: viewMode === opt.value,
+      action: () => setViewMode(opt.value),
+    })), { onClose: () => setShowModeMenu(false) });
+  }, [viewMode]);
   // Chooser for the Wizard's Plan/Goal mode. A chooser, not a toggle: a lone
   // icon could not say whether it showed the mode you were in or the one a
   // click would take you to. The pill names the current mode; the menu shows
@@ -634,28 +646,6 @@ const LeftAIView = ({ compact = false,
     }
   }, [showAdvanced]);
 
-  React.useEffect(() => {
-    if (!showWizardModeMenu) return;
-    const handleClickOutside = (event) => {
-      if (wizardModeMenuRef.current && !wizardModeMenuRef.current.contains(event.target)) {
-        setShowWizardModeMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showWizardModeMenu]);
-
-  // Close mode menu when clicking outside
-  React.useEffect(() => {
-    if (!showModeMenu) return;
-    const handleClickOutside = (event) => {
-      if (modeMenuRef.current && !modeMenuRef.current.contains(event.target)) {
-        setShowModeMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showModeMenu]);
   const [currentAgentRequest, setCurrentAgentRequest] = React.useState(null);
   // Wizard runs share global state (isProcessing, the abort controller, and the
   // single telemetryConversationIdRef the SSE stream routes to). Two runs at once
@@ -3578,9 +3568,9 @@ const LeftAIView = ({ compact = false,
               <div className="ai-status-indicator-wrapper" title={wizardStatusTitle}>
                 <div className={`ai-status-indicator ${wizardReady ? 'connected' : 'disconnected'}`} />
               </div>
-              <div ref={modeMenuRef} style={{ position: 'relative' }}>
+              <div>
                 <button
-                  onClick={() => setShowModeMenu(!showModeMenu)}
+                  onClick={openModeMenu}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -3604,46 +3594,6 @@ const LeftAIView = ({ compact = false,
                   {viewMode === 'wizard' ? 'The Wizard' : 'Chat'}
                   <ChevronDown size={13} style={{ opacity: 0.8, transition: 'transform 0.15s ease', transform: showModeMenu ? 'rotate(180deg)' : 'rotate(0deg)' }} />
                 </button>
-                {showModeMenu && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    marginTop: 4,
-                    backgroundColor: theme.canvas.bg,
-                    border: `1px solid ${theme.canvas.border}`,
-                    borderRadius: 6,
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                    zIndex: 1000,
-                    minWidth: 160
-                  }}>
-                    {[{ value: 'wizard', label: 'The Wizard' }, { value: 'chat', label: 'Chat' }].map(opt => (
-                      <button
-                        key={opt.value}
-                        onClick={() => { setViewMode(opt.value); setShowModeMenu(false); }}
-                        style={{
-                          width: '100%',
-                          padding: '7px 10px',
-                          border: 'none',
-                          background: viewMode === opt.value ? theme.canvas.inactive : 'none',
-                          textAlign: 'left',
-                          cursor: 'pointer',
-                          fontSize: '0.8rem',
-                          fontWeight: viewMode === opt.value ? 700 : 600,
-                          color: viewMode === opt.value ? theme.canvas.textPrimary : theme.canvas.textSecondary,
-                          fontFamily: 'EmOne, sans-serif',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6
-                        }}
-                        onMouseEnter={e => { if (viewMode !== opt.value) e.currentTarget.style.backgroundColor = theme.canvas.hover; }}
-                        onMouseLeave={e => { if (viewMode !== opt.value) e.currentTarget.style.backgroundColor = 'transparent'; }}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -3656,9 +3606,9 @@ const LeftAIView = ({ compact = false,
               <div className="ai-status-indicator-wrapper" title={wizardStatusTitle}>
                 <div className={`ai-status-indicator ${wizardReady ? 'connected' : 'disconnected'}`} />
               </div>
-              <div ref={modeMenuRef} style={{ position: 'relative' }}>
+              <div>
                 <button
-                  onClick={() => setShowModeMenu(!showModeMenu)}
+                  onClick={openModeMenu}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -3682,46 +3632,6 @@ const LeftAIView = ({ compact = false,
                   {viewMode === 'wizard' ? 'The Wizard' : 'Chat'}
                   <ChevronDown size={13} style={{ opacity: 0.8, transition: 'transform 0.15s ease', transform: showModeMenu ? 'rotate(180deg)' : 'rotate(0deg)' }} />
                 </button>
-                {showModeMenu && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    marginTop: 4,
-                    backgroundColor: theme.canvas.bg,
-                    border: `1px solid ${theme.canvas.border}`,
-                    borderRadius: 6,
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                    zIndex: 1000,
-                    minWidth: 160
-                  }}>
-                    {[{ value: 'wizard', label: 'The Wizard' }, { value: 'chat', label: 'Chat' }].map(opt => (
-                      <button
-                        key={opt.value}
-                        onClick={() => { setViewMode(opt.value); setShowModeMenu(false); }}
-                        style={{
-                          width: '100%',
-                          padding: '7px 10px',
-                          border: 'none',
-                          background: viewMode === opt.value ? theme.canvas.inactive : 'none',
-                          textAlign: 'left',
-                          cursor: 'pointer',
-                          fontSize: '0.8rem',
-                          fontWeight: viewMode === opt.value ? 700 : 600,
-                          color: viewMode === opt.value ? theme.canvas.textPrimary : theme.canvas.textSecondary,
-                          fontFamily: 'EmOne, sans-serif',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6
-                        }}
-                        onMouseEnter={e => { if (viewMode !== opt.value) e.currentTarget.style.backgroundColor = theme.canvas.hover; }}
-                        onMouseLeave={e => { if (viewMode !== opt.value) e.currentTarget.style.backgroundColor = 'transparent'; }}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: 8, paddingLeft: 6 }}>
@@ -4493,60 +4403,25 @@ const LeftAIView = ({ compact = false,
                 labelFontSize={11}
                 variant="outline"
                 active={showWizardModeMenu}
-                onClick={() => setShowWizardModeMenu(v => !v)}
+                onClick={(e) => {
+                  setShowWizardModeMenu(true);
+                  showContextMenuForElement(e.currentTarget, WIZARD_MODE_OPTIONS.map(opt => ({
+                    label: opt.label,
+                    icon: opt.value === WIZARD_MODE_GOAL ? <Target size={14} /> : <ListChecks size={14} />,
+                    title: opt.value === WIZARD_MODE_GOAL
+                      ? 'The Wizard declares a goal and what would satisfy it before building; the turn ends on a verdict.'
+                      : 'The Wizard writes a step plan; the turn ends when every step is settled.',
+                    active: wizardMode === opt.value,
+                    action: () => setWizardMode(opt.value),
+                  })), {
+                    prefer: 'above',
+                    align: (compact || wizardModeWrapped) ? 'left' : 'right',
+                    onClose: () => setShowWizardModeMenu(false),
+                  });
+                }}
                 title={`Wizard mode: ${wizardModeLabel(wizardMode)}. Click to choose how a turn ends.`}
                 style={{ padding: '2px 8px' }}
               />
-              {showWizardModeMenu && (
-                <div style={{
-                  position: 'absolute',
-                  bottom: '100%',
-                  ...((compact || wizardModeWrapped) ? { left: 0 } : { right: 0 }),
-                  marginBottom: 4,
-                  backgroundColor: theme.canvas.bg,
-                  border: `1px solid ${theme.canvas.border}`,
-                  borderRadius: 6,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  zIndex: 1000,
-                  minWidth: 170
-                }}>
-                  {WIZARD_MODE_OPTIONS.map(opt => {
-                    const isActive = wizardMode === opt.value;
-                    const OptIcon = opt.value === WIZARD_MODE_GOAL ? Target : ListChecks;
-                    return (
-                      <button
-                        key={opt.value}
-                        onClick={() => { setWizardMode(opt.value); setShowWizardModeMenu(false); }}
-                        title={opt.value === WIZARD_MODE_GOAL
-                          ? 'The Wizard declares a goal and what would satisfy it before building; the turn ends on a verdict.'
-                          : 'The Wizard writes a step plan; the turn ends when every step is settled.'}
-                        style={{
-                          width: '100%',
-                          padding: '7px 10px',
-                          border: 'none',
-                          background: isActive ? theme.canvas.inactive : 'none',
-                          textAlign: 'left',
-                          cursor: 'pointer',
-                          fontSize: '0.8rem',
-                          fontWeight: isActive ? 700 : 600,
-                          color: isActive ? theme.canvas.textPrimary : theme.canvas.textSecondary,
-                          fontFamily: 'EmOne, sans-serif',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          whiteSpace: 'nowrap'
-                        }}
-                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.backgroundColor = theme.canvas.hover; }}
-                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.backgroundColor = 'transparent'; }}
-                      >
-                        <OptIcon size={13} />
-                        <span style={{ flex: 1 }}>{opt.label}</span>
-                        <span style={{ opacity: isActive ? 1 : 0, fontSize: '0.75rem' }} aria-hidden={!isActive}>✓</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           </div>
 

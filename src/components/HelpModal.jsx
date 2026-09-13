@@ -85,6 +85,21 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Trackpad Pinch:</strong> Zoom toward cursor</li>
             <li><strong>Click and drag on empty space:</strong> Pan the canvas</li>
           </ul>
+
+          <h3 style={{ color: headingColor }}>Game Controller</h3>
+          <p>
+            Plug in a controller and start using it — the canvas switches over on its own, and hands
+            back to the mouse the moment you move it. See the <strong>Controller</strong> topic for the
+            full button map.
+          </p>
+          <ul style={{ lineHeight: '1.8' }}>
+            <li><strong>Left Stick:</strong> Pan the canvas under the crosshair</li>
+            <li><strong>Right Stick (up/down):</strong> Zoom</li>
+            <li><strong>A:</strong> Select whatever the crosshair is on, and open its menu</li>
+            <li><strong>B:</strong> Back out — deselect, close a menu</li>
+            <li><strong>Right Trigger (hold):</strong> Pick up and carry a Thing</li>
+            <li><strong>Left Trigger (hold):</strong> Draw a connection from a Thing</li>
+          </ul>
         </div>
       )
     },
@@ -120,12 +135,80 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Click and drag on empty space:</strong> Pan the canvas</li>
           </ul>
 
+          <h3 style={{ color: headingColor }}>Controller Navigation</h3>
+          <ul style={{ lineHeight: '1.8' }}>
+            <li><strong>Left Stick:</strong> Pan — the canvas moves under a crosshair fixed to the center of the screen</li>
+            <li><strong>Right Stick (up/down):</strong> Zoom toward the crosshair</li>
+            <li><strong>D-pad:</strong> Move through the header and panels, without taking the sticks off the canvas</li>
+            <li><strong>Bumpers (LB/RB):</strong> Previous/next Web, or previous/next tab when a panel is open</li>
+            <li><strong>Stick Click (L3/R3):</strong> Open or close the panel on that side</li>
+          </ul>
+
           <h3 style={{ color: headingColor }}>Interface Panels</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>Left Panel (Globe icon):</strong> Universe management and GitHub sync</li>
             <li><strong>Right Panel:</strong> Thing details, properties, and editing. Opens when you double-click a Thing</li>
             <li><strong>Bottom Panel:</strong> Type selector and Web switcher for navigating between different Webs</li>
             <li><strong>Top Menu (three lines):</strong> File operations, view settings, and connection routing options</li>
+          </ul>
+        </div>
+      )
+    },
+    controller: {
+      title: 'Controller',
+      content: (
+        <div>
+          <h3 style={{ color: headingColor, marginTop: 0 }}>How Controller Mode Works</h3>
+          <p>
+            Nothing turns it on: controller mode engages the moment you actually use a connected pad,
+            and hands back to the mouse as soon as you move the mouse or press a key.
+          </p>
+          <ul style={{ lineHeight: '1.8' }}>
+            <li><strong>The crosshair is the cursor.</strong> It stays pinned to the center of the screen and the canvas moves underneath it, so "the Thing under the pointer" becomes "the Thing under the center"</li>
+            <li><strong>Auto-aim:</strong> let the stick rest with something under the crosshair and the view drifts it to center</li>
+            <li><strong>Button names below are the Xbox ones</strong> — A bottom, B right, X left, Y top. Positions are identical on PlayStation and Switch Pro pads; only the printed labels differ</li>
+            <li><strong>Settings → Input → Controller</strong> holds sensitivity, stick deadzone, crosshair size, and the panel-resize binding</li>
+          </ul>
+
+          <h3 style={{ color: headingColor }}>On the Canvas</h3>
+          <ul style={{ lineHeight: '1.8' }}>
+            <li><strong>Left Stick:</strong> Pan</li>
+            <li><strong>Right Stick (up/down):</strong> Zoom toward the crosshair</li>
+            <li><strong>A:</strong> Act on whatever is under the crosshair — select a Thing and open its pie menu, select a connection, toggle an arrow on a connection's endpoint dot, select a Group, or drop a plus sign on empty canvas</li>
+            <li><strong>B:</strong> Back out — deselect, close the menu, dismiss the plus sign</li>
+            <li><strong>X:</strong> Open the Thing under the crosshair in the right panel</li>
+            <li><strong>Y:</strong> Expand the Thing under the crosshair into its own Web</li>
+            <li><strong>Right Trigger (hold):</strong> Pick up the Thing (or Group title) under the crosshair, pan to place it, release to drop</li>
+            <li><strong>Left Trigger (hold) on a Thing:</strong> Draw a connection — pan until the target sits under the crosshair, then release</li>
+            <li><strong>Left Trigger (hold) on empty canvas:</strong> Draw a selection box. Catching anything raises the bottom panel, where "Group Selection" lives</li>
+            <li><strong>Left Trigger (tap) on empty canvas:</strong> Open the canvas menu — the same one right-click gives. The trigger again, or B, closes it</li>
+          </ul>
+
+          <h3 style={{ color: headingColor }}>Menus</h3>
+          <ul style={{ lineHeight: '1.8' }}>
+            <li><strong>Pie menu:</strong> With a Thing selected, the left stick aims the ring by direction and <strong>A</strong> runs the focused option</li>
+            <li><strong>More than one page:</strong> LB or Left Trigger for the previous page, RB or Right Trigger for the next</li>
+            <li><strong>Connection menu:</strong> The left stick moves to whichever bubble lies in the direction you push, diagonals included</li>
+            <li><strong>Bottom panel</strong> (a selected Group, or a box selection): the left stick steps the row, <strong>A</strong> activates</li>
+            <li><strong>Selectors and grids</strong> (naming a Thing, Swap): stick or d-pad moves, <strong>A</strong> confirms, <strong>Y</strong> opens the color picker, <strong>B</strong> backs out one layer at a time</li>
+            <li><strong>On a focused slider:</strong> the stick sweeps the value, the d-pad steps it in notches</li>
+            <li><strong>Semantic orbit:</strong> the left stick aims, <strong>A</strong> materializes the focused item, <strong>B</strong> closes</li>
+            <li><strong>Start:</strong> Open the Redstring menu. <strong>Select/Back:</strong> the header's action buttons. B, Start or Select leaves either</li>
+          </ul>
+
+          <h3 style={{ color: headingColor }}>Panels &amp; Tabs</h3>
+          <p>
+            The d-pad works the interface while the sticks keep flying the canvas — they are different
+            hands on different surfaces, so neither waits on the other.
+          </p>
+          <ul style={{ lineHeight: '1.8' }}>
+            <li><strong>D-pad Up:</strong> Into the Web tabs in the header. <strong>A</strong> switches to the focused tab; <strong>LB/RB</strong> drag that tab along the strip to reorder it</li>
+            <li><strong>D-pad Left/Right:</strong> Into the open panel, or across to the other one</li>
+            <li><strong>D-pad Down (on canvas):</strong> Cycle the bottom bar through Connection, Node, Component and closed</li>
+            <li><strong>A</strong> activates whatever the d-pad is standing on; <strong>B</strong> gives the d-pad's place back to the canvas</li>
+            <li><strong>Stick Click (L3/R3):</strong> Open or close the panel on that side</li>
+            <li><strong>LB/RB:</strong> Previous/next tab in the open panel; with no panel open, previous/next Web</li>
+            <li><strong>Resize a panel:</strong> Hold that side's stick click and push the stick sideways. Settings → Input → Controller can move the resize onto the bumpers instead, which leaves the stick free for the whole gesture</li>
           </ul>
         </div>
       )

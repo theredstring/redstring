@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, Loader2, X, RotateCcw, ChevronDown, Circle, Compass, BookOpen, Clock, Waypoints, Trash2 } from 'lucide-react';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
+import { showContextMenuForElement } from '../../GlobalContextMenu.jsx';
 import { usePanelCardTokens } from '../../shared/PanelCard.jsx';
 import DraggableConceptCard from '../items/DraggableConceptCard.jsx';
 import GhostSemanticNode from '../items/GhostSemanticNode.jsx';
@@ -321,8 +322,6 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   const [canLoadMore, setCanLoadMore] = useState(true);
   // How many hits per authority the current concept search has asked for.
   const conceptLimitRef = useRef(8);
-  const [showViewMenu, setShowViewMenu] = useState(false);
-  const viewMenuRef = useRef(null);
   // Whether the header has room to hold the title and the view dropdown on one
   // line. The panel is user-resizable, so this is measured rather than assumed:
   // below the threshold the dropdown drops under the title, above it it sits
@@ -595,18 +594,6 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       // Non-fatal
     }
   }, [discoveredConcepts]);
-
-  // Close view menu when clicking outside
-  useEffect(() => {
-    if (!showViewMenu) return;
-    const handleClickOutside = (event) => {
-      if (viewMenuRef.current && !viewMenuRef.current.contains(event.target)) {
-        setShowViewMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showViewMenu]);
 
   // Watch the header's own width so the title/dropdown row reflows as the user
   // drags the panel. 300px is where "Semantic Discovery" plus the Discover pill
@@ -1344,7 +1331,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif", marginBottom: isHeaderWide ? 0 : '12px' }}>
             Semantic Discovery
           </h2>
-          <div ref={viewMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
+          <div style={{ flexShrink: 0 }}>
             <PanelIconButton
               icon={viewMode === 'catalog' ? BookOpen : viewMode === 'history' ? Clock : Compass}
               size={18}
@@ -1355,54 +1342,21 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 </React.Fragment>
               }
               variant="outline"
-              onClick={() => setShowViewMenu(!showViewMenu)}
-            />
-            {showViewMenu && (
-              <div style={{
-                position: 'absolute',
-                top: '100%',
+              onClick={(e) => showContextMenuForElement(e.currentTarget, [
+                { value: 'discover', label: 'Discover', icon: <Compass size={14} /> },
+                ...(CATALOG_ENABLED ? [{ value: 'catalog', label: 'Catalog', icon: <BookOpen size={14} /> }] : []),
+                { value: 'history', label: `History${searchHistory.length ? ` (${searchHistory.length})` : ''}`, icon: <Clock size={14} /> }
+              ].map(opt => ({
+                label: opt.label,
+                icon: opt.icon,
+                active: viewMode === opt.value,
+                action: () => setViewMode(opt.value),
+              })), {
                 // Anchored to whichever edge the button sits against, so the
-                // popover never hangs off the panel when the header is one row.
-                ...(isHeaderWide ? { right: 0 } : { left: 0 }),
-                marginTop: 4,
-                backgroundColor: theme.canvas.bg,
-                border: `1px solid ${theme.canvas.border}`,
-                borderRadius: 6,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                zIndex: 1000,
-                minWidth: 180
-              }}>
-                {[
-                  { value: 'discover', label: 'Discover', icon: Compass },
-                  ...(CATALOG_ENABLED ? [{ value: 'catalog', label: 'Catalog', icon: BookOpen }] : []),
-                  { value: 'history', label: `History${searchHistory.length ? ` (${searchHistory.length})` : ''}`, icon: Clock }
-                ].map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => { setViewMode(opt.value); setShowViewMenu(false); }}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      border: 'none',
-                      background: viewMode === opt.value ? theme.canvas.inactive : 'none',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      color: theme.canvas.textPrimary,
-                      fontFamily: "'EmOne', sans-serif",
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.backgroundColor = theme.canvas.hover}
-                    onMouseLeave={e => e.currentTarget.style.backgroundColor = viewMode === opt.value ? theme.canvas.inactive : 'transparent'}
-                  >
-                    <opt.icon size={12} /> {opt.label}
-                  </button>
-                ))}
-              </div>
-            )}
+                // menu never hangs off the panel when the header is one row.
+                align: isHeaderWide ? 'right' : 'left',
+              })}
+            />
           </div>
         </div>
 

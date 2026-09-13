@@ -3,9 +3,11 @@ import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Sa
 import { useTheme } from '../../hooks/useTheme.js';
 
 import PanelSegment from './shared/PanelSegment.jsx';
+import { slotLayout } from './shared/slotLayout.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import SourceOfTruthPill from './shared/SourceOfTruthPill.jsx';
 import { isCapacitor } from '../../utils/capacitorAdapter.js';
+import { showContextMenuForElement } from '../GlobalContextMenu.jsx';
 
 
 function formatWhen(timestamp) {
@@ -65,9 +67,6 @@ const UniversesList = ({
   const theme = useTheme();
   // No collapsing - active universe is always expanded, others show compact view
 
-  const [showLoadMenu, setShowLoadMenu] = useState(false);
-  const [showNewMenu, setShowNewMenu] = useState(false);
-  const [showLocalFileMenu, setShowLocalFileMenu] = useState(null); // Track which universe's menu is open
   const [copiedSlug, setCopiedSlug] = useState(null); // Slug whose public link was just copied (for icon feedback)
   const [renamingSlug, setRenamingSlug] = useState(null); // Slug whose name is being edited inline
   const [tempName, setTempName] = useState('');
@@ -83,9 +82,6 @@ const UniversesList = ({
   });
   const [workspaceFolderHandle, setWorkspaceFolderHandle] = useState(null);
   const [workspaceNeedsPermission, setWorkspaceNeedsPermission] = useState(false);
-  const loadMenuRef = useRef(null);
-  const newMenuRef = useRef(null);
-  const localFileMenuRef = useRef(null);
   const containerRef = useRef(null);
   // Set by Escape so the blur that follows unmounting the input doesn't commit
   // the very edit Escape just abandoned.
@@ -132,26 +128,6 @@ const UniversesList = ({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (loadMenuRef.current && !loadMenuRef.current.contains(event.target)) {
-        setShowLoadMenu(false);
-      }
-      if (newMenuRef.current && !newMenuRef.current.contains(event.target)) {
-        setShowNewMenu(false);
-      }
-      if (localFileMenuRef.current && !localFileMenuRef.current.contains(event.target)) {
-        setShowLocalFileMenu(null);
-      }
-    };
-
-    if (showLoadMenu || showNewMenu || showLocalFileMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showLoadMenu, showNewMenu, showLocalFileMenu]);
 
   // Workspace folder picker
   const handlePickWorkspaceFolder = async () => {
@@ -220,24 +196,20 @@ const UniversesList = ({
   };
 
   const handleLoadFromLocalClick = () => {
-    setShowLoadMenu(false);
     triggerLocalFilePicker();
   };
 
   const handleLoadFromRepoClick = () => {
-    setShowLoadMenu(false);
     if (onLoadFromRepo) {
       onLoadFromRepo();
     }
   };
 
   const handleLoadFromLinkClick = () => {
-    setShowLoadMenu(false);
     window.dispatchEvent(new CustomEvent('redstring:open-external-link'));
   };
 
   const handleNewFromFileClick = () => {
-    setShowNewMenu(false);
     if (onCreateUniverseFromFile) {
       onCreateUniverseFromFile();
       return;
@@ -246,11 +218,24 @@ const UniversesList = ({
   };
 
   const handleNewFromRepoClick = () => {
-    setShowNewMenu(false);
     if (onLoadFromRepo) {
       onLoadFromRepo();
     }
   };
+
+  // These were absolutely-positioned dropdowns of their own, which meant three
+  // more hand-styled menus and three more outside-click handlers — and all of
+  // them clipped by the panel, which is exactly where this list lives.
+  const openLoadMenu = (e) => showContextMenuForElement(e.currentTarget, [
+    { label: 'Load from Local File', icon: <FileText size={14} />, action: handleLoadFromLocalClick },
+    { label: 'Load from Repository', icon: <Github size={14} />, action: handleLoadFromRepoClick },
+    { label: 'Load from Link', icon: <Link size={14} />, action: handleLoadFromLinkClick },
+  ]);
+
+  const openNewMenu = (e) => showContextMenuForElement(e.currentTarget, [
+    { label: 'New from Local File', icon: <FileText size={14} />, action: handleNewFromFileClick },
+    { label: 'New from Repository', icon: <Github size={14} />, action: handleNewFromRepoClick },
+  ], { align: isHeaderSlim ? 'left' : 'right' });
 
   // Most-recently-opened first. `lastOpenedAt` is already stamped by
   // switchActiveUniverse on every successful load, so this needs no state of
@@ -348,6 +333,17 @@ const UniversesList = ({
     return normalValue;
   };
 
+  // Storage slot headers, shared by the repository and local file slots so the
+  // two cannot drift apart as the panel narrows. See slotLayout.js.
+  const {
+    buttonSize: slotButtonSize,
+    buttonStyle: slotButtonStyle,
+    headerStyle: slotHeaderStyle,
+    labelStyle: slotLabelStyle,
+    labelTextStyle: slotLabelTextStyle,
+    buttonRowStyle: slotButtonRowStyle
+  } = slotLayout({ isSlim, isVerySlim, theme });
+
   return (
     <div ref={containerRef}>
       <PanelSegment
@@ -356,173 +352,32 @@ const UniversesList = ({
         isSlim={isHeaderSlim}
         actions={
           <div style={{ display: 'flex', gap: 6 }}>
-            <div ref={loadMenuRef} style={{ position: 'relative' }}>
-              <PanelIconButton
-                icon={Upload}
-                size={isVerySlim ? 16 : 18}
-                label={isVerySlim ? null : (
-                  <React.Fragment>
-                    Load <ChevronDown size={12} style={{ verticalAlign: 'middle', marginBottom: '1px' }} />
-                  </React.Fragment>
-                )}
-                variant="outline"
-                style={isVerySlim ? { padding: '5px' } : {}}
-                onClick={() => setShowLoadMenu(!showLoadMenu)}
-                title={isVerySlim ? "Load" : undefined}
-              />
-              {showLoadMenu && (
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  marginTop: 4,
-                  backgroundColor: theme.canvas.bg,
-                  border: `1px solid ${theme.canvas.border}`,
-                  borderRadius: 6,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  zIndex: 1000,
-                  minWidth: 180
-                }}>
-                  <button
-                    onClick={handleLoadFromLocalClick}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      border: 'none',
-                      background: 'none',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      color: theme.canvas.textPrimary,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    <FileText size={12} /> Load from Local File
-                  </button>
-                  <button
-                    onClick={handleLoadFromRepoClick}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      border: 'none',
-                      background: 'none',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      color: theme.canvas.textPrimary,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    <Github size={12} /> Load from Repository
-                  </button>
-                  <button
-                    onClick={handleLoadFromLinkClick}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      border: 'none',
-                      background: 'none',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      color: theme.canvas.textPrimary,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    <Link size={12} /> Load from Link
-                  </button>
-                </div>
+            <PanelIconButton
+              icon={Upload}
+              size={isVerySlim ? 16 : 18}
+              label={isVerySlim ? null : (
+                <React.Fragment>
+                  Load <ChevronDown size={12} style={{ verticalAlign: 'middle', marginBottom: '1px' }} />
+                </React.Fragment>
               )}
-            </div>
-            <div ref={newMenuRef} style={{ position: 'relative' }}>
-              <PanelIconButton
-                icon={Plus}
-                size={isVerySlim ? 16 : 18}
-                label={isVerySlim ? null : (
-                  <React.Fragment>
-                    New <ChevronDown size={12} style={{ verticalAlign: 'middle', marginBottom: '1px' }} />
-                  </React.Fragment>
-                )}
-                variant="solid"
-                style={isVerySlim ? { padding: '5px' } : {}}
-                onClick={() => setShowNewMenu(!showNewMenu)}
-                title={isVerySlim ? "New" : undefined}
-              />
-              {showNewMenu && (
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: isHeaderSlim ? 0 : 'auto',
-                  right: isHeaderSlim ? 'auto' : 0,
-                  marginTop: 4,
-                  backgroundColor: theme.canvas.bg,
-
-                  border: `1px solid ${theme.canvas.border}`,
-                  borderRadius: 6,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  zIndex: 1000,
-                  minWidth: 180
-                }}>
-                  <button
-                    onClick={handleNewFromFileClick}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      border: 'none',
-                      background: 'none',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      color: theme.canvas.textPrimary,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    <FileText size={12} /> New from Local File
-                  </button>
-                  <button
-                    onClick={handleNewFromRepoClick}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      border: 'none',
-                      background: 'none',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      color: theme.canvas.textPrimary,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    <Github size={12} /> New from Repository
-                  </button>
-                </div>
+              variant="outline"
+              style={isVerySlim ? { padding: '5px' } : {}}
+              onClick={openLoadMenu}
+              title={isVerySlim ? "Load" : undefined}
+            />
+            <PanelIconButton
+              icon={Plus}
+              size={isVerySlim ? 16 : 18}
+              label={isVerySlim ? null : (
+                <React.Fragment>
+                  New <ChevronDown size={12} style={{ verticalAlign: 'middle', marginBottom: '1px' }} />
+                </React.Fragment>
               )}
-            </div>
+              variant="solid"
+              style={isVerySlim ? { padding: '5px' } : {}}
+              onClick={openNewMenu}
+              title={isVerySlim ? "New" : undefined}
+            />
           </div>
         }
       >
@@ -941,24 +796,19 @@ const UniversesList = ({
                                 overflow: 'hidden'
                               }}
                             >
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  <Github size={14} />
-                                  <span style={{ fontSize: '0.72rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
+                              <div style={slotHeaderStyle}>
+                                <div style={slotLabelStyle}>
+                                  <Github size={14} style={{ flexShrink: 0 }} />
+                                  <span style={slotLabelTextStyle}>
                                     @{universe.raw.gitRepo.linkedRepo.user}/{universe.raw.gitRepo.linkedRepo.repo}
                                   </span>
                                   {/* Source-of-truth badge removed; button below handles status */}
                                 </div>
-                                <div style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: isVerySlim ? 1 : (isSlim ? 2 : 4),
-                                  flexShrink: 0
-                                }}>
+                                <div style={slotButtonRowStyle}>
                                   <PanelIconButton
                                     icon={copiedSlug === universe.slug ? Check : Copy}
-                                    size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
-                                    style={isVerySlim ? { padding: '5px' } : {}}
+                                    size={slotButtonSize}
+                                    style={slotButtonStyle}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       const linked = universe.raw?.gitRepo?.linkedRepo;
@@ -981,8 +831,8 @@ const UniversesList = ({
                                   {onDownloadRepoFile && (
                                     <PanelIconButton
                                       icon={Download}
-                                      size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
-                                      style={isVerySlim ? { padding: '5px' } : {}}
+                                      size={slotButtonSize}
+                                      style={slotButtonStyle}
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         onDownloadRepoFile(universe.slug);
@@ -1000,8 +850,8 @@ const UniversesList = ({
                                   */}
                                   <PanelIconButton
                                     icon={History}
-                                    size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
-                                    style={isVerySlim ? { padding: '5px' } : {}}
+                                    size={slotButtonSize}
+                                    style={slotButtonStyle}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       window.dispatchEvent(new CustomEvent('redstring:open-git-history', {
@@ -1012,8 +862,8 @@ const UniversesList = ({
                                   />
                                   <PanelIconButton
                                     icon={X}
-                                    size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
-                                    style={isVerySlim ? { padding: '5px' } : {}}
+                                    size={slotButtonSize}
+                                    style={slotButtonStyle}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       if (onRemoveRepoSource && universe.raw.gitRepo?.linkedRepo) {
@@ -1101,8 +951,8 @@ const UniversesList = ({
                                 {onSaveRepoSource && (
                                   <PanelIconButton
                                     icon={Save}
-                                    size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
-                                    style={isVerySlim ? { padding: '5px' } : {}}
+                                    size={slotButtonSize}
+                                    style={slotButtonStyle}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       onSaveRepoSource(universe.slug);
@@ -1172,25 +1022,20 @@ const UniversesList = ({
 
                                 return (
                                   <>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <Save size={14} />
-                                        <span style={{ fontSize: '0.72rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
+                                    <div style={slotHeaderStyle}>
+                                      <div style={slotLabelStyle}>
+                                        <Save size={14} style={{ flexShrink: 0 }} />
+                                        <span style={slotLabelTextStyle}>
                                           Local File
                                         </span>
                                         {/* Source-of-truth badge removed; button below handles status */}
                                       </div>
-                                      <div style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: isVerySlim ? 1 : (isSlim ? 2 : 4),
-                                        flexShrink: 0
-                                      }}>
+                                      <div style={slotButtonRowStyle}>
                                         {onSwapLocalFile && (
                                           <PanelIconButton
                                             icon={ArrowRightLeft}
-                                            size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
-                                            style={isVerySlim ? { padding: '5px' } : {}}
+                                            size={slotButtonSize}
+                                            style={slotButtonStyle}
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               onSwapLocalFile(universe.slug);
@@ -1201,8 +1046,8 @@ const UniversesList = ({
                                         {onDownloadLocalFile && (
                                           <PanelIconButton
                                             icon={Download}
-                                            size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
-                                            style={isVerySlim ? { padding: '5px' } : {}}
+                                            size={slotButtonSize}
+                                            style={slotButtonStyle}
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               onDownloadLocalFile(universe.slug);
@@ -1213,8 +1058,8 @@ const UniversesList = ({
                                         {onRemoveLocalFile && (
                                           <PanelIconButton
                                             icon={X}
-                                            size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
-                                            style={isVerySlim ? { padding: '5px' } : {}}
+                                            size={slotButtonSize}
+                                            style={slotButtonStyle}
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               onRemoveLocalFile(universe.slug);
@@ -1396,7 +1241,6 @@ const UniversesList = ({
                             </div>
                           ) : (
                             <div
-                              ref={showLocalFileMenu === universe.slug ? localFileMenuRef : null}
                               style={{
                                 padding: 12,
                                 backgroundColor: 'transparent',
@@ -1404,122 +1248,45 @@ const UniversesList = ({
                                 border: `2px dashed ${theme.canvas.border}`,
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center',
-                                position: 'relative'
+                                justifyContent: 'center'
                               }}
                             >
-                                <PanelIconButton
-                                  icon={Plus}
-                                  label={isVerySlim ? null : (
-                                    <React.Fragment>
-                                      Add Local File <ChevronDown size={10} style={{ verticalAlign: 'middle', marginBottom: '1px' }} />
-                                    </React.Fragment>
-                                  )}
-                                  variant="outline"
-                                  size={isVerySlim ? 14 : 12}
-                                  strokeWidth={2}
-                                  hoverStrokeWidth={4}
-                                  hoverTextColor={theme.accent.primary}
-                                  style={{
-                                    fontSize: '0.7rem',
-                                    color: theme.canvas.textSecondary,
-                                    borderColor: theme.canvas.border,
-                                    ...(isVerySlim && { padding: '5px' })
-                                  }}
-                                  onClick={() => setShowLocalFileMenu(showLocalFileMenu === universe.slug ? null : universe.slug)}
-                                  title={isVerySlim ? "Add Local File" : undefined}
-                                />
-
-                              {showLocalFileMenu === universe.slug && (
-                                <div style={{
-                                  position: 'absolute',
-                                  top: '100%',
-                                  left: '50%',
-                                  transform: 'translateX(-50%)',
-                                  marginTop: 4,
-                                  backgroundColor: theme.canvas.bg,
-                                  border: `1px solid ${theme.canvas.border}`,
-                                  borderRadius: 6,
-                                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                                  zIndex: 1000,
-                                  minWidth: 160
-                                }}>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setShowLocalFileMenu(null);
-                                      // Create new file - this will trigger save dialog and link file handle
-                                      if (onCreateLocalFile) {
-                                        onCreateLocalFile(universe.slug);
-                                      }
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.backgroundColor = theme.canvas.hover;
-                                      e.currentTarget.style.transform = 'scale(1.04)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.backgroundColor = 'transparent';
-                                      e.currentTarget.style.transform = 'scale(1)';
-                                    }}
-                                    style={{
-                                      width: '100%',
-                                      padding: '8px 12px',
-                                      border: 'none',
-                                      background: 'none',
-                                      textAlign: 'left',
-                                      cursor: 'pointer',
-                                      fontSize: '0.75rem',
-                                      fontWeight: 600,
-                                      color: theme.canvas.textPrimary,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 6
-                                    }}
-                                  >
-                                    <FileText size={12} /> Create New File
-                                  </button>
-                                  {/* iOS has no open-picker: pickFile() throws
-                                      there by design, since universes live in the
-                                      app-managed folder and outside files arrive
-                                      through import instead. */}
-                                  {!isCapacitor() && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setShowLocalFileMenu(null);
-                                      // Link existing file - trigger file picker
-                                      if (onLinkLocalFile) {
-                                        onLinkLocalFile(universe.slug);
-                                      }
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.backgroundColor = theme.canvas.hover;
-                                      e.currentTarget.style.transform = 'scale(1.04)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.backgroundColor = 'transparent';
-                                      e.currentTarget.style.transform = 'scale(1)';
-                                    }}
-                                    style={{
-                                      width: '100%',
-                                      padding: '8px 12px',
-                                      border: 'none',
-                                      background: 'none',
-                                      textAlign: 'left',
-                                      cursor: 'pointer',
-                                      fontSize: '0.75rem',
-                                      fontWeight: 600,
-                                      color: theme.canvas.textPrimary,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 6
-                                    }}
-                                  >
-                                    <Link size={12} /> Link Existing File
-                                  </button>
-                                  )}
-                                </div>
-                              )}
+                              <PanelIconButton
+                                icon={Plus}
+                                label={isVerySlim ? null : (
+                                  <React.Fragment>
+                                    Add Local File <ChevronDown size={10} style={{ verticalAlign: 'middle', marginBottom: '1px' }} />
+                                  </React.Fragment>
+                                )}
+                                variant="outline"
+                                size={isVerySlim ? 14 : 12}
+                                strokeWidth={2}
+                                hoverStrokeWidth={4}
+                                hoverTextColor={theme.accent.primary}
+                                style={{
+                                  fontSize: '0.7rem',
+                                  color: theme.canvas.textSecondary,
+                                  borderColor: theme.canvas.border,
+                                  ...(isVerySlim && { padding: '5px' })
+                                }}
+                                onClick={(e) => showContextMenuForElement(e.currentTarget, [
+                                  {
+                                    label: 'Create New File',
+                                    icon: <FileText size={14} />,
+                                    // Triggers the save dialog, which is what links the file handle
+                                    action: () => onCreateLocalFile?.(universe.slug),
+                                  },
+                                  // iOS has no open-picker: pickFile() throws there by
+                                  // design, since universes live in the app-managed
+                                  // folder and outside files arrive through import.
+                                  ...(isCapacitor() ? [] : [{
+                                    label: 'Link Existing File',
+                                    icon: <Link size={14} />,
+                                    action: () => onLinkLocalFile?.(universe.slug),
+                                  }]),
+                                ])}
+                                title={isVerySlim ? "Add Local File" : undefined}
+                              />
                             </div>
                           ))}
                         </div>

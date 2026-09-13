@@ -159,7 +159,7 @@ import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/port
 import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, trimRoutePreviewEnd, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
-import { distanceToPolyline } from './utils/canvas/geometryUtils.js';
+import { distanceToPolyline, edgeHitScore } from './utils/canvas/geometryUtils.js';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
@@ -10259,13 +10259,8 @@ function NodeCanvas() {
         }
       }
 
-      // The sticky connection is graded on a curve, and released later than it
-      // is caught. Without both halves a rival that ties it for a single frame
-      // takes the hover away, which costs a full dwell delay to win back.
-      const isSticky = edge.id === stickyEdgeId;
-      const limit = isSticky ? threshold + stickyMargin : threshold;
-      const score = isSticky ? distance - stickyMargin : distance;
-      if (distance > limit || score >= closestScore) continue;
+      const score = edgeHitScore(distance, threshold, edge.id === stickyEdgeId, stickyMargin);
+      if (score >= closestScore) continue;
       // Keep scanning: for overlapping connections the nearest edge wins, not
       // the first one found within the threshold.
       closestScore = score;

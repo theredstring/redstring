@@ -2,7 +2,7 @@ import React, { useState, useEffect, forwardRef, useImperativeHandle, useRef, us
 import { useDrag, useDrop, useDragLayer } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend'; // Import for hiding default preview
 import { HEADER_HEIGHT, NODE_CORNER_RADIUS, THUMBNAIL_MAX_DIMENSION, NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE, EXCLUSIVE_PANEL_MODE_THRESHOLD } from './constants';
-import { ArrowLeftFromLine, ArrowRightFromLine, ArrowRightToLine, Info, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch, Sparkles, History } from 'lucide-react';
+import { ArrowLeftFromLine, ArrowRightFromLine, ArrowRightToLine, Info, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch, Sparkles, History, MoreHorizontal } from 'lucide-react';
 import ToggleSlider from './components/ToggleSlider.jsx';
 import { v4 as uuidv4 } from 'uuid';
 import './Panel.css'
@@ -39,7 +39,7 @@ import PanelContentWrapper from './components/panel/PanelContentWrapper.jsx';
 import CollapsibleSection from './components/CollapsibleSection.jsx';
 import StandardDivider from './components/StandardDivider.jsx';
 import { knowledgeFederation } from './services/knowledgeFederation.js';
-import { showContextMenu } from './components/GlobalContextMenu.jsx';
+import { showContextMenuForElement } from './components/GlobalContextMenu.jsx';
 import { normalizeToCandidate, candidateToConcept } from './services/candidates.js';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { useTheme } from './hooks/useTheme.js';
@@ -370,6 +370,10 @@ const INITIAL_PANEL_WIDTH = 250; // Match NodeCanvas default
 const ULTRA_SLIM_WIDTH = 320;
 // EXCLUSIVE_PANEL_MODE_THRESHOLD imported from ./constants (shared with NodeCanvas.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
+
+// Every tab in a panel header is this square. The left header's overflow math
+// counts slots of this width, so it has to stay in sync with the tabs below.
+const PANEL_TAB_WIDTH = 50;
 
 // Feature flag: toggle visibility of the "All Things" tab in the left panel header
 const ENABLE_ALL_THINGS_TAB = false;
@@ -1590,6 +1594,103 @@ const Panel = memo(forwardRef(
       const nowSlim = panelWidth <= ULTRA_SLIM_WIDTH;
       setIsUltraSlim(prev => prev === nowSlim ? prev : nowSlim);
     }, [panelWidth]);
+    // --- Left header tab overflow ---
+    // The left panel's view tabs are fixed-width squares, so a narrow panel
+    // simply runs out of room for them. Rather than squashing or clipping, the
+    // tabs that don't fit collapse into a single ellipsis tab that opens the
+    // same maroon context menu used for right-clicks elsewhere in the app.
+    const leftTabDefs = useMemo(() => {
+      if (side !== 'left') return [];
+      const defs = [];
+      if (ENABLE_ALL_THINGS_TAB) defs.push({ key: 'all', title: 'All Things', Icon: LayoutGrid });
+      defs.push({ key: 'library', title: 'Saved Things', Icon: Bookmark });
+      defs.push({ key: 'grid', title: 'Open Things', Icon: BookOpen });
+      defs.push({ key: 'federation', title: 'Universes', Icon: Globe });
+      defs.push({ key: 'semantic', title: 'Semantic Discovery', Icon: TextSearch });
+      if (enableWizard) defs.push({ key: 'ai', title: 'The Wizard', Icon: Sparkles });
+      defs.push({ key: 'history', title: 'Action History', Icon: History });
+      return defs;
+    }, [side, enableWizard]);
+
+    // Measured rather than derived from panelWidth: during an overlay resize
+    // drag the width is mutated straight onto the DOM node and panelWidth stays
+    // stale (same reason isUltraSlim is tracked the way it is above).
+    const leftTabStripRef = useRef(null);
+    const [leftTabStripWidth, setLeftTabStripWidth] = useState(null);
+    // Gate for the tabs' width transition. The strip's first render assumes
+    // everything fits and corrects itself the instant it is measured — that
+    // correction must land flat, not play as a collapse animation on load. Set a
+    // frame after the first measurement, so the corrected layout paints while
+    // the CSS still has transitions off (it keys on data-measured).
+    const [leftTabsMeasured, setLeftTabsMeasured] = useState(false);
+    useEffect(() => {
+      if (side !== 'left') return;
+      const el = leftTabStripRef.current;
+      if (!el || typeof ResizeObserver === 'undefined') return;
+      let rafId = null;
+      const ro = new ResizeObserver((entries) => {
+        const w = entries[0]?.contentRect?.width;
+        if (typeof w !== 'number') return;
+        if (rafId === null) {
+          rafId = requestAnimationFrame(() => { rafId = null; setLeftTabsMeasured(true); });
+        }
+        // Only the number of slots that fit can change what renders, so quantize
+        // to that: a drag re-renders once per tab crossing, not once per pixel.
+        setLeftTabStripWidth((prev) => (
+          prev != null && Math.floor(prev / PANEL_TAB_WIDTH) === Math.floor(w / PANEL_TAB_WIDTH)
+            ? prev
+            : w
+        ));
+      });
+      ro.observe(el);
+      return () => {
+        ro.disconnect();
+        if (rafId !== null) cancelAnimationFrame(rafId);
+      };
+    }, [side]);
+
+    // Every tab stays mounted in every mode — collapsing one is a width/opacity
+    // change on the tab itself, which is what makes the switch animatable in
+    // both directions. `hidden` is therefore about rendering, not existence:
+    // a hidden tab is inert (no pointer events, no controller stop, no tooltip).
+    const { hiddenLeftTabKeys, overflowLeftTabs } = useMemo(() => {
+      const total = leftTabDefs.length;
+      if (!total) return { hiddenLeftTabKeys: new Set(), overflowLeftTabs: [] };
+      // The panel's own toggle button is a fixed overlay pinned to the viewport
+      // edge on top of this row, so the first PANEL_TOGGLE_BUTTON_WIDTH of the
+      // strip is never actually usable — a tab parked under it is invisible.
+      const usable = leftTabStripWidth == null ? null : leftTabStripWidth - PANEL_TOGGLE_BUTTON_WIDTH;
+      // Before the first measurement, assume everything fits: showing the real
+      // tabs for a frame reads better than flashing an ellipsis.
+      const fit = usable == null ? total : Math.floor(usable / PANEL_TAB_WIDTH);
+      if (fit >= total) return { hiddenLeftTabKeys: new Set(), overflowLeftTabs: [] };
+      // Collapsed is all-or-two: the strip becomes exactly "where you are" plus
+      // the way to everywhere else. No partial row of whichever tabs happened to
+      // fit — at these widths that's just noise around the one tab that matters.
+      // Under two slots even that goes, and the strip is the ellipsis alone.
+      const keepActive = fit >= 2 && leftTabDefs.some((t) => t.key === leftViewActive);
+      const hidden = new Set(
+        leftTabDefs.filter((t) => !(keepActive && t.key === leftViewActive)).map((t) => t.key)
+      );
+      return {
+        hiddenLeftTabKeys: hidden,
+        overflowLeftTabs: leftTabDefs.filter((t) => hidden.has(t.key)),
+      };
+    }, [leftTabDefs, leftTabStripWidth, leftViewActive]);
+
+    const openLeftTabOverflowMenu = useCallback((e) => {
+      e.stopPropagation();
+      // The menu is a fixed overlay, so it is free to be wider than the panel and
+      // spill over the canvas — which it must be, since the panel is narrow by
+      // definition whenever this button exists.
+      showContextMenuForElement(e.currentTarget, overflowLeftTabs.map(({ key, title, Icon }) => ({
+        label: title,
+        icon: <Icon size={14} />,
+        active: leftViewActive === key,
+        action: () => setLeftViewActive(key),
+      })), { align: 'right' });
+    }, [overflowLeftTabs, leftViewActive, setLeftViewActive]);
+
     // Get tabs reactively if side is 'right'
     const activeRightPanelTab = useMemo(() => {
       if (side !== 'right') return null;
@@ -2119,92 +2220,60 @@ const Panel = memo(forwardRef(
           >
             {/* === Conditional Header Content === */}
             {side === 'left' ? (
-              // --- Left Panel Header --- 
-              <div style={{ flexGrow: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'stretch' }}>
-                {/* All Things Button -> All Nodes */}
-                {ENABLE_ALL_THINGS_TAB && (
-                  <div
-                    title="All Things"
-                    className="panel-view-tab"
-                  data-nav="tab"
-                    data-active={leftViewActive === 'all'}
-                    style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'all' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
-                    onClick={() => setLeftViewActive('all')}
-                  >
-                    <LayoutGrid size={24} color={theme.canvas.textPrimary} />
-                  </div>
-                )}
-                {/* Library Button -> Saved Things */}
-                <div
-                  title="Saved Things"
-                  className="panel-view-tab"
-                  data-nav="tab"
-                  data-active={leftViewActive === 'library'}
-                  style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'library' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
-                  onClick={() => setLeftViewActive('library')}
-                >
-                  <Bookmark size={24} color={theme.canvas.textPrimary} />
-                </div>
-                {/* Grid Button -> Open Things */}
-                <div
-                  title="Open Things"
-                  className="panel-view-tab"
-                  data-nav="tab"
-                  data-active={leftViewActive === 'grid'}
-                  style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'grid' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
-                  onClick={() => setLeftViewActive('grid')}
-                >
-                  <BookOpen size={24} color={theme.canvas.textPrimary} />
-                </div>
-                {/* Federation Button -> Solid Pods */}
-                <div
-                  title="Federation"
-                  className="panel-view-tab"
-                  data-nav="tab"
-                  data-active={leftViewActive === 'federation'}
-                  style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'federation' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
-                  onClick={() => setLeftViewActive('federation')}
-                >
-                  <Globe size={24} color={theme.canvas.textPrimary} />
-                </div>
+              // --- Left Panel Header ---
+              // `flex: 1 1 0` + minWidth 0 pins this strip to the header's own
+              // width no matter how wide its children are, which is what the
+              // ResizeObserver above measures to decide how many tabs fit.
+              <div
+                ref={leftTabStripRef}
+                className="panel-left-tab-strip"
+                data-measured={leftTabsMeasured ? 'true' : undefined}
+                style={{ flex: '1 1 0', minWidth: 0, display: 'flex', justifyContent: 'flex-end', alignItems: 'stretch', overflow: 'hidden' }}
+              >
+                {leftTabDefs.map(({ key, title, Icon }) => {
+                  const hidden = hiddenLeftTabKeys.has(key);
+                  return (
+                    <div
+                      key={key}
+                      title={hidden ? undefined : title}
+                      className="panel-view-tab"
+                      // Dropped while hidden so the controller's tab stepping
+                      // skips a tab the user can't see.
+                      data-nav={hidden ? undefined : 'tab'}
+                      data-active={leftViewActive === key}
+                      aria-hidden={hidden || undefined}
+                      style={{ /* Common Button Styles */ width: hidden ? 0 : PANEL_TAB_WIDTH, height: 50, flexShrink: 0, opacity: hidden ? 0 : 1, pointerEvents: hidden ? 'none' : 'auto', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === key ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
+                      onClick={() => setLeftViewActive(key)}
+                    >
+                      {/* Fixed width so the icon holds still while the tab around
+                          it collapses, instead of being squeezed toward center. */}
+                      <div style={{ width: PANEL_TAB_WIDTH, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Icon size={24} color={theme.canvas.textPrimary} />
+                      </div>
+                    </div>
+                  );
+                })}
 
-                {/* Semantic Discovery Button */}
-                <div
-                  title="Semantic Discovery"
-                  className="panel-view-tab"
-                  data-nav="tab"
-                  data-active={leftViewActive === 'semantic'}
-                  style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'semantic' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
-                  onClick={() => setLeftViewActive('semantic')}
-                >
-                  <TextSearch size={24} color={theme.canvas.textPrimary} />
-                </div>
-
-                {/* AI Wizard Button */}
-                {enableWizard && (
-                  <div
-                    title="AI Wizard"
-                    className="panel-view-tab"
-                  data-nav="tab"
-                    data-active={leftViewActive === 'ai'}
-                    style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'ai' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
-                    onClick={() => setLeftViewActive('ai')}
-                  >
-                    <Sparkles size={24} color={theme.canvas.textPrimary} />
-                  </div>
-                )}
-
-                {/* History Button */}
-                <div
-                  title="Action History"
-                  className="panel-view-tab"
-                  data-nav="tab"
-                  data-active={leftViewActive === 'history'}
-                  style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'history' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
-                  onClick={() => setLeftViewActive('history')}
-                >
-                  <History size={24} color={theme.canvas.textPrimary} />
-                </div>
+                {/* Overflow tab: stands in for every view that didn't fit. Also
+                    always mounted, so it grows in as the others collapse. */}
+                {(() => {
+                  const hidden = overflowLeftTabs.length === 0;
+                  return (
+                    <div
+                      title={hidden ? undefined : 'More views'}
+                      className="panel-view-tab"
+                      data-nav={hidden ? undefined : 'tab'}
+                      data-active={false}
+                      aria-hidden={hidden || undefined}
+                      style={{ /* Common Button Styles */ width: hidden ? 0 : PANEL_TAB_WIDTH, height: 50, flexShrink: 0, opacity: hidden ? 0 : 1, pointerEvents: hidden ? 'none' : 'auto', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: theme.canvas.inactive, zIndex: 2 }}
+                      onClick={openLeftTabOverflowMenu}
+                    >
+                      <div style={{ width: PANEL_TAB_WIDTH, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <MoreHorizontal size={24} color={theme.canvas.textPrimary} />
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             ) : (
               // --- Right Panel Header (Uses store state `rightPanelTabs`) ---
