@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HEADER_HEIGHT } from './constants';
 import { universeManagerService } from './services/universeManagerService';
 import saveCoordinator from './services/SaveCoordinator';
+import { resolveSaveStatus } from './utils/saveStatus.js';
 import { useViewportBounds } from './hooks/useViewportBounds';
 import useGraphStore from './store/graphStore.js';
 
@@ -131,7 +132,17 @@ const SaveStatusDisplay = ({ hidden = false }) => {
         // here tells them to wait. Source: universeManagerService.getSyncSummary
         // sets state='standby' / label='Awaiting sync engine' when authed +
         // git-linked but no engine yet (universeManagerService.js:247).
-        const isLoadingFromRepo = hasGit && activeUniverse.sync?.state === 'standby';
+        //
+        // A universe load in flight counts too, and it is the case the
+        // `standby` check alone missed: the engine can be past standby while
+        // `loadUniverseData` is still fetching, and during that window the
+        // coordinator DEFERS every save rather than running one. Nothing is
+        // saving, nothing is dirty, nothing is pending — so the status fell
+        // through to "Saved" and asserted a write that had not happened, over
+        // a canvas that was still empty. It should read as syncing until the
+        // universe is actually in.
+        const isLoadingFromRepo = (hasGit && activeUniverse.sync?.state === 'standby')
+          || saveCoordinator.loadInFlight > 0;
 
         // Track how long changes have been dirty with no write in flight. The
         // clock is held at zero while the user is interacting, because the
@@ -145,44 +156,23 @@ const SaveStatusDisplay = ({ hidden = false }) => {
         const dirtyStalled = dirtySinceRef.current > 0
           && (Date.now() - dirtySinceRef.current) > STALLED_DIRTY_MS;
 
-        // Priority order: Error > Paused > Loading > Writing > Stalled > Git behind > Saved
-        //
-        // "Saving..." now means a write is genuinely in flight. The debounce
-        // window between an edit and its write reports nothing at all — it is
-        // a normal, uninteresting few seconds, and labelling it "Saving..."
-        // was what made one edit look like a ten-second save.
-        if (engine?.isInErrorBackoff || engine?.isHealthy === false) {
-          setStatusText('Error');
-          setIsCTA(false);
-        } else if (engine?.isPaused) {
-          setStatusText('Paused');
-          setIsCTA(false);
-        } else if (isLoadingFromRepo) {
-          setStatusText('Syncing...');
-          setIsCTA(false);
-        } else if (coordinatorIsSaving) {
-          // A local write is actually running.
-          setStatusText('Saving...');
-          setIsCTA(false);
-        } else if (dirtyStalled) {
-          // Past the debounce by a wide margin — the write failed and is in
-          // retry backoff, or a guard refused it. Say so rather than sitting
-          // silently on stale-looking "Saved".
-          setStatusText('Unsaved');
-          setIsCTA(false);
-        } else if (coordinatorHasUnsaved) {
-          // Normal debounce window. Nothing useful to report yet.
-          setStatusText(null);
-          setIsCTA(false);
-        } else if (isCommitting || pendingCommits > 0 || hasUnsavedChanges) {
-          // Local bytes are durable; Git is still catching up. That is a
-          // different (and much less urgent) state than "not yet saved".
-          setStatusText('Syncing...');
-          setIsCTA(false);
-        } else {
-          setStatusText('Saved');
-          setIsCTA(false);
-        }
+        // The decision itself lives in resolveSaveStatus, so what each state
+        // is allowed to CLAIM can be asserted in a test. See saveStatus.js.
+        const status = resolveSaveStatus({
+          hasUniverse: true,
+          hasStorage: true,
+          isInErrorBackoff: !!engine?.isInErrorBackoff,
+          isUnhealthy: engine?.isHealthy === false,
+          isPaused: !!engine?.isPaused,
+          isLoadingFromRepo,
+          isSaving: coordinatorIsSaving,
+          dirtyStalled,
+          hasUnsavedChanges: coordinatorHasUnsaved,
+          gitBehind: isCommitting || pendingCommits > 0 || hasUnsavedChanges,
+          hasLoadedFromFile: saveCoordinator.hasLoadedFromFile
+        });
+        setStatusText(status.text);
+        setIsCTA(status.isCTA);
       } catch (error) {
         if (!cancelled) {
           console.warn('[SaveStatusDisplay] Failed to get sync status:', error);

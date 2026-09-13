@@ -1669,17 +1669,35 @@ class UniverseBackend {
           try {
             // Get current store state before loading
             const currentState = this.storeOperations?.getState();
-            const currentNodeCount = currentState?.nodePrototypes ? (currentState.nodePrototypes instanceof Map ? currentState.nodePrototypes.size : Object.keys(currentState.nodePrototypes).length) : 0;
+            const currentNodeCount = countUserPrototypes(currentState);
             const currentGraphCount = currentState?.graphs ? (currentState.graphs instanceof Map ? currentState.graphs.size : Object.keys(currentState.graphs).length) : 0;
 
             const storeState = await this.loadUniverseData(activeUniverse);
             if (storeState && this.storeOperations?.loadUniverseFromFile) {
-              // Count what Git has
-              const gitNodeCount = storeState?.nodePrototypes ? (storeState.nodePrototypes instanceof Map ? storeState.nodePrototypes.size : Object.keys(storeState.nodePrototypes || {}).length) : 0;
+              /*
+               * What Git has, counted the way every other guard counts it.
+               *
+               * This block decides whether to REPLACE what is in the store, so
+               * it was the 2026-09-12 bug in miniature and it survived the
+               * first pass: counting raw prototypes means a re-seeded
+               * `base-thing-prototype` reads as 1, the guard below sees
+               * "Git has data", and the user's work is replaced by an empty
+               * universe. It runs when auth connects, which is during boot.
+               */
+              const gitNodeCount = countUserPrototypes(storeState);
               const gitGraphCount = storeState?.graphs ? (storeState.graphs instanceof Map ? storeState.graphs.size : Object.keys(storeState.graphs || {}).length) : 0;
 
-              // Smart merge: don't overwrite local work with empty Git data
-              if (gitNodeCount === 0 && gitGraphCount === 0 && (currentNodeCount > 0 || currentGraphCount > 0)) {
+              /*
+               * Don't replace real work with an empty remote.
+               *
+               * `gitGraphCount` is deliberately NOT part of this condition any
+               * more. A universe can lose every Thing and keep its Webs — the
+               * live remote is 194 Webs with 1,830 Things, and the shape that
+               * loses the Things keeps the Webs — so requiring BOTH to be zero
+               * meant the one failure mode worth catching sailed straight
+               * through. Things are what this is protecting.
+               */
+              if (gitNodeCount === 0 && (currentNodeCount > 0 || currentGraphCount > 0)) {
                 // Only log this warning once per session to avoid spam
                 if (!this.loggedMergeWarning) {
                   umWarn(`[UniverseBackend] Git has no data, but you have ${currentNodeCount} nodes and ${currentGraphCount} graphs locally`);
@@ -1699,13 +1717,21 @@ class UniverseBackend {
                 }
 
                 const loadedState = this.storeOperations.getState();
-                const nodeCount = loadedState?.nodePrototypes ? (loadedState.nodePrototypes instanceof Map ? loadedState.nodePrototypes.size : Object.keys(loadedState.nodePrototypes).length) : 0;
-                umLog(`[UniverseBackend] Reloaded from Git after auth: ${nodeCount} nodes`);
+                const nodeCount = countUserPrototypes(loadedState);
+                umLog(`[UniverseBackend] Reloaded from Git after auth: ${nodeCount} things`);
 
                 if (nodeCount === 0) {
-                  this.notifyStatus('info', `Connected to GitHub. Universe is empty - create some nodes!`);
+                  /*
+                   * "Universe is empty — create some nodes!" used to go here,
+                   * which is a cheerful way to describe a universe that may
+                   * simply have failed to arrive. The app cannot tell the two
+                   * apart from the count alone, so it stops asserting the
+                   * happy one. The restore offer raised elsewhere is what
+                   * actually answers the question, by looking at history.
+                   */
+                  this.notifyStatus('warning', `${activeUniverse.name} opened with nothing in it.`);
                 } else {
-                  this.notifyStatus('success', `Synced ${activeUniverse.name} from GitHub (${nodeCount} nodes)`);
+                  this.notifyStatus('success', `Synced ${activeUniverse.name} from GitHub (${nodeCount} things)`);
                 }
               }
             }
