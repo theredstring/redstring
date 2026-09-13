@@ -4950,6 +4950,37 @@ class UniverseBackend {
   }
 
   /**
+   * What one revision of a universe actually holds.
+   *
+   * `listUniverseHistory` reports sizes, which is enough to SCAN a history —
+   * a universe that fell from megabytes to kilobytes is legible at a glance,
+   * and nothing is downloaded to see it. This is the other half: the revision
+   * the user has actually pointed at gets opened and counted, so the decision
+   * to restore is made against things and webs rather than a byte count.
+   *
+   * Deliberately one revision per call. Counting a whole history would mean
+   * downloading every version of a file that can be megabytes each.
+   *
+   * @param {string} universeSlug
+   * @param {string} sha
+   * @returns {Promise<{sha, nodeCount, graphCount}>}
+   */
+  async describeUniverseVersion(universeSlug, sha) {
+    const universe = this.getUniverse(universeSlug);
+    if (!universe) throw new Error(`Universe not found: ${universeSlug}`);
+    if (!sha) throw new Error('No revision given');
+
+    const provider = await this.createProviderForUniverse(universe);
+    if (!provider) throw new Error('Could not reach the repository');
+    const path = await this.gitPathForUniverse(universe);
+
+    const content = await provider.readFileRaw(path, { ref: sha });
+    const { storeState } = importFromRedstring(JSON.parse(content));
+    const counts = this.analyzeStoreData(storeState);
+    return { sha, nodeCount: counts.userNodeCount, graphCount: counts.graphCount };
+  }
+
+  /**
    * Put an earlier revision back, as a NEW commit.
    *
    * Never rewrites history: the revision that lost the data stays in the log,

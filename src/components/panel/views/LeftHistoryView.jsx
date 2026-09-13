@@ -1,16 +1,53 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import useHistoryStore from '../../../store/historyStore.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { performJumpTo } from '../../../store/historyActions.js';
 import { generateDescription } from '../../../utils/actionDescriptions.js';
-import { Clock, Globe, Filter, LayoutGrid } from 'lucide-react';
+import { Clock, Globe, Filter, LayoutGrid, GitBranch } from 'lucide-react';
+import GitHistoryList from './GitHistoryList.jsx';
 import './LeftHistoryView.css';
 
-const LeftHistoryView = () => {
+/**
+ * Below this the tabs keep their icons and drop their words. Three labelled
+ * tabs stop fitting before the panel reaches its own minimum width, and a
+ * squeezed label is worse than none.
+ */
+const SLIM_TABS_WIDTH = 260;
+
+const LeftHistoryView = ({ gitRequest = null }) => {
     const history = useHistoryStore(state => state.history);
     const currentIndex = useHistoryStore(state => state.currentIndex);
     const activeGraphId = useGraphStore(state => state.activeGraphId);
-    const [filter, setFilter] = useState('all'); // 'all', 'graph', 'global'
+    // 'all' and 'graph' are undo steps from this session; 'git' is the
+    // universe's committed history, which outlives the session entirely.
+    const [filter, setFilter] = useState('all');
+    // Set when arriving from a specific universe's repository row, so the Git
+    // tab shows THAT universe rather than whichever one happens to be active.
+    const [gitUniverseSlug, setGitUniverseSlug] = useState(null);
+    const [isSlim, setIsSlim] = useState(false);
+    const rootRef = useRef(null);
+
+    useEffect(() => {
+        const el = rootRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        const observer = new ResizeObserver(([entry]) => {
+            setIsSlim(entry.contentRect.width < SLIM_TABS_WIDTH);
+        });
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
+
+    /*
+     * Arriving from a repository row in Universes. Panel holds the request and
+     * passes it down, because this view is mounted by the same click and would
+     * miss a window event it listened for itself. `at` changes on every click,
+     * so asking twice for the same universe still re-selects the tab.
+     */
+    useEffect(() => {
+        if (!gitRequest) return;
+        setGitUniverseSlug(gitRequest.universeSlug || null);
+        setFilter('git');
+    }, [gitRequest?.at]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const effectiveIndex = history.length + currentIndex;
 
@@ -20,7 +57,6 @@ const LeftHistoryView = () => {
         const reversed = withIndices.reverse();
 
         if (filter === 'all') return reversed;
-        if (filter === 'global') return reversed.filter(h => h.domain === 'global');
         if (filter === 'graph') {
             const targetDomain = `graph-${activeGraphId}`;
             return reversed.filter(h => h.domain === targetDomain);
@@ -32,13 +68,17 @@ const LeftHistoryView = () => {
     // target entry's graph into view before rewinding to it.
     const handleJumpTo = (index) => performJumpTo(index);
 
+    const isGit = filter === 'git';
+
     return (
-        <div className="left-history-view">
+        <div className={`left-history-view ${isSlim ? 'slim' : ''}`} ref={rootRef}>
             <div className="history-header">
-                <h2>Action History</h2>
-                <div className="history-stats">
-                    {history.length} actions • {currentIndex === -1 ? 'Latest' : `${Math.abs(currentIndex) - 1} steps back`}
-                </div>
+                <h2>{isGit ? 'Versions' : 'Action History'}</h2>
+                {!isGit && (
+                    <div className="history-stats">
+                        {history.length} actions • {currentIndex === -1 ? 'Latest' : `${Math.abs(currentIndex) - 1} steps back`}
+                    </div>
+                )}
             </div>
 
             {/* Filter tabs */}
@@ -57,42 +97,45 @@ const LeftHistoryView = () => {
                     className={`filter-tab ${filter === 'graph' ? 'active' : ''}`}
                     data-nav="tab"
                     disabled={!activeGraphId}
-                    title="Show local history"
+                    title="Show this Web's history"
                 >
                     <LayoutGrid size={14} />
-                    <span>Graph</span>
+                    <span>Web</span>
                 </button>
                 <button
-                    onClick={() => setFilter('global')}
-                    className={`filter-tab ${filter === 'global' ? 'active' : ''}`}
+                    onClick={() => { setGitUniverseSlug(null); setFilter('git'); }}
+                    className={`filter-tab ${isGit ? 'active' : ''}`}
                     data-nav="tab"
-                    title="Show global history"
+                    title="Show versions saved to the repository"
                 >
-                    <Globe size={14} />
-                    <span>Global</span>
+                    <GitBranch size={14} />
+                    <span>Git</span>
                 </button>
             </div>
 
-            {/* History list */}
-            <div className="history-list">
-                {filteredHistory.length === 0 ? (
-                    <div className="history-empty">
-                        <Clock size={48} opacity={0.2} />
-                        <p>No actions recorded yet</p>
-                        {filter === 'graph' && !activeGraphId && <small>Select a graph to see local history</small>}
-                    </div>
-                ) : (
-                    filteredHistory.map(entry => (
-                        <HistoryItem
-                            key={entry.id}
-                            entry={entry}
-                            isActive={entry.originalIndex <= effectiveIndex}
-                            isHead={entry.originalIndex === effectiveIndex}
-                            onClick={() => handleJumpTo(entry.originalIndex)}
-                        />
-                    ))
-                )}
-            </div>
+            {isGit ? (
+                <GitHistoryList universeSlug={gitUniverseSlug} isSlim={isSlim} />
+            ) : (
+                <div className="history-list">
+                    {filteredHistory.length === 0 ? (
+                        <div className="history-empty">
+                            <Clock size={48} opacity={0.2} />
+                            <p>No actions recorded yet</p>
+                            {filter === 'graph' && !activeGraphId && <small>Open a Web to see its history</small>}
+                        </div>
+                    ) : (
+                        filteredHistory.map(entry => (
+                            <HistoryItem
+                                key={entry.id}
+                                entry={entry}
+                                isActive={entry.originalIndex <= effectiveIndex}
+                                isHead={entry.originalIndex === effectiveIndex}
+                                onClick={() => handleJumpTo(entry.originalIndex)}
+                            />
+                        ))
+                    )}
+                </div>
+            )}
         </div>
     );
 };

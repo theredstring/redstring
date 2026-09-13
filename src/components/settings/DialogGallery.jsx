@@ -118,6 +118,27 @@ const DIALOGS = [
     )
   },
   {
+    key: 'restore-version-browsed',
+    name: 'Restore Picked Version',
+    note: 'The same dialog reached from the Git tab, before the counts have been read. It stands on the size the commit listing already knew.',
+    render: (fire) => (
+      <RestoreVersionDialog
+        isOpen
+        universeName="Claude's Chambers"
+        title="Restore this version"
+        subtitle={'Saves this version of "Claude\'s Chambers" as a new change. Nothing in the history is rewritten.'}
+        dismissLabel="Cancel"
+        version={{
+          sha: 'c11c2089',
+          date: '2026-09-12T21:16:01Z',
+          size: 6916496
+        }}
+        onRestore={() => fire('onRestore')}
+        onDismiss={() => fire('onDismiss')}
+      />
+    )
+  },
+  {
     key: 'target-collision',
     name: 'Universe Target Collision',
     note: 'Two universes are configured to write the same file, so each overwrites the other.',

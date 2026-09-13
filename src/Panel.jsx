@@ -901,7 +901,10 @@ const Panel = memo(forwardRef(
       side === 'left' && initialViewActive
         ? initialViewActive
         : 'library'
-    ); // 'library', 'all', 'grid', 'federation', 'semantic', or 'ai'
+    ); // 'library', 'all', 'grid', 'federation', 'semantic', 'history', or 'ai'
+
+    // A pending "show me this universe's versions" request from Universes.
+    const [gitHistoryRequest, setGitHistoryRequest] = useState(null);
 
     // Allow external control of view when prop changes
     useEffect(() => {
@@ -1104,6 +1107,25 @@ const Panel = memo(forwardRef(
       };
       window.addEventListener('openSemanticDiscovery', handler);
       return () => window.removeEventListener('openSemanticDiscovery', handler);
+    }, [side]);
+
+    /*
+     * The repository row in Universes links to a universe's version history.
+     *
+     * The request is held here rather than listened for inside LeftHistoryView,
+     * because that view is not mounted until this line switches to it — a
+     * listener of its own would be attached one render too late to ever hear
+     * the event that summoned it. `at` makes a repeat click on the same
+     * universe a new request rather than an unchanged prop.
+     */
+    useEffect(() => {
+      if (side !== 'left') return;
+      const handler = (e) => {
+        setGitHistoryRequest({ universeSlug: e?.detail?.universeSlug || null, at: Date.now() });
+        setLeftViewActive('history');
+      };
+      window.addEventListener('redstring:open-git-history', handler);
+      return () => window.removeEventListener('redstring:open-git-history', handler);
     }, [side]);
 
     useEffect(() => {
@@ -1856,7 +1878,7 @@ const Panel = memo(forwardRef(
           />
         );
       } else if (leftViewActive === 'history') {
-        panelContent = <LeftHistoryView />;
+        panelContent = <LeftHistoryView gitRequest={gitHistoryRequest} />;
       }
     } else { // side === 'right'
       if (!activeRightPanelTab) {

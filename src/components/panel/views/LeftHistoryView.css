@@ -229,3 +229,146 @@
     font-size: 11px;
     color: var(--canvas-text-muted);
 }
+
+/*
+ * Narrow panel: the tabs keep their icons and drop their words.
+ *
+ * Three labelled tabs stop fitting well before the panel hits its own minimum
+ * width. Hiding the labels is better than letting them wrap or clip, and each
+ * button still carries its `title` for anyone who needs it.
+ */
+.left-history-view.slim .filter-tab span {
+    display: none;
+}
+
+.left-history-view.slim .history-filter-tabs {
+    gap: 4px;
+    padding: 8px 10px;
+}
+
+/* ---- Git versions ---- */
+
+/*
+ * Which repository is being shown, and a way to re-ask.
+ * Sits under the tabs so the list below starts at the same place the action
+ * history's list does.
+ */
+.git-history-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--canvas-border);
+    min-width: 0;
+}
+
+.left-history-view.slim .git-history-bar {
+    padding: 8px 10px;
+}
+
+.git-history-repo {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--canvas-text-muted);
+}
+
+.git-history-repo-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.git-history-refresh {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--canvas-text-muted);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.git-history-refresh:hover:not(:disabled) {
+    background-color: var(--canvas-hover);
+    color: var(--canvas-text);
+}
+
+.git-history-refresh:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.git-history-spin {
+    animation: git-history-spin 1s linear infinite;
+}
+
+@keyframes git-history-spin {
+    to { transform: rotate(360deg); }
+}
+
+.git-history-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 4px;
+    padding: 32px 24px;
+    text-align: center;
+    color: var(--canvas-text-muted);
+}
+
+.git-history-empty p {
+    margin: 8px 0 0 0;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.git-history-empty small {
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+/*
+ * The size column, which is the point of this list.
+ *
+ * A universe that fell from megabytes to kilobytes is recognisable here without
+ * opening anything, so the size is given the same weight as the timestamp
+ * rather than being tucked away as secondary detail.
+ */
+.git-revision-size {
+    font-size: 11px;
+    color: var(--canvas-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.git-revision-size::before {
+    content: '·';
+    margin-right: 8px;
+}
+
+/*
+ * Not colour-coded: "current" is a position in the list, not a severity. The
+ * maroon border the row already carries from `.history-item.head` is the mark.
+ */
+.git-revision-tag {
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    color: var(--canvas-text-muted);
+    text-transform: uppercase;
+}
+
+.git-revision-tag::before {
+    content: '·';
+    margin-right: 8px;
+}

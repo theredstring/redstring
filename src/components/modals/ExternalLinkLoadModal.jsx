@@ -25,13 +25,7 @@ import {
 import { importFromRedstring } from '../../formats/redstringFormat.js';
 import { hasCapability } from '../../utils/deviceDetection.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
-
-const formatBytes = (n) => {
-  if (!n || n <= 0) return '';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-};
+import { formatBytes } from '../../utils/formatBytes.js';
 
 const kindLabel = (kind) => {
   switch (kind) {

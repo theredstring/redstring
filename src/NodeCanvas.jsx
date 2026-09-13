@@ -390,6 +390,28 @@ const EDGE_HIT_FLOOR_PX_MOUSE = 24;
 const EDGE_HIT_FLOOR_PX_TOUCH = 44;
 const EDGE_HIT_TOUCH_BOOST = 1.4;
 
+// How much closer a rival has to be before it takes the hover away from the
+// connection already showing, as a fraction of the grab radius.
+//
+// Pure nearest-wins is the right answer for a CLICK, which happens at one
+// instant. It is the wrong answer for hover, which is a continuous judgement
+// re-made every frame: wherever two connections are near-tied, the winner
+// alternates under a pixel of cursor jitter, and since entering a new target
+// restarts the 180ms dwell, one flickering frame costs the user the whole
+// delay. Sustained flicker means hover never settles at all.
+//
+// Curved styles are where the tie zones live. A straight connection crosses its
+// neighbours at a point; a Lombardi arc bows clear of its chord, detours
+// through territory other connections occupy, and meets them at shallow angles
+// — so the near-tie is a STRETCH, not a point, and the more extreme the bow the
+// longer it runs. That is why the flicker showed up on the big arcs first and
+// left ordinary connections alone.
+//
+// Hysteresis, the same remedy runCulling applies to the visible set for the
+// same reason. Deliberately modest: enough to cover jitter and shallow
+// crossings, not enough to hold hover on a connection you have genuinely left.
+const EDGE_HOVER_STICKY_FRACTION = 0.25;
+
 // Shared empty obstacle list, so the memo below can skip the work without
 // handing out a fresh array identity on every pan tick.
 const EMPTY_OBSTACLES = Object.freeze([]);
@@ -6532,6 +6554,19 @@ function NodeCanvas() {
     setHoveredEdgeInfo(null);
   }, []);
 
+  // The connection the hover hit-test should favour on the next frame: the one
+  // on screen, or the one counting down toward being on screen. A target that
+  // is mid-dwell gets the same protection as a committed one — otherwise a
+  // rival that ties it for a frame resets the countdown and hover never
+  // arrives. See EDGE_HOVER_STICKY_FRACTION.
+  const hoverStickyEdgeId = useCallback(() => {
+    const PREFIX = 'connection:';
+    for (const key of [committedHoverKeyRef.current, pendingHoverKeyRef.current]) {
+      if (key.startsWith(PREFIX)) return key.slice(PREFIX.length);
+    }
+    return null;
+  }, []);
+
   // Route a detected hover candidate through the dwell timer. Entering a target
   // waits HOVER_ENTER_DELAY_MS; leaving a target (or landing on empty canvas)
   // clears instantly so nothing gets "stuck" behind the pointer.
@@ -6569,14 +6604,17 @@ function NodeCanvas() {
     // This target is already counting down — let its timer keep running.
     if (key === pendingHoverKeyRef.current && hoverCommitTimerRef.current) return;
 
-    // New target: drop whatever is currently shown, then start its dwell timer.
+    // New target: start its dwell timer, and leave whatever is currently shown
+    // ALONE until that timer fires.
+    //
+    // Blanking here instead meant every rival that got within the grab radius
+    // — for a frame, for a pixel of jitter — tore down a preview that was
+    // correct, and the user paid HOVER_ENTER_DELAY_MS of empty canvas whether
+    // or not the rival went on to win. applyHoverCandidate replaces all three
+    // pieces of hover state at once, so the swap at commit time is clean and
+    // there is nothing this early teardown was buying. Leaving a target
+    // entirely still clears instantly, above.
     if (hoverCommitTimerRef.current) clearTimeout(hoverCommitTimerRef.current);
-    if (committedHoverKeyRef.current !== 'none') {
-      committedHoverKeyRef.current = 'none';
-      setHoveredNodeForVision(null);
-      setHoveredConnectionForVision(null);
-      setHoveredEdgeInfo(null);
-    }
     pendingHoverKeyRef.current = key;
     hoverCommitTimerRef.current = setTimeout(() => {
       hoverCommitTimerRef.current = null;
@@ -10085,10 +10123,20 @@ function NodeCanvas() {
   // caller that needs it: aiming at a chord in a curved style walks the camera
   // to a spot with nothing drawn on it. Every style computes that point already
   // on its way to a distance; it was simply being thrown away.
-  const findNearestEdgeAtCanvasPoint = useCallback((cx, cy, threshold) => {
+  //
+  // `options.stickyEdgeId` biases the scan toward a connection the caller is
+  // already showing — see EDGE_HOVER_STICKY_FRACTION. Callers that want an
+  // honest nearest-wins (click, tap, the controller) simply omit it.
+  const findNearestEdgeAtCanvasPoint = useCallback((cx, cy, threshold, options = {}) => {
     let foundEdgeId = null;
     let foundConnectionPayload = null;
     let closestDistance = Infinity;
+    // Ranking key, which is the true distance for every connection EXCEPT the
+    // sticky one. Kept separate so `closestDistance` — and therefore the
+    // `distance` handed back to callers — stays the real measurement.
+    let closestScore = Infinity;
+    const stickyEdgeId = options.stickyEdgeId ?? null;
+    const stickyMargin = stickyEdgeId ? threshold * EDGE_HOVER_STICKY_FRACTION : 0;
     // One scratch object reused across the whole scan, copied out only when an
     // edge actually becomes the winner: this loop runs over every visible edge
     // on every pointer move, and the styles here were written to avoid exactly
@@ -10098,13 +10146,23 @@ function NodeCanvas() {
 
     for (let i = visibleEdges.length - 1; i >= 0; i--) {
       const edge = visibleEdges[i];
-      const sourceInstance = nodeById.get(edge.sourceId);
-      const targetInstance = nodeById.get(edge.destinationId);
-      if (!sourceInstance || !targetInstance) continue;
+      const sourceRaw = nodeById.get(edge.sourceId);
+      const targetRaw = nodeById.get(edge.destinationId);
+      if (!sourceRaw || !targetRaw) continue;
 
-      const sourceDims = baseDimsById.get(sourceInstance.id);
-      const targetDims = baseDimsById.get(targetInstance.id);
-      if (!sourceDims || !targetDims) continue;
+      const sourceDimsRaw = baseDimsById.get(sourceRaw.id);
+      const targetDimsRaw = baseDimsById.get(targetRaw.id);
+      if (!sourceDimsRaw || !targetDimsRaw) continue;
+
+      // Route from the same boxes the renderer routes from. A thing-group
+      // anchor is drawn from the GROUP's pill, not from the anchor's stored
+      // instance box, and every other reader of this geometry — the tangent
+      // solve, the label crossing index, renderConnectionEdge, the drag's live
+      // updater — already substitutes it. The pointer test was the last one
+      // that didn't, so a connection into a group was measured against a curve
+      // nobody had drawn. See anchorGeometryFor.
+      const { node: sourceInstance, dims: sourceDims } = anchorGeometryFor(sourceRaw, sourceDimsRaw);
+      const { node: targetInstance, dims: targetDims } = anchorGeometryFor(targetRaw, targetDimsRaw);
 
       const isSourcePreviewing = previewingNodeId === sourceInstance.id;
       const isTargetPreviewing = previewingNodeId === targetInstance.id;
@@ -10139,8 +10197,13 @@ function NodeCanvas() {
           edge, sourceInstance, targetInstance, sourceDims, targetDims,
           lombardiTangents, lombardiCurvature,
           // Same fan the renderer drew, so the hit-test picks the member of a
-          // bundle actually under the pointer.
-          { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing }
+          // bundle actually under the pointer — and the same straight/curved
+          // verdict, or a connection drawn as a line is measured as a bow.
+          {
+            curveInfo: edgeCurveInfo.get(edge.id),
+            laneSpacing: lombardiLaneSpacing,
+            minBow: lombardiMinBow,
+          }
         );
         distance = arc
           ? distanceToArc(cx, cy, arc, nearest)
@@ -10196,9 +10259,16 @@ function NodeCanvas() {
         }
       }
 
-      if (distance > threshold || distance >= closestDistance) continue;
+      // The sticky connection is graded on a curve, and released later than it
+      // is caught. Without both halves a rival that ties it for a single frame
+      // takes the hover away, which costs a full dwell delay to win back.
+      const isSticky = edge.id === stickyEdgeId;
+      const limit = isSticky ? threshold + stickyMargin : threshold;
+      const score = isSticky ? distance - stickyMargin : distance;
+      if (distance > limit || score >= closestScore) continue;
       // Keep scanning: for overlapping connections the nearest edge wins, not
       // the first one found within the threshold.
+      closestScore = score;
       closestDistance = distance;
       foundEdgeId = edge.id;
       // Copied, not aliased — `nearest` is about to be overwritten by the next
@@ -10267,7 +10337,8 @@ function NodeCanvas() {
       : null;
   }, [visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
     enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
-    lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing]);
+    lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing,
+    lombardiMinBow, anchorGeometryFor]);
 
   // Grab radius for the hit-test above, in canvas units.
   //
@@ -11347,8 +11418,13 @@ function NodeCanvas() {
             });
           } else {
             // Same geometric test the click / tap paths run, so the highlight
-            // and the selection can never pick different connections.
-            const edgeHit = findNearestEdgeAtCanvasPoint(currentX, currentY, getEdgeHitThreshold('mouse'));
+            // and the selection can never pick different connections. The one
+            // difference is stickiness: hover is re-decided every frame and has
+            // to stay still between frames, which a click does not.
+            const edgeHit = findNearestEdgeAtCanvasPoint(
+              currentX, currentY, getEdgeHitThreshold('mouse'),
+              { stickyEdgeId: hoverStickyEdgeId() }
+            );
 
             if (edgeHit) {
               commitHoverTarget({

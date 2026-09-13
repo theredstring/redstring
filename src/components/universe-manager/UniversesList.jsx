@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check } from 'lucide-react';
+import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check, History } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
 import PanelSegment from './shared/PanelSegment.jsx';
@@ -990,6 +990,26 @@ const UniversesList = ({
                                       title="Download latest from Git repository"
                                     />
                                   )}
+                                  {/*
+                                    Straight to this universe's committed
+                                    versions. The repository keeps every one, so
+                                    this is where an emptied universe is
+                                    recovered from — it should be reachable from
+                                    the repository row itself rather than only
+                                    when something has already gone wrong.
+                                  */}
+                                  <PanelIconButton
+                                    icon={History}
+                                    size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
+                                    style={isVerySlim ? { padding: '5px' } : {}}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.dispatchEvent(new CustomEvent('redstring:open-git-history', {
+                                        detail: { universeSlug: universe.slug }
+                                      }));
+                                    }}
+                                    title="Version history"
+                                  />
                                   <PanelIconButton
                                     icon={X}
                                     size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
