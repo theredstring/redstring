@@ -4,6 +4,10 @@ import {
   DEFAULT_EDGE_GLOW_MODE,
   EDGE_GLOW_FANCY_MAX_COUNT,
   EDGE_GLOW_FAST_MAX_COUNT,
+  EDGE_GLOW_INTENSITY_MIN,
+  EDGE_GLOW_INTENSITY_MAX,
+  DEFAULT_EDGE_GLOW_INTENSITY,
+  clampEdgeGlowIntensity,
   resolveEdgeGlowQuality,
 } from '../../src/utils/colorUtils.js';
 
@@ -100,5 +104,75 @@ describe('edgeGlowMode store setting', () => {
     store.getState().setEdgeGlowMode('turbo');
     expect(store.getState().edgeGlowMode).toBe('fancy');
     expect(localStorage.getItem('redstring_edge_glow_mode')).toBe('fancy');
+  });
+});
+
+describe('clampEdgeGlowIntensity', () => {
+  it('passes values inside the range through untouched', () => {
+    for (const v of [EDGE_GLOW_INTENSITY_MIN, 0.5, 1, 1.35, EDGE_GLOW_INTENSITY_MAX]) {
+      expect(clampEdgeGlowIntensity(v)).toBe(v);
+    }
+  });
+
+  it('clamps rather than rejecting, so an out-of-range value still lands usably', () => {
+    expect(clampEdgeGlowIntensity(-4)).toBe(EDGE_GLOW_INTENSITY_MIN);
+    expect(clampEdgeGlowIntensity(99)).toBe(EDGE_GLOW_INTENSITY_MAX);
+  });
+
+  it('never lets the slider become a fourth way to turn the flares off', () => {
+    expect(EDGE_GLOW_INTENSITY_MIN).toBeGreaterThan(0);
+    expect(clampEdgeGlowIntensity(0)).toBeGreaterThan(0);
+  });
+
+  it('falls back to the default for anything that is not a number', () => {
+    for (const v of [undefined, null, NaN, 'loud', {}]) {
+      expect(clampEdgeGlowIntensity(v)).toBe(DEFAULT_EDGE_GLOW_INTENSITY);
+    }
+  });
+});
+
+describe('edgeGlowIntensity store setting', () => {
+  const freshStore = async () => {
+    vi.resetModules();
+    const mod = await import('../../src/store/graphStore.js');
+    return mod.default;
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('defaults to the neutral gain when nothing is persisted', async () => {
+    const store = await freshStore();
+    expect(store.getState().edgeGlowIntensity).toBe(DEFAULT_EDGE_GLOW_INTENSITY);
+  });
+
+  it('restores and persists a chosen strength', async () => {
+    const store = await freshStore();
+    store.getState().setEdgeGlowIntensity(1.6);
+    expect(store.getState().edgeGlowIntensity).toBe(1.6);
+    expect(localStorage.getItem('redstring_edge_glow_intensity')).toBe('1.6');
+
+    const reloaded = await freshStore();
+    expect(reloaded.getState().edgeGlowIntensity).toBe(1.6);
+  });
+
+  it('clamps a persisted value from a build with a different range', async () => {
+    localStorage.setItem('redstring_edge_glow_intensity', '50');
+    const store = await freshStore();
+    expect(store.getState().edgeGlowIntensity).toBe(EDGE_GLOW_INTENSITY_MAX);
+  });
+
+  it('falls back to the default for unparseable persisted text', async () => {
+    localStorage.setItem('redstring_edge_glow_intensity', 'bright');
+    const store = await freshStore();
+    expect(store.getState().edgeGlowIntensity).toBe(DEFAULT_EDGE_GLOW_INTENSITY);
+  });
+
+  it('clamps on the way in rather than storing an unusable value', async () => {
+    const store = await freshStore();
+    store.getState().setEdgeGlowIntensity(0);
+    expect(store.getState().edgeGlowIntensity).toBe(EDGE_GLOW_INTENSITY_MIN);
+    expect(localStorage.getItem('redstring_edge_glow_intensity')).toBe(String(EDGE_GLOW_INTENSITY_MIN));
   });
 });

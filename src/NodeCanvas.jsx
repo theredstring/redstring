@@ -17834,7 +17834,6 @@ function NodeCanvas() {
               rightPanelExpanded={rightPanelExpanded}
               previewingNodeId={previewingNodeId}
               containerRef={containerRef}
-              canvasViewportSize={viewportSize}
               showViewportDebug={false}
               showDirectionLines={false}
             />

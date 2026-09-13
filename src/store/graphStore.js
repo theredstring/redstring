@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches } from 'immer';
-import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, EDGE_GLOW_MODES, DEFAULT_EDGE_GLOW_MODE } from '../utils/colorUtils.js';
+import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, EDGE_GLOW_MODES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, clampEdgeGlowIntensity } from '../utils/colorUtils.js';
 
 // Global listener for patches, used by middleware to capture changes from actions
 let patchListener = null;
@@ -172,6 +172,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {string} connectionLabelMoveFade - `'off'|'large'|'always'` — when connection labels fade out for the duration of a hand-driven pan or zoom, which is the largest saving available on one. `'large'` gates it on how many are on screen.
  * @property {boolean} connectionLabelTruncate - Whether a connection label longer than the connection it names is cut to fit and ellipsed, rather than overhanging into the nodes at either end.
  * @property {boolean} connectionLabelSprites - Whether connection labels are drawn as pre-rasterised bitmaps rather than live stroked <text>. On costs a little crispness between zoom buckets and buys most of the per-frame label cost back.
+ * @property {number} edgeGlowIntensity - Multiplier on how strongly those flares read: their size and opacity together, over whatever appearance `edgeGlowMode` picked.
  * @property {string} edgeGlowMode - `'off'|'fast'|'fancy'|'adaptive'` — how the flares that ride the viewport border pointing at off-screen Things are drawn. `'adaptive'` picks between the other two by how many Things the open web holds.
  * @property {boolean} showHoverPreview - Whether hovering a node shows a preview card.
  * @property {boolean} hoverPreviewZoomOnly - When true, the hover preview only appears while zoomed out (small on-canvas text); when false it appears at any zoom.
@@ -1651,6 +1652,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return DEFAULT_EDGE_GLOW_MODE;
       } catch (_) {
         return DEFAULT_EDGE_GLOW_MODE;
+      }
+    })(),
+    edgeGlowIntensity: (() => {
+      try {
+        const saved = parseFloat(localStorage.getItem('redstring_edge_glow_intensity'));
+        return Number.isFinite(saved) ? clampEdgeGlowIntensity(saved) : DEFAULT_EDGE_GLOW_INTENSITY;
+      } catch (_) {
+        return DEFAULT_EDGE_GLOW_INTENSITY;
       }
     })(),
     darkMode: (() => {
@@ -6373,6 +6382,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.edgeGlowMode = mode;
       try {
         localStorage.setItem('redstring_edge_glow_mode', mode);
+      } catch (_) { }
+    })),
+
+    /**
+     * Sets how strongly the off-screen glow flares read, as a multiplier over
+     * whatever appearance the mode picked. Clamped to the slider's range rather
+     * than refused, so a value from an older or newer build lands somewhere
+     * usable instead of being dropped. Persists to localStorage.
+     * @param {number} value
+     */
+    setEdgeGlowIntensity: (value) => set(produce((draft) => {
+      const next = clampEdgeGlowIntensity(value);
+      draft.edgeGlowIntensity = next;
+      try {
+        localStorage.setItem('redstring_edge_glow_intensity', next);
       } catch (_) { }
     })),
     /** Toggles the hover-preview card shown when hovering over a node. Persists to localStorage. */

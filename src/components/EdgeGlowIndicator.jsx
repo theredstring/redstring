@@ -3,7 +3,7 @@ import { useViewportBounds } from '../hooks/useViewportBounds';
 import { getNodeDimensions } from '../utils';
 import { NODE_HEIGHT } from '../constants';
 import useGraphStore from '../store/graphStore.js';
-import { resolveEdgeGlowQuality } from '../utils/colorUtils.js';
+import { resolveEdgeGlowQuality, clampEdgeGlowIntensity } from '../utils/colorUtils.js';
 
 // Where the canvas coordinate system's origin sits inside the 100k x 100k sheet.
 // NodeCanvas draws with offsetX/offsetY of -50000, so a node at canvas (0,0) is
@@ -37,6 +37,18 @@ const POOL_CHUNK = 16;
 // that only moved never touches its appearance.
 const glowStyleCache = new Map();
 
+// The cache's key space is bounded in every dimension but one: colour, falloff
+// bucket, panel mode and appearance are all small sets, while the strength
+// slider is continuous and a single drag sweeps through dozens of values. Each
+// one leaves a full generation of entries behind it, none of which will be asked
+// for again once the thumb moves on. Dropping the whole cache at a cap costs one
+// rebuild per flare on the next frame and keeps a long session from growing a
+// map of strings nothing reads.
+const GLOW_STYLE_CACHE_MAX = 512;
+
+/** A 0-255 channel as two hex digits, clamped. */
+const hex2 = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+
 /**
  * The flare's own CSS, as one declaration block.
  *
@@ -61,29 +73,40 @@ const glowStyleCache = new Map();
  * flares number in the dozens, none of those p90s exist. Which one you get is
  * now the edgeGlowMode setting's business, not this function's.
  */
-const getFlareCss = (color, intensity, isExclusiveMode, quality) => {
-  const key = `${color}|${intensity}|${isExclusiveMode ? 1 : 0}|${quality}`;
+const getFlareCss = (color, intensity, isExclusiveMode, quality, strength) => {
+  const key = `${color}|${intensity}|${isExclusiveMode ? 1 : 0}|${quality}|${strength}`;
   const hit = glowStyleCache.get(key);
   if (hit) return hit;
 
   const fancy = quality === 'fancy';
   // 'fast' has no blur to bleed past its box, so it grows to cover the same area.
   const BLEED = fancy ? 1 : 1.4;
-  const flareLength = (isExclusiveMode ? 10 + intensity * 4 : 14 + intensity * 6) * BLEED;
-  const flareThickness = (isExclusiveMode ? 20 + intensity * 6 : 28 + intensity * 8) * BLEED;
-  const glowAlpha = Math.round(intensity * 255 * 0.6).toString(16).padStart(2, '0');
+  // `strength` is the user's gain on the whole population; `intensity` is this
+  // flare's own distance falloff. Size and opacity move together under the gain
+  // so a flare stays the same shape as it brightens — scaling one alone reads as
+  // a different effect rather than as more of the same one.
+  const flareLength = (isExclusiveMode ? 10 + intensity * 4 : 14 + intensity * 6) * BLEED * strength;
+  const flareThickness = (isExclusiveMode ? 20 + intensity * 6 : 28 + intensity * 8) * BLEED * strength;
+  // Both gradient stops take the gain, or the core would brighten against a mid
+  // stop that stayed put and the falloff would change shape. Clamped, since the
+  // slider goes past the point where the core alpha would overflow a byte.
+  const coreAlpha = hex2(intensity * 255 * 0.6 * strength);
+  const midAlpha = hex2(0x30 * strength);
 
   let css = 'position:absolute;'
     + `left:${-flareLength / 2}px;top:${-flareThickness / 2}px;`
     + `width:${flareLength}px;height:${flareThickness}px;`
     + `border-radius:${flareThickness}px;`
-    + `background:radial-gradient(ellipse, ${color}${glowAlpha} 0%, ${color}30 45%, transparent 100%);`;
+    + `background:radial-gradient(ellipse, ${color}${coreAlpha} 0%, ${color}${midAlpha} 45%, transparent 100%);`;
 
   if (fancy) {
-    css += `filter:blur(${(4 + intensity * 6).toFixed(1)}px);`
-      + `box-shadow:0 0 ${(8 + intensity * 14).toFixed(1)}px ${color}${glowAlpha};`;
+    // The blur and the halo scale too, so turning the gain up spreads the glow
+    // rather than just making a hard-edged blob of it.
+    css += `filter:blur(${((4 + intensity * 6) * strength).toFixed(1)}px);`
+      + `box-shadow:0 0 ${((8 + intensity * 14) * strength).toFixed(1)}px ${color}${coreAlpha};`;
   }
 
+  if (glowStyleCache.size >= GLOW_STYLE_CACHE_MAX) glowStyleCache.clear();
   glowStyleCache.set(key, css);
   return css;
 };
@@ -103,11 +126,16 @@ const EdgeGlowIndicator = ({
   previewingNodeId,
   containerRef,
   showViewportDebug = false,
-  showDirectionLines = false,
-  canvasViewportSize // Pass in the fixed canvas viewport size
+  showDirectionLines = false
+  // No canvas viewport size: what counts as off-screen is the panel-aware
+  // viewportBounds below, not the window. The old prop fed four locals that
+  // nothing ever read.
 }) => {
   const edgeGlowMode = useGraphStore(state => state.edgeGlowMode);
   const quality = resolveEdgeGlowQuality(edgeGlowMode, nodes?.length ?? 0);
+  // Clamped here as well as in the store: this reads whatever is in state,
+  // including a value persisted by a build with a different range.
+  const strength = clampEdgeGlowIntensity(useGraphStore(state => state.edgeGlowIntensity));
 
   // Get TypeList visibility from store
   const typeListMode = useGraphStore(state => state.typeListMode);
@@ -115,9 +143,6 @@ const EdgeGlowIndicator = ({
 
   // Use the panel-based viewport bounds for positioning the overlay
   const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListVisible);
-
-  // Use the fixed canvas viewport size for coordinate calculations
-  const canvasSize = canvasViewportSize || { width: window.innerWidth, height: window.innerHeight };
 
   // The container's own rect, measured OUT of band.
   //
@@ -146,9 +171,19 @@ const EdgeGlowIndicator = ({
   // read a plain object.
   const [containerRect, setContainerRect] = useState(null);
   useLayoutEffect(() => {
+    let retry = 0;
     const measure = () => {
       const el = containerRef?.current;
-      if (!el) return;
+      if (!el) {
+        // The container is an ANCESTOR of this overlay. React attaches refs on
+        // the way up the tree and runs layout effects as it goes, so on the very
+        // first commit this effect is reached before that ref exists. Bailing
+        // outright would leave the overlay unmeasured — and so unable to draw
+        // anything at all — until some unrelated resize or panel toggle happened
+        // to re-run this. Come back next frame instead.
+        retry = requestAnimationFrame(measure);
+        return;
+      }
       const r = el.getBoundingClientRect();
       setContainerRect(prev =>
         (prev && prev.left === r.left && prev.top === r.top
@@ -159,7 +194,10 @@ const EdgeGlowIndicator = ({
     };
     measure();
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    return () => {
+      if (retry) cancelAnimationFrame(retry);
+      window.removeEventListener('resize', measure);
+    };
     // Panel/type-list toggles resize the container without firing `resize`.
   }, [containerRef, leftPanelExpanded, rightPanelExpanded, typeListVisible, viewportBounds]);
 
@@ -209,12 +247,14 @@ const EdgeGlowIndicator = ({
   const viewportBoundsRef = useRef(viewportBounds);
   const containerRectRef = useRef(containerRect);
   const qualityRef = useRef(quality);
+  const strengthRef = useRef(strength);
   const settledPanRef = useRef(panOffset);
   const settledZoomRef = useRef(zoomLevel);
   geometryRef.current = geometry;
   viewportBoundsRef.current = viewportBounds;
   containerRectRef.current = containerRect;
   qualityRef.current = quality;
+  strengthRef.current = strength;
   settledPanRef.current = panOffset;
   settledZoomRef.current = zoomLevel;
 
@@ -279,6 +319,7 @@ const EdgeGlowIndicator = ({
     const vb = viewportBoundsRef.current;
     const rect = containerRectRef.current;
     const q = qualityRef.current;
+    const strengthNow = strengthRef.current;
     const slots = slotsRef.current;
     if (!geo || !geo.count || !vb || !rect || q === 'off') {
       lastUsedRef.current = 0;
@@ -356,7 +397,7 @@ const EdgeGlowIndicator = ({
         slot.transform = transform;
       }
 
-      const css = getFlareCss(colors[i], intensity, exclusive, q);
+      const css = getFlareCss(colors[i], intensity, exclusive, q, strengthNow);
       if (slot.css !== css) {
         inner.style.cssText = css;
         slot.css = css;
@@ -396,7 +437,7 @@ const EdgeGlowIndicator = ({
     // what is actually mounted first.
     if (slotsRef.current.length > poolSize) slotsRef.current.length = poolSize;
     paint();
-  }, [paint, poolSize, geometry, viewportBounds, containerRect, quality, canvasSize]);
+  }, [paint, poolSize, geometry, viewportBounds, containerRect, quality, strength]);
 
   // The settle. `panOffset`/`zoomLevel` are NodeCanvas's settled state and change
   // once per gesture, SETTLE_DELAY ms after the last mutation — the moment at
@@ -505,7 +546,7 @@ const EdgeGlowIndicator = ({
       {/* Debug corner labels */}
       {showViewportDebug && (
         <div style={{ position: 'absolute', top: '5px', left: '5px', color: 'red', fontSize: '12px', fontWeight: 'bold', backgroundColor: 'yellow', padding: '4px', zIndex: 999999 }}>
-          🔴 EDGE GLOW: mode={edgeGlowMode} quality={quality} | flares={lastUsedRef.current}/{poolSize}
+          🔴 EDGE GLOW: mode={edgeGlowMode} quality={quality} strength={strength} | flares={lastUsedRef.current}/{poolSize}
           {' '}| viewport {Math.round(viewportBounds.x)},{Math.round(viewportBounds.y)} {Math.round(viewportBounds.width)}x{Math.round(viewportBounds.height)}
         </div>
       )}

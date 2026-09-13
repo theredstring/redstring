@@ -353,6 +353,40 @@ export const EDGE_GLOW_FANCY_MAX_COUNT = 120;
 export const EDGE_GLOW_FAST_MAX_COUNT = 800;
 
 /**
+ * How strongly the flares read, as a multiplier over the appearance the mode
+ * picked. It scales a flare's size and its opacity together, so the whole
+ * population dims or swells at once without changing which Things get one.
+ *
+ * Separate from the per-flare `intensity` the painter computes, which is the
+ * distance falloff — a nearer Thing glowing brighter than a far one. This is the
+ * gain on all of them.
+ *
+ * The floor is deliberately above zero: a flare nobody can see is what 'off' is
+ * for, and a slider that quietly becomes a fourth way to disable the feature
+ * leaves someone wondering why their setting stopped working.
+ */
+export const EDGE_GLOW_INTENSITY_MIN = 0.25;
+export const EDGE_GLOW_INTENSITY_MAX = 2;
+export const DEFAULT_EDGE_GLOW_INTENSITY = 1;
+
+/**
+ * Clamps a glow strength to the slider's range, falling back on the default for
+ * anything that is not a number.
+ *
+ * The type check is not redundant with the finite check. `Number(null)` is 0,
+ * and so is `Number('')` and `Number([])` — coercing first would turn "no value
+ * at all" into "the dimmest setting there is", which is a real answer to a
+ * question nobody asked. Absent input has to reach the default.
+ */
+export const clampEdgeGlowIntensity = (value) => {
+  const n = typeof value === 'number'
+    ? value
+    : (typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN);
+  if (!Number.isFinite(n)) return DEFAULT_EDGE_GLOW_INTENSITY;
+  return Math.min(EDGE_GLOW_INTENSITY_MAX, Math.max(EDGE_GLOW_INTENSITY_MIN, n));
+};
+
+/**
  * Resolves an EDGE_GLOW_MODES value to the appearance actually drawn: one of
  * 'off', 'fast' or 'fancy'. Only 'adaptive' consults `nodeCount`.
  * @param {string} mode

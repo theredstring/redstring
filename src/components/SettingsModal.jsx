@@ -8,7 +8,7 @@ import AISection from './settings/AISection.jsx';
 import DebugSection from './settings/DebugSection.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
-import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, DEFAULT_EDGE_GLOW_MODE } from '../utils/colorUtils.js';
+import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, EDGE_GLOW_INTENSITY_MIN, EDGE_GLOW_INTENSITY_MAX } from '../utils/colorUtils.js';
 import './ModalChrome.css';
 
 /**
@@ -178,6 +178,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const connectionLabelTruncate = useGraphStore(s => s.connectionLabelTruncate ?? DEFAULT_CONNECTION_LABEL_TRUNCATE);
   const connectionLabelSprites = useGraphStore(s => s.connectionLabelSprites ?? DEFAULT_CONNECTION_LABEL_SPRITES);
   const edgeGlowMode = useGraphStore(s => s.edgeGlowMode) ?? DEFAULT_EDGE_GLOW_MODE;
+  const edgeGlowIntensity = useGraphStore(s => s.edgeGlowIntensity) ?? DEFAULT_EDGE_GLOW_INTENSITY;
   const darkMode = useGraphStore(s => s.darkMode);
   const showHoverPreview = useGraphStore(s => s.showHoverPreview ?? true);
   const hoverPreviewZoomOnly = useGraphStore(s => s.hoverPreviewZoomOnly ?? true);
@@ -240,6 +241,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-row">
             <div className="settings-row-label">
               Dark Mode
+              <div className="settings-row-description">Use dark background color</div>
             </div>
             <Toggle
               checked={!!darkMode}
@@ -249,6 +251,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-row">
             <div className="settings-row-label">
               Offscreen Thing Glow
+              <div className="settings-row-description">Glow flares on the canvas edges pointing at Things outside the viewport. Fancy adds a blur and a halo, which costs more to draw the more Things are offscreen; Adaptive drops to Fast, then off, as a Web grows.</div>
             </div>
             <OptionGroup
               options={[
@@ -261,9 +264,22 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={(v) => useGraphStore.getState().setEdgeGlowMode?.(v)}
             />
           </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Glow Strength"
+              value={edgeGlowIntensity}
+              min={EDGE_GLOW_INTENSITY_MIN}
+              max={EDGE_GLOW_INTENSITY_MAX}
+              step={0.05}
+              suffix="x"
+              disabled={edgeGlowMode === 'off'}
+              onChange={(v) => useGraphStore.getState().setEdgeGlowIntensity?.(v)}
+            />
+          </div>
           <div className="settings-row settings-row--attached">
             <div className="settings-row-label">
               Hover Preview
+              <div className="settings-row-description">Show a preview of the hovered Thing when hovering inside an expanded Thing's network.</div>
             </div>
             <Toggle
               checked={!!showHoverPreview}
@@ -273,6 +289,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-row settings-row--attached">
             <div className="settings-row-label">
               Only When Zoomed Out
+              <div className="settings-row-description">Only show the hover preview when zoomed out far enough that on-canvas text is small. When off, it shows at any zoom level.</div>
             </div>
             <Toggle
               checked={!!hoverPreviewZoomOnly}
