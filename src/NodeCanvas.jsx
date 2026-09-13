@@ -6120,7 +6120,15 @@ function NodeCanvas() {
     try {
       storeActions.setLeftPanelExpanded(true);
     } catch { }
-    setLeftPanelInitialView('ai');
+    // Through the imperative handle rather than the initialViewActive prop:
+    // that prop opens a view only when its VALUE changes, so a second ask in
+    // the same session — after the user has been to another view — would send
+    // the message and leave the panel sitting wherever it already was.
+    if (leftPanelRef.current?.setActiveView) {
+      leftPanelRef.current.setActiveView('ai');
+    } else {
+      setLeftPanelInitialView('ai');
+    }
     sendWizardAsk(built, { newConversation, toolPolicy });
     afterSend?.();
   }, [ensureWizardApiKey, storeActions]);

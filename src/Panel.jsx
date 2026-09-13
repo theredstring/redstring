@@ -40,6 +40,7 @@ import CollapsibleSection from './components/CollapsibleSection.jsx';
 import StandardDivider from './components/StandardDivider.jsx';
 import { knowledgeFederation } from './services/knowledgeFederation.js';
 import { showContextMenuForElement } from './components/GlobalContextMenu.jsx';
+import { resolveTabOverflow, PANEL_TAB_WIDTH } from './utils/panelTabOverflow.js';
 import { normalizeToCandidate, candidateToConcept } from './services/candidates.js';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { useTheme } from './hooks/useTheme.js';
@@ -370,10 +371,6 @@ const INITIAL_PANEL_WIDTH = 250; // Match NodeCanvas default
 const ULTRA_SLIM_WIDTH = 320;
 // EXCLUSIVE_PANEL_MODE_THRESHOLD imported from ./constants (shared with NodeCanvas.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
-
-// Every tab in a panel header is this square. The left header's overflow math
-// counts slots of this width, so it has to stay in sync with the tabs below.
-const PANEL_TAB_WIDTH = 50;
 
 // Feature flag: toggle visibility of the "All Things" tab in the left panel header
 const ENABLE_ALL_THINGS_TAB = false;
@@ -1085,33 +1082,39 @@ const Panel = memo(forwardRef(
 
     // Event listener: open Semantic Discovery (triggered by text-search icon)
     useEffect(() => {
+      // Only the left panel owns this view. The right panel used to re-dispatch
+      // the very event it was handling, which re-entered both listeners and
+      // recursed until the stack gave out (swallowed by the catch below, so it
+      // looked like nothing worse than a stutter).
+      if (side !== 'left') return;
       const handler = (e) => {
         try {
           const query = e?.detail?.query;
-          if (side === 'left') {
-            setLeftViewActive('semantic');
-            if (query) {
-              // Retry until the view registers triggerSemanticSearch
-              let attempts = 0;
-              const maxAttempts = 20; // ~1s at 50ms intervals
-              const intervalId = setInterval(() => {
-                attempts += 1;
-                if (typeof window !== 'undefined' && typeof window.triggerSemanticSearch === 'function') {
-                  try { window.triggerSemanticSearch(query); } catch { }
-                  clearInterval(intervalId);
-                } else if (attempts >= maxAttempts) {
-                  clearInterval(intervalId);
-                }
-              }, 50);
-            }
-          } else if (side === 'right') {
-            window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query } }));
+          // Every sender of this event is outside the left panel — the canvas
+          // pie menu, the right panel's node view — so the panel it is asking
+          // for may well be shut. Switching a view nobody can see is not
+          // opening it.
+          try { storeActions?.setLeftPanelExpanded?.(true); } catch { }
+          setLeftViewActive('semantic');
+          if (query) {
+            // Retry until the view registers triggerSemanticSearch
+            let attempts = 0;
+            const maxAttempts = 20; // ~1s at 50ms intervals
+            const intervalId = setInterval(() => {
+              attempts += 1;
+              if (typeof window !== 'undefined' && typeof window.triggerSemanticSearch === 'function') {
+                try { window.triggerSemanticSearch(query); } catch { }
+                clearInterval(intervalId);
+              } else if (attempts >= maxAttempts) {
+                clearInterval(intervalId);
+              }
+            }, 50);
           }
         } catch { }
       };
       window.addEventListener('openSemanticDiscovery', handler);
       return () => window.removeEventListener('openSemanticDiscovery', handler);
-    }, [side]);
+    }, [side, storeActions]);
 
     /*
      * The repository row in Universes links to a universe's version history.
@@ -1654,27 +1657,18 @@ const Panel = memo(forwardRef(
     // both directions. `hidden` is therefore about rendering, not existence:
     // a hidden tab is inert (no pointer events, no controller stop, no tooltip).
     const { hiddenLeftTabKeys, overflowLeftTabs } = useMemo(() => {
-      const total = leftTabDefs.length;
-      if (!total) return { hiddenLeftTabKeys: new Set(), overflowLeftTabs: [] };
-      // The panel's own toggle button is a fixed overlay pinned to the viewport
-      // edge on top of this row, so the first PANEL_TOGGLE_BUTTON_WIDTH of the
-      // strip is never actually usable — a tab parked under it is invisible.
-      const usable = leftTabStripWidth == null ? null : leftTabStripWidth - PANEL_TOGGLE_BUTTON_WIDTH;
-      // Before the first measurement, assume everything fits: showing the real
-      // tabs for a frame reads better than flashing an ellipsis.
-      const fit = usable == null ? total : Math.floor(usable / PANEL_TAB_WIDTH);
-      if (fit >= total) return { hiddenLeftTabKeys: new Set(), overflowLeftTabs: [] };
-      // Collapsed is all-or-two: the strip becomes exactly "where you are" plus
-      // the way to everywhere else. No partial row of whichever tabs happened to
-      // fit — at these widths that's just noise around the one tab that matters.
-      // Under two slots even that goes, and the strip is the ellipsis alone.
-      const keepActive = fit >= 2 && leftTabDefs.some((t) => t.key === leftViewActive);
-      const hidden = new Set(
-        leftTabDefs.filter((t) => !(keepActive && t.key === leftViewActive)).map((t) => t.key)
-      );
+      const { hiddenKeys } = resolveTabOverflow({
+        tabKeys: leftTabDefs.map((t) => t.key),
+        activeKey: leftViewActive,
+        stripWidth: leftTabStripWidth,
+        // The panel's own toggle button is a fixed overlay pinned to the viewport
+        // edge on top of this row, so the strip's leading 50px is never actually
+        // usable — a tab parked under it is invisible.
+        reservedWidth: PANEL_TOGGLE_BUTTON_WIDTH,
+      });
       return {
-        hiddenLeftTabKeys: hidden,
-        overflowLeftTabs: leftTabDefs.filter((t) => hidden.has(t.key)),
+        hiddenLeftTabKeys: hiddenKeys,
+        overflowLeftTabs: leftTabDefs.filter((t) => hiddenKeys.has(t.key)),
       };
     }, [leftTabDefs, leftTabStripWidth, leftViewActive]);
 
