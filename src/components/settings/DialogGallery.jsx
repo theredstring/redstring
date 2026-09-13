@@ -4,6 +4,7 @@ import { useTheme } from '../../hooks/useTheme.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { DialogButton, DIALOG_Z_INDEX } from '../shared/Dialog.jsx';
 import SlotConflictDialog from '../shared/SlotConflictDialog.jsx';
+import RestoreVersionDialog from '../shared/RestoreVersionDialog.jsx';
 import UniverseTargetConflictDialog from '../shared/UniverseTargetConflictDialog.jsx';
 import LocalFileConflictDialog from '../shared/LocalFileConflictDialog.jsx';
 import MergeUniverseDialog from '../shared/MergeUniverseDialog.jsx';
@@ -94,6 +95,25 @@ const DIALOGS = [
         onChooseLocal={() => fire('onChooseLocal')}
         onChooseGit={() => fire('onChooseGit')}
         onCancel={() => fire('onCancel')}
+      />
+    )
+  },
+  {
+    key: 'restore-version',
+    name: 'Restore Earlier Version',
+    note: 'A universe opened empty, but the repository history still holds a version with things in it.',
+    render: (fire) => (
+      <RestoreVersionDialog
+        isOpen
+        universeName="Claude's Chambers"
+        version={{
+          sha: 'c11c2089',
+          date: '2026-09-12T21:16:01Z',
+          nodeCount: 1822,
+          graphCount: 191
+        }}
+        onRestore={() => fire('onRestore')}
+        onDismiss={() => fire('onDismiss')}
       />
     )
   },

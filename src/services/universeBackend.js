@@ -155,6 +155,9 @@ class UniverseBackend {
     this.persistentStorageRequested = false;
     this.lastAuthEngineSetup = 0;
     this.pendingPrimarySelection = new Set();
+    // Set when a universe loads empty but its repository history still holds
+    // work. Keeps the offer from being raised twice for the same universe.
+    this.pendingRestoreOffer = null;
     this.secondarySyncTimestamps = new Map();
     this.restoreHandlesPromise = null;
 
@@ -4033,6 +4036,13 @@ class UniverseBackend {
           return this._surfaceEmptyPrimaryConflict(universe, sourceOfTruth, localRes.data, gitSlot.data, SOURCE_OF_TRUTH.GIT);
         }
 
+        // Both slots empty, but the repository may remember better. The case
+        // that matters: a universe wiped in BOTH places, which is exactly
+        // what happened on 2026-09-12.
+        if (isEffectivelyEmpty(localRes.data)) {
+          await this._offerRestoreIfHistoryHasData(universe);
+        }
+
         return this.syncAndReturn(universe, localRes.data, {
           force: true,
           source: SOURCE_OF_TRUTH.LOCAL,
@@ -4064,6 +4074,14 @@ class UniverseBackend {
         if (isEffectivelyEmpty(gitRes.data) && localSlot?.data && !isEffectivelyEmpty(localSlot.data)) {
           umWarn('[UniverseBackend] Git primary is empty but the local file holds data — refusing to apply the empty primary.');
           return this._surfaceEmptyPrimaryConflict(universe, sourceOfTruth, gitRes.data, localSlot.data, SOURCE_OF_TRUTH.LOCAL);
+        }
+
+        // The repository copy has nothing in it. It may always have been
+        // empty — or it may have held work until recently, which the history
+        // can answer. Asking costs nothing when the universe is genuinely new
+        // (a repository with one commit has nothing to offer).
+        if (isEffectivelyEmpty(gitRes.data)) {
+          await this._offerRestoreIfHistoryHasData(universe);
         }
 
         return this.syncAndReturn(universe, gitRes.data, {
@@ -4772,6 +4790,224 @@ class UniverseBackend {
     } catch (error) {
       umWarn('[UniverseBackend] Failed to record remote observation:', error);
     }
+  }
+
+  /**
+   * A universe loaded empty. If its history holds work, say so and offer it.
+   *
+   * This is the part that matters for trust. A version list nobody opens is
+   * no help at the moment data goes missing — the app has to be the one to
+   * notice. It runs only on an empty load, so the common path pays nothing,
+   * and it stays quiet when the history has nothing better to offer.
+   *
+   * Deliberately does not block the load or change what gets applied: the
+   * user keeps working in whatever state they have, and the offer waits.
+   *
+   * @private
+   */
+  async _offerRestoreIfHistoryHasData(universe) {
+    if (this.pendingRestoreOffer?.universeSlug === universe.slug) return; // already asked
+    try {
+      const lastGood = await this.findLastGoodVersion(universe);
+      if (!lastGood) return;
+
+      umWarn(`[UniverseBackend] ${universe.slug} loaded empty but ${lastGood.sha.slice(0, 8)} holds ${lastGood.nodeCount} things — offering to restore.`);
+      const offer = {
+        universeSlug: universe.slug,
+        universeName: universe.name || universe.slug,
+        sha: lastGood.sha,
+        date: lastGood.date,
+        nodeCount: lastGood.nodeCount,
+        graphCount: lastGood.graphCount
+      };
+      this.pendingRestoreOffer = offer;
+      this.notifyStatus('warning', `"${offer.universeName}" loaded empty — an earlier version holds ${offer.nodeCount} things.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('redstring:restore-available', { detail: offer }));
+      }
+    } catch (error) {
+      // Never let a failed lookup interfere with the load it is advising on.
+      umWarn('[UniverseBackend] Could not check history for a recoverable version:', error?.message || error);
+    }
+  }
+
+  /** Dismiss the restore offer without restoring. */
+  dismissRestoreOffer(universeSlug) {
+    if (this.pendingRestoreOffer?.universeSlug === universeSlug) {
+      this.pendingRestoreOffer = null;
+    }
+  }
+
+  /**
+   * The path in the repository where this universe's file lives.
+   * Mirrors the construction in `loadFromGitDirect`, using the canonical
+   * (sanitized) base name the sync engine reads and writes.
+   */
+  async gitPathForUniverse(universe) {
+    const folder = universe?.gitRepo?.universeFolder || universe?.slug;
+    const fileName = universe?.gitRepo?.universeFile || `${universe?.slug}.redstring`;
+    const { sanitizeGitFileBaseName } = await import('./gitSyncEngine.js');
+    return `universes/${folder}/${sanitizeGitFileBaseName(fileName)}.redstring`;
+  }
+
+  /**
+   * Every revision of this universe's file in the repository, newest first.
+   *
+   * @param {Object} universe
+   * @param {Object} [options]
+   * @param {number} [options.limit=20]
+   * @param {boolean} [options.withSize=true]
+   * @returns {Promise<Array<{sha, date, message, size}>>} Empty when the
+   *   universe has no repository, or history cannot be read.
+   */
+  async listUniverseHistory(universe, { limit = 20, withSize = true } = {}) {
+    if (!universe?.gitRepo?.enabled || !universe?.gitRepo?.linkedRepo) return [];
+    try {
+      const provider = await this.createProviderForUniverse(universe);
+      if (!provider || typeof provider.listFileHistory !== 'function') return [];
+      const path = await this.gitPathForUniverse(universe);
+      return await provider.listFileHistory(path, { limit, withSize });
+    } catch (error) {
+      umWarn('[UniverseBackend] Could not read universe history:', error?.message || error);
+      return [];
+    }
+  }
+
+  /**
+   * The most recent revision of this universe that actually held the user's
+   * work, skipping any that are empty.
+   *
+   * This is the recovery primitive. The repository already keeps every version
+   * a universe has ever had — a write that destroys data leaves the previous
+   * content in history, intact. On 2026-09-12 that was the only reason a 6.9 MB
+   * universe was recoverable at all, and nothing in the app could see it.
+   *
+   * Size does the filtering so this stays cheap: a revision's byte count comes
+   * back without downloading it, and a universe that fell from megabytes to
+   * kilobytes is identifiable before a single revision is read. Only candidates
+   * that look substantial are actually fetched and counted, newest first, and
+   * the search stops at the first one holding real things.
+   *
+   * @param {Object} universe
+   * @param {Object} [options]
+   * @param {number} [options.limit=20] - Revisions to consider.
+   * @param {number} [options.minBytes=2048] - Skip revisions smaller than this
+   *   without reading them. An empty universe file is a couple of kilobytes of
+   *   JSON-LD context and nothing else.
+   * @returns {Promise<{sha, date, size, nodeCount, graphCount, storeState}|null>}
+   */
+  async findLastGoodVersion(universe, { limit = 20, minBytes = 2048 } = {}) {
+    const revisions = await this.listUniverseHistory(universe, { limit, withSize: true });
+    if (!revisions.length) return null;
+
+    let provider;
+    let path;
+    try {
+      provider = await this.createProviderForUniverse(universe);
+      path = await this.gitPathForUniverse(universe);
+    } catch (error) {
+      umWarn('[UniverseBackend] Could not open the repository to search history:', error?.message || error);
+      return null;
+    }
+    if (!provider) return null;
+
+    for (const revision of revisions) {
+      // `null` means the size could not be read — worth opening. A known-small
+      // revision is not.
+      if (typeof revision.size === 'number' && revision.size < minBytes) continue;
+
+      let content;
+      try {
+        content = await provider.readFileRaw(path, { ref: revision.sha });
+      } catch (error) {
+        umWarn(`[UniverseBackend] Could not read revision ${revision.sha?.slice(0, 8)}:`, error?.message || error);
+        continue;
+      }
+
+      let storeState;
+      try {
+        storeState = importFromRedstring(JSON.parse(content)).storeState;
+      } catch (error) {
+        // A revision that will not parse is not a recovery candidate.
+        umWarn(`[UniverseBackend] Revision ${revision.sha?.slice(0, 8)} is not readable as a universe:`, error?.message || error);
+        continue;
+      }
+
+      const counts = this.analyzeStoreData(storeState);
+      if (counts.userNodeCount > 0) {
+        return {
+          sha: revision.sha,
+          date: revision.date,
+          size: revision.size,
+          nodeCount: counts.userNodeCount,
+          graphCount: counts.graphCount,
+          storeState
+        };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Put an earlier revision back, as a NEW commit.
+   *
+   * Never rewrites history: the revision that lost the data stays in the log,
+   * which is what made it possible to find the good copy in the first place.
+   * The restored state is loaded into the store and saved through the normal
+   * write path, so every guard still applies to it.
+   *
+   * @param {string} universeSlug
+   * @param {string} sha - Revision to restore, from `listUniverseHistory`.
+   * @param {Object} [options]
+   * @param {string} [options.date] - The revision's timestamp, for the
+   *   confirmation message. Cosmetic; the restore does not depend on it.
+   * @returns {Promise<{nodeCount: number, graphCount: number}>}
+   */
+  async restoreUniverseVersion(universeSlug, sha, { date = null } = {}) {
+    const universe = this.getUniverse(universeSlug);
+    if (!universe) throw new Error(`Universe not found: ${universeSlug}`);
+    if (!sha) throw new Error('No revision given to restore');
+
+    const provider = await this.createProviderForUniverse(universe);
+    if (!provider) throw new Error('Could not reach the repository to restore from');
+    const path = await this.gitPathForUniverse(universe);
+
+    const content = await provider.readFileRaw(path, { ref: sha });
+    const { storeState } = importFromRedstring(JSON.parse(content));
+    const counts = this.analyzeStoreData(storeState);
+
+    if (counts.userNodeCount === 0) {
+      throw new Error('That version has nothing in it');
+    }
+
+    umLog(`[UniverseBackend] Restoring ${universeSlug} from ${sha.slice(0, 8)} (${counts.userNodeCount} things)`);
+
+    // A pending conflict would otherwise block the save that follows.
+    if (this.pendingConflict?.universeSlug === universeSlug) this.pendingConflict = null;
+    this.pendingPrimarySelection.delete(universeSlug);
+    const engine = this.gitSyncEngines.get(universeSlug);
+    if (engine) {
+      engine.remoteConflictPending = false;
+      engine.remoteUnrecognized = false;
+      // The restored content came from this repository, so the engine may
+      // treat the remote as read — but not as WRITTEN. Leaving the SHA unset
+      // makes the commit below pull-and-compare rather than assert a version
+      // it never wrote.
+      engine.invalidateRemoteObservation();
+    }
+
+    if (this.storeOperations?.loadUniverseFromFile) {
+      this.storeOperations.loadUniverseFromFile(storeState);
+    }
+    await this.saveActiveUniverse(null, { isConflictResolution: true });
+
+    let when = 'an earlier version';
+    if (date) {
+      try { when = new Date(date).toLocaleString(); } catch { /* keep the fallback */ }
+    }
+    this.notifyStatus('success', `Restored ${counts.userNodeCount} things from ${when}`);
+    return { nodeCount: counts.userNodeCount, graphCount: counts.graphCount };
   }
 
   /**

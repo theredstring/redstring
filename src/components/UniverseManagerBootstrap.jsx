@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SlotConflictDialog from './shared/SlotConflictDialog.jsx';
+import RestoreVersionDialog from './shared/RestoreVersionDialog.jsx';
 
 /**
  * Universe Backend Bootstrap - COMPLETELY DECOUPLED
@@ -18,6 +19,8 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
   // user's unsaved work. This component is always mounted, so it renders the
   // dialog whenever no UniverseManager instance claimed the event.
   const [fallbackConflict, setFallbackConflict] = useState(null);
+  const [restoreOffer, setRestoreOffer] = useState(null);
+  const [isRestoring, setIsRestoring] = useState(false);
   const backendRef = useRef(null);
   const commandListenerRef = useRef(null);
   const backendInitPromiseRef = useRef(null);
@@ -332,6 +335,56 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
     return () => window.removeEventListener('redstring:slot-conflict', handleConflict);
   }, []);
 
+  // A universe loaded empty while its repository history still holds work.
+  // Always mounted for the same reason the conflict listener is: the moment
+  // this fires is the moment someone's data looks gone, and it must not
+  // depend on the Universe Manager happening to be open.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handleRestoreOffer = (event) => {
+      const offer = event.detail;
+      if (!offer?.sha) return;
+      console.warn('[UniverseManagerBootstrap] Universe loaded empty but history has data — offering restore');
+      setRestoreOffer(offer);
+    };
+
+    window.addEventListener('redstring:restore-available', handleRestoreOffer);
+    return () => window.removeEventListener('redstring:restore-available', handleRestoreOffer);
+  }, []);
+
+  const dismissRestoreOffer = async () => {
+    const offer = restoreOffer;
+    setRestoreOffer(null);
+    if (!offer) return;
+    try {
+      const module = await import('../services/universeBackend.js');
+      const backend = module.default || module.universeBackend;
+      backend.dismissRestoreOffer(offer.universeSlug);
+    } catch (error) {
+      console.warn('[UniverseManagerBootstrap] Failed to dismiss restore offer:', error);
+    }
+  };
+
+  const acceptRestoreOffer = async () => {
+    const offer = restoreOffer;
+    if (!offer) return;
+    setIsRestoring(true);
+    try {
+      const module = await import('../services/universeBackend.js');
+      const backend = module.default || module.universeBackend;
+      await backend.restoreUniverseVersion(offer.universeSlug, offer.sha, { date: offer.date });
+      backend.dismissRestoreOffer(offer.universeSlug);
+      setRestoreOffer(null);
+    } catch (error) {
+      console.error('[UniverseManagerBootstrap] Failed to restore version:', error);
+      // Leave the dialog up: the offer is still the user's best option, and
+      // closing it here would hide the only route back to their things.
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
   const resolveFallbackConflict = async (choice) => {
     const conflict = fallbackConflict;
     setFallbackConflict(null);
@@ -348,6 +401,19 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
       console.error('[UniverseManagerBootstrap] Failed to resolve slot conflict:', error);
     }
   };
+
+  if (restoreOffer) {
+    return (
+      <RestoreVersionDialog
+        isOpen={true}
+        universeName={restoreOffer.universeName}
+        version={restoreOffer}
+        isRestoring={isRestoring}
+        onRestore={acceptRestoreOffer}
+        onDismiss={dismissRestoreOffer}
+      />
+    );
+  }
 
   if (fallbackConflict) {
     return (

@@ -240,7 +240,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-row">
             <div className="settings-row-label">
               Dark Mode
-              <div className="settings-row-description">Use dark background color</div>
             </div>
             <Toggle
               checked={!!darkMode}
@@ -250,7 +249,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-row">
             <div className="settings-row-label">
               Offscreen Thing Glow
-              <div className="settings-row-description">Glow flares on the canvas edges pointing at Things outside the viewport. Fancy adds a blur and a halo, which costs more to draw the more Things are offscreen; Adaptive drops to Fast, then off, as a Web grows.</div>
             </div>
             <OptionGroup
               options={[
@@ -266,7 +264,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-row settings-row--attached">
             <div className="settings-row-label">
               Hover Preview
-              <div className="settings-row-description">Show a preview of the hovered Thing when hovering inside an expanded Thing's network.</div>
             </div>
             <Toggle
               checked={!!showHoverPreview}
@@ -276,7 +273,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-row settings-row--attached">
             <div className="settings-row-label">
               Only When Zoomed Out
-              <div className="settings-row-description">Only show the hover preview when zoomed out far enough that on-canvas text is small. When off, it shows at any zoom level.</div>
             </div>
             <Toggle
               checked={!!hoverPreviewZoomOnly}

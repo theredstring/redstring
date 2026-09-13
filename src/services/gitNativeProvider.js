@@ -345,6 +345,30 @@ export class SemanticProvider {
   }
 
   /**
+   * Every revision of one file, newest first.
+   *
+   * The repository already holds every version a universe has ever had — a
+   * write that destroys data leaves the previous content sitting in history,
+   * untouched. Until this existed nothing in the app could look at it, so a
+   * recoverable loss was indistinguishable from a permanent one.
+   *
+   * `size` comes back without downloading the revision: the contents endpoint
+   * reports a blob's size in its metadata, and for anything over 1MB it omits
+   * the content entirely. That makes size the cheap signal — a universe that
+   * went from megabytes to kilobytes is visible without reading a byte.
+   *
+   * @param {string} path
+   * @param {Object} [options]
+   * @param {number} [options.limit=20] - Most recent revisions to return.
+   * @param {boolean} [options.withSize=true] - Fetch each revision's size
+   *   (one small request per revision). `false` returns commits only.
+   * @returns {Promise<Array<{sha: string, date: string, message: string, size: number|null}>>}
+   */
+  async listFileHistory(path, options) {
+    throw new Error('listFileHistory() must be implemented by provider');
+  }
+
+  /**
    * Base64-encode write content that may be either text or raw bytes.
    *
    * Every write path funnels through here so binary payloads (content-addressed
@@ -848,11 +872,14 @@ This repository was automatically initialized by Redstring UI React. You can now
   //
   // Legacy callers expecting the file object directly should use getFileInfo()
   // which preserves the null-on-not-found contract but THROWS on auth errors.
-  async probeFile(path) {
+  async probeFile(path, { ref = null } = {}) {
     const { apiPath } = this.resolvePathInput(path, { trimTrailing: false });
     if (!apiPath) {
       return { exists: false };
     }
+    // `?ref=` selects a revision. Absent, GitHub answers with the default
+    // branch tip, which is the behaviour every existing caller expects.
+    const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : '';
 
     // Use raw fetch here, not githubAPI.request, because the wrapper throws on
     // ALL non-2xx responses (including 404). For a probe we MUST see the
@@ -860,7 +887,7 @@ This repository was automatically initialized by Redstring UI React. You can now
     // we can't determine existence (refuse to PUT without sha).
     let response;
     try {
-      response = await fetch(`${this.rootUrl}/${apiPath}`, {
+      response = await fetch(`${this.rootUrl}/${apiPath}${refQuery}`, {
         cache: NO_HTTP_CACHE,
         headers: {
           'Authorization': this.getAuthHeader(),
@@ -905,8 +932,8 @@ This repository was automatically initialized by Redstring UI React. You can now
     };
   }
 
-  async getFileInfo(path) {
-    const probe = await this.probeFile(path);
+  async getFileInfo(path, { ref = null } = {}) {
+    const probe = await this.probeFile(path, { ref });
     if (probe.exists === true) return probe.info;
     if (probe.exists === false) return null;
     // 'unknown' — auth error or transient. Throw so writeFileRaw won't
@@ -1261,9 +1288,10 @@ This repository was automatically initialized by Redstring UI React. You can now
    * making a grown universe look empty and getting it overwritten). Falls
    * back to a raw-media-type fetch for the actual bytes.
    */
-  async readFileRawWithMeta(path) {
+  async readFileRawWithMeta(path, { ref = null } = {}) {
     const { displayPath: safePath, apiPath } = this.resolvePathInput(path, { trimTrailing: false });
-    const info = await this.getFileInfo(safePath);
+    const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+    const info = await this.getFileInfo(safePath, { ref });
     if (!info) {
       console.log(`[GitHubSemanticProvider] File not found: ${safePath}`);
       const err = new Error(`File not found: ${safePath}`);
@@ -1286,7 +1314,7 @@ This repository was automatically initialized by Redstring UI React. You can now
 
     console.log(`[GitHubSemanticProvider] Contents API truncated ${safePath} (${size} bytes) — fetching raw`);
     githubRateLimiter.recordRequest(this.authMethod);
-    const rawResponse = await fetch(`${this.rootUrl}/${apiPath}`, {
+    const rawResponse = await fetch(`${this.rootUrl}/${apiPath}${refQuery}`, {
       cache: NO_HTTP_CACHE,
       headers: {
         'Authorization': this.getAuthHeader(),
@@ -1314,9 +1342,77 @@ This repository was automatically initialized by Redstring UI React. You can now
     return { content, sha: info.sha, size };
   }
 
-  async readFileRaw(path) {
+  /**
+   * Every revision of one file, newest first. See the base class for why.
+   *
+   * Two request shapes, both under the Contents permission the app already
+   * holds — no new scope, no re-consent:
+   *   - one call to list the commits that touched this path
+   *   - one small call per revision for its size (the contents endpoint
+   *     reports size in metadata and omits content above 1MB, so this stays
+   *     cheap even for a multi-megabyte universe)
+   */
+  async listFileHistory(path, { limit = 20, withSize = true } = {}) {
+    const { displayPath: safePath, apiPath } = this.resolvePathInput(path, { trimTrailing: false });
+    if (!apiPath) throw new Error('Invalid path provided to listFileHistory');
+
+    // rootUrl ends in /contents; commits live beside it on the repo root.
+    const repoUrl = this.rootUrl.replace(/\/contents$/, '');
+    const url = `${repoUrl}/commits?path=${encodeURIComponent(safePath)}&per_page=${Math.max(1, Math.min(100, limit))}`;
+
+    await githubRateLimiter.waitForAvailability(this.authMethod);
+    githubRateLimiter.recordRequest(this.authMethod);
+
+    const response = await fetch(url, {
+      cache: NO_HTTP_CACHE,
+      headers: {
+        'Authorization': this.getAuthHeader(),
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (response.status === 404) {
+      const err = new Error(`File not found: ${safePath}`);
+      err.code = 'FILE_NOT_FOUND';
+      throw err;
+    }
+    if (!response.ok) {
+      const err = new Error(`Could not read the history of ${safePath}: ${response.status}`);
+      err.status = response.status;
+      throw err;
+    }
+
+    const commits = await response.json();
+    if (!Array.isArray(commits)) return [];
+
+    const revisions = commits.map((commit) => ({
+      sha: commit?.sha,
+      date: commit?.commit?.author?.date || commit?.commit?.committer?.date || null,
+      message: (commit?.commit?.message || '').split('\n')[0],
+      size: null
+    })).filter((revision) => !!revision.sha);
+
+    if (!withSize) return revisions;
+
+    // Sizes are fetched in series on purpose: the rate limiter enforces a
+    // minimum gap between calls anyway, and a burst here would stall real
+    // saves queued behind it. A revision whose size cannot be read keeps
+    // `size: null`, which reads as "unknown" rather than "empty".
+    for (const revision of revisions) {
+      try {
+        const info = await this.getFileInfo(safePath, { ref: revision.sha });
+        revision.size = typeof info?.size === 'number' ? info.size : null;
+      } catch (error) {
+        console.warn(`[GitHubSemanticProvider] Could not size ${safePath} at ${revision.sha?.slice(0, 8)}:`, error?.message || error);
+      }
+    }
+
+    return revisions;
+  }
+
+  async readFileRaw(path, options) {
     try {
-      const { content } = await this.readFileRawWithMeta(path);
+      const { content } = await this.readFileRawWithMeta(path, options);
       return content;
     } catch (e) {
       // Only log as error if it's not a "file not found" error
@@ -1619,7 +1715,7 @@ export class GiteaSemanticProvider extends SemanticProvider {
    *
    * @throws {Error} with `code: 'FILE_INFO_UNKNOWN'`
    */
-  async getFileInfo(path) {
+  async getFileInfo(path, { ref = null } = {}) {
     const { apiPath, displayPath } = this.resolvePathInput(path, { trimTrailing: false });
     if (!apiPath) return null;
 
@@ -1632,7 +1728,7 @@ export class GiteaSemanticProvider extends SemanticProvider {
 
     let response;
     try {
-      response = await fetch(`${this.rootUrl}/${apiPath}?ref=main`, {
+      response = await fetch(`${this.rootUrl}/${apiPath}?ref=${encodeURIComponent(ref || 'main')}`, {
         cache: NO_HTTP_CACHE,
         headers: {
           'Authorization': `token ${this.token}`
@@ -1846,9 +1942,9 @@ export class GiteaSemanticProvider extends SemanticProvider {
    * all call `readFileRawWithMeta`, and its absence here meant self-hosted
    * universes fell through to an unverified read.
    */
-  async readFileRawWithMeta(path) {
+  async readFileRawWithMeta(path, { ref = null } = {}) {
     const { displayPath: safePath } = this.resolvePathInput(path, { trimTrailing: false });
-    const info = await this.getFileInfo(safePath); // throws FILE_INFO_UNKNOWN on ambiguity
+    const info = await this.getFileInfo(safePath, { ref }); // throws FILE_INFO_UNKNOWN on ambiguity
     if (!info) {
       console.log(`[GiteaSemanticProvider] File not found: ${safePath}`);
       const err = new Error(`File not found: ${safePath}`);
@@ -1876,9 +1972,57 @@ export class GiteaSemanticProvider extends SemanticProvider {
     return { content, sha: info.sha, size };
   }
 
-  async readFileRaw(path) {
+  /** Every revision of one file, newest first. See the base class for why. */
+  async listFileHistory(path, { limit = 20, withSize = true } = {}) {
+    const { displayPath: safePath, apiPath } = this.resolvePathInput(path, { trimTrailing: false });
+    if (!apiPath) throw new Error('Invalid path provided to listFileHistory');
+
+    const repoUrl = this.rootUrl.replace(/\/contents$/, '');
+    const url = `${repoUrl}/commits?path=${encodeURIComponent(safePath)}&limit=${Math.max(1, Math.min(100, limit))}`;
+
+    const response = await fetch(url, {
+      cache: NO_HTTP_CACHE,
+      headers: { 'Authorization': `token ${this.token}` }
+    });
+
+    if (response.status === 404) {
+      const err = new Error(`File not found: ${safePath}`);
+      err.code = 'FILE_NOT_FOUND';
+      throw err;
+    }
+    if (!response.ok) {
+      const err = new Error(`Could not read the history of ${safePath}: ${response.status}`);
+      err.status = response.status;
+      throw err;
+    }
+
+    const commits = await response.json();
+    if (!Array.isArray(commits)) return [];
+
+    const revisions = commits.map((commit) => ({
+      sha: commit?.sha,
+      date: commit?.commit?.author?.date || commit?.commit?.committer?.date || null,
+      message: (commit?.commit?.message || '').split('\n')[0],
+      size: null
+    })).filter((revision) => !!revision.sha);
+
+    if (!withSize) return revisions;
+
+    for (const revision of revisions) {
+      try {
+        const info = await this.getFileInfo(safePath, { ref: revision.sha });
+        revision.size = typeof info?.size === 'number' ? info.size : null;
+      } catch (error) {
+        console.warn(`[GiteaSemanticProvider] Could not size ${safePath} at ${revision.sha?.slice(0, 8)}:`, error?.message || error);
+      }
+    }
+
+    return revisions;
+  }
+
+  async readFileRaw(path, options) {
     try {
-      const { content } = await this.readFileRawWithMeta(path);
+      const { content } = await this.readFileRawWithMeta(path, options);
       return content;
     } catch (e) {
       // Only log as error if it's not a "file not found" error
