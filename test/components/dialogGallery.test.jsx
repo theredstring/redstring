@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 import DialogGallery from '../../src/components/settings/DialogGallery.jsx';
+import { detectOpenSelector } from '../../src/utils/gamepadMenuNav.js';
 
 /**
  * The gallery exists so a conflict dialog can be looked at without staging the
@@ -138,6 +139,42 @@ describe('DialogGallery', () => {
     // The Close Preview pill is itself outside any dialog, so a run that found
     // nothing would otherwise pass silently.
     expect(checked).toBeGreaterThan(total);
+  });
+
+  it('hands every dialog to the game controller', () => {
+    // The pad understands ONE surface for all of these, because they are all
+    // one shell: it takes over when `.rs-dialog-scrim` appears and steps
+    // between the parts carrying `data-nav`. A dialog with no declared part is
+    // a dialog a controller can look at and not touch — and since each one
+    // announces a failure the user has to answer, that is a dead end rather
+    // than an inconvenience.
+    render(<DialogGallery />);
+    const total = showButtons().length;
+
+    for (let i = 0; i < total; i += 1) {
+      fireEvent.click(showButtons()[i]);
+
+      expect(detectOpenSelector(), `dialog ${i} does not take the pad`).toBe('dialog');
+
+      // Every control a mouse can press, the pad can reach. Asserted the way
+      // round that catches the failure: not "is there something walkable", but
+      // "is anything pressable NOT walkable" — a hand-rolled button in some
+      // dialog's body would be invisible to the pad while looking perfectly
+      // ordinary on screen.
+      //
+      // A dialog with no control at all passes, and should: the merge's working
+      // phase is a spinner, and a phase with no answer to give offers none.
+      const scrim = document.querySelector('.rs-dialog-scrim');
+      const pressable = scrim.querySelectorAll('button:not([disabled]), [role="radio"]');
+      pressable.forEach((el) => {
+        expect(el.getAttribute('data-nav'), `"${el.textContent}" in dialog ${i} is out of the pad's reach`)
+          .toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByText('Close Preview'));
+    }
+
+    expect(detectOpenSelector()).toBeNull();
   });
 
   it('reports which handler a dialog fired, not the onClose that follows it', () => {

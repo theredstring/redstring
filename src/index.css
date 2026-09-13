@@ -211,3 +211,23 @@ body.gamepad-cursor-hidden * {
   outline: 2px solid #bdb5b5;
   outline-offset: -2px;
 }
+
+/* --- Controller focus in the dialogs -----------------------------------
+   One rule for every dialog in the app, because every dialog is one shell
+   (components/shared/Dialog.jsx).
+
+   IN THE BRAND, not in the pale grey the rings above use. Those all sit on a
+   dark ground — the header's maroon band, the selector's dimmed overlay — where
+   #bdb5b5 is the legible mark. A dialog's ground IS #bdb5b5 in light mode, so
+   the same ring would be invisible on exactly the surface it has to read on.
+   `--rs-modal-brand` is the maroon that is kept legible in both themes (it
+   lifts to a warm rose on the dark surface), and the scrim declares
+   `modal-dark` for itself, so the token resolves correctly inside any dialog.
+
+   Offset outward, unlike the panels': a dialog's controls have room around them
+   and nothing here scrolls flush against an edge. */
+.rs-dialog-scrim .gamepad-menu-focus {
+  outline: 3px solid var(--rs-modal-brand, #7A0000);
+  outline-offset: 3px;
+  border-radius: 4px;
+}

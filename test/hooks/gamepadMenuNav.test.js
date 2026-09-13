@@ -608,3 +608,163 @@ describe('context menu walker', () => {
     expect(document.querySelector(`.${FOCUS_CLASS}`).dataset.label).toBe('Paste Web');
   });
 });
+
+/**
+ * Every dialog in the app is one shell (components/shared/Dialog.jsx), so these
+ * fixtures build that shell's real shape — a scrim, a frame, a body of declared
+ * parts and a footer ROW of pills — rather than any one dialog's content. What
+ * is under test is the contract between the shell and the walker: the parts
+ * carry `data-nav`, and everything else follows from that.
+ */
+const mountDialog = ({ body = [], footer = [], dismissable = true } = {}) => {
+  const scrim = document.createElement('div');
+  scrim.className = 'rs-dialog-scrim';
+  document.body.appendChild(sized(scrim, { top: 0, left: 0, width: 1000, height: 800 }));
+
+  const frame = document.createElement('div');
+  frame.setAttribute('role', 'dialog');
+  scrim.appendChild(sized(frame, { top: 100, left: 300, width: 400, height: 300 }));
+
+  let closed = false;
+  if (dismissable) scrim.addEventListener('click', () => { closed = true; });
+
+  // A paragraph of message text: present, and deliberately NOT walkable.
+  const prose = document.createElement('p');
+  prose.dataset.label = 'message';
+  frame.appendChild(sized(prose, { top: 140, left: 320, width: 360, height: 40 }));
+
+  const part = (label, { top, left, width = 360, height = 36, disabled = false, tag = 'button' }) => {
+    const el = document.createElement(tag);
+    el.setAttribute('data-nav', 'action');
+    el.dataset.label = label;
+    if (disabled) el.setAttribute('disabled', '');
+    frame.appendChild(sized(el, { top, left, width, height }));
+    return el;
+  };
+
+  // Body parts stack; footer pills sit side by side on one line.
+  const bodyEls = body.map((spec, i) => part(spec.label ?? spec, {
+    top: 200 + i * 50,
+    left: 320,
+    tag: spec.tag,
+    disabled: spec.disabled,
+  }));
+  const footerEls = footer.map((spec, i) => part(spec.label ?? spec, {
+    top: 360,
+    left: 400 + i * 120,
+    width: 100,
+    disabled: spec.disabled,
+  }));
+
+  return { scrim, frame, bodyEls, footerEls, wasClosed: () => closed };
+};
+
+const focusedLabel = () => document.querySelector(`.${FOCUS_CLASS}`)?.dataset.label ?? null;
+
+describe('the dialog surface', () => {
+  it('takes over the moment a dialog is on screen', () => {
+    expect(detectOpenSelector()).toBeNull();
+    mountDialog({ footer: ['Cancel', 'Confirm'] });
+    expect(detectOpenSelector()).toBe('dialog');
+  });
+
+  /**
+   * Rows-as-evidence is how the selector and the grid are detected, and it
+   * would be wrong here: a dialog that is all body text still owns the input,
+   * and a pad that did not take it over would be looking at a box it could not
+   * dismiss.
+   */
+  it('takes over a dialog that has no walkable part in it at all', () => {
+    mountDialog();
+    expect(detectOpenSelector()).toBe('dialog');
+  });
+
+  // A confirm raised from a linking modal sits on top of it, and the thing on
+  // top is the thing the pad has to be in.
+  it('drives the LAST dialog when two are stacked', () => {
+    mountDialog({ footer: ['Underneath'] });
+    const top = mountDialog({ footer: ['On top'] });
+    const w = walkMenu('dialog');
+    expect(focusedLabel()).toBe('On top');
+    w.close();
+    expect(top.wasClosed()).toBe(true);
+  });
+
+  it('walks the declared parts and skips the prose', () => {
+    mountDialog({ body: ['Name'], footer: ['Cancel', 'Confirm'] });
+    const w = walkMenu('dialog');
+    expect(focusedLabel()).toBe('Name');
+    w.moveGrid(0, 1);
+    expect(focusedLabel()).toBe('Cancel');
+  });
+
+  // The footer is a ROW, which is the whole reason this surface is walked in
+  // two dimensions: Cancel and Confirm sit side by side, not one under the
+  // other.
+  it('steps along the footer row', () => {
+    mountDialog({ footer: ['Cancel', 'Confirm'] });
+    const w = walkMenu('dialog');
+    expect(focusedLabel()).toBe('Cancel');
+    w.moveGrid(1, 0);
+    expect(focusedLabel()).toBe('Confirm');
+    w.moveGrid(-1, 0);
+    expect(focusedLabel()).toBe('Cancel');
+  });
+
+  /**
+   * A pad cannot tell from the outside that pressing A will do nothing, so a
+   * Confirm that is blocked until its field has something in it must not be a
+   * place the stick can come to rest.
+   */
+  it('refuses to land on a disabled control', () => {
+    mountDialog({ footer: ['Cancel', { label: 'Confirm', disabled: true }] });
+    const w = walkMenu('dialog');
+    expect(focusedLabel()).toBe('Cancel');
+    w.moveGrid(1, 0);
+    expect(focusedLabel()).toBe('Cancel');
+  });
+
+  it('activates the focused control with a click', () => {
+    const clicked = [];
+    const { footerEls } = mountDialog({ footer: ['Cancel', 'Confirm'] });
+    footerEls.forEach(el => el.addEventListener('click', () => clicked.push(el.dataset.label)));
+    const w = walkMenu('dialog');
+    w.moveGrid(1, 0);
+    w.activate();
+    expect(clicked).toEqual(['Confirm']);
+  });
+
+  // A pad cannot type, so handing the box to the keyboard IS the activation.
+  it('puts the caret in a text field rather than clicking it', () => {
+    const { bodyEls } = mountDialog({ body: [{ label: 'Name', tag: 'input' }] });
+    const w = walkMenu('dialog');
+    w.activate();
+    expect(document.activeElement).toBe(bodyEls[0]);
+  });
+
+  it('dismisses by clicking the scrim, the way a mouse does', () => {
+    const d = mountDialog({ footer: ['Cancel'] });
+    expect(walkMenu('dialog').close()).toBe(true);
+    expect(d.wasClosed()).toBe(true);
+  });
+
+  /**
+   * A dialog that refuses dismissal (a working phase) simply has no handler on
+   * its scrim. B clicking it is then a no-op, which is the intended answer
+   * rather than a gap — nothing else must happen instead.
+   */
+  it('does nothing on a dialog that refuses to be dismissed', () => {
+    const d = mountDialog({ footer: ['Cancel'], dismissable: false });
+    walkMenu('dialog').close();
+    expect(d.wasClosed()).toBe(false);
+    expect(document.querySelector('.rs-dialog-scrim')).not.toBeNull();
+  });
+
+  // A dialog opening over a selector must win: it is the thing on top.
+  it('outranks a selector underneath it', () => {
+    mountSelector([{ top: 0, left: 0, width: 100, height: 40 }]);
+    expect(detectOpenSelector()).toBe('selector');
+    mountDialog({ footer: ['Cancel'] });
+    expect(detectOpenSelector()).toBe('dialog');
+  });
+});

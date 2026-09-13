@@ -141,6 +141,11 @@ const WizardIntentModal = ({
           <button
             key={intent.id}
             type="button"
+            // These rows are hand-built rather than DialogOptions, so they have
+            // to declare themselves the way the Dialog family's own parts do —
+            // otherwise the controller walks straight past the entire choice
+            // and finds only Cancel and Ask. See the note above Dialog.
+            data-nav="item"
             onClick={() => setSelectedId(intent.id)}
             onDoubleClick={submit}
             className={rowClass(isSelected)}
@@ -175,6 +180,10 @@ const WizardIntentModal = ({
           means "but not this one". */}
       {freeIntent && (
         <div
+          // The row is the walkable thing, not the textarea inside it: its own
+          // click already picks the intent AND puts the caret in the box, which
+          // is exactly what the pad wants A to do here.
+          data-nav="item"
           onClick={() => { setSelectedId(freeIntent.id); textareaRef.current?.focus(); }}
           className={rowClass(isFreeText)}
           style={{ ...rowStyle(isFreeText), flexDirection: 'column', gap: 6, cursor: 'text' }}

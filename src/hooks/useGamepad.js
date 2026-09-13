@@ -88,10 +88,14 @@ export const MODE = {
   // left: the same trigger that opened it closes it, which no other walked
   // surface does and which MENU's trigger-is-a-page-turn handling would fight.
   CONTEXT: 'context',
-  // A unified selector or node-selection grid is on screen. Entered and left
-  // automatically: these open as the RESULT of some other action (Swap, node
-  // creation, typing), so a controller that waited to be told would strand the
-  // user in front of a dialog it could not touch.
+  // Something modal is on screen: a unified selector, a node-selection grid, a
+  // colour picker, or any of the app's dialogs. Entered and left automatically,
+  // because every one of these opens as the RESULT of some other action (Swap,
+  // node creation, typing, a save that found a conflict) — a controller that
+  // waited to be told would strand the user in front of a box it could not
+  // touch. Which surface is being walked is held in walkerKindRef, not in the
+  // mode: they differ only in what counts as a row, and the block below is the
+  // same for all of them. See detectOpenSelector.
   SELECTOR: 'selector',
 };
 

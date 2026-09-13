@@ -39,6 +39,41 @@ const SELECTORS = {
     // would do — rather than reaching into that state.
     opener: '.header-logo-button',
   },
+  // EVERY dialog in the app, because every dialog is the same shell
+  // (components/shared/Dialog.jsx). One surface covers the confirm, the naming
+  // prompt, the merge, the two conflict dialogs, the restore, the wizard's
+  // intent modal and whatever is written next — and a new dialog is walkable
+  // the day it is written, without anything being added here.
+  //
+  // The rows are DECLARED rather than discovered: Dialog's own parts carry
+  // `data-nav`, so a paragraph and a DialogNote are skipped while a pill, a
+  // door, a radio card, a checkbox and a text field are all landed on. Disabled
+  // controls are filtered out, for the reason the context menu filters its own:
+  // a pad has no way to tell from the outside that pressing A will do nothing,
+  // so a blocked Confirm must not be a place the stick can come to rest.
+  dialog: {
+    root: '.rs-dialog-scrim',
+    rows: '[data-nav]:not([disabled])',
+    parent: null,
+    opener: null,
+    // A column of parts with a ROW of pills at the foot of it. Walking it in
+    // two dimensions is what makes Cancel and Confirm sit side by side instead
+    // of one after the other.
+    grid: true,
+    // Clicking the scrim IS how a dialog is dismissed, and a dialog that
+    // deliberately refuses dismissal (a working phase) simply has no handler on
+    // it — so B does nothing there, which is the intended answer rather than a
+    // gap. Resolved against the root, so it closes the dialog the pad is
+    // actually driving.
+    closeRoot: true,
+    // Dialogs stack, and the one on top is the one the pad must drive.
+    rootLast: true,
+    // A dialog owns the input from the moment it is on screen, whether or not
+    // it has a single walkable row in it yet. Rows-as-evidence — which is how
+    // the surfaces below are detected — would leave a pad in front of a
+    // body-text-only dialog with no way to dismiss it.
+    modalOnSight: true,
+  },
   // The unified selector and the node-selection grid. Both are GRIDS, so they
   // are walked in two dimensions (see moveGrid) rather than as a flat list.
   // Neither has an opener: they appear as the result of some other action, and
@@ -171,6 +206,20 @@ const visible = (el) => {
 const isRange = (el) => el && el.tagName === 'INPUT' && el.type === 'range';
 
 /**
+ * A surface's root element.
+ *
+ * `rootLast` is for the surfaces that can be on screen more than once — the
+ * dialogs, which stack. The one to drive is the one on top, and for a family of
+ * fixed overlays that all share a z-index, the one on top is the last mounted.
+ */
+const resolveRoot = (config) => {
+  if (!config?.root) return null;
+  if (!config.rootLast) return document.querySelector(config.root);
+  const all = document.querySelectorAll(config.root);
+  return all.length ? all[all.length - 1] : null;
+};
+
+/**
  * Write a value into a React-controlled input so React actually sees it.
  *
  * Assigning `el.value` directly is not enough: React caches the last value it
@@ -246,10 +295,19 @@ export const isColorPickerOpen = () => Boolean(document.querySelector('.color-pi
 export const isContextMenuOpen = () => Boolean(document.querySelector('.context-menu-item'));
 
 export const detectOpenSelector = () => {
-  for (const kind of ['selector', 'nodeGrid', 'loading']) {
+  // Dialogs first: one can open ON TOP of a selector (a confirm raised from a
+  // linking modal), and the thing on top is the thing the pad has to be in.
+  for (const kind of ['dialog', 'selector', 'nodeGrid', 'loading']) {
     const config = SELECTORS[kind];
-    const root = document.querySelector(config.root);
-    if (root && Array.from(root.querySelectorAll(config.rows)).some(visible)) return kind;
+    const root = resolveRoot(config);
+    if (!root) continue;
+    // PRESENCE, not geometry. The surfaces below are detected by finding a
+    // visible row, because their containers can be on screen mid-transition
+    // with nothing in them yet. A dialog has no such state — Dialog returns
+    // null when it is not open — so being in the document IS being open, and
+    // measuring it would only add a way for the answer to be wrong.
+    if (config.modalOnSight) return kind;
+    if (Array.from(root.querySelectorAll(config.rows)).some(visible)) return kind;
   }
   return null;
 };
@@ -258,7 +316,7 @@ export const walkMenu = (kind) => {
   const config = SELECTORS[kind];
   if (!config) return null;
 
-  const getRoot = () => document.querySelector(config.root);
+  const getRoot = () => resolveRoot(config);
   const rows = () => {
     const root = getRoot();
     if (!root) return [];
@@ -431,7 +489,12 @@ export const walkMenu = (kind) => {
      * outside the surface, which is the test those listeners apply.
      */
     close: () => {
-      const closer = config.closer ? document.querySelector(config.closer) : null;
+      // `closeRoot` means the surface's own root is what a mouse clicks to
+      // dismiss it — a dialog's scrim. Resolved through getRoot so it closes
+      // the one being driven rather than the first of a stack.
+      const closer = config.closeRoot
+        ? getRoot()
+        : (config.closer ? document.querySelector(config.closer) : null);
       if (closer) { closer.click?.(); return true; }
       if (config.closeAway) {
         document.body.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));

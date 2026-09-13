@@ -28,6 +28,15 @@ import './Dialog.css';
  * 100% of it, so there is no vh arithmetic and no guess at a mobile URL bar.
  * #root carries a transform (App.css), so a fixed overlay already measures from
  * inside the safe-area insets.
+ *
+ * THE CONTROLLER READS THIS FAMILY, NOT EACH DIALOG. Because every dialog is
+ * this one shell, a game controller needs to understand exactly one surface to
+ * drive all of them: the pad takes over the moment `.rs-dialog-scrim` appears,
+ * the stick and the d-pad step between the parts below that carry `data-nav`,
+ * A activates and B clicks the scrim. So each new interactive part added here
+ * must declare itself with `data-nav` — and a part that does NOT (a plain
+ * paragraph, a DialogNote) is correctly skipped. Nothing in a dialog's own file
+ * has to know about any of this. See gamepadMenuNav's `dialog` surface.
  */
 
 /**
@@ -403,6 +412,10 @@ export const DialogOption = forwardRef(({
     <button
       ref={ref}
       type="button"
+      // See the note above Dialog: every interactive part of the family
+      // declares itself so the game controller can walk it. A door is an
+      // action, the same as a pill.
+      data-nav="action"
       onClick={onClick}
       disabled={disabled}
       title={title}
@@ -475,6 +488,9 @@ export const DialogCheckbox = ({
 
   return (
     <label
+      // Walkable, and activated by a click the way a mouse activates it — a
+      // click on the label is forwarded to the box it wraps.
+      data-nav="action"
       style={{
         display: 'flex',
         alignItems: align === 'start' ? 'flex-start' : 'center',
@@ -571,6 +587,9 @@ export const DialogCard = ({
       role={isRadio ? 'radio' : undefined}
       aria-checked={isRadio ? selected : undefined}
       tabIndex={isRadio ? 0 : undefined}
+      // Only a radio card is a thing you land ON. A card with an action pill is
+      // a container: the pill is the control, and it declares itself.
+      data-nav={isRadio ? 'item' : undefined}
       onClick={isRadio ? onSelect : undefined}
       onKeyDown={isRadio ? (e) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); }
@@ -696,6 +715,10 @@ export const DialogInput = forwardRef(({ style, ...rest }, ref) => {
   return (
     <input
       ref={ref}
+      // Walkable. The controller "activates" a field by putting the caret in it
+      // — a pad cannot type, so handing the box to the keyboard is the whole of
+      // what activation can mean here, and it is the right outcome.
+      data-nav="action"
       {...rest}
       style={{
         width: '100%',
