@@ -821,7 +821,7 @@ class GitSyncEngine {
         this.remoteConflictPending = true;
         this.remoteUnrecognized = true;
         this.lastKnownRemoteSha = undefined; // keep first contact armed
-        this.notifyStatus('warning', 'The repository file could not be read as a universe — saving is paused so it is not overwritten.');
+        this.notifyStatus('warning', 'The repository file could not be read as a universe. Saving is paused so it is not overwritten — reload to try reading it again.');
         const unrecognized = new Error(
           `Remote file at ${path} is ${remoteUnparseable ? 'not valid JSON' : 'not a recognizable Redstring document'} — refusing to overwrite it.`
         );
@@ -926,7 +926,7 @@ class GitSyncEngine {
       }
       this.remoteConflictPending = true;
       this.remoteUnrecognized = true;
-      this.notifyStatus('warning', 'The repository file could not be read as a universe — refusing to overwrite it.');
+      this.notifyStatus('warning', 'The repository file could not be read as a universe. Saving is paused so it is not overwritten — reload to try reading it again.');
       const unrecognized = new Error(
         `Remote file at ${path} is ${unparseable ? 'not valid JSON' : 'not a recognizable Redstring document'} — refusing to overwrite it.`
       );
