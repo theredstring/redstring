@@ -24,8 +24,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { exportToRedstring } from '../formats/redstringFormat.js';
-
-const BASE_PROTOTYPE_IDS = new Set(['base-thing-prototype', 'base-connection-prototype']);
+import { BASE_PROTOTYPE_IDS, userDataCounts } from '../formats/userDataCounts.js';
 
 /** A fresh empty universe (mirrors universeBackend.createEmptyState). */
 const emptyUniverseState = () => ({
@@ -237,13 +236,7 @@ export class HeadlessUniverse {
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   _countUserData(state) {
-    let nodes = 0;
-    if (state?.nodePrototypes instanceof Map) {
-      for (const id of state.nodePrototypes.keys()) {
-        if (!BASE_PROTOTYPE_IDS.has(id)) nodes += 1;
-      }
-    }
-    const graphs = state?.graphs instanceof Map ? state.graphs.size : 0;
+    const { nodes, graphs } = userDataCounts(state);
     return { nodes, graphs };
   }
 }

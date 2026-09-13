@@ -11,8 +11,11 @@
  *     (timestamps are injected via the `now` argument).
  *   - Never edit a shipped step's behavior — append a new step instead.
  *   - This module must not import from redstringFormat.js (would be circular);
- *     it is intentionally self-contained.
+ *     it is intentionally self-contained. `documentShape.js` is the one
+ *     exception: it has no imports of its own, precisely so both can use it.
  */
+
+import { hasRedstringMarkers, notARedstringDocument } from './documentShape.js';
 
 // Normalize a version string ("redstring-v2.0.0-semantic" / "2.0.0-semantic")
 // to its detected form, and to a coarse integer "stage" (major version) used to
@@ -21,8 +24,19 @@
 const stripPrefix = (v) =>
   typeof v === 'string' && v.startsWith('redstring-v') ? v.replace('redstring-v', '') : v;
 
-export const detectFormatVersion = (data) =>
-  stripPrefix(data?.format || data?.metadata?.version || '1.0.0');
+/**
+ * The detected version, or `null` when the object is not a Redstring document
+ * at all.
+ *
+ * The `|| '1.0.0'` default used to apply to ANY object, which is how a GitHub
+ * contents-API envelope became a valid, empty, freshly-"migrated" universe on
+ * 2026-09-12. The default now applies only to objects that carry a known data
+ * section — i.e. genuine v1 flat files, which have no format field.
+ */
+export const detectFormatVersion = (data) => {
+  if (!hasRedstringMarkers(data)) return null;
+  return stripPrefix(data?.format || data?.metadata?.version || '1.0.0');
+};
 
 const stageOf = (version) => {
   const major = parseInt(String(stripPrefix(version)), 10);
@@ -384,6 +398,9 @@ export const MIGRATIONS = [
  */
 export function runMigrations(data, { now = null } = {}) {
   const startVersion = detectFormatVersion(data);
+  // Unrecognizable input is never "a v1 file we can walk forward" — migrating
+  // it would manufacture an empty universe out of whatever was handed in.
+  if (startVersion === null) throw notARedstringDocument(data);
   const startStage = stageOf(startVersion);
   const steps = MIGRATIONS.filter((step) => startStage < stageOf(step.to));
 

@@ -46,7 +46,26 @@ describe('Migration ledger', () => {
   it('detects version from format string and metadata fallback', () => {
     expect(detectFormatVersion({ format: 'redstring-v2.0.0-semantic' })).toBe('2.0.0-semantic');
     expect(detectFormatVersion({ metadata: { version: '3.0.0' } })).toBe('3.0.0');
-    expect(detectFormatVersion({})).toBe('1.0.0');
+    // A v1 flat file declares no version — its SHAPE is what identifies it.
+    expect(detectFormatVersion({ nodePrototypes: {} })).toBe('1.0.0');
+    expect(detectFormatVersion({ nodes: [], graphs: {} })).toBe('1.0.0');
+  });
+
+  it('refuses objects that are not Redstring documents at all', () => {
+    // The GitHub contents-API envelope that was imported as a universe on
+    // 2026-09-12. It has no format, no version and no data section.
+    const envelope = {
+      name: 'x.redstring', path: 'universes/x/x.redstring', sha: 'd2e9',
+      size: 6916496, type: 'file', content: '', encoding: 'none'
+    };
+    expect(detectFormatVersion(envelope)).toBe(null);
+    expect(detectFormatVersion({})).toBe(null);
+    expect(() => runMigrations(envelope)).toThrow(/Not a Redstring document/);
+    try {
+      runMigrations(envelope);
+    } catch (error) {
+      expect(error.code).toBe('NOT_A_REDSTRING_DOCUMENT');
+    }
   });
 
   it('is an append-only ordered ledger of the known steps', () => {

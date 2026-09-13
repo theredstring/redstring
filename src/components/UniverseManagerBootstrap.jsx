@@ -355,13 +355,14 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
         isOpen={true}
         universeName={fallbackConflict.universeName}
         localSlot={{
-          nodeCount: fallbackConflict.localData?.nodeCount,
+          // User-made things only — see the UniverseManager twin.
+          nodeCount: fallbackConflict.localData?.userNodeCount ?? fallbackConflict.localData?.nodeCount,
           graphCount: fallbackConflict.localData?.graphCount,
           timestamp: fallbackConflict.localData?.timestamp,
           path: 'This device (current session)'
         }}
         gitSlot={{
-          nodeCount: fallbackConflict.gitData?.nodeCount,
+          nodeCount: fallbackConflict.gitData?.userNodeCount ?? fallbackConflict.gitData?.nodeCount,
           graphCount: fallbackConflict.gitData?.graphCount,
           timestamp: fallbackConflict.gitData?.timestamp,
           repoLabel: 'Git Repository',

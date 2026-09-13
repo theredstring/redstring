@@ -5,6 +5,8 @@
 
 import { exportToRedstring } from '../formats/redstringFormat.js';
 import { computeImageRef, isDataUrl, refToBlobPath } from '../formats/imageRefs.js';
+import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../formats/userDataCounts.js';
+import { checkDestinationBeforeEmptyWrite } from './emptyWriteGuard.js';
 import { registerBlobSource, primeImageRef } from './imageBlobStore.js';
 
 // Source of truth modes
@@ -615,15 +617,15 @@ class GitSyncEngine {
    * Now with intelligent rate limiting and debouncing
    */
   /**
-   * Count nodePrototypes in a store state, handling both Map and plain-object shapes.
-   * Used as the "did the repo ever have data" floor for the empty-state guard.
+   * Count USER prototypes in a store state (Map or plain object).
+   * The "did the repo ever have data" floor for the empty-state guard.
+   *
+   * Excludes the seeded base Thing/Connection: counting them meant a wiped
+   * store that the UI had re-seeded reported 1 node, cleared every
+   * `=== 0` check, and got committed over a repo whose floor said 1822.
    */
   _countNodes(storeState) {
-    if (!storeState || !storeState.nodePrototypes) return 0;
-    const np = storeState.nodePrototypes;
-    if (np instanceof Map) return np.size;
-    if (typeof np === 'object') return Object.keys(np).length;
-    return 0;
+    return countUserPrototypes(storeState);
   }
 
   updateState(storeState, force = false) {
@@ -735,9 +737,13 @@ class GitSyncEngine {
    *
    * @private
    * @param {string} jsonString - Serialized universe content.
+   * @param {Object} [options]
+   * @param {boolean} [options.outgoingEmpty=false] - The state being written
+   *   holds no user prototypes. Triggers a read of the destination before the
+   *   write; see below.
    * @returns {Promise<Object>} Provider write result.
    */
-  async _commitToRemote(jsonString) {
+  async _commitToRemote(jsonString, { outgoingEmpty = false } = {}) {
     const path = this.getLatestPath();
 
     // NEVER write to a remote this session has not read. Before the first
@@ -749,6 +755,25 @@ class GitSyncEngine {
     // data" floor reads zero, so nothing downstream stops the overwrite.
     if (this.lastKnownRemoteSha === undefined) {
       await this._firstContactCheck(path);
+    }
+
+    // Last-resort check, and the only one that cannot be wrong: if we are
+    // about to write nothing, ask the DESTINATION what is there right now.
+    // Every other guard answers "what do I remember about this universe" from
+    // device-local bookkeeping; this one reads the file being overwritten.
+    // Costs an extra read only in the rare empty case.
+    if (outgoingEmpty) {
+      const verdict = await checkDestinationBeforeEmptyWrite({
+        readDestination: async () => (await this.provider.readFileRawWithMeta(path)).content,
+        label: path
+      });
+      if (!verdict.safe) {
+        this.notifyStatus('warning', 'Commit blocked: the repository file holds things this universe does not. Reload to recover them. Emptying a universe completely is not supported yet.');
+        const blocked = new Error(`Refusing to write an empty universe over ${path}: ${verdict.reason}`);
+        blocked.code = 'EMPTY_WRITE_BLOCKED';
+        blocked.reason = verdict.reason;
+        throw blocked;
+      }
     }
 
     const options = { expectedSha: this.lastKnownRemoteSha };
@@ -767,18 +792,45 @@ class GitSyncEngine {
       this.lastKnownRemoteSha = remote.sha;
 
       let remoteData = null;
+      let remoteUnparseable = false;
       try {
-        remoteData = JSON.parse(remote.content);
+        // Guard the empty case exactly as _firstContactCheck does. A bare
+        // JSON.parse('') throws, which would misreport a legitimately
+        // zero-byte remote as unreadable and block every save for the session.
+        remoteData = remote.content && remote.content.trim() ? JSON.parse(remote.content) : null;
       } catch (parseError) {
-        // Unparseable remote: our copy is the only readable one, and Git
-        // history preserves the corrupt blob for forensics. Safe to retry.
-        console.warn('[GitSyncEngine] Diverged remote content is unparseable — overwriting (git history retains it):', parseError.message);
+        console.warn('[GitSyncEngine] Diverged remote content is unparseable:', parseError.message);
+        remoteUnparseable = true;
+      }
+
+      // A genuinely empty remote file (no bytes) is safe to write over.
+      if (remoteData === null && !remoteUnparseable) {
+        const retry = await this.provider.writeFileRaw(path, jsonString, { expectedSha: this.lastKnownRemoteSha });
+        const retrySha = retry?.content?.sha;
+        if (retrySha) this.lastKnownRemoteSha = retrySha;
+        this.remoteConflictPending = false;
+        return retry;
+      }
+
+      // An unreadable remote is never "safe to overwrite". It used to be
+      // treated as such ("git history retains it"), but a remote that fails
+      // to parse is as likely to be the user's real universe arriving
+      // corrupt as it is to be junk — and this is the same shape as the
+      // 2026-09-12 wipe, where the unreadable thing WAS the universe.
+      if (remoteUnparseable || !isRecognizedShape(remoteData)) {
+        this.remoteConflictPending = true;
+        this.remoteUnrecognized = true;
+        this.lastKnownRemoteSha = undefined; // keep first contact armed
+        this.notifyStatus('warning', 'The repository file could not be read as a universe — saving is paused so it is not overwritten.');
+        const unrecognized = new Error(
+          `Remote file at ${path} is ${remoteUnparseable ? 'not valid JSON' : 'not a recognizable Redstring document'} — refusing to overwrite it.`
+        );
+        unrecognized.code = 'REMOTE_UNRECOGNIZED';
+        throw unrecognized;
       }
 
       let decision = 'conflict';
-      if (remoteData === null) {
-        decision = 'overwrite';
-      } else if (typeof this.onRemoteDivergence === 'function') {
+      if (typeof this.onRemoteDivergence === 'function') {
         try {
           decision = await this.onRemoteDivergence({ remoteData, universeSlug: this.universeSlug });
         } catch (handlerError) {
@@ -845,16 +897,46 @@ class GitSyncEngine {
       throw error;
     }
 
-    this.lastKnownRemoteSha = remote.sha;
-
     let remoteData = null;
+    let unparseable = false;
     try {
       remoteData = remote.content && remote.content.trim() ? JSON.parse(remote.content) : null;
     } catch (parseError) {
-      console.warn('[GitSyncEngine] First-contact remote content is unparseable — overwriting (git history retains it):', parseError.message);
-      return;
+      console.warn('[GitSyncEngine] First-contact remote content is unparseable:', parseError.message);
+      unparseable = true;
     }
-    if (remoteData === null) return; // empty file — safe to overwrite
+
+    // Something IS at that path and we cannot tell what it is — unparseable,
+    // or parseable but not a universe. Never overwrite it. "Git history
+    // retains it" used to justify clobbering here, but the thing that fails
+    // to parse is just as likely to be the user's real universe arriving
+    // corrupt or truncated as it is to be junk, and history is a poor trade
+    // for their live file.
+    //
+    // The SHA is deliberately NOT recorded before this throw: leaving
+    // `lastKnownRemoteSha` undefined keeps first contact armed, so a later
+    // write in the same session re-reads and re-refuses. Recording it would
+    // satisfy the gate permanently, and dismissing the conflict dialog would
+    // then be enough to let the next autosave overwrite the unread file.
+    if (unparseable || !isRecognizedShape(remoteData)) {
+      if (remoteData === null && !unparseable) {
+        // Genuinely empty file (no bytes at all) — safe to create over.
+        this.lastKnownRemoteSha = remote.sha;
+        return;
+      }
+      this.remoteConflictPending = true;
+      this.remoteUnrecognized = true;
+      this.notifyStatus('warning', 'The repository file could not be read as a universe — refusing to overwrite it.');
+      const unrecognized = new Error(
+        `Remote file at ${path} is ${unparseable ? 'not valid JSON' : 'not a recognizable Redstring document'} — refusing to overwrite it.`
+      );
+      unrecognized.code = 'REMOTE_UNRECOGNIZED';
+      throw unrecognized;
+    }
+
+    // The remote reads cleanly — clear any earlier "unreadable" latch.
+    this.remoteUnrecognized = false;
+    this.lastKnownRemoteSha = remote.sha;
 
     // Arm the shrink-to-zero floor from what the remote ACTUALLY holds, not
     // from device-local storage that may never have existed on this device.
@@ -864,8 +946,7 @@ class GitSyncEngine {
       this._persistFloor();
     }
 
-    const recognizedShape = !!(remoteData.prototypeSpace || remoteData.nodePrototypes);
-    if (recognizedShape && remoteNodeCount === 0) return; // genuinely empty universe file
+    if (remoteNodeCount === 0) return; // genuinely empty universe file
 
     // The remote has data this session never loaded. Reuse the divergence
     // decision machinery: only a handler that proves the contents equivalent
@@ -938,20 +1019,7 @@ class GitSyncEngine {
    * @returns {number} Prototype count, 0 if the shape is unrecognized.
    */
   _countNodesInRedstringData(redstringData) {
-    if (!redstringData || typeof redstringData !== 'object') return 0;
-    const candidates = [redstringData.prototypeSpace?.prototypes, redstringData.nodePrototypes];
-    for (const candidate of candidates) {
-      if (!candidate) continue;
-      if (Array.isArray(candidate)) {
-        if (candidate.length > 0) return candidate.length;
-        continue;
-      }
-      if (typeof candidate === 'object') {
-        const count = Object.keys(candidate).length;
-        if (count > 0) return count;
-      }
-    }
-    return 0;
+    return countUserPrototypes(redstringData);
   }
 
   /**
@@ -1095,16 +1163,24 @@ class GitSyncEngine {
       let writeSuccess = false;
       let lastWriteError = null;
 
+      const outgoingEmpty = isEffectivelyEmpty(latestState);
+
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          await this._commitToRemote(jsonString);
+          await this._commitToRemote(jsonString, { outgoingEmpty });
           writeSuccess = true;
           break;
         } catch (writeError) {
           lastWriteError = writeError;
 
           // A surfaced conflict is not retryable here — the user must resolve.
-          if (writeError.code === 'REMOTE_CONFLICT') {
+          // Nor is a blocked empty write or an unreadable remote: retrying
+          // just re-runs the same refusal, and the retry loop is exactly how
+          // an earlier wipe pushed through a block once the SHA was known.
+          if (writeError.code === 'REMOTE_CONFLICT'
+            || writeError.code === 'EMPTY_WRITE_BLOCKED'
+            || writeError.code === 'REMOTE_UNRECOGNIZED') {
+            this.pendingCommits = [];
             throw writeError;
           }
 
@@ -1234,6 +1310,13 @@ class GitSyncEngine {
       // same floor here a transient empty snapshot (universe switch, HMR
       // reset) could wipe the remote AND then persist floor=0, disarming the
       // guard for all subsequent commits.
+      if (options.allowEmpty && this._countNodes(storeState) === 0 && this.lastCommittedNodeCount > 0) {
+        // Loud on purpose: this waives the remembered floor. The destination
+        // read in _commitToRemote still stands, so this cannot by itself
+        // clear a remote that holds data.
+        console.warn(`[GitSyncEngine] allowEmpty honored for "${this.universeSlug}": committing 0 user prototypes over a floor of ${this.lastCommittedNodeCount}. The destination check still applies.`);
+      }
+
       if (!options.allowEmpty && this.lastCommittedNodeCount > 0) {
         const incomingCount = this._countNodes(storeState);
         if (incomingCount === 0) {
@@ -1297,14 +1380,20 @@ class GitSyncEngine {
       // errors. A diverged remote goes through pull-and-compare inside
       // _commitToRemote and either safely retries or surfaces the conflict.
       let lastError = null;
+      // `allowEmpty` waives the node-count FLOOR (a remembered number). It
+      // never waives the destination read below — that one looks at the file
+      // itself, and no caller today may clear a remote that still holds data.
+      const outgoingEmpty = isEffectivelyEmpty(storeState);
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          await this._commitToRemote(jsonString);
+          await this._commitToRemote(jsonString, { outgoingEmpty });
           lastError = null;
           break;
         } catch (error) {
           lastError = error;
-          if (error.code === 'REMOTE_CONFLICT') break;
+          if (error.code === 'REMOTE_CONFLICT'
+            || error.code === 'EMPTY_WRITE_BLOCKED'
+            || error.code === 'REMOTE_UNRECOGNIZED') break;
           const isNetworkError = error.message?.includes('network') ||
             error.message?.includes('fetch') ||
             error.message?.includes('NETWORK_CHANGED');
@@ -1384,6 +1473,8 @@ class GitSyncEngine {
     try {
       const redstringData = JSON.parse(content);
       console.log('[GitSyncEngine] Successfully parsed Redstring data');
+      // A clean read clears any earlier "could not read the remote" latch.
+      this.remoteUnrecognized = false;
       // Arm the shrink-to-zero floor from what the remote actually holds.
       // On a device that never committed (fresh mobile browser, evicted
       // localStorage) the persisted floor is 0 — this re-arms the guard

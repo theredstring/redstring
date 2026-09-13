@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 import uriGenerator from '../services/uriGenerator.js';
 import { runMigrations } from './migrations.js';
 import { safeJsonParse, stripDangerousKeys } from '../utils/safeJson.js';
+import { hasRedstringMarkers, notARedstringDocument } from './documentShape.js';
 import { partitionLinksByState } from './linkState.js';
 
 // Current format version.
@@ -144,8 +145,29 @@ const compareVersions = (v1, v2) => {
  * Validate file format version and check compatibility
  */
 export const validateFormatVersion = (redstringData) => {
+  // Shape gate FIRST. Without it, any JSON object at all defaulted to v1.0.0
+  // and validated — which is how a GitHub contents-API envelope passed for a
+  // universe, imported as empty, and got written over the real file.
+  if (!hasRedstringMarkers(redstringData)) {
+    const error = notARedstringDocument(redstringData);
+    return {
+      valid: false,
+      version: null,
+      code: error.code,
+      error: error.message,
+      needsMigration: false,
+      versionDeclared: false
+    };
+  }
+
+  // Did the file SAY what version it is, or are we assuming v1 from its shape?
+  // An assumed version must not be reported as "migrated" — that flag used to
+  // trigger write-backs.
+  const versionDeclared = typeof redstringData?.format === 'string'
+    || typeof redstringData?.metadata?.version === 'string';
+
   let fileVersion = redstringData?.format || redstringData?.metadata?.version || '1.0.0';
-  
+
   // Strip "redstring-v" prefix if present (e.g., "redstring-v2.0.0-semantic" -> "2.0.0-semantic")
   if (typeof fileVersion === 'string' && fileVersion.startsWith('redstring-v')) {
     fileVersion = fileVersion.replace('redstring-v', '');
@@ -161,7 +183,8 @@ export const validateFormatVersion = (redstringData) => {
       valid: false,
       version: fileVersion,
       error: `Invalid version format: ${fileVersion}`,
-      needsMigration: false
+      needsMigration: false,
+      versionDeclared
     };
   }
   
@@ -219,13 +242,14 @@ export const validateFormatVersion = (redstringData) => {
 
   // Check if migration is needed
   const needsMigration = compareToCurrent === -1;
-  
+
   return {
     valid: true,
     version: fileVersion,
     currentVersion: CURRENT_FORMAT_VERSION,
     needsMigration,
-    canAutoMigrate: needsMigration // Currently all older versions can auto-migrate
+    canAutoMigrate: needsMigration, // Currently all older versions can auto-migrate
+    versionDeclared
   };
 };
 
@@ -1439,7 +1463,12 @@ export const importFromRedstring = (redstringData, storeActions) => {
     console.log('[Import] Format validation:', validation);
     
     if (!validation.valid) {
-      throw new Error(validation.error);
+      const error = new Error(validation.error);
+      // Preserve the machine-readable reason. Callers distinguish "this is not
+      // a Redstring document at all" (a bad read — never write anything) from
+      // "this file is too old/new".
+      if (validation.code) error.code = validation.code;
+      throw error;
     }
     
     // Step 2: Run the migration ledger. This walks any older file up to the
@@ -2155,8 +2184,12 @@ export const importFromRedstring = (redstringData, storeActions) => {
       version: {
         imported: validation.version,
         current: CURRENT_FORMAT_VERSION,
-        migrated: validation.needsMigration,
-        migratedTo: validation.needsMigration ? CURRENT_FORMAT_VERSION : null
+        // A version we ASSUMED from the file's shape is not a migration the
+        // file asked for. `migrated` used to trigger automatic write-backs,
+        // so an inferred version must never set it.
+        migrated: validation.needsMigration && validation.versionDeclared !== false,
+        migratedTo: validation.needsMigration ? CURRENT_FORMAT_VERSION : null,
+        versionInferred: validation.versionDeclared === false
       }
     };
   } catch (error) {
@@ -2166,7 +2199,12 @@ export const importFromRedstring = (redstringData, storeActions) => {
     // empty file, so the empty state would flow into the store, become the
     // new save baseline, and the next autosave would overwrite the user's
     // real file with nothing. A failed import must surface as a failed load.
-    throw new Error(`Failed to import Redstring file: ${error.message}`);
+    const wrapped = new Error(`Failed to import Redstring file: ${error.message}`);
+    // Keep the reason machine-readable through the wrap — callers check
+    // `.code === 'NOT_A_REDSTRING_DOCUMENT'` to tell a bad read from a bad file.
+    if (error?.code) wrapped.code = error.code;
+    wrapped.cause = error;
+    throw wrapped;
   }
 };
 

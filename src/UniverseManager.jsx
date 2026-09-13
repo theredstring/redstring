@@ -852,13 +852,16 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         universeSlug: conflict.universeSlug,
         universeName: conflict.universeName,
         localSlot: {
-          nodeCount: conflict.localData?.nodeCount,
+          // Show what the USER made. A slot emptied by a bad read gets the
+          // base "Thing" re-seeded, and reporting "1 node" for it would
+          // understate the loss in the one dialog meant to prevent it.
+          nodeCount: conflict.localData?.userNodeCount ?? conflict.localData?.nodeCount,
           graphCount: conflict.localData?.graphCount,
           timestamp: conflict.localData?.timestamp,
           path: localPath
         },
         gitSlot: {
-          nodeCount: conflict.gitData?.nodeCount,
+          nodeCount: conflict.gitData?.userNodeCount ?? conflict.gitData?.nodeCount,
           graphCount: conflict.gitData?.graphCount,
           timestamp: conflict.gitData?.timestamp,
           repoLabel: gitUser && gitRepoName ? `@${gitUser}/${gitRepoName}` : 'Git Repository',

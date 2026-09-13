@@ -31,6 +31,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR, isExclusivePanelMode } from '../constants.js';
 import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from './fileStorage.js';
 import { importFromRedstring } from '../formats/redstringFormat.js';
+import { userDataCounts } from '../formats/userDataCounts.js';
 import { mergeUniverses } from '../formats/mergeUniverses.js';
 import { MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
 import {
@@ -1064,15 +1065,11 @@ const saveCoordinatorMiddleware = (config) => {
   // (e.g. nodes went from 50 to 0). Catches surprise resets, broken HMR
   // restores, or any code path that silently wipes the store. Lets the user
   // see WHO cleared the state instead of just discovering an empty file later.
+  // One shared counter (src/formats/userDataCounts.js) so this tripwire and
+  // every save-path guard agree on what "empty" means.
   const countUserData = (state) => {
     if (!state) return { nodes: 0, graphs: 0 };
-    let nodes = 0;
-    if (state.nodePrototypes instanceof Map) {
-      for (const id of state.nodePrototypes.keys()) {
-        if (id !== 'base-thing-prototype' && id !== 'base-connection-prototype') nodes++;
-      }
-    }
-    const graphs = state.graphs instanceof Map ? state.graphs.size : 0;
+    const { nodes, graphs } = userDataCounts(state);
     return { nodes, graphs };
   };
 

@@ -17,6 +17,7 @@
  */
 
 import { exportToRedstring, PERSISTED_STORE_KEYS } from '../formats/redstringFormat.js';
+import { userDataCounts } from '../formats/userDataCounts.js';
 import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 import { generateStateHash as computeStateHash } from './saveHash.js';
 
@@ -755,8 +756,7 @@ class SaveCoordinator {
         // Capture the data baseline we just loaded so we can detect a
         // catastrophic shrinkage on subsequent saves.
         try {
-          const counts = this._countDataItems(newState);
-          this.dataBaseline = counts;
+          this.dataBaseline = this._adoptBaseline(this._countDataItems(newState), newState, 'load');
         } catch (_) { /* non-fatal */ }
         return;
       }
@@ -835,8 +835,7 @@ class SaveCoordinator {
         // floor and we stop logging "no load observed" on every keystroke.
         this.hasLoadedFromFile = true;
         try {
-          const counts = this._countDataItems(newState);
-          this.dataBaseline = counts;
+          this.dataBaseline = this._adoptBaseline(this._countDataItems(newState), newState, 'adopt');
         } catch { /* non-fatal */ }
         if (this._loggedLoadGuard) this._loggedLoadGuard = false;
         console.log('[SaveCoordinator] Adopting current non-empty state as load baseline (no explicit load context fired).');
@@ -1667,23 +1666,48 @@ class SaveCoordinator {
    */
   _countDataItems(state) {
     if (!state) return { nodes: 0, graphs: 0 };
-    let nodes = 0;
-    if (state.nodePrototypes instanceof Map) {
-      for (const id of state.nodePrototypes.keys()) {
-        if (id !== 'base-thing-prototype' && id !== 'base-connection-prototype') nodes++;
-      }
-    } else if (state.nodePrototypes && typeof state.nodePrototypes === 'object') {
-      for (const id of Object.keys(state.nodePrototypes)) {
-        if (id !== 'base-thing-prototype' && id !== 'base-connection-prototype') nodes++;
-      }
-    }
-    let graphs = 0;
-    if (state.graphs instanceof Map) {
-      graphs = state.graphs.size;
-    } else if (state.graphs && typeof state.graphs === 'object') {
-      graphs = Object.keys(state.graphs).length;
-    }
+    const { nodes, graphs } = userDataCounts(state);
     return { nodes, graphs };
+  }
+
+  /**
+   * Decide what the shrinkage baseline becomes after a load.
+   *
+   * Normally the loaded state IS the baseline. The exception is a load that
+   * arrives EMPTY for a universe we already have a substantial baseline for:
+   * on 2026-09-12 a bad read produced an empty universe, this method's
+   * predecessor adopted `{nodes: 0}` as the baseline, and with the floor
+   * lowered to zero `_isCatastrophicShrinkage` could never fire again — the
+   * real file was overwritten 16 seconds later.
+   *
+   * Lowering a baseline to zero is never protective, so we keep the higher
+   * one and let the shrinkage guard stay armed. A genuinely cleared universe
+   * is still saveable through `forceSave`, which re-baselines deliberately.
+   *
+   * Only applies within the SAME universe — switching universes legitimately
+   * resets the baseline (`cancelPendingSaves` zeroes it, `_restoreGuardState`
+   * reloads per slug).
+   *
+   * @private
+   */
+  _adoptBaseline(counts, state, reason) {
+    const prior = this.dataBaseline || { nodes: 0, graphs: 0 };
+    const incomingSlug = state?._universeSlug || null;
+    const sameUniverse = !incomingSlug || !this.activeUniverseSlugForGuard
+      || incomingSlug === this.activeUniverseSlugForGuard;
+
+    if (sameUniverse && counts.nodes === 0 && (prior.nodes || 0) >= 5) {
+      console.warn(
+        `[SaveCoordinator] ${reason}: state has no user things but the existing baseline was`,
+        prior,
+        '— keeping the higher baseline so the shrinkage guard stays armed. If this universe really was cleared, use Save Now.'
+      );
+      return {
+        nodes: Math.max(prior.nodes || 0, counts.nodes),
+        graphs: Math.max(prior.graphs || 0, counts.graphs)
+      };
+    }
+    return counts;
   }
 
   /**

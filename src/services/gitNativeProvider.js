@@ -26,6 +26,120 @@ const bytesToBase64 = (bytes) => {
 };
 
 /**
+ * Every read of the contents endpoint opts out of the HTTP cache.
+ *
+ * GitHub serves two different representations of the same URL depending on the
+ * Accept header (`Vary: Accept`, `cache-control: private, max-age=60`, and the
+ * SAME ETag for both). On 2026-09-12 Chromium ignored that Vary and answered
+ * the raw-media-type fallback fetch with the cached JSON envelope from the
+ * preceding probe — so a 6.9 MB universe read as a 10 KB metadata object,
+ * imported as empty, and was written back over the real file.
+ *
+ * Never remove this. The two requests differ ONLY by a request header, which
+ * is exactly the case browser caches get wrong.
+ */
+const NO_HTTP_CACHE = 'no-store';
+
+/** An error the callers treat as "the remote content is UNKNOWN, not empty". */
+const readTruncated = (message) => {
+  const error = new Error(message);
+  error.code = 'READ_TRUNCATED';
+  return error;
+};
+
+/**
+ * Does this parsed object look like a git contents-API response rather than a
+ * file's bytes? Both GitHub and Gitea return this shape, and it is never a
+ * valid payload for any file this app reads.
+ */
+export const isContentsEnvelope = (obj) =>
+  !!obj
+  && typeof obj === 'object'
+  && !Array.isArray(obj)
+  && obj.type === 'file'
+  && typeof obj.sha === 'string'
+  && 'encoding' in obj
+  && 'content' in obj;
+
+/**
+ * Assert that a body we are about to hand back really is the file's content.
+ *
+ * Two independent checks, because either alone has a blind spot:
+ *   1. Byte length must equal the blob size the API reported. The envelope is
+ *      ~10 KB where the blob is 6.9 MB, so this catches it outright.
+ *   2. The body must not itself parse as a contents envelope. This covers a
+ *      missing/zero `size` (Gitea, or a probe that didn't report one), where
+ *      check 1 has nothing to compare against.
+ *
+ * `actualBytes` must be the byte length measured BEFORE UTF-8 decoding.
+ * Re-encoding the decoded string is not equivalent: `TextDecoder` strips a
+ * leading BOM and substitutes U+FFFD for invalid sequences, so a legitimate
+ * BOM-prefixed file would re-encode three bytes short and be rejected as
+ * truncated. Callers that only have a string may omit it, and then only
+ * check 2 applies.
+ *
+ * @throws {Error} with `code: 'READ_TRUNCATED'`
+ */
+export function assertRawBodyMatches(content, size, label = 'file', actualBytes = null) {
+  if (typeof content !== 'string') {
+    throw readTruncated(`${label}: expected text content, got ${typeof content}`);
+  }
+  if (!content && size > 0) {
+    throw readTruncated(`${label}: no content despite reported size ${size}`);
+  }
+
+  if (Number.isFinite(size) && size > 0 && Number.isFinite(actualBytes)) {
+    if (actualBytes !== size) {
+      throw readTruncated(`${label}: body is ${actualBytes} bytes but the blob is ${size} — the read did not return the file`);
+    }
+  }
+
+  // Cheap pre-filter so we never JSON.parse a multi-megabyte universe just to
+  // reject it: an envelope is small and always mentions "encoding".
+  if (content.length < 64 * 1024 && content.trimStart().startsWith('{') && content.includes('"encoding"')) {
+    let parsed = null;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      parsed = null; // Not JSON at all — fine, it is not an envelope.
+    }
+    if (isContentsEnvelope(parsed)) {
+      throw readTruncated(`${label}: body is a contents-API envelope, not file bytes (cached response?)`);
+    }
+  }
+}
+
+/**
+ * Read a response body as text AND report the byte length actually received.
+ *
+ * Falls back to `text()` when the response has no `arrayBuffer` (hand-rolled
+ * test doubles), in which case the byte length is unknown and the size check
+ * is skipped rather than guessed at.
+ */
+async function responseToTextWithBytes(response) {
+  if (typeof response.arrayBuffer === 'function') {
+    const buffer = await response.arrayBuffer();
+    return { content: new TextDecoder().decode(buffer), byteLength: buffer.byteLength };
+  }
+  return { content: await response.text(), byteLength: null };
+}
+
+/** Decode base64 to raw bytes, so callers can measure the true byte length. */
+const base64ToBytes = (b64) => {
+  const clean = String(b64 || '').replace(/\s/g, '');
+  let binary;
+  if (typeof atob !== 'undefined') {
+    binary = atob(clean);
+  } else {
+    // eslint-disable-next-line no-undef
+    return new Uint8Array(Buffer.from(clean, 'base64'));
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+};
+
+/**
  * Universal Semantic Provider Interface
  * All Git providers must implement this interface
  */
@@ -514,12 +628,10 @@ This repository was automatically initialized by Redstring UI React. You can now
       : `${this.semanticPath}/${path}.ttl`;
 
     try {
-      const fileInfo = await this.getFileInfo(fullPath);
-      if (!fileInfo) {
-        throw new Error(`File not found: ${path}`);
-      }
-
-      const content = this.base64ToUtf8(fileInfo.content);
+      // Share the one verified reader: a .ttl past 1MB hits the same contents
+      // API cliff, and decoding an empty `content` field to '' silently is how
+      // a large file reads as an empty one.
+      const { content } = await this.readFileRawWithMeta(fullPath);
       return content;
     } catch (error) {
       console.error('[GitHubProvider] Read failed:', error);
@@ -542,7 +654,7 @@ This repository was automatically initialized by Redstring UI React. You can now
       console.log(`[GitHubSemanticProvider] Checking for universes in: ${resolvedLabel}`);
 
       // Use direct fetch instead of githubRateLimiter to avoid import issues
-      const response = await fetch(url, { headers });
+      const response = await fetch(url, { cache: NO_HTTP_CACHE, headers });
 
       if (response.status === 404) {
         console.log(`[GitHubSemanticProvider] Directory '${resolvedLabel}' not found (expected during discovery)`);
@@ -742,6 +854,7 @@ This repository was automatically initialized by Redstring UI React. You can now
     let response;
     try {
       response = await fetch(`${this.rootUrl}/${apiPath}`, {
+        cache: NO_HTTP_CACHE,
         headers: {
           'Authorization': this.getAuthHeader(),
           'Accept': 'application/vnd.github.v3+json'
@@ -1110,6 +1223,7 @@ This repository was automatically initialized by Redstring UI React. You can now
     githubRateLimiter.recordRequest(this.authMethod);
 
     const response = await fetch(`${this.rootUrl}/${apiPath}`, {
+      cache: NO_HTTP_CACHE,
       headers: {
         'Authorization': this.getAuthHeader(),
         'Accept': 'application/vnd.github.raw'
@@ -1154,29 +1268,42 @@ This repository was automatically initialized by Redstring UI React. You can now
     const truncated = (info.encoding === 'none') || (size > 0 && (!info.content || info.content === ''));
 
     if (!truncated) {
-      return { content: this.base64ToUtf8(info.content), sha: info.sha, size };
+      // Measure the base64-decoded BYTES, then decode to text. Re-encoding the
+      // decoded string would be wrong: TextDecoder strips a leading BOM, so a
+      // legitimate BOM-prefixed file would look three bytes short.
+      const bytes = base64ToBytes(info.content);
+      const decoded = new TextDecoder().decode(bytes);
+      assertRawBodyMatches(decoded, size, safePath, bytes.length);
+      return { content: decoded, sha: info.sha, size };
     }
 
     console.log(`[GitHubSemanticProvider] Contents API truncated ${safePath} (${size} bytes) — fetching raw`);
     githubRateLimiter.recordRequest(this.authMethod);
     const rawResponse = await fetch(`${this.rootUrl}/${apiPath}`, {
+      cache: NO_HTTP_CACHE,
       headers: {
         'Authorization': this.getAuthHeader(),
-        'Accept': 'application/vnd.github.raw+json'
+        // Plain `vnd.github.raw`, matching readBinaryFile. The `+json` variant
+        // reads as a JSON media type, which makes a cached JSON envelope an
+        // even likelier match for this request.
+        'Accept': 'application/vnd.github.raw'
       }
     });
     if (!rawResponse.ok) {
       // NEVER degrade to "empty file" — the file demonstrably has bytes.
-      const err = new Error(`Raw fetch failed for ${safePath} (${size} bytes reported, HTTP ${rawResponse.status})`);
-      err.code = 'READ_TRUNCATED';
-      throw err;
+      throw readTruncated(`Raw fetch failed for ${safePath} (${size} bytes reported, HTTP ${rawResponse.status})`);
     }
-    const content = await rawResponse.text();
-    if (!content && size > 0) {
-      const err = new Error(`Raw fetch returned no content for ${safePath} despite reported size ${size}`);
-      err.code = 'READ_TRUNCATED';
-      throw err;
+
+    // A raw read must not come back as JSON. If it does, we were served the
+    // contents envelope (from a cache, or by a proxy that rewrote Accept).
+    const contentType = rawResponse.headers?.get?.('content-type') || '';
+    if (/^application\/json/i.test(contentType)) {
+      throw readTruncated(`Raw fetch for ${safePath} answered with a JSON envelope (content-type ${contentType})`);
     }
+
+    // Read as bytes so the length check sees what the server actually sent.
+    const { content, byteLength } = await responseToTextWithBytes(rawResponse);
+    assertRawBodyMatches(content, size, safePath, byteLength);
     return { content, sha: info.sha, size };
   }
 
@@ -1199,12 +1326,13 @@ This repository was automatically initialized by Redstring UI React. You can now
   async listSemanticFiles() {
     try {
       const response = await fetch(`${this.rootUrl}/${this.semanticPath}`, {
+        cache: NO_HTTP_CACHE,
         headers: {
           'Authorization': this.getAuthHeader(),
           'Accept': 'application/vnd.github.v3+json'
         }
       });
-      
+
       // If 404, the semantic path doesn't exist (empty repo or no schema folder)
       if (response.status === 404) {
         return [];
@@ -1379,18 +1507,9 @@ export class GiteaSemanticProvider extends SemanticProvider {
       : `${this.semanticPath}/${path}.ttl`;
     
     try {
-      const response = await fetch(`${this.rootUrl}/${fullPath}?ref=main`, {
-        headers: {
-          'Authorization': `token ${this.token}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`File not found: ${path}`);
-      }
-      
-      const fileInfo = await response.json();
-      const content = this.base64ToUtf8(fileInfo.content);
+      // Share the one verified reader (it also path-encodes properly, which
+      // the hand-built URL here did not).
+      const { content } = await this.readFileRawWithMeta(fullPath);
       return content;
     } catch (error) {
       console.error('[GiteaProvider] Read failed:', error);
@@ -1482,22 +1601,47 @@ export class GiteaSemanticProvider extends SemanticProvider {
     }
   }
 
+  /**
+   * File metadata, or `null` ONLY when the file is confirmed absent.
+   *
+   * Previously every failure — 401, 500, a network drop, a parse error —
+   * returned `null`, which reads identically to "the file does not exist".
+   * Callers then created a fresh empty file on top of data they simply could
+   * not see. Matches the GitHub provider's contract now: `null` means 404,
+   * anything else throws `FILE_INFO_UNKNOWN`.
+   *
+   * @throws {Error} with `code: 'FILE_INFO_UNKNOWN'`
+   */
   async getFileInfo(path) {
+    const { apiPath, displayPath } = this.resolvePathInput(path, { trimTrailing: false });
+    if (!apiPath) return null;
+
+    const unknown = (status, message) => {
+      const err = new Error(`getFileInfo(${displayPath}) status=${status}: ${message}`);
+      err.code = 'FILE_INFO_UNKNOWN';
+      err.status = status;
+      return err;
+    };
+
+    let response;
     try {
-      const { apiPath } = this.resolvePathInput(path, { trimTrailing: false });
-      if (!apiPath) {
-        return null;
-      }
-      const response = await fetch(`${this.rootUrl}/${apiPath}?ref=main`, {
+      response = await fetch(`${this.rootUrl}/${apiPath}?ref=main`, {
+        cache: NO_HTTP_CACHE,
         headers: {
           'Authorization': `token ${this.token}`
         }
       });
-      if (response.status === 404) return null;
-      if (!response.ok) return null;
+    } catch (networkError) {
+      throw unknown(0, `network: ${networkError?.message || networkError}`);
+    }
+
+    if (response.status === 404) return null;
+    if (!response.ok) throw unknown(response.status, response.statusText || `HTTP ${response.status}`);
+
+    try {
       return await response.json();
-    } catch (e) {
-      return null;
+    } catch (parseError) {
+      throw unknown(response.status, `parse error: ${parseError?.message || parseError}`);
     }
   }
 
@@ -1529,7 +1673,9 @@ export class GiteaSemanticProvider extends SemanticProvider {
       try {
         fileInfo = await this.getFileInfo(safePath);
       } catch (error) {
-        // File doesn't exist, that's fine for new files
+        // "I could not determine whether this file exists" is NOT "it doesn't".
+        // Creating here would POST a new file over one we just failed to read.
+        if (error?.code === 'FILE_INFO_UNKNOWN') throw error;
         console.log(`[GiteaSemanticProvider] File ${safePath} doesn't exist, will create new`);
       }
 
@@ -1645,6 +1791,7 @@ export class GiteaSemanticProvider extends SemanticProvider {
     if (!apiPath) throw new Error('Invalid path provided to readBinaryFile');
 
     const response = await fetch(`${this.rootUrl}/${apiPath}`, {
+      cache: NO_HTTP_CACHE,
       headers: {
         'Authorization': `token ${this.token}`,
         'Accept': 'application/octet-stream'
@@ -1684,25 +1831,56 @@ export class GiteaSemanticProvider extends SemanticProvider {
     return new Uint8Array(buffer);
   }
 
-  async readFileRaw(path) {
+  /**
+   * Read a file and return `{ content, sha, size }`, verified.
+   *
+   * Mirrors the GitHub provider's contract so the sync engine's first-contact
+   * check, `_commitToRemote` and `loadFromGit` work against Gitea too — they
+   * all call `readFileRawWithMeta`, and its absence here meant self-hosted
+   * universes fell through to an unverified read.
+   */
+  async readFileRawWithMeta(path) {
     const { displayPath: safePath } = this.resolvePathInput(path, { trimTrailing: false });
+    const info = await this.getFileInfo(safePath); // throws FILE_INFO_UNKNOWN on ambiguity
+    if (!info) {
+      console.log(`[GiteaSemanticProvider] File not found: ${safePath}`);
+      const err = new Error(`File not found: ${safePath}`);
+      err.code = 'FILE_NOT_FOUND';
+      throw err;
+    }
+
+    const size = typeof info.size === 'number' ? info.size : 0;
+    const truncated = info.encoding === 'none' || (size > 0 && (!info.content || info.content === ''));
+
+    if (!truncated) {
+      // Byte length is measured pre-decode; see the GitHub twin for why.
+      const bytes = base64ToBytes(info.content);
+      const content = new TextDecoder().decode(bytes);
+      assertRawBodyMatches(content, size, safePath, bytes.length);
+      return { content, sha: info.sha, size };
+    }
+
+    // Oversized/omitted content — go get the bytes. readBinaryFile already
+    // handles Gitea answering with an envelope instead of octets.
+    console.log(`[GiteaSemanticProvider] Contents API truncated ${safePath} (${size} bytes) — fetching raw`);
+    const bytes = await this.readBinaryFile(safePath);
+    const content = new TextDecoder().decode(bytes);
+    assertRawBodyMatches(content, size, safePath, bytes.length);
+    return { content, sha: info.sha, size };
+  }
+
+  async readFileRaw(path) {
     try {
-      const info = await this.getFileInfo(safePath);
-      if (!info) {
-        // File not found - this is expected for new files, so don't log as error
-        console.log(`[GiteaSemanticProvider] File not found: ${safePath}`);
-        throw new Error(`File not found: ${safePath}`);
-      }
-      return this.base64ToUtf8(info.content);
+      const { content } = await this.readFileRawWithMeta(path);
+      return content;
     } catch (e) {
       // Only log as error if it's not a "file not found" error
-      if (e.message && e.message.includes('File not found')) {
+      if (e?.code === 'FILE_NOT_FOUND' || (e.message && e.message.includes('File not found'))) {
         // Re-throw without additional error logging since this is expected
         throw e;
-      } else {
-        console.error('[GiteaSemanticProvider] readFileRaw failed:', e);
-        throw e;
       }
+      console.error('[GiteaSemanticProvider] readFileRaw failed:', e);
+      throw e;
     }
   }
 

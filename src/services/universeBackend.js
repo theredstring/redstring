@@ -18,6 +18,9 @@ import { SemanticProviderFactory } from '../backend/git/index.js';
 import startupCoordinator from './startupCoordinator.js';
 import { exportToRedstring, importFromRedstring, downloadRedstringFile, validateFormatVersion, getRedstringStats } from '../formats/redstringFormat.js';
 import { slotsHaveEqualKnowledge } from './semanticHash.js';
+import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../formats/userDataCounts.js';
+import { checkDestinationBeforeEmptyWrite } from './emptyWriteGuard.js';
+import { decideSlotConflict } from './slotConflictDecision.js';
 import repoDiscoveryCache from './repoDiscoveryCache.js';
 import {
   createUniverseConfigFromDiscovered,
@@ -2008,27 +2011,19 @@ class UniverseBackend {
         const localState = this.storeOperations?.getState?.();
         if (!localState) return 'conflict';
 
-        let remoteState = null;
-        try {
-          remoteState = importFromRedstring(remoteData).storeState;
-        } catch (importError) {
-          umWarn('[UniverseBackend] Diverged remote could not be imported — treating as safe to overwrite (git history retains it):', importError.message);
-          return 'overwrite';
-        }
+        const verdict = await this._decideRemoteDivergence(localState, remoteData);
+        if (verdict.decision === 'overwrite') return 'overwrite';
 
-        try {
-          const equal = await slotsHaveEqualKnowledge(localState, remoteState);
-          if (equal) return 'overwrite';
-        } catch (hashError) {
-          umWarn('[UniverseBackend] Semantic comparison of diverged remote failed:', hashError);
+        const { remoteState } = verdict;
+        // Unreadable remote: there is nothing to show the user in a diff, and
+        // nothing we may overwrite. Block pushes and let the conflict UI
+        // surface the raw situation.
+        if (!remoteState) {
+          this.notifyStatus('warning', `The repository copy of "${universe.name || universeSlug}" could not be read. Saving is paused so it is not overwritten.`);
+          return 'conflict';
         }
 
         const remoteInfo = this.analyzeStoreData(remoteState);
-        if (remoteInfo.nodeCount === 0) {
-          // Remote moved but holds nothing — pushing our content loses nothing.
-          return 'overwrite';
-        }
-
         const localInfo = this.analyzeStoreData(localState);
         const liveUniverse = this.getUniverse(universeSlug) || universe;
         const conflict = {
@@ -2038,12 +2033,14 @@ class UniverseBackend {
           localData: {
             storeState: localState,
             nodeCount: localInfo.nodeCount,
+            userNodeCount: localInfo.userNodeCount,
             graphCount: localInfo.graphCount,
             timestamp: localInfo.timestamp
           },
           gitData: {
             storeState: remoteState,
             nodeCount: remoteInfo.nodeCount,
+            userNodeCount: remoteInfo.userNodeCount,
             graphCount: remoteInfo.graphCount,
             timestamp: remoteInfo.timestamp
           },
@@ -2178,7 +2175,7 @@ class UniverseBackend {
             }
             if (state?.hasUniverseFile === false) {
               const counts = this.analyzeStoreData(state);
-              if (counts.nodeCount === 0) {
+              if (counts.userNodeCount === 0) {
                 umWarn(`[UniverseBackend] Refusing local save for ${slug}: universe never loaded (hasUniverseFile=false) and state has no user content. On-disk file preserved.`);
                 this.notifyStatus('warning', 'Save blocked: universe not loaded. Reconnect the file or reload to recover.');
                 return { blocked: true, reason: 'universe not loaded' };
@@ -2193,9 +2190,9 @@ class UniverseBackend {
             const hasPriorSave = !!(universe?.metadata?.lastSaved || universe?.metadata?.lastSync);
             if (hasPriorSave) {
               const counts = this.analyzeStoreData(state);
-              if (counts.nodeCount === 0) {
+              if (counts.userNodeCount === 0) {
                 umWarn(`[UniverseBackend] Refusing local save for ${slug}: state has 0 nodes but universe has prior saves (lastSaved=${universe.metadata?.lastSaved}). On-disk file preserved.`);
-                this.notifyStatus('warning', 'Save blocked: state is empty but file has prior data. Reload to recover.');
+                this.notifyStatus('warning', 'Save blocked: this universe has no things but the saved file does. Reload to recover it. Emptying a universe completely is not supported yet.');
                 return { blocked: true, reason: 'empty state with prior saves' };
               }
             }
@@ -3853,8 +3850,8 @@ class UniverseBackend {
           //   - No source of truth defined, OR
           //   - Source of truth slot is empty but the other slot has data
           const primaryHasData = sourceOfTruth === SOURCE_OF_TRUTH.GIT
-            ? conflict.gitData.nodeCount > 0
-            : conflict.localData.nodeCount > 0;
+            ? conflict.gitData.userNodeCount > 0
+            : conflict.localData.userNodeCount > 0;
 
           // Never auto-resolve onto a meaningfully NEWER secondary. A user
           // who worked offline (local newer than git) or on another device
@@ -4050,6 +4047,58 @@ class UniverseBackend {
     if (sourceOfTruth === SOURCE_OF_TRUTH.GIT) {
       const gitRes = resultsMap.get(SOURCE_OF_TRUTH.GIT);
       if (gitRes?.data) {
+        // Never apply an empty primary while the other slot holds data. This
+        // is the same rule `detectSlotConflict` enforces, repeated here
+        // because this branch is also reached when conflict detection was
+        // skipped or threw — which is exactly how the empty git primary was
+        // applied over a populated local file on 2026-09-12.
+        const localSlot = resultsMap.get(SOURCE_OF_TRUTH.LOCAL);
+        if (isEffectivelyEmpty(gitRes.data) && localSlot?.data && !isEffectivelyEmpty(localSlot.data)) {
+          umWarn('[UniverseBackend] Git primary is empty but the local file holds data — refusing to apply the empty primary.');
+          this.notifyStatus('warning', 'The repository copy looks empty while your local file has data. Choose which to keep.');
+
+          // Build the conflict from what we ALREADY loaded. Calling
+          // detectSlotConflict here would re-fetch both slots (a second
+          // multi-MB git read) and, worse, its local read runs without a
+          // permission prompt — so a locked handle would return null and the
+          // user would get a toast with no dialog to act on.
+          const localInfo = this.analyzeStoreData(localSlot.data);
+          const gitInfo = this.analyzeStoreData(gitRes.data);
+          const decision = decideSlotConflict({ localInfo, gitInfo, sourceOfTruth });
+          const conflict = {
+            universeSlug: universe.slug,
+            universeName: universe.name || universe.slug,
+            sourceOfTruth,
+            localData: {
+              storeState: localSlot.data,
+              nodeCount: localInfo.nodeCount,
+              userNodeCount: localInfo.userNodeCount,
+              graphCount: localInfo.graphCount,
+              timestamp: localInfo.timestamp
+            },
+            gitData: {
+              storeState: gitRes.data,
+              nodeCount: gitInfo.nodeCount,
+              userNodeCount: gitInfo.userNodeCount,
+              graphCount: gitInfo.graphCount,
+              timestamp: gitInfo.timestamp
+            },
+            primaryData: gitRes.data,
+            requiresPrimarySelection: !!decision.requiresPrimarySelection,
+            areIdentical: false,
+            riskOverwriteEmptyPrimary: true
+          };
+          this.pendingConflict = conflict;
+          this.pendingPrimarySelection.add(universe.slug);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('redstring:slot-conflict', { detail: conflict }));
+          }
+
+          // Return the populated slot as the safe working state. Nothing is
+          // written to either destination until the user decides.
+          return localSlot.data;
+        }
+
         return this.syncAndReturn(universe, gitRes.data, {
           force: true,
           source: SOURCE_OF_TRUTH.GIT,
@@ -4167,40 +4216,43 @@ class UniverseBackend {
     const localInfo = this.analyzeStoreData(localData);
     const gitInfo = this.analyzeStoreData(gitData);
 
-    // If one side has no nodes, it's effectively empty — no real conflict.
-    // The non-empty side should just be used without prompting.
-    if (localInfo.nodeCount === 0 || gitInfo.nodeCount === 0) {
-      umLog('[UniverseBackend] No conflict - one side is effectively empty', {
-        localNodes: localInfo.nodeCount, gitNodes: gitInfo.nodeCount
+    // Emptiness first: it is decidable without the expensive semantic hash,
+    // and it is the case the old early return got wrong. An empty PRIMARY
+    // beside a populated secondary is a conflict, not a shortcut.
+    let decision = decideSlotConflict({ localInfo, gitInfo, sourceOfTruth: universe.sourceOfTruth, forcePrompt });
+
+    let isDifferent = false;
+    if (decision.needsComparison) {
+      // Semantic comparison (P4.2/D5): migrate both slots to canonical form in memory
+      // and compare tier-1 hashes. Equal = same knowledge regardless of format version
+      // (v3-in-git / v4-in-local with identical knowledge reports no conflict).
+      // Falls back to count heuristic if canonicalization throws (e.g. non-browser env).
+      try {
+        const equal = await slotsHaveEqualKnowledge(localData, gitData);
+        isDifferent = !equal;
+        umLog('[UniverseBackend] Semantic hash comparison:', { isDifferent });
+      } catch (hashError) {
+        umWarn('[UniverseBackend] Semantic hash failed, falling back to count heuristic:', hashError);
+        isDifferent = (
+          localInfo.userNodeCount !== gitInfo.userNodeCount ||
+          localInfo.graphCount !== gitInfo.graphCount ||
+          Math.abs(localInfo.userNodeCount - gitInfo.userNodeCount) > 5 ||
+          Math.abs(localInfo.graphCount - gitInfo.graphCount) > 1
+        );
+      }
+      decision = decideSlotConflict({
+        localInfo, gitInfo, sourceOfTruth: universe.sourceOfTruth, forcePrompt, isDifferent
+      });
+    }
+
+    if (!decision.conflict) {
+      umLog(`[UniverseBackend] No conflict (${decision.reason})`, {
+        localNodes: localInfo.userNodeCount, gitNodes: gitInfo.userNodeCount
       });
       return null;
     }
 
-    // Semantic comparison (P4.2/D5): migrate both slots to canonical form in memory
-    // and compare tier-1 hashes. Equal = same knowledge regardless of format version
-    // (v3-in-git / v4-in-local with identical knowledge reports no conflict).
-    // Falls back to count heuristic if canonicalization throws (e.g. non-browser env).
-    let isDifferent;
-    try {
-      const equal = await slotsHaveEqualKnowledge(localData, gitData);
-      isDifferent = !equal;
-      umLog('[UniverseBackend] Semantic hash comparison:', { isDifferent });
-    } catch (hashError) {
-      umWarn('[UniverseBackend] Semantic hash failed, falling back to count heuristic:', hashError);
-      isDifferent = (
-        localInfo.nodeCount !== gitInfo.nodeCount ||
-        localInfo.graphCount !== gitInfo.graphCount ||
-        Math.abs(localInfo.nodeCount - gitInfo.nodeCount) > 5 ||
-        Math.abs(localInfo.graphCount - gitInfo.graphCount) > 1
-      );
-    }
-
-    const requiresPrimarySelection = forcePrompt && !isDifferent;
-
-    if (!isDifferent && !forcePrompt) {
-      umLog('[UniverseBackend] Slots match, no conflict');
-      return null;
-    }
+    const requiresPrimarySelection = !!decision.requiresPrimarySelection;
 
     umLog('[UniverseBackend] Conflict detected:', {
       local: localInfo,
@@ -4217,15 +4269,6 @@ class UniverseBackend {
       primaryData = (gitInfo.timestamp || 0) >= (localInfo.timestamp || 0) ? gitData : localData;
     }
 
-    // Determine if data are identical and whether choosing an empty primary risks data loss
-    const areIdentical = !isDifferent;
-    const isLocalEmpty = localInfo.nodeCount === 0 && localInfo.graphCount === 0;
-    const isGitEmpty = gitInfo.nodeCount === 0 && gitInfo.graphCount === 0;
-    const riskOverwriteEmptyPrimary = (
-      (universe.sourceOfTruth === SOURCE_OF_TRUTH.LOCAL && isLocalEmpty && !isGitEmpty) ||
-      (universe.sourceOfTruth === SOURCE_OF_TRUTH.GIT && isGitEmpty && !isLocalEmpty)
-    );
-
     return {
       universeSlug: universe.slug,
       universeName: universe.name || universe.slug,
@@ -4233,19 +4276,21 @@ class UniverseBackend {
       localData: {
         storeState: localData,
         nodeCount: localInfo.nodeCount,
+        userNodeCount: localInfo.userNodeCount,
         graphCount: localInfo.graphCount,
         timestamp: localInfo.timestamp
       },
       gitData: {
         storeState: gitData,
         nodeCount: gitInfo.nodeCount,
+        userNodeCount: gitInfo.userNodeCount,
         graphCount: gitInfo.graphCount,
         timestamp: gitInfo.timestamp
       },
       primaryData,
       requiresPrimarySelection,
-      areIdentical,
-      riskOverwriteEmptyPrimary
+      areIdentical: !!decision.areIdentical,
+      riskOverwriteEmptyPrimary: !!decision.riskOverwriteEmptyPrimary
     };
   }
 
@@ -4321,7 +4366,9 @@ class UniverseBackend {
 
     // Never propagate an empty/near-empty state to secondary slots implicitly.
     // A state with graphs but no nodes is effectively empty from the user's perspective.
-    const { nodeCount: srcNodeCount, graphCount: srcGraphCount } = this.analyzeStoreData(storeState);
+    const { userNodeCount: srcNodeCount, graphCount: srcGraphCount } = this.analyzeStoreData(storeState);
+    // User prototypes only: a state holding nothing but the seeded base Thing
+    // is empty for the purpose of overwriting another slot.
     const isSourceEmpty = (srcNodeCount === 0);
 
     const handle = this.fileHandles.get(slug);
@@ -4390,10 +4437,62 @@ class UniverseBackend {
   /**
    * Analyze store data to extract metadata
    */
+  /**
+   * May we push our local state over a remote that moved since we last synced?
+   *
+   * Extracted from the `onRemoteDivergence` handler so it can be tested
+   * directly. Returns `{ decision, remoteState }` — the caller builds and
+   * surfaces the conflict UI when the decision is 'conflict'.
+   *
+   * 'overwrite' is granted only on positive evidence that nothing is lost:
+   * the two sides are semantically equal, or the remote is a readable
+   * document holding no user data. An import failure is NOT such evidence —
+   * it used to return 'overwrite' on the theory that git history retains the
+   * blob, but on 2026-09-12 the thing that failed to import was the real
+   * universe misread as an API envelope, and "history retains it" is a poor
+   * trade for the user's live file.
+   *
+   * @returns {Promise<{decision: 'overwrite'|'conflict', remoteState: Object|null}>}
+   */
+  async _decideRemoteDivergence(localState, remoteData) {
+    if (!localState) return { decision: 'conflict', remoteState: null };
+
+    let remoteState = null;
+    try {
+      remoteState = importFromRedstring(remoteData).storeState;
+    } catch (importError) {
+      umWarn('[UniverseBackend] Diverged remote could not be imported — treating as a CONFLICT, not as safe to overwrite:', importError.message);
+      return { decision: 'conflict', remoteState: null };
+    }
+
+    try {
+      const equal = await slotsHaveEqualKnowledge(localState, remoteState);
+      if (equal) return { decision: 'overwrite', remoteState };
+    } catch (hashError) {
+      umWarn('[UniverseBackend] Semantic comparison of diverged remote failed:', hashError);
+    }
+
+    const remoteInfo = this.analyzeStoreData(remoteState);
+    // Readable AND holds nothing the user made — pushing over it loses nothing.
+    if (remoteInfo.recognized && remoteInfo.userNodeCount === 0) {
+      return { decision: 'overwrite', remoteState };
+    }
+
+    return { decision: 'conflict', remoteState };
+  }
+
   analyzeStoreData(storeState) {
     if (!storeState) {
-      return { nodeCount: 0, graphCount: 0, connectionCount: 0, timestamp: null };
+      return { nodeCount: 0, graphCount: 0, connectionCount: 0, timestamp: null, userNodeCount: 0, recognized: false };
     }
+
+    // `nodeCount` is the DISPLAY count (includes the seeded Thing/Connection,
+    // matching what the UI shows). `userNodeCount` is the SAFETY count — what
+    // the user actually made. Guards must use the latter: on 2026-09-12 a
+    // wiped universe whose base Thing had been re-seeded reported nodeCount 1,
+    // which cleared every `=== 0` check in the save path.
+    const userNodeCount = countUserPrototypes(storeState);
+    const recognized = isRecognizedShape(storeState);
 
     // Safety net: callers are supposed to hand us imported store state, but a
     // raw .redstring document (prototypeSpace/spatialGraphs) reads as entirely
@@ -4405,7 +4504,9 @@ class UniverseBackend {
         nodeCount: stats.nodeCount ?? 0,
         graphCount: stats.graphCount ?? 0,
         connectionCount: stats.connectionCount ?? 0,
-        timestamp: storeState.metadata?.modified || storeState.metadata?.lastModified || Date.now()
+        timestamp: storeState.metadata?.modified || storeState.metadata?.lastModified || Date.now(),
+        userNodeCount,
+        recognized
       };
     }
 
@@ -4442,7 +4543,7 @@ class UniverseBackend {
       storeState.lastModified ||
       Date.now();
 
-    return { nodeCount, graphCount, connectionCount, timestamp };
+    return { nodeCount, graphCount, connectionCount, timestamp, userNodeCount, recognized };
   }
 
   /**
@@ -4557,20 +4658,22 @@ class UniverseBackend {
 
     const importResult = importFromRedstring(redstringData);
     const { storeState } = importResult;
+    // NO migration write-back here. Loading is strictly read-only: on
+    // 2026-09-12 a bad read produced a document that looked "migrated", and
+    // the write-back pushed that empty result over the real universe. An
+    // older file is migrated in memory on every load (cheap, and a no-op for
+    // current files) and reaches disk with the user's next real save.
     if (importResult.version?.migrated) {
-      try {
-        await gitSyncEngine.forceCommit(storeState);
-        umLog(`[UniverseBackend] Committed migrated data to git (${importResult.version.imported} → ${importResult.version.current})`);
-      } catch (writeErr) {
-        umWarn('[UniverseBackend] Failed to commit migrated data to git:', writeErr);
-      }
+      umLog(`[UniverseBackend] Loaded git data migrated in memory (${importResult.version.imported} → ${importResult.version.current}); it will be written on the next save.`);
     }
     // Tag so apply-time promotion keeps this.remoteObservations current —
     // ensureGitSyncEngine seeds a RECREATED engine from it (provider swaps,
     // universe switches), not just the first engine instance.
     this._tagGitObservation(storeState, universe.slug, {
       sha: gitSyncEngine.lastKnownRemoteSha,
-      nodeCount: this.analyzeStoreData(storeState).nodeCount
+      // USER count: this seeds the engine's floor via markRemoteObserved, so
+      // it must match the semantics the engine's own guards use.
+      nodeCount: this.analyzeStoreData(storeState).userNodeCount
     });
     return storeState;
   }
@@ -4787,6 +4890,12 @@ class UniverseBackend {
       let content;
       let readFailed = false;
       let confirmedMissing = false;
+      // WHICH provider instance saw the 404. A 404 from the App token proves
+      // nothing about what the OAuth token can see, and vice versa — creating
+      // a fresh empty file on the strength of another identity's 404 is how a
+      // universe gets forked or clobbered. Only the provider that confirmed
+      // absence may create.
+      let confirmedMissingBy = null;
       let lastReadError = null;
       let remoteSha; // SHA of the content we read — seeds the engine's first-contact state
       const isNotFound = (err) => err?.code === 'FILE_NOT_FOUND' || (typeof err?.message === 'string' && err.message.startsWith('File not found'));
@@ -4809,6 +4918,7 @@ class UniverseBackend {
         readFailed = true;
         lastReadError = readError;
         confirmedMissing = isNotFound(readError);
+        confirmedMissingBy = confirmedMissing ? provider : null;
       }
 
       // Canonical-name fallback: the sync engine writes to the SANITIZED
@@ -4821,11 +4931,15 @@ class UniverseBackend {
         try {
           content = await readRemote(canonicalPath);
           confirmedMissing = false;
+          confirmedMissingBy = null;
           lastReadError = null;
           umLog(`[UniverseBackend] loadFromGitDirect: found universe at canonical path ${canonicalPath} (raw name ${fileName} was missing)`);
         } catch (sanitizedError) {
-          if (!isNotFound(sanitizedError)) {
+          if (isNotFound(sanitizedError)) {
+            confirmedMissingBy = provider; // absent at the path we would write
+          } else {
             confirmedMissing = false; // ambiguous at the canonical path — do NOT bootstrap
+            confirmedMissingBy = null;
             lastReadError = sanitizedError;
           }
         }
@@ -4838,11 +4952,13 @@ class UniverseBackend {
         try {
           content = await readRemote(filePath);
           confirmedMissing = false;
+          confirmedMissingBy = null;
           lastReadError = null;
         } catch (oauthReadError) {
           content = null;
           lastReadError = oauthReadError;
           confirmedMissing = isNotFound(oauthReadError);
+          confirmedMissingBy = confirmedMissing ? provider : null;
         }
       }
 
@@ -4855,6 +4971,14 @@ class UniverseBackend {
           umWarn(`[UniverseBackend] loadFromGitDirect: read returned no content for ${filePath} but file presence is ambiguous (${lastReadError?.message || 'unknown'}). Refusing to bootstrap empty state.`);
           return null;
         }
+        // The 404 must come from the identity that is about to write. A swap
+        // happened after the 404 was recorded → we no longer know the file is
+        // absent for THIS provider.
+        if (confirmedMissingBy !== provider) {
+          umWarn(`[UniverseBackend] loadFromGitDirect: ${canonicalPath} was reported missing by a different credential than the one that would create it. Refusing to bootstrap.`);
+          return null;
+        }
+
         try {
           const initialStoreState = this.createEmptyState();
           const initialRedstring = await new Promise((resolve) => {
@@ -4864,27 +4988,34 @@ class UniverseBackend {
               setTimeout(() => resolve(exportToRedstring(initialStoreState)), 0);
             }
           });
-          let createResult = null;
-          try {
-            createResult = await provider.writeFileRaw(canonicalPath, JSON.stringify(initialRedstring, null, 2));
-          } catch (writeErr) {
-            // Swap to OAuth when the App token can't determine whether the
-            // file exists (FILE_INFO_UNKNOWN — 401/403/5xx on the probe), or
-            // when GitHub already returned a 422 sha-missing / 409 conflict
-            // (file exists but App couldn't read it). All three conditions
-            // mean "App's view of the repo is incomplete; OAuth with `repo`
-            // scope can almost certainly read what App can't."
-            const msg = writeErr?.message || '';
-            const code = writeErr?.code || '';
-            const shouldSwap = code === 'FILE_INFO_UNKNOWN'
-              || msg.includes('422')
-              || msg.includes('409');
-            if (shouldSwap && (await swapToOauth())) {
-              createResult = await provider.writeFileRaw(canonicalPath, JSON.stringify(initialRedstring, null, 2));
-            } else {
-              throw writeErr;
-            }
+
+          // Belt and braces before writing an empty file: ask the destination
+          // itself what is there. Cheap (this path runs once, on create) and
+          // it is the only check that cannot be stale.
+          const verdict = await checkDestinationBeforeEmptyWrite({
+            readDestination: async () => {
+              if (typeof provider.readFileRawWithMeta === 'function') {
+                return (await provider.readFileRawWithMeta(canonicalPath))?.content;
+              }
+              return provider.readFileRaw(canonicalPath);
+            },
+            label: canonicalPath
+          });
+          if (!verdict.safe) {
+            umWarn(`[UniverseBackend] loadFromGitDirect: refusing to create ${canonicalPath} — ${verdict.reason}`);
+            return null;
           }
+
+          // `expectedSha: null` asserts "this file does not exist yet", so
+          // GitHub itself refuses if a blob is actually there. Previously a
+          // 422/409 (file exists, we just couldn't read it) triggered an
+          // OAuth swap and a RETRY of the create — writing an empty universe
+          // precisely when the evidence said one already existed.
+          const createResult = await provider.writeFileRaw(
+            canonicalPath,
+            JSON.stringify(initialRedstring, null, 2),
+            { expectedSha: null }
+          );
           this.notifyStatus('success', `Created new universe file at ${canonicalPath}`);
           const { storeState } = importFromRedstring(initialRedstring);
           // We just created the file — once this state is APPLIED to the
@@ -4912,15 +5043,13 @@ class UniverseBackend {
 
       const importResult = importFromRedstring(redstringData);
       const { storeState } = importResult;
+      // NO migration write-back. This was THE wipe path on 2026-09-12: a
+      // cached API envelope imported as an empty, apparently-migrated
+      // universe, and this block wrote it straight to the remote with
+      // `provider.writeFileRaw` — bypassing _commitToRemote, the
+      // first-contact check and the node-count floor. Loading never writes.
       if (importResult.version?.migrated) {
-        try {
-          const migratedJson = JSON.stringify(exportToRedstring(storeState));
-          const migrateResult = await provider.writeFileRaw(canonicalPath, migratedJson);
-          if (migrateResult?.content?.sha) remoteSha = migrateResult.content.sha;
-          umLog(`[UniverseBackend] Wrote migrated data back to git direct (${importResult.version.imported} → ${importResult.version.current})`);
-        } catch (writeErr) {
-          umWarn('[UniverseBackend] Failed to write migrated data back to git (direct):', writeErr);
-        }
+        umLog(`[UniverseBackend] Direct git read migrated in memory (${importResult.version.imported} → ${importResult.version.current}); it will be written on the next save.`);
       }
       // This session HAS read the remote. Tag the state so that WHEN it is
       // applied to the store, the engine learns the remote was observed
@@ -4931,7 +5060,7 @@ class UniverseBackend {
       // first commit still pulls-and-compares.
       this._tagGitObservation(storeState, universe.slug, {
         sha: remoteSha,
-        nodeCount: this.analyzeStoreData(storeState).nodeCount
+        nodeCount: this.analyzeStoreData(storeState).userNodeCount
       });
       return storeState;
     } catch (error) {
@@ -5063,24 +5192,12 @@ class UniverseBackend {
       } catch (touchError) {
         umWarn('[UniverseBackend] Failed to update file handle metadata after load:', touchError);
       }
-      // Write migrated data back to all linked storages so the version on disk
-      // matches the current format — otherwise the migration re-runs on every reload.
+      // NO migration write-back — loading is read-only. The migration re-runs
+      // in memory on each load (a no-op for current-version files) until the
+      // user's next save carries it to disk. `backupBeforeMigrationIfNeeded`
+      // above already preserved the original bytes.
       if (importResult.version?.migrated) {
-        try {
-          await this.saveToLinkedLocalFile(slug, storeState, { suppressNotification: true });
-          umLog(`[UniverseBackend] Wrote migrated file back to disk (${importResult.version.imported} → ${importResult.version.current})`);
-        } catch (writeErr) {
-          umWarn('[UniverseBackend] Failed to write migrated file back to disk:', writeErr);
-        }
-        const gitEngine = this.gitSyncEngines.get(slug);
-        if (gitEngine) {
-          try {
-            await gitEngine.forceCommit(storeState);
-            umLog(`[UniverseBackend] Committed migrated data to git (${importResult.version.imported} → ${importResult.version.current})`);
-          } catch (writeErr) {
-            umWarn('[UniverseBackend] Failed to commit migrated data to git:', writeErr);
-          }
-        }
+        umLog(`[UniverseBackend] Local file migrated in memory (${importResult.version.imported} → ${importResult.version.current}); it will be written on the next save.`);
       }
       return storeState;
     } catch (error) {
@@ -5110,13 +5227,9 @@ class UniverseBackend {
 
       const importResult = importFromRedstring(result.data);
       const { storeState } = importResult;
+      // NO migration write-back — loading is read-only. See loadFromGitDirect.
       if (importResult.version?.migrated) {
-        try {
-          await this.saveToBrowserStorage(universe, exportToRedstring(storeState));
-          umLog(`[UniverseBackend] Wrote migrated data back to browser storage (${importResult.version.imported} → ${importResult.version.current})`);
-        } catch (writeErr) {
-          umWarn('[UniverseBackend] Failed to write migrated data back to browser storage:', writeErr);
-        }
+        umLog(`[UniverseBackend] Browser-storage data migrated in memory (${importResult.version.imported} → ${importResult.version.current}); it will be written on the next save.`);
       }
       return storeState;
     } catch (error) {
@@ -5639,9 +5752,13 @@ class UniverseBackend {
           }
 
           if (engine) {
-            // Explicit user save ("Save Now") — intentional clears allowed,
-            // matching SaveCoordinator.forceSave's shrinkage-guard bypass.
-            const result = await engine.forceCommit(storeState, { allowEmpty: true });
+            // "Save Now" is a user action, but it is not a statement of
+            // intent to CLEAR. It used to pass allowEmpty, which waived the
+            // node-count floor — so a Save Now during a bad load could push
+            // an empty universe. The local leg of this same function has
+            // never passed allowEmpty. An explicit clear belongs in its own
+            // flow, where the user is told what is about to be deleted.
+            const result = await engine.forceCommit(storeState);
 
             // Track successful completion
             this.trackGitOperationComplete(universeSlug, 'force-save', true, {
@@ -6067,9 +6184,9 @@ class UniverseBackend {
       const hasPriorSave = !!(guardUniverse?.metadata?.lastSaved || guardUniverse?.metadata?.lastSync);
       if (hasPriorSave) {
         const counts = this.analyzeStoreData(storeState);
-        if (counts.nodeCount === 0) {
+        if (counts.userNodeCount === 0) {
           umWarn(`[UniverseBackend] saveToLinkedLocalFile blocked for ${universeSlug}: state has 0 nodes but universe has prior saves (lastSaved=${guardUniverse?.metadata?.lastSaved}). On-disk file preserved.`);
-          this.notifyStatus('warning', 'Save blocked: state empty but file has prior data. Reload to recover.');
+          this.notifyStatus('warning', 'Save blocked: this universe has no things but the saved file does. Reload to recover it. Emptying a universe completely is not supported yet.');
           return { skipped: true, reason: 'empty-state-with-prior-saves' };
         }
       }
@@ -6203,6 +6320,23 @@ class UniverseBackend {
         message.includes('permission') ||
         message.includes('denied');
     };
+
+    // Last-resort guard, and the only one that reads the thing it is about to
+    // destroy. `hasPriorSave` above is device-local bookkeeping and reads
+    // clean on a machine that never saved this universe; the file on disk
+    // cannot lie. Runs only when the outgoing state is empty, so normal saves
+    // pay nothing.
+    if (!allowEmpty && isEffectivelyEmpty(storeState)) {
+      const verdict = await checkDestinationBeforeEmptyWrite({
+        readDestination: () => readFile(handle),
+        label: fileName
+      });
+      if (!verdict.safe) {
+        umWarn(`[UniverseBackend] saveToLinkedLocalFile blocked for ${universeSlug}: outgoing state is empty and ${fileName} — ${verdict.reason}`);
+        this.notifyStatus('warning', 'Save blocked: the file on disk holds things this universe does not. Reload to recover them. Emptying a universe completely is not supported yet.');
+        return { skipped: true, reason: `empty-write-${verdict.reason}` };
+      }
+    }
 
     try {
       // Use the unified file access adapter
@@ -6494,7 +6628,7 @@ class UniverseBackend {
     const oldSource = universe.sourceOfTruth || universe.raw?.sourceOfTruth;
     if (oldSource && oldSource !== sourceType && this.storeOperations?.getState) {
       const currentState = this.storeOperations.getState();
-      const { nodeCount, graphCount } = this.analyzeStoreData(currentState);
+      const { userNodeCount: nodeCount, graphCount } = this.analyzeStoreData(currentState);
       const hasData = nodeCount > 0 || graphCount > 0;
 
       if (hasData) {

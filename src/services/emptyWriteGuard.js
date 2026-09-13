@@ -21,26 +21,32 @@
  */
 
 import { getRedstringStats } from '../formats/redstringFormat.js';
+import { countUserPrototypes, isRecognizedShape } from '../formats/userDataCounts.js';
 
 /**
- * Is this store snapshot empty — no things AND no webs?
+ * Does this snapshot hold nothing the user made?
  *
- * Deliberately conservative: BOTH must be zero. A universe with webs but no
- * things is unusual but not empty, and a guard that fired on it would block
- * legitimate saves. Broader "did this shrink a lot" checks belong to
- * SaveCoordinator's `_isCatastrophicShrinkage`, which has the baseline to
- * judge it; this one only recognizes nothing-at-all.
+ * Counts USER prototypes only. The store seeds `base-thing-prototype` and
+ * `base-connection-prototype`, and the UI re-adds Thing whenever it goes
+ * missing — so a universe that was just emptied by a bad read reports one or
+ * two prototypes, which is how an empty state walked past every zero-check on
+ * 2026-09-12.
+ *
+ * The old version also required zero WEBS before calling a state empty. A
+ * wiped store that has been re-seeded often still carries a web, and this
+ * guard only ever triggers a destination READ — it blocks nothing unless the
+ * destination turns out to hold data. Being strict here costs one HTTP call.
+ *
+ * An unrecognizable object is not "empty", it is unreadable; say no rather
+ * than treating garbage as a clear-everything intent.
  *
  * @param {Object} state - Store snapshot (Maps) or a parsed .redstring doc.
  * @returns {boolean}
  */
 export function isEmptyStoreState(state) {
   if (!state || typeof state !== 'object') return false;
-  const stats = getRedstringStats(state);
-  // Unrecognizable shape → nulls. Not "empty", just unreadable; say no rather
-  // than triggering a destination read on every save of an odd-shaped object.
-  if (stats.nodeCount === null && stats.graphCount === null) return false;
-  return (stats.nodeCount || 0) === 0 && (stats.graphCount || 0) === 0;
+  if (!isRecognizedShape(state)) return false;
+  return countUserPrototypes(state) === 0;
 }
 
 /** Counts for a destination's raw content, from a string or parsed object. */
@@ -108,6 +114,15 @@ export async function checkDestinationBeforeEmptyWrite({
   }
   if (stats.unparseable) {
     return { safe: false, reason: 'destination-unparseable', destination: stats };
+  }
+  // Parseable JSON that is not a Redstring document — an API envelope, some
+  // other file, a half-written document. `getRedstringStats` reports nulls,
+  // which the old code read as "zero things, safe to clear". It is not: we do
+  // not know what is there, and unknown is never safe to overwrite with
+  // nothing.
+  if (stats.nodeCount === null && stats.graphCount === null) {
+    console.warn(`[emptyWriteGuard] Refusing empty write to ${label}: destination content is not a recognizable Redstring document`);
+    return { safe: false, reason: 'destination-unrecognized', destination: stats };
   }
   if ((stats.nodeCount || 0) === 0 && (stats.graphCount || 0) === 0) {
     return { safe: true, reason: 'destination-empty' };
