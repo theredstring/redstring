@@ -1119,7 +1119,6 @@ const Header = ({
             { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
             { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
             { key: 'settings', Icon: Settings, iconSize: 20, strokeWidth: 2.5, title: 'Settings', onClick: () => window.dispatchEvent(new Event('openSettingsModal')) },
-            { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
           ].map((action) => (
             <div
               key={action.key}
@@ -1303,9 +1302,14 @@ const Header = ({
         <div aria-hidden="true" style={{ flexShrink: 0, width: '50vw', height: 1 }} />
       </div>
 
-      {/* Inline right-side action buttons (wide layout only). Pre-refactor
-          ordering: Component Search, Plus, Bookmark, rendered in a flex row
-          anchored to the right edge. */}
+      {/* Inline right-side action buttons (wide layout only), rendered in a
+          flex row anchored to the right edge.
+
+          Search All Things leads the row rather than trailing the left one.
+          Adding Undo and Redo over there had left the two sides at five and
+          three; moving the search across evens them at four each AND puts the
+          two searches next to each other, which is where they read as a pair —
+          one across everything, one within this web. */}
       {!isExclusivePanelMode && (
         <div
           style={{
@@ -1320,6 +1324,7 @@ const Header = ({
           }}
         >
           {[
+            { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
             { key: 'comp-search', Icon: ScanSearch, iconSize: 22, strokeWidth: 3, title: activeGraph ? `Search ${activeGraph.name}` : 'Search Components', onClick: () => onOpenComponentSearch?.() },
             { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create New Thing', onClick: () => onCreateNewThing?.() },
             { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
