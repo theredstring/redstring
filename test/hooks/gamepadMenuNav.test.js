@@ -768,3 +768,44 @@ describe('the dialog surface', () => {
     expect(detectOpenSelector()).toBe('dialog');
   });
 });
+
+/**
+ * A surface whose opener is not in the DOM does not exist on this platform.
+ *
+ * The Redstring menu is browser-only: on Electron the application menu bar
+ * covers it, and Header drops both the menu and the logo's
+ * `.header-logo-button` handle. Without this, Start found the empty menu
+ * anyway, entered MENU mode and left the pad in a surface with no rows in it
+ * and only B to get out.
+ */
+describe('walkMenu — a surface that is not on this platform', () => {
+  it('returns null when nothing is showing and the opener is absent', () => {
+    expect(walkMenu('menu')).toBeNull();
+  });
+
+  it('still opens the menu when the logo handle is there', () => {
+    const logo = document.createElement('img');
+    logo.className = 'header-logo-button';
+    document.body.appendChild(sized(logo));
+
+    const opened = vi.fn();
+    logo.addEventListener('click', opened);
+
+    expect(walkMenu('menu')).not.toBeNull();
+    expect(opened).toHaveBeenCalled();
+  });
+
+  /**
+   * The header's action buttons are always mounted in the wide layout, where
+   * the hamburger opener does NOT exist. Rows-on-screen has to win over the
+   * missing opener, or the pad loses Select on every desktop window.
+   */
+  it('does not refuse a surface whose rows are already on screen', () => {
+    const btn = document.createElement('div');
+    btn.className = 'header-action-btn';
+    document.body.appendChild(sized(btn));
+
+    expect(document.querySelector('.header-hamburger-button')).toBeNull();
+    expect(walkMenu('actions')).not.toBeNull();
+  });
+});

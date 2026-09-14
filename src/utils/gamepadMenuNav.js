@@ -333,7 +333,15 @@ export const walkMenu = (kind) => {
   // hamburger column (present in the DOM but zero-size) still counts as shut.
   let opened = false;
   if (rows().length === 0 && config.opener) {
-    document.querySelector(config.opener)?.click?.();
+    const opener = document.querySelector(config.opener);
+    // Nothing on screen and nothing to press: this surface does not exist here.
+    // Returning null is the difference between Start doing nothing and Start
+    // dropping the pad into a mode with no rows in it and only B to get out.
+    // The Redstring menu is browser-only, and its opener goes with it — see the
+    // logo in Header.jsx. Reached only when no rows are showing, so the wide
+    // layout's always-mounted action buttons are unaffected by it.
+    if (!opener) return null;
+    opener.click?.();
     opened = true;
   }
 

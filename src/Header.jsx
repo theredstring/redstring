@@ -12,6 +12,7 @@ import { showContextMenu } from './components/GlobalContextMenu';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { haptic, createDetentTrack } from './services/haptics.js';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from './utils/debugUnlock.js';
+import { isElectron } from './utils/fileAccessAdapter.js';
 
 // Import all logo states
 import logo1 from './assets/redstring_button/header_logo_1.svg';
@@ -128,6 +129,21 @@ const Header = ({
   // would never refresh as history changes.
   const canUndo = useHistoryStore(s => s.history.length + s.currentIndex >= 0);
   const canRedo = useHistoryStore(s => s.currentIndex < -1);
+
+  // The Redstring menu is a browser-only surface now.
+  //
+  // Everything it held lives somewhere better: the preferences in Settings, the
+  // verbs on the web in the canvas context menu, the universe operations in the
+  // Universes panel, Undo/Redo in this header, export on the save slots. On
+  // Electron the application menu bar is also where a desktop user looks first,
+  // so the in-app copy was a second menu saying less than the first.
+  //
+  // Recent Files was the one item with no other home, and is deliberately let
+  // go: it exists because desktop apps don't know what you have, and the
+  // universes list does.
+  //
+  // Not reactive — an app does not stop being Electron mid-session.
+  const showRedstringMenu = useMemo(() => !isElectron(), []);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const hamburgerWrapperRef = useRef(null);
@@ -945,22 +961,24 @@ const Header = ({
       >
         {/* The button stays in the header. The class is a handle for the game
             controller, which opens this menu by clicking it rather than by
-            reaching into Header's local isMenuOpen state. */}
+            reaching into Header's local isMenuOpen state — so where there is no
+            menu to open, the handle comes off with it and the pad's Start finds
+            nothing to walk. Right-click keeps its own menu either way. */}
         <img
-          className="header-logo-button"
+          className={showRedstringMenu ? 'header-logo-button' : undefined}
           src={logos[currentLogoIndex]}
           alt=""
           style={{
             height: `${HEADER_HEIGHT}px`,
             width: `${HEADER_HEIGHT}px`,
             objectFit: 'contain',
-            cursor: isAnimating ? 'default' : 'pointer',
+            cursor: (isAnimating || !showRedstringMenu) ? 'default' : 'pointer',
           }}
-          onClick={toggleMenu}
+          onClick={showRedstringMenu ? toggleMenu : undefined}
           onContextMenu={handleLogoContextMenu}
         />
 
-        <RedstringMenu
+        {showRedstringMenu && <RedstringMenu
           isOpen={isMenuOpen}
           onHoverView={(open) => {
             if (!open) {
@@ -1005,7 +1023,7 @@ const Header = ({
           onOpenForceSim={onOpenForceSim}
           onAutoLayoutGraph={onAutoLayoutGraph}
           onCondenseNodes={onCondenseNodes}
-        />
+        />}
       </header>
     );
   }
@@ -1035,21 +1053,22 @@ const Header = ({
         alignItems: 'center'
       }}>
         <img
+          className={showRedstringMenu ? 'header-logo-button' : undefined}
           src={logos[currentLogoIndex]}
           alt=""
           style={{
             height: `${HEADER_HEIGHT}px`,
             width: `${HEADER_HEIGHT}px`,
             objectFit: 'contain',
-            cursor: isAnimating ? 'default' : 'pointer',
+            cursor: (isAnimating || !showRedstringMenu) ? 'default' : 'pointer',
             display: 'block' // Prevent any inline spacing issues
           }}
-          onClick={toggleMenu}
-          onPointerDown={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); toggleMenu(); } }}
-          onTouchStart={(e) => { e.stopPropagation(); toggleMenu(); }}
+          onClick={showRedstringMenu ? toggleMenu : undefined}
+          onPointerDown={showRedstringMenu ? (e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); toggleMenu(); } } : undefined}
+          onTouchStart={showRedstringMenu ? (e) => { e.stopPropagation(); toggleMenu(); } : undefined}
           onContextMenu={handleLogoContextMenu}
         />
-        <RedstringMenu
+        {showRedstringMenu && <RedstringMenu
           isOpen={isMenuOpen}
           onHoverView={(open) => {
             if (!open) {
@@ -1094,7 +1113,7 @@ const Header = ({
           onOpenForceSim={onOpenForceSim}
           onAutoLayoutGraph={onAutoLayoutGraph}
           onCondenseNodes={onCondenseNodes}
-        />
+        />}
       </div>
 
       {/* Inline left-side action buttons (wide layout only). Mirrors the
