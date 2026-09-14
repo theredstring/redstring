@@ -74,6 +74,20 @@ contextBridge.exposeInMainWorld('electron', {
     notifyFlushComplete: () => ipcRenderer.send('app:flush-complete'),
   },
 
+  // Native application menu → renderer.
+  //
+  // The Edit menu's Undo/Redo used to be Chromium's `role: 'undo'`/`'redo'`,
+  // which drive the focused text field's edit history and have never had any
+  // idea what a graph is. Selecting them with the canvas focused appeared to do
+  // nothing — the one visible Undo in the desktop app, silently not undoing
+  // your work. They send a command through here instead, and the renderer
+  // decides which history is meant.
+  menu: {
+    onCommand: (callback) => {
+      ipcRenderer.on('menu:command', (_event, command) => callback(command));
+    },
+  },
+
   // Auto-updater
   updater: {
     onUpdateAvailable: (callback) => {

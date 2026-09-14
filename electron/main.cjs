@@ -387,6 +387,17 @@ function createWindow() {
   }, 5000);
 }
 
+/**
+ * Hand a menu selection to the renderer, which owns every history in the app.
+ * Addressed to the focused window so it still lands with more than one open.
+ */
+function sendMenuCommand(command) {
+  const target = BrowserWindow.getFocusedWindow() || mainWindow;
+  if (target && !target.isDestroyed()) {
+    target.webContents.send('menu:command', command);
+  }
+}
+
 function createMenu() {
   const isMac = process.platform === 'darwin';
 
@@ -422,8 +433,21 @@ function createMenu() {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        // NOT `role: 'undo'`/`'redo'`. Those are Chromium's text-field history:
+        // with the canvas focused they do nothing at all, which made the only
+        // visible Undo in the desktop app a no-op on the user's actual work.
+        // The renderer takes it from here and picks the right history — a text
+        // field still gets the native behaviour these roles used to provide.
+        {
+          label: 'Undo',
+          accelerator: 'CmdOrCtrl+Z',
+          click: () => sendMenuCommand('undo')
+        },
+        {
+          label: 'Redo',
+          accelerator: 'CmdOrCtrl+Shift+Z',
+          click: () => sendMenuCommand('redo')
+        },
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
@@ -473,12 +497,16 @@ function createMenu() {
     {
       role: 'help',
       submenu: [
+        // Was "Learn More", pointing at electronjs.org — boilerplate from the
+        // template this menu was scaffolded from. It opens Redstring's own
+        // guide now, the same one the header's help button raises.
         {
-          label: 'Learn More',
-          click: async () => {
-            const { shell } = require('electron');
-            await shell.openExternal('https://electronjs.org');
-          }
+          label: 'Redstring Guide',
+          click: () => sendMenuCommand('help')
+        },
+        {
+          label: 'Show Welcome Screen',
+          click: () => sendMenuCommand('welcome')
         },
         { type: 'separator' },
         {

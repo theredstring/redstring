@@ -174,6 +174,51 @@ export const useCanvasKeyboard = ({
     }, []);
 
     // ---------------------------------------------------------------------------
+    // 1b. The Electron application menu's Edit and Help items
+    // ---------------------------------------------------------------------------
+    //
+    // Same decision as the shortcut above, reached the same way: a text field
+    // keeps the browser's own edit history, everything else means the graph.
+    // The native menu used to answer this with Chromium's `role: 'undo'`, which
+    // only ever knew about the first case — so with the canvas focused it did
+    // nothing, on the only Undo the desktop app showed.
+    //
+    // Registered here because this hook already owns undo/redo. Browsers have
+    // no application menu, so nothing runs and nothing is listening.
+    useEffect(() => {
+        const onCommand = window.electron?.menu?.onCommand;
+        if (typeof onCommand !== 'function') return;
+
+        onCommand((command) => {
+            switch (command) {
+                case 'undo':
+                case 'redo': {
+                    if (isTextEntryActive()) {
+                        // What role:'undo' did, and the reason it was worth
+                        // keeping for this case. Deprecated, but it is still the
+                        // only route to a field's native edit history.
+                        try { document.execCommand(command); } catch { /* nothing to undo */ }
+                        return;
+                    }
+                    if (command === 'redo') performRedo();
+                    else performUndo();
+                    return;
+                }
+                case 'help':
+                    window.dispatchEvent(new Event('openHelpModal'));
+                    return;
+                case 'welcome':
+                    window.dispatchEvent(new Event('openOnboardingModal'));
+                    return;
+                default:
+                    return;
+            }
+        });
+        // No teardown: preload exposes a registration function with no
+        // corresponding removal, and this hook lives for the life of the app.
+    }, []);
+
+    // ---------------------------------------------------------------------------
     // 2. Keyboard Movement (WASD / Arrows / Zoom)
     //    Writes directly to refs + DOM, completely bypassing React during movement.
     //    Only flushes settled React state when movement stops.

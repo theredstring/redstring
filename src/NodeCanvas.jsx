@@ -30,7 +30,7 @@ import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipbo
 import { lineModeBounds, CAROUSEL_SLOT_FRACTION } from './utils/pieMenuLayout.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, Globe, RefreshCw } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, Globe, RefreshCw, Activity, GitMerge } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -14594,6 +14594,32 @@ function NodeCanvas() {
         action: () => {
           snapToGrid();
         }
+      },
+      // The rest of what the Redstring menu's View section held. They are verbs
+      // on the web in front of you, which is what this menu is for and what a
+      // File-menu flyout never was — and unlike that flyout, this surface is
+      // reachable by touch and already walked by the game controller.
+      {
+        label: 'Condense Things',
+        icon: <RefreshCw size={14} />,
+        action: () => {
+          condenseGraphNodes();
+        }
+      },
+      {
+        label: 'Force Simulation Tuner',
+        icon: <Activity size={14} />,
+        action: () => {
+          setForceSimModalVisible(true);
+        }
+      },
+      {
+        label: 'Merge Duplicates',
+        icon: <GitMerge size={14} />,
+        action: () => {
+          // The merge modal is mounted here; the menu raised it the same way.
+          window.dispatchEvent(new Event('openMergeModal'));
+        }
       }
     ];
 
@@ -14699,7 +14725,7 @@ function NodeCanvas() {
       }
     });
     return options;
-  }, [triggerAutoLayout, snapToGrid, wizardEnabled, openGrowGraphWizardWithPrompt, activeGraphId, graphsMap, storeActions, canvasSize, setSelectedInstanceIds]);
+  }, [triggerAutoLayout, snapToGrid, condenseGraphNodes, setForceSimModalVisible, wizardEnabled, openGrowGraphWizardWithPrompt, activeGraphId, graphsMap, storeActions, canvasSize, setSelectedInstanceIds]);
 
   // The controller's handle on that menu — see the ref's declaration above.
   // `force`, because the pad's trigger tap is not the long-press gesture the

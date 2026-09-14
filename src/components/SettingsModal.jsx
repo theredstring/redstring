@@ -1205,6 +1205,50 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <li><strong style={{ color: theme.canvas.textPrimary }}>Git Federation</strong> — real-time sync with hot-swappable providers and multi-provider redundancy</li>
             <li><strong style={{ color: theme.canvas.textPrimary }}>AI-Native</strong> — first-class AI integration via MCP and HTTP tool framework</li>
           </ul>
+          {/* The two Help items the Redstring menu used to hold. The guide is
+              also the header's help button, but the welcome screen had nowhere
+              else to be reached from at all once that menu goes away. Both
+              close Settings first — they raise a modal, and it would otherwise
+              open behind this one. */}
+          <div style={{
+            marginTop: '20px',
+            paddingTop: '6px',
+            borderTop: `1px solid ${theme.canvas.border}`
+          }}>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                Redstring Guide
+                <div className="settings-row-description">How the interface works, and what the pieces are called.</div>
+              </div>
+              <PanelIconButton
+                label="Open"
+                labelFontSize={11}
+                variant="outline"
+                onClick={() => {
+                  onClose?.();
+                  window.dispatchEvent(new Event('openHelpModal'));
+                }}
+                style={{ padding: '5px 12px', flexShrink: 0 }}
+              />
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                Welcome Screen
+                <div className="settings-row-description">The screen shown on first run.</div>
+              </div>
+              <PanelIconButton
+                label="Show"
+                labelFontSize={11}
+                variant="outline"
+                onClick={() => {
+                  onClose?.();
+                  window.dispatchEvent(new Event('openOnboardingModal'));
+                }}
+                style={{ padding: '5px 12px', flexShrink: 0 }}
+              />
+            </div>
+          </div>
+
           <div style={{
             marginTop: '20px',
             paddingTop: '14px',

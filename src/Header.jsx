@@ -2,9 +2,11 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useDrop } from 'react-dnd';
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
-import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search, Menu, CircleX } from 'lucide-react';
+import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search, Menu, CircleX, Undo2, Redo2 } from 'lucide-react';
 import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from './store/graphStore.js';
+import useHistoryStore from './store/historyStore.js';
+import { performUndo, performRedo } from './store/historyActions.js';
 import HeaderGraphTab from './HeaderGraphTab';
 import { showContextMenu } from './components/GlobalContextMenu';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
@@ -115,6 +117,17 @@ const Header = ({
   gamepadFocusedGraphId = null,
 }) => {
   const theme = useTheme();
+
+  // Undo/Redo live here rather than only in the Redstring menu because they are
+  // the one pair of REPEATED actions the menu held: every other item there is
+  // something you do once. Two taps into a flyout is the wrong shape for that,
+  // and on touch or a game controller the Ctrl+Z path in useCanvasKeyboard does
+  // not exist at all.
+  //
+  // Subscribed rather than read through getState(), or the greyed-out state
+  // would never refresh as history changes.
+  const canUndo = useHistoryStore(s => s.history.length + s.currentIndex >= 0);
+  const canRedo = useHistoryStore(s => s.currentIndex < -1);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const hamburgerWrapperRef = useRef(null);
@@ -1102,6 +1115,8 @@ const Header = ({
           }}
         >
           {[
+            { key: 'undo', Icon: Undo2, iconSize: 20, strokeWidth: 2.5, title: 'Undo', onClick: () => performUndo(), disabled: !canUndo },
+            { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
             { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
             { key: 'settings', Icon: Settings, iconSize: 20, strokeWidth: 2.5, title: 'Settings', onClick: () => window.dispatchEvent(new Event('openSettingsModal')) },
             { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
@@ -1110,17 +1125,27 @@ const Header = ({
               key={action.key}
               className="header-action-btn"
               title={action.title}
+              // Declared so the game controller skips it. A pad has no way to
+              // tell from the outside that pressing A here will do nothing, so
+              // an unavailable Undo must not be a place the stick can come to
+              // rest — the same rule the canvas context menu's rows follow.
+              // See utils/gamepadMenuNav.js (SELECTORS.actions).
+              data-disabled={action.disabled ? 'true' : undefined}
               style={{
                 height: `${HEADER_HEIGHT}px`,
                 width: `${HEADER_HEIGHT}px`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                cursor: 'pointer',
+                cursor: action.disabled ? 'default' : 'pointer',
+                // Dimmed but still present: the pair holds its place in the row
+                // so the buttons beside it don't shift as history changes.
+                opacity: action.disabled ? 0.4 : 1,
                 backgroundColor: 'transparent',
               }}
               onClick={(e) => {
                 e.stopPropagation();
+                if (action.disabled) return;
                 haptic('menuSelect');
                 // Also raise the label chip here, not just on mouseenter. Touch
                 // only reaches mouseenter via a synthetic event, which is not
@@ -1130,6 +1155,7 @@ const Header = ({
                 action.onClick?.();
               }}
               onMouseEnter={(e) => {
+                if (action.disabled) return;
                 const circle = e.currentTarget.querySelector('.header-btn-circle');
                 if (circle) {
                   circle.style.transform = 'scale(1.06)';
@@ -1470,6 +1496,8 @@ const Header = ({
           }}
         >
           {[
+            { key: 'undo', Icon: Undo2, iconSize: 20, strokeWidth: 2.5, title: 'Undo', onClick: () => performUndo(), disabled: !canUndo },
+            { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
             { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create New Thing', onClick: () => onCreateNewThing?.() },
             { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
             { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
@@ -1483,15 +1511,19 @@ const Header = ({
                 key={action.key}
                 className="header-action-btn"
                 title={action.title}
+                // See the note on the inline row: declared so the pad skips it.
+                data-disabled={action.disabled ? 'true' : undefined}
                 style={{
                   height: `${HEADER_HEIGHT}px`,
                   width: `${HEADER_HEIGHT}px`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  cursor: 'pointer',
+                  cursor: action.disabled ? 'default' : 'pointer',
                   backgroundColor: 'transparent',
-                  opacity: isHamburgerOpen ? 1 : 0,
+                  // Folded into the column's own open/close fade rather than
+                  // fighting it: dimmed when unavailable, gone when shut.
+                  opacity: isHamburgerOpen ? (action.disabled ? 0.4 : 1) : 0,
                   transform: isHamburgerOpen ? 'translateY(0) scale(1)' : 'translateY(-12px) scale(0.85)',
                   transition: 'opacity 140ms ease, transform 140ms ease',
                   transitionDelay: delay,
@@ -1499,6 +1531,7 @@ const Header = ({
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (action.disabled) return;
                   haptic('menuSelect');
                   // The hamburger is the primary surface on mobile, so these are
                   // exactly the buttons that need to say what they are. The chip
@@ -1508,6 +1541,7 @@ const Header = ({
                   setIsHamburgerOpen(false);
                 }}
                 onMouseEnter={(e) => {
+                  if (action.disabled) return;
                   const circle = e.currentTarget.querySelector('.header-btn-circle');
                   if (circle) {
                     circle.style.transform = 'scale(1.06)';

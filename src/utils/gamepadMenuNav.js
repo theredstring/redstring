@@ -184,8 +184,13 @@ const SELECTORS = {
     // collapse into the hamburger column. One selector covers both — only the
     // opener differs, and clicking it is skipped when the buttons are already
     // on screen.
+    //
+    // Filtered like the context menu's rows, and for the same reason: Undo and
+    // Redo sit in this row permanently and grey out when history has nothing
+    // for them. A pad cannot see that, so an unavailable one must not be
+    // somewhere the stick can stop.
     root: 'body',
-    rows: '.header-action-btn',
+    rows: '.header-action-btn:not([data-disabled="true"])',
     parent: null,
     opener: '.header-hamburger-button',
   },
