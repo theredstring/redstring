@@ -92,6 +92,41 @@ const scrollParent = (el, root, axis = 'y') => {
 };
 
 /**
+ * `scrollIntoView({block:'nearest', inline:'nearest'})`, scoped to the panel.
+ *
+ * WHY NOT scrollIntoView. A panel is `position: fixed` and collapses by sliding
+ * to `translateX(±100%)`, so at the moment focus is seated — which is the frame
+ * the panel starts opening on, see useGamepad's d-pad block — the row is still
+ * off-screen. scrollIntoView answers that by scrolling EVERY ancestor scrolling
+ * box, and the canvas's own `overflow: hidden` flex row is one of them. It then
+ * scrolls sideways chasing a fixed element that scrolling cannot move, and the
+ * whole canvas slides under the panel. `overflow: hidden` scrolls perfectly
+ * well programmatically and shows no scrollbar, so nothing marks where the
+ * offset came from and nothing puts it back.
+ *
+ * Scrolling manually also makes the panel's own transform a non-issue: both
+ * rects move with it, so the comparison is in the panel's frame either way.
+ */
+const scrollIntoPanelView = (el) => {
+  const root = el?.closest?.('.panel-container');
+  if (!root) return;
+  const boxY = scrollParent(el, root, 'y');
+  if (boxY) {
+    const er = el.getBoundingClientRect();
+    const br = boxY.getBoundingClientRect();
+    if (er.top < br.top) boxY.scrollTop += er.top - br.top;
+    else if (er.bottom > br.bottom) boxY.scrollTop += er.bottom - br.bottom;
+  }
+  const boxX = scrollParent(el, root, 'x');
+  if (boxX) {
+    const er = el.getBoundingClientRect();
+    const br = boxX.getBoundingClientRect();
+    if (er.left < br.left) boxX.scrollLeft += er.left - br.left;
+    else if (er.right > br.right) boxX.scrollLeft += er.right - br.right;
+  }
+};
+
+/**
  * Every declared element in one panel, with the geometry needed to lay them
  * out in rows. DOM order is kept as the tiebreak so two elements that happen
  * to share a centre still have a stable order.
@@ -126,7 +161,7 @@ export const stepTab = (side, delta) => {
   if (!next) return false;
   // The right panel's strip scrolls horizontally, so the tab stepped onto is
   // routinely outside the visible run of it.
-  next.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  scrollIntoPanelView(next);
   next.click?.();
   return true;
 };
@@ -181,7 +216,7 @@ export const createPanelNavigator = () => {
     // labels, so the navigator hovers exactly as a mouse would.
     fire(focused, 'mouseenter');
     fire(focused, 'mouseover');
-    focused.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    scrollIntoPanelView(focused);
     return true;
   };
 

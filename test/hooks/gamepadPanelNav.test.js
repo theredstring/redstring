@@ -338,3 +338,66 @@ describe('stepping the panel tabs', () => {
     expect(stepTab('right', 1)).toBe(false);
   });
 });
+
+/**
+ * A panel is `position: fixed` and collapses to `translateX(±100%)`, and focus
+ * is seated on the frame the panel STARTS opening on — so the row being scrolled
+ * to is routinely off-screen and can never be scrolled to at all.
+ * `Element.scrollIntoView` answers that by scrolling every ancestor scrolling
+ * box, the canvas's own `overflow: hidden` flex row included, which slid the
+ * whole canvas sideways every time a panel opened under the controller. Nothing
+ * else in the app seats focus, so this was controller mode's alone.
+ */
+describe('panel navigator — scrolling stays inside the panel', () => {
+  const mountScroller = (side, { scrollHeight = 1000, clientHeight = 300 } = {}) => {
+    const panel = mountPanel(side);
+    const box = document.createElement('div');
+    box.style.overflowY = 'auto';
+    Object.defineProperty(box, 'scrollHeight', { value: scrollHeight, configurable: true });
+    Object.defineProperty(box, 'clientHeight', { value: clientHeight, configurable: true });
+    box.scrollTop = 0;
+    panel.appendChild(at(box, { top: 0, left: 0, width: 280, height: clientHeight }));
+    return box;
+  };
+
+  it('never asks the browser to scroll an ancestor into view', () => {
+    const box = mountScroller('left');
+    nav(box, 'item', 'row', { top: 400, left: 0, width: 280, height: 30 });
+    const spy = vi.fn();
+    Element.prototype.scrollIntoView = spy;
+
+    try {
+      const n = createPanelNavigator();
+      expect(n.enter('left')).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      delete Element.prototype.scrollIntoView;
+    }
+  });
+
+  it('scrolls the panel’s own scroller to reach a row below the fold', () => {
+    const box = mountScroller('left');
+    // 400px down a box whose visible run ends at 300 — 130px short of its bottom.
+    nav(box, 'item', 'row', { top: 400, left: 0, width: 280, height: 30 });
+
+    const n = createPanelNavigator();
+    expect(n.enter('left')).toBe(true);
+    expect(box.scrollTop).toBe(130);
+  });
+
+  /**
+   * The panel's transform moves the row and its scroller together, so a panel
+   * mid-slide must read exactly as a settled one. Scrolling is measured between
+   * the two rects for that reason, rather than against the viewport.
+   */
+  it('leaves a fully visible row alone, even off-screen mid-slide', () => {
+    const box = mountScroller('left');
+    at(box, { top: 0, left: -280, width: 280, height: 300 });
+    nav(box, 'item', 'row', { top: 40, left: -280, width: 280, height: 30 });
+
+    const n = createPanelNavigator();
+    expect(n.enter('left')).toBe(true);
+    expect(box.scrollTop).toBe(0);
+    expect(box.scrollLeft).toBe(0);
+  });
+});
