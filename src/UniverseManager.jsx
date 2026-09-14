@@ -48,6 +48,7 @@ import UniverseLinkingModal from './components/modals/UniverseLinkingModal.jsx';
 import Modal from './components/shared/Modal.jsx';
 import RepositorySelectionModal from './components/modals/RepositorySelectionModal.jsx';
 import ExternalLinkLoadModal from './components/modals/ExternalLinkLoadModal.jsx';
+import ExportUniverseModal from './components/modals/ExportUniverseModal.jsx';
 import ConfirmDialog from './components/shared/ConfirmDialog.jsx';
 import LocalFileConflictDialog from './components/shared/LocalFileConflictDialog.jsx';
 import MergeUniverseDialog from './components/shared/MergeUniverseDialog.jsx';
@@ -273,6 +274,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   });
   const [repositoryIntent, setRepositoryIntent] = useState(null);
+  // Which save slot the export modal is open on: `{ slug, source }`, where
+  // source is 'local' or 'git'. The slot is part of the identity because a
+  // universe can have both linked and they need not hold the same data.
+  const [exportTarget, setExportTarget] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [conflictDialog, setConflictDialog] = useState(null);
   const [slotConflictData, setSlotConflictData] = useState(null);
@@ -3514,31 +3519,14 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   };
 
-  const handleDownloadLocalFile = async (slug) => {
-    try {
-      setLoading(true);
-      await universeManagerService.downloadLocalFile(slug);
-      setSyncStatus({ type: 'success', message: 'Local universe downloaded' });
-    } catch (err) {
-      umError('[UniverseManager] File download failed:', err);
-      setError(`Failed to download file: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDownloadRepoFile = async (slug) => {
-    try {
-      setLoading(true);
-      await universeManagerService.downloadGitUniverse(slug);
-      setSyncStatus({ type: 'success', message: 'Downloaded universe from Git repository' });
-    } catch (err) {
-      umError('[UniverseManager] Git download failed:', err);
-      setError(`Failed to download from repository: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Both slots' download buttons now open the export modal on that slot rather
+  // than immediately writing a .redstring. The modal reads the slot itself, in
+  // whichever format is chosen — which is also what makes the local one
+  // correct: `universeManagerService.downloadLocalFile(slug)` named the file
+  // after this universe but filled it from the ACTIVE store, so pressing it
+  // from any other universe produced a mislabelled file.
+  const handleDownloadLocalFile = (slug) => setExportTarget({ slug, source: 'local' });
+  const handleDownloadRepoFile = (slug) => setExportTarget({ slug, source: 'git' });
 
   const handleRemoveLocalFile = async (slug) => {
     try {
@@ -4318,6 +4306,13 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onImportDiscovered={handleImportDiscovered}
         onSyncDiscovered={handleLinkDiscovered}
         onCreateUniverseFile={handleCreateNewUniverseFile}
+      />
+
+      <ExportUniverseModal
+        isOpen={Boolean(exportTarget)}
+        slug={exportTarget?.slug}
+        source={exportTarget?.source}
+        onClose={() => setExportTarget(null)}
       />
 
       <ExternalLinkLoadModal

@@ -837,7 +837,7 @@ const UniversesList = ({
                                         e.stopPropagation();
                                         onDownloadRepoFile(universe.slug);
                                       }}
-                                      title="Download latest from Git repository"
+                                      title="Export the repository's copy…"
                                     />
                                   )}
                                   {/*
@@ -1052,7 +1052,7 @@ const UniversesList = ({
                                               e.stopPropagation();
                                               onDownloadLocalFile(universe.slug);
                                             }}
-                                            title="Download/export local file"
+                                            title="Export this file…"
                                           />
                                         )}
                                         {onRemoveLocalFile && (

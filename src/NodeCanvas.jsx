@@ -14556,6 +14556,27 @@ function NodeCanvas() {
     snapActiveGraphToGrid();
   }, [activeGraphId, snapActiveGraphToGrid]);
 
+  // The Redstring menu's six export items, which used to be six near-identical
+  // inline handlers here — each re-deriving the basename and repeating the
+  // blob-anchor-click.
+  //
+  // The active store IS the right state for these: the menu means "the universe
+  // I'm looking at". That is NOT true of the universe panel's export, which is
+  // opened on a save slot and must read that slot instead. Both go through
+  // formats/exportUniverse.js, which takes the state as a parameter and has no
+  // fallback to the store — so the difference between the two callers is stated
+  // at the call site rather than hidden in a default.
+  const runActiveExport = useCallback(async (formatId) => {
+    try {
+      const { exportUniverseAs } = await import('./formats/exportUniverse.js');
+      const { default: universeBackend } = await import('./services/universeBackend.js');
+      const universeName = universeBackend.getActiveUniverse?.()?.name;
+      await exportUniverseAs(formatId, useGraphStore.getState(), universeName);
+    } catch (error) {
+      alert(`Failed to export: ${error.message}`);
+    }
+  }, []);
+
   // Context Menu options for canvas background.
   // clientX/clientY are the right-click screen coords (used to place a paste).
   const getCanvasContextMenuOptions = useCallback((clientX, clientY) => {
@@ -15558,139 +15579,12 @@ function NodeCanvas() {
             alert(`Failed to save universe: ${error.message}`);
           }
         }}
-        onExportRdf={async () => {
-          try {
-            const { exportToRdfTurtle } = await import('./formats/rdfExport.js');
-            const { default: universeBackend } = await import('./services/universeBackend.js');
-            const uniName = universeBackend.getActiveUniverse?.()?.name;
-            const basename = uniName ? uniName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'redstring-export' : 'redstring-export';
-            const currentState = useGraphStore.getState();
-            const rdfData = await exportToRdfTurtle(currentState);
-            const blob = new Blob([rdfData], { type: 'application/n-quads' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${basename}.nq`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-
-
-          } catch (error) {
-            alert(`Failed to export RDF: ${error.message}`);
-          }
-        }}
-        onExportTrig={async () => {
-          try {
-            const { exportToTrig } = await import('./formats/rdfExport.js');
-            const { default: universeBackend } = await import('./services/universeBackend.js');
-            const uniName = universeBackend.getActiveUniverse?.()?.name;
-            const basename = uniName ? uniName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'redstring-export' : 'redstring-export';
-            const currentState = useGraphStore.getState();
-            const trigData = await exportToTrig(currentState);
-            const blob = new Blob([trigData], { type: 'application/trig' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${basename}.trig`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          } catch (error) {
-            alert(`Failed to export TriG: ${error.message}`);
-          }
-        }}
-        onExportRedstring={async () => {
-          try {
-            const { exportToRedstring } = await import('./formats/redstringFormat.js');
-            const { default: universeBackend } = await import('./services/universeBackend.js');
-            const uniName = universeBackend.getActiveUniverse?.()?.name;
-            const basename = uniName ? uniName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'redstring-export' : 'redstring-export';
-            const currentState = useGraphStore.getState();
-            const doc = exportToRedstring(currentState);
-            const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${basename}.redstring`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          } catch (error) {
-            alert(`Failed to export: ${error.message}`);
-          }
-        }}
-        onExportJson={async () => {
-          try {
-            const { exportToRedstring } = await import('./formats/redstringFormat.js');
-            const { default: universeBackend } = await import('./services/universeBackend.js');
-            const uniName = universeBackend.getActiveUniverse?.()?.name;
-            const basename = uniName ? uniName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'redstring-export' : 'redstring-export';
-            const currentState = useGraphStore.getState();
-            const doc = exportToRedstring(currentState);
-            const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${basename}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          } catch (error) {
-            alert(`Failed to export: ${error.message}`);
-          }
-        }}
-        onExportTxt={async () => {
-          try {
-            const { exportToRedstring } = await import('./formats/redstringFormat.js');
-            const { default: universeBackend } = await import('./services/universeBackend.js');
-            const uniName = universeBackend.getActiveUniverse?.()?.name;
-            const basename = uniName ? uniName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'redstring-export' : 'redstring-export';
-            const currentState = useGraphStore.getState();
-            const doc = exportToRedstring(currentState);
-            const summaries = doc.graphSummaries || {};
-            const lines = [uniName || 'Redstring Universe', '==================', ''];
-            for (const summary of Object.values(summaries)) {
-              if (summary.text) lines.push(summary.text, '');
-            }
-            const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${basename}.txt`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          } catch (error) {
-            alert(`Failed to export: ${error.message}`);
-          }
-        }}
-        onExportTtl={async () => {
-          try {
-            const { exportToTurtle } = await import('./formats/rdfExport.js');
-            const { default: universeBackend } = await import('./services/universeBackend.js');
-            const uniName = universeBackend.getActiveUniverse?.()?.name;
-            const basename = uniName ? uniName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'redstring-export' : 'redstring-export';
-            const currentState = useGraphStore.getState();
-            const ttlData = await exportToTurtle(currentState);
-            const blob = new Blob([ttlData], { type: 'text/turtle' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${basename}.ttl`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          } catch (error) {
-            alert(`Failed to export Turtle: ${error.message}`);
-          }
-        }}
+        onExportRdf={() => runActiveExport('nquads')}
+        onExportTrig={() => runActiveExport('trig')}
+        onExportRedstring={() => runActiveExport('redstring')}
+        onExportJson={() => runActiveExport('json')}
+        onExportTxt={() => runActiveExport('txt')}
+        onExportTtl={() => runActiveExport('ttl')}
         onOpenRecentFile={async (recentFileEntry) => {
           try {
             // Check if user has unsaved work

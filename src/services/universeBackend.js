@@ -6300,11 +6300,18 @@ class UniverseBackend {
       throw new Error(`Universe ${universeSlug} not found`);
     }
 
-    // Get store state if not provided
+    // Read this universe's OWN file when no state was handed in.
+    //
+    // This used to fall back to `useGraphStore.getState()` — the ACTIVE
+    // universe — while still naming the file after `universe` below. Called for
+    // any universe other than the one on screen, it wrote a correctly-named
+    // file full of the wrong work and reported success. `downloadGitUniverse`
+    // immediately below has always read its own source; this now does the same.
     if (!storeState) {
-      // Try to get from store operations if available
-      const useGraphStore = (await import('../store/graphStore.js')).default;
-      storeState = useGraphStore.getState();
+      storeState = await this.loadFromLocalFile(universe);
+    }
+    if (!storeState) {
+      throw new Error(`Could not read the local file for ${universe.name || universeSlug}`);
     }
 
     const fileName = `${universe.name || universeSlug}.redstring`;

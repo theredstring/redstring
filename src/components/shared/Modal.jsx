@@ -58,6 +58,15 @@ const Modal = ({
 
   return (
     <div
+      // The class the game controller looks for. Dialog.jsx's scrim carries it
+      // and that is how the pad finds every dialog in the app; a Modal is the
+      // same surface at a different size, so wearing the same class makes every
+      // Modal walkable too — its parts already declare themselves with
+      // `data-nav`, they simply had no root to be found under. Clicking this
+      // element is also how the pad's B dismisses it, which is what the
+      // backdrop's own onClick already does for a mouse.
+      // See utils/gamepadMenuNav.js (SELECTORS.dialog).
+      className="rs-dialog-scrim"
       style={{
         position: 'fixed',
         inset: 0,
