@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useDrop } from 'react-dnd';
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
-import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search, Menu, CircleX, Undo2, Redo2, MousePointerClick } from 'lucide-react';
+import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search, Menu, CircleX, Undo2, Redo2, MousePointerClick, RefreshCw } from 'lucide-react';
 import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from './store/graphStore.js';
 import useHistoryStore from './store/historyStore.js';
@@ -1643,6 +1643,9 @@ const Header = ({
             // whole surface a phone otherwise cannot reach. NodeCanvas opens it
             // at the centre of the viewport, as though the click landed there.
             { key: 'canvas-menu', Icon: MousePointerClick, iconSize: 20, strokeWidth: 2.5, title: 'Canvas Menu', onClick: () => window.dispatchEvent(new CustomEvent('redstring:open-canvas-context-menu')) },
+            // A plain reload, the old File → Refresh. Down here with the canvas
+            // menu because both are ways out rather than things you came to do.
+            { key: 'refresh', Icon: RefreshCw, iconSize: 20, strokeWidth: 2.5, title: 'Refresh', onClick: () => window.location.reload() },
             { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
           ].map((action, idx, arr) => {
             const delay = isHamburgerOpen ? `${idx * 25}ms` : `${(arr.length - 1 - idx) * 25}ms`;
