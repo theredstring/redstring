@@ -1,17 +1,10 @@
-<svg width="50" height="50" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-<g clip-path="url(#clip0_16_160)">
-<rect width="50" height="50" fill="#960000"/>
-<rect x="14.2918" y="29.4616" width="21.2181" height="9.37193" rx="4.68596" transform="rotate(-25.7143 14.2918 29.4616)" fill="#260000"/>
-<rect x="30.5061" y="33.6899" width="21.2181" height="7.07271" rx="3.53635" transform="rotate(-115.714 30.5061 33.6899)" fill="#4D0000"/>
-<rect x="34.3273" y="20.78" width="21.2181" height="7.07271" rx="3.53635" transform="rotate(154.286 34.3273 20.78)" fill="#7A0000"/>
-<rect x="12.9795" y="15.8044" width="28.2908" height="7.07271" rx="3.53635" transform="rotate(64.2857 12.9795 15.8044)" fill="#960000"/>
-<rect x="44.3624" y="32.0845" width="28.2908" height="7.07271" rx="3.53635" transform="rotate(154.286 44.3624 32.0845)" fill="#260000"/>
-<rect x="32.0845" y="6.60406" width="28.2908" height="7.07271" rx="3.53635" transform="rotate(64.2857 32.0845 6.60406)" fill="#260000"/>
-<rect x="6.59055" y="18.9206" width="28.2908" height="7.07271" rx="3.53635" transform="rotate(-25.7143 6.59055 18.9206)" fill="#260000"/>
-</g>
-<defs>
-<clipPath id="clip0_16_160">
-<rect width="50" height="50" fill="white"/>
-</clipPath>
-</defs>
+<svg width="138" height="138" viewBox="0 0 138 138" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="138" height="138" fill="#960000" fill-opacity="0.6"/>
+<rect width="51.0211" height="22.5357" rx="11.2679" transform="matrix(0.917136 -0.427818 0.43976 0.884559 41.9889 78.6052)" fill="#260000"/>
+<rect width="51.0211" height="17.007" rx="8.50352" transform="matrix(-0.43976 -0.884559 0.917136 -0.427818 81.6273 88.5309)" fill="#4D0000"/>
+<rect width="51.0211" height="17.007" rx="8.50352" transform="matrix(-0.917136 0.427818 -0.43976 -0.884559 91.0267 58.0133)" fill="#7A0000"/>
+<rect width="68.0281" height="17.007" rx="8.50352" transform="matrix(0.43976 0.884559 -0.917136 0.427818 38.8356 46.3424)" fill="#960000"/>
+<rect width="68.0281" height="17.007" rx="8.50352" transform="matrix(-0.917136 0.427818 -0.43976 -0.884559 115.523 84.6826)" fill="#260000"/>
+<rect width="68.0281" height="17.007" rx="8.50352" transform="matrix(0.43976 0.884559 -0.917136 0.427818 85.5997 24.5284)" fill="#260000"/>
+<rect width="68.0281" height="17.007" rx="8.50352" transform="matrix(0.917136 -0.427818 0.43976 0.884559 23.1969 53.7305)" fill="#260000"/>
 </svg>

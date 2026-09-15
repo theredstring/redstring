@@ -1578,6 +1578,43 @@ export function renderConnectionEdge(edge, ctx) {
         const labelGlyphAdvances = (orthoRouting?.arc && curveLabels)
           ? edgeLabelGlyphAdvances(displayName, connectionFontSize)
           : null;
+
+        // WHY A DRAG TURNS THE SPRITES OFF
+        //
+        // Truncation is geometry: the cut is taken against the run the label
+        // sits along, so moving either endpoint changes it. The drag owns the
+        // DOM for its whole span and re-cuts every frame — but it can only
+        // re-cut a <text>, because a re-cut is a DIFFERENT STRING and a baked
+        // bitmap cannot become one. The text is part of a sprite's cache key
+        // (see labelKey in labelSpriteCache.js), so the honest answer for a
+        // sprite mid-drag is a bitmap that does not exist yet. The curved form
+        // is worse still: a re-cut changes how many glyphs there ARE, so it is
+        // a different number of <image> elements rather than different
+        // attributes on the ones already mounted — nothing a per-frame DOM
+        // writer can reach.
+        //
+        // So sprites stand down for the length of a node drag, and the labels
+        // ride it in the form that can follow their connections. This is the
+        // regression that made truncation look static: sprites landed after the
+        // truncation work and quietly took the re-cut path out from under it
+        // (retruncateLabel in useNodeDrag returns immediately without a <text>),
+        // leaving every label frozen at its pre-drag cut until the drop.
+        //
+        // It costs nothing where sprites earn their keep. A graph big enough to
+        // want them holds its labels DOWN for the whole drag — see the move-fade
+        // hold in NodeCanvas — so there is nothing on screen to draw in either
+        // form; below that threshold <text> is what the canvas drew before
+        // sprites existed. With truncation off there is no re-cut to miss, so
+        // the sprites stay.
+        //
+        // Read by the rotation bucket immediately below as well as by the
+        // sprite lookups further down, and it has to be the same answer in both
+        // places: a curved label that falls back to <text> for the drag must be
+        // placed at the quantized angles the drag's own per-frame solve uses
+        // (curvedGlyphQuantum), not at the exact ones a sprite would take, or
+        // every glyph twitches at the moment of lift.
+        const labelSpritesUsableNow = labelSpritesEnabled
+          && !(connectionLabelTruncate && draggingNodeInfo);
         // Sprites take EXACT angles. The rotation bucket exists purely
         // to bound glyph-atlas keys, and a sprite mints none — rotating
         // an <image> is a transform on a bitmap, not a re-rasterisation
@@ -1593,7 +1630,7 @@ export function renderConnectionEdge(edge, ctx) {
             labelGlyphAdvances,
             {
               minBow: labelArcMinBow,
-              rotationQuantum: labelSpritesEnabled ? 0 : curvedLabelQuantum,
+              rotationQuantum: labelSpritesUsableNow ? 0 : curvedLabelQuantum,
             }
           )
           : null;
@@ -1659,7 +1696,7 @@ export function renderConnectionEdge(edge, ctx) {
         // <text> for the length of a re-bake is a visible change of form
         // on the whole canvas that gets undone a second later. See
         // peekNearbyLabelSprite.
-        const labelSpriteWanted = !labelGlyphs && labelSpritesEnabled && spritesUsable();
+        const labelSpriteWanted = !labelGlyphs && labelSpritesUsableNow && spritesUsable();
         let labelSprite = labelSpriteWanted
           ? peekLabelSprite({ ...spriteAppearance, text: displayName })
           : null;
@@ -1683,7 +1720,10 @@ export function renderConnectionEdge(edge, ctx) {
         // notch every letter. Stroked <text> never had that problem
         // because SVG strokes a whole run before filling any of it, and
         // these passes reproduce that order.
-        const labelGlyphChars = (labelGlyphs && labelSpritesEnabled && spritesUsable())
+        //
+        // Stands down for a node drag along with the whole-label sprite —
+        // see labelSpritesUsableNow.
+        const labelGlyphChars = (labelGlyphs && labelSpritesUsableNow && spritesUsable())
           ? Array.from(displayName)
           : null;
         // Each layer holds the same glyphs at the same indices, so one

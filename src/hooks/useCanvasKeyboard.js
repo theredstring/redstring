@@ -142,6 +142,37 @@ export const useCanvasKeyboard = ({
     paramsRef.current = props;
 
     // ---------------------------------------------------------------------------
+    // 0. Cmd/Ctrl hold state
+    // ---------------------------------------------------------------------------
+    //
+    // Shift is the canvas zoom-in key, and it is also half of Cmd/Ctrl+Shift+Z —
+    // so hitting Redo on the canvas zoomed in for as long as the chord was held.
+    // The zoom loop below consults this and stands down for exactly as long as
+    // Cmd/Ctrl is down: let the modifier go with Shift still held and the zoom
+    // picks up again, no re-press needed.
+    //
+    // Read off each event's own modifier flags rather than tracking Meta/Control
+    // keydown/keyup: the flags are already correct on every event (including the
+    // modifier's own keyup, which reports itself as released), and they survive
+    // the keyups macOS swallows during a Meta-hold. Blur covers Cmd+Tab, where
+    // the release lands in another app entirely.
+    const cmdOrCtrlHeldRef = useRef(false);
+    useEffect(() => {
+        const sync = (e) => { cmdOrCtrlHeldRef.current = !!(e.metaKey || e.ctrlKey); };
+        const clear = () => { cmdOrCtrlHeldRef.current = false; };
+        window.addEventListener('keydown', sync);
+        window.addEventListener('keyup', sync);
+        window.addEventListener('mousedown', sync);
+        window.addEventListener('blur', clear);
+        return () => {
+            window.removeEventListener('keydown', sync);
+            window.removeEventListener('keyup', sync);
+            window.removeEventListener('mousedown', sync);
+            window.removeEventListener('blur', clear);
+        };
+    }, []);
+
+    // ---------------------------------------------------------------------------
     // 1. Global Undo/Redo Shortcuts
     // ---------------------------------------------------------------------------
     useEffect(() => {
@@ -350,7 +381,9 @@ export const useCanvasKeyboard = ({
 
                 let zoomMultiplier = 1;
                 if (keysPressed.current[' ']) zoomMultiplier = 1 / timeAdjustedZoomFactor; // Space = zoom out
-                if (keysPressed.current['Shift']) zoomMultiplier = timeAdjustedZoomFactor; // Shift = zoom in
+                // Shift = zoom in, except while Cmd/Ctrl is held: there Shift is
+                // part of a shortcut chord, not a zoom (see cmdOrCtrlHeldRef).
+                if (keysPressed.current['Shift'] && !cmdOrCtrlHeldRef.current) zoomMultiplier = timeAdjustedZoomFactor;
                 // The right stick multiplies in rather than overriding, so a key
                 // and the stick held together compound instead of one winning.
                 if (gamepad && gamepad.zoomMultiplier !== 1) zoomMultiplier *= gamepad.zoomMultiplier;

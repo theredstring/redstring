@@ -195,19 +195,18 @@ const Header = ({
   const isProgrammaticScroll = useRef(false);
   const [activeTabMaxWidth, setActiveTabMaxWidth] = useState('220px');
 
-  // Layout reservations on either side of the scrollable tabs container.
+  // The scrollable tabs container reserves nothing on either side.
   //
-  // The logo used to block the left unconditionally, and the hamburger the
-  // right in exclusive mode. Neither blocks any more: the logo is only present
-  // alongside the menu now, and the hamburger floats over the tabs on the
-  // shared header background exactly as the wide layout's inline buttons
-  // always have — tabs scroll underneath them rather than stopping short.
+  // The logo used to block the left and the hamburger the right, so the strip
+  // stopped short of both. Nothing blocks it now: every control in this header
+  // — logo, hamburger, the inline rows, the standalone Settings — is a circle
+  // floating above the strip on its own transparent hit box, so tabs scroll
+  // underneath rather than being fenced out. The circles carry their own fill,
+  // which is what lets them sit over a header background that changes colour.
   //
-  // So where there is no logo, the tabs run edge to edge on both sides.
   // Centering is computed against the viewport center (see scrollToCenter),
-  // not the container's geometric center, so it does not need to be symmetric.
-  const tabsLeftReserve = showRedstringMenu ? HEADER_HEIGHT : 0;
-  const tabsRightReserve = 0;
+  // not the container's geometric center, so the strip does not need to be
+  // symmetric or inset to stay centred.
 
   // Calculate dynamic max width for active tab based on header width
   useEffect(() => {
@@ -216,15 +215,12 @@ const Header = ({
 
       const headerWidth = headerRef.current.offsetWidth;
 
-      // Only what actually blocks the tabs, which is now just the logo when
-      // one is present — every button floats over them.
-      const fixedButtonsWidth = tabsLeftReserve + tabsRightReserve;
-
       // Generous padding for inactive tabs and breathing room (300px on each side)
       const generousPadding = 600;
 
-      // Calculate available width for the active tab
-      const availableWidth = headerWidth - fixedButtonsWidth - generousPadding;
+      // Calculate available width for the active tab. Nothing is subtracted for
+      // buttons: they overlap the strip rather than displacing it.
+      const availableWidth = headerWidth - generousPadding;
 
       // Set a minimum of 150px and maximum based on available space
       const calculatedMaxWidth = Math.max(150, Math.min(availableWidth, 800));
@@ -243,7 +239,7 @@ const Header = ({
     return () => {
       resizeObserver.disconnect();
     };
-  }, [tabsLeftReserve, tabsRightReserve]);
+  }, []);
 
   // Scroll-to-center function. The container can be asymmetric (e.g. in wide
   // mode it extends behind the right action buttons), so we center the active
@@ -1073,12 +1069,19 @@ const Header = ({
         touchAction: 'manipulation',
       }}
     >
-      {/* Menu button container with explicit height */}
+      {/* Menu button container with explicit height.
+
+          Stacked above the tab strip, which now runs edge to edge underneath
+          it. The strip is absolutely positioned and later in the DOM, so
+          without a z-index here it paints over the logo — the tabs would scroll
+          across the top of the button rather than behind it. Same layer as the
+          inline action rows; the menu itself sits higher still on its own. */}
       <div style={{
         position: 'relative',
         height: `${HEADER_HEIGHT}px`,
         display: 'flex',
-        alignItems: 'center'
+        alignItems: 'center',
+        zIndex: 10002
       }}>
         {/* The logo IS the menu button — it has no other job — so it goes with
             the menu rather than staying on as a brand mark that no longer does
@@ -1170,7 +1173,19 @@ const Header = ({
         >
           {[
             { key: 'undo', Icon: Undo2, iconSize: 20, strokeWidth: 2.5, title: 'Undo', onClick: () => performUndo(), disabled: !canUndo },
-            { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
+            // Redo stands down while the Redstring menu is up: its Edit section
+            // already carries Undo and Redo with their shortcuts written next to
+            // them. Undo stays because it is the one you reach for without
+            // thinking; Redo is one you go looking for, and a menu is a fine
+            // place to look. Below the threshold the menu is gone and the
+            // hamburger carries both.
+            //
+            // Today this row and the menu share one condition, so the entry
+            // never renders — written as the rule rather than as a deletion so
+            // it still holds if the menu's gate moves again.
+            ...(showRedstringMenu ? [] : [
+              { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
+            ]),
             { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
             { key: 'settings', Icon: Settings, iconSize: 20, strokeWidth: 2.5, title: 'Settings', onClick: () => window.dispatchEvent(new Event('openSettingsModal')) },
           ].map((action) => (
@@ -1260,8 +1275,9 @@ const Header = ({
         className="hide-scrollbar"
         style={{
           position: 'absolute',
-          left: `${tabsLeftReserve}px`,
-          right: `${tabsRightReserve}px`,
+          // Edge to edge; the buttons overlap it. See the note above.
+          left: 0,
+          right: 0,
           top: '50%',
           transform: 'translateY(-50%)',
           display: 'flex',

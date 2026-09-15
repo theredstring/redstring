@@ -8,6 +8,12 @@ import useHistoryStore from './store/historyStore.js';
 import { performUndo, performRedo } from './store/historyActions.js';
 import useGraphStore from './store/graphStore.js';
 
+// Undo/Redo take Cmd or Ctrl on every platform (see useCanvasKeyboard), but the
+// menu only has room to name one. Name the one the platform's users reach for.
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+const UNDO_SHORTCUT = IS_MAC ? '⌘Z' : 'Ctrl+Z';
+const REDO_SHORTCUT = IS_MAC ? '⇧⌘Z' : 'Ctrl+Shift+Z';
+
 const RedstringMenu = ({
   isOpen,
   onHoverView,
@@ -442,7 +448,7 @@ const RedstringMenu = ({
                           <Undo2 size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                             <span>Undo</span>
-                            <span style={{ opacity: 0.5, fontSize: '11px' }}>Ctrl+Z</span>
+                            <span style={{ opacity: 0.5, fontSize: '11px' }}>{UNDO_SHORTCUT}</span>
                           </div>
                         </div>
                         <div
@@ -453,7 +459,7 @@ const RedstringMenu = ({
                           <Redo2 size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                             <span>Redo</span>
-                            <span style={{ opacity: 0.5, fontSize: '11px' }}>Ctrl+Shift+Z</span>
+                            <span style={{ opacity: 0.5, fontSize: '11px' }}>{REDO_SHORTCUT}</span>
                           </div>
                         </div>
                         <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
