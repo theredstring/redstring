@@ -13,13 +13,13 @@ import { describe, it, expect } from 'vitest';
 import { resolveSaveStatus } from '../../src/utils/saveStatus.js';
 
 /** A universe fully loaded and settled — the only state that may say "Saved". */
-const settled = { hasLoadedFromFile: true };
+const settled = { universeReady: true };
 
 describe('resolveSaveStatus', () => {
   it('never says Saved before anything has been loaded', () => {
     // The exact reported state: not saving, not dirty, nothing pending, and
     // the universe not yet in.
-    expect(resolveSaveStatus({ hasLoadedFromFile: false }).text).toBe('Syncing...');
+    expect(resolveSaveStatus({ universeReady: false }).text).toBe('Syncing...');
   });
 
   it('says Saved once there is something that could have been saved', () => {
@@ -85,6 +85,15 @@ describe('resolveSaveStatus', () => {
     for (const state of states) {
       expect(resolveSaveStatus(state).isCTA).toBe(false);
     }
+  });
+
+  it('clears once the universe is in, even if nothing has flowed through the coordinator', () => {
+    // The regression this replaced: gating on SaveCoordinator's own
+    // `hasLoadedFromFile`, which only flips when a change passes through it.
+    // A universe that loaded and then sat idle never set it, so the indicator
+    // stuck on "Syncing..." forever — the same mistake as the false "Saved",
+    // pointing the other way.
+    expect(resolveSaveStatus({ universeReady: true }).text).toBe('Saved');
   });
 
   it('defaults to claiming nothing when called with no information', () => {

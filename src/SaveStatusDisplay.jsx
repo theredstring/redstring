@@ -169,7 +169,19 @@ const SaveStatusDisplay = ({ hidden = false }) => {
           dirtyStalled,
           hasUnsavedChanges: coordinatorHasUnsaved,
           gitBehind: isCommitting || pendingCommits > 0 || hasUnsavedChanges,
-          hasLoadedFromFile: saveCoordinator.hasLoadedFromFile
+          /*
+           * The store is the authority on whether a universe is actually in.
+           * SaveCoordinator's own flag only flips once a change flows through
+           * it, so it stays false through an idle post-load session.
+           *
+           * Read fresh rather than subscribed: this poll's effect has an empty
+           * dependency array, so anything closed over here is frozen at mount
+           * — when the value in question is "has the universe arrived yet",
+           * the frozen answer is always no, and the indicator would stick on
+           * Syncing forever.
+           */
+          universeReady: !!useGraphStore.getState().isUniverseLoaded
+            || saveCoordinator.hasLoadedFromFile
         });
         setStatusText(status.text);
         setIsCTA(status.isCTA);

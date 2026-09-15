@@ -32,7 +32,7 @@ export const resolveSaveStatus = ({
   dirtyStalled = false,
   hasUnsavedChanges = false,
   gitBehind = false,
-  hasLoadedFromFile = false
+  universeReady = false
 } = {}) => {
   if (!hasUniverse) return { text: 'No universe', isCTA: false };
   if (!hasStorage) return { text: 'Connect', isCTA: true };
@@ -57,9 +57,18 @@ export const resolveSaveStatus = ({
   // less urgent state than "not yet saved".
   if (gitBehind) return { text: 'Syncing...', isCTA: false };
 
-  // Nothing has been loaded into the store this session, so there is nothing
-  // that could have been saved. This is the branch that used to fall through.
-  if (!hasLoadedFromFile) return { text: 'Syncing...', isCTA: false };
+  /*
+   * Nothing has arrived in the store yet, so there is nothing that could have
+   * been saved. This is the branch that used to fall through to "Saved".
+   *
+   * `universeReady` must come from the STORE's own view of whether a universe
+   * is in (`isUniverseLoaded`), not from SaveCoordinator's `hasLoadedFromFile`
+   * alone. That flag only flips when a state change flows through the
+   * coordinator, so a universe that loaded and then sat idle never set it —
+   * and gating on it turned a false "Saved" into a false "Syncing..." that
+   * never cleared. Both are the same mistake: reporting a guess as a fact.
+   */
+  if (!universeReady) return { text: 'Syncing...', isCTA: false };
 
   return { text: 'Saved', isCTA: false };
 };

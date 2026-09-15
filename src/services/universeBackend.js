@@ -129,6 +129,10 @@ class UniverseBackend {
     // the boot race deliberately runs two overlapping loads when the first
     // exceeds LOAD_TIMEOUT_MS. See `_isLoadInFlight`.
     this.loadsInFlight = 0;
+    // slug -> { promise, allowPermissionPrompt } for reads currently running,
+    // so two callers asking for the same universe share one read instead of
+    // racing two. See loadUniverseData.
+    this._inFlightLoads = new Map();
 
     // Device configuration
     this.deviceConfig = null;
@@ -1308,26 +1312,46 @@ class UniverseBackend {
               umWarn('[UniverseBackend] Waiting for file handle restoration failed:', restoreError);
             }
           }
-          // Try to load (will fall back to browser storage if Git fails due to auth)
-          // Timebox the initial load to avoid UI spinner deadlocks; continue in background on timeout
-          const LOAD_TIMEOUT_MS = 5000;
-          const TIMEOUT_TOKEN = Symbol('LOAD_TIMEOUT');
-          const timedResult = await Promise.race([
-            this.loadUniverseData(activeUniverse, { allowPermissionPrompt: false }),
-            new Promise((resolve) => setTimeout(() => resolve(TIMEOUT_TOKEN), LOAD_TIMEOUT_MS))
-          ]);
+          /*
+           * Wait for the universe until it arrives, or until the user says to
+           * stop waiting.
+           *
+           * A five-second timer used to end this wait on the user's behalf and
+           * mark the UI loaded while the read was still running. That put an
+           * empty canvas and a "create something" button in front of a
+           * universe that was still on its way — and if the invitation was
+           * accepted, the guard below discarded the arriving universe to
+           * protect the edits. A timer cannot know whether a load is nearly
+           * done, and the cost of guessing wrong was the whole universe.
+           *
+           * The load promise is created ONCE and reused by the continuation
+           * below. The old path issued a second, redundant read of the same
+           * multi-megabyte file.
+           */
+          const ABANDONED = Symbol('LOAD_WAIT_ABANDONED');
+          let abandonWait = null;
+          const abandonedByUser = new Promise((resolve) => { abandonWait = () => resolve(ABANDONED); });
+          const onStopWaiting = () => abandonWait?.();
+          if (typeof window !== 'undefined') {
+            window.addEventListener('redstring:stop-waiting-for-universe', onStopWaiting);
+          }
 
-          if (timedResult === TIMEOUT_TOKEN) {
-            umWarn('[UniverseBackend] Active universe load timed out; marking UI loaded and continuing in background');
-            // Release UI spinner immediately
+          const loadPromise = this.loadUniverseData(activeUniverse, { allowPermissionPrompt: false });
+          const timedResult = await Promise.race([loadPromise, abandonedByUser]);
+          if (typeof window !== 'undefined') {
+            window.removeEventListener('redstring:stop-waiting-for-universe', onStopWaiting);
+          }
+
+          if (timedResult === ABANDONED) {
+            umWarn('[UniverseBackend] User chose to stop waiting; the load continues in the background');
             this.storeOperations?.setUniverseLoaded(true, true);
 
             // CRITICAL: Track background load to cancel if needed
             const bgLoadId = Date.now();
             this.pendingBackgroundLoadId = bgLoadId;
 
-            // Continue loading in background and apply when ready
-            this.loadUniverseData(activeUniverse, { allowPermissionPrompt: false })
+            // Same read, not a new one — apply it when it lands.
+            loadPromise
               .then((bgState) => {
                 // CRITICAL: Check if this background load has been superseded
                 if (this.pendingBackgroundLoadId !== bgLoadId) {
@@ -1353,11 +1377,17 @@ class UniverseBackend {
                     // point where it fully loads and then wipes those edits"
                     // class of bug.
                     try {
-                      const currentNodes = currentState?.nodePrototypes
-                        ? (currentState.nodePrototypes instanceof Map
-                          ? currentState.nodePrototypes.size
-                          : Object.keys(currentState.nodePrototypes || {}).length)
-                        : 0;
+                      /*
+                       * User counts, not raw ones, and the distinction decides
+                       * whether a whole universe is thrown away.
+                       *
+                       * The store seeds `base-thing-prototype` as soon as the
+                       * canvas comes up. Counting raw prototypes made that
+                       * seed read as "the user has data", so an arriving
+                       * universe of 1,830 things was discarded to protect a
+                       * store containing nothing but its own default.
+                       */
+                      const currentNodes = countUserPrototypes(currentState);
                       const currentGraphs = currentState?.graphs
                         ? (currentState.graphs instanceof Map
                           ? currentState.graphs.size
@@ -1474,6 +1504,22 @@ class UniverseBackend {
               // Ensure UI is not stuck in loading state
               this.storeOperations?.setUniverseLoaded(true, false);
             }
+          } else {
+            /*
+             * The load settled without producing a state.
+             *
+             * Nothing here used to handle this, because the five-second timer
+             * always won the race first and released the UI on the way past.
+             * With the timer gone this became a silent hang: a load that had
+             * already finished, and a loading screen waiting for it forever.
+             * Every settlement path must release the screen — that is what
+             * makes "no timer" safe rather than merely patient.
+             */
+            umError('[UniverseBackend] Active universe load settled with no state');
+            this.notifyStatus('warning', `Could not load ${activeUniverse.name}. Reload to retry.`);
+            this.storeOperations?.setUniverseError?.(
+              `Could not load ${activeUniverse.name}. Reload to retry.`
+            );
           }
         } catch (error) {
           umWarn('[UniverseBackend] Failed to load active universe data:', error);
@@ -1672,7 +1718,22 @@ class UniverseBackend {
             const currentNodeCount = countUserPrototypes(currentState);
             const currentGraphCount = currentState?.graphs ? (currentState.graphs instanceof Map ? currentState.graphs.size : Object.keys(currentState.graphs).length) : 0;
 
-            const storeState = await this.loadUniverseData(activeUniverse);
+            /*
+             * `allowPermissionPrompt: false`, and it matters for two reasons.
+             *
+             * This is a background refresh triggered by auth connecting, not
+             * something the user asked for — throwing a file-permission picker
+             * at them out of nowhere would be wrong on its own.
+             *
+             * It is also what lets this share the read that boot already has
+             * running. Both fire on a cold start, and a read that cannot
+             * prompt is not allowed to stand in for one that can, so while
+             * this defaulted to `true` the two could never be coalesced: the
+             * log showed two load gates on the same slug and, on a
+             * doubly-connected universe, the 6.9 MB local file and the 6.9 MB
+             * remote each read, imported and semantically hashed twice over.
+             */
+            const storeState = await this.loadUniverseData(activeUniverse, { allowPermissionPrompt: false });
             if (storeState && this.storeOperations?.loadUniverseFromFile) {
               /*
                * What Git has, counted the way every other guard counts it.
@@ -3810,7 +3871,45 @@ class UniverseBackend {
    * Load universe data based on source of truth priority
    * Now with proactive conflict detection between slots
    */
+  /**
+   * Load a universe, sharing a read that is already running.
+   *
+   * Boot and the auth-connected handler both load the active universe, and on
+   * a cold start they overlap: the log shows two gates armed for the same slug
+   * and the 6.9 MB file probed and fetched twice, concurrently. Two identical
+   * reads is the visible half. The worse half is that each arms the save gate,
+   * so `loadInFlight` reaches 2, every save is deferred behind both, and the
+   * status indicator reports syncing until the slower one lands — or until the
+   * gate's two-minute watchdog gives up on it.
+   *
+   * Sharing is only safe when the running read is at least as permissive as
+   * this one. A read started without permission prompts cannot stand in for a
+   * caller that needs to ask for local file access, so that case starts its own.
+   */
   async loadUniverseData(universe, options = {}) {
+    const slug = universe?.slug;
+    const wantsPrompt = options.allowPermissionPrompt !== false;
+    const existing = slug ? this._inFlightLoads?.get(slug) : null;
+    if (existing && (existing.allowPermissionPrompt || !wantsPrompt)) {
+      umLog(`[UniverseBackend] Joining the load already in flight for ${slug}`);
+      return existing.promise;
+    }
+
+    const promise = this._loadUniverseDataGated(universe, options);
+    if (slug) {
+      if (!this._inFlightLoads) this._inFlightLoads = new Map();
+      const entry = { promise, allowPermissionPrompt: wantsPrompt };
+      this._inFlightLoads.set(slug, entry);
+      // Settled either way — a failed read must not leave the slug latched.
+      promise.then(
+        () => { if (this._inFlightLoads.get(slug) === entry) this._inFlightLoads.delete(slug); },
+        () => { if (this._inFlightLoads.get(slug) === entry) this._inFlightLoads.delete(slug); }
+      );
+    }
+    return promise;
+  }
+
+  async _loadUniverseDataGated(universe, options = {}) {
     // Arm the save gate for the ENTIRE read. Every guard that came before this
     // was an inference about whether the store looked loaded — and on
     // mobile/tablet with Git they all read "fine" during a slow fetch, because

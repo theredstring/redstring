@@ -36,15 +36,44 @@ export const showContextMenu = (x, y, options = [], { force = false, onClose } =
  * Forced: a tap on a button is not the long-press gesture the touch
  * suppression in showContextMenu exists to avoid.
  */
+/**
+ * ContextMenu sizes itself to its content and does no clipping of its own, so
+ * every caller that has to do viewport math works off an ESTIMATE of the card
+ * (150px min width, ~37px rows). It only has to be good enough to keep the card
+ * on screen — or, for the centred case, to look centred.
+ */
+const estimateCard = (options) => {
+  const longest = options.reduce((n, o) => Math.max(n, String(o?.label ?? '').length), 0);
+  return {
+    width: Math.min(320, Math.max(150, longest * 7.5 + 56)),
+    height: options.length * 37 + 8
+  };
+};
+
+/**
+ * Open the menu centred on a point, rather than hanging off it.
+ *
+ * `showContextMenu` puts the card's top-left CORNER where you point, which is
+ * right for a cursor — the menu drops away from the arrow — and wrong for a
+ * caller that has no cursor and means "the middle of the screen". Passing the
+ * centre there lands the corner on the centre and the card down and to the
+ * right of it.
+ *
+ * @param {number} cx centre point x
+ * @param {number} cy centre point y
+ */
+export const showContextMenuCentered = (cx, cy, options = [], { onClose } = {}) => {
+  const { width, height } = estimateCard(options);
+  const margin = 8;
+  const x = Math.max(margin, Math.min(cx - width / 2, Math.max(margin, window.innerWidth - width - margin)));
+  const y = Math.max(margin, Math.min(cy - height / 2, Math.max(margin, window.innerHeight - height - margin)));
+  showContextMenu(x, y, options, { force: true, onClose });
+};
+
 export const showContextMenuForElement = (el, options = [], { align = 'left', prefer = 'below', gap = 4, onClose } = {}) => {
   if (!el || typeof el.getBoundingClientRect !== 'function') return;
   const rect = el.getBoundingClientRect();
-  // ContextMenu sizes itself to its content and does no clipping of its own, so
-  // the viewport math works off an ESTIMATE of the card (150px min width, ~37px
-  // rows). It only has to be good enough to keep the card on screen.
-  const longest = options.reduce((n, o) => Math.max(n, String(o?.label ?? '').length), 0);
-  const width = Math.min(320, Math.max(150, longest * 7.5 + 56));
-  const height = options.length * 37 + 8;
+  const { width, height } = estimateCard(options);
   const margin = 8;
 
   const rawX = align === 'right' ? rect.right - width : rect.left;

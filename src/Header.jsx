@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useDrop } from 'react-dnd';
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
-import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search, Menu, CircleX, Undo2, Redo2 } from 'lucide-react';
+import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search, Menu, CircleX, Undo2, Redo2, MousePointerClick } from 'lucide-react';
 import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from './store/graphStore.js';
 import useHistoryStore from './store/historyStore.js';
@@ -130,7 +130,7 @@ const Header = ({
   const canUndo = useHistoryStore(s => s.history.length + s.currentIndex >= 0);
   const canRedo = useHistoryStore(s => s.currentIndex < -1);
 
-  // The Redstring menu is a browser-only surface now.
+  // The Redstring menu is a WIDE BROWSER surface now.
   //
   // Everything it held lives somewhere better: the preferences in Settings, the
   // verbs on the web in the canvas context menu, the universe operations in the
@@ -138,12 +138,18 @@ const Header = ({
   // Electron the application menu bar is also where a desktop user looks first,
   // so the in-app copy was a second menu saying less than the first.
   //
+  // The width half is the original complaint: the menu is a tree of
+  // absolutely-positioned flyouts, each hung at `left: 100%` off its parent, so
+  // by the second level it is already off the side of a narrow screen. Rather
+  // than teach it to fold, it stands down at exactly the width where the header
+  // gives up on inline actions — the same `isExclusivePanelMode` the hamburger
+  // appears at, so there is ONE width where the header changes shape instead of
+  // two.
+  //
   // Recent Files was the one item with no other home, and is deliberately let
   // go: it exists because desktop apps don't know what you have, and the
   // universes list does.
-  //
-  // Not reactive — an app does not stop being Electron mid-session.
-  const showRedstringMenu = useMemo(() => !isElectron(), []);
+  const showRedstringMenu = !isElectron() && !isExclusivePanelMode;
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const hamburgerWrapperRef = useRef(null);
@@ -171,13 +177,18 @@ const Header = ({
   const [activeTabMaxWidth, setActiveTabMaxWidth] = useState('220px');
 
   // Layout reservations on either side of the scrollable tabs container.
-  // Only the logo (always) and hamburger (exclusive mode only) actually
-  // *block* the tabs — the inline action buttons in wide mode float on top
-  // with z-index, so tabs scroll underneath them. Centering is computed
-  // against the viewport center (see scrollToCenter), not the container's
-  // geometric center, so the container doesn't need to be symmetric.
-  const tabsLeftReserve = HEADER_HEIGHT;
-  const tabsRightReserve = isExclusivePanelMode ? HEADER_HEIGHT : 0;
+  //
+  // The logo used to block the left unconditionally, and the hamburger the
+  // right in exclusive mode. Neither blocks any more: the logo is only present
+  // alongside the menu now, and the hamburger floats over the tabs on the
+  // shared header background exactly as the wide layout's inline buttons
+  // always have — tabs scroll underneath them rather than stopping short.
+  //
+  // So where there is no logo, the tabs run edge to edge on both sides.
+  // Centering is computed against the viewport center (see scrollToCenter),
+  // not the container's geometric center, so it does not need to be symmetric.
+  const tabsLeftReserve = showRedstringMenu ? HEADER_HEIGHT : 0;
+  const tabsRightReserve = 0;
 
   // Calculate dynamic max width for active tab based on header width
   useEffect(() => {
@@ -186,9 +197,8 @@ const Header = ({
 
       const headerWidth = headerRef.current.offsetWidth;
 
-      // Reserve space for whichever set of fixed buttons is rendered for the
-      // current mode (logo + 3 left buttons + 3 right buttons in wide mode;
-      // logo + hamburger in exclusive mode).
+      // Only what actually blocks the tabs, which is now just the logo when
+      // one is present — every button floats over them.
       const fixedButtonsWidth = tabsLeftReserve + tabsRightReserve;
 
       // Generous padding for inactive tabs and breathing room (300px on each side)
@@ -959,24 +969,23 @@ const Header = ({
           zIndex: 1000,
         }}
       >
-        {/* The button stays in the header. The class is a handle for the game
-            controller, which opens this menu by clicking it rather than by
-            reaching into Header's local isMenuOpen state — so where there is no
-            menu to open, the handle comes off with it and the pad's Start finds
-            nothing to walk. Right-click keeps its own menu either way. */}
-        <img
-          className={showRedstringMenu ? 'header-logo-button' : undefined}
+        {/* The class is a handle for the game controller, which opens this menu
+            by clicking it rather than by reaching into Header's local
+            isMenuOpen state — so where there is no menu, neither the button nor
+            the handle is here for Start to find. */}
+        {showRedstringMenu && <img
+          className="header-logo-button"
           src={logos[currentLogoIndex]}
           alt=""
           style={{
             height: `${HEADER_HEIGHT}px`,
             width: `${HEADER_HEIGHT}px`,
             objectFit: 'contain',
-            cursor: (isAnimating || !showRedstringMenu) ? 'default' : 'pointer',
+            cursor: isAnimating ? 'default' : 'pointer',
           }}
-          onClick={showRedstringMenu ? toggleMenu : undefined}
+          onClick={toggleMenu}
           onContextMenu={handleLogoContextMenu}
-        />
+        />}
 
         {showRedstringMenu && <RedstringMenu
           isOpen={isMenuOpen}
@@ -1052,22 +1061,26 @@ const Header = ({
         display: 'flex',
         alignItems: 'center'
       }}>
-        <img
-          className={showRedstringMenu ? 'header-logo-button' : undefined}
+        {/* The logo IS the menu button — it has no other job — so it goes with
+            the menu rather than staying on as a brand mark that no longer does
+            anything. Its container collapses to nothing, and the inline action
+            row below closes up behind it. */}
+        {showRedstringMenu && <img
+          className="header-logo-button"
           src={logos[currentLogoIndex]}
           alt=""
           style={{
             height: `${HEADER_HEIGHT}px`,
             width: `${HEADER_HEIGHT}px`,
             objectFit: 'contain',
-            cursor: (isAnimating || !showRedstringMenu) ? 'default' : 'pointer',
+            cursor: isAnimating ? 'default' : 'pointer',
             display: 'block' // Prevent any inline spacing issues
           }}
-          onClick={showRedstringMenu ? toggleMenu : undefined}
-          onPointerDown={showRedstringMenu ? (e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); toggleMenu(); } } : undefined}
-          onTouchStart={showRedstringMenu ? (e) => { e.stopPropagation(); toggleMenu(); } : undefined}
+          onClick={toggleMenu}
+          onPointerDown={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); toggleMenu(); } }}
+          onTouchStart={(e) => { e.stopPropagation(); toggleMenu(); }}
           onContextMenu={handleLogoContextMenu}
-        />
+        />}
         {showRedstringMenu && <RedstringMenu
           isOpen={isMenuOpen}
           onHoverView={(open) => {
@@ -1124,7 +1137,10 @@ const Header = ({
         <div
           style={{
             position: 'absolute',
-            left: `${HEADER_HEIGHT}px`,
+            // Anchored next to the logo, or to the edge when there is no logo —
+            // on Electron the menu is gone at every width, and leaving this at
+            // HEADER_HEIGHT would hold a logo-shaped hole open beside Undo.
+            left: showRedstringMenu ? `${HEADER_HEIGHT}px` : 0,
             top: 0,
             height: `${HEADER_HEIGHT}px`,
             display: 'flex',
@@ -1409,6 +1425,71 @@ const Header = ({
         </div>
       )}
 
+      {/* Settings (LEFT side, exclusive panel mode only): the counterweight to
+          the hamburger, standing where the logo used to and anchored the same
+          way. Pulled out of the dropdown because it is the one item in there
+          you go looking for on its own rather than in the middle of working,
+          and because a header with a control at one end only reads as
+          unfinished. In wide mode Settings is already an inline button. */}
+      {isExclusivePanelMode && (
+        <div
+          className="header-action-btn"
+          title="Settings"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            height: `${HEADER_HEIGHT}px`,
+            width: `${HEADER_HEIGHT}px`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            backgroundColor: 'transparent',
+            zIndex: 10003,
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            haptic('menuSelect');
+            onActionHoverChange?.({ id: 'header-settings', label: 'Settings' });
+            window.dispatchEvent(new Event('openSettingsModal'));
+          }}
+          onMouseEnter={(e) => {
+            const circle = e.currentTarget.querySelector('.header-btn-circle');
+            if (circle) {
+              circle.style.transform = 'scale(1.06)';
+              circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
+            }
+            onActionHoverChange?.({ id: 'header-settings', label: 'Settings' });
+          }}
+          onMouseLeave={(e) => {
+            const circle = e.currentTarget.querySelector('.header-btn-circle');
+            if (circle) {
+              circle.style.transform = 'scale(1)';
+              circle.style.boxShadow = 'none';
+            }
+            onActionHoverChange?.(null);
+          }}
+        >
+          <div
+            className="header-btn-circle"
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              backgroundColor: '#ffffff',
+              border: '3px solid #7A0000',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'transform 120ms ease, box-shadow 120ms ease',
+            }}
+          >
+            <Settings size={20} color="#7A0000" strokeWidth={2.5} />
+          </div>
+        </div>
+      )}
+
       {/* Hamburger menu (right side, exclusive panel mode only): consolidates
           header actions into a vertical dropdown. In wide mode the same
           actions live as inline buttons rendered above. */}
@@ -1520,13 +1601,27 @@ const Header = ({
           }}
         >
           {[
-            { key: 'undo', Icon: Undo2, iconSize: 20, strokeWidth: 2.5, title: 'Undo', onClick: () => performUndo(), disabled: !canUndo },
-            { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
+            // Order is deliberate and reads top-down from the hamburger: the
+            // thing you came to do (add), the thing you came to keep
+            // (bookmark), then the two you may need repeatedly, then the rest.
+            // This is the primary surface on a phone, so the top of the column
+            // is the part that has to be right.
+            //
+            // Settings is NOT here: it has its own button at the left edge of
+            // the header, opposite the hamburger. It is the one thing in this
+            // column you reach for without already being in the middle of
+            // something, so it does not belong behind a tap.
             { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create New Thing', onClick: () => onCreateNewThing?.() },
             { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
+            { key: 'undo', Icon: Undo2, iconSize: 20, strokeWidth: 2.5, title: 'Undo', onClick: () => performUndo(), disabled: !canUndo },
+            { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
             { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
             { key: 'comp-search', Icon: ScanSearch, iconSize: 22, strokeWidth: 3, title: activeGraph ? `Search ${activeGraph.name}` : 'Search Components', onClick: () => onOpenComponentSearch?.() },
-            { key: 'settings', Icon: Settings, iconSize: 20, strokeWidth: 2.5, title: 'Settings', onClick: () => window.dispatchEvent(new Event('openSettingsModal')) },
+            // The right-click menu, for devices that have no right button. It
+            // holds Auto Layout, Snap to Grid, Condense, Merge and Paste — a
+            // whole surface a phone otherwise cannot reach. NodeCanvas opens it
+            // at the centre of the viewport, as though the click landed there.
+            { key: 'canvas-menu', Icon: MousePointerClick, iconSize: 20, strokeWidth: 2.5, title: 'Canvas Menu', onClick: () => window.dispatchEvent(new CustomEvent('redstring:open-canvas-context-menu')) },
             { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
           ].map((action, idx, arr) => {
             const delay = isHamburgerOpen ? `${idx * 25}ms` : `${(arr.length - 1 - idx) * 25}ms`;

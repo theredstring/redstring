@@ -34,12 +34,13 @@ import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Tria
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
-import { showContextMenu, hideContextMenu } from './components/GlobalContextMenu';
+import { showContextMenu, showContextMenuCentered, hideContextMenu } from './components/GlobalContextMenu';
 import Panel from './Panel';
 import * as fileStorage from './store/fileStorage.js';
 import * as folderPersistence from './services/folderPersistence.js';
 import workspaceService from './services/WorkspaceService.js';
 import universeManagerService from './services/universeManagerService.js';
+import UniverseLoadingScreen from './components/UniverseLoadingScreen.jsx';
 import { haptic, createDetentTrack } from './services/haptics.js';
 import { pickFolder, getFileInFolder, listFilesInFolder, readFile, writeFile } from './utils/fileAccessAdapter.js';
 import AutoGraphModal from './components/AutoGraphModal';
@@ -1495,6 +1496,27 @@ function NodeCanvas() {
   const isUniverseLoading = useGraphStore(state => state.isUniverseLoading);
   const universeLoadingError = useGraphStore(state => state.universeLoadingError);
   const hasUniverseFile = useGraphStore(state => state.hasUniverseFile);
+
+  /*
+   * Which universe the loading screen is waiting on. Read once when the wait
+   * starts rather than subscribed to: the backend's own record is the only
+   * place the name exists before the universe has been loaded into the store,
+   * and it does not change for the life of a single wait.
+   */
+  const [loadingUniverseName, setLoadingUniverseName] = useState(null);
+  useEffect(() => {
+    if (!isUniverseLoading) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const state = await universeManagerService.getState();
+        if (cancelled) return;
+        const active = state.universes?.find(u => u.slug === state.activeUniverseSlug);
+        if (active?.name) setLoadingUniverseName(active.name);
+      } catch { /* the generic wording is a fine fallback */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isUniverseLoading]);
 
   // TEMPORARY DIAGNOSTIC — zoom flicker investigation (H3: SVG unmount/remount)
   // Fires whenever any of the four top-level SVG conditional flags flips. If this
@@ -14737,6 +14759,32 @@ function NodeCanvas() {
     close: () => hideContextMenu(),
   };
 
+  // Raise the blank-canvas context menu without a right-click.
+  //
+  // There is no right mouse button on a phone and none on a game controller,
+  // and this menu is where Auto Layout, Snap to Grid, Condense, Merge and Paste
+  // now live — so on those devices an entire surface was unreachable. The
+  // header's hamburger dispatches this; the pad has its own route through
+  // canvasContextMenuControlRef.
+  //
+  // Centre of the viewport by default, because that is the honest answer to
+  // "where did you click" when nobody clicked. The coordinates are not just
+  // placement: Paste drops its nodes at them.
+  //
+  // Centred rather than dropped from the point: the ordinary path puts the
+  // card's top-left corner under the cursor, which is right when there IS a
+  // cursor to drop away from and simply looks off-centre when there is not.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = (e) => {
+      const x = e?.detail?.x ?? window.innerWidth / 2;
+      const y = e?.detail?.y ?? window.innerHeight / 2;
+      showContextMenuCentered(x, y, getCanvasContextMenuOptions(x, y));
+    };
+    window.addEventListener('redstring:open-canvas-context-menu', handler);
+    return () => window.removeEventListener('redstring:open-canvas-context-menu', handler);
+  }, [getCanvasContextMenuOptions]);
+
   // Context Menu options for nodes - core functionality without pie menu transition logic
   const getContextMenuOptions = useCallback((instanceId) => {
     const node = nodes.find(n => n.id === instanceId);
@@ -15715,34 +15763,10 @@ function NodeCanvas() {
           }}
         >
           {isUniverseLoading ? (
-            // Show loading state while checking for universe file
-            <div
-              style={{
-                height: '100%',
-                backgroundColor: theme.canvas.bg,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexDirection: 'column',
-                gap: '16px',
-                fontFamily: "'EmOne', sans-serif",
-                color: theme.canvas.textPrimary,
-                letterSpacing: '0.06em',
-                fontSize: '18px',
-                pointerEvents: 'none'
-              }}
-            >
-              <div
-                className="loading-spinner"
-                style={{
-                  borderColor: theme.canvas.border,
-                  borderTopColor: theme.canvas.textPrimary,
-                  width: 52,
-                  height: 52
-                }}
-              />
-              <div>Preparing your universe…</div>
-            </div>
+            // Held until the universe actually arrives, or the user says to
+            // stop waiting. See UniverseLoadingScreen for why there is no
+            // longer a timer here.
+            <UniverseLoadingScreen universeName={loadingUniverseName} />
           ) : (!isUniverseLoaded || !hasUniverseFile) ? (
             // Show simplified universe loading screen
             <div style={{
