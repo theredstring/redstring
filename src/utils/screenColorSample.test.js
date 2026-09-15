@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { sampleColorAt } from './screenColorSample.js';
+import { sampleColorAt, bitmapPoint } from './screenColorSample.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const svgTags = new Set(['svg','g','rect','line','path','image','text']);
@@ -113,11 +113,13 @@ describe('connections: visible stroke vs the wider transparent hit path', () => 
   // connection" across the wider one.
   const edge = (pointerY) => {
     const svg = make('svg');
+    // Document order IS paint order in SVG, and the canvas background is
+    // painted first — a background after the connections would cover them.
+    const bg = make('rect', { styles: { fill: 'rgb(189, 181, 181)' }, hit: 'fill' }, svg);
     const g = make('g', {}, svg);
     const visible = make('path', { styles: { fill: 'none', stroke: 'rgb(0, 100, 200)' }, halfWidth: 13.5 }, g);
     const hitPath = make('path', { styles: { fill: 'none', stroke: 'rgba(0, 0, 0, 0)' }, halfWidth: 25 }, g);
     hitPath.setAttribute('data-edge-hit', '');
-    const bg = make('rect', { styles: { fill: 'rgb(189, 181, 181)' }, hit: 'fill' }, svg);
     // Stack as the browser reports it: the transparent hit path is on top.
     return withStack([hitPath, g, bg, svg], () => sampleColorAt(50, pointerY));
   };
@@ -142,6 +144,23 @@ describe('connections: visible stroke vs the wider transparent hit path', () => 
 });
 
 describe('ordering and pruning', () => {
+  /**
+   * A Thing with a picture in it. The body rect accepts the pointer and the
+   * thumbnail does not, so the browser's hit test reports the RECT — which is
+   * underneath the image and opaque. Entering the walk there found the rect's
+   * fill and stopped, and an image inside a node was unreadable however exactly
+   * its pixels could be sampled. Inside an SVG the hit is used only to find the
+   * root; order comes from the document.
+   */
+  it('finds what paints OVER the hit element, not just the hit element', () => {
+    const svg = make('svg');
+    const g = make('g', {}, svg);
+    make('rect', { styles: { fill: 'rgb(139, 0, 0)' } }, g); // body, hit-testable
+    make('rect', { styles: { fill: 'rgb(10, 20, 30)' } }, g); // painted over it
+    // The hit stack reports the body rect, as the browser does.
+    expect(at([svg.querySelector('rect'), g, svg])).toBe('#0a141e');
+  });
+
   it('takes the topmost of stacked siblings', () => {
     const svg = make('svg');
     make('rect', { styles: { fill: 'rgb(1, 1, 1)' } }, svg);
@@ -443,5 +462,103 @@ describe('sampleColorAt — CSS gradients', () => {
     // The middle stop lands at 50%, so the top half is flat black.
     expect(sampleColorAt(50, 25)).toBe('#000000');
     expect(sampleColorAt(50, 75)).toBe('#808080');
+  });
+});
+
+/**
+ * Text. A Thing's name is HTML in a foreignObject, so its colour lives in
+ * `color` and nowhere else — an HTML box's paint used to mean its background
+ * alone, and a name therefore sampled as the rect behind the letters.
+ *
+ * jsdom lays nothing out, so the line boxes a Range would report are supplied
+ * here. That is the only thing being stood in for; the question of which box
+ * the point is in, and what colour comes back, is the real code.
+ */
+describe('sampleColorAt — text', () => {
+  const withLineBoxes = (rects, fn) => {
+    const real = Range.prototype.getClientRects;
+    Range.prototype.getClientRects = () => rects.map(r => ({
+      ...r,
+      right: r.left + r.width,
+      bottom: r.top + r.height,
+    }));
+    try { return fn(); } finally { Range.prototype.getClientRects = real; }
+  };
+
+  /** A label: coloured text on a coloured box, as a node name sits on a node. */
+  const label = () => {
+    const el = box('rgb(139, 0, 0)');
+    el.style.color = 'rgb(189, 181, 181)';
+    el.appendChild(document.createTextNode('Ecology'));
+    hitStack(el);
+    return el;
+  };
+
+  it('reads the text colour on a line of text', () => {
+    label();
+    const line = [{ top: 40, left: 10, width: 120, height: 20 }];
+    expect(withLineBoxes(line, () => sampleColorAt(50, 50))).toBe('#bdb5b5');
+  });
+
+  it('reads the background where the text is not', () => {
+    label();
+    const line = [{ top: 100, left: 10, width: 120, height: 20 }];
+    expect(withLineBoxes(line, () => sampleColorAt(50, 50))).toBe('#8b0000');
+  });
+
+  it('follows text onto its second line', () => {
+    label();
+    const wrapped = [
+      { top: 0, left: 10, width: 120, height: 20 },
+      { top: 40, left: 10, width: 60, height: 20 },
+    ];
+    expect(withLineBoxes(wrapped, () => sampleColorAt(50, 50))).toBe('#bdb5b5');
+    // Past the end of the shorter second line, the box shows again.
+    expect(withLineBoxes(wrapped, () => sampleColorAt(100, 50))).toBe('#8b0000');
+  });
+
+  it('ignores an element whose text is only whitespace', () => {
+    const el = box('rgb(139, 0, 0)');
+    el.style.color = 'rgb(189, 181, 181)';
+    el.appendChild(document.createTextNode('\n  '));
+    hitStack(el);
+    const line = [{ top: 40, left: 10, width: 120, height: 20 }];
+    expect(withLineBoxes(line, () => sampleColorAt(50, 50))).toBe('#8b0000');
+  });
+});
+
+/**
+ * Where a point in an element's box lands in the bitmap drawn there. Node
+ * thumbnails are `preserveAspectRatio="xMidYMid slice"` — object-fit: cover —
+ * so the straight box-to-bitmap map reads a pixel the crop threw away.
+ */
+describe('bitmapPoint', () => {
+  const STRETCH = { stretch: true, alignX: 0, alignY: 0, slice: false };
+  const COVER = { stretch: false, alignX: 0.5, alignY: 0.5, slice: true };
+  const CONTAIN = { stretch: false, alignX: 0.5, alignY: 0.5, slice: false };
+
+  it('stretches a bitmap across the box when told to', () => {
+    // A 50x50 bitmap in a 100x200 box: each axis scales on its own.
+    expect(bitmapPoint(50, 100, 100, 200, 50, 50, STRETCH)).toEqual({ x: 25, y: 25 });
+  });
+
+  it('crops the overflow on the long axis when covering', () => {
+    // A 100x200 portrait covering a 100x100 box: scale 1, 50px cropped off the
+    // top and bottom — so the centre of the box is the centre of the bitmap.
+    expect(bitmapPoint(50, 50, 100, 100, 100, 200, COVER)).toEqual({ x: 50, y: 100 });
+    // And the top of the box is 50px down the bitmap, not its first row.
+    expect(bitmapPoint(50, 0, 100, 100, 100, 200, COVER)).toEqual({ x: 50, y: 50 });
+  });
+
+  it('letterboxes when containing, and paints nothing in the bars', () => {
+    // A 100x50 landscape contained in a 100x100 box: 25px bars top and bottom.
+    expect(bitmapPoint(50, 50, 100, 100, 100, 50, CONTAIN)).toEqual({ x: 50, y: 25 });
+    expect(bitmapPoint(50, 10, 100, 100, 100, 50, CONTAIN)).toBeNull();
+  });
+
+  it('refuses a point outside the bitmap, and a box with no size', () => {
+    expect(bitmapPoint(-1, 10, 100, 100, 100, 100, STRETCH)).toBeNull();
+    expect(bitmapPoint(10, 10, 0, 100, 100, 100, STRETCH)).toBeNull();
+    expect(bitmapPoint(10, 10, 100, 100, 0, 100, STRETCH)).toBeNull();
   });
 });

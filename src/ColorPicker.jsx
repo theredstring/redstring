@@ -4,7 +4,7 @@ import { Pipette } from 'lucide-react';
 import { useTheme } from './hooks/useTheme.js';
 import useMobileDetection from './hooks/useMobileDetection';
 import { cssColorToHex } from './utils/colorUtils';
-import { sampleColorAt } from './utils/screenColorSample.js';
+import { sampleColorAt, primeRasterSources } from './utils/screenColorSample.js';
 import { engageSlider, releaseSlider } from './utils/sliderEngagement.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 import './ColorPicker.css';
@@ -249,6 +249,12 @@ const ColorPicker = ({
 
   useEffect(() => {
     if (!isPicking) return;
+
+    // An image's pixels can only be read through an untainted copy of it, and
+    // fetching one takes a moment — so the fetching starts when the eyedropper
+    // arms rather than when a sight first lands on a picture. See
+    // primeRasterSources.
+    primeRasterSources();
 
     const read = (e) => sampleColorAt(e.clientX, e.clientY, [overlayRef.current, pickerRef.current]);
 

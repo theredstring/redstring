@@ -29,9 +29,17 @@
  *   - element and group `opacity` accumulate down the tree, so a faded layer
  *     contributes what it contributes and not what it would contribute at
  *     full strength;
- *   - `mix-blend-mode: multiply` multiplies.
- * Raster sources — thumbnails, <canvas>, video — were always read exactly, one
- * real pixel out of the bitmap, and still are.
+ *   - `mix-blend-mode: multiply` multiplies;
+ *   - TEXT has a colour, and it is the text's, not its background's. Most of
+ *     the text here is HTML in a foreignObject — a Thing's name is a <div> —
+ *     and an HTML box's paint used to mean its background alone, so a name
+ *     sampled as the rect behind the letters;
+ *   - IMAGES are read as pixels, which took two fixes. A node thumbnail is a
+ *     remote URL and tainted the canvas it had to be drawn into, so every one
+ *     of them was unreadable; and a connection LABEL is an image — a sprite
+ *     baked on an offscreen canvas and drawn rotated along the edge (see
+ *     labelSpriteCache) — so reading a label at all means reading the right
+ *     pixel of that sprite, through its rotation and its fit. See samplePixel.
  *
  * The one layer deliberately NOT composited is a scrim (see isScrim), because a
  * scrim is not something you can see so much as something you are seeing
@@ -40,13 +48,22 @@
  * for the job.
  *
  * WHAT IT STILL CANNOT SEE, stated plainly because a picker that quietly
- * approximates is worse than one whose limits are known: `filter` and
- * `backdrop-filter` (a blur mixes neighbouring pixels, which is a rasteriser's
- * job, not a reader's — the answer here is the unblurred colour underneath,
- * which is the colour the thing IS), blend modes other than multiply, and the
- * exact paint order of two elements that do not hit-test, where one paints over
- * the other from a different branch of the tree (see the note in sampleColorAt).
- * Everything Redstring actually paints on its canvas is inside the lines above.
+ * approximates is worse than one whose limits are known:
+ *   - `filter` and `backdrop-filter`. A blur mixes neighbouring pixels, which
+ *     is a rasteriser's job and not a reader's; the answer here is the
+ *     unblurred colour underneath;
+ *   - blend modes other than multiply;
+ *   - GLYPH COVERAGE. Text is answered per LINE, not per letter: the document
+ *     can be asked where a line of text is, and cannot be asked whether a point
+ *     is on the stem of an `l`. Inside a line of text you get the text's colour
+ *     rather than the background showing between the letters. For choosing a
+ *     colour that is the better answer — having to land on a stem would make
+ *     the mode unusable — but it is not the pixel;
+ *   - `clip-path`. A clipped-away corner of a thumbnail still reads as the
+ *     thumbnail rather than as what shows through it;
+ *   - the exact paint order of two elements that do not hit-test, where one
+ *     paints over the other from a different branch of the tree (see the note
+ *     in sampleColorAt).
  *
  * The other hard part is that the browser's own hit test is not enough.
  * Redstring marks most of what you can see as pointer-events: none — node
@@ -486,35 +503,205 @@ function svgGradientAt(value, el, x, y) {
 let pixelCanvas = null;
 
 /**
- * One pixel out of a raster source — a node thumbnail, a <canvas>, a video
- * frame. Best effort: a cross-origin image taints the canvas and the read
- * throws, which is a null here.
+ * Untainted copies of the images on screen, by URL.
+ *
+ * Two problems, one answer. A node's thumbnail is a direct
+ * upload.wikimedia.org URL — the store holds URLs and never image data, which
+ * is what keeps saves out of V8's out-of-memory — and an <image> with no
+ * `crossorigin` attribute taints any canvas it is drawn into, so reading a
+ * pixel back THROWS. Every auto-enriched image was unreadable, and the sample
+ * fell through to the node's fill behind it. Separately, an SVG <image> exposes
+ * no intrinsic size at all — no naturalWidth — so even an untainted one could
+ * not be mapped from its box onto its bitmap.
+ *
+ * A mirror loaded with CORS answers both: it comes back untainted, and being an
+ * HTMLImageElement it knows its own size. Wikimedia serves
+ * `Access-Control-Allow-Origin: *`, so the fetch is a cache hit in practice.
+ * Nothing on screen is touched by any of this — the canvas keeps rendering the
+ * plain <image> it always did, so a host that refuses CORS costs a reading and
+ * never a picture.
  */
-function samplePixel(el, clientX, clientY) {
-  try {
-    const rect = el.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return null;
-    const natW = el.naturalWidth || el.videoWidth || el.width?.baseVal?.value || el.width || rect.width;
-    const natH = el.naturalHeight || el.videoHeight || el.height?.baseVal?.value || el.height || rect.height;
-    if (!natW || !natH) return null;
+const mirrors = new Map();
+const MAX_MIRRORS = 64;
 
-    // objectFit / preserveAspectRatio are not modelled — for the flat,
-    // box-filling thumbnails Redstring draws, the linear map is the right one.
-    const sx = Math.floor(((clientX - rect.left) / rect.width) * natW);
-    const sy = Math.floor(((clientY - rect.top) / rect.height) * natH);
+/** The mirror for a URL, once it is loaded. Null while loading, or if it failed. */
+function mirrorFor(href) {
+  if (!href) return null;
+  const existing = mirrors.get(href);
+  if (existing) {
+    // `complete` with a zero natural width is a load that FAILED — a host with
+    // no CORS headers, most likely. It stays in the map so the failure is
+    // remembered rather than retried on every frame of a pointer move.
+    return existing.complete && existing.naturalWidth ? existing : null;
+  }
+  if (mirrors.size >= MAX_MIRRORS) mirrors.clear();
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.decoding = 'async';
+  img.src = href;
+  mirrors.set(href, img);
+  // Same-origin sources — the label sprites are data: URLs — are ready within a
+  // frame or two, and the eyedropper samples on every frame it moves.
+  return img.complete && img.naturalWidth ? img : null;
+}
+
+/** The URL an image element is showing, whichever way it says it. */
+function hrefOf(el, tag) {
+  return tag === 'img'
+    ? (el.currentSrc || el.src)
+    : (el.href?.baseVal ?? el.getAttribute('href') ?? el.getAttribute('xlink:href'));
+}
+
+/**
+ * Start loading untainted copies of every image on screen, before anyone asks
+ * for a pixel out of one.
+ *
+ * A mirror is fetched asynchronously, so the first sample over an image comes
+ * back without it and reads whatever is behind instead. With a pointer that is
+ * a frame's worth of wrong colour while you are still moving. With a
+ * CONTROLLER, whose sight only moves when the stick does, it is the answer you
+ * get for as long as you hold still — you aim at a picture, you are told the
+ * colour of the node behind it, and pressing A takes that. Hence priming: the
+ * eyedropper calls this when it arms, and by the time a sight settles anywhere
+ * the copies are in.
+ */
+export function primeRasterSources() {
+  if (typeof document === 'undefined') return;
+  const images = document.querySelectorAll('img, image');
+  for (let i = 0; i < images.length && mirrors.size < MAX_MIRRORS; i += 1) {
+    const el = images[i];
+    // Only what is actually on screen: an off-screen or collapsed image is not
+    // something the sight can be pointed at, and fetching it would be work done
+    // for nothing.
+    const rect = el.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) continue;
+    if (rect.bottom < 0 || rect.top > window.innerHeight) continue;
+    if (rect.right < 0 || rect.left > window.innerWidth) continue;
+    mirrorFor(hrefOf(el, el.tagName?.toLowerCase()));
+  }
+}
+
+/** Where a raster element's bitmap actually lives, and how big it is. */
+function rasterSource(el, tag) {
+  if (tag === 'canvas') {
+    return el.width > 0 && el.height > 0 ? { source: el, width: el.width, height: el.height } : null;
+  }
+  if (tag === 'video') {
+    return el.videoWidth > 0 ? { source: el, width: el.videoWidth, height: el.videoHeight } : null;
+  }
+  const mirror = mirrorFor(hrefOf(el, tag));
+  return mirror ? { source: mirror, width: mirror.naturalWidth, height: mirror.naturalHeight } : null;
+}
+
+/** `preserveAspectRatio` / `object-fit`, reduced to the numbers that matter. */
+function fitOf(el, cs, isSvg) {
+  if (isSvg) {
+    const par = (el.getAttribute('preserveAspectRatio') || 'xMidYMid meet').trim();
+    const [align, meetOrSlice] = par.split(/\s+/);
+    if (align === 'none') return { stretch: true, alignX: 0, alignY: 0, slice: false };
+    const frac = (token) => (token === 'Min' ? 0 : token === 'Max' ? 1 : 0.5);
+    return {
+      stretch: false,
+      alignX: frac(align.slice(1, 4)),
+      alignY: frac(align.slice(5, 8)),
+      slice: meetOrSlice === 'slice',
+    };
+  }
+  // `fill` stretches and is the HTML default; the rest are the SVG cases under
+  // other names. object-position is not read — nothing in the app moves it.
+  const objectFit = cs.objectFit || 'fill';
+  if (objectFit === 'fill') return { stretch: true, alignX: 0, alignY: 0, slice: false };
+  return { stretch: false, alignX: 0.5, alignY: 0.5, slice: objectFit === 'cover' };
+}
+
+/**
+ * Map a point in an element's box onto the bitmap drawn in it, honouring how
+ * that bitmap was fitted.
+ *
+ * Not a formality: node thumbnails are drawn `preserveAspectRatio="xMidYMid
+ * slice"`, which is object-fit: cover — the bitmap is scaled up until it fills
+ * the box and the overflow is cropped off both ends. A straight box-to-bitmap
+ * map reads a pixel the crop threw away, which for a portrait photo in a
+ * landscape slot is most of the picture.
+ *
+ * Exported for its own tests: it is pure geometry, it is where a wrong pixel
+ * would hide silently, and reaching it through a real <image> would mean faking
+ * an image decoder and a 2D context to get at four lines of arithmetic.
+ *
+ * @returns {{x, y}|null} null where the point lands outside the drawn bitmap,
+ *   which is a place the element paints nothing.
+ */
+export function bitmapPoint(u, v, boxW, boxH, natW, natH, fit) {
+  if (boxW <= 0 || boxH <= 0 || natW <= 0 || natH <= 0) return null;
+
+  const uniform = fit.slice
+    ? Math.max(boxW / natW, boxH / natH)
+    : Math.min(boxW / natW, boxH / natH);
+  const scaleX = fit.stretch ? boxW / natW : uniform;
+  const scaleY = fit.stretch ? boxH / natH : uniform;
+
+  const x = (u - (boxW - natW * scaleX) * fit.alignX) / scaleX;
+  const y = (v - (boxH - natH * scaleY) * fit.alignY) / scaleY;
+  if (x < 0 || y < 0 || x >= natW || y >= natH) return null;
+  return { x, y };
+}
+
+/**
+ * One pixel out of a raster source — a node thumbnail, a connection label's
+ * baked sprite, a <canvas>, a video frame.
+ *
+ * The label sprites are why this has to be exact rather than close. A
+ * connection label is not text on the canvas: it is rendered to an offscreen
+ * canvas once, ring and halo and fill baked in, then drawn as an <image>
+ * rotated along its edge (see services/labelSpriteCache). So the only way to
+ * read a label's colour is to read the sprite's pixels, at the right pixel,
+ * through the rotation — which is what the local-space mapping below is for.
+ */
+function samplePixel(el, cs, clientX, clientY) {
+  const tag = el.tagName?.toLowerCase();
+  try {
+    const raster = rasterSource(el, tag);
+    if (!raster) return null;
+
+    const isSvg = Boolean(el.ownerSVGElement);
+    let u;
+    let v;
+    let boxW;
+    let boxH;
+    if (isSvg) {
+      // Through the element's own CTM, so a label rotated along its connection
+      // is read where it actually is rather than somewhere in the axis-aligned
+      // box drawn around it.
+      const local = toLocalPoint(el, clientX, clientY);
+      if (!local) return null;
+      boxW = el.width?.baseVal?.value ?? 0;
+      boxH = el.height?.baseVal?.value ?? 0;
+      u = local.x - (el.x?.baseVal?.value ?? 0);
+      v = local.y - (el.y?.baseVal?.value ?? 0);
+    } else {
+      const rect = el.getBoundingClientRect();
+      boxW = rect.width;
+      boxH = rect.height;
+      u = clientX - rect.left;
+      v = clientY - rect.top;
+    }
+
+    const point = bitmapPoint(u, v, boxW, boxH, raster.width, raster.height, fitOf(el, cs, isSvg));
+    if (!point) return null;
 
     if (!pixelCanvas) pixelCanvas = document.createElement('canvas');
     pixelCanvas.width = 1;
     pixelCanvas.height = 1;
     const ctx = pixelCanvas.getContext('2d', { willReadFrequently: true });
     ctx.clearRect(0, 0, 1, 1);
-    ctx.drawImage(el, sx, sy, 1, 1, 0, 0, 1, 1);
+    ctx.drawImage(raster.source, Math.floor(point.x), Math.floor(point.y), 1, 1, 0, 0, 1, 1);
     const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-    // The alpha is kept rather than used as a yes/no: a thumbnail with a soft
-    // edge composites over the node behind it, which is what you can see.
+    // The alpha is kept rather than used as a yes/no: a sprite is mostly
+    // transparent padding around its glyphs, and a thumbnail with a soft edge
+    // composites over the node behind it. Both are what you can see.
     return { r, g, b, a: a / 255 };
   } catch {
-    return null; // tainted canvas, undecoded image, unsupported source
+    return null; // undecoded image, unsupported source, revoked blob
   }
 }
 
@@ -569,6 +756,36 @@ function svgHitKind(el, x, y) {
   }
 }
 
+/**
+ * The colour of this element's own text, if the point is on a line of it.
+ *
+ * A text node has no box of its own to measure, so the boxes come from a Range
+ * over it — one rect per line, which is what a wrapped Thing name produces.
+ * Only the element's DIRECT text is considered; a child element's text belongs
+ * to the child, and the walk reaches it there.
+ *
+ * LINE boxes, not glyph coverage. There is no API that answers "is this point
+ * on a letter" — glyph coverage lives inside the rasteriser — so the point
+ * being on the line of text is the closest thing to it the document can be
+ * asked. For choosing a colour that is the better answer anyway: pointing at a
+ * label and being told the label's colour is the whole intent, and having to
+ * land on the stem of a letter to get it would make the mode unusable.
+ */
+function textColorAt(el, cs, x, y) {
+  let range = null;
+  for (let i = 0; i < el.childNodes.length; i += 1) {
+    const node = el.childNodes[i];
+    if (node.nodeType !== 3 || !node.nodeValue?.trim()) continue;
+    if (!range) range = document.createRange();
+    range.selectNodeContents(node);
+    const rects = range.getClientRects?.() || [];
+    for (let r = 0; r < rects.length; r += 1) {
+      if (!outsideBox(rects[r], x, y)) return parseColor(cs.color);
+    }
+  }
+  return null;
+}
+
 /** One SVG paint — a colour, or the gradient a `url(#id)` resolves to. */
 function svgPaintAt(el, value, opacityValue, x, y) {
   if (!value) return null;
@@ -597,7 +814,7 @@ function layersFor(el, cs, rect, x, y, alpha) {
   };
 
   if (RASTER_TAGS.has(tag)) {
-    add(samplePixel(el, x, y));
+    add(samplePixel(el, cs, x, y));
     return out;
   }
 
@@ -641,6 +858,13 @@ function layersFor(el, cs, rect, x, y, alpha) {
   // exactly this reason; this is the same rule applied to the layer those two
   // are sitting on. Recognised by shape rather than by class name, so the next
   // dialog written gets it without being added to a list.
+  // HTML text, which is most of the text in the app: a Thing's name is a <div>
+  // inside a foreignObject, not an SVG <text>, and a box's `color` is the only
+  // place its colour is written down. Without this the name of a Thing sampled
+  // as the Thing's fill — the rect behind the letters — which is a different
+  // colour from the one you were pointing at.
+  add(textColorAt(el, cs, x, y));
+
   if (isScrim(el, cs, rect)) return out;
   if (rect && cs.backgroundImage && cs.backgroundImage !== 'none') {
     for (const image of splitTop(cs.backgroundImage)) add(cssGradientAt(image, rect, x, y));
@@ -781,6 +1005,21 @@ function collect(el, x, y, alpha, ctx) {
 }
 
 /**
+ * Where to start the walk for a given hit.
+ *
+ * An element inside an SVG hands back the outermost <svg> around it, because
+ * that is the element whose document order is the canvas's paint order — see
+ * the note in sampleColorAt. Nested <svg>s are walked out of: only the root of
+ * them all is one uninterrupted paint order. Anything else is its own start.
+ */
+function paintRoot(el) {
+  let root = el.ownerSVGElement;
+  if (!root) return el;
+  while (root.ownerSVGElement) root = root.ownerSVGElement;
+  return root;
+}
+
+/**
  * The colour visible at a viewport point.
  *
  * Starts from the browser's hit stack — correct paint order, cheap, and it
@@ -790,13 +1029,25 @@ function collect(el, x, y, alpha, ctx) {
  *
  * The hit stack runs deepest-first, so each entry after the first is usually an
  * ancestor of the one before; `seen` is what stops a subtree already collected
- * from being collected again through its parent. The one thing this ordering
- * cannot get right is a non-hit-testable element that paints OVER the hit
- * element from a different branch — it is reached through their shared
- * ancestor, which is after the hit element in the stack, so it lands behind it
- * rather than in front. In practice the hit is the container in exactly those
- * cases (that is what pointer-events: none on the children means), and the
- * descent finds them in the right order.
+ * from being collected again through its parent.
+ *
+ * INSIDE AN SVG THE HIT STACK IS NOT USED FOR ORDER AT ALL, and that is the
+ * important part. A hit is only ever the topmost element that ACCEPTS a
+ * pointer, and on this canvas the thing that accepts the pointer is usually
+ * underneath the thing you are looking at: a Thing's body rect takes the
+ * pointer, and its thumbnail — pointer-events: none, later in document order,
+ * painted over the rect — does not. Walking down from the rect finds the rect's
+ * own opaque fill and stops there, so an image in a node was unreadable no
+ * matter how exactly its pixels could be sampled. The image is reachable only
+ * through their shared parent, which the hit stack reports AFTER the rect, so
+ * it would land behind the thing it is painted on top of.
+ *
+ * SVG has no z-index: paint order IS document order, with no exceptions. So the
+ * correct root to walk for anything inside an SVG is the SVG itself, and a
+ * reverse-document-order descent from there is exact — the hit that led us in
+ * is used only to find it. HTML keeps the hit stack, where positioning and
+ * z-index mean document order is not paint order and the browser's own answer
+ * is the only reliable one.
  *
  * @param {number} clientX
  * @param {number} clientY
@@ -818,7 +1069,7 @@ export function sampleColorAt(clientX, clientY, ignoreRoots = []) {
   const stack = document.elementsFromPoint?.(clientX, clientY) || [];
   for (const hit of stack) {
     if (ctx.ignored(hit)) continue;
-    if (collect(hit, clientX, clientY, 1, ctx)) break;
+    if (collect(paintRoot(hit), clientX, clientY, 1, ctx)) break;
   }
   return ctx.out.resolve();
 }
