@@ -3,7 +3,16 @@ import { flushSync } from 'react-dom';
 import useGraphStore from '../store/graphStore.js';
 import { isInsideNode } from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
-import { walkMenu, detectOpenSelector, isColorPickerOpen, isContextMenuOpen } from '../utils/gamepadMenuNav.js';
+import {
+  walkMenu,
+  detectOpenSelector,
+  isColorPickerOpen,
+  isContextMenuOpen,
+  isEyedropperPicking,
+  aimEyedropper,
+  commitEyedropper,
+  cancelEyedropper,
+} from '../utils/gamepadMenuNav.js';
 import { createPanelNavigator, stepTab } from '../utils/gamepadPanelNav.js';
 import { lineModeLayout } from '../utils/pieMenuLayout.js';
 import { panToPlacePointAt, createDriftController, crosshairCenter } from '../utils/gamepadAim.js';
@@ -225,6 +234,18 @@ const SLIDER_RATE_PER_FRAME = 1 / 75;
 // One d-pad press moves a slider this portion of its range: a coarse notch for
 // getting close, where the stick is for sweeping and holding is for fine work.
 const SLIDER_STEP_FRACTION = 0.02;
+
+// The eyedropper's cursor: screen px per 60fps frame at full deflection, before
+// the user's pan sensitivity. Deliberately the same number as GAMEPAD_PAN_SPEED
+// — moving the sight across the screen and moving the world under a fixed sight
+// are the same gesture aimed differently, and they should travel at the same
+// rate. Stated separately because they are not the same setting and one may be
+// retuned without the other.
+const EYEDROPPER_SPEED = 16.0;
+
+// One d-pad press moves the sample point a single pixel. The stick crosses the
+// screen; this is for landing exactly on the stroke of a connection.
+const EYEDROPPER_STEP_PX = 1;
 
 // The circular pie layout: 8 fixed slots, slot 0 due North, stepping clockwise.
 // Mirrors NUM_FIXED_POSITIONS / START_ANGLE_OFFSET / FIXED_ANGLE_STEP in
@@ -864,6 +885,10 @@ export const useGamepad = ({
   // over a selector has to swap the walker's target without leaving the mode,
   // and comparing kinds is how that swap is detected.
   const walkerKindRef = useRef(null);
+  // The eyedropper's sample point, in client coords, while it is armed — the
+  // pointer a pad does not otherwise have. Null whenever the eyedropper is not
+  // armed, which is also how the seed-at-the-reticle on arming is detected.
+  const eyedropperRef = useRef(null);
 
   // Cached container rect. getBoundingClientRect() forces a synchronous layout,
   // and this runs every frame right after the loop has written a new transform
@@ -1479,6 +1504,14 @@ export const useGamepad = ({
     // the walker at it — rather than nesting a second mode — means B, A and the
     // stick all keep meaning the same things, just aimed one layer in.
     const pickerOpen = isColorPickerOpen();
+    // The carried pointer belongs to ONE arming of the eyedropper, and is
+    // dropped the moment it is no longer armed — by the commit, by B, or by the
+    // picker going away underneath it — so the next arming seeds at the reticle
+    // rather than resuming wherever the last one was left. Cleared here rather
+    // than in the eyedropper block below because the block is only reached while
+    // a picker is open, and one of the ways an arming ends is the picker not
+    // being open any more.
+    if (eyedropperRef.current && !isEyedropperPicking()) eyedropperRef.current = null;
     const openSelector = pickerOpen ? 'colorPicker' : detectOpenSelector();
     if (openSelector && (currentMode !== MODE.SELECTOR || walkerKindRef.current !== openSelector)) {
       menuWalkerRef.current?.dispose?.();
@@ -1498,6 +1531,56 @@ export const useGamepad = ({
       }
       const walker = menuWalkerRef.current;
       walker?.sync();
+
+      // ---- EYEDROPPER: a mode inside a mode -------------------------------
+      //
+      // Armed, the eyedropper is not one of the picker's rows — it is the whole
+      // screen. So it takes the pad over completely for as long as it is up:
+      // the stick carries the sample point instead of stepping rows, A takes the
+      // colour, and B backs out of the PICK rather than out of the picker,
+      // keeping the same innermost-thing-first rule B follows below.
+      //
+      // Nothing under it is reachable meanwhile, and nothing under it should be:
+      // the panel is at 0.2 opacity and deliberately standing aside, and a
+      // stick that still drove the hue slider from behind the sight would be
+      // changing the colour you are in the middle of pointing at.
+      if (isEyedropperPicking()) {
+        let point = eyedropperRef.current;
+        if (!point) {
+          // Seeded at the reticle — where the pad's aim already is, and the one
+          // point on screen the user is certain to be looking at.
+          point = { x: cross.x, y: cross.y };
+          eyedropperRef.current = point;
+          aimEyedropper(point.x, point.y);
+        }
+        // Neither of these drops the carried pointer itself. Both END the
+        // arming, and the arming is what the pointer belongs to — so it is let
+        // go where every other way out of a pick lets it go, at the top of the
+        // next tick, rather than here and in two other places besides.
+        if (buttons.justPressed[BTN.A]) {
+          commitEyedropper(point.x, point.y);
+          return ZERO_TICK;
+        }
+        if (buttons.justPressed[BTN.B]) {
+          cancelEyedropper();
+          return ZERO_TICK;
+        }
+        const speed = EYEDROPPER_SPEED * tuningRef.current.pan * frameRatio;
+        let dx = left.x * speed;
+        let dy = left.y * speed;
+        // The d-pad steps a pixel at a time, with the same hold-to-repeat every
+        // other stepped surface gets.
+        if (repeats(BTN.DPAD_LEFT)) dx -= EYEDROPPER_STEP_PX;
+        if (repeats(BTN.DPAD_RIGHT)) dx += EYEDROPPER_STEP_PX;
+        if (repeats(BTN.DPAD_UP)) dy -= EYEDROPPER_STEP_PX;
+        if (repeats(BTN.DPAD_DOWN)) dy += EYEDROPPER_STEP_PX;
+        if (dx || dy) {
+          point.x = Math.min(Math.max(point.x + dx, 0), window.innerWidth - 1);
+          point.y = Math.min(Math.max(point.y + dy, 0), window.innerHeight - 1);
+          aimEyedropper(point.x, point.y);
+        }
+        return ZERO_TICK;
+      }
 
       // A focused slider takes the stick's horizontal axis as an ANALOG value,
       // not as a step — see nudgeSlider. Vertical still steps between rows, so

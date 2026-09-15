@@ -16,6 +16,15 @@ const SLIDER_KEYS = new Set([
   'PageUp', 'PageDown', 'Home', 'End'
 ]);
 
+// The controller's sight while the eyedropper is armed. Restated from
+// GamepadCrosshair rather than imported: that component positions itself inside
+// `.canvas-area` against a viewportBounds it is handed, and this one is a fixed
+// point in a portal — there is no shared geometry to reuse, only a shared look.
+// If the reticle there is ever retuned, retune these with it.
+const PAD_RETICLE_ARM = 6;
+const PAD_RETICLE_THICKNESS = 2;
+const PAD_RETICLE_OPACITY = 0.5;
+
 const ColorPicker = ({
   isVisible,
   onClose,
@@ -252,11 +261,23 @@ const ColorPicker = ({
       frame = requestAnimationFrame(() => {
         frame = 0;
         const p = pending;
-        if (p) setSample({ x: p.x, y: p.y, touch: p.touch, color: read(p) });
+        if (p) setSample({ x: p.x, y: p.y, touch: p.touch, pad: p.pad, color: read(p) });
       });
     };
     const track = (e) => {
-      pending = { clientX: e.clientX, clientY: e.clientY, x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch' };
+      pending = {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        x: e.clientX,
+        y: e.clientY,
+        touch: e.pointerType === 'touch',
+        // A controller has no pointer of its own, so it carries one: a point it
+        // moves with the stick and publishes as the pointer moves a mouse would
+        // have made (see the eyedropper block in useGamepad). The only thing
+        // that has to differ on this side is the cursor — there is no system
+        // cursor at that point to stand in for the hotspot, so one is drawn.
+        pad: e.pointerType === 'gamepad'
+      };
       schedule();
     };
     // Pan and zoom stay live while picking — the colour you want is often not on
@@ -450,6 +471,16 @@ const ColorPicker = ({
     '--slider-stroke': theme.canvas.textPrimary
   };
 
+  // What both bars of the controller's sight share; only their geometry differs.
+  const padReticleBar = {
+    position: 'fixed',
+    zIndex: 1000002,
+    pointerEvents: 'none',
+    backgroundColor: theme.darkMode ? '#BDB5B5' : '#260000',
+    opacity: PAD_RETICLE_OPACITY,
+    borderRadius: 1
+  };
+
   return (
     <div
       ref={pickerRef}
@@ -457,6 +488,13 @@ const ColorPicker = ({
       // B can close it before whatever surface is underneath. See
       // utils/gamepadMenuNav.js.
       className="color-picker-panel"
+      // And this is how it knows the eyedropper is armed, which is a mode of
+      // its own for a pad: the whole screen becomes the control, so the rows
+      // below stop being what the stick drives and B backs out of the pick
+      // rather than out of the picker. Declared rather than inferred from the
+      // button's `active` class, which means something different on every other
+      // button in the app.
+      data-picking={isPicking ? 'true' : undefined}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
@@ -494,7 +532,15 @@ const ColorPicker = ({
               plain `* { cursor: none !important }` loses on exactly the things
               you spend this mode hovering over. The repeated :root buys (0,3,0)
               and does nothing else; it is here only to outrank them. */}
-          <style>{':root:root:root, :root:root:root * { cursor: none !important; }'}</style>
+          {/* The controller's own reticle goes with it. It is pinned to the
+              centre of the screen and aims the CANVAS; while the eyedropper is
+              armed nothing is being aimed there, and a second fixed sight
+              sitting a few hundred pixels from the one you are actually moving
+              reads as two cursors. See components/GamepadCrosshair. */}
+          <style>{
+            ':root:root:root, :root:root:root * { cursor: none !important; }'
+            + '.gamepad-crosshair { display: none !important; }'
+          }</style>
           <div
             ref={overlayRef}
             style={{
@@ -528,6 +574,20 @@ const ColorPicker = ({
                 border: '1px solid #cfcfcf'
               }}
             />
+          )}
+          {/* A pad's hotspot needs drawing, because there is no system cursor at
+              it — the point is one the controller carries rather than one the
+              machine is pointing. Same two bars, same size and opacity as the
+              canvas reticle this one stands in for (GamepadCrosshair), so the
+              sight does not change shape when the eyedropper takes it over.
+              Settings → Input's crosshair scale is deliberately not read here:
+              it would mean this component subscribing to the store to size a
+              cursor it shows for a few seconds. */}
+          {sample?.pad && (
+            <>
+              <div style={{ ...padReticleBar, left: sample.x - PAD_RETICLE_ARM, top: sample.y - PAD_RETICLE_THICKNESS / 2, width: PAD_RETICLE_ARM * 2, height: PAD_RETICLE_THICKNESS }} />
+              <div style={{ ...padReticleBar, left: sample.x - PAD_RETICLE_THICKNESS / 2, top: sample.y - PAD_RETICLE_ARM, width: PAD_RETICLE_THICKNESS, height: PAD_RETICLE_ARM * 2 }} />
+            </>
           )}
         </>,
         document.body

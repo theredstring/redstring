@@ -1,5 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { walkMenu, detectOpenSelector, isColorPickerOpen, isContextMenuOpen, FOCUS_CLASS } from '../../src/utils/gamepadMenuNav.js';
+import {
+  walkMenu,
+  detectOpenSelector,
+  isColorPickerOpen,
+  isContextMenuOpen,
+  isEyedropperPicking,
+  aimEyedropper,
+  commitEyedropper,
+  cancelEyedropper,
+  FOCUS_CLASS,
+} from '../../src/utils/gamepadMenuNav.js';
 
 /**
  * The walker is DOM-coupled by design (see the header in gamepadMenuNav.js), so
@@ -330,6 +340,103 @@ describe('walkMenu — sliders', () => {
     document.body.appendChild(sized(btn));
     walkMenu('colorPicker').close();
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The eyedropper. These assert against the listeners the real ColorPicker
+ * attaches while it is armed — window-capture pointer handlers and a
+ * window-capture Escape — because that is the whole contract: the pad has to
+ * produce events those handlers accept, and must not produce ones the rest of
+ * the app also acts on.
+ */
+describe('eyedropper', () => {
+  const armPicker = () => {
+    const panel = document.createElement('div');
+    panel.className = 'color-picker-panel';
+    panel.dataset.picking = 'true';
+    document.body.appendChild(sized(panel, { top: 0, left: 0, width: 300, height: 400 }));
+    return panel;
+  };
+
+  // The picker's own listeners: capture on window, and every pointer event
+  // swallowed so nothing underneath sees the press that was only a sample.
+  const listen = (types) => {
+    const seen = [];
+    const handler = (e) => {
+      seen.push({ type: e.type, key: e.key, x: e.clientX, y: e.clientY });
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    types.forEach(t => window.addEventListener(t, handler, true));
+    return {
+      seen,
+      stop: () => types.forEach(t => window.removeEventListener(t, handler, true)),
+    };
+  };
+
+  it('is armed only while the picker says it is', () => {
+    expect(isEyedropperPicking()).toBe(false);
+    const panel = armPicker();
+    expect(isEyedropperPicking()).toBe(true);
+    delete panel.dataset.picking;
+    expect(isEyedropperPicking()).toBe(false);
+  });
+
+  it('moves the sample point with a pointer move at the given point', () => {
+    armPicker();
+    const l = listen(['pointermove']);
+    expect(aimEyedropper(120, 340)).toBe(true);
+    l.stop();
+    expect(l.seen).toEqual([{ type: 'pointermove', key: undefined, x: 120, y: 340 }]);
+  });
+
+  it('commits with a press and a release, which is what the picker samples on', () => {
+    armPicker();
+    const l = listen(['pointerdown', 'pointerup']);
+    expect(commitEyedropper(10, 20)).toBe(true);
+    l.stop();
+    expect(l.seen.map(e => e.type)).toEqual(['pointerdown', 'pointerup']);
+    expect(l.seen.every(e => e.x === 10 && e.y === 20)).toBe(true);
+  });
+
+  it('does nothing at all once the eyedropper is disarmed', () => {
+    const l = listen(['pointermove', 'pointerdown', 'pointerup']);
+    expect(aimEyedropper(1, 2)).toBe(false);
+    expect(commitEyedropper(1, 2)).toBe(false);
+    expect(cancelEyedropper()).toBe(false);
+    l.stop();
+    expect(l.seen).toEqual([]);
+  });
+
+  it('cancels with an Escape the picker can see', () => {
+    armPicker();
+    const l = listen(['keydown']);
+    expect(cancelEyedropper()).toBe(true);
+    l.stop();
+    expect(l.seen.map(e => e.key)).toEqual(['Escape']);
+  });
+
+  /**
+   * The reason cancel is dispatched on the panel and not on window. The app's
+   * other Escape handlers are bubble-phase listeners on window; with the panel
+   * as the target, the picker's capture handler stops the event before the
+   * bubble phase exists, and they never run. Targeting window instead would put
+   * every one of them AT the target, and Escape would clear the selection
+   * behind the picker on the way out of a pick.
+   */
+  it('keeps Escape away from the app-wide handlers behind the picker', () => {
+    armPicker();
+    const capture = listen(['keydown']); // stands in for the picker's own
+    const appWide = vi.fn();
+    window.addEventListener('keydown', appWide);
+
+    cancelEyedropper();
+
+    window.removeEventListener('keydown', appWide);
+    capture.stop();
+    expect(capture.seen.map(e => e.key)).toEqual(['Escape']);
+    expect(appWide).not.toHaveBeenCalled();
   });
 });
 

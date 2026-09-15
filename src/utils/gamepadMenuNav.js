@@ -289,6 +289,87 @@ const fire = (el, type) => {
  */
 export const isColorPickerOpen = () => Boolean(document.querySelector('.color-picker-panel'));
 
+// ---- The eyedropper ------------------------------------------------------
+//
+// The one control on a walked surface that is not a row. Armed, it turns the
+// WHOLE SCREEN into the control and reads it from real pointer events on
+// `window` — so it is driven here the way everything else in this file is
+// driven: by producing the events a mouse would have produced. The one thing a
+// pad has to supply that a mouse supplies for free is the pointer itself; that
+// point lives in useGamepad, which owns per-frame input, and arrives here as
+// coordinates.
+//
+// Without this the pad was not merely unable to pick — it was STUCK. While the
+// eyedropper is armed the picker swallows pointerdown, pointerup and click in
+// the capture phase on window, which is every route the walker has out of a
+// surface: `close()`'s click-away and `togglePalette()`'s click on the opening
+// button are both eaten before they reach anything.
+
+const EYEDROPPER_PANEL = '.color-picker-panel[data-picking="true"]';
+
+/** Is a colour picker's eyedropper armed? */
+export const isEyedropperPicking = () => Boolean(document.querySelector(EYEDROPPER_PANEL));
+
+// jsdom has no PointerEvent. MouseEvent carries clientX/clientY and dispatches
+// under the same type names, which is all the picker reads off these — it only
+// loses `pointerType`, and the fallback for an unknown pointerType is the mouse
+// cursor, which is the right thing to be wrong about.
+const PointerCtor = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+
+const firePointer = (type, x, y) => {
+  // Dispatched on the body rather than on the element under the point: these
+  // are consumed by window-level capture listeners and never reach a target, and
+  // aiming them at whatever happens to be under the sight would hand a stray
+  // press to a node the user is only looking at.
+  document.body.dispatchEvent(new PointerCtor(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX: x,
+    clientY: y,
+    // Not 'mouse'. The picker draws its cursor differently for a pad — see the
+    // reticle in ColorPicker — and this is the only thing that tells it apart.
+    pointerType: 'gamepad',
+    pointerId: 1,
+    isPrimary: true,
+  }));
+};
+
+/** Move the sample point. Returns false if the eyedropper is no longer armed. */
+export const aimEyedropper = (x, y) => {
+  if (!isEyedropperPicking()) return false;
+  firePointer('pointermove', x, y);
+  return true;
+};
+
+/** Take the colour under the sample point, which also ends the pick. */
+export const commitEyedropper = (x, y) => {
+  if (!isEyedropperPicking()) return false;
+  // The picker samples on the UP; the DOWN is sent as well because that is what
+  // a press is, and because it is what gives the sample a point to read when a
+  // press arrives with no move before it.
+  firePointer('pointerdown', x, y);
+  firePointer('pointerup', x, y);
+  return true;
+};
+
+/** Back out of the pick, leaving the picker — and the colour so far — open. */
+export const cancelEyedropper = () => {
+  const panel = document.querySelector(EYEDROPPER_PANEL);
+  if (!panel) return false;
+  // Escape, which is what a mouse user presses here, and which the picker
+  // handles on its own window-capture listener.
+  //
+  // Dispatched on the PANEL rather than on window, and that is load-bearing.
+  // The picker's handler stops the event dead, and stopping propagation at the
+  // top of a path means the bubble phase never runs — which is where the app's
+  // other Escape handlers live (useCanvasKeyboard, useKeyboardShortcuts,
+  // Header). Dispatched on window, those listeners would all be AT the target
+  // and would every one of them fire, clearing the selection behind the picker
+  // on the way out of a pick.
+  panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  return true;
+};
+
 /**
  * Is the canvas context menu on screen?
  *

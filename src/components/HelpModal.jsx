@@ -192,6 +192,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Bottom panel</strong> (a selected Group, or a box selection): the left stick steps the row, <strong>A</strong> activates</li>
             <li><strong>Selectors and grids</strong> (naming a Thing, Swap): stick or d-pad moves, <strong>A</strong> confirms, <strong>Y</strong> opens the color picker, <strong>B</strong> backs out one layer at a time</li>
             <li><strong>On a focused slider:</strong> the stick sweeps the value, the d-pad steps it in notches</li>
+            <li><strong>Eyedropper</strong> (the pipette in the color picker): the left stick carries the sight, the d-pad nudges it a pixel, <strong>A</strong> takes the color, <strong>B</strong> backs out of the pick</li>
             <li><strong>Semantic orbit:</strong> the left stick aims, <strong>A</strong> materializes the focused item, <strong>B</strong> closes</li>
             <li><strong>Start:</strong> Open the Redstring menu. <strong>Select/Back:</strong> the header's action buttons. B, Start or Select leaves either</li>
           </ul>
