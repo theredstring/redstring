@@ -30,7 +30,7 @@ import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipbo
 import { lineModeBounds, CAROUSEL_SLOT_FRACTION } from './utils/pieMenuLayout.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, Globe, RefreshCw, Activity, GitMerge } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, Globe, RefreshCw, Activity, Combine } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -14617,30 +14617,58 @@ function NodeCanvas() {
           snapToGrid();
         }
       },
+      // Third, above the layout verbs: the wizard is the thing you reach for
+      // most on this menu, so it sits where the hand already is rather than
+      // below a list you have to read past.
+      ...(wizardEnabled ? [{
+        label: 'Ask The Wizard',
+        icon: <Sparkles size={14} />,
+        action: () => {
+          const st = useGraphStore.getState();
+          if (!st.activeGraphId || !st.graphs.get(st.activeGraphId)) return;
+          const facts = webFacts();
+          openWizardPicker(WIZARD_SURFACES.WEB, {}, {
+            facts,
+            subjectLabel: `"${facts.webName}"`
+          });
+        }
+      }] : []),
+      // The merge modal is mounted here in NodeCanvas, but go through the same
+      // event the other entry points use so there is one opener.
+      {
+        label: 'Merge Duplicates',
+        icon: <Merge size={14} />,
+        action: () => {
+          window.dispatchEvent(new Event('openMergeModal'));
+        }
+      },
       // The rest of what the Redstring menu's View section held. They are verbs
       // on the web in front of you, which is what this menu is for and what a
       // File-menu flyout never was — and unlike that flyout, this surface is
       // reachable by touch and already walked by the game controller.
       {
         label: 'Condense Things',
-        icon: <RefreshCw size={14} />,
+        icon: <Combine size={14} />,
         action: () => {
           condenseGraphNodes();
         }
       },
       {
-        label: 'Force Simulation Tuner',
+        label: 'Force Simulation',
         icon: <Activity size={14} />,
         action: () => {
           setForceSimModalVisible(true);
         }
       },
+      // Last, and the only one here that is not about the web: a plain reload.
+      // It was the Redstring menu's File → Refresh, and below the width where
+      // that menu stands down there is otherwise no way to ask for one without
+      // a keyboard.
       {
-        label: 'Merge Duplicates',
-        icon: <GitMerge size={14} />,
+        label: 'Refresh',
+        icon: <RefreshCw size={14} />,
         action: () => {
-          // The merge modal is mounted here; the menu raised it the same way.
-          window.dispatchEvent(new Event('openMergeModal'));
+          window.location.reload();
         }
       }
     ];
@@ -14722,30 +14750,6 @@ function NodeCanvas() {
         }
       });
     }
-    if (wizardEnabled) {
-      options.push({
-        label: 'Ask The Wizard',
-        icon: <Sparkles size={14} />,
-        action: () => {
-          const st = useGraphStore.getState();
-          if (!st.activeGraphId || !st.graphs.get(st.activeGraphId)) return;
-          const facts = webFacts();
-          openWizardPicker(WIZARD_SURFACES.WEB, {}, {
-            facts,
-            subjectLabel: `"${facts.webName}"`
-          });
-        }
-      });
-    }
-    // Bottom of the menu — the merge modal is mounted here in NodeCanvas, but go
-    // through the same event the other entry points use so there is one opener.
-    options.push({
-      label: 'Merge Duplicates',
-      icon: <Merge size={14} />,
-      action: () => {
-        window.dispatchEvent(new Event('openMergeModal'));
-      }
-    });
     return options;
   }, [triggerAutoLayout, snapToGrid, condenseGraphNodes, setForceSimModalVisible, wizardEnabled, openGrowGraphWizardWithPrompt, activeGraphId, graphsMap, storeActions, canvasSize, setSelectedInstanceIds]);
 

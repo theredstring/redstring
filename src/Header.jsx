@@ -12,7 +12,6 @@ import { showContextMenu } from './components/GlobalContextMenu';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { haptic, createDetentTrack } from './services/haptics.js';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from './utils/debugUnlock.js';
-import { isElectron } from './utils/fileAccessAdapter.js';
 
 // Import all logo states
 import logo1 from './assets/redstring_button/header_logo_1.svg';
@@ -130,32 +129,52 @@ const Header = ({
   const canUndo = useHistoryStore(s => s.history.length + s.currentIndex >= 0);
   const canRedo = useHistoryStore(s => s.currentIndex < -1);
 
-  // The Redstring menu is a WIDE BROWSER surface now.
+  // The Redstring menu is a WIDE surface, on every platform.
   //
-  // Everything it held lives somewhere better: the preferences in Settings, the
-  // verbs on the web in the canvas context menu, the universe operations in the
-  // Universes panel, Undo/Redo in this header, export on the save slots. On
-  // Electron the application menu bar is also where a desktop user looks first,
-  // so the in-app copy was a second menu saying less than the first.
+  // It is a tree of absolutely-positioned flyouts, each hung at `left: 100%`
+  // off its parent, so by the second level it is already off the side of a
+  // narrow screen. Rather than teach it to fold, it stands down at exactly the
+  // width where the header gives up on inline actions — the same
+  // `isExclusivePanelMode` the hamburger appears at, so there is ONE width
+  // where the header changes shape instead of two.
   //
-  // The width half is the original complaint: the menu is a tree of
-  // absolutely-positioned flyouts, each hung at `left: 100%` off its parent, so
-  // by the second level it is already off the side of a narrow screen. Rather
-  // than teach it to fold, it stands down at exactly the width where the header
-  // gives up on inline actions — the same `isExclusivePanelMode` the hamburger
-  // appears at, so there is ONE width where the header changes shape instead of
-  // two.
+  // Width is the ONLY condition. Nothing platform-specific: a wide window is a
+  // wide window whether it is a browser tab or the desktop app.
   //
-  // Recent Files was the one item with no other home, and is deliberately let
+  // Below the threshold everything it holds is still reachable — preferences in
+  // Settings, the verbs on the web in the canvas context menu, universe
+  // operations in the Universes panel, Undo/Redo and the rest in the hamburger.
+  // Recent Files is the one item with no other home, and is deliberately let
   // go: it exists because desktop apps don't know what you have, and the
   // universes list does.
-  const showRedstringMenu = !isElectron() && !isExclusivePanelMode;
+  const showRedstringMenu = !isExclusivePanelMode;
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const hamburgerWrapperRef = useRef(null);
   const [currentLogoIndex, setCurrentLogoIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
   const [imagesLoaded, setImagesLoaded] = useState(false);
+
+  /**
+   * Taking the menu away must not leave its state behind.
+   *
+   * `isMenuOpen`, `isAnimating` and the logo frame live up here in Header,
+   * while the menu and the logo that drives it are conditional on
+   * showRedstringMenu — so narrowing the window unmounts the surface and
+   * strands whatever it was doing. Widen again and it comes back holding the
+   * old state: rendered already-open, or parked on an animation frame, with the
+   * first click on the logo CLOSING it rather than opening it. Which reads
+   * exactly like a menu that never came back.
+   *
+   * Reset on the way out rather than the way in, so the surface is always
+   * mounted closed and idle.
+   */
+  useEffect(() => {
+    if (showRedstringMenu) return;
+    setIsMenuOpen(false);
+    setIsAnimating(false);
+    setCurrentLogoIndex(0);
+  }, [showRedstringMenu]);
 
   // Detent spacing (px of scrollLeft) for the header tab strip. Tabs run
   // ~150-220px wide, so this is roughly two or three clicks per tab: enough to
@@ -1137,10 +1156,10 @@ const Header = ({
         <div
           style={{
             position: 'absolute',
-            // Anchored next to the logo, or to the edge when there is no logo —
-            // on Electron the menu is gone at every width, and leaving this at
-            // HEADER_HEIGHT would hold a logo-shaped hole open beside Undo.
-            left: showRedstringMenu ? `${HEADER_HEIGHT}px` : 0,
+            // Anchored next to the logo. This row and the logo share one
+            // condition — both are the wide layout — so there is always a logo
+            // to sit beside here.
+            left: `${HEADER_HEIGHT}px`,
             top: 0,
             height: `${HEADER_HEIGHT}px`,
             display: 'flex',
