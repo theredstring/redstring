@@ -1173,8 +1173,10 @@ const Header = ({
                 justifyContent: 'center',
                 cursor: action.disabled ? 'default' : 'pointer',
                 // Dimmed but still present: the pair holds its place in the row
-                // so the buttons beside it don't shift as history changes.
-                opacity: action.disabled ? 0.4 : 1,
+                // so the buttons beside it don't shift as history changes. Kept
+                // well above a hairline — unavailable should read as quiet, not
+                // as a rendering fault.
+                opacity: action.disabled ? 0.65 : 1,
                 backgroundColor: 'transparent',
               }}
               onClick={(e) => {
@@ -1642,7 +1644,7 @@ const Header = ({
                   backgroundColor: 'transparent',
                   // Folded into the column's own open/close fade rather than
                   // fighting it: dimmed when unavailable, gone when shut.
-                  opacity: isHamburgerOpen ? (action.disabled ? 0.4 : 1) : 0,
+                  opacity: isHamburgerOpen ? (action.disabled ? 0.65 : 1) : 0,
                   transform: isHamburgerOpen ? 'translateY(0) scale(1)' : 'translateY(-12px) scale(0.85)',
                   transition: 'opacity 140ms ease, transform 140ms ease',
                   transitionDelay: delay,
