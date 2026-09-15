@@ -1313,22 +1313,32 @@ class UniverseBackend {
             }
           }
           /*
-           * Wait for the universe until it arrives, or until the user says to
-           * stop waiting.
+           * The five-second timer here did TWO things, and only one of them
+           * was harmful. Removing both was the mistake.
            *
-           * A five-second timer used to end this wait on the user's behalf and
-           * mark the UI loaded while the read was still running. That put an
-           * empty canvas and a "create something" button in front of a
-           * universe that was still on its way — and if the invitation was
-           * accepted, the guard below discarded the arriving universe to
-           * protect the edits. A timer cannot know whether a load is nearly
-           * done, and the cost of guessing wrong was the whole universe.
+           *   1. It stopped backend initialization blocking on the universe
+           *      read. That is load-bearing: everything downstream waits on
+           *      `initialize()`, so awaiting a multi-megabyte read outright
+           *      stalls the whole backend behind it.
+           *   2. It marked the UI LOADED while the read was still running.
+           *      That is the harmful one — it put an empty canvas and a
+           *      "create something" button in front of a universe that was
+           *      still on its way, and the guard below then discarded the
+           *      arriving universe to protect any edits made into it.
+           *
+           * So the ceiling is back, doing only (1). When it fires, init walks
+           * on and the read continues, but nothing claims the universe has
+           * arrived: `isUniverseLoading` stays true and the loading screen
+           * stays up. Only the user's own "Start without it" opens the canvas
+           * early, because only the user can decide that.
            *
            * The load promise is created ONCE and reused by the continuation
            * below. The old path issued a second, redundant read of the same
            * multi-megabyte file.
            */
+          const INIT_UNBLOCK_MS = 5000;
           const ABANDONED = Symbol('LOAD_WAIT_ABANDONED');
+          const STILL_RUNNING = Symbol('LOAD_STILL_RUNNING');
           let abandonWait = null;
           const abandonedByUser = new Promise((resolve) => { abandonWait = () => resolve(ABANDONED); });
           const onStopWaiting = () => abandonWait?.();
@@ -1337,14 +1347,24 @@ class UniverseBackend {
           }
 
           const loadPromise = this.loadUniverseData(activeUniverse, { allowPermissionPrompt: false });
-          const timedResult = await Promise.race([loadPromise, abandonedByUser]);
+          const timedResult = await Promise.race([
+            loadPromise,
+            abandonedByUser,
+            new Promise((resolve) => setTimeout(() => resolve(STILL_RUNNING), INIT_UNBLOCK_MS))
+          ]);
           if (typeof window !== 'undefined') {
             window.removeEventListener('redstring:stop-waiting-for-universe', onStopWaiting);
           }
 
-          if (timedResult === ABANDONED) {
-            umWarn('[UniverseBackend] User chose to stop waiting; the load continues in the background');
-            this.storeOperations?.setUniverseLoaded(true, true);
+          if (timedResult === ABANDONED || timedResult === STILL_RUNNING) {
+            if (timedResult === ABANDONED) {
+              // The user asked to stop waiting. Only now does the canvas open.
+              umWarn('[UniverseBackend] User chose to stop waiting; the load continues in the background');
+              this.storeOperations?.setUniverseLoaded(true, true);
+            } else {
+              // Init walks on; the loading screen stays up until the read lands.
+              umWarn(`[UniverseBackend] Universe read still running after ${INIT_UNBLOCK_MS}ms; continuing init while it finishes`);
+            }
 
             // CRITICAL: Track background load to cancel if needed
             const bgLoadId = Date.now();
