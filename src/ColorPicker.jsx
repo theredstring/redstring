@@ -16,14 +16,14 @@ const SLIDER_KEYS = new Set([
   'PageUp', 'PageDown', 'Home', 'End'
 ]);
 
-// The controller's sight while the eyedropper is armed. Restated from
+// The sight the eyedropper puts where the cursor was. Restated from
 // GamepadCrosshair rather than imported: that component positions itself inside
 // `.canvas-area` against a viewportBounds it is handed, and this one is a fixed
 // point in a portal — there is no shared geometry to reuse, only a shared look.
 // If the reticle there is ever retuned, retune these with it.
-const PAD_RETICLE_ARM = 6;
-const PAD_RETICLE_THICKNESS = 2;
-const PAD_RETICLE_OPACITY = 0.5;
+const RETICLE_ARM = 6;
+const RETICLE_THICKNESS = 2;
+const RETICLE_OPACITY = 0.5;
 
 const ColorPicker = ({
   isVisible,
@@ -261,7 +261,7 @@ const ColorPicker = ({
       frame = requestAnimationFrame(() => {
         frame = 0;
         const p = pending;
-        if (p) setSample({ x: p.x, y: p.y, touch: p.touch, pad: p.pad, color: read(p) });
+        if (p) setSample({ x: p.x, y: p.y, touch: p.touch, color: read(p) });
       });
     };
     const track = (e) => {
@@ -270,13 +270,10 @@ const ColorPicker = ({
         clientY: e.clientY,
         x: e.clientX,
         y: e.clientY,
-        touch: e.pointerType === 'touch',
-        // A controller has no pointer of its own, so it carries one: a point it
-        // moves with the stick and publishes as the pointer moves a mouse would
-        // have made (see the eyedropper block in useGamepad). The only thing
-        // that has to differ on this side is the cursor — there is no system
-        // cursor at that point to stand in for the hotspot, so one is drawn.
-        pad: e.pointerType === 'gamepad'
+        // The only input that changes the cursor. A finger is ON the point and
+        // would cover anything drawn there; a mouse and a controller both sit
+        // behind a sight instead — see the reticle below.
+        touch: e.pointerType === 'touch'
       };
       schedule();
     };
@@ -471,13 +468,13 @@ const ColorPicker = ({
     '--slider-stroke': theme.canvas.textPrimary
   };
 
-  // What both bars of the controller's sight share; only their geometry differs.
-  const padReticleBar = {
+  // What both bars of the sight share; only their geometry differs.
+  const reticleBar = {
     position: 'fixed',
     zIndex: 1000002,
     pointerEvents: 'none',
     backgroundColor: theme.darkMode ? '#BDB5B5' : '#260000',
-    opacity: PAD_RETICLE_OPACITY,
+    opacity: RETICLE_OPACITY,
     borderRadius: 1
   };
 
@@ -575,18 +572,22 @@ const ColorPicker = ({
               }}
             />
           )}
-          {/* A pad's hotspot needs drawing, because there is no system cursor at
-              it — the point is one the controller carries rather than one the
-              machine is pointing. Same two bars, same size and opacity as the
-              canvas reticle this one stands in for (GamepadCrosshair), so the
-              sight does not change shape when the eyedropper takes it over.
-              Settings → Input's crosshair scale is deliberately not read here:
-              it would mean this component subscribing to the store to size a
-              cursor it shows for a few seconds. */}
-          {sample?.pad && (
+          {/* The hotspot itself, drawn because the system cursor is not there to
+              mark it — hidden above for a mouse, and never there at all for a
+              controller, which carries a point rather than pointing one. An
+              arrow cursor marks its hotspot with a corner you have to know to
+              look for; a sight marks it with the one pixel two bars cross at,
+              which is the whole of what this mode is asking you to choose.
+
+              Same two bars, size and opacity as the canvas reticle
+              (GamepadCrosshair), so a controller's sight does not change shape
+              when the eyedropper takes it over. Settings → Input's crosshair
+              scale is deliberately not read here: it would mean this component
+              subscribing to the store to size a cursor it shows for seconds. */}
+          {sample && !sample.touch && (
             <>
-              <div style={{ ...padReticleBar, left: sample.x - PAD_RETICLE_ARM, top: sample.y - PAD_RETICLE_THICKNESS / 2, width: PAD_RETICLE_ARM * 2, height: PAD_RETICLE_THICKNESS }} />
-              <div style={{ ...padReticleBar, left: sample.x - PAD_RETICLE_THICKNESS / 2, top: sample.y - PAD_RETICLE_ARM, width: PAD_RETICLE_THICKNESS, height: PAD_RETICLE_ARM * 2 }} />
+              <div style={{ ...reticleBar, left: sample.x - RETICLE_ARM, top: sample.y - RETICLE_THICKNESS / 2, width: RETICLE_ARM * 2, height: RETICLE_THICKNESS }} />
+              <div style={{ ...reticleBar, left: sample.x - RETICLE_THICKNESS / 2, top: sample.y - RETICLE_ARM, width: RETICLE_THICKNESS, height: RETICLE_ARM * 2 }} />
             </>
           )}
         </>,

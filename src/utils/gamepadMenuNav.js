@@ -326,8 +326,9 @@ const firePointer = (type, x, y) => {
     cancelable: true,
     clientX: x,
     clientY: y,
-    // Not 'mouse'. The picker draws its cursor differently for a pad — see the
-    // reticle in ColorPicker — and this is the only thing that tells it apart.
+    // Honest about what is driving, and the picker only has to tell a FINGER
+    // apart from everything else (a finger covers the point; a mouse and a pad
+    // both sit behind a sight). Anything but 'touch' would do; this says which.
     pointerType: 'gamepad',
     pointerId: 1,
     isPrimary: true,

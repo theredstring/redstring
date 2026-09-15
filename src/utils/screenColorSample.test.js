@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { sampleColorAt } from './screenColorSample.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -163,9 +163,18 @@ describe('ordering and pruning', () => {
     expect(at([pill])).toBe('#dedada');
   });
 
-  it('reads a CSS gradient by its first stop', () => {
+  /**
+   * A gradient is EVALUATED where the pointer is, not answered with its first
+   * stop. The first stop is the right answer at exactly one edge of the box and
+   * wrong across the whole rest of it — and a scroll fade, which is the shape
+   * this turns up in most, is transparent at one end by construction.
+   */
+  it('reads a CSS gradient at the point, not at its first stop', () => {
     const el = make('div', { styles: { backgroundImage: 'linear-gradient(to right, rgb(10, 20, 30), rgb(40, 50, 60))' } });
-    expect(at([el])).toBe('#0a141e');
+    const along = (x) => withStack([el], () => sampleColorAt(x, 50));
+    expect(along(0)).toBe('#0a141e');
+    expect(along(50)).toBe('#19232d');
+    expect(along(100)).toBe('#28323c');
   });
 
   it('does not report a bare <g> as black', () => {
@@ -190,5 +199,249 @@ describe('ordering and pruning', () => {
 
   it('returns null over bare page ground', () => {
     expect(at([document.body, document.documentElement])).toBe(null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The suites below use the REAL getComputedStyle rather than the stub above,
+// because what they are about — alpha, element opacity, gradient stops — is
+// exactly what a hand-written style object would have to invent. They build the
+// styles inline and let jsdom compute them, and supply the two things jsdom has
+// no answer for: a box (it gives everything a zero-size rect) and a hit stack.
+// ---------------------------------------------------------------------------
+
+const VIEWPORT = { width: 1000, height: 800 };
+
+const sized = (el, rect) => {
+  el.getBoundingClientRect = () => ({
+    ...rect,
+    right: rect.left + rect.width,
+    bottom: rect.top + rect.height,
+    x: rect.left,
+    y: rect.top,
+    toJSON() {},
+  });
+  return el;
+};
+
+const full = (el) => sized(el, { top: 0, left: 0, ...VIEWPORT });
+
+/**
+ * The real elementsFromPoint returns the hit-testable elements under a point,
+ * deepest first — so these hand over exactly that, in that order.
+ */
+const hitStack = (...els) => {
+  document.elementsFromPoint = () => [...els, document.body, document.documentElement];
+};
+
+/** A plain HTML box with a background, at a known place. */
+const box = (background, rect = { top: 0, left: 0, width: 200, height: 200 }) => {
+  const el = document.createElement('div');
+  el.style.backgroundColor = background;
+  document.body.appendChild(sized(el, rect));
+  return el;
+};
+
+beforeEach(() => {
+  window.innerWidth = VIEWPORT.width;
+  window.innerHeight = VIEWPORT.height;
+  full(document.body);
+  full(document.documentElement);
+  hitStack();
+});
+
+/**
+ * The bug this file exists for. The sampler used to take the topmost paint's rgb
+ * and drop its alpha, so anything under a translucent layer read as that layer's
+ * colour at full strength — and the unified selector lays an rgba(0,0,0,0.3)
+ * sheet over the entire canvas.
+ */
+describe('sampleColorAt — compositing', () => {
+  it('blends a translucent layer over what is behind it', () => {
+    const behind = box('rgb(200, 0, 0)');
+    const front = box('rgba(0, 0, 255, 0.5)');
+    hitStack(front, behind);
+    // 50% of (0,0,255) over (200,0,0) = (100, 0, 128) after rounding.
+    expect(sampleColorAt(50, 50)).toBe('#640080');
+  });
+
+  it('composites a stack of them in order', () => {
+    const bottom = box('rgb(0, 0, 0)');
+    const middle = box('rgba(255, 255, 255, 0.5)');
+    const top = box('rgba(255, 255, 255, 0.5)');
+    hitStack(top, middle, bottom);
+    // Black, half-whitened twice: 128, then 191.
+    expect(sampleColorAt(50, 50)).toBe('#bfbfbf');
+  });
+
+  it('stops at the first opaque layer', () => {
+    const behind = box('rgb(0, 255, 0)');
+    const opaque = box('rgb(0, 0, 255)');
+    const front = box('rgba(255, 0, 0, 0.5)');
+    hitStack(front, opaque, behind);
+    expect(sampleColorAt(50, 50)).toBe('#800080'); // red over blue, green unseen
+  });
+
+  it('carries element opacity into the layer it contributes', () => {
+    const behind = box('rgb(0, 0, 0)');
+    const front = box('rgb(255, 255, 255)');
+    front.style.opacity = '0.25';
+    hitStack(front, behind);
+    expect(sampleColorAt(50, 50)).toBe('#404040');
+  });
+
+  it('multiplies ancestor opacity down the tree', () => {
+    const behind = box('rgb(0, 0, 0)');
+    const group = box('rgba(0, 0, 0, 0)');
+    group.style.opacity = '0.5';
+    const child = document.createElement('div');
+    child.style.backgroundColor = 'rgb(255, 255, 255)';
+    child.style.opacity = '0.5';
+    group.appendChild(sized(child, { top: 0, left: 0, width: 200, height: 200 }));
+    hitStack(group, behind);
+    // 0.5 × 0.5 of white over black.
+    expect(sampleColorAt(50, 50)).toBe('#404040');
+  });
+
+  it('paints a child over its parent background, not under it', () => {
+    const parent = box('rgb(255, 0, 0)');
+    const child = document.createElement('div');
+    child.style.backgroundColor = 'rgb(0, 0, 255)';
+    parent.appendChild(sized(child, { top: 0, left: 0, width: 200, height: 200 }));
+    hitStack(parent);
+    expect(sampleColorAt(50, 50)).toBe('#0000ff');
+  });
+
+  it('un-premultiplies a stack that never reaches opaque', () => {
+    const only = box('rgba(255, 0, 0, 0.25)');
+    hitStack(only);
+    // Nothing behind it at all: the answer is the colour, not the colour faded
+    // toward a ground that was never there.
+    expect(sampleColorAt(50, 50)).toBe('#ff0000');
+  });
+});
+
+describe('sampleColorAt — scrims', () => {
+  const scrim = () => {
+    const el = document.createElement('div');
+    el.style.position = 'fixed';
+    el.style.backgroundColor = 'rgba(0, 0, 0, 0.3)';
+    document.body.appendChild(full(el));
+    return el;
+  };
+
+  it('reads through a full-screen translucent sheet untinted', () => {
+    const behind = box('rgb(139, 0, 0)');
+    const sheet = scrim();
+    hitStack(sheet, behind);
+    expect(sampleColorAt(50, 50)).toBe('#8b0000');
+  });
+
+  it('still reads a full-screen OPAQUE layer, which is a page and not a scrim', () => {
+    const page = document.createElement('div');
+    page.style.position = 'fixed';
+    page.style.backgroundColor = 'rgb(189, 181, 181)';
+    document.body.appendChild(full(page));
+    hitStack(page);
+    expect(sampleColorAt(50, 50)).toBe('#bdb5b5');
+  });
+
+  it('still reads a translucent layer that is not full-screen', () => {
+    const behind = box('rgb(0, 0, 0)');
+    const panel = document.createElement('div');
+    panel.style.position = 'fixed';
+    panel.style.backgroundColor = 'rgba(255, 255, 255, 0.5)';
+    document.body.appendChild(sized(panel, { top: 0, left: 0, width: 300, height: 800 }));
+    hitStack(panel, behind);
+    expect(sampleColorAt(50, 50)).toBe('#808080');
+  });
+
+  it('keeps walking the scrim\'s own children, which are the dialog on it', () => {
+    const sheet = scrim();
+    const dialog = document.createElement('div');
+    dialog.style.backgroundColor = 'rgb(38, 0, 0)';
+    sheet.appendChild(sized(dialog, { top: 0, left: 0, width: 400, height: 300 }));
+    hitStack(sheet);
+    expect(sampleColorAt(50, 50)).toBe('#260000');
+  });
+});
+
+/**
+ * A gradient used to be answered with its first stop, which for a scroll fade —
+ * transparent at one end by construction — is the one answer that is wrong
+ * everywhere except at the very edge.
+ */
+describe('sampleColorAt — CSS gradients', () => {
+  const gradient = (image, rect = { top: 0, left: 0, width: 100, height: 100 }) => {
+    const el = document.createElement('div');
+    el.style.backgroundImage = image;
+    document.body.appendChild(sized(el, rect));
+    return el;
+  };
+
+  it('evaluates a `to bottom` gradient at the point', () => {
+    const behind = box('rgb(0, 0, 0)');
+    const fade = gradient('linear-gradient(to bottom, rgb(255, 255, 255), rgb(0, 0, 0))');
+    hitStack(fade, behind);
+    expect(sampleColorAt(50, 0)).toBe('#ffffff');
+    expect(sampleColorAt(50, 50)).toBe('#808080');
+    expect(sampleColorAt(50, 99)).toBe('#030303');
+  });
+
+  it('runs `to top` the other way', () => {
+    const behind = box('rgb(0, 0, 0)');
+    const fade = gradient('linear-gradient(to top, rgb(255, 255, 255), rgb(0, 0, 0))');
+    hitStack(fade, behind);
+    expect(sampleColorAt(50, 0)).toBe('#000000');
+    expect(sampleColorAt(50, 100)).toBe('#ffffff');
+  });
+
+  it('honours an angle', () => {
+    const behind = box('rgb(0, 0, 0)');
+    // 90deg is `to right`.
+    const fade = gradient('linear-gradient(90deg, rgb(255, 255, 255), rgb(0, 0, 0))');
+    hitStack(fade, behind);
+    expect(sampleColorAt(0, 50)).toBe('#ffffff');
+    expect(sampleColorAt(50, 50)).toBe('#808080');
+  });
+
+  it('honours explicit stop positions, hard edges included', () => {
+    const behind = box('rgb(0, 0, 0)');
+    const fade = gradient(
+      'linear-gradient(to bottom, rgb(255, 0, 0) 50%, rgb(0, 0, 255) 50%)'
+    );
+    hitStack(fade, behind);
+    expect(sampleColorAt(50, 25)).toBe('#ff0000');
+    expect(sampleColorAt(50, 75)).toBe('#0000ff');
+  });
+
+  it('fades toward transparent without going grey on the way', () => {
+    const behind = box('rgb(0, 0, 0)');
+    // Premultiplied interpolation is the difference between this and #7f0000 —
+    // a red that fades out stays red, it does not darken.
+    const fade = gradient('linear-gradient(to bottom, rgb(255, 0, 0), rgba(255, 0, 0, 0))');
+    hitStack(fade, behind);
+    expect(sampleColorAt(50, 50)).toBe('#800000'); // half-strength red over black
+  });
+
+  it('composites the gradient over the element\'s own background colour', () => {
+    const el = document.createElement('div');
+    el.style.backgroundColor = 'rgb(0, 0, 255)';
+    el.style.backgroundImage = 'linear-gradient(to bottom, rgba(255, 0, 0, 0), rgb(255, 0, 0))';
+    document.body.appendChild(sized(el, { top: 0, left: 0, width: 100, height: 100 }));
+    hitStack(el);
+    expect(sampleColorAt(50, 0)).toBe('#0000ff'); // transparent end: the blue below
+    expect(sampleColorAt(50, 100)).toBe('#ff0000'); // solid end: the red above
+  });
+
+  it('spreads unpositioned stops evenly between the ones that are placed', () => {
+    const behind = box('rgb(0, 0, 0)');
+    const fade = gradient(
+      'linear-gradient(to bottom, rgb(0, 0, 0), rgb(0, 0, 0), rgb(255, 255, 255))'
+    );
+    hitStack(fade, behind);
+    // The middle stop lands at 50%, so the top half is flat black.
+    expect(sampleColorAt(50, 25)).toBe('#000000');
+    expect(sampleColorAt(50, 75)).toBe('#808080');
   });
 });
