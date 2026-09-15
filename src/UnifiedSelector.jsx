@@ -62,8 +62,11 @@ const UnifiedSelector = ({
   const bounds = useViewportBounds(false, false);
   const mobileState = useMobileDetection();
 
-  const showDialog = (searchOnly || mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation');
-  const showGrid = mode === 'node-typing' || mode === 'abstraction-node-creation' || mode === 'node-group-creation' || showCreateNewOption || onNodeSelect;
+  // 'web-creation' names the Thing that defines a new Web. It wants both halves:
+  // the dialog authors a new defining Thing, the grid hands the job to one that
+  // already exists.
+  const showDialog = (searchOnly || mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation' || mode === 'web-creation');
+  const showGrid = mode === 'node-typing' || mode === 'abstraction-node-creation' || mode === 'node-group-creation' || mode === 'web-creation' || showCreateNewOption || onNodeSelect;
 
   const filteredPrototypes = React.useMemo(() => {
     let prototypes = Array.from(nodePrototypesMap.values());
@@ -134,7 +137,7 @@ const UnifiedSelector = ({
     const handleKeyDown = (e) => {
       if (!isVisible) return;
       if (e.key === 'Escape') onClose?.();
-      else if (e.key === 'Enter' && (mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation')) {
+      else if (e.key === 'Enter' && (mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation' || mode === 'web-creation')) {
         handleSubmit();
       }
     };
@@ -419,7 +422,7 @@ const UnifiedSelector = ({
                     // pie-bubble treatment.
                     color={getTextColor(color, theme.darkMode)}
                     onClick={handleSubmit}
-                    title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : 'Create node type'}
+                    title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : mode === 'web-creation' ? 'Create new Thing and open its Web' : 'Create node type'}
                     style={{
                       backgroundColor: color,
                       // Square, so the component's 50% radius reads as a circle.

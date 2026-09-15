@@ -16,7 +16,6 @@ const LeftGridView = ({
   handleGridItemClick,
   closeGraph,
   toggleGraphExpanded,
-  createNewGraph,
   leftPanelExpanded,
   rightPanelExpanded,
   storeActions,
@@ -60,7 +59,11 @@ const LeftGridView = ({
           <PanelIconButton
             icon={Plus}
             size={20}
-            onClick={() => createNewGraph({ name: 'New Thing' })}
+            // Same act as the header's + — open the selector that settles what
+            // defines the new Web. Dispatched rather than called because the
+            // selector is mounted by NodeCanvas, the same route Merge
+            // Duplicates takes out of this panel (see above).
+            onClick={() => window.dispatchEvent(new Event('redstring:new-web'))}
             title="Create New Thing with Graph Definition"
           />
 

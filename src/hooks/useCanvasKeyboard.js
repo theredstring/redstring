@@ -72,6 +72,7 @@ export const useCanvasKeyboard = ({
     nodeNamePrompt,
     connectionNamePrompt,
     abstractionPrompt,
+    newWebPrompt,
     isHeaderEditing,
     isRightPanelInputFocused,
     isLeftPanelInputFocused,
@@ -131,6 +132,7 @@ export const useCanvasKeyboard = ({
         nodeNamePrompt,
         connectionNamePrompt,
         abstractionPrompt,
+        newWebPrompt,
         isHeaderEditing,
         isRightPanelInputFocused,
         isLeftPanelInputFocused,
@@ -235,6 +237,10 @@ export const useCanvasKeyboard = ({
                     else performUndo();
                     return;
                 }
+                case 'new-web':
+                    // Same selector the header's + opens; NodeCanvas mounts it.
+                    window.dispatchEvent(new Event('redstring:new-web'));
+                    return;
                 case 'help':
                     window.dispatchEvent(new Event('openHelpModal'));
                     return;
@@ -266,6 +272,7 @@ export const useCanvasKeyboard = ({
                 nodeNamePrompt,
                 connectionNamePrompt,
                 abstractionPrompt,
+                newWebPrompt,
                 isHeaderEditing,
                 isRightPanelInputFocused,
                 isLeftPanelInputFocused,
@@ -311,6 +318,7 @@ export const useCanvasKeyboard = ({
                 nodeNamePrompt?.visible ||
                 connectionNamePrompt?.visible ||
                 abstractionPrompt?.visible ||
+                newWebPrompt?.visible ||
                 isHeaderEditing ||
                 isRightPanelInputFocused ||
                 isLeftPanelInputFocused ||

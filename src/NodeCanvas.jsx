@@ -5907,6 +5907,32 @@ function NodeCanvas() {
   const [abstractionPrompt, setAbstractionPrompt] = useState({ visible: false, name: '', color: null, direction: 'above', nodeId: null, carouselLevel: null });
   const [nodeGroupPrompt, setNodeGroupPrompt] = useState({ visible: false, name: '', color: null, groupId: null });
 
+  /**
+   * "Create New Thing" — the selector that opens a new Web by settling what
+   * defines it.
+   *
+   * A Web is never anonymous: `createNewGraph` always mints a prototype to
+   * define it, and every one of these entry points used to mint it named "New
+   * Thing" in the default colour, leaving the user to rename a Web they had
+   * already decided on. Naming the Web IS naming its defining Thing, so this
+   * asks once, up front — and because the grid half of the selector is right
+   * there, it can also hand the job to a Thing that already exists, which the
+   * old path had no way to express at all.
+   *
+   * Four entry points share it: the header's +, the empty-canvas +, the Open
+   * Things panel's + (via the window event below, the same route the merge
+   * modal takes out of the panels), and Cmd/Ctrl+N.
+   */
+  const [newWebPrompt, setNewWebPrompt] = useState({ visible: false });
+  const openNewWebPrompt = useCallback(() => setNewWebPrompt({ visible: true }), []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = () => setNewWebPrompt({ visible: true });
+    window.addEventListener('redstring:new-web', handler);
+    return () => window.removeEventListener('redstring:new-web', handler);
+  }, []);
+
   // Add logging for abstraction prompt state changes
   useEffect(() => {
 
@@ -12924,6 +12950,20 @@ function NodeCanvas() {
         return;
       }
 
+      // Cmd/Ctrl+N: the header's + by keyboard. Deliberately not guarded on
+      // text input, same as Cmd+F above — it is a global command, not a
+      // canvas one.
+      //
+      // Browsers reserve Cmd/Ctrl+N for "new window" and never deliver the
+      // keydown here, so in a normal tab this listener simply never runs. It
+      // does run in the desktop app (which routes it through the File menu's
+      // accelerator, see electron/main.cjs) and in an installed PWA window.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        setNewWebPrompt({ visible: true });
+        return;
+      }
+
       // Check if focus is on a text input to prevent conflicts
       const activeElement = document.activeElement;
       const isTextInput = activeElement && (
@@ -13297,6 +13337,7 @@ function NodeCanvas() {
     nodeNamePrompt,
     connectionNamePrompt,
     abstractionPrompt,
+    newWebPrompt,
     isHeaderEditing,
     isRightPanelInputFocused,
     isLeftPanelInputFocused,
@@ -15504,7 +15545,7 @@ function NodeCanvas() {
         headerGraphs={headerGraphs}
         onSetActiveGraph={storeActions.setActiveGraph}
         gamepadFocusedGraphId={gamepadHeaderFocusedGraphId}
-        onCreateNewThing={() => storeActions.createNewGraph({ name: 'New Thing' })}
+        onCreateNewThing={openNewWebPrompt}
         onOpenComponentSearch={() => setHeaderSearchVisible(true)}
         onOpenAllThingsSearch={() => setHeaderAllThingsSearchVisible(true)}
         onActionHoverChange={handlePieMenuHoverChange}
@@ -15908,9 +15949,10 @@ function NodeCanvas() {
                 onClick={(e) => {
                   e.stopPropagation();
                   // Same act as the header's + (Create New Thing), so it gets the
-                  // same feedback — see Header.jsx's action row.
+                  // same feedback — see Header.jsx's action row — and opens the
+                  // same selector rather than minting an unnamed Web.
                   haptic('menuSelect');
-                  storeActions.createNewGraph({ name: 'New Thing' });
+                  openNewWebPrompt();
                 }}
                 onTouchEnd={(e) => {
                   // The canvas container uses touchAction:'none' and intercepts touch events,
@@ -15918,7 +15960,7 @@ function NodeCanvas() {
                   // Handle the tap explicitly here.
                   e.stopPropagation();
                   haptic('menuSelect');
-                  storeActions.createNewGraph({ name: 'New Thing' });
+                  openNewWebPrompt();
                 }}
                 style={{
                   width: '120px',
@@ -17986,6 +18028,34 @@ function NodeCanvas() {
               rightPanelExpanded={rightPanelExpanded}
               searchOnly={true}
               gridTitle="All Things"
+            />
+          )}
+
+          {/* Create New Thing — settle what defines the new Web before opening it */}
+          {newWebPrompt.visible && (
+            <UnifiedSelector
+              mode="web-creation"
+              isVisible={true}
+              leftPanelExpanded={leftPanelExpanded}
+              rightPanelExpanded={rightPanelExpanded}
+              onClose={() => setNewWebPrompt({ visible: false })}
+              onSubmit={({ name, color }) => {
+                // The dialog half: a brand-new Thing, authored here, defines the
+                // Web. createNewGraph mints the prototype, so passing the name
+                // and colour through is all it takes.
+                if (name.trim()) storeActions.createNewGraph({ name: name.trim(), color });
+                setNewWebPrompt({ visible: false });
+              }}
+              onNodeSelect={(prototype) => {
+                // The grid half: an existing Thing takes the job. This is a
+                // second (or third) definition for it where it already had one —
+                // legitimate, and what the abstraction carousel browses.
+                if (prototype?.id) storeActions.createAndAssignGraphDefinition(prototype.id);
+                setNewWebPrompt({ visible: false });
+              }}
+              title="New Thing"
+              subtitle="Name the Thing this Web defines,<br />or pick one that already exists."
+              gridTitle="Define With an Existing Thing"
             />
           )}
 

@@ -420,6 +420,16 @@ function createMenu() {
       label: 'File',
       submenu: [
         {
+          // The header's + by keyboard. It lives here mainly for the
+          // accelerator: browsers keep Cmd/Ctrl+N for themselves and never hand
+          // the keydown to the page, so the desktop app is where this shortcut
+          // can actually exist. The renderer opens the selector.
+          label: 'New Thing',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => sendMenuCommand('new-web')
+        },
+        { type: 'separator' },
+        {
           label: 'Refresh',
           accelerator: 'CmdOrCtrl+R',
           click: () => {

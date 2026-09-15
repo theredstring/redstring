@@ -564,7 +564,6 @@ const Panel = memo(forwardRef(
     // DO NOT create new consolidated subscriptions - this component is optimized for performance
 
     // Destructure selected state and actions (Use props now)
-    const createNewGraph = storeActions?.createNewGraph;
     const setActiveGraph = storeActions?.setActiveGraph;
     const openRightPanelNodeTab = storeActions?.openRightPanelNodeTab;
     const closeRightPanelTab = storeActions?.closeRightPanelTab;
@@ -1966,7 +1965,6 @@ const Panel = memo(forwardRef(
             handleGridItemClick={handleGridItemClick}
             closeGraph={closeGraph}
             toggleGraphExpanded={toggleGraphExpanded}
-            createNewGraph={createNewGraph}
             leftPanelExpanded={leftPanelExpanded}
             rightPanelExpanded={rightPanelExpanded}
             storeActions={storeActions}
