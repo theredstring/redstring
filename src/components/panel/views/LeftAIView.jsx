@@ -554,6 +554,15 @@ function WizardLoadingText() {
   return <span className="wizard-loading-text">{displayText}</span>;
 }
 
+// Per-event agent-loop tracing. Off by default: it emits a line per streamed
+// token, which is fine when you are chasing an event-ordering bug and ruinous
+// when you are not. Turn it on with
+//   localStorage.setItem('rs.wizard.debugEvents', 'true')
+// and reload.
+const WIZARD_EVENT_DEBUG = (() => {
+  try { return localStorage.getItem('rs.wizard.debugEvents') === 'true'; } catch { return false; }
+})();
+
 
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
 const LeftAIView = ({ compact = false,
@@ -2812,6 +2821,9 @@ const LeftAIView = ({ compact = false,
       // Track top-level step statuses to detect step-level vs substep-level changes
       let lastTopLevelStepStatuses = null;
       let planCardCounter = 0;
+      // Mirror of the bubble's text, accumulated out here rather than read back
+      // out of the state updater — see the purity note on `eventNow` below.
+      let accumulatedText = '';
 
       // Same reason as _preCreatedConvId above: this must name the tab the run
       // was started in, which is what the ref holds and the closure may not.
@@ -2821,9 +2833,13 @@ const LeftAIView = ({ compact = false,
           try {
             // Generate unique event ID for deduplication
             const eventId = `${event.type}-${event.id || eventCounter++}-${event.content?.length || 0}`;
-            console.log('[SSE Debug]', callId, 'Parsed:', event.type, event.id || event.name, 'eventId:', eventId, 'alreadyProcessed:', processedEvents.has(eventId));
+            // One line per streamed token is a lot of console for a build that
+            // is not being debugged — opt in with localStorage rs.wizard.debugEvents.
+            if (WIZARD_EVENT_DEBUG) {
+              console.log('[SSE Debug]', callId, 'Parsed:', event.type, event.id || event.name, 'eventId:', eventId, 'alreadyProcessed:', processedEvents.has(eventId));
+            }
             if (processedEvents.has(eventId)) {
-              console.log('[SSE Debug]', callId, '⚠️ SKIPPING DUPLICATE:', event.type, eventId);
+              if (WIZARD_EVENT_DEBUG) console.log('[SSE Debug]', callId, '⚠️ SKIPPING DUPLICATE:', event.type, eventId);
               continue;
             }
             processedEvents.add(eventId);
@@ -2879,7 +2895,33 @@ const LeftAIView = ({ compact = false,
               goalUpdate = { goal: JSON.parse(JSON.stringify(event.result.goal)), timestamp: Date.now() };
             }
 
-            // Internal updater function to apply changes to a message array
+            // One clock read per event, taken HERE and never inside the updater.
+            //
+            // A state updater is a pure function React may re-invoke: a render
+            // that does not commit (an interrupted concurrent render, a
+            // re-entrant external-store write) replays the whole queued update
+            // from its base state. An updater that reads the clock therefore
+            // produces a different result on every replay, so nothing can ever
+            // settle, and an updater that logs or writes to another store runs
+            // those side effects an unbounded number of times.
+            //
+            // That is not hypothetical: the `done` branch below used to call
+            // clearWizardPlanForConversation from inside this function, i.e.
+            // during React's render phase. Zustand notified its subscribers
+            // mid-render, React restarted the render to get a consistent
+            // snapshot, the restart replayed this updater, which wrote to the
+            // store again — a sub-millisecond loop that never committed and
+            // never ended. All it surfaced as was this function's console.log
+            // calls, hundreds of thousands of them, replaying the same
+            // already-finished tool call.
+            const eventNow = Date.now();
+
+            if (event.type === 'response' && event.content) accumulatedText += event.content;
+
+            // Internal updater function to apply changes to a message array.
+            // Keep it pure: no clock, no logging, no store writes, no calls out
+            // to anything that holds state. Everything volatile is computed
+            // above and captured.
             const updateMsgInArray = (currMessages) => {
               const updated = [...currMessages];
               let idx = updated.findIndex(m => m.id === streamingMessageId);
@@ -2905,8 +2947,6 @@ const LeftAIView = ({ compact = false,
               const blocks = Array.isArray(msg.contentBlocks) ? [...msg.contentBlocks] : [];
 
               if (event.type === 'tool_call_start') {
-                const now = Date.now();
-                console.log('[Wizard] tool_call_start received:', event.name, event.id, 'at', now);
                 // Collapse any open thinking block when a tool call starts
                 const openThinkIdx = blocks.findLastIndex(b => b.type === 'thinking' && !b.collapsed);
                 if (openThinkIdx >= 0) blocks[openThinkIdx] = { ...blocks[openThinkIdx], collapsed: true };
@@ -2914,24 +2954,16 @@ const LeftAIView = ({ compact = false,
                 if (existingIndex >= 0) {
                   if (event.name) blocks[existingIndex] = { ...blocks[existingIndex], name: event.name };
                 } else {
-                  blocks.push({ type: 'tool_call', id: event.id, name: event.name || 'Resolving spell...', args: {}, status: 'running', expanded: false, timestamp: now });
-                  console.log('[Wizard] Created tool_call block:', event.name, 'status: running, timestamp:', now);
+                  blocks.push({ type: 'tool_call', id: event.id, name: event.name || 'Resolving spell...', args: {}, status: 'running', expanded: false, timestamp: eventNow });
                 }
               } else if (event.type === 'tool_call') {
-                const now = Date.now();
-                console.log('[Wizard] tool_call received:', event.name, event.id, 'args:', Object.keys(event.args || {}), 'at', now);
                 const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                 if (existingIndex >= 0) {
                   blocks[existingIndex] = { ...blocks[existingIndex], name: event.name, args: event.args, status: 'running' };
-                  const elapsed = now - (blocks[existingIndex].timestamp || now);
-                  console.log('[Wizard] Updated existing tool_call block, elapsed since start:', elapsed, 'ms');
                 } else {
-                  blocks.push({ type: 'tool_call', id: event.id, name: event.name, args: event.args, status: 'running', expanded: false, timestamp: now });
-                  console.log('[Wizard] Created new tool_call block (no tool_call_start received)');
+                  blocks.push({ type: 'tool_call', id: event.id, name: event.name, args: event.args, status: 'running', expanded: false, timestamp: eventNow });
                 }
               } else if (event.type === 'tool_result') {
-                const now = Date.now();
-                console.log('[Wizard] tool_result received:', event.id, 'error:', !!event.result?.error, 'at', now);
                 const toolIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                 if (toolIndex >= 0) {
                   // `cancelled` marks a call the loop announced but never ran (token
@@ -2940,16 +2972,12 @@ const LeftAIView = ({ compact = false,
                   const newStatus = event.result?.cancelled ? 'cancelled'
                     : (event.result?.error || applyError) ? 'failed'
                     : 'completed';
-                  const elapsed = now - (blocks[toolIndex].timestamp || now);
                   blocks[toolIndex] = {
                     ...blocks[toolIndex],
                     status: newStatus,
                     result: event.result,
                     error: event.result?.error || (applyError ? `Could not apply to the graph: ${applyError.message}` : undefined)
                   };
-                  console.log('[Wizard] Updated tool_call to status:', newStatus, 'total elapsed:', elapsed, 'ms');
-                } else {
-                  console.warn('[Wizard] tool_result received but no matching tool_call block found!', event.id);
                 }
                 // Apply pre-computed plan card decision (computed outside updateMsgInArray)
                 if (planUpdate) {
@@ -3010,15 +3038,8 @@ const LeftAIView = ({ compact = false,
                   completionTokens: event.askCompletionTokens || 0,
                   totalTokens: event.askTotalTokens || 0
                 };
-                // The server measures the graph header it actually sent. The
-                // meter previously guessed at a flat 3,750 for it, which was
-                // wrong in both directions depending on the universe.
-                if (typeof event.contextHeaderTokens === 'number') {
-                  setMeasuredContextTokens(event.contextHeaderTokens);
-                }
-                if (event.costBreakdown) {
-                  setCostBreakdown(event.costBreakdown);
-                }
+                // The meter's own state is set below, outside this updater:
+                // calling a setState from inside one is a render-phase update.
               } else if (event.type === 'error') {
                 blocks.push({ type: 'text', content: `Error: ${event.message}` });
                 msg.content = `Error: ${event.message}`;
@@ -3045,17 +3066,8 @@ const LeftAIView = ({ compact = false,
                 } else if (event.reason === 'nudge_limit' && event.goalOpen) {
                   blocks.push({ type: 'system_note', content: 'The Wizard stopped without judging the goal. It stays open — "continue" resumes it, or ask for a verdict.' });
                 }
-                // A verdict ends the work whatever the plan says; a leftover
-                // unfinished plan would otherwise be resumed by the next ask.
-                if (event.reason === 'goal_satisfied' || event.reason === 'goal_failed') {
-                  try { useGraphStore.getState().clearWizardPlanForConversation(targetConversationId); } catch { /* store unavailable */ }
-                }
-
-                if (persona === 'druid' && druidInstance) {
-                  druidInstance.processMessage(msg.content, [...updated, msg].map(m => ({
-                    role: m.sender === 'ai' ? 'assistant' : 'user', content: m.content
-                  })));
-                }
+                // The graph-store write and the druid hand-off that used to live
+                // here have moved below the setState calls — see `eventNow`.
               }
 
               msg.contentBlocks = blocks;
@@ -3082,6 +3094,37 @@ const LeftAIView = ({ compact = false,
               }
               return prev;
             });
+
+            // Side effects that belong to this event, run AFTER the state
+            // updates are queued and outside every updater, so they happen
+            // exactly once per event no matter how often React replays a
+            // non-committed render.
+            if (event.type === 'usage') {
+              // The server measures the graph header it actually sent. The
+              // meter previously guessed at a flat 3,750 for it, which was
+              // wrong in both directions depending on the universe.
+              if (typeof event.contextHeaderTokens === 'number') {
+                setMeasuredContextTokens(event.contextHeaderTokens);
+              }
+              if (event.costBreakdown) {
+                setCostBreakdown(event.costBreakdown);
+              }
+            }
+            if (event.type === 'done') {
+              // A verdict ends the work whatever the plan says; a leftover
+              // unfinished plan would otherwise be resumed by the next ask.
+              if (event.reason === 'goal_satisfied' || event.reason === 'goal_failed') {
+                try { useGraphStore.getState().clearWizardPlanForConversation(targetConversationId); } catch { /* store unavailable */ }
+              }
+              if (persona === 'druid' && druidInstance) {
+                const history = (messagesRef.current || []).map(m => ({
+                  role: m.sender === 'ai' ? 'assistant' : 'user',
+                  content: m.content
+                }));
+                const finalText = accumulatedText.trimEnd();
+                druidInstance.processMessage(finalText, [...history, { role: 'assistant', content: finalText }]);
+              }
+            }
 
           } catch (e) {
             // One bad event must not kill the run — same tolerance the SSE

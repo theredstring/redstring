@@ -12,6 +12,16 @@ import {
 import { getNodeLabelStyle } from './utils/nodeLabelStyle.js';
 import { getFixedOverlayOrigin } from './utils/appViewport.js';
 import useGraphStore from './store/graphStore.js';
+
+// Carousel tracing. These fire from a useMemo and from the physics loop, so
+// they are per-render/per-frame: useful while working on the chain or the
+// snapping, pure noise otherwise (and they were a real share of the console
+// flood during a wizard run with the carousel open). Turn on with
+//   localStorage.setItem('rs.carousel.debug', 'true')
+const CAROUSEL_DEBUG = (() => {
+  try { return localStorage.getItem('rs.carousel.debug') === 'true'; } catch { return false; }
+})();
+const clog = (...args) => { if (CAROUSEL_DEBUG) console.log(...args); };
 import useImageCache from './services/imageCache.js';
 import { useTheme } from './hooks/useTheme.js';
 import { createDetentTrack } from './services/haptics.js';
@@ -237,7 +247,7 @@ const AbstractionCarousel = ({
   const abstractionChainWithDims = useMemo(() => {
     if (!selectedNode) return [];
 
-    console.log('[AbstractionCarousel] Building chain for selectedNode:', {
+    clog('[AbstractionCarousel] Building chain for selectedNode:', {
       id: selectedNode.id,
       prototypeId: selectedNode.prototypeId,
       name: selectedNode.name,
@@ -265,7 +275,7 @@ const AbstractionCarousel = ({
     const chainNodeIds = resolved.chain;
     const chainOwnerNodeId = resolved.ownerId;
 
-    console.log('[AbstractionCarousel] Chain search result:', {
+    clog('[AbstractionCarousel] Chain search result:', {
       chainNodeIds,
       chainOwnerNodeId,
       seeded: resolved.seeded,
@@ -273,7 +283,7 @@ const AbstractionCarousel = ({
       selectedNodeInChain: chainNodeIds.includes(selectedNode.prototypeId)
     });
 
-    console.log('[AbstractionCarousel] Final chain setup:', {
+    clog('[AbstractionCarousel] Final chain setup:', {
       chainNodeIds,
       chainOwnerNodeId,
       currentDimension,
@@ -369,7 +379,7 @@ const AbstractionCarousel = ({
       return { ...item, baseDimensions, labelSizeMul };
     });
 
-    console.log('[AbstractionCarousel] Final chain with dimensions:', {
+    clog('[AbstractionCarousel] Final chain with dimensions:', {
       chainLength: finalChain.length,
       chainItems: finalChain.map(item => ({
         id: item.id,
@@ -401,7 +411,7 @@ const AbstractionCarousel = ({
       return minLevel - 0.1;
     }
 
-    console.log(`[AbstractionCarousel] Physics min level: ${minLevel}, reachable levels:`, reachableLevels);
+    clog(`[AbstractionCarousel] Physics min level: ${minLevel}, reachable levels:`, reachableLevels);
     // Clamp exactly AT the outermost node's center, not inside it. The buffer used to be
     // added inward (minLevel + 0.05 / maxLevel - 0.05), which puts the outermost rungs
     // just outside the reachable range and leaves them permanently a hair off-center.
@@ -428,7 +438,7 @@ const AbstractionCarousel = ({
       return maxLevel + 0.1;
     }
 
-    console.log(`[AbstractionCarousel] Physics max level: ${maxLevel}, reachable levels:`, reachableLevels);
+    clog(`[AbstractionCarousel] Physics max level: ${maxLevel}, reachable levels:`, reachableLevels);
     // See physicsMinLevel: clamp at the center, not inside it.
     return maxLevel;
   }, [abstractionChainWithDims]);
@@ -786,7 +796,7 @@ const AbstractionCarousel = ({
     if (Math.abs(currentState.velocity) > MIN_VELOCITY || currentState.isSnapping) {
       animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
     } else {
-      console.log('🔴CD loop-stop', { realPosition: currentState.realPosition, targetPosition: currentState.targetPosition, velocity: currentState.velocity, isSnapping: currentState.isSnapping });
+      clog('🔴CD loop-stop', { realPosition: currentState.realPosition, targetPosition: currentState.targetPosition, velocity: currentState.velocity, isSnapping: currentState.isSnapping });
       animationFrameRef.current = null;
     }
   }, [isVisible, abstractionChainWithDims, onScaleChange, onFocusedNodeDimensions, physicsMinLevel, physicsMaxLevel, runPhysicsAction]);
@@ -798,7 +808,7 @@ const AbstractionCarousel = ({
 
   // Start physics loop when component becomes visible
   useEffect(() => {
-    console.log('🔴CD isVisible-effect', { isVisible, hadFrame: !!animationFrameRef.current });
+    clog('🔴CD isVisible-effect', { isVisible, hadFrame: !!animationFrameRef.current });
     if (isVisible && !animationFrameRef.current) {
       // Reset all state when carousel opens
       runPhysicsAction({ type: 'RESET' });
@@ -1268,7 +1278,7 @@ const AbstractionCarousel = ({
       // dropping the request permanently on whichever render lost the race.
       return;
     }
-    console.log('🔴CD jump-dispatch', { focusPrototypeRequest, level: item.level, hadFrame: !!animationFrameRef.current });
+    clog('🔴CD jump-dispatch', { focusPrototypeRequest, level: item.level, hadFrame: !!animationFrameRef.current });
     runPhysicsAction({ type: 'JUMP_TO_LEVEL', payload: item.level });
     if (!animationFrameRef.current) {
       lastFrameTimeRef.current = performance.now();

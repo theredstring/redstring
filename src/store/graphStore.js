@@ -8595,6 +8595,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} conversationId - Conversation or tab ID whose plan to clear.
      */
     clearWizardPlanForConversation: (conversationId) => set((state) => {
+      // Bail out when there is nothing to clear. Rebuilding the map
+      // unconditionally handed Zustand a fresh object on every call, so a
+      // repeated clear (the same conversation finishing, a re-invoked caller)
+      // notified every subscriber and re-hashed the whole state for a delete
+      // that removed nothing — and any caller that ran during React's render
+      // phase turned that into a render loop that could never settle, because
+      // the snapshot changed on every attempt.
+      if (!state.wizardPlansByConversation
+        || !Object.prototype.hasOwnProperty.call(state.wizardPlansByConversation, conversationId)) {
+        return {};
+      }
       const next = { ...state.wizardPlansByConversation };
       delete next[conversationId];
       return { wizardPlansByConversation: next };
@@ -8617,6 +8628,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} conversationId
      */
     clearWizardGoalForConversation: (conversationId) => set((state) => {
+      // Same bail-out as clearWizardPlanForConversation above.
+      if (!state.wizardGoalsByConversation
+        || !Object.prototype.hasOwnProperty.call(state.wizardGoalsByConversation, conversationId)) {
+        return {};
+      }
       const next = { ...state.wizardGoalsByConversation };
       delete next[conversationId];
       return { wizardGoalsByConversation: next };
