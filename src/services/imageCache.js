@@ -22,6 +22,28 @@
  */
 import { create } from 'zustand';
 
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+/**
+ * Would storing `next` over `prev` change anything a subscriber can see?
+ *
+ * Deliberately narrow. "Same" means the identical reference, or two objects
+ * with the same own enumerable keys whose values are all Object.is-equal — for the
+ * real shape, the same `thumbnailSrc` string AND the same `imageAspectRatio`.
+ * Anything else (a different blob URL, a changed ratio, an extra or missing
+ * field, a non-object) counts as a change and is written exactly as before.
+ */
+function isSameImageEntry(prev, next) {
+  if (Object.is(prev, next)) return true;
+  if (!prev || !next || typeof prev !== 'object' || typeof next !== 'object') return false;
+  const keys = Object.keys(prev);
+  if (keys.length !== Object.keys(next).length) return false;
+  for (const key of keys) {
+    if (!hasOwn(next, key) || !Object.is(prev[key], next[key])) return false;
+  }
+  return true;
+}
+
 const useImageCache = create((set, get) => ({
   images: {}, // { [protoId]: { thumbnailSrc: string, imageAspectRatio: number } }
   loading: {}, // { [protoId]: true } — a user upload is being read/decoded (drives the shimmer placeholder)
@@ -34,6 +56,16 @@ const useImageCache = create((set, get) => ({
 
   /** Store a thumbnail for a node prototype */
   setImage: (protoId, data) => set(state => {
+    // Writing what is already cached is a no-op. Returning `state` itself is how
+    // a Zustand updater says so: no new `images` object, so no subscriber
+    // re-renders. The whole-map subscribers (NodeCanvas, the carousel) would
+    // otherwise re-render for a write that changed nothing. A set `failed` flag
+    // always takes the write path, because clearing it IS a change.
+    if (!state.failed[protoId]
+      && hasOwn(state.images, protoId)
+      && isSameImageEntry(state.images[protoId], data)) {
+      return state;
+    }
     // Success clears any prior failure so the node stops rendering its
     // missing-image state.
     if (!state.failed[protoId]) {
@@ -62,6 +94,11 @@ const useImageCache = create((set, get) => ({
 
   /** Remove cached image for a node prototype */
   clearImage: (protoId) => set(state => {
+    // Nothing cached, nothing to clear — return `state` so no subscriber runs.
+    // cancelThumbnailFetch and retryThumbnailFetch both call this whether or
+    // not an entry exists, and each call used to hand every whole-map
+    // subscriber a fresh `images` object.
+    if (!hasOwn(state.images, protoId)) return state;
     const next = { ...state.images };
     const dropped = next[protoId];
     delete next[protoId];
