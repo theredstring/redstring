@@ -63,6 +63,10 @@ This table is filled in by P0.04. Record the commit hash.
 
 | Date | Task | Scenario | Before | After | Commit | Notes |
 |---|---|---|---|---|---|---|
+| 2026-09-23 | P0.01 | S1 (headless Chromium, profile build) | 126 commits for one pan | (baseline) | eb50e73 | Probe matched an independent counter 126/126 |
+| 2026-09-23 | P1.01 | S1 / S1t (jsdom Profiler, 30 moves) | 60 commits | 0 | 013cfa8 | 2 commits per frame on the base (F-67). Test: src/NodeCanvas.renderBudget.test.jsx |
+| 2026-09-23 | P1.07 | Render-time network requests (jsdom) | 3 POSTs | 0 | d26dc7a | debugLogSync removed from render |
+| 2026-09-23 | P1.11 | keydown listener attachments over 5 re-renders | 4 → 9 | 4 → 4 | 9e4cdfe | Attaches once per mount |
 
 ## Size history
 
@@ -73,3 +77,4 @@ The ratchet budget lives in `test/meta/nodecanvas-budget.json` once P0.07 lands.
 | 2025-10-23 | 48fb32f | 10,986 | — | initial release |
 | 2026-09-09 | 071d5c3 | 20,519 | — | peak |
 | 2026-09-23 | 1e6ab02 | 19,255 | 4,383 | audit baseline |
+| 2026-09-23 | d55fe5b (wave 1 integration) | 18,518 | — | P1.01 + P1.07 + P1.02; budget lowered to 18,518 |

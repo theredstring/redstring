@@ -125,7 +125,8 @@ One **orchestrating session** starts agents in git worktrees, reviews what they 
   - any deviations from the card
   - a handoff note
 - **node_modules:** a new worktree has none. Symlink it from the main checkout (`ln -s /Users/granteubanks/Code/redstringuireact/node_modules node_modules`). If your task adds a dependency, delete the symlink and run a real `npm install` in the worktree instead.
-- **Dev servers:** use a non-default port (e.g. `--port 48xx`). Grant's dev server may be on 4001.
+- **Dev servers:** use a non-default port (e.g. `--port 48xx`). Grant's dev server may be on 4001. **Never run a Vite dev or preview server while `node_modules` is symlinked**: it writes into the main checkout's `.vite` cache (F-68). vitest and `vite build` are fine.
+- **Check your base first.** Worktrees have been created from a stale commit (F-68). Before any work, run `git merge-base --is-ancestor main HEAD`. If `main` isn't an ancestor and you have no commits yet, move up with `git reset --keep main`.
 
 **The orchestrator, after each agent finishes:**
 1. Reviews the branch and runs its verification.
@@ -134,11 +135,8 @@ One **orchestrating session** starts agents in git worktrees, reviews what they 
 4. Updates **In flight**.
 
 **In flight** (edit this when you claim or finish a task):
-- **Lane A:** P1.01 → P1.07 → P1.02 → P1.13, worktree agent, started 2026-09-23
-- **Lane B:** P0.01, worktree agent, started 2026-09-23
-- **Lane B:** P0.02 + P0.03, worktree agent, started 2026-09-23
-- **Lane B:** P0.05 + P0.07, worktree agent, started 2026-09-23
-- **Lane C:** P1.09 + P1.11, worktree agent, started 2026-09-23
+- **Lane B:** P0.02 + P0.03 (fixtures, loader, Playwright flows), worktree agent, started 2026-09-23
+- Wave 1 (P0.01, P0.05, P0.07, P1.01, P1.02, P1.07, P1.09, P1.11, P1.13 partial) is merged on branch `refactor/wave1-integration`, waiting for Grant's OK to merge into `main`
 
 ## Rules carried over from project memory
 
@@ -155,8 +153,8 @@ Worktree agents may not see Grant's memory, so these are repeated here.
 
 | Phase | File | Goal | Status |
 |---|---|---|---|
-| P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | not started |
-| P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | not started |
+| P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | in progress: P0.01, P0.05, P0.07 done; P0.02/P0.03 running; P0.04, P0.06 todo |
+| P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | in progress: P1.01, P1.02, P1.07, P1.09, P1.11 done; P1.13 partial (B-03 needs Grant) |
 | P2 | [phases/P2-ui-store-and-shell.md](phases/P2-ui-store-and-shell.md) | UI store for shared state; move Header, Panels, TypeList and modals out of NodeCanvas | not started |
 | P3 | [phases/P3-canvas-layers.md](phases/P3-canvas-layers.md) | Render layers for groups, edges, nodes and overlays; narrow subscriptions; stable handlers | not started |
 | P4 | [phases/P4-input-controllers.md](phases/P4-input-controllers.md) | Camera controller, pointer-gesture state machine, input consolidation | not started |

@@ -15,7 +15,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 
 ## Re-render triggers (F-01 – F-19)
 
-**F-01. Dead `panStart` state is set on every drag-pan frame.** VERIFIED (rate INFERRED).
+**F-01. Dead `panStart` state is set on every drag-pan frame.** VERIFIED (rate INFERRED). **→ resolved in P1.01 (013cfa8). The base cost was actually 2 commits per frame; see F-67**
 - `setPanStart` (~2972) writes both `panStartRef` and the `panStart` state.
 - It is called inside the drag-pan rAF (~11804) on every frame where the view moves. It is also inside a `setPanOffset` updater, which makes that updater impure.
 - The `panStart` state value is never read anywhere; only `panStartRef` is used.
@@ -48,7 +48,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - The pie-data effect then cascades on top of that.
 - → P5.04
 
-**F-07. Whole-collection subscriptions re-render NodeCanvas on writes anywhere in the universe.** VERIFIED.
+**F-07. Whole-collection subscriptions re-render NodeCanvas on writes anywhere in the universe.** VERIFIED. **→ partly: no-op guards landed in P1.09 (2aaa2cf, 4f97ba0); whole-collection subscriptions remain until P3.01**
 - NodeCanvas subscribes to all of these (~1443–1529):
   - `graphs`, `nodePrototypes`, `edges`, `edgePrototypes`
   - `savedNodeIds`, `openGraphIds`
@@ -81,7 +81,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - Hovering a pie, header or panel button sets vision state with no dwell: 2 commits per button.
 - → P2.13, P3.06
 
-**F-11. Settling a gesture always renders.** VERIFIED.
+**F-11. Settling a gesture always renders.** VERIFIED. **→ partly: settles with no movement skipped in P1.09 (f85a6f5); settle still renders NodeCanvas until P3.10**
 - `useCanvasTransform` sets a fresh `setSettledPan({...})` object on every settle (`useCanvasTransform.js` ~252–267).
 - The culling prune pass (~4812) may add one more commit.
 - → P1.09, P3.10, P3.11
@@ -94,7 +94,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - Panel has a custom memo comparator (see F-50).
 - → P2
 
-**F-14. The keyboard listener is torn down and re-added on every render.** VERIFIED.
+**F-14. The keyboard listener is torn down and re-added on every render.** VERIFIED. **→ resolved in P1.11 (9e4cdfe)**
 - The `useCanvasKeyboard` keydown effect has about 22 dependencies (`useCanvasKeyboard.js` ~784).
 - One of them is `deleteMultipleNodesWithAnimation`, a plain arrow function in NodeCanvas (~6946), so its identity changes every render.
 - → P1.11
@@ -158,7 +158,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - **Memos:** `prevNodesRef`, `dimensionCacheRef` and `labelCrossingGenerationRef` are written inside memos.
 - → P3.03, P3.05
 
-**F-26. Debug work runs during render.** VERIFIED.
+**F-26. Debug work runs during render.** VERIFIED. **→ resolved in P1.07 (d26dc7a)**
 - `debugLogSync(...)` (~17134) **POSTs to a local debug server during render** whenever parallel edge pairs exist, with a cooldown after a failure (`debugLogger.js` ~182–215).
 - `edgePairGroupsDebug` does a sort+join per edge on every render.
 - An `ArrowheadAudit` loop over the visible edges `console.warn`s (~17138).
@@ -328,6 +328,23 @@ This state is used across clusters and must move to a store before the clusters 
   - Weight S10b, S11, S6 and S7 heavily.
   - Use the synthetic stress fixture only to find scaling cliffs, not to represent real use.
 
+**F-67. Measured baseline for drag-pan (wave 1).** VERIFIED.
+- In jsdom (Profiler): mouse and one-finger drag-pan cost **2 commits per frame** on the base (`panStart` + a repeated `setHasMouseMovedSinceDown(true)`), i.e. 60 commits per 30 moves. After P1.01: 0.
+- In headless Chromium: one pan gesture on the base was **126 NodeCanvas commits** (P0.01 probe, cross-checked against an independent counter).
+
+**F-68. Process hazards found running wave 1.** VERIFIED.
+- Agent worktrees were created at `b5444cc`, several commits behind `main`, not at `main`'s HEAD. Agents had to fast-forward themselves. Always check the base (`git merge-base --is-ancestor main HEAD`) before starting work.
+- A Vite dev or preview server run from a worktree whose `node_modules` is symlinked to the main checkout writes into the main checkout's `node_modules/.vite` cache, which Grant's dev server shares. vitest and `vite build` are fine.
+
+**F-69. Pre-existing test failures (confirms F-62).** VERIFIED on f1f07dd.
+- 67 failing tests in 15 files, identical before and after wave 1:
+  - App.test, groupMembership, grouplessRemainder, semanticSystem
+  - wizard expandGraph and replaceEdges
+  - OrbitOverlay, UniverseManager, formats consistency
+  - SaveCoordinator (18), gitNativeProvider (11), rdfResolver
+  - graphStore (11, stale tests for an old API), tools-health, edgeLabelPlacement (2)
+- Until P0.06 lands a known-failures list, compare against this set.
+
 ---
 
 ## Bugs found along the way (B-)
@@ -338,12 +355,14 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 |---|---|---|---|
 | B-01 | A mouse marquee release selects group-anchor instances: the release path (~12170) skips the anchor filter that `selectionFromRect` applies | VERIFIED code, INFERRED effect | P1.04 |
 | B-02 | A marquee worker reply that arrives after mouseup can restore a selection rectangle that was just cleared | INFERRED race | P1.04 |
-| B-03 | The `openOnboardingModal` listener calls `setShowOnboardingModal` (~2748), which is never defined. The error is swallowed, so the event does nothing | VERIFIED | P1.13 |
+| B-03 | The `openOnboardingModal` listener calls `setShowOnboardingModal` (~2748), which is never defined. The error is swallowed, so the event does nothing | VERIFIED; **blocked on Grant**: remove the "Show Welcome Screen" menu items, or point them at StorageSetupModal? (see P1.13) | P1.13 |
 | B-04 | `startHurtleAnimationFromPanel` reads zoom from `svg.style.transform` (~14387), but the transform is now an attribute on the inner `<g>`. So zoom reads as 1 and the orb is always 30 px. `startHurtleAnimation` also uses `canvasSize` without listing it as a dependency (~14365) | VERIFIED code, INFERRED effect | P1.06 |
 | B-05 | Node handlers are stale. Node's comparator ignores functions, and `handleNodeMouseDown` (~10788) reads `isPaused`, `middleMouseZoomEnabled`, `rightPanelExpanded` and `nodeLiftDelay` from render scope. For example, after collapsing the right panel, double-clicking a node that hasn't re-rendered may not re-open it. `touch.handleNode*` has the same problem | VERIFIED code, INFERRED effect | P3.02 |
 | B-06 | `nodePieMenuPages` / `targetPieMenuButtons` read `rightPanelExpanded` (~8889, ~8929) and `wizardEnabled` (~9048, ~9419) but don't list them as dependencies, so the pie buttons go stale | VERIFIED | P1.10 |
-| B-07 | `onNavigateDefinition` mutates the previous Map inside its state updater (`new Map(prev.set(…))`, ~17509, ~17944, ~18041). That updater is impure | VERIFIED | P1.13 |
+| B-07 | `onNavigateDefinition` mutates the previous Map inside its state updater (`new Map(prev.set(…))`, ~17509, ~17944, ~18041). That updater is impure | **FIXED** c7453a4 | P1.13 |
 | B-08 | Panel can render stale `nodeDefinitionIndices`, because its comparator ignores them (F-50) | INFERRED | P2.03 |
+| B-09 | A self-loop's arrowhead draws at about 80% size during a node drag, then snaps back on drop: `useNodeDrag.js` ~1015 drops `scale(connectionWidth)` (found by P0.05) | VERIFIED code, INFERRED effect; needs Grant's visual check | P4.08 or a small fix card |
+| B-10 | After a pinch or drag-pan ends with the finger held still, the final camera isn't saved until the next move. The view-save effect (~9859) drops saves during gestures and has no retry of its own (found by P1.09) | VERIFIED code, INFERRED effect | P3.10 / P4.02 |
 
 ---
 
@@ -355,9 +374,10 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 
 | ID | Item | Delete in |
 |---|---|---|
-| X-01 | State that is never read: `panStart` (P1.01), `hasMouseMovedSinceDown`, `middleZoomAnchor`, `lastInteractionType`, `recentlyPanned` (its setter is never called; about 9 guards test it), `isPaused` (`setIsPaused` is never called), `autoLayoutRunning` (never set to true), `nodeSelectionGrid` (written but never rendered) | P1.02 |
-| X-02 | Functions that are never called: `animatePinchSmoothing` / `startPinchSmoothing` / `stopPinchSmoothing` (~9894–10092; keep the `lastFrameTime` the touch hook reads); `renderConnectionNamePrompt` (~12943); `renderCustomPrompt` (~13065) and the things only it uses (`handleDialogColorPickerOpen`, `handlePromptSubmit`, `handleNodeSelectionGridClose`, `dialogContainerRef`); `isNearEdge`; `handleEdgeClick`; `handleEdgeMouseEnter` / `Leave`; `schedulePositionUpdate` / `flushPositionUpdates`; `nodesVisibleInStrictViewport` (~15275), which still walks every node on every settle | P1.02 |
-| X-03 | Imports that are never used: `useNodeActions` (line 149) and `NodeSelectionGrid` | P1.02 |
-| X-04 | `useCanvasTouch` parameters: `panOffset`, `zoomLevel`, `setZoomLevel` and `setPanOffset` are unused; `recentlyPanned` and `setLastInteractionType` are dead | P1.02 |
+| X-01 | State that is never read: `panStart` (P1.01), `hasMouseMovedSinceDown`, `middleZoomAnchor`, `lastInteractionType`, `recentlyPanned` (its setter is never called; about 9 guards test it), `isPaused` (`setIsPaused` is never called), `autoLayoutRunning` (never set to true), `nodeSelectionGrid` (written but never rendered) | **deleted** in P1.02 (560a08e, ddbc5fe, 739c464) |
+| X-02 | Functions that are never called: `animatePinchSmoothing` / `startPinchSmoothing` / `stopPinchSmoothing` (~9894–10092; keep the `lastFrameTime` the touch hook reads); `renderConnectionNamePrompt` (~12943); `renderCustomPrompt` (~13065) and the things only it uses (`handleDialogColorPickerOpen`, `handlePromptSubmit`, `handleNodeSelectionGridClose`, `dialogContainerRef`); `isNearEdge`; `handleEdgeClick`; `handleEdgeMouseEnter` / `Leave`; `schedulePositionUpdate` / `flushPositionUpdates`; `nodesVisibleInStrictViewport` (~15275), which still walks every node on every settle | **deleted** in P1.02 (560a08e, ddbc5fe, 739c464) |
+| X-03 | Imports that are never used: `useNodeActions` (line 149) and `NodeSelectionGrid` | **deleted** in P1.02 (560a08e, ddbc5fe, 739c464) |
+| X-04 | `useCanvasTouch` parameters: `panOffset`, `zoomLevel`, `setZoomLevel` and `setPanOffset` are unused; `recentlyPanned` and `setLastInteractionType` are dead | **deleted** in P1.02 (560a08e, ddbc5fe, 739c464) |
 | X-05 | The right Panel's `ref={panelRef}` is never read (~8583) | P2.09 |
-| X-06 | Dead refs and constants: `lastHoverCheckRef`, `isKeyboardZooming`, `resizeTimeoutRef`, `prevZoomForWatchdog`, and the constants at ~469–471 (`MOUSE_WHEEL_ZOOM_SENSITIVITY`, …) | P1.02 |
+| X-06 | Dead refs and constants: `lastHoverCheckRef`, `isKeyboardZooming`, `resizeTimeoutRef`, `prevZoomForWatchdog`, and the constants at ~469–471 (`MOUSE_WHEEL_ZOOM_SENSITIVITY`, …) | **deleted** in P1.02 (560a08e, ddbc5fe, 739c464) |
+| X-07 | Hook params that are now always empty after P1.02: `isPaused` in `useCanvasKeyboard`, `isPausedRef` in `useGamepad`; two dead animation cancels in `useNodeDrag` | P4.07–P4.09 |

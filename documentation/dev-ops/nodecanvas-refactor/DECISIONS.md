@@ -102,3 +102,8 @@ This file records calls that nobody should re-argue mid-task.
   - **small:** smoke-test sized
   - **stress:** a synthetic ~600-node / ~1,000-edge graph with groups, produced by a deterministic generator script
 - Why: the real universe is representative (F-66), but it's personal, 7.2 MB, and has no single large graph.
+
+**D-16. Render-cause attribution.** *Proposed by the P0.01 agent, 2026-09-23.*
+- Use a small dev-only helper that diffs store selectors and state between renders. Fall back to React DevTools' "record why each component rendered" for manual checks.
+- Rejected: `@welldone-software/why-did-you-render`. Its current release needs React 19, and it patches React.
+- Details are in `reports/P0.01.md`.

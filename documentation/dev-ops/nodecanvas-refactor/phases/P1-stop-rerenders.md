@@ -13,7 +13,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 ---
 
 ### P1.01: Remove the dead `panStart` state
-- **Status:** todo
+- **Status:** done (013cfa8; report reports/P1.01.md)
 - **Lane:** A · **Size:** S · **Depends:** none (**pre-P0 OK**)
 - **Findings:** F-01
 - **Change:**
@@ -28,10 +28,10 @@ Each card is small and can be reverted on its own. Each one is measured against 
   - Smoke test.
   - Manually: mouse drag-pan with momentum, and touch pan in device emulation.
   - Record S1 before/after in METRICS.
-- **Handoff:**
+- **Handoff:** jsdom Profiler count: mouse and touch drag-pan went from 60 commits per 30 moves (2 per frame: panStart + setHasMouseMovedSinceDown) to 0. The regression test is src/NodeCanvas.renderBudget.test.jsx. Grant still needs to check pan and momentum feel by hand.
 
 ### P1.02: Delete dead code and dead state
-- **Status:** todo
+- **Status:** done (739c464, 560a08e, ddbc5fe; report reports/P1.02.md)
 - **Lane:** A (plus `useCanvasTouch.js`) · **Size:** M (about 650 lines) · **Depends:** P1.01 (only to avoid conflicts)
 - **Findings:** X-01, X-02, X-03, X-04, X-06
 - **Change:**
@@ -44,7 +44,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
   - The smoke test and touch tests pass, and the build passes.
   - The line count drops by about 600 or more.
   - The size budget is lowered.
-- **Handoff:**
+- **Handoff:** X-01, X-02, X-03, X-04 and X-06 removed. NodeCanvas.jsx went from 19,255 to 18,518 lines together with P1.01/P1.07. Lint no-undef is unchanged against the base (only B-03 remains). Follow-up X-07 (dead hook params).
 
 ### P1.03: Bind mousemove once
 - **Status:** todo
@@ -107,7 +107,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Handoff:**
 
 ### P1.07: Remove debug work from render
-- **Status:** todo
+- **Status:** done (d26dc7a; report reports/P1.07.md)
 - **Lane:** A · **Size:** S · **Depends:** none (**pre-P0 OK**)
 - **Findings:** F-26
 - **Change:**
@@ -117,7 +117,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Accept:**
   - No network requests and no console output come from render during normal use.
   - The smoke test passes.
-- **Handoff:**
+- **Handoff:** debugLogSync POSTs from render went from 3 to 0. ArrowheadAudit DELETED rather than flag-gated: Grant's real universe has 0 stale arrowsToward ids. DIAGNOSE_ZOOM_FLICKER and its blocks removed.
 
 ### P1.08: Stable `nodes` identity; fold `hydratedNodes` into it
 - **Status:** todo
@@ -133,7 +133,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Handoff:**
 
 ### P1.09: Skip store writes that change nothing
-- **Status:** todo
+- **Status:** done (2aaa2cf, 4f97ba0, f85a6f5; report reports/P1.09.md)
 - **Lane:** C (`imageCache.js`, `graphStore.js`, `useCanvasTransform.js`) · **Size:** S · **Depends:** none (**pre-P0 OK**)
 - **Findings:** F-07, F-11
 - **Change:**
@@ -146,7 +146,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
   - S10b with already-cached images produces 0 commits.
   - A settle with no movement produces 0 commits.
   - The `useCanvasTransform` tests pass.
-- **Handoff:**
+- **Handoff:** The settle guard skips only when the view hasn't moved since the last settle, not merely when the end values match: the culling prune needs a settle after a gesture that returns to the same spot. setImage's only caller always passes a fresh blob URL, so its guard rarely fires; the real no-op writes come from clearImage. The view-save gap is logged as B-10. Existing graphStore.test.js failures are pre-existing (F-62).
 
 ### P1.10: Fix the pie menu memo dependencies
 - **Status:** todo
@@ -167,7 +167,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Handoff:**
 
 ### P1.11: Stable keyboard listener
-- **Status:** todo
+- **Status:** done (9e4cdfe; report reports/P1.11.md)
 - **Lane:** C (`useCanvasKeyboard.js`) · **Size:** S · **Depends:** none (**pre-P0 OK**)
 - **Findings:** F-14
 - **Change:**
@@ -176,7 +176,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
   - The listener attaches once per mount. Check with a dev-only counter.
   - F13 passes.
   - Keyboard pan and zoom feel unchanged.
-- **Handoff:**
+- **Handoff:** The listener attaches once per mount: 4 before, 9 after five re-renders; it stays at 4 now. The orchestrator verified the handler reads no hook params from closure (only paramsRef).
 
 ### P1.12: Stop selection from re-solving every label
 - **Status:** todo
@@ -193,11 +193,11 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Handoff:**
 
 ### P1.13: Batch of small bug fixes
-- **Status:** todo
+- **Status:** partial: B-07 done (c7453a4); B-03 blocked on Grant (report reports/P1.13.md)
 - **Lane:** A · **Size:** S · **Depends:** none
 - **Findings:** B-03, B-07
 - **Change:** One commit per bug.
   - **B-03:** Make the `openOnboardingModal` listener do what it intended. Find out which modal it should open. If nothing should open, delete the listener and its dispatchers.
   - **B-07:** Make the `onNavigateDefinition` updaters pure: `prev => { const next = new Map(prev); next.set(k, v); return next; }`. There are three copies.
 - **Accept:** Each bug is verified fixed. The smoke test passes.
-- **Handoff:**
+- **Handoff:** B-03: both 'Show Welcome Screen' menu items (the Help menu and the Electron app menu) have done nothing since the welcome modal was removed in 5d6e650 (Jan). Options: open StorageSetupModal, remove the items (the agent's lean), or wait for a real welcome screen. Grant decides.

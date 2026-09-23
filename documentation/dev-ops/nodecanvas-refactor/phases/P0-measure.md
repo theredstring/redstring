@@ -29,7 +29,7 @@ Right now neither can be answered (F-60 to F-63).
 ---
 
 ### P0.01: Render probe and profiling build
-- **Status:** todo
+- **Status:** done (eb50e73, 254195a; report reports/P0.01.md)
 - **Lane:** B and C (App.jsx wrapper, vite config) · **Size:** M · **Depends:** none
 - **Findings:** F-28, F-63
 - **Change:**
@@ -53,7 +53,7 @@ Right now neither can be answered (F-60 to F-63).
   - The probe reports NodeCanvas commits and milliseconds in both the dev build and the profile build.
   - Zero cost when the probe is off.
 - **Verify:** Manually pan and select in the profile build, with DevTools open, and compare the probe's counts against the Profiler tab.
-- **Handoff:**
+- **Handoff:** Probe verified in headless Chromium against an independent commit counter, 126/126 on the profile build. The manual DevTools cross-check is still to do. `dist-profile` added to .gitignore. Proposed D-16 for render-cause attribution. NEW: a worktree Vite dev server with symlinked node_modules writes into the main checkout's cache (see the README rule).
 
 ### P0.02: Fixture universes and a dev-only fixture loader
 - **Status:** todo
@@ -127,7 +127,7 @@ Right now neither can be answered (F-60 to F-63).
 - **Handoff:**
 
 ### P0.05: Harden the jsdom render-contract test
-- **Status:** todo
+- **Status:** done (0b2bae9, 1803b7c; report reports/P0.05.md)
 - **Lane:** B · **Size:** M · **Depends:** none (pre-P0 OK)
 - **Findings:** F-60
 - **Change:**
@@ -139,7 +139,7 @@ Right now neither can be answered (F-60 to F-63).
 - **Accept:**
   - Passes on `main`.
   - Deleting any contract attribute makes it fail.
-- **Handoff:**
+- **Handoff:** Covers all 27 DOM hooks useNodeDrag reads, in all 4 routing styles, plus a culling-on variant (camera pinned). A test-only sprite stand-in (src/test-utils/fakeLabelSprites.js). A shared harness now exists at src/test-utils/canvasHarness.jsx. Mutation sweep: all 38 attribute renames fail the test. Hover-only and mid-drag contracts are deferred to Playwright. Possible bug logged as B-09.
 
 ### P0.06: Get CI running again
 - **Status:** todo
@@ -154,7 +154,7 @@ Right now neither can be answered (F-60 to F-63).
 - **Handoff:**
 
 ### P0.07: Size ratchet
-- **Status:** todo
+- **Status:** done (bf72821; report reports/P0.07.md)
 - **Lane:** B · **Size:** S · **Depends:** none (pre-P0 OK)
 - **Findings:** F-49, F-64
 - **Change:**
@@ -162,4 +162,4 @@ Right now neither can be answered (F-60 to F-63).
   - It also asserts a *minimum* sanity floor (e.g. more than 1,000 lines), so a near-wipe like F-64 fails loudly.
   - Every Lane A task that shrinks the file lowers the budget in the same commit.
 - **Accept:** The test fails if the file grows past the budget or collapses below the floor.
-- **Handoff:**
+- **Handoff:** Stricter than specified: it also fails when the file shrinks without the budget being lowered, which forces the budget update into the same commit. Budget lowered to 18518 in d55fe5b (integration).

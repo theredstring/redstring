@@ -13,6 +13,42 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-23: Wave 1 reviewed and integrated (Claude, orchestrator)
+
+**Branches reviewed and merged into `refactor/wave1-integration`, not yet into `main`:**
+- Lane A: P1.01, P1.07, P1.02; P1.13 partial
+- P1.09 + P1.11
+- P0.01
+- P0.05 + P0.07
+- Plus d55fe5b, which lowers the size budget to 18,518.
+
+**Results:**
+- Drag-pan (mouse and touch): **60 → 0 commits per 30 moves** in jsdom. The base cost 126 commits for one pan in headless Chromium.
+- Render-time POSTs: 3 → 0.
+- Keyboard listener: attaches once per mount.
+- NodeCanvas: 19,255 → 18,518 lines.
+
+**Checks the orchestrator ran:**
+- `no-undef` lint on the new NodeCanvas.jsx and useCanvasTouch.js matches the base: only B-03 remains.
+- The keyboard handler takes all its hook params from `paramsRef`, none from a stale closure.
+- `setPan` runs its updater synchronously, which P1.01 relies on.
+- Full vitest: 3,189 pass. The **67 failures in 15 files are identical to f1f07dd** (F-69).
+- `npm run build` passes.
+
+**New entries:** B-09 (self-loop arrowhead scale mid-drag), B-10 (view-save gap), X-07 (dead hook params), F-67, F-68 (stale worktree base and Vite cache hazards; README rules added), F-69, and proposed D-16.
+
+**Needs Grant:**
+- OK to merge into `main`.
+- B-03 decision.
+- A manual check of pan and momentum feel.
+- A visual check of B-09.
+
+**Still running:** P0.02 + P0.03 (Playwright).
+
+**Next (wave 2):** P0.04 baseline and P0.06 CI once Playwright lands; P1.03 → P1.04 → P1.05 → P1.06 → P1.08 → P1.10 → P1.12 in Lane A.
+
+---
+
 ## 2026-09-23: Answers recorded; wave 1 started (Claude, orchestrator)
 
 **Warning about commit 34649b4.** Its message, "Refactor NodeCanvas into a modular architecture", lists Phases 2–5 as done. **They are not done.** That commit contains only these plan docs. Trust the phase board and the cards, not that message.

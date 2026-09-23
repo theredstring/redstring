@@ -2,7 +2,7 @@
 
 This file tells you where things are in `src/NodeCanvas.jsx`, where each part is going, and which task moves it.
 
-- **Pinned to @1e6ab02.** Line numbers are approximate and drift with every edit.
+- **Pinned to @1e6ab02**, except rows marked deleted. After wave 1, NodeCanvas is 737 lines shorter, so every later line hint is roughly 20–900 lines too high. Line numbers are approximate and drift with every edit.
 - **Find code by symbol.** Grep an anchor, e.g. `grep -n "const runCulling" src/NodeCanvas.jsx`, then read a window of at most 300 lines around the hit.
 - **When you move a region**, replace its "Now" cell with the new location and the commit.
 
@@ -58,7 +58,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 
 | Region | Anchors (grep these) | ~Lines | Destination | Task |
 |---|---|---|---|---|
-| Diagnostic flag, overlay group, gesture block | `DIAGNOSE_ZOOM_FLICKER`, `setOverlayGroup`, `armGestureBlock`, `scheduleGestureBlockClear` | 823–940 | delete the flag; gesture block → gesture machine | P1.07, P4.04 |
+| Diagnostic flag (**deleted** d26dc7a), overlay group, gesture block | `setOverlayGroup`, `armGestureBlock`, `scheduleGestureBlockClear` | 823–940 | delete the flag; gesture block → gesture machine | P1.07, P4.04 |
 | Orbit state | `orbitData`, `semanticOrbitActive`, `orbitFrame` | 906–919 | orbit module; the flag → UI store | P2.03, P5.08 |
 | Store actions | `const storeActions` | 942 | stays (or import directly) | — |
 | Panel widths + resizers | `leftPanelWidth`, `beginDrag`, `applyResizeUpdate`, `onDragMove`, `endDrag`, `renderPanelResizers` | 1013–1421 | `hosts/PanelResizers` | P1.05, P2.12 |
@@ -73,7 +73,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Connection drawing | `setDrawingConnectionFrom`, `applyDrawingConnection`, `setDrawingConnectionEnd`, `reprojectDrawingConnectionEnd`, `selfLoopPreviewActive`, `selfLoopDialog` | 2788–2933, 3381–3477 | `useConnectionDraw` | P4.03 |
 | Pan-state wrappers | `const [isPanning`, `panStart`, `setIsPanning`, `setPanStart`, `selectionRect`, `selectionStart`, `recentlyPanned` | 2949–2987 | dead state removed; the rest → gesture machine | P1.01, P1.02, P4.04 |
 | Viewport + transform wiring | `windowSize`, `viewportSize`, `canvasSize`, `const transform = useCanvasTransform`, `getBottomPanelReserve`, `getFramingRegion`, `runFramingAfterCommit` | 3019–3240 | camera controller | P4.02 |
-| Dead position batching | `flushPositionUpdates`, `schedulePositionUpdate` | ~3243–3273 | delete | P1.02 |
+| Dead position batching | `flushPositionUpdates`, `schedulePositionUpdate` | ~3243–3273 | **deleted** (ddbc5fe) | P1.02 |
 | useNodeDrag wiring | `useNodeDrag(` and its 12 aliased return fields | 3288–3379 | fewer parameters | P4.08 |
 | Grid snap, pan momentum, view motion | `snapToGridAnimated`, `stopPanMomentum`, `startPanMomentum`, `sampleViewMotion`, `isViewMoving`, `navigateToPrototypeInstances` | 3479–3700 | `CameraController` | P4.02 |
 | Layout hook | `useGraphLayout(` | 3700 | stays; fewer parameters | P4 |
@@ -102,7 +102,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Instance swap | `performInstanceSwap` | 8739 | prompt hosts | P5.06 |
 | **Pie button builders** | `nodePieMenuPages`, `targetPieMenuButtons`, `decomposePanelInfo`, the pie→state sync effect (~9777) | 8784–9790 | pure builders | P1.10, P5.01 |
 | View restore/save on graph switch | `storedView`, `jumpTo`, `updateGraphViewInStore` | 9790–9892 | `CameraController` | P4.02 |
-| Pinch smoothing (**dead**) | `animatePinchSmoothing`, `startPinchSmoothing`, `stopPinchSmoothing` | 9894–10092 | delete | P1.02 |
+| Pinch smoothing (**dead**) | `animatePinchSmoothing`, `startPinchSmoothing`, `stopPinchSmoothing` | 9894–10092 | **deleted** (ddbc5fe) | P1.02 |
 | Hit-test utilities | `clampCoordinates`, `getNodeDescriptionContent`, `isInsideNode`, `selectionFromRect`, `findGroupTitleAtPoint`, `buildGroupDragOffsets`, `findConnectionDropTarget`, `isNearEdge` | 10094–10283 | `utils/canvas/canvasHitTest.js` | P4.01 |
 | Edge hit-test and edge input | `handleEdgePointerDownTouch`, `findNearestEdgeAtCanvasPoint`, `getEdgeHitThreshold`, `findEdgeAtClientPoint`, `selectEdgeFromClick`, `resolveTouchEdgeTarget`, `beginEdgeTouch` / `moveEdgeTouch` / `cancelEdgeTouch` / `commitEdgeTouch`, `edgeTouchHandlers`, `trySelectConnectionAtPoint`, `getEdgeHitboxHandlers` | 10285–10786 | `utils/canvas/edgeHitTest.js`, stable handlers | P3.02, P4.01 |
 | Node press | `const handleNodeMouseDown` | 10788–10907 | gesture machine | P4.04 |
@@ -112,7 +112,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Mouse handlers | `async function handleMouseMove`, `async function handleMouseDown`, `async function handleMouseUp` | 11504–12300 | gesture machine (mechanics) + tap policy | P1.03, P1.04, P4.04, P4.05 |
 | Canvas click policy | `const handleMouseUpCanvas`, `const handleCanvasClick` | 12301–12492 | `resolveCanvasTap` | P4.05 |
 | Plus sign + prompts | `handlePlusSignClick`, `handleClosePrompt`, `handleAbstractionSubmit`, `handleNodeSelection`, `getPlusSignMorphNode`, `handleMorphDone`, `handleVideoAnimationComplete`, `handleDialogColorPicker*` | 12494–12935 | prompt hosts / plus-sign module | P5.06 |
-| Prompt renderers (**dead**) | `renderConnectionNamePrompt`, `renderCustomPrompt` | 12943–13148 | delete | P1.02 |
+| Prompt renderers (**dead**) | `renderConnectionNamePrompt`, `renderCustomPrompt` | 12943–13148 | **deleted** (ddbc5fe) | P1.02 |
 | Panel toggles and focus | `shouldPanelsBeExclusive`, `handleToggleRightPanel`, `handleToggleLeftPanel`, `handleLeftPanelFocusChange` | 13150–13260 | App shell | P2.08–P2.12 |
 | Gamepad glue | "Game controller" comment, the control refs, `useGamepad(` | 13260–13539 | `useGamepadBindings` | P4.07 |
 | Keyboard hook | `useCanvasKeyboard(` (48 parameters) | 13541–13590 | stable listener, fewer parameters | P1.11, P4.09 |
