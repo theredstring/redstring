@@ -1,0 +1,2588 @@
+{
+ "@context": {
+  "@version": 1.1,
+  "@vocab": "https://redstring.io/vocab/",
+  "redstring": "https://redstring.io/vocab/",
+  "Graph": "redstring:Graph",
+  "Node": "redstring:Node",
+  "Edge": "redstring:Edge",
+  "SpatialContext": "redstring:SpatialContext",
+  "CognitiveSpace": "redstring:CognitiveSpace",
+  "SemanticType": "redstring:SemanticType",
+  "Prototype": "redstring:Prototype",
+  "Instance": "redstring:Instance",
+  "PrototypeSpace": "redstring:PrototypeSpace",
+  "SpatialGraph": "redstring:SpatialGraph",
+  "SpatialGraphCollection": "redstring:SpatialGraphCollection",
+  "defines": "redstring:defines",
+  "definedBy": "redstring:definedBy",
+  "expandsTo": "redstring:expandsTo",
+  "contractsFrom": "redstring:contractsFrom",
+  "contextualDefinition": "redstring:contextualDefinition",
+  "name": "http://schema.org/name",
+  "description": "http://schema.org/description",
+  "color": "http://schema.org/color",
+  "image": "http://schema.org/image",
+  "thumbnail": "http://schema.org/thumbnail",
+  "contains": "http://purl.org/dc/terms/hasPart",
+  "partOf": "http://purl.org/dc/terms/isPartOf",
+  "composedOf": "http://purl.org/vocab/frbr/core#embodiment",
+  "composes": "http://purl.org/vocab/frbr/core#embodimentOf",
+  "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+  "Class": "rdfs:Class",
+  "subClassOf": {
+   "@id": "rdfs:subClassOf",
+   "@type": "@id"
+  },
+  "subPropertyOf": {
+   "@id": "rdfs:subPropertyOf",
+   "@type": "@id"
+  },
+  "domain": {
+   "@id": "rdfs:domain",
+   "@type": "@id"
+  },
+  "range": {
+   "@id": "rdfs:range",
+   "@type": "@id"
+  },
+  "label": "rdfs:label",
+  "comment": "rdfs:comment",
+  "seeAlso": {
+   "@id": "rdfs:seeAlso",
+   "@type": "@id"
+  },
+  "isDefinedBy": {
+   "@id": "rdfs:isDefinedBy",
+   "@type": "@id"
+  },
+  "Resource": "rdfs:Resource",
+  "Literal": "rdfs:Literal",
+  "Datatype": "rdfs:Datatype",
+  "Container": "rdfs:Container",
+  "member": {
+   "@id": "rdfs:member",
+   "@type": "@id"
+  },
+  "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+  "type": {
+   "@id": "rdf:type",
+   "@type": "@id"
+  },
+  "Property": "rdf:Property",
+  "Statement": "rdf:Statement",
+  "subject": {
+   "@id": "rdf:subject",
+   "@type": "@id"
+  },
+  "predicate": {
+   "@id": "rdf:predicate",
+   "@type": "@id"
+  },
+  "object": {
+   "@id": "rdf:object",
+   "@type": "@id"
+  },
+  "value": "rdf:value",
+  "first": {
+   "@id": "rdf:first",
+   "@type": "@id"
+  },
+  "rest": {
+   "@id": "rdf:rest",
+   "@type": "@id"
+  },
+  "nil": {
+   "@id": "rdf:nil",
+   "@type": "@id"
+  },
+  "owl": "http://www.w3.org/2002/07/owl#",
+  "sameAs": {
+   "@id": "owl:sameAs",
+   "@type": "@id"
+  },
+  "equivalentProperty": {
+   "@id": "owl:equivalentProperty",
+   "@type": "@id"
+  },
+  "differentFrom": {
+   "@id": "owl:differentFrom",
+   "@type": "@id"
+  },
+  "skos": "http://www.w3.org/2004/02/skos/core#",
+  "prov": "http://www.w3.org/ns/prov#",
+  "wd": "http://www.wikidata.org/entity/",
+  "wdt": "http://www.wikidata.org/prop/direct/",
+  "dbr": "http://dbpedia.org/resource/",
+  "dbo": "http://dbpedia.org/ontology/",
+  "schema": "http://schema.org/",
+  "doi": "https://doi.org/",
+  "pubmed": "https://pubmed.ncbi.nlm.nih.gov/",
+  "arxiv": "https://arxiv.org/abs/",
+  "orcid": "https://orcid.org/",
+  "researchgate": "https://www.researchgate.net/publication/",
+  "semanticscholar": "https://www.semanticscholar.org/paper/",
+  "cites": "http://purl.org/spar/cito/cites",
+  "citedBy": "http://purl.org/spar/cito/citedBy",
+  "isDocumentedBy": "http://purl.org/spar/cito/isDocumentedBy",
+  "documents": "http://purl.org/spar/cito/documents",
+  "author": "http://schema.org/author",
+  "datePublished": "http://schema.org/datePublished",
+  "publisher": "http://schema.org/publisher",
+  "journal": "http://schema.org/isPartOf",
+  "citation": "http://schema.org/citation",
+  "abstract": "http://schema.org/abstract",
+  "keywords": "http://schema.org/keywords",
+  "spatialContext": "redstring:spatialContext",
+  "xCoordinate": "redstring:xCoordinate",
+  "yCoordinate": "redstring:yCoordinate",
+  "spatialScale": "redstring:spatialScale",
+  "viewport": "redstring:viewport",
+  "canvasSize": "redstring:canvasSize",
+  "visualProperties": "redstring:visualProperties",
+  "cognitiveColor": "redstring:cognitiveColor",
+  "expanded": "redstring:expanded",
+  "visible": "redstring:visible",
+  "thumbnailSrc": "redstring:thumbnailSrc",
+  "imageSrc": "redstring:imageSrc",
+  "imageAspectRatio": "redstring:imageAspectRatio",
+  "hasDefinition": {
+   "@id": "redstring:hasDefinition",
+   "@type": "@id"
+  },
+  "definitionGraphIds": "redstring:definitionGraphIds",
+  "prototypeId": {
+   "@id": "redstring:prototypeId",
+   "@type": "@id"
+  },
+  "instanceOf": {
+   "@id": "redstring:instanceOf",
+   "@type": "@id"
+  },
+  "containedIn": {
+   "@id": "redstring:containedIn",
+   "@type": "@id"
+  },
+  "abstractionChains": "redstring:abstractionChains",
+  "abstractionDimensions": "redstring:abstractionDimensions",
+  "cognitiveProperties": "redstring:cognitiveProperties",
+  "bookmarked": "redstring:bookmarked",
+  "activeInContext": "redstring:activeInContext",
+  "currentDefinitionIndex": "redstring:currentDefinitionIndex",
+  "contextKey": "redstring:contextKey",
+  "personalMeaning": "redstring:personalMeaning",
+  "cognitiveAssociations": "redstring:cognitiveAssociations",
+  "lastViewed": "redstring:lastViewed",
+  "relationshipDirection": "redstring:relationshipDirection",
+  "relationshipStrength": "redstring:relationshipStrength",
+  "bidirectional": "redstring:bidirectional",
+  "arrowsToward": "redstring:arrowsToward",
+  "directionality": "redstring:directionality",
+  "bio": "redstring:bio",
+  "conjugation": "redstring:conjugation",
+  "externalLinks": "redstring:externalLinks",
+  "citations": "redstring:citations",
+  "typeNodeId": {
+   "@id": "redstring:typeNodeId",
+   "@type": "@id"
+  },
+  "created": {
+   "@id": "http://purl.org/dc/terms/created",
+   "@type": "xsd:dateTime"
+  },
+  "modified": {
+   "@id": "http://purl.org/dc/terms/modified",
+   "@type": "xsd:dateTime"
+  },
+  "version": "http://purl.org/dc/terms/hasVersion",
+  "pod": "https://www.w3.org/ns/solid/terms#pod",
+  "webId": "http://xmlns.com/foaf/0.1/webId",
+  "references": "redstring:references",
+  "linkedThinking": "redstring:linkedThinking",
+  "xsd": "http://www.w3.org/2001/XMLSchema#",
+  "prototypes": {
+   "@id": "redstring:prototypes",
+   "@container": "@id"
+  },
+  "graphs": {
+   "@id": "redstring:graphs",
+   "@container": "@id"
+  },
+  "edges": {
+   "@id": "redstring:edges",
+   "@container": "@id"
+  },
+  "redstring:instances": {
+   "@id": "redstring:instances",
+   "@container": "@id"
+  },
+  "redstring:groups": {
+   "@id": "redstring:groups",
+   "@container": "@id"
+  },
+  "redstring:xCoordinate": {
+   "@id": "redstring:xCoordinate",
+   "@type": "xsd:decimal"
+  },
+  "redstring:yCoordinate": {
+   "@id": "redstring:yCoordinate",
+   "@type": "xsd:decimal"
+  },
+  "redstring:spatialScale": {
+   "@id": "redstring:spatialScale",
+   "@type": "xsd:decimal"
+  },
+  "redstring:lastViewed": {
+   "@id": "redstring:lastViewed",
+   "@type": "xsd:dateTime"
+  },
+  "graphLayouts": null,
+  "graphSummaries": null,
+  "userInterface": null,
+  "globalSpatialContext": null
+ },
+ "@id": "urn:redstring:scheme",
+ "@type": [
+  "redstring:CognitiveSpace",
+  "skos:ConceptScheme"
+ ],
+ "format": "redstring-v4.1.0",
+ "metadata": {
+  "version": "4.1.0",
+  "created": "2026-01-01T00:00:00.000Z",
+  "modified": "2026-01-01T00:00:00.000Z",
+  "title": "Small Web A",
+  "description": "",
+  "domain": null,
+  "userURIs": null,
+  "semanticWebCompliant": true,
+  "rdfSchemaVersion": "1.1",
+  "owlVersion": "2.0",
+  "formatHistory": {
+   "date": "2026-07",
+   "changes": [
+    "Per-instance node size: new optional instance field redstring:sizeMultiplier (in visualProperties) drives visual node dimensions and label size, layered on top of the global node-size scope",
+    "Distinct from redstring:spatialScale, which remains the transient drag-lift register",
+    "Same v4 dataset shape as 4.0.0 — additive, optional field only, no structural change",
+    "Content-addressed images (additive, no version bump): optional top-level prototype fields redstring:imageRef (\"sha256:<hex>\") and redstring:imageRefExt point at a blob under universes/<folder>/images/, written by the git sync engine",
+    "Only the full-resolution redstring:imageSrc is externalized; redstring:thumbnailSrc stays inline so the canvas renders with no network and builds that ignore the ref still draw a correct graph",
+    "Inline base64 imageSrc remains fully valid on read — the two forms coexist indefinitely and locally-saved files stay single-file",
+    "The image fields sit at the prototype top level so quarantineUnknownFields banks them into _preserved for builds that predate them, instead of being silently dropped from a rebuilt visualProperties block"
+   ],
+   "breaking": false
+  }
+ },
+ "prototypeSpace": {
+  "@type": "redstring:PrototypeSpace",
+  "@id": "urn:redstring:space:prototypes",
+  "rdfs:label": "Redstring Prototype Space",
+  "rdfs:comment": "Collection of semantic classes with spatial properties",
+  "prototypes": {
+   "base-thing-prototype": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:base-thing-prototype",
+    "rdfs:label": "Thing",
+    "rdfs:comment": "The base type for all things. Things are nodes, ideas, nouns, concepts, objects, whatever you want them to be. They will always be at the bottom of the abstraction stack. They are the \"atoms\" of your Redstring universe.",
+    "skos:prefLabel": "Thing",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Thing",
+    "description": "The base type for all things. Things are nodes, ideas, nouns, concepts, objects, whatever you want them to be. They will always be at the bottom of the abstraction stack. They are the \"atoms\" of your Redstring universe.",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": null,
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#8B0000"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": null,
+    "redstring:citations": [],
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {},
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null
+   },
+   "base-connection-prototype": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:base-connection-prototype",
+    "rdfs:label": "Connection",
+    "rdfs:comment": "The base type for all connections. Connections are edges, relationships, verbs, actions, whatever you want them to be. They will always be at the bottom of the connection abstraction stack.",
+    "skos:prefLabel": "Connection",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Connection",
+    "description": "The base type for all connections. Connections are edges, relationships, verbs, actions, whatever you want them to be. They will always be at the bottom of the connection abstraction stack.",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": null,
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#000000"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": null,
+    "redstring:citations": [],
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {},
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null
+   },
+   "00000000-0000-4000-8100-000000000001": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:uuid:00000000-0000-4000-8100-000000000001",
+    "rdfs:label": "Small Web B",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Small Web B",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Small Web B",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": null,
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#4A5568"
+    },
+    "redstring:definitionGraphIds": [
+     "g-small-b"
+    ],
+    "redstring:typeNodeId": null,
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "00000000-0000-4000-8100-000000000001",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "00000000-0000-4000-8100-000000000002": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:uuid:00000000-0000-4000-8100-000000000002",
+    "rdfs:label": "Small Web A",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Small Web A",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Small Web A",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": null,
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#8B0000"
+    },
+    "redstring:definitionGraphIds": [
+     "g-small-a"
+    ],
+    "redstring:typeNodeId": null,
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "00000000-0000-4000-8100-000000000002",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-alpha": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-alpha",
+    "rdfs:label": "Alpha",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Alpha",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Alpha",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#8B0000"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": true,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-alpha",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-beta": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-beta",
+    "rdfs:label": "Beta",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Beta",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Beta",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#8B0000"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": true,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-beta",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-gamma": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-gamma",
+    "rdfs:label": "Gamma",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Gamma",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Gamma",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#6B2D5C"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-gamma",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-delta": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-delta",
+    "rdfs:label": "Delta",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Delta",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Delta",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#8B0000"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-delta",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-epsilon": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-epsilon",
+    "rdfs:label": "Epsilon",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Epsilon",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Epsilon",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#2F4F4F"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-epsilon",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-zeta": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-zeta",
+    "rdfs:label": "Zeta",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Zeta",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Zeta",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#8B0000"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-zeta",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-eta": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-eta",
+    "rdfs:label": "Eta",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Eta",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Eta",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#6B2D5C"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-eta",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-theta": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-theta",
+    "rdfs:label": "Theta",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Theta",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Theta",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#8B0000"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-theta",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-iota": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-iota",
+    "rdfs:label": "Iota",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Iota",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Iota",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#2F4F4F"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-iota",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-lambda": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-lambda",
+    "rdfs:label": "Lambda",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Lambda",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Lambda",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#8B0000"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-lambda",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-mu": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-mu",
+    "rdfs:label": "Mu",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Mu",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Mu",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#6B2D5C"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-mu",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-nu": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-nu",
+    "rdfs:label": "Nu",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Nu",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Nu",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#2F4F4F"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-nu",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-rel-supports": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-rel-supports",
+    "rdfs:label": "supports",
+    "rdfs:comment": "",
+    "skos:prefLabel": "supports",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "supports",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#8B0000"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-rel-supports",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "p-rel-causes": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:redstring:id:p-rel-causes",
+    "rdfs:label": "causes",
+    "rdfs:comment": "",
+    "skos:prefLabel": "causes",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "causes",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": {
+     "@id": "urn:redstring:id:base-thing-prototype"
+    },
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#8B0000"
+    },
+    "redstring:definitionGraphIds": [],
+    "redstring:typeNodeId": "base-thing-prototype",
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "p-rel-causes",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   },
+   "00000000-0000-4000-8100-000000000003": {
+    "@type": [
+     "redstring:Prototype",
+     "rdfs:Class",
+     "schema:Thing",
+     "skos:Concept"
+    ],
+    "@id": "urn:uuid:00000000-0000-4000-8100-000000000003",
+    "rdfs:label": "Cluster",
+    "rdfs:comment": "",
+    "skos:prefLabel": "Cluster",
+    "skos:inScheme": {
+     "@id": "urn:redstring:scheme"
+    },
+    "name": "Cluster",
+    "description": "",
+    "rdfs:seeAlso": [],
+    "rdfs:isDefinedBy": {
+     "@id": "https://redstring.io"
+    },
+    "rdfs:subClassOf": null,
+    "owl:equivalentClass": [],
+    "redstring:spatialContext": {
+     "redstring:xCoordinate": 0,
+     "redstring:yCoordinate": 0,
+     "redstring:spatialScale": 1
+    },
+    "redstring:visualProperties": {
+     "redstring:cognitiveColor": "#6B2D5C"
+    },
+    "redstring:definitionGraphIds": [
+     "00000000-0000-4000-8100-000000000004"
+    ],
+    "redstring:citations": [],
+    "redstring:createdAt": "2026-01-01T00:00:00.000Z",
+    "redstring:cognitiveProperties": {
+     "redstring:bookmarked": false,
+     "redstring:lastViewed": "2026-01-01T00:00:00.000Z"
+    },
+    "redstring:abstractionChains": {
+     "Generalization Axis": [
+      "00000000-0000-4000-8100-000000000003",
+      "base-thing-prototype"
+     ]
+    },
+    "redstring:agentConfig": null,
+    "redstring:semanticMetadata": null,
+    "skos:broader": [
+     {
+      "@id": "urn:redstring:id:base-thing-prototype"
+     }
+    ]
+   }
+  }
+ },
+ "spatialGraphs": {
+  "@type": "redstring:SpatialGraphCollection",
+  "@id": "urn:redstring:space:graphs",
+  "rdfs:label": "Redstring Spatial Graphs",
+  "rdfs:comment": "Collection of positioned instances within spatial graphs",
+  "graphs": {
+   "g-small-b": {
+    "@type": "redstring:SpatialGraph",
+    "@id": "urn:redstring:id:g-small-b",
+    "rdfs:label": "Small Web B",
+    "rdfs:comment": "",
+    "redstring:definingNodeIds": [
+     "00000000-0000-4000-8100-000000000001"
+    ],
+    "redstring:edgeIds": [
+     "e-lambda-mu",
+     "e-mu-nu"
+    ],
+    "redstring:directed": false,
+    "redstring:color": "#4A5568",
+    "redstring:panOffset": {
+     "x": -39360,
+     "y": -39650
+    },
+    "redstring:zoomLevel": 0.8,
+    "redstring:instances": {
+     "i-lambda": {
+      "@type": "redstring:Instance",
+      "@id": "urn:redstring:id:i-lambda",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-lambda"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-b"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": -300,
+       "redstring:yCoordinate": -150,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-lambda",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     },
+     "i-mu": {
+      "@type": "redstring:Instance",
+      "@id": "urn:redstring:id:i-mu",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-mu"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-b"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": 150,
+       "redstring:yCoordinate": -150,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-mu",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     },
+     "i-nu": {
+      "@type": "redstring:Instance",
+      "@id": "urn:redstring:id:i-nu",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-nu"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-b"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": -80,
+       "redstring:yCoordinate": 120,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-nu",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     }
+    },
+    "redstring:groups": {},
+    "redstring:visualProperties": {
+     "redstring:expanded": true,
+     "redstring:activeInContext": false
+    },
+    "redstring:edges": {
+     "e-lambda-mu": {
+      "id": "e-lambda-mu",
+      "sourceId": "i-lambda",
+      "destinationId": "i-mu",
+      "typeNodeId": "base-connection-prototype",
+      "definitionNodeIds": [
+       "p-rel-causes"
+      ],
+      "directionality": {
+       "arrowsToward": []
+      },
+      "rdfStatements": [
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-lambda"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-thing-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-mu"
+        }
+       },
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-mu"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-thing-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-lambda"
+        }
+       }
+      ],
+      "sourcePrototypeId": "p-lambda",
+      "destinationPrototypeId": "p-mu",
+      "predicatePrototypeId": "base-thing-prototype"
+     },
+     "e-mu-nu": {
+      "id": "e-mu-nu",
+      "sourceId": "i-mu",
+      "destinationId": "i-nu",
+      "typeNodeId": "base-connection-prototype",
+      "directionality": {
+       "arrowsToward": []
+      },
+      "rdfStatements": [
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-mu"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-connection-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-nu"
+        }
+       },
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-nu"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-connection-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-mu"
+        }
+       }
+      ],
+      "sourcePrototypeId": "p-mu",
+      "destinationPrototypeId": "p-nu",
+      "predicatePrototypeId": "base-connection-prototype"
+     }
+    }
+   },
+   "g-small-a": {
+    "@type": "redstring:SpatialGraph",
+    "@id": "urn:redstring:id:g-small-a",
+    "rdfs:label": "Small Web A",
+    "rdfs:comment": "",
+    "redstring:definingNodeIds": [
+     "00000000-0000-4000-8100-000000000002"
+    ],
+    "redstring:edgeIds": [
+     "e-alpha-beta",
+     "e-beta-gamma",
+     "e-alpha-delta",
+     "e-delta-epsilon",
+     "e-epsilon-beta",
+     "e-theta-iota",
+     "e-zeta-eta"
+    ],
+    "redstring:directed": false,
+    "redstring:color": "#8B0000",
+    "redstring:panOffset": {
+     "x": -31860,
+     "y": -32150
+    },
+    "redstring:zoomLevel": 0.65,
+    "redstring:instances": {
+     "i-alpha": {
+      "@type": "redstring:Instance",
+      "@id": "urn:redstring:id:i-alpha",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-alpha"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-a"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": -760,
+       "redstring:yCoordinate": -380,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-alpha",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     },
+     "i-beta": {
+      "@type": "redstring:Instance",
+      "@id": "urn:redstring:id:i-beta",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-beta"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-a"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": -380,
+       "redstring:yCoordinate": -380,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-beta",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     },
+     "i-gamma": {
+      "@type": "redstring:Instance",
+      "@id": "urn:redstring:id:i-gamma",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-gamma"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-a"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": 0,
+       "redstring:yCoordinate": -380,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-gamma",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     },
+     "i-delta": {
+      "@type": "redstring:Instance",
+      "@id": "urn:redstring:id:i-delta",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-delta"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-a"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": -760,
+       "redstring:yCoordinate": -120,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-delta",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     },
+     "i-epsilon": {
+      "@type": "redstring:Instance",
+      "@id": "urn:redstring:id:i-epsilon",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-epsilon"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-a"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": -380,
+       "redstring:yCoordinate": -120,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-epsilon",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     },
+     "i-zeta": {
+      "@type": "redstring:Instance",
+      "@id": "urn:redstring:id:i-zeta",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-zeta"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-a"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": 420,
+       "redstring:yCoordinate": -100,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-zeta",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     },
+     "i-eta": {
+      "@type": "redstring:Instance",
+      "@id": "urn:redstring:id:i-eta",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-eta"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-a"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": 700,
+       "redstring:yCoordinate": -100,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-eta",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     },
+     "i-theta": {
+      "@type": "redstring:Instance",
+      "@id": "urn:redstring:id:i-theta",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-theta"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-a"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": -760,
+       "redstring:yCoordinate": 200,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-theta",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     },
+     "i-iota": {
+      "@type": "redstring:Instance",
+      "@id": "urn:redstring:id:i-iota",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-iota"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-a"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": -420,
+       "redstring:yCoordinate": 200,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-iota",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     },
+     "00000000-0000-4000-8100-000000000005": {
+      "@type": "redstring:Instance",
+      "@id": "urn:uuid:00000000-0000-4000-8100-000000000005",
+      "rdf:type": {
+       "@id": "urn:uuid:00000000-0000-4000-8100-000000000003"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:redstring:id:g-small-a"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": 560,
+       "redstring:yCoordinate": -100,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "00000000-0000-4000-8100-000000000003",
+      "redstring:isGroupAnchor": true,
+      "redstring:anchorForGroupId": "00000000-0000-4000-8100-000000000006"
+     }
+    },
+    "redstring:groups": {
+     "00000000-0000-4000-8100-000000000007": {
+      "@type": "redstring:Group",
+      "@id": "urn:uuid:00000000-0000-4000-8100-000000000007",
+      "rdfs:label": "Pair",
+      "rdfs:comment": "",
+      "redstring:color": "#8B0000",
+      "redstring:memberInstanceIds": [
+       "i-theta",
+       "i-iota"
+      ],
+      "redstring:semanticMetadata": {
+       "type": "Group",
+       "relationships": [
+        {
+         "predicate": "memberOf",
+         "subject": "i-theta",
+         "object": "00000000-0000-4000-8100-000000000007",
+         "source": "redstring-grouping"
+        },
+        {
+         "predicate": "memberOf",
+         "subject": "i-iota",
+         "object": "00000000-0000-4000-8100-000000000007",
+         "source": "redstring-grouping"
+        }
+       ],
+       "createdAt": "2026-01-01T00:00:00.000Z",
+       "lastModified": "2026-01-01T00:00:00.000Z"
+      },
+      "rdfs:member": [
+       {
+        "@id": "urn:redstring:id:i-theta"
+       },
+       {
+        "@id": "urn:redstring:id:i-iota"
+       }
+      ]
+     },
+     "00000000-0000-4000-8100-000000000006": {
+      "@type": "redstring:Group",
+      "@id": "urn:uuid:00000000-0000-4000-8100-000000000006",
+      "rdfs:label": "Cluster",
+      "rdfs:comment": "",
+      "redstring:color": "#6B2D5C",
+      "redstring:memberInstanceIds": [
+       "i-zeta",
+       "i-eta"
+      ],
+      "redstring:semanticMetadata": {
+       "type": "Group",
+       "relationships": [
+        {
+         "predicate": "memberOf",
+         "subject": "i-zeta",
+         "object": "00000000-0000-4000-8100-000000000006",
+         "source": "redstring-grouping"
+        },
+        {
+         "predicate": "memberOf",
+         "subject": "i-eta",
+         "object": "00000000-0000-4000-8100-000000000006",
+         "source": "redstring-grouping"
+        }
+       ],
+       "createdAt": "2026-01-01T00:00:00.000Z",
+       "lastModified": "2026-01-01T00:00:00.000Z"
+      },
+      "redstring:linkedNodePrototypeId": "00000000-0000-4000-8100-000000000003",
+      "redstring:linkedDefinitionIndex": 0,
+      "redstring:hasCustomLayout": false,
+      "redstring:anchorInstanceId": "00000000-0000-4000-8100-000000000005",
+      "rdfs:member": [
+       {
+        "@id": "urn:redstring:id:i-zeta"
+       },
+       {
+        "@id": "urn:redstring:id:i-eta"
+       }
+      ]
+     }
+    },
+    "redstring:visualProperties": {
+     "redstring:expanded": true,
+     "redstring:activeInContext": true
+    },
+    "redstring:edges": {
+     "e-alpha-beta": {
+      "id": "e-alpha-beta",
+      "sourceId": "i-alpha",
+      "destinationId": "i-beta",
+      "typeNodeId": "base-connection-prototype",
+      "definitionNodeIds": [
+       "p-rel-supports"
+      ],
+      "directionality": {
+       "arrowsToward": [
+        "i-beta"
+       ]
+      },
+      "rdfStatements": [
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-alpha"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-thing-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-beta"
+        }
+       }
+      ],
+      "sourcePrototypeId": "p-alpha",
+      "destinationPrototypeId": "p-beta",
+      "predicatePrototypeId": "base-thing-prototype"
+     },
+     "e-beta-gamma": {
+      "id": "e-beta-gamma",
+      "sourceId": "i-beta",
+      "destinationId": "i-gamma",
+      "typeNodeId": "base-connection-prototype",
+      "directionality": {
+       "arrowsToward": [
+        "i-gamma"
+       ]
+      },
+      "rdfStatements": [
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-beta"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-connection-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-gamma"
+        }
+       }
+      ],
+      "sourcePrototypeId": "p-beta",
+      "destinationPrototypeId": "p-gamma",
+      "predicatePrototypeId": "base-connection-prototype"
+     },
+     "e-alpha-delta": {
+      "id": "e-alpha-delta",
+      "sourceId": "i-alpha",
+      "destinationId": "i-delta",
+      "typeNodeId": "base-connection-prototype",
+      "directionality": {
+       "arrowsToward": []
+      },
+      "rdfStatements": [
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-alpha"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-connection-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-delta"
+        }
+       },
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-delta"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-connection-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-alpha"
+        }
+       }
+      ],
+      "sourcePrototypeId": "p-alpha",
+      "destinationPrototypeId": "p-delta",
+      "predicatePrototypeId": "base-connection-prototype"
+     },
+     "e-delta-epsilon": {
+      "id": "e-delta-epsilon",
+      "sourceId": "i-delta",
+      "destinationId": "i-epsilon",
+      "typeNodeId": "base-connection-prototype",
+      "definitionNodeIds": [
+       "p-rel-causes"
+      ],
+      "directionality": {
+       "arrowsToward": [
+        "i-epsilon"
+       ]
+      },
+      "rdfStatements": [
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-delta"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-thing-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-epsilon"
+        }
+       }
+      ],
+      "sourcePrototypeId": "p-delta",
+      "destinationPrototypeId": "p-epsilon",
+      "predicatePrototypeId": "base-thing-prototype"
+     },
+     "e-epsilon-beta": {
+      "id": "e-epsilon-beta",
+      "sourceId": "i-epsilon",
+      "destinationId": "i-beta",
+      "typeNodeId": "base-connection-prototype",
+      "directionality": {
+       "arrowsToward": []
+      },
+      "rdfStatements": [
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-epsilon"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-connection-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-beta"
+        }
+       },
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-beta"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-connection-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-epsilon"
+        }
+       }
+      ],
+      "sourcePrototypeId": "p-epsilon",
+      "destinationPrototypeId": "p-beta",
+      "predicatePrototypeId": "base-connection-prototype"
+     },
+     "e-theta-iota": {
+      "id": "e-theta-iota",
+      "sourceId": "i-theta",
+      "destinationId": "i-iota",
+      "typeNodeId": "base-connection-prototype",
+      "definitionNodeIds": [
+       "p-rel-supports"
+      ],
+      "directionality": {
+       "arrowsToward": []
+      },
+      "rdfStatements": [
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-theta"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-thing-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-iota"
+        }
+       },
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-iota"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-thing-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-theta"
+        }
+       }
+      ],
+      "sourcePrototypeId": "p-theta",
+      "destinationPrototypeId": "p-iota",
+      "predicatePrototypeId": "base-thing-prototype"
+     },
+     "e-zeta-eta": {
+      "id": "e-zeta-eta",
+      "sourceId": "i-zeta",
+      "destinationId": "i-eta",
+      "typeNodeId": "base-connection-prototype",
+      "directionality": {
+       "arrowsToward": [
+        "i-eta"
+       ]
+      },
+      "rdfStatements": [
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-zeta"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-connection-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-eta"
+        }
+       }
+      ],
+      "sourcePrototypeId": "p-zeta",
+      "destinationPrototypeId": "p-eta",
+      "predicatePrototypeId": "base-connection-prototype"
+     }
+    }
+   },
+   "00000000-0000-4000-8100-000000000004": {
+    "@type": "redstring:SpatialGraph",
+    "@id": "urn:uuid:00000000-0000-4000-8100-000000000004",
+    "rdfs:label": "Cluster",
+    "rdfs:comment": "",
+    "redstring:definingNodeIds": [
+     "00000000-0000-4000-8100-000000000003"
+    ],
+    "redstring:edgeIds": [
+     "00000000-0000-4000-8100-000000000008"
+    ],
+    "redstring:directed": true,
+    "redstring:color": "#6B2D5C",
+    "redstring:panOffset": {
+     "x": 0,
+     "y": 0
+    },
+    "redstring:zoomLevel": 1,
+    "redstring:instances": {
+     "00000000-0000-4000-8100-000000000009": {
+      "@type": "redstring:Instance",
+      "@id": "urn:uuid:00000000-0000-4000-8100-000000000009",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-zeta"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:uuid:00000000-0000-4000-8100-000000000004"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": 420,
+       "redstring:yCoordinate": -100,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-zeta",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     },
+     "00000000-0000-4000-8100-00000000000a": {
+      "@type": "redstring:Instance",
+      "@id": "urn:uuid:00000000-0000-4000-8100-00000000000a",
+      "rdf:type": {
+       "@id": "urn:redstring:id:p-eta"
+      },
+      "rdfs:label": null,
+      "rdfs:comment": null,
+      "redstring:containedIn": {
+       "@id": "urn:uuid:00000000-0000-4000-8100-000000000004"
+      },
+      "redstring:spatialContext": {
+       "redstring:xCoordinate": 700,
+       "redstring:yCoordinate": -100,
+       "redstring:spatialScale": 1
+      },
+      "redstring:visualProperties": {},
+      "redstring:prototypeId": "p-eta",
+      "redstring:isGroupAnchor": false,
+      "redstring:anchorForGroupId": null
+     }
+    },
+    "redstring:groups": {},
+    "redstring:visualProperties": {
+     "redstring:expanded": false,
+     "redstring:activeInContext": false
+    },
+    "redstring:edges": {
+     "00000000-0000-4000-8100-000000000008": {
+      "id": "00000000-0000-4000-8100-000000000008",
+      "sourceId": "00000000-0000-4000-8100-000000000009",
+      "destinationId": "00000000-0000-4000-8100-00000000000a",
+      "typeNodeId": "base-connection-prototype",
+      "directionality": {
+       "arrowsToward": [
+        "00000000-0000-4000-8100-00000000000a"
+       ]
+      },
+      "rdfStatements": [
+       {
+        "@type": "Statement",
+        "subject": {
+         "@id": "urn:redstring:id:p-zeta"
+        },
+        "predicate": {
+         "@id": "urn:redstring:id:base-connection-prototype"
+        },
+        "object": {
+         "@id": "urn:redstring:id:p-eta"
+        }
+       }
+      ],
+      "sourcePrototypeId": "p-zeta",
+      "destinationPrototypeId": "p-eta",
+      "predicatePrototypeId": "base-connection-prototype"
+     }
+    }
+   }
+  }
+ },
+ "globalSpatialContext": {
+  "@type": "redstring:SpatialContext",
+  "redstring:viewport": {
+   "x": 0,
+   "y": 0,
+   "zoom": 1
+  },
+  "redstring:canvasSize": {
+   "width": 4000,
+   "height": 3000
+  }
+ },
+ "userInterface": {
+  "@type": "redstring:UserInterfaceState",
+  "redstring:openGraphIds": [
+   "g-small-b",
+   "g-small-a"
+  ],
+  "redstring:activeGraphId": "g-small-a",
+  "redstring:activeDefinitionNodeId": "00000000-0000-4000-8100-000000000002",
+  "redstring:expandedGraphIds": [
+   "g-small-b",
+   "g-small-a"
+  ],
+  "redstring:rightPanelTabs": [
+   {
+    "type": "home",
+    "isActive": true
+   }
+  ],
+  "redstring:savedNodeIds": [
+   "p-alpha",
+   "p-beta"
+  ],
+  "redstring:savedGraphIds": [],
+  "redstring:showConnectionNames": true,
+  "redstring:wizardPlansByConversation": {},
+  "redstring:wizardGoalsByConversation": {},
+  "redstring:mergeDismissals": {}
+ },
+ "graphLayouts": {
+  "g-small-b": {
+   "nodes": {
+    "i-lambda": {
+     "x": -300,
+     "y": -150,
+     "scale": 1,
+     "prototypeId": "p-lambda"
+    },
+    "i-mu": {
+     "x": 150,
+     "y": -150,
+     "scale": 1,
+     "prototypeId": "p-mu"
+    },
+    "i-nu": {
+     "x": -80,
+     "y": 120,
+     "scale": 1,
+     "prototypeId": "p-nu"
+    }
+   },
+   "metadata": {
+    "nodeCount": 3,
+    "edgeCount": 2,
+    "boundingBox": {
+     "minX": -300,
+     "minY": -150,
+     "maxX": 150,
+     "maxY": 120
+    },
+    "centroid": {
+     "x": -76.66666666666667,
+     "y": -60
+    },
+    "computedAt": 1767225600000,
+    "truncated": false
+   }
+  },
+  "g-small-a": {
+   "nodes": {
+    "i-alpha": {
+     "x": -760,
+     "y": -380,
+     "scale": 1,
+     "prototypeId": "p-alpha"
+    },
+    "i-beta": {
+     "x": -380,
+     "y": -380,
+     "scale": 1,
+     "prototypeId": "p-beta"
+    },
+    "i-gamma": {
+     "x": 0,
+     "y": -380,
+     "scale": 1,
+     "prototypeId": "p-gamma"
+    },
+    "i-delta": {
+     "x": -760,
+     "y": -120,
+     "scale": 1,
+     "prototypeId": "p-delta"
+    },
+    "i-epsilon": {
+     "x": -380,
+     "y": -120,
+     "scale": 1,
+     "prototypeId": "p-epsilon"
+    },
+    "i-zeta": {
+     "x": 420,
+     "y": -100,
+     "scale": 1,
+     "prototypeId": "p-zeta"
+    },
+    "i-eta": {
+     "x": 700,
+     "y": -100,
+     "scale": 1,
+     "prototypeId": "p-eta"
+    },
+    "i-theta": {
+     "x": -760,
+     "y": 200,
+     "scale": 1,
+     "prototypeId": "p-theta"
+    },
+    "i-iota": {
+     "x": -420,
+     "y": 200,
+     "scale": 1,
+     "prototypeId": "p-iota"
+    },
+    "00000000-0000-4000-8100-000000000005": {
+     "x": 560,
+     "y": -100,
+     "scale": 1,
+     "prototypeId": "00000000-0000-4000-8100-000000000003"
+    }
+   },
+   "metadata": {
+    "nodeCount": 10,
+    "edgeCount": 7,
+    "boundingBox": {
+     "minX": -760,
+     "minY": -380,
+     "maxX": 700,
+     "maxY": 200
+    },
+    "centroid": {
+     "x": -178,
+     "y": -128
+    },
+    "computedAt": 1767225600000,
+    "truncated": false
+   }
+  },
+  "00000000-0000-4000-8100-000000000004": {
+   "nodes": {
+    "00000000-0000-4000-8100-000000000009": {
+     "x": 420,
+     "y": -100,
+     "scale": 1,
+     "prototypeId": "p-zeta"
+    },
+    "00000000-0000-4000-8100-00000000000a": {
+     "x": 700,
+     "y": -100,
+     "scale": 1,
+     "prototypeId": "p-eta"
+    }
+   },
+   "metadata": {
+    "nodeCount": 2,
+    "edgeCount": 1,
+    "boundingBox": {
+     "minX": 420,
+     "minY": -100,
+     "maxX": 700,
+     "maxY": -100
+    },
+    "centroid": {
+     "x": 560,
+     "y": -100
+    },
+    "computedAt": 1767225600000,
+    "truncated": false
+   }
+  }
+ },
+ "graphSummaries": {
+  "g-small-b": {
+   "id": "g-small-b",
+   "name": "Small Web B",
+   "description": "",
+   "nodeCount": 3,
+   "edgeCount": 2,
+   "density": 0.333,
+   "quality": "balanced",
+   "score": 33,
+   "nodes": [
+    {
+     "id": "i-lambda",
+     "prototypeId": "p-lambda",
+     "name": "Lambda"
+    },
+    {
+     "id": "i-mu",
+     "prototypeId": "p-mu",
+     "name": "Mu"
+    },
+    {
+     "id": "i-nu",
+     "prototypeId": "p-nu",
+     "name": "Nu"
+    }
+   ],
+   "edges": [
+    {
+     "id": "e-lambda-mu",
+     "from": "i-lambda",
+     "to": "i-mu",
+     "type": "Connection",
+     "sourceLabel": "Lambda",
+     "targetLabel": "Mu"
+    },
+    {
+     "id": "e-mu-nu",
+     "from": "i-mu",
+     "to": "i-nu",
+     "type": "Connection",
+     "sourceLabel": "Mu",
+     "targetLabel": "Nu"
+    }
+   ],
+   "text": "Graph: Small Web B (g-small-b)\nNodes (3 total):\n- Lambda [i-lambda]\n- Mu [i-mu]\n- Nu [i-nu]\n\nEdges (2 total):\n- Lambda → Mu (Connection)\n- Mu → Nu (Connection)",
+   "computedAt": 1767225600000
+  },
+  "g-small-a": {
+   "id": "g-small-a",
+   "name": "Small Web A",
+   "description": "",
+   "nodeCount": 10,
+   "edgeCount": 7,
+   "density": 0.078,
+   "quality": "sparse",
+   "score": 26,
+   "nodes": [
+    {
+     "id": "i-alpha",
+     "prototypeId": "p-alpha",
+     "name": "Alpha"
+    },
+    {
+     "id": "i-beta",
+     "prototypeId": "p-beta",
+     "name": "Beta"
+    },
+    {
+     "id": "i-gamma",
+     "prototypeId": "p-gamma",
+     "name": "Gamma"
+    },
+    {
+     "id": "i-delta",
+     "prototypeId": "p-delta",
+     "name": "Delta"
+    },
+    {
+     "id": "i-epsilon",
+     "prototypeId": "p-epsilon",
+     "name": "Epsilon"
+    },
+    {
+     "id": "i-zeta",
+     "prototypeId": "p-zeta",
+     "name": "Zeta"
+    },
+    {
+     "id": "i-eta",
+     "prototypeId": "p-eta",
+     "name": "Eta"
+    },
+    {
+     "id": "i-theta",
+     "prototypeId": "p-theta",
+     "name": "Theta"
+    },
+    {
+     "id": "i-iota",
+     "prototypeId": "p-iota",
+     "name": "Iota"
+    },
+    {
+     "id": "00000000-0000-4000-8100-000000000005",
+     "prototypeId": "00000000-0000-4000-8100-000000000003",
+     "name": "Cluster"
+    }
+   ],
+   "edges": [
+    {
+     "id": "e-alpha-beta",
+     "from": "i-alpha",
+     "to": "i-beta",
+     "type": "Connection",
+     "sourceLabel": "Alpha",
+     "targetLabel": "Beta"
+    },
+    {
+     "id": "e-beta-gamma",
+     "from": "i-beta",
+     "to": "i-gamma",
+     "type": "Connection",
+     "sourceLabel": "Beta",
+     "targetLabel": "Gamma"
+    },
+    {
+     "id": "e-alpha-delta",
+     "from": "i-alpha",
+     "to": "i-delta",
+     "type": "Connection",
+     "sourceLabel": "Alpha",
+     "targetLabel": "Delta"
+    },
+    {
+     "id": "e-delta-epsilon",
+     "from": "i-delta",
+     "to": "i-epsilon",
+     "type": "Connection",
+     "sourceLabel": "Delta",
+     "targetLabel": "Epsilon"
+    },
+    {
+     "id": "e-epsilon-beta",
+     "from": "i-epsilon",
+     "to": "i-beta",
+     "type": "Connection",
+     "sourceLabel": "Epsilon",
+     "targetLabel": "Beta"
+    },
+    {
+     "id": "e-theta-iota",
+     "from": "i-theta",
+     "to": "i-iota",
+     "type": "Connection",
+     "sourceLabel": "Theta",
+     "targetLabel": "Iota"
+    },
+    {
+     "id": "e-zeta-eta",
+     "from": "i-zeta",
+     "to": "i-eta",
+     "type": "Connection",
+     "sourceLabel": "Zeta",
+     "targetLabel": "Eta"
+    }
+   ],
+   "text": "Graph: Small Web A (g-small-a)\nNodes (10 total):\n- Alpha [i-alpha]\n- Beta [i-beta]\n- Gamma [i-gamma]\n- Delta [i-delta]\n- Epsilon [i-epsilon]\n- Zeta [i-zeta]\n- Eta [i-eta]\n- Theta [i-theta]\n- Iota [i-iota]\n- Cluster [00000000-0000-4000-8100-000000000005]\n\nEdges (7 total):\n- Alpha → Beta (Connection)\n- Beta → Gamma (Connection)\n- Alpha → Delta (Connection)\n- Delta → Epsilon (Connection)\n- Epsilon → Beta (Connection)\n- Theta → Iota (Connection)\n- Zeta → Eta (Connection)",
+   "computedAt": 1767225600000
+  },
+  "00000000-0000-4000-8100-000000000004": {
+   "id": "00000000-0000-4000-8100-000000000004",
+   "name": "Cluster",
+   "description": "",
+   "nodeCount": 2,
+   "edgeCount": 1,
+   "density": 0.5,
+   "quality": "dense",
+   "score": 44,
+   "nodes": [
+    {
+     "id": "00000000-0000-4000-8100-000000000009",
+     "prototypeId": "p-zeta",
+     "name": "Zeta"
+    },
+    {
+     "id": "00000000-0000-4000-8100-00000000000a",
+     "prototypeId": "p-eta",
+     "name": "Eta"
+    }
+   ],
+   "edges": [
+    {
+     "id": "00000000-0000-4000-8100-000000000008",
+     "from": "00000000-0000-4000-8100-000000000009",
+     "to": "00000000-0000-4000-8100-00000000000a",
+     "type": "Connection",
+     "sourceLabel": "Zeta",
+     "targetLabel": "Eta"
+    }
+   ],
+   "text": "Graph: Cluster (00000000-0000-4000-8100-000000000004)\nNodes (2 total):\n- Zeta [00000000-0000-4000-8100-000000000009]\n- Eta [00000000-0000-4000-8100-00000000000a]\n\nEdges (1 total):\n- Zeta → Eta (Connection)",
+   "computedAt": 1767225600000
+  }
+ },
+ "edgePrototypes": {
+  "base-connection-prototype": {
+   "id": "base-connection-prototype",
+   "name": "Connection",
+   "description": "The base type for all connections. Connections are edges, relationships, verbs, actions, whatever you want them to be. They will always be at the bottom of the connection abstraction stack.",
+   "color": "#000000",
+   "typeNodeId": null,
+   "definitionGraphIds": [],
+   "isSpecificityChainNode": false,
+   "hasSpecificityChain": false
+  },
+  "agent-delegates-to": {
+   "id": "agent-delegates-to",
+   "name": "Delegates To",
+   "description": "Parent assigns subtask to child agent",
+   "color": "#E74C3C",
+   "typeNodeId": "base-connection-prototype",
+   "definitionGraphIds": [],
+   "isSpecificityChainNode": false,
+   "hasSpecificityChain": false
+  },
+  "agent-reports-to": {
+   "id": "agent-reports-to",
+   "name": "Reports To",
+   "description": "Child returns results to parent agent",
+   "color": "#2ECC71",
+   "typeNodeId": "base-connection-prototype",
+   "definitionGraphIds": [],
+   "isSpecificityChainNode": false,
+   "hasSpecificityChain": false
+  },
+  "agent-triggers": {
+   "id": "agent-triggers",
+   "name": "Triggers",
+   "description": "Event causes agent to fire",
+   "color": "#F39C12",
+   "typeNodeId": "base-connection-prototype",
+   "definitionGraphIds": [],
+   "isSpecificityChainNode": false,
+   "hasSpecificityChain": false
+  },
+  "agent-validates": {
+   "id": "agent-validates",
+   "name": "Validates",
+   "description": "Checks output of another agent",
+   "color": "#9B59B6",
+   "typeNodeId": "base-connection-prototype",
+   "definitionGraphIds": [],
+   "isSpecificityChainNode": false,
+   "hasSpecificityChain": false
+  },
+  "agent-fallback-to": {
+   "id": "agent-fallback-to",
+   "name": "Fallback To",
+   "description": "If primary fails, try this agent",
+   "color": "#1ABC9C",
+   "typeNodeId": "base-connection-prototype",
+   "definitionGraphIds": [],
+   "isSpecificityChainNode": false,
+   "hasSpecificityChain": false
+  },
+  "agent-depends-on": {
+   "id": "agent-depends-on",
+   "name": "Depends On",
+   "description": "Must wait for completion",
+   "color": "#3498DB",
+   "typeNodeId": "base-connection-prototype",
+   "definitionGraphIds": [],
+   "isSpecificityChainNode": false,
+   "hasSpecificityChain": false
+  }
+ }
+}

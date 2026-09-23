@@ -1,3 +1,7 @@
+// Dev-only fixture sandbox (NodeCanvas refactor P0.02). MUST stay the first
+// import: with ?fixture=<name> it isolates localStorage and the network before
+// any app module evaluates. Inert otherwise, and compiled out of production.
+import './dev/fixtureSandbox.js'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
@@ -45,10 +49,30 @@ const HTML5toTouch = {
   ]
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <DndProvider backend={MultiBackend} options={HTML5toTouch}>
-      <App />
-    </DndProvider>
-  </React.StrictMode>,
-)
+const mountApp = () => {
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    <React.StrictMode>
+      <DndProvider backend={MultiBackend} options={HTML5toTouch}>
+        <App />
+      </DndProvider>
+    </React.StrictMode>,
+  )
+}
+
+if (import.meta.env.DEV && window.__REDSTRING_FIXTURE_MODE__) {
+  // Fixture mode (dev only): load the fixture and disable persistence before
+  // the app mounts. If that fails, don't mount at all: a half-initialised
+  // fixture session must never fall through to the real storage bootstrap.
+  import('./dev/fixtureLoader.js')
+    .then((m) => m.bootFixtureMode(window.__REDSTRING_FIXTURE_MODE__.name))
+    .then(mountApp)
+    .catch((err) => {
+      console.error('[fixture] boot failed; app not mounted', err)
+      window.__fixtureError = String(err?.message || err)
+      const root = document.getElementById('root')
+      root.textContent = `Fixture boot failed: ${window.__fixtureError}`
+      root.setAttribute('data-fixture-error', 'true')
+    })
+} else {
+  mountApp()
+}

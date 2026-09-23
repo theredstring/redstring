@@ -1,0 +1,3 @@
+# Local-only fixtures: copies of real universes (D-15). Personal content in an
+# open-source repo; never commit them. The root .gitignore also lists this.
+local/
