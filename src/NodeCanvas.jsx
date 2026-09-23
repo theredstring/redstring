@@ -30,7 +30,7 @@ import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipbo
 import { lineModeBounds, CAROUSEL_SLOT_FRACTION } from './utils/pieMenuLayout.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, Globe, RefreshCw, Activity, Combine } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, Globe, RefreshCw, Activity, Combine } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -66,7 +66,6 @@ import {
   placeholderIdForGroup,
 } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
-import { debugLogSync } from './utils/debugLogger.js';
 import { getNodeHitbox, getVisualConnectionEndpoints, getLineNodeIntersection, getNodeEdgeIntersection } from './utils/canvas/nodeHitbox.js';
 import { stabilizeLabelPosition, clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
@@ -135,7 +134,6 @@ import {
   NODE_DEFAULT_COLOR,
   CONNECTION_DEFAULT_COLOR,
   CONNECTION_WIDTH_BASE_SCALE,
-  MODAL_CLOSE_ICON_SIZE,
   DARK_MODE_BG_COLOR,
   LIGHT_MODE_BG_COLOR,
   EXCLUSIVE_PANEL_MODE_THRESHOLD,
@@ -146,7 +144,6 @@ import {
 
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useViewportBounds } from './hooks/useViewportBounds';
-import { useNodeActions } from './hooks/useNodeActions';
 import { useControlPanelActions } from './hooks/useControlPanelActions';
 import { useGraphLayout } from './hooks/useGraphLayout';
 import { useCanvasKeyboard } from './hooks/useCanvasKeyboard';
@@ -171,7 +168,6 @@ import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVi
 import { likelyTouch, isTouchDevice, hasNoHover } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
-import NodeSelectionGrid from './NodeSelectionGrid'; // Import the new node selection grid
 import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
 import { candidateToConcept, conceptToPrototypeFields, backfillConceptLinks } from './services/candidates.js';
@@ -463,12 +459,8 @@ const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
 const maxTouchPoints = typeof navigator !== 'undefined' ? navigator.maxTouchPoints : 0;
 const isMac = /Mac/i.test(userAgent);
 const isIOS = /iPad|iPhone|iPod/.test(userAgent) || (isMac && maxTouchPoints > 1);
-const isAndroid = /Android/i.test(userAgent);
 
 // Sensitivity constants
-const MOUSE_WHEEL_ZOOM_SENSITIVITY = 1;        // Sensitivity for standard mouse wheel zooming
-const TOUCH_PINCH_SENSITIVITY = isIOS ? 0.11 : 0.24;           // approach factor toward target zoom per frame
-const TOUCH_PINCH_MAX_RATIO_STEP = isIOS ? 0.28 : 0.6;         // overall clamp when deriving target zoom from initial distance
 const TOUCH_PAN_DRAG_SENSITIVITY = isIOS ? 0.75 : 1.05;        // per-move multiplier for single-finger touch panning
 const PAN_MOMENTUM_MIN_SPEED = 0.01;            // px/ms threshold before momentum stops (lowered for touch)
 const TOUCH_MOMENTUM_VELOCITY_WINDOW_MS = 80;   // how far back from the last touchmove to sample for release velocity
@@ -842,10 +834,6 @@ function NodeCanvas() {
   // survive between transform ticks, and the rect is repositioned on every one.
   const ORBIT_DIM_MARGIN = 0.1;
 
-  // TEMPORARY DIAGNOSTIC - zoom flicker root-cause investigation.
-  // Remove after culprit identified. See /Users/granteubanks/.claude/plans/sleepy-snacking-mist.md
-  const DIAGNOSE_ZOOM_FLICKER = true;
-
   // Get theme colors
   const theme = useTheme();
 
@@ -880,7 +868,11 @@ function NodeCanvas() {
   // entries for edges that have gone away are harmless — nothing can hover one.
   const labelTruncationRef = useRef(new Map());
   const pinchRef = useRef({ active: false, startDist: 0, startZoom: 1, centerClient: { x: 0, y: 0 }, centerWorld: null, lastCenterClient: { x: 0, y: 0 }, lastDist: 0 });
-  const pinchSmoothingRef = useRef({ lastFrameTime: 0, velocity: { x: 0, y: 0 } });
+  // Only `lastFrameTime` is live: useCanvasTouch reads it for the pinch easing's
+  // frame delta. (The lerp-follow loop that once animated from this ref was never
+  // called and has been removed; useNodeDrag still clears its old fields, which
+  // are now always unset.)
+  const pinchSmoothingRef = useRef({ lastFrameTime: 0 });
   // Cross-platform multi-touch suppression. True from gesture start until ~350ms
   // after the last finger lifts — bridges the gap where pinchRef.active flips
   // false synchronously before the browser dispatches synthetic click/pointerup
@@ -1067,12 +1059,9 @@ function NodeCanvas() {
   useEffect(() => { leftWidthRef.current = leftPanelWidth; }, [leftPanelWidth]);
   useEffect(() => { rightWidthRef.current = rightPanelWidth; }, [rightPanelWidth]);
 
-  // Cleanup pinch zoom animation on unmount
+  // Cleanup the gesture-block timer on unmount
   useEffect(() => {
     return () => {
-      if (pinchSmoothingRef.current?.animationId) {
-        cancelAnimationFrame(pinchSmoothingRef.current.animationId);
-      }
       if (gestureBlockClearTimerRef.current) {
         clearTimeout(gestureBlockClearTimerRef.current);
         gestureBlockClearTimerRef.current = null;
@@ -1548,21 +1537,6 @@ function NodeCanvas() {
     })();
     return () => { cancelled = true; };
   }, [isUniverseLoading]);
-
-  // TEMPORARY DIAGNOSTIC — zoom flicker investigation (H3: SVG unmount/remount)
-  // Fires whenever any of the four top-level SVG conditional flags flips. If this
-  // fires during an active zoom gesture, the SVG subtree is briefly unmounting
-  // and the fallback branch renders for one frame → whole canvas blank.
-  useEffect(() => {
-    if (DIAGNOSE_ZOOM_FLICKER) {
-      console.warn('[flicker:svg-conditions]', {
-        isUniverseLoading,
-        isUniverseLoaded,
-        hasUniverseFile,
-        activeGraphIdPresent: !!activeGraphId,
-      });
-    }
-  }, [isUniverseLoading, isUniverseLoaded, hasUniverseFile, activeGraphId]);
 
   useEffect(() => {
     const timerApi = typeof window !== 'undefined' ? window : globalThis;
@@ -2088,15 +2062,6 @@ function NodeCanvas() {
 
     prevNodesRef.current = newMap;
 
-    // TEMPORARY DIAGNOSTIC — zoom flicker investigation (H4: memo transiently empty)
-    if (DIAGNOSE_ZOOM_FLICKER && result.length === 0 && instances && instances.size > 0) {
-      console.warn('[flicker:nodes-memo] returned EMPTY with non-empty instances', {
-        instancesSize: instances.size,
-        hasPrototypes: !!nodePrototypesMap,
-        protoCount: nodePrototypesMap?.size,
-      });
-    }
-
     return result;
   }, [instances, nodePrototypesMap, imageCacheMap, loadingImagesMap, failedImagesMap]);
 
@@ -2180,8 +2145,6 @@ function NodeCanvas() {
   const edgeCurveInfoRef = useRef(null);
   const edgesByNodeIdRef = useRef(null);
   const visibleEdgesRef = useRef(visibleEdges);
-  // Dedup set so the arrowhead audit only warns once per edge per session.
-  const arrowheadAuditSeenRef = useRef(new Set());
   // Previous-committed visible node set, read by runCulling for hysteresis (two-zone
   // culling: an already-visible node stays visible until it's outside the OUTER margin).
   const visibleNodeIdsRef = useRef(visibleNodeIds);
@@ -2955,28 +2918,27 @@ function NodeCanvas() {
   const keyboardPanTravelRef = useRef(null);
 
   const [isPanning, _setIsPanningState] = useState(false);
-  const [panStart, _setPanStartState] = useState({ x: 0, y: 0 });
-  // Refs mirror the state synchronously. Critical for touch flow: React 18 batches
+  // The ref mirrors isPanning synchronously. Critical for touch flow: React 18 batches
   // state updates and may not flush before the next browser event fires. Without
-  // these refs, the touchmove/touchend handlers immediately following a pinch→1-finger
-  // transition would close over stale `isPanning=false`/`panStart=null`, causing the
-  // pan branch in handleMouseMove and the momentum-launch block in handleMouseUp to
-  // skip entirely on fast continuous gestures.
+  // it, the touchmove/touchend handlers immediately following a pinch→1-finger
+  // transition would close over a stale `isPanning=false`, causing the pan branch in
+  // handleMouseMove and the momentum-launch block in handleMouseUp to skip entirely
+  // on fast continuous gestures.
   const isPanningRef = useRef(false);
-  const panStartRef = useRef({ x: 0, y: 0 });
   const setIsPanning = useCallback((value) => {
     const next = typeof value === 'function' ? value(isPanningRef.current) : value;
     isPanningRef.current = next;
     _setIsPanningState(next);
   }, []);
+  // The pan anchor is ref-only: nothing renders from it, and the drag-pan rAF
+  // rewrites it on every frame the view moves. (It used to be mirrored into React
+  // state as well, which re-rendered all of NodeCanvas once per pan frame.)
+  const panStartRef = useRef({ x: 0, y: 0 });
   const setPanStart = useCallback((value) => {
-    const next = typeof value === 'function' ? value(panStartRef.current) : value;
-    panStartRef.current = next;
-    _setPanStartState(next);
+    panStartRef.current = typeof value === 'function' ? value(panStartRef.current) : value;
   }, []);
   // setPanOffset alias is defined after useCanvasTransform initialization (see below canvasSize)
 
-  const [recentlyPanned, setRecentlyPanned] = useState(false);
   const orbitClickDownPos = useRef(null); // Track mousedown position for orbit overlay pan detection
 
   const [selectionRect, setSelectionRect] = useState(null);
@@ -3086,12 +3048,6 @@ function NodeCanvas() {
   useLayoutEffect(() => {
     transform.applyTransform();
   }, [transform.applyTransform]);
-
-  // Watchdog removed
-  const prevZoomForWatchdog = useRef(zoomLevel);
-  useEffect(() => {
-    prevZoomForWatchdog.current = zoomLevel;
-  }, [zoomLevel]);
 
   // Viewport bounds ref for edge panning effect
   const viewportBoundsRef = useRef(viewportBounds);
@@ -3239,38 +3195,6 @@ function NodeCanvas() {
   }, []);
 
   const mousePositionRef = useRef({ x: 0, y: 0 });
-
-  // RAF-based position update batching for smooth 60/120/144Hz-aligned rendering
-  const pendingPositionUpdates = useRef(new Map());
-  const positionUpdateScheduled = useRef(false);
-
-  const flushPositionUpdates = useCallback(() => {
-    if (pendingPositionUpdates.current.size === 0) return;
-
-    // Apply all pending position updates in a single batch
-    pendingPositionUpdates.current.forEach(({ newX, newY, instanceId }) => {
-      storeActions.updateNodeInstance(activeGraphId, instanceId, draft => {
-        draft.x = newX;
-        draft.y = newY;
-      }, { isDragging: true, phase: 'move', type: 'node_position' });
-    });
-
-    pendingPositionUpdates.current.clear();
-  }, [activeGraphId, storeActions]);
-
-  const schedulePositionUpdate = useCallback((instanceId, newX, newY) => {
-    // Store the latest position for this node
-    pendingPositionUpdates.current.set(instanceId, { newX, newY, instanceId });
-
-    // Schedule RAF flush if not already scheduled
-    if (!positionUpdateScheduled.current) {
-      positionUpdateScheduled.current = true;
-      requestAnimationFrame(() => {
-        positionUpdateScheduled.current = false;
-        flushPositionUpdates();
-      });
-    }
-  }, [flushPositionUpdates]);
 
   // Document-level mouse tracking (captures events even over panels or when propagation is stopped)
   useEffect(() => {
@@ -4367,20 +4291,19 @@ function NodeCanvas() {
       const canvas = canvasSizeRef.current;
       if (!viewport || !canvas) return;
 
-      // Interactions that may not lose mounted content mid-flight: a node drag
+      // An interaction that may not lose mounted content mid-flight: a node drag
       // (whose edge auto-pan reveals new canvas while the dragged node's own
-      // position is DOM-bypassed and must not be re-culled from under it), and
-      // pinch-zoom smoothing (a lerp-follow loop that runs for the whole
-      // gesture). Both used to skip culling outright, which under a moving
-      // viewport means staring at blank canvas until the finger lifts. Under the
-      // grow-only policy below there is nothing left for them to jitter, so they
-      // only forbid the prune half — and when the viewport ISN'T moving the
-      // containment gate below costs one rect test and returns.
+      // position is DOM-bypassed and must not be re-culled from under it). It
+      // used to skip culling outright, which under a moving viewport means
+      // staring at blank canvas until the finger lifts. Under the grow-only
+      // policy below there is nothing left for it to jitter, so it only forbids
+      // the prune half — and when the viewport ISN'T moving the containment gate
+      // below costs one rect test and returns. (A pinch-smoothing lerp loop used
+      // to hold removals here too; it was never started and has been removed.)
       //
       // Drag-zoom-out (`isAnimatingZoomRef`) is deliberately not included, so it
       // still gets full culling exactly as before.
-      const holdRemovals = (draggingNodeInfoRef.current && !isAnimatingZoomRef.current)
-        || !!pinchSmoothingRef.current?.isAnimating;
+      const holdRemovals = !!draggingNodeInfoRef.current && !isAnimatingZoomRef.current;
 
       // Read live pan/zoom directly from refs — this is the whole point of the fix.
       const pan = panOffsetRef.current;
@@ -4576,33 +4499,6 @@ function NodeCanvas() {
       // inside runCulling itself, so owning them here is safe.
       visibleNodeIdsRef.current = commitNodeIds;
       visibleEdgesRef.current = commitEdges;
-
-      // TEMPORARY DIAGNOSTIC — zoom flicker investigation
-      if (DIAGNOSE_ZOOM_FLICKER) {
-        const reasons = [];
-        if (!currentNodes || currentNodes.length === 0) {
-          reasons.push(`nodesRef empty (len=${currentNodes?.length})`);
-        }
-        if (!dimsMap || dimsMap.size === 0) {
-          reasons.push(`dimsMap empty (size=${dimsMap?.size})`);
-        }
-        if (commitNodeIds.size === 0 && currentNodes && currentNodes.length > 0) {
-          reasons.push(`visible EMPTY with ${currentNodes.length} nodes in graph`);
-        }
-        if (reasons.length) {
-          console.warn('[flicker:culling]', {
-            reasons,
-            zoom,
-            pan: { x: pan.x, y: pan.y },
-            viewport: { w: viewport.width, h: viewport.height },
-            innerRect,
-            prevVisibleSize: prevVisibleNodeIds.size,
-            nextVisibleSize: commitNodeIds.size,
-            nodesLen: currentNodes?.length,
-            dimsMapSize: dimsMap?.size,
-          });
-        }
-      }
 
       // Synchronous visibility commit (no startTransition) so the visible set
       // always lands in lockstep with the SVG DOM transform — using transitions
@@ -6054,8 +5950,6 @@ function NodeCanvas() {
     return () => clearInterval(id);
   }, [debugMode, refreshSyncDebug]);
 
-  const [isPaused, setIsPaused] = useState(false);
-  const [lastInteractionType, setLastInteractionType] = useState(null);
   const [isViewReady, setIsViewReady] = useState(false);
 
   const [plusSign, setPlusSign] = useState(null);
@@ -6511,7 +6405,6 @@ function NodeCanvas() {
   const [edgeColorPickerVisible, setEdgeColorPickerVisible] = useState(false);
   const [edgeColorPickerPosition, setEdgeColorPickerPosition] = useState({ x: 0, y: 0 });
   const [activeEdgeColorPrototypeId, setActiveEdgeColorPrototypeId] = useState(null);
-  const [nodeSelectionGrid, setNodeSelectionGrid] = useState({ visible: false, position: { x: 0, y: 0 } });
   // Pie-menu "Swap": UnifiedSelector prompt to re-point this instance at an existing
   // prototype or a brand-new Thing.
   const [swapPrompt, setSwapPrompt] = useState({ visible: false, instanceId: null, name: '', color: null });
@@ -6556,7 +6449,6 @@ function NodeCanvas() {
     document.addEventListener('touchstart', dismissOnOutsideTouch, true);
     return () => document.removeEventListener('touchstart', dismissOnOutsideTouch, true);
   }, [editingGroupId]);
-  const [hasMouseMovedSinceDown, setHasMouseMovedSinceDown] = useState(false);
   const [hoveredEdgeInfo, setHoveredEdgeInfo] = useState(null); // Track hovered edge and which end
   // Mirror the nearest-hovered edge into a ref so click selection can pick the
   // nearest of several overlapping connections (matching the hover highlight)
@@ -7202,7 +7094,6 @@ function NodeCanvas() {
   const [headerAllThingsSearchVisible, setHeaderAllThingsSearchVisible] = useState(false);
   const [autoGraphModalVisible, setAutoGraphModalVisible] = useState(false);
   const [forceSimModalVisible, setForceSimModalVisible] = useState(false);
-  const [autoLayoutRunning, setAutoLayoutRunning] = useState(false);
 
   // Opened from the Debug settings page, which has no way to reach this state.
   useEffect(() => {
@@ -7802,7 +7693,6 @@ function NodeCanvas() {
     setTempGroupName('');
     setPlusSign(null);
     setNodeNamePrompt({ visible: false, name: '' });
-    setNodeSelectionGrid({ visible: false, position: { x: 0, y: 0 } });
     setSelectionRect(null);
     setSelectionStart(null);
     setDrawingConnectionFrom(null);
@@ -8566,7 +8456,6 @@ function NodeCanvas() {
   // Middle-click on a node (no drag) opens its right-panel tab.
   // Uses Pointer Lock so the cursor stays pinned at the click point instead of drifting off-canvas.
   const middleMouseZoomRef = useRef(null);
-  const [middleZoomAnchor, setMiddleZoomAnchor] = useState(null);
 
   // If pointer lock exits unexpectedly (e.g. Escape, focus loss), abort the gesture cleanly.
   useEffect(() => {
@@ -8574,7 +8463,6 @@ function NodeCanvas() {
       if (!document.pointerLockElement && middleMouseZoomRef.current) {
         middleMouseZoomRef.current = null;
         isPanningOrZooming.current = false;
-        setMiddleZoomAnchor(null);
       }
     };
     document.addEventListener('pointerlockchange', onLockChange);
@@ -8584,8 +8472,6 @@ function NodeCanvas() {
   const leftPanelRef = useRef(null); // Ref for Left Panel
 
   const canvasWorker = useCanvasWorker();
-  const isKeyboardZooming = useRef(false);
-  const resizeTimeoutRef = useRef(null);
   // Ensure async zoom results apply in order to avoid ghost frames
   const zoomOpIdRef = useRef(0);
   const selectionBaseRef = useRef(new Set());
@@ -8639,9 +8525,6 @@ function NodeCanvas() {
 
   // Ref to track initial mount completion
   const isMountedRef = useRef(false);
-
-  // Ref for dialog container to prevent click-away closing
-  const dialogContainerRef = useRef(null);
 
   // Pie menu color picker handlers
   const handlePieMenuColorPickerOpen = useCallback((nodeId, position) => {
@@ -9893,204 +9776,6 @@ function NodeCanvas() {
 
   // --- Utility Functions ---
 
-  // Smooth pinch zoom animation
-  const animatePinchSmoothing = useCallback(() => {
-    const smoothing = pinchSmoothingRef.current;
-    if (!smoothing || !smoothing.isAnimating) {
-      return;
-    }
-    if (!smoothing.isAnimating) {
-      // Animation should not be running
-      if (smoothing?.animationId) {
-        cancelAnimationFrame(smoothing.animationId);
-        smoothing.animationId = null;
-        smoothing.isAnimating = false;
-
-      }
-      return;
-    }
-    const now = performance.now();
-
-    // Track animation frame timing
-    const frameDelta = smoothing.lastFrameTime ? now - smoothing.lastFrameTime : 16.67;
-    smoothing.lastFrameTime = now;
-    smoothing.frameCount++;
-
-    // Update rolling average frame delta
-    smoothing.avgFrameDelta = smoothing.avgFrameDelta * 0.9 + frameDelta * 0.1;
-
-    // Adjust smoothing based on frame timing to maintain consistency
-    const frameTimeRatio = frameDelta / 16.67; // 16.67ms = 60fps target
-    const adjustedSmoothing = Math.min(0.15, smoothing.smoothing * frameTimeRatio);
-
-    // Store previous values for delta logging
-    const prevZoom = smoothing.currentZoom;
-    const prevPanX = smoothing.currentPanX;
-    const prevPanY = smoothing.currentPanY;
-
-    // Lerp towards target values with frame-time compensation
-    smoothing.currentZoom = GeometryUtils.lerp(smoothing.currentZoom, smoothing.targetZoom, adjustedSmoothing);
-    smoothing.currentPanX = GeometryUtils.lerp(smoothing.currentPanX, smoothing.targetPanX, adjustedSmoothing);
-    smoothing.currentPanY = GeometryUtils.lerp(smoothing.currentPanY, smoothing.targetPanY, adjustedSmoothing);
-
-    // Round to prevent subpixel jitter
-    smoothing.currentZoom = Math.round(smoothing.currentZoom * 10000) / 10000;
-    smoothing.currentPanX = Math.round(smoothing.currentPanX * 100) / 100;
-    smoothing.currentPanY = Math.round(smoothing.currentPanY * 100) / 100;
-
-    // Calculate deltas for logging
-    const zoomDelta = smoothing.currentZoom - prevZoom;
-    const panXDelta = smoothing.currentPanX - prevPanX;
-    const panYDelta = smoothing.currentPanY - prevPanY;
-
-    // Atomic update: single DOM write + single culling call per frame.
-    // Avoids the one-frame anchor jump from sequential setPan + setZoom.
-    if (React?.startTransition) {
-      React.startTransition(() => {
-        setPanAndZoom(
-          { x: smoothing.currentPanX, y: smoothing.currentPanY },
-          smoothing.currentZoom
-        );
-      });
-    } else {
-      setPanAndZoom(
-        { x: smoothing.currentPanX, y: smoothing.currentPanY },
-        smoothing.currentZoom
-      );
-    }
-
-    // Check if we're close enough to the target to stop animating
-    const zoomDiff = Math.abs(smoothing.currentZoom - smoothing.targetZoom);
-    const panXDiff = Math.abs(smoothing.currentPanX - smoothing.targetPanX);
-    const panYDiff = Math.abs(smoothing.currentPanY - smoothing.targetPanY);
-
-    // Log performance metrics every 500ms
-    if (now - smoothing.lastLogTime > 500) {
-      // console.log('🎯 Pinch Animation Stats:', {
-      //   fps: Math.round(1000 / smoothing.avgFrameDelta),
-      //   avgFrameDelta: Math.round(smoothing.avgFrameDelta * 100) / 100,
-      //   currentFrameDelta: Math.round(frameDelta * 100) / 100,
-      //   frameTimeRatio: Math.round(frameTimeRatio * 100) / 100,
-      //   adjustedSmoothing: Math.round(adjustedSmoothing * 1000) / 1000,
-      //   frameCount: smoothing.frameCount,
-      //   inputEvents: smoothing.inputEventCount,
-      //   deltas: {
-      //     zoom: Math.round(zoomDelta * 10000) / 10000,
-      //     panX: Math.round(panXDelta * 100) / 100,
-      //     panY: Math.round(panYDelta * 100) / 100
-      //   },
-      //   diffs: {
-      //     zoom: Math.round(zoomDiff * 10000) / 10000,
-      //     panX: Math.round(panXDiff * 100) / 100,
-      //     panY: Math.round(panYDiff * 100) / 100
-      //   }
-      // });
-      smoothing.lastLogTime = now;
-    }
-
-    // Continue animation if we're not close enough (threshold: 0.001 for zoom, 0.1 for pan)
-    if (zoomDiff > 0.001 || panXDiff > 0.1 || panYDiff > 0.1) {
-      smoothing.animationId = requestAnimationFrame(animatePinchSmoothing);
-    } else {
-      // Snap to final values and stop animation
-      setPanAndZoom(
-        { x: smoothing.targetPanX, y: smoothing.targetPanY },
-        smoothing.targetZoom
-      );
-      smoothing.currentZoom = smoothing.targetZoom;
-      smoothing.currentPanX = smoothing.targetPanX;
-      smoothing.currentPanY = smoothing.targetPanY;
-      smoothing.animationId = null;
-      smoothing.isAnimating = false;
-
-      // console.log('🏁 Pinch Animation Complete:', {
-      //   totalFrames: smoothing.frameCount,
-      //   totalInputs: smoothing.inputEventCount,
-      //   avgFPS: Math.round(1000 / smoothing.avgFrameDelta)
-      // });
-
-      // Reset counters
-      smoothing.frameCount = 0;
-      smoothing.inputEventCount = 0;
-
-      // Trigger culling update after animation completes
-      // The culling useEffect will run on the next render cycle
-    }
-  }, []);
-  // Start or update pinch zoom smoothing
-  const startPinchSmoothing = useCallback((targetZoom, targetPanX, targetPanY) => {
-    // console.log('🟢 startPinchSmoothing CALLED:', {
-    //   targetZoom: Math.round(targetZoom * 1000) / 1000,
-    //   targetPanX: Math.round(targetPanX * 10) / 10,
-    //   targetPanY: Math.round(targetPanY * 10) / 10,
-    //   refExists: !!pinchSmoothingRef.current
-    // });
-
-    const smoothing = pinchSmoothingRef.current;
-    const now = performance.now();
-
-    // Track input event timing
-    const inputDelta = smoothing.lastInputTime ? now - smoothing.lastInputTime : 0;
-    smoothing.lastInputTime = now;
-    smoothing.inputEventCount++;
-
-    // Throttle extremely frequent input events to prevent jitter
-    if (inputDelta < 8 && smoothing.isAnimating) { // Throttle to max ~120Hz
-
-      return;
-    }
-
-    // Emergency fallback - if smoothing isn't working, use direct updates
-    if (!animatePinchSmoothing || typeof animatePinchSmoothing !== 'function') {
-
-      setPanAndZoom({ x: targetPanX, y: targetPanY }, targetZoom);
-      return;
-    }
-
-    // Log input event details - disabled
-    // if (smoothing.inputEventCount % 10 === 1) { // Log every 10th input
-    //   console.log('📱 Input Event:', {
-    //     eventCount: smoothing.inputEventCount,
-    //     inputDelta: Math.round(inputDelta * 10) / 10,
-    //     targetZoom: Math.round(targetZoom * 1000) / 1000,
-    //     targetPan: {
-    //       x: Math.round(targetPanX * 10) / 10,
-    //       y: Math.round(targetPanY * 10) / 10
-    //     },
-    //     currentZoom: Math.round(smoothing.currentZoom * 1000) / 1000,
-    //     isAnimating: smoothing.isAnimating
-    //   });
-    // }
-
-    // Set new targets
-    smoothing.targetZoom = targetZoom;
-    smoothing.targetPanX = targetPanX;
-    smoothing.targetPanY = targetPanY;
-
-    // Initialize current values if not already animating
-    if (!smoothing.animationId) {
-
-      smoothing.currentZoom = zoomLevelRef.current;
-      smoothing.currentPanX = panOffsetRef.current.x;
-      smoothing.currentPanY = panOffsetRef.current.y;
-      smoothing.isAnimating = true;
-      smoothing.lastFrameTime = now;
-
-      smoothing.animationId = requestAnimationFrame(animatePinchSmoothing);
-
-    }
-  }, [zoomLevel, panOffset.x, panOffset.y, animatePinchSmoothing]);
-
-  // Stop pinch zoom smoothing
-  const stopPinchSmoothing = useCallback(() => {
-    const smoothing = pinchSmoothingRef.current;
-    if (smoothing.animationId) {
-      cancelAnimationFrame(smoothing.animationId);
-      smoothing.animationId = null;
-      smoothing.isAnimating = false;
-    }
-  }, []);
-
   const clampCoordinates = (x, y) => {
     return GeometryUtils.clampCoordinates(x, y, canvasSize);
   };
@@ -10253,53 +9938,6 @@ function NodeCanvas() {
     const hitGroup = findGroupTitleAtPoint(clientX, clientY);
     return hitGroup ? hitGroup.anchorInstanceId : null;
   };
-
-  // Helper function to check if a point is near a line (for edge hover detection)
-  const isNearEdge = (x1, y1, x2, y2, pointX, pointY, threshold = 20) => {
-    // Calculate distance from point to line segment
-    const A = pointX - x1;
-    const B = pointY - y1;
-    const C = x2 - x1;
-    const D = y2 - y1;
-
-    const dot = A * C + B * D;
-    const lenSq = C * C + D * D;
-
-    if (lenSq === 0) return Math.sqrt(A * A + B * B) <= threshold; // Point-to-point distance
-
-    let param = dot / lenSq;
-
-    // Clamp to line segment
-    if (param < 0) param = 0;
-    else if (param > 1) param = 1;
-
-    const xx = x1 + param * C;
-    const yy = y1 + param * D;
-
-    const dx = pointX - xx;
-    const dy = pointY - yy;
-
-    return Math.sqrt(dx * dx + dy * dy) <= threshold;
-  };
-
-  // Edge interaction handlers
-  const handleEdgeClick = useCallback((edgeId, e) => {
-    if (!activeGraphId) return;
-    haptic('edgeSelect');
-
-    // Handle multi-selection with Ctrl/Cmd key
-    if ((isMac && e.metaKey) || (!isMac && e.ctrlKey)) {
-      if (selectedEdgeIds.has(edgeId)) {
-        storeActions.removeSelectedEdgeId(edgeId);
-      } else {
-        storeActions.addSelectedEdgeId(edgeId);
-      }
-    } else {
-      // Single selection - clear multiple selection and set single edge
-      storeActions.clearSelectedEdgeIds();
-      storeActions.setSelectedEdgeId(edgeId);
-    }
-  }, [activeGraphId, selectedEdgeIds, isMac, storeActions]);
 
   // Touch double-tap detection for edges → open definition
   const lastEdgeTapRef = useRef({ id: null, ts: 0 });
@@ -10584,14 +10222,6 @@ function NodeCanvas() {
     return findNearestEdgeAtCanvasPoint(cx, cy, getEdgeHitThreshold(pointerKind));
   }, [findNearestEdgeAtCanvasPoint, getEdgeHitThreshold, canvasSize]);
 
-  const handleEdgeMouseEnter = useCallback((edgeId) => {
-    setHoveredEdgeInfo({ edgeId });
-  }, []);
-
-  const handleEdgeMouseLeave = useCallback(() => {
-    setHoveredEdgeInfo(null);
-  }, []);
-
   // Select an edge from a mouse click on its line/path hitbox. When several
   // connections overlap, the topmost SVG hitbox receives the click but is not
   // necessarily the one closest to the pointer, so we prefer the nearest edge
@@ -10807,7 +10437,7 @@ function NodeCanvas() {
     if (e && e.button === 1 && middleMouseZoomEnabled) {
       try { e.preventDefault(); } catch { }
       stopPanMomentum();
-      if (isPaused || !activeGraphId) return;
+      if (!activeGraphId) return;
       middleMouseZoomRef.current = {
         anchorX: e.clientX,
         anchorY: e.clientY,
@@ -10816,16 +10446,14 @@ function NodeCanvas() {
         nodeName: nodeData.name,
       };
       isPanningOrZooming.current = true;
-      setMiddleZoomAnchor({ x: e.clientX, y: e.clientY });
       try { containerRef.current?.requestPointerLock?.({ unadjustedMovement: true }); } catch { }
       return;
     }
     stopPanMomentum();
-    if (isPaused || !activeGraphId) return;
+    if (!activeGraphId) return;
 
     const instanceId = nodeData.id; // This is the instance ID
     const prototypeId = nodeData.prototypeId;
-    setHasMouseMovedSinceDown(false);
 
     // --- Double-click ---
     // Gated on the previous press, not on e.detail alone — see lastPressRef.
@@ -11277,12 +10905,9 @@ function NodeCanvas() {
   // --- Touch helpers for canvas interactions (moved here to ensure refs/state are initialized) ---
   const touch = useCanvasTouch({
     containerRef,
-    panOffset,
     panOffsetRef,
-    zoomLevel,
     zoomLevelRef,
     canvasSize,
-    isPaused,
     activeGraphId,
     startDragForNode,
     handleMouseMove,
@@ -11290,8 +10915,6 @@ function NodeCanvas() {
     handleMouseDown,
     setPanStart,
     setIsPanning,
-    setPanOffset,
-    setZoomLevel,
     setPanAndZoom,
     stopPanMomentum,
     isViewMoving,
@@ -11323,8 +10946,6 @@ function NodeCanvas() {
     startedOnNode,
     mouseInsideNode,
     mouseDownPosition,
-    recentlyPanned,
-    setLastInteractionType,
     groupControlPanelShouldShow,
     groupControlPanelVisible,
     setGroupControlPanelVisible,
@@ -11366,10 +10987,6 @@ function NodeCanvas() {
 
   // --- Clean routing helpers and Edge Label Placement moved to src/utils/canvas/edgeLabelPlacement.js ---
   // --- Mouse Drag Panning (unchanged) ---
-  // Throttle edge-hover detection to reduce per-frame work
-  const lastHoverCheckRef = useRef(0);
-  const HOVER_CHECK_INTERVAL_MS = 24; // ~40 Hz
-
   // RAF-based label clearing updates
   const pendingLabelClear = useRef(null);
   const labelClearScheduled = useRef(false);
@@ -11484,7 +11101,6 @@ function NodeCanvas() {
     // node drag unless it sees movement, and mouseup reads the same flag to tell
     // a drag from a click.
     mouseMoved.current = true;
-    setHasMouseMovedSinceDown(true);
     if (clickTimeoutIdRef.current) {
       clearTimeout(clickTimeoutIdRef.current);
       clickTimeoutIdRef.current = null;
@@ -11519,7 +11135,7 @@ function NodeCanvas() {
     // Update mouse position for edge panning
     mousePositionRef.current = { x: e.clientX, y: e.clientY };
 
-    if (isPaused || !activeGraphId) return;
+    if (!activeGraphId) return;
 
     // Middle-mouse zoom: vertical drag → zoom, anchored at the original mousedown point.
     // Pointer-locked, so use raw movementY (clientY is frozen) and drive zoom anchored at anchorX/Y.
@@ -11681,7 +11297,6 @@ function NodeCanvas() {
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist > MOVEMENT_THRESHOLD) {
         mouseMoved.current = true;
-        setHasMouseMovedSinceDown(true); // Set state for useEffect
         if (clickTimeoutIdRef.current) { clearTimeout(clickTimeoutIdRef.current); clickTimeoutIdRef.current = null; potentialClickNodeRef.current = null; }
         // REMOVED: setSelectedNodeIdForPieMenu(null); 
 
@@ -11793,6 +11408,8 @@ function NodeCanvas() {
           const minY = viewportSize.height - canvasSize.height * zoomLevelRef.current;
           let appliedDx = 0;
           let appliedDy = 0;
+          // setPanOffset (transform.setPan) runs this updater synchronously, so
+          // appliedDx/appliedDy are final once it returns. Keep the updater pure.
           setPanOffset(prev => {
             const targetX = prev.x + dxInput;
             const targetY = prev.y + dyInput;
@@ -11800,11 +11417,11 @@ function NodeCanvas() {
             const clampedY = Math.min(Math.max(targetY, minY), maxY);
             appliedDx = clampedX - prev.x;
             appliedDy = clampedY - prev.y;
-            if (appliedDx !== 0 || appliedDy !== 0) {
-              setPanStart({ x: e.clientX, y: e.clientY });
-            }
             return { x: clampedX, y: clampedY };
           });
+          if (appliedDx !== 0 || appliedDy !== 0) {
+            setPanStart({ x: e.clientX, y: e.clientY });
+          }
 
           if (Math.abs(appliedDx) > 0.01 || Math.abs(appliedDy) > 0.01) {
             // Calculate instantaneous velocity for reference
@@ -11854,7 +11471,7 @@ function NodeCanvas() {
     if (e && e.button === 1 && middleMouseZoomEnabled) {
       try { e.preventDefault(); e.stopPropagation(); } catch { }
       stopPanMomentum();
-      if (isPaused || !activeGraphId || abstractionCarouselVisible) return;
+      if (!activeGraphId || abstractionCarouselVisible) return;
       middleMouseZoomRef.current = {
         anchorX: e.clientX,
         anchorY: e.clientY,
@@ -11863,12 +11480,11 @@ function NodeCanvas() {
         nodeName: null,
       };
       isPanningOrZooming.current = true;
-      setMiddleZoomAnchor({ x: e.clientX, y: e.clientY });
       try { containerRef.current?.requestPointerLock?.({ unadjustedMovement: true }); } catch { }
       return;
     }
     stopPanMomentum();
-    if (isPaused || !activeGraphId || abstractionCarouselVisible) return;
+    if (!activeGraphId || abstractionCarouselVisible) return;
     // On touch/mobile: allow two-finger pan to bypass resizer/canvas checks
     if (e.touches && e.touches.length >= 2) {
       return;
@@ -11891,7 +11507,7 @@ function NodeCanvas() {
     // turn out to be a pan, and killing the selection on press made the pie menu
     // vanish the instant you tried to drag the view around it. Click-off dismissal
     // now lives in handleCanvasClick, which runs on release and can tell a pan from
-    // a click (recentlyPanned / ignoreCanvasClick).
+    // a click (ignoreCanvasClick).
 
     // Clear a stale ignoreCanvasClick left over from a previous element-claimed
     // click. Edge hitboxes (and the group title) raise the flag *and*
@@ -11917,7 +11533,6 @@ function NodeCanvas() {
     mouseMoved.current = false;
     // PERFORMANCE: Clear all hover states once at interaction start instead of every frame during drag
     clearHoverImmediate();
-    setLastInteractionType('mouse_down');
 
     if ((isMac && e.metaKey) || (!isMac && e.ctrlKey)) {
       e.preventDefault();
@@ -11964,7 +11579,6 @@ function NodeCanvas() {
       const state = middleMouseZoomRef.current;
       middleMouseZoomRef.current = null;
       isPanningOrZooming.current = false;
-      setMiddleZoomAnchor(null);
       try { document.exitPointerLock?.(); } catch { }
       if (!state.moved && state.nodePrototypeId) {
         storeActions.openRightPanelNodeTab(state.nodePrototypeId, state.nodeName);
@@ -11980,7 +11594,7 @@ function NodeCanvas() {
     handleMouseUpInProgressRef.current = true;
     try {
 
-      if (isPaused || !activeGraphId) return;
+      if (!activeGraphId) return;
       clearTimeout(longPressTimeout.current);
       setLongPressingInstanceId(null); // Clear ID
       mouseInsideNode.current = false;
@@ -12345,8 +11959,8 @@ function NodeCanvas() {
       (e.target.tagName === 'svg' && e.target.classList.contains('canvas')) ||
       (e.target.tagName === 'DIV' && e.target.classList.contains('canvas-area'))
     );
-    if (isBareCanvasTarget && !ignoreCanvasClick.current && !isPaused && !draggingNodeInfo
-      && !drawingConnectionFrom && !recentlyPanned && !nodeNamePrompt.visible && activeGraphId) {
+    if (isBareCanvasTarget && !ignoreCanvasClick.current && !draggingNodeInfo
+      && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId) {
       const clickedEdgeId = hoveredEdgeInfoRef.current?.edgeId
         || findEdgeAtClientPoint(e.clientX, e.clientY, 'mouse')?.edgeId;
       const alreadySoleSelection = clickedEdgeId
@@ -12362,7 +11976,7 @@ function NodeCanvas() {
     // below, so clicking off always dismisses them. Not before the pan guards though —
     // the synthetic click that ends a pan must leave the connection selected.
     if (connectionControlPanelShouldShow || connectionControlPanelVisible || edgePieMenuVisible || edgePieMenuRendered || selectedEdgeId || selectedEdgeIds.size > 0) {
-      if (recentlyPanned || ignoreCanvasClick.current) {
+      if (ignoreCanvasClick.current) {
         ignoreCanvasClick.current = false;
         return;
       }
@@ -12398,8 +12012,7 @@ function NodeCanvas() {
 
     // For canvas clicks, we don't need to wait for the CLICK_DELAY since we're not dealing with double-click detection
     // Only check if we're in a state that should block canvas interactions
-    if (isPaused || draggingNodeInfo || drawingConnectionFrom || recentlyPanned || nodeNamePrompt.visible || !activeGraphId) {
-      setLastInteractionType('blocked_click');
+    if (draggingNodeInfo || drawingConnectionFrom || nodeNamePrompt.visible || !activeGraphId) {
       return;
     }
     if (ignoreCanvasClick.current) {
@@ -12477,7 +12090,6 @@ function NodeCanvas() {
     // Prevent plus sign if pie menu is active or about to become active or hovering an edge
     if (!plusSign && selectedInstanceIds.size === 0 && !hoveredEdgeInfo) {
       setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '' });
-      setLastInteractionType('plus_sign_shown');
     } else {
       if (nodeNamePrompt.visible) return;
       // A plus sign that's morphing into a node is committed — don't let a
@@ -12487,7 +12099,6 @@ function NodeCanvas() {
       // flips the morph to 'disappear' and the node is silently lost.
       if (plusSign && (plusSign.mode === 'morph' || plusSign.mode === 'preparing' || plusSign.mode === 'landed')) return;
       setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
-      setLastInteractionType('plus_sign_hidden');
     }
   };
 
@@ -12504,18 +12115,6 @@ function NodeCanvas() {
     }
 
     setNodeNamePrompt({ visible: true, name: '' });
-
-    // Calculate position for the node selection grid (below the dialog)
-    const dialogTop = HEADER_HEIGHT + 25;
-    const dialogHeight = 120; // Approximate height of the dialog
-    const gridTop = dialogTop + dialogHeight + 10; // 10px spacing below dialog
-    const dialogWidth = 300; // Match dialog width
-    const gridLeft = window.innerWidth / 2 - dialogWidth / 2; // Center to match dialog
-
-    setNodeSelectionGrid({
-      visible: true,
-      position: { x: gridLeft, y: gridTop }
-    });
   };
 
   const handleClosePrompt = () => {
@@ -12523,7 +12122,6 @@ function NodeCanvas() {
       setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
     }
     setNodeNamePrompt({ visible: false, name: '', color: null });
-    setNodeSelectionGrid({ visible: false, position: { x: 0, y: 0 } });
     setDialogColorPickerVisible(false); // Close color picker when closing prompt
   };
 
@@ -12681,17 +12279,6 @@ function NodeCanvas() {
     }
   };
 
-  const handlePromptSubmit = () => {
-    const name = nodeNamePrompt.name.trim();
-    if (name && plusSign) {
-      setPlusSign(ps => ps && { ...ps, mode: 'morph', tempName: name, selectedColor: nodeNamePrompt.color });
-    } else {
-      setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
-    }
-    setNodeNamePrompt({ visible: false, name: '', color: null });
-    setNodeSelectionGrid({ visible: false, position: { x: 0, y: 0 } });
-    setDialogColorPickerVisible(false); // Close color picker when submitting
-  };
   const handleNodeSelection = (nodePrototype) => {
     if (!plusSign || !activeGraphId) return;
 
@@ -12740,14 +12327,6 @@ function NodeCanvas() {
 
     // Clean up UI state
     setNodeNamePrompt({ visible: false, name: '' });
-    setNodeSelectionGrid({ visible: false, position: { x: 0, y: 0 } });
-  };
-
-  const handleNodeSelectionGridClose = () => {
-    // Close the grid and trigger disappear animation like hitting X
-    setNodeNamePrompt({ visible: false, name: '' });
-    setNodeSelectionGrid({ visible: false, position: { x: 0, y: 0 } });
-    setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
   };
 
   // The node the morph is turning into, shaped the way the `nodes` memo will hydrate
@@ -12875,20 +12454,6 @@ function NodeCanvas() {
   };
 
   // Dialog color picker handlers
-  const handleDialogColorPickerOpen = (iconElement, event) => {
-    event.stopPropagation(); // Prevent event from bubbling to backdrop
-
-    // If already open, close it (toggle behavior)
-    if (dialogColorPickerVisible) {
-      setDialogColorPickerVisible(false);
-      return;
-    }
-
-    const rect = iconElement.getBoundingClientRect();
-    setDialogColorPickerPosition({ x: rect.right, y: rect.bottom });
-    setDialogColorPickerVisible(true);
-  };
-
   const handleDialogColorPickerClose = () => {
     setDialogColorPickerVisible(false);
     setColorPickerTarget(null);
@@ -12932,220 +12497,6 @@ function NodeCanvas() {
       setActivePieMenuColorNodeId(null);
     }
   }, [currentPieMenuData, selectedNodeIdForPieMenu]);
-
-
-
-
-
-
-
-  // Deprecated - replaced by UnifiedSelector
-  const renderConnectionNamePrompt = () => {
-    if (!connectionNamePrompt.visible) return null;
-
-    const handleConnectionPromptSubmit = () => {
-      if (connectionNamePrompt.name.trim()) {
-        // Create a new node prototype for this connection type
-        const newConnectionNodeId = uuidv4();
-        storeActions.addNodePrototype({
-          id: newConnectionNodeId,
-          name: connectionNamePrompt.name.trim(),
-          description: '',
-          picture: null,
-          color: connectionNamePrompt.color || NODE_DEFAULT_COLOR,
-          typeNodeId: null,
-          definitionGraphIds: []
-        });
-
-        // Update the edge to use this new connection type
-        if (connectionNamePrompt.edgeId) {
-          storeActions.updateEdge(connectionNamePrompt.edgeId, (draft) => {
-            draft.definitionNodeIds = [newConnectionNodeId];
-          });
-        }
-
-        setConnectionNamePrompt({ visible: false, name: '', color: null, edgeId: null });
-      }
-    };
-
-    const handleConnectionPromptClose = () => {
-      setConnectionNamePrompt({ visible: false, name: '', color: null, edgeId: null });
-    };
-
-    return (
-      <>
-        <div
-          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 1000 }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              handleConnectionPromptClose();
-            }
-          }}
-        />
-        <div
-          style={{
-            position: 'fixed',
-            top: HEADER_HEIGHT + 25,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            backgroundColor: theme.canvas.bg,
-            padding: '20px',
-            borderRadius: '10px',
-            boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-            zIndex: 1001,
-            width: '300px',
-          }}
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <div style={{ position: 'absolute', top: '10px', right: '10px', cursor: 'pointer' }}>
-            <X size={MODAL_CLOSE_ICON_SIZE} color="#999" onClick={handleConnectionPromptClose} />
-          </div>
-          <div style={{ textAlign: 'center', marginBottom: '15px', color: theme.canvas.textPrimary }}>
-            <strong style={{ fontSize: '18px' }}>Name Your Connection</strong>
-          </div>
-          <div style={{ textAlign: 'center', marginBottom: '15px', color: theme.canvas.textSecondary, fontSize: '14px' }}>
-            The Thing that will define your Connection,<br />
-            in verb form if available.
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <Palette
-              size={20}
-              color={theme.canvas.textPrimary}
-              style={{ cursor: 'pointer', flexShrink: 0, marginRight: '8px' }}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDialogColorPickerOpen(e.currentTarget, e);
-                // Update the connection prompt color when color picker changes
-                setConnectionNamePrompt({ ...connectionNamePrompt, color: connectionNamePrompt.color || NODE_DEFAULT_COLOR });
-              }}
-              title="Change color"
-            />
-            <input
-              type="text"
-              id="connection-name-prompt-input"
-              name="connectionNamePromptInput"
-              value={connectionNamePrompt.name}
-              onChange={(e) => setConnectionNamePrompt({ ...connectionNamePrompt, name: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleConnectionPromptSubmit();
-                if (e.key === 'Escape') handleConnectionPromptClose();
-              }}
-              style={{ flex: 1, padding: '10px', borderRadius: '5px', border: `1px solid ${theme.canvas.border}`, marginRight: '10px', backgroundColor: theme.canvas.bg, color: theme.canvas.textPrimary }}
-              autoFocus
-            />
-            <button
-              onClick={handleConnectionPromptSubmit}
-              style={{
-                padding: '10px',
-                backgroundColor: connectionNamePrompt.color || NODE_DEFAULT_COLOR,
-                color: theme.canvas.bg,
-
-                border: 'none',
-                borderRadius: '5px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minWidth: '50px',
-                minHeight: '44px'
-              }}
-              title="Create connection type"
-            >
-              <ArrowBigRightDash size={16} color={theme.canvas.bg} />
-
-            </button>
-          </div>
-        </div>
-      </>
-    );
-  };
-  // Deprecated - replaced by UnifiedSelector
-  const renderCustomPrompt = () => {
-    if (!nodeNamePrompt.visible) return null;
-    return (
-      <>
-        <div
-          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 1000 }}
-          onClick={(e) => {
-            // Only close if clicking directly on the backdrop, not on child elements
-            if (e.target === e.currentTarget) {
-              handleClosePrompt();
-            }
-          }}
-        />
-        <div
-          ref={dialogContainerRef}
-          style={{
-            position: 'fixed',
-            top: HEADER_HEIGHT + 25,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            backgroundColor: theme.canvas.bg,
-            padding: '20px',
-            borderRadius: '10px',
-            boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-            zIndex: 1001, // Higher than node selection grid (998)
-            width: '300px',
-          }}
-          onClick={(e) => e.stopPropagation()} // Prevent clicks within dialog from closing it
-          onMouseDown={(e) => e.stopPropagation()} // Also stop mousedown to prevent grid from closing
-        >
-          <div style={{ position: 'absolute', top: '10px', right: '10px', cursor: 'pointer' }}>
-            <X size={MODAL_CLOSE_ICON_SIZE} color="#999" onClick={handleClosePrompt} />
-          </div>
-          <div style={{ textAlign: 'center', marginBottom: '15px', color: theme.canvas.textPrimary }}>
-            <strong style={{ fontSize: '18px' }}>Name Your Thing</strong>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <Palette
-              size={20}
-              color={theme.canvas.textPrimary}
-              style={{ cursor: 'pointer', flexShrink: 0, marginRight: '8px' }}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDialogColorPickerOpen(e.currentTarget, e);
-              }}
-              title="Change color"
-            />
-            <input
-              type="text"
-              id="node-name-prompt-input" // Add id
-              name="nodeNamePromptInput" // Add name
-              value={nodeNamePrompt.name}
-              onChange={(e) => setNodeNamePrompt({ ...nodeNamePrompt, name: e.target.value })}
-              onKeyDown={(e) => { if (e.key === 'Enter') handlePromptSubmit(); }}
-              style={{ flex: 1, padding: '10px', borderRadius: '5px', border: `1px solid ${theme.canvas.border}`, marginRight: '10px', backgroundColor: theme.canvas.bg, color: theme.canvas.textPrimary }}
-              autoFocus
-            />
-            <button
-              onClick={handlePromptSubmit}
-              style={{
-                padding: '10px',
-                backgroundColor: nodeNamePrompt.color || 'maroon',
-                color: theme.canvas.bg,
-
-                border: 'none',
-                borderRadius: '5px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minWidth: '50px',
-                minHeight: '44px'
-              }}
-              title="Create node"
-            >
-              <ArrowBigRightDash size={16} color={theme.canvas.bg} />
-
-            </button>
-          </div>
-        </div>
-      </>
-    );
-  };
 
   const shouldPanelsBeExclusive = (windowSize?.width ?? window.innerWidth) <= EXCLUSIVE_PANEL_MODE_THRESHOLD;
 
@@ -13261,8 +12612,6 @@ function NodeCanvas() {
   // Ref mirrors of the values the controller tick reads every frame. They exist
   // so the tick never has to be rebuilt (and so the rAF that calls it never has
   // to re-subscribe) when any of these change.
-  const isPausedRef = useRef(isPaused);
-  isPausedRef.current = isPaused;
   const activeGraphIdRef = useRef(activeGraphId);
   activeGraphIdRef.current = activeGraphId;
   const pieMenuButtonsRef = useRef(targetPieMenuButtons);
@@ -13323,14 +12672,12 @@ function NodeCanvas() {
       const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
       const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
       setPlusSign({ x, y, mode: 'appear', tempName: '' });
-      setLastInteractionType('plus_sign_shown');
     },
     activate: () => handlePlusSignClick(),
     dismiss: () => {
       // Same guard the canvas click path uses: a morphing plus is committed.
       if (!plusSign || plusSign.mode === 'morph' || plusSign.mode === 'preparing' || plusSign.mode === 'landed') return;
       setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
-      setLastInteractionType('plus_sign_hidden');
     },
   };
 
@@ -13532,7 +12879,6 @@ function NodeCanvas() {
     driftingRef: gamepadDriftingRef,
     semanticOrbitActiveRef,
     orbitControlRef,
-    isPausedRef,
     activeGraphIdRef,
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
@@ -13576,7 +12922,6 @@ function NodeCanvas() {
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
     gamepadTickRef,
-    isPaused,
     nodeNamePrompt,
     connectionNamePrompt,
     abstractionPrompt,
@@ -15271,38 +14616,6 @@ function NodeCanvas() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Calculate if nodes are actually visible in the strict viewport (no padding)
-  const nodesVisibleInStrictViewport = useMemo(() => {
-    if (!nodes || nodes.length === 0 || !panOffset || !zoomLevel || !viewportSize || !canvasSize) {
-      return false;
-    }
-
-    // Calculate strict viewport bounds in canvas coordinates (no padding like the culling system)
-    const viewportMinX = (-panOffset.x) / zoomLevel + canvasSize.offsetX;
-    const viewportMinY = (-panOffset.y) / zoomLevel + canvasSize.offsetY;
-    const viewportMaxX = viewportMinX + viewportSize.width / zoomLevel;
-    const viewportMaxY = viewportMinY + viewportSize.height / zoomLevel;
-
-    // Check if any node intersects with the strict viewport
-    for (const node of nodes) {
-      const dims = baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
-      const nodeLeft = node.x;
-      const nodeTop = node.y;
-      const nodeRight = node.x + dims.currentWidth;
-      const nodeBottom = node.y + dims.currentHeight;
-
-      // Check if node intersects with strict viewport (no padding)
-      const intersects = !(nodeRight < viewportMinX || nodeLeft > viewportMaxX ||
-        nodeBottom < viewportMinY || nodeTop > viewportMaxY);
-
-      if (intersects) {
-        return true; // At least one node is visible
-      }
-    }
-
-    return false; // No nodes are visible in strict viewport
-  }, [nodes, panOffset, zoomLevel, viewportSize, canvasSize, baseDimsById]);
-
   // Optional clustering feature - disabled by default to avoid computational overhead
   const [enableClustering, setEnableClustering] = useState(false);
 
@@ -16982,7 +16295,7 @@ function NodeCanvas() {
                               style={{ cursor: 'default', pointerEvents: 'auto' }}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (isPaused || draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || recentlyPanned || nodeNamePrompt.visible || !activeGraphId) return;
+                                if (draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || nodeNamePrompt.visible || !activeGraphId) return;
                                 if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
                                   if (groupControlPanelShouldShow || groupControlPanelVisible) setGroupControlPanelVisible(false);
                                   if (selectedGroup) setSelectedGroup(null);
@@ -17121,51 +16434,6 @@ function NodeCanvas() {
 
                     // edgeCurveInfo is computed via useMemo and available in scope
                     // (used for parallel edge curve offset calculation)
-
-                    // #region agent log - build edgePairGroups locally just for debug logging
-                    const edgePairGroupsDebug = new Map();
-                    visibleEdges.forEach(e => {
-                      const key = [e.sourceId, e.destinationId].sort().join('-');
-                      if (!edgePairGroupsDebug.has(key)) edgePairGroupsDebug.set(key, []);
-                      edgePairGroupsDebug.get(key).push(e.id);
-                    });
-                    const multiEdgePairs = Array.from(edgePairGroupsDebug.entries()).filter(([k, v]) => v.length > 1);
-                    if (multiEdgePairs.length > 0) {
-                      debugLogSync('NodeCanvas.jsx:edgeRender', 'Edge rendering info', { totalEdges: visibleEdges.length, multiEdgePairs: multiEdgePairs.map(([k, v]) => ({ pair: k, edgeCount: v.length, edgeIds: v })), enableAutoRouting, routingStyle, willUseCurves: !isRoutedStyle }, 'debug-session', 'D-E');
-                    }
-                    // #endregion
-
-                    // #region ArrowheadAudit — catch edges that can render a detached-looking arrowhead
-                    visibleEdges.forEach(edge => {
-                      if (arrowheadAuditSeenRef.current.has(edge.id)) return;
-                      const sNode = nodeById.get(edge.sourceId);
-                      const dNode = nodeById.get(edge.destinationId);
-                      const at = edge.directionality?.arrowsToward;
-                      const arrowsSet = at instanceof Set ? at : new Set(Array.isArray(at) ? at : []);
-                      const stale = [];
-                      arrowsSet.forEach(id => {
-                        if (id !== edge.sourceId && id !== edge.destinationId) stale.push(id);
-                      });
-                      const isSelfLoop = edge.sourceId === edge.destinationId;
-                      const coincident = !isSelfLoop && sNode && dNode && sNode.x === dNode.x && sNode.y === dNode.y;
-                      const missingEndpoint = !sNode || !dNode;
-                      if (stale.length > 0 || coincident || missingEndpoint) {
-                        arrowheadAuditSeenRef.current.add(edge.id);
-                        console.warn('[ArrowheadAudit]', {
-                          edgeId: edge.id,
-                          sourceId: edge.sourceId,
-                          destinationId: edge.destinationId,
-                          arrowsToward: Array.from(arrowsSet),
-                          staleArrowsTowardIds: stale,
-                          sourceNodePresent: !!sNode,
-                          destNodePresent: !!dNode,
-                          coincidentEndpoints: coincident,
-                          sourcePos: sNode ? { x: sNode.x, y: sNode.y } : null,
-                          destPos: dNode ? { x: dNode.x, y: dNode.y } : null,
-                        });
-                      }
-                    });
-                    // #endregion
 
                     // Everything renderConnectionEdge reads, gathered in one place.
                     // The renderer now lives in components/canvas/renderConnectionEdge.jsx;
@@ -17506,7 +16774,7 @@ function NodeCanvas() {
                           currentDefinitionIndex={nodeDefinitionIndices.get(`${node.prototypeId}-${activeGraphId}`) || 0}
                           onNavigateDefinition={(prototypeId, newIndex) => {
                             const contextKey = `${prototypeId}-${activeGraphId}`;
-                            setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
+                            setNodeDefinitionIndices(prev => { const next = new Map(prev); next.set(contextKey, newIndex); return next; });
                           }}
                         />
                       );
@@ -17941,7 +17209,7 @@ function NodeCanvas() {
                                   currentDefinitionIndex={nodeDefinitionIndices.get(`${activeNodeToRender.prototypeId}-${activeGraphId}`) || 0}
                                   onNavigateDefinition={(prototypeId, newIndex) => {
                                     const contextKey = `${prototypeId}-${activeGraphId}`;
-                                    setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
+                                    setNodeDefinitionIndices(prev => { const next = new Map(prev); next.set(contextKey, newIndex); return next; });
                                   }}
 
                                 />
@@ -18038,7 +17306,7 @@ function NodeCanvas() {
                                 currentDefinitionIndex={nodeDefinitionIndices.get(`${draggingNodeToRender.prototypeId}-${activeGraphId}`) || 0}
                                 onNavigateDefinition={(prototypeId, newIndex) => {
                                   const contextKey = `${prototypeId}-${activeGraphId}`;
-                                  setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
+                                  setNodeDefinitionIndices(prev => { const next = new Map(prev); next.set(contextKey, newIndex); return next; });
                                 }}
 
                               />
@@ -18799,7 +18067,6 @@ function NodeCanvas() {
             }
             position={dialogColorPickerPosition}
             direction="down-left"
-            parentContainerRef={dialogContainerRef}
           />
         )
       }
@@ -19137,15 +18404,11 @@ function NodeCanvas() {
 
       {/* Force Simulation Modal */}
       <ForceSimulationModal
-        isOpen={forceSimModalVisible || autoLayoutRunning}
+        isOpen={forceSimModalVisible}
         onClose={() => {
           setForceSimModalVisible(false);
-          setAutoLayoutRunning(false);
         }}
-        autoStart={autoLayoutRunning}
-        invisible={autoLayoutRunning && !forceSimModalVisible}
         onSimulationComplete={() => {
-          setAutoLayoutRunning(false);
           navigateAfterLayout(activeGraphId, hydratedNodes?.length || 0);
         }}
         // Safety ceiling only — the sim stops itself on alpha convergence
