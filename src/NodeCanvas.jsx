@@ -16774,7 +16774,7 @@ function NodeCanvas() {
                           currentDefinitionIndex={nodeDefinitionIndices.get(`${node.prototypeId}-${activeGraphId}`) || 0}
                           onNavigateDefinition={(prototypeId, newIndex) => {
                             const contextKey = `${prototypeId}-${activeGraphId}`;
-                            setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
+                            setNodeDefinitionIndices(prev => { const next = new Map(prev); next.set(contextKey, newIndex); return next; });
                           }}
                         />
                       );
@@ -17209,7 +17209,7 @@ function NodeCanvas() {
                                   currentDefinitionIndex={nodeDefinitionIndices.get(`${activeNodeToRender.prototypeId}-${activeGraphId}`) || 0}
                                   onNavigateDefinition={(prototypeId, newIndex) => {
                                     const contextKey = `${prototypeId}-${activeGraphId}`;
-                                    setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
+                                    setNodeDefinitionIndices(prev => { const next = new Map(prev); next.set(contextKey, newIndex); return next; });
                                   }}
 
                                 />
@@ -17306,7 +17306,7 @@ function NodeCanvas() {
                                 currentDefinitionIndex={nodeDefinitionIndices.get(`${draggingNodeToRender.prototypeId}-${activeGraphId}`) || 0}
                                 onNavigateDefinition={(prototypeId, newIndex) => {
                                   const contextKey = `${prototypeId}-${activeGraphId}`;
-                                  setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
+                                  setNodeDefinitionIndices(prev => { const next = new Map(prev); next.set(contextKey, newIndex); return next; });
                                 }}
 
                               />
