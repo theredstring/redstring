@@ -34,12 +34,9 @@ const PINCH_ZOOM_STATIONARY_GAP_MS = 110;   // last sample older than this at li
 
 export const useCanvasTouch = ({
     containerRef,
-    panOffset,
     panOffsetRef,
-    zoomLevel,
     zoomLevelRef,
     canvasSize,
-    isPaused,
     activeGraphId,
     startDragForNode,
     handleMouseMove,
@@ -47,8 +44,6 @@ export const useCanvasTouch = ({
     handleMouseDown,
     setPanStart,
     setIsPanning,
-    setPanOffset,
-    setZoomLevel,
     setPanAndZoom,
     stopPanMomentum,
     // () => boolean — the pan glide is still moving fast enough that a fresh
@@ -85,8 +80,6 @@ export const useCanvasTouch = ({
     startedOnNode,
     mouseInsideNode,
     mouseDownPosition,
-    recentlyPanned,
-    setLastInteractionType,
     groupControlPanelShouldShow,
     groupControlPanelVisible,
     setGroupControlPanelVisible,
@@ -960,7 +953,7 @@ export const useCanvasTouch = ({
             ignoreCanvasClick.current = false;
             touchMultiPanRef.current = false;
             // Still allow deselection on this tap (only plus-sign spawn should be blocked).
-            if (!isPaused && !draggingNodeInfo && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId && selectedInstanceIds.size > 0) {
+            if (!draggingNodeInfo && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId && selectedInstanceIds.size > 0) {
                 setSelectedInstanceIds(new Set());
                 if (selectedNodeIdForPieMenu) setSelectedNodeIdForPieMenu(null);
             }
@@ -974,7 +967,7 @@ export const useCanvasTouch = ({
         // everything inside the much larger finger-sized radius that missed it.
         // Nodes still win — they paint on top and claim their own taps, and
         // trySelectConnectionAtPoint bails on any point inside a node.
-        if (isTap && !isPaused && !draggingNodeInfo && !drawingConnectionFrom && !recentlyPanned
+        if (isTap && !draggingNodeInfo && !drawingConnectionFrom
             && !nodeNamePrompt.visible && activeGraphId && trySelectConnectionAtPoint) {
             if (trySelectConnectionAtPoint(clientX, clientY)) {
                 // Suppress the synthesized click, which would otherwise reach
@@ -1025,7 +1018,7 @@ export const useCanvasTouch = ({
             // Mirror click-to-plus-sign behavior, but skip the spawn if a
             // control panel was just dismissed (group / connection) — the
             // user tapped to close the panel, not to create a new node.
-            if (!isPaused && !draggingNodeInfo && !drawingConnectionFrom && !recentlyPanned && !nodeNamePrompt.visible && activeGraphId) {
+            if (!draggingNodeInfo && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId) {
                 if (selectedInstanceIds.size > 0) {
                     // Mimic click-off behavior: clear selection on tap
                     setSelectedInstanceIds(new Set());
@@ -1034,7 +1027,6 @@ export const useCanvasTouch = ({
                     const mouseX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
                     const mouseY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
                     setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '' });
-                    setLastInteractionType('plus_sign_shown_touch');
                 }
             }
 
@@ -1121,7 +1113,7 @@ export const useCanvasTouch = ({
         panCatchRef.current = false;
 
         e.stopPropagation();
-        if (isPaused || !activeGraphId) return;
+        if (!activeGraphId) return;
 
         const touch = e.touches[0];
         if (!touch) return;
@@ -1267,7 +1259,7 @@ export const useCanvasTouch = ({
         // arm, and no handleMouseMove dragging a connection tip around under the
         // zoom.
         if (pinchRef.current.active || (e.touches?.length ?? 0) >= 2) return;
-        if (isPaused || !activeGraphId || !touchState.current.dragNodeId) {
+        if (!activeGraphId || !touchState.current.dragNodeId) {
             return;
         }
 

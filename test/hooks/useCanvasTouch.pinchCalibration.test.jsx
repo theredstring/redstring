@@ -20,14 +20,13 @@ const makeProps = (overrides = {}) => {
   const zoomLevelRef = { current: 1 };
   return {
     containerRef: { current: null },
-    panOffset: { x: 0, y: 0 }, panOffsetRef,
-    zoomLevel: 1, zoomLevelRef,
+    panOffsetRef,
+    zoomLevelRef,
     canvasSize: CANVAS_SIZE,
-    isPaused: false, activeGraphId: 'g',
+    activeGraphId: 'g',
     startDragForNode: vi.fn(() => true),
     handleMouseMove: vi.fn(), handleMouseUp: vi.fn(), handleMouseDown: vi.fn(),
-    setPanStart: vi.fn(), setIsPanning: vi.fn(), setPanOffset: vi.fn(),
-    setZoomLevel: vi.fn(),
+    setPanStart: vi.fn(), setIsPanning: vi.fn(),
     // Mirrors the real transform hook: refs are the live values the next move reads.
     setPanAndZoom: vi.fn((pan, zoom) => { panOffsetRef.current = pan; zoomLevelRef.current = zoom; }),
     stopPanMomentum: vi.fn(), isViewMoving: vi.fn(() => false),
@@ -46,7 +45,6 @@ const makeProps = (overrides = {}) => {
     isMouseDown: { current: false }, mouseMoved: { current: false },
     startedOnNode: { current: false }, mouseInsideNode: { current: false },
     mouseDownPosition: { current: { x: 0, y: 0 } },
-    recentlyPanned: false, setLastInteractionType: vi.fn(),
     groupControlPanelShouldShow: false, groupControlPanelVisible: false, setGroupControlPanelVisible: vi.fn(),
     connectionControlPanelShouldShow: false, connectionControlPanelVisible: false, setConnectionControlPanelVisible: vi.fn(),
     selectedGroup: null, setSelectedGroup: vi.fn(),
