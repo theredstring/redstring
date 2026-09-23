@@ -10,15 +10,18 @@ import { useRef, useState, useCallback } from 'react';
  * A debounced "settled" React state pair (`settledPan`, `settledZoom`) is
  * exposed for consumers that need React re-renders (culling, child-component
  * props, view-state persistence).  These update only after the user stops
- * interacting for `SETTLE_DELAY` ms.
+ * interacting for `SETTLE_DELAY` ms, and only when there is something new to
+ * publish: a settle after which nothing moved commits nothing (see
+ * commitSettled).
  *
  * `isMovingRef` is the inverse signal: true from the first mutation of a gesture
  * until it settles.  It is a REF, not state, on purpose.  It was state once, so
  * that a memo could pick a cheaper rendering while the view moved — but the
  * canvas is expensive enough to render that the two flips per gesture cost more
  * than any in-motion shortcut saved (measured at 143ms per flip on a real
- * universe with connection labels on).  Anything reading this must do so from a
- * per-frame or event path, never from render scope.
+ * universe with connection labels on, around 2026-08-07 with culling off and
+ * before label sprites; treat the number as dated).  Anything reading this
+ * must do so from a per-frame or event path, never from render scope.
  *
  * A compositor-zoom path once lived here: during a zoom gesture it froze this
  * attribute at a baseline and rode the remainder as a CSS transform on a
@@ -52,6 +55,12 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   const movingRef = useRef(false);
 
   const settleTimerRef = useRef(null);
+
+  // The values the settled state last committed, and whether the view has been
+  // anywhere else since. Together they decide whether a settle has anything to
+  // publish; see commitSettled.
+  const lastSettledRef = useRef({ x: 0, y: 0, zoom: 1 });
+  const movedSinceSettleRef = useRef(false);
 
   // Consumer-supplied callback fired synchronously on every pan/zoom mutation.
   // Used by the culling system to recompute visibility without waiting for the
@@ -211,6 +220,14 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   const applyTransform = useCallback(() => {
     const p = panRef.current;
     const z = zoomRef.current;
+    // Every mutator funnels through here, and so do the loops that write the
+    // refs directly (keyboard, edge auto-pan), so this is where "the view left
+    // its settled position" is observed. Recorded even if the values then
+    // prove unwritable below: that path used to reach the settled state too.
+    const s = lastSettledRef.current;
+    if (!Object.is(p.x, s.x) || !Object.is(p.y, s.y) || !Object.is(z, s.zoom)) {
+      movedSinceSettleRef.current = true;
+    }
     const cs = canvasSize;
     const tx = p.x - cs.offsetX * z;
     const ty = p.y - cs.offsetY * z;
@@ -238,6 +255,32 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
     write(overlayGroupRef?.current);
   }, [contentGroupRef, overlayGroupRef, canvasSize]);
 
+  // Publish the refs to the settled React state, but only if there is
+  // something new to publish. A settle is a full NodeCanvas render (F-11). A
+  // settle with nothing new used to pay for that render anyway, because the pan
+  // state was always a fresh object. Examples: a wheel notch at the zoom clamp,
+  // a pan held against the canvas edge, a jumpTo to where the view already is.
+  //
+  // "Something new" means EITHER the values differ exactly from what the state
+  // last committed, OR the view has been somewhere else since then. The second
+  // half is load-bearing. NodeCanvas's settle-prune effect and
+  // EdgeGlowIndicator's pool trim both key on the settledPan identity, and
+  // culling only GROWS the visible set while the view moves. So a gesture that
+  // wanders off and comes back to the exact same spot has over-mounted content
+  // that only this settle will prune. It still commits a fresh object, exactly
+  // as before.
+  const commitSettled = useCallback(() => {
+    const p = panRef.current;
+    const z = zoomRef.current;
+    const s = lastSettledRef.current;
+    const moved = movedSinceSettleRef.current;
+    movedSinceSettleRef.current = false;
+    if (!moved && Object.is(p.x, s.x) && Object.is(p.y, s.y) && Object.is(z, s.zoom)) return;
+    lastSettledRef.current = { x: p.x, y: p.y, zoom: z };
+    setSettledPan({ ...p });
+    setSettledZoom(z);
+  }, []);
+
   // Schedule a deferred React state update when interaction settles.
   const scheduleSettle = useCallback(() => {
     movingRef.current = true;
@@ -252,19 +295,17 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
     settleTimerRef.current = setTimeout(() => {
       movingRef.current = false;
       setLabelsHidden(false);
-      setSettledPan({ ...panRef.current });
-      setSettledZoom(zoomRef.current);
+      commitSettled();
     }, SETTLE_DELAY);
-  }, [setLabelsHidden, syncLabelsForGesture]);
+  }, [setLabelsHidden, syncLabelsForGesture, commitSettled]);
 
   // Immediately flush settled state (for graph switches, navigations, etc.)
   const flushSettle = useCallback(() => {
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     movingRef.current = false;
     setLabelsHidden(false);
-    setSettledPan({ ...panRef.current });
-    setSettledZoom(zoomRef.current);
-  }, [setLabelsHidden]);
+    commitSettled();
+  }, [setLabelsHidden, commitSettled]);
 
   const setPan = useCallback((newPan) => {
     // Support functional updater form:  setPan(prev => newVal)

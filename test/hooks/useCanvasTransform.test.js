@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useCanvasTransform } from '../../src/hooks/useCanvasTransform.js';
 
@@ -26,11 +26,13 @@ function setup({ canvasSize = CANVAS_SIZE, withOverlay = false } = {}) {
   const contentGroupRef = { current: group };
   const overlayGroupRef = { current: withOverlay ? makeGroup() : null };
 
-  const { result } = renderHook(() =>
-    useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayGroupRef)
-  );
+  const renders = { n: 0 };
+  const { result } = renderHook(() => {
+    renders.n++;
+    return useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayGroupRef);
+  });
 
-  return { result, contentGroupRef, overlayGroupRef, canvasSize };
+  return { result, contentGroupRef, overlayGroupRef, canvasSize, renders };
 }
 
 /** Parse `translate(tx ty) scale(z)` off the content group. */
@@ -199,5 +201,142 @@ describe('useCanvasTransform', () => {
     expect(result.current.settledPan).toEqual({ x: 77, y: -33 });
     expect(result.current.settledZoom).toBe(4);
     expect(result.current.isMovingRef.current).toBe(false);
+  });
+});
+
+/**
+ * P1.09 / F-11 — a settle is a full NodeCanvas render, so a settle with nothing
+ * new to publish must not commit. "Nothing new" is strict: the values equal what
+ * was last committed AND the view has not been anywhere else since. A gesture
+ * that wanders off and returns still commits a fresh object, because the
+ * culling settle-prune keys on the settledPan identity.
+ */
+describe('useCanvasTransform settle skips no-op commits (P1.09)', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  const settle = () => act(() => { vi.advanceTimersByTime(1000); });
+
+  function settledAt(pan, zoom) {
+    const ctx = setup();
+    act(() => { ctx.result.current.jumpTo(pan, zoom); });
+    return ctx;
+  }
+
+  it('a settle after a mutation that moved nothing renders nothing', () => {
+    const { result, renders } = settledAt({ x: -10, y: 20 }, 1.5);
+    const pan = result.current.settledPan;
+    const before = renders.n;
+
+    // e.g. a wheel notch at the zoom clamp, a pan held against the canvas edge
+    act(() => { result.current.setPanAndZoom({ x: -10, y: 20 }, 1.5); });
+    act(() => { result.current.setPan((p) => ({ x: p.x, y: p.y })); });
+    act(() => { result.current.setZoom(1.5); });
+    expect(result.current.isMovingRef.current).toBe(true);
+    settle();
+
+    expect(renders.n).toBe(before);
+    expect(result.current.settledPan).toBe(pan);
+    expect(result.current.settledZoom).toBe(1.5);
+    // The rest of the settle still happens.
+    expect(result.current.isMovingRef.current).toBe(false);
+  });
+
+  it('flushSettle and jumpTo to the current view render nothing', () => {
+    const { result, renders } = settledAt({ x: 5, y: -5 }, 2);
+    const pan = result.current.settledPan;
+    const before = renders.n;
+
+    act(() => { result.current.flushSettle(); });
+    act(() => { result.current.jumpTo({ x: 5, y: -5 }, 2); });
+
+    expect(renders.n).toBe(before);
+    expect(result.current.settledPan).toBe(pan);
+  });
+
+  it('commits when x, y or zoom changes, each on its own', () => {
+    const { result } = settledAt({ x: 0, y: 0 }, 1);
+
+    for (const [pan, zoom] of [
+      [{ x: 1, y: 0 }, 1],
+      [{ x: 1, y: 1 }, 1],
+      [{ x: 1, y: 1 }, 1.25],
+    ]) {
+      const prev = result.current.settledPan;
+      act(() => { result.current.setPanAndZoom(pan, zoom); });
+      settle();
+      expect(result.current.settledPan).not.toBe(prev);
+      expect(result.current.settledPan).toEqual(pan);
+      expect(result.current.settledZoom).toBe(zoom);
+    }
+  });
+
+  it('a gesture that wanders off and returns still commits a fresh object', () => {
+    const { result, renders } = settledAt({ x: -40, y: 60 }, 1);
+    const pan = result.current.settledPan;
+    const before = renders.n;
+
+    act(() => { result.current.setPan({ x: -400, y: 60 }); });
+    act(() => { result.current.setPan({ x: -40, y: 60 }); });
+    settle();
+
+    // Same values, new identity: the settle-prune effect must still run.
+    expect(result.current.settledPan).not.toBe(pan);
+    expect(result.current.settledPan).toEqual({ x: -40, y: 60 });
+    expect(renders.n).toBe(before + 1);
+  });
+
+  it('a zoom that wanders off and returns still commits', () => {
+    const { result } = settledAt({ x: 0, y: 0 }, 1);
+    const pan = result.current.settledPan;
+
+    act(() => { result.current.setZoom(2); });
+    act(() => { result.current.setZoom(1); });
+    settle();
+
+    expect(result.current.settledPan).not.toBe(pan);
+    expect(result.current.settledZoom).toBe(1);
+  });
+
+  it('commits a keyboard-style move: refs written directly, applyTransform, then flushSettle', () => {
+    const { result } = settledAt({ x: 0, y: 0 }, 1);
+
+    act(() => {
+      result.current.panRef.current = { x: -30, y: -30 };
+      result.current.applyTransform();
+      result.current.flushSettle();
+    });
+
+    expect(result.current.settledPan).toEqual({ x: -30, y: -30 });
+  });
+
+  it('commits a ref write that never went through applyTransform', () => {
+    const { result } = settledAt({ x: 0, y: 0 }, 1);
+
+    act(() => {
+      result.current.zoomRef.current = 0.5;
+      result.current.flushSettle();
+    });
+
+    expect(result.current.settledZoom).toBe(0.5);
+  });
+
+  it('a later no-op settle is skipped again once a real one has committed', () => {
+    const { result, renders } = settledAt({ x: 0, y: 0 }, 1);
+
+    act(() => { result.current.setPan({ x: 9, y: 9 }); });
+    settle();
+    const pan = result.current.settledPan;
+    expect(pan).toEqual({ x: 9, y: 9 });
+    const before = renders.n;
+
+    act(() => { result.current.setPan({ x: 9, y: 9 }); });
+    settle();
+
+    expect(result.current.settledPan).toBe(pan);
+    expect(renders.n).toBe(before);
   });
 });
