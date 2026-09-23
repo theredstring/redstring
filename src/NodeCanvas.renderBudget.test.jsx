@@ -36,6 +36,7 @@ vi.mock('./useCanvasWorker.js', () => ({
 
 import NodeCanvas from './NodeCanvas.jsx';
 import useGraphStore from './store/graphStore.js';
+import { resetServerAvailabilityCache } from './utils/debugLogger.js';
 
 // --- hand-driven rAF -------------------------------------------------------
 let rafQueue = [];
@@ -259,6 +260,41 @@ describe('NodeCanvas render budget', () => {
 
     // No per-frame commits while the drag continues.
     expect(steadyCommits).toBe(0);
+  });
+
+  // P1.07 / F-26: render must not do debug I/O. The old edges pass POSTed to a
+  // local debug server whenever parallel edges existed, and warned about edges
+  // whose arrowsToward named a non-endpoint. Seed exactly those conditions,
+  // then force re-renders with a store field no debug path reads.
+  it('re-rendering makes no network requests and no debug warnings', async () => {
+    const fetchSpy = vi.fn(() => Promise.resolve(new Response('{}')));
+    vi.stubGlobal('fetch', fetchSpy);
+    const st = useGraphStore.getState();
+    st.addEdge('g1', { id: 'e3', sourceId: 'i1', destinationId: 'i2' }); // parallel to e1
+    useGraphStore.setState((s) => {
+      const edges = new Map(s.edges);
+      edges.set('e3', { ...edges.get('e3'), directionality: { arrowsToward: new Set(['not-an-endpoint']) } });
+      return { edges };
+    }, false, 'render_budget_stale_arrow');
+
+    await mountAndSettle();
+
+    // debugLogger goes quiet for five minutes after a failed request (its
+    // import-time health check fails in jsdom), which would hide render-time
+    // POSTs. Clear that so any request from render reaches the spy.
+    resetServerAvailabilityCache();
+    fetchSpy.mockClear();
+    const warnSpy = vi.spyOn(console, 'warn');
+
+    commits = [];
+    for (let i = 0; i < 3; i++) {
+      act(() => { holdUniverseOpen(); useGraphStore.getState().setTypeListMode(i % 2 ? 'closed' : 'open'); });
+      flushFrames(2);
+    }
+
+    expect(commits.length).toBeGreaterThan(0); // the re-renders really happened
+    expect(fetchSpy.mock.calls.map((c) => String(c[0]))).toEqual([]);
+    expect(warnSpy.mock.calls.map((c) => String(c[0]))).toEqual([]);
   });
 
   // S1t (one-finger touch pan). useCanvasTouch synthesises mouse events and

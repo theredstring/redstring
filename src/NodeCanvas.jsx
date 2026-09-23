@@ -66,7 +66,6 @@ import {
   placeholderIdForGroup,
 } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
-import { debugLogSync } from './utils/debugLogger.js';
 import { getNodeHitbox, getVisualConnectionEndpoints, getLineNodeIntersection, getNodeEdgeIntersection } from './utils/canvas/nodeHitbox.js';
 import { stabilizeLabelPosition, clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
@@ -842,10 +841,6 @@ function NodeCanvas() {
   // survive between transform ticks, and the rect is repositioned on every one.
   const ORBIT_DIM_MARGIN = 0.1;
 
-  // TEMPORARY DIAGNOSTIC - zoom flicker root-cause investigation.
-  // Remove after culprit identified. See /Users/granteubanks/.claude/plans/sleepy-snacking-mist.md
-  const DIAGNOSE_ZOOM_FLICKER = true;
-
   // Get theme colors
   const theme = useTheme();
 
@@ -1549,21 +1544,6 @@ function NodeCanvas() {
     return () => { cancelled = true; };
   }, [isUniverseLoading]);
 
-  // TEMPORARY DIAGNOSTIC — zoom flicker investigation (H3: SVG unmount/remount)
-  // Fires whenever any of the four top-level SVG conditional flags flips. If this
-  // fires during an active zoom gesture, the SVG subtree is briefly unmounting
-  // and the fallback branch renders for one frame → whole canvas blank.
-  useEffect(() => {
-    if (DIAGNOSE_ZOOM_FLICKER) {
-      console.warn('[flicker:svg-conditions]', {
-        isUniverseLoading,
-        isUniverseLoaded,
-        hasUniverseFile,
-        activeGraphIdPresent: !!activeGraphId,
-      });
-    }
-  }, [isUniverseLoading, isUniverseLoaded, hasUniverseFile, activeGraphId]);
-
   useEffect(() => {
     const timerApi = typeof window !== 'undefined' ? window : globalThis;
     const timeoutId = timerApi.setTimeout(() => setResizersVisible(true), 180);
@@ -2088,15 +2068,6 @@ function NodeCanvas() {
 
     prevNodesRef.current = newMap;
 
-    // TEMPORARY DIAGNOSTIC — zoom flicker investigation (H4: memo transiently empty)
-    if (DIAGNOSE_ZOOM_FLICKER && result.length === 0 && instances && instances.size > 0) {
-      console.warn('[flicker:nodes-memo] returned EMPTY with non-empty instances', {
-        instancesSize: instances.size,
-        hasPrototypes: !!nodePrototypesMap,
-        protoCount: nodePrototypesMap?.size,
-      });
-    }
-
     return result;
   }, [instances, nodePrototypesMap, imageCacheMap, loadingImagesMap, failedImagesMap]);
 
@@ -2180,8 +2151,6 @@ function NodeCanvas() {
   const edgeCurveInfoRef = useRef(null);
   const edgesByNodeIdRef = useRef(null);
   const visibleEdgesRef = useRef(visibleEdges);
-  // Dedup set so the arrowhead audit only warns once per edge per session.
-  const arrowheadAuditSeenRef = useRef(new Set());
   // Previous-committed visible node set, read by runCulling for hysteresis (two-zone
   // culling: an already-visible node stays visible until it's outside the OUTER margin).
   const visibleNodeIdsRef = useRef(visibleNodeIds);
@@ -4576,33 +4545,6 @@ function NodeCanvas() {
       // inside runCulling itself, so owning them here is safe.
       visibleNodeIdsRef.current = commitNodeIds;
       visibleEdgesRef.current = commitEdges;
-
-      // TEMPORARY DIAGNOSTIC — zoom flicker investigation
-      if (DIAGNOSE_ZOOM_FLICKER) {
-        const reasons = [];
-        if (!currentNodes || currentNodes.length === 0) {
-          reasons.push(`nodesRef empty (len=${currentNodes?.length})`);
-        }
-        if (!dimsMap || dimsMap.size === 0) {
-          reasons.push(`dimsMap empty (size=${dimsMap?.size})`);
-        }
-        if (commitNodeIds.size === 0 && currentNodes && currentNodes.length > 0) {
-          reasons.push(`visible EMPTY with ${currentNodes.length} nodes in graph`);
-        }
-        if (reasons.length) {
-          console.warn('[flicker:culling]', {
-            reasons,
-            zoom,
-            pan: { x: pan.x, y: pan.y },
-            viewport: { w: viewport.width, h: viewport.height },
-            innerRect,
-            prevVisibleSize: prevVisibleNodeIds.size,
-            nextVisibleSize: commitNodeIds.size,
-            nodesLen: currentNodes?.length,
-            dimsMapSize: dimsMap?.size,
-          });
-        }
-      }
 
       // Synchronous visibility commit (no startTransition) so the visible set
       // always lands in lockstep with the SVG DOM transform — using transitions
@@ -17123,51 +17065,6 @@ function NodeCanvas() {
 
                     // edgeCurveInfo is computed via useMemo and available in scope
                     // (used for parallel edge curve offset calculation)
-
-                    // #region agent log - build edgePairGroups locally just for debug logging
-                    const edgePairGroupsDebug = new Map();
-                    visibleEdges.forEach(e => {
-                      const key = [e.sourceId, e.destinationId].sort().join('-');
-                      if (!edgePairGroupsDebug.has(key)) edgePairGroupsDebug.set(key, []);
-                      edgePairGroupsDebug.get(key).push(e.id);
-                    });
-                    const multiEdgePairs = Array.from(edgePairGroupsDebug.entries()).filter(([k, v]) => v.length > 1);
-                    if (multiEdgePairs.length > 0) {
-                      debugLogSync('NodeCanvas.jsx:edgeRender', 'Edge rendering info', { totalEdges: visibleEdges.length, multiEdgePairs: multiEdgePairs.map(([k, v]) => ({ pair: k, edgeCount: v.length, edgeIds: v })), enableAutoRouting, routingStyle, willUseCurves: !isRoutedStyle }, 'debug-session', 'D-E');
-                    }
-                    // #endregion
-
-                    // #region ArrowheadAudit — catch edges that can render a detached-looking arrowhead
-                    visibleEdges.forEach(edge => {
-                      if (arrowheadAuditSeenRef.current.has(edge.id)) return;
-                      const sNode = nodeById.get(edge.sourceId);
-                      const dNode = nodeById.get(edge.destinationId);
-                      const at = edge.directionality?.arrowsToward;
-                      const arrowsSet = at instanceof Set ? at : new Set(Array.isArray(at) ? at : []);
-                      const stale = [];
-                      arrowsSet.forEach(id => {
-                        if (id !== edge.sourceId && id !== edge.destinationId) stale.push(id);
-                      });
-                      const isSelfLoop = edge.sourceId === edge.destinationId;
-                      const coincident = !isSelfLoop && sNode && dNode && sNode.x === dNode.x && sNode.y === dNode.y;
-                      const missingEndpoint = !sNode || !dNode;
-                      if (stale.length > 0 || coincident || missingEndpoint) {
-                        arrowheadAuditSeenRef.current.add(edge.id);
-                        console.warn('[ArrowheadAudit]', {
-                          edgeId: edge.id,
-                          sourceId: edge.sourceId,
-                          destinationId: edge.destinationId,
-                          arrowsToward: Array.from(arrowsSet),
-                          staleArrowsTowardIds: stale,
-                          sourceNodePresent: !!sNode,
-                          destNodePresent: !!dNode,
-                          coincidentEndpoints: coincident,
-                          sourcePos: sNode ? { x: sNode.x, y: sNode.y } : null,
-                          destPos: dNode ? { x: dNode.x, y: dNode.y } : null,
-                        });
-                      }
-                    });
-                    // #endregion
 
                     // Everything renderConnectionEdge reads, gathered in one place.
                     // The renderer now lives in components/canvas/renderConnectionEdge.jsx;
