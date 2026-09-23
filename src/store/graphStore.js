@@ -7381,11 +7381,23 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     /**
      * Replaces the entire multi-edge selection with the provided set.
+     * No-ops when the new selection has exactly the current members (same size,
+     * same ids, whatever iterable is passed): callers routinely clear an
+     * already-empty selection, and every `set` hands `selectedEdgeIds`
+     * subscribers a fresh Set, which re-renders NodeCanvas.
      * @param {string[]|Iterable<string>} edgeIds
      */
     setSelectedEdgeIds: (edgeIds) => {
-      console.log(`[Store Action] Setting selectedEdgeIds to:`, edgeIds);
-      set({ selectedEdgeIds: new Set(edgeIds) });
+      const next = new Set(edgeIds);
+      const current = get().selectedEdgeIds;
+      if (current instanceof Set && current.size === next.size) {
+        let same = true;
+        for (const id of next) {
+          if (!current.has(id)) { same = false; break; }
+        }
+        if (same) return;
+      }
+      set({ selectedEdgeIds: next });
     },
 
     /**
