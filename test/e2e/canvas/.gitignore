@@ -1,0 +1,5 @@
+# Playwright output (traces, screenshots, HTML report)
+.results/
+.report/
+# Private Vite dependency cache for the e2e web server (vite.e2e.config.js)
+.vite-cache/
