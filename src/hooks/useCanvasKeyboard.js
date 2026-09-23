@@ -599,9 +599,39 @@ export const useCanvasKeyboard = ({
 
     // ---------------------------------------------------------------------------
     // 4. Shortcuts (Copy/Paste, Delete, etc.)
+    //    Stable, like the loop above: attaches once per mount and reads every
+    //    input from paramsRef at event time. It used to close over ~22 values
+    //    and re-attach whenever one changed, and one of them (onDeleteNodes) is
+    //    a fresh function on every NodeCanvas render, so in practice it tore
+    //    the listener down and re-added it on every render (F-14).
     // ---------------------------------------------------------------------------
     useEffect(() => {
         const handleKeyDown = (e) => {
+            const {
+                activeGraphId,
+                storeActions,
+                graphsMap,
+                nodePrototypesMap,
+                edgesMap,
+                selectedInstanceIds,
+                setSelectedInstanceIds,
+                selectedEdgeId,
+                selectedEdgeIds,
+                clipboardRef,
+                onClipboardChange,
+                mousePositionRef,
+                panOffsetRef,
+                zoomLevelRef,
+                canvasSize,
+                nodeNamePrompt,
+                connectionNamePrompt,
+                isHeaderEditing,
+                isRightPanelInputFocused,
+                isLeftPanelInputFocused,
+                abstractionCarouselVisible,
+                onDeleteNodes,
+            } = paramsRef.current;
+
             // The panel focus flags only cover fields wired to report focus, so
             // they miss the wizard chat and any editor added since. Asking the
             // DOM as well means no text field can leak a Backspace onto the
@@ -781,28 +811,5 @@ export const useCanvasKeyboard = ({
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [
-        selectedInstanceIds,
-        selectedEdgeId,
-        selectedEdgeIds,
-        isHeaderEditing,
-        isRightPanelInputFocused,
-        isLeftPanelInputFocused,
-        nodeNamePrompt.visible,
-        connectionNamePrompt.visible,
-        abstractionCarouselVisible,
-        activeGraphId,
-        storeActions,
-        graphsMap,
-        nodePrototypesMap,
-        edgesMap,
-        panOffset,
-        zoomLevel,
-        canvasSize,
-        clipboardRef,
-        onClipboardChange,
-        mousePositionRef, // Ensure ref is up to date (it is stable)
-        setSelectedInstanceIds,
-        onDeleteNodes,
-    ]);
+    }, []); // STABLE: reads everything through paramsRef
 };
