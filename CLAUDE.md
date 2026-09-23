@@ -2,6 +2,8 @@
 
 > **AI Agents**: Start with [`AI_COMPENDIUM.md`](AI_COMPENDIUM.md) for a categorized, status-tagged index of all 86 documentation files — including which are current, historical, legacy-canonical, or future-intent.
 
+> **NodeCanvas refactor in progress (pre-1.0).** Before changing `src/NodeCanvas.jsx`, anything it renders, or the canvas hooks (`useNodeDrag`, `useCanvasTouch`, `useCanvasKeyboard`, `useCanvasTransform`, `useGamepad`), read [`documentation/dev-ops/nodecanvas-refactor/README.md`](documentation/dev-ops/nodecanvas-refactor/README.md) and follow its agent protocol. That folder is the plan of record: task status, findings, the region map, decisions and metrics. Don't add new features to `NodeCanvas.jsx`; put them in the new structure described there. Some sections below (e.g. "Central Components") describe the pre-refactor shape.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Architecture Overview
