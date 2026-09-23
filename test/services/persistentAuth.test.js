@@ -145,4 +145,87 @@ describe('PersistentAuth (secure storage)', () => {
     expect(await freshAuth.getAccessToken()).toBe('vault_token');
     freshAuth.destroy();
   });
+
+  describe('verifyOAuth — a stored token is not a working one', () => {
+    const seedToken = () => {
+      persistentAuth.oauthCache = {
+        accessToken: 'gho_stored',
+        expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+        user: { login: 'someone' }
+      };
+      persistentAuth.oauthVerification = { state: 'unverified', checkedAt: 0 };
+    };
+
+    const serverSays = (response) => {
+      const base = mockOAuthFetch.getMockImplementation();
+      mockOAuthFetch.mockImplementation(async (url, options) => (
+        url.includes('/api/github/oauth/validate') ? response() : base(url, options)
+      ));
+    };
+
+    it('clears a token GitHub rejects, so the UI stops saying Connected', async () => {
+      seedToken();
+      serverSays(async () => createFetchResponse({ ok: false, status: 401, json: async () => ({ valid: false }) }));
+      global.fetch = vi.fn().mockResolvedValue(createFetchResponse({ ok: false, status: 401 }));
+
+      expect(persistentAuth.getAuthStatus().hasOAuthTokens).toBe(true);
+      const state = await persistentAuth.verifyOAuth({ maxAgeMs: 0 });
+
+      expect(state).toBe('invalid');
+      expect(persistentAuth.getAuthStatus().hasOAuthTokens).toBe(false);
+    });
+
+    it('keeps the token when GitHub cannot be reached', async () => {
+      seedToken();
+      serverSays(async () => { throw new Error('offline'); });
+      global.fetch = vi.fn().mockRejectedValue(new Error('offline'));
+
+      const state = await persistentAuth.verifyOAuth({ maxAgeMs: 0 });
+
+      expect(state).toBe('unknown');
+      expect(persistentAuth.hasValidTokens()).toBe(true);
+    });
+
+    it('does not let a negative server answer override a working token', async () => {
+      // The server's introspection is per OAuth client ID; a token minted by
+      // the other (dev/prod) client reads as invalid there but works fine.
+      seedToken();
+      serverSays(async () => createFetchResponse({ ok: false, status: 401, json: async () => ({ valid: false }) }));
+      global.fetch = vi.fn().mockResolvedValue(createFetchResponse({ ok: true, status: 200 }));
+
+      expect(await persistentAuth.verifyOAuth({ maxAgeMs: 0 })).toBe('valid');
+      expect(persistentAuth.hasValidTokens()).toBe(true);
+    });
+
+    it('auto-connect no longer signs the user out over a network blip', async () => {
+      seedToken();
+      serverSays(async () => { throw new Error('offline'); });
+      global.fetch = vi.fn().mockRejectedValue(new Error('offline'));
+
+      await persistentAuth.attemptOAuthAutoConnect();
+
+      expect(persistentAuth.hasValidTokens()).toBe(true);
+    });
+
+    it('marks App discovery as blocked by OAuth when the install lookup is refused', async () => {
+      seedToken();
+      const base = mockOAuthFetch.getMockImplementation();
+      mockOAuthFetch.mockImplementation(async (url, options) => {
+        if (url.includes('/api/github/app/installations')) {
+          return createFetchResponse({ ok: false, status: 401, json: async () => ({ error: 'Bad credentials' }) });
+        }
+        if (url.includes('/api/github/oauth/validate')) {
+          return createFetchResponse({ ok: false, status: 401, json: async () => ({ valid: false }) });
+        }
+        return base(url, options);
+      });
+      global.fetch = vi.fn().mockResolvedValue(createFetchResponse({ ok: false, status: 401 }));
+
+      const found = await persistentAuth.forceAppDiscovery();
+
+      expect(found).toBe(false);
+      expect(persistentAuth.lastAppDiscoveryFailure?.reason).toBe('oauth_invalid');
+      expect(persistentAuth.hasValidTokens()).toBe(false);
+    });
+  });
 });

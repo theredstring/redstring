@@ -1,33 +1,23 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import CanvasModal from './CanvasModal';
-import AuthSection from './universe-manager/AuthSection.jsx';
-import GitHubDeviceFlowPanel from './modals/GitHubDeviceFlowPanel.jsx';
+import GitHubConnectPanel from './shared/GitHubConnectPanel.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isElectron } from '../utils/fileAccessAdapter.js';
-import { isCapacitor, usesPathHandles, usesDeviceFlowAuth } from '../utils/capacitorAdapter.js';
+import { isCapacitor, usesPathHandles } from '../utils/capacitorAdapter.js';
 import {
   FolderOpen, Folder, ArrowRight, ArrowLeft, Github, Lock, Globe,
   Loader2, CheckCircle, AlertCircle, Circle, RefreshCw, Save, X, Star, Upload, Key
 } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme.js';
-import { useGitHubDeviceFlow } from '../hooks/useGitHubDeviceFlow.js';
+import { useGitHubConnection, isGitHubDeviceFlowShowing } from '../hooks/useGitHubConnection.js';
 import { persistentAuth } from '../services/persistentAuth.js';
 import universeBackend from '../services/universeBackend.js';
-import { getStorageKey } from '../utils/storageUtils.js';
 import { MODAL_CLOSE_ICON_SIZE } from '../constants.js';
 import { getStatusColors } from '../utils/statusColors.js';
 import {
   saveWorkspaceHandle, getWorkspaceHandle, clearWorkspaceHandle,
   checkWorkspacePermission, requestWorkspacePermission
 } from '../services/workspaceFolderService.js';
-import { runPendingCallbacks, recheckAppOnFocus } from '../services/githubAuthCallbacks.js';
-import {
-  connectOAuth as ghConnectOAuth,
-  connectApp as ghConnectApp,
-  detectAppInstall as ghDetectAppInstall,
-  disconnectOAuth as ghDisconnectOAuth,
-  disconnectApp as ghDisconnectApp
-} from '../services/githubAuthFlows.js';
 import { listUserRepos } from '../services/githubRepoService.js';
 import {
   fillGitSlot, addLocalFileSlot, resolveLocalFileHandle, GIT_ONBOARDING_TASKS
@@ -56,8 +46,11 @@ import {
  * The web OAuth/App-install redirects unload the page; sessionStorage resume
  * flags (redstring_onboarding_resume/_step/_universe_name) reopen the wizard at
  * git-connect, with the universe name preserved, on return.
+ *
+ * The connect step itself (auth state, redirect callbacks, App discovery, the
+ * OAuth/App cards) is useGitHubConnection + GitHubConnectPanel, shared with
+ * GitReconnectModal.
  */
-const AUTH_EVENTS = ['tokenStored', 'tokenValidated', 'authExpired', 'appInstallationStored', 'appInstallationCleared'];
 
 const readWizardResumeStep = () => {
   try {
@@ -130,18 +123,9 @@ const StorageSetupModal = ({
   const [localError, setLocalError] = useState(null);
 
   // --- GitHub wizard state ---
-  const [authStatus, setAuthStatus] = useState(() => {
-    try { return persistentAuth.getAuthStatus(); } catch { return {}; }
-  });
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [authNotice, setAuthNotice] = useState(null); // { type: 'error'|'info'|'warning', message }
-  const [allowOAuthBackup, setAllowOAuthBackup] = useState(() => {
-    try {
-      return localStorage.getItem(getStorageKey('allow_oauth_backup')) !== 'false';
-    } catch {
-      return true;
-    }
-  });
+  const github = useGitHubConnection({ active: isVisible && step === 'git-connect' });
+  const { hasOAuth, hasApp, setAuthNotice } = github;
+  const deviceFlowShowing = isGitHubDeviceFlowShowing(github);
   const [repoChoice, setRepoChoice] = useState('create'); // 'create' | 'existing'
   const [newRepoName, setNewRepoName] = useState('Redstring-Universes');
   const [newRepoPrivate, setNewRepoPrivate] = useState(true);
@@ -153,23 +137,6 @@ const StorageSetupModal = ({
   const [taskStates, setTaskStates] = useState({});
   const [finishError, setFinishError] = useState(null);
   const [finishRunning, setFinishRunning] = useState(false);
-
-  const { deviceFlowState, runDeviceFlow, cancelDeviceFlow } = useGitHubDeviceFlow();
-
-  const hasOAuth = !!authStatus?.hasOAuthTokens;
-  const hasApp = !!authStatus?.hasGitHubApp;
-  // GitHub accounts behind each connection. `authStatus` carries the OAuth
-  // user; the App installation account comes straight off the auth cache and
-  // re-reads whenever authStatus changes (same auth events drive both).
-  const oauthAccount = authStatus?.userData || null;
-  const appAccount = (() => {
-    try { return persistentAuth.getAppInstallation()?.userData || null; } catch { return null; }
-  })();
-  const statusBadge = hasOAuth && hasApp
-    ? { label: 'Fully Connected', tone: statusColors.success }
-    : (hasOAuth || hasApp)
-      ? { label: 'Partially Connected', tone: statusColors.info }
-      : { label: 'Not Connected', tone: statusColors.error };
 
   // Only use compact layout on truly small screens (mobile)
   const isCompactLayout = viewportSize.width <= 500;
@@ -250,27 +217,6 @@ const StorageSetupModal = ({
     return () => ro.disconnect();
   }, [isVisible, step]);
 
-  const refreshAuthStatus = useCallback(() => {
-    try { setAuthStatus(persistentAuth.getAuthStatus()); } catch { /* ignore */ }
-  }, []);
-
-  // Keep auth status live while the modal is visible (same subscription
-  // pattern as the Universes panel).
-  useEffect(() => {
-    if (!isVisible) return undefined;
-    refreshAuthStatus();
-    const listener = () => refreshAuthStatus();
-    AUTH_EVENTS.forEach((ev) => persistentAuth.on(ev, listener));
-    return () => AUTH_EVENTS.forEach((ev) => persistentAuth.off(ev, listener));
-  }, [isVisible, refreshAuthStatus]);
-
-  // Persist the OAuth-backup preference to the same key the panel uses.
-  useEffect(() => {
-    try {
-      localStorage.setItem(getStorageKey('allow_oauth_backup'), allowOAuthBackup ? 'true' : 'false');
-    } catch { /* ignore */ }
-  }, [allowOAuthBackup]);
-
   // Restore the workspace folder handle/permission state on mount.
   useEffect(() => {
     if (!isVisible || !showWorkspaceRow) return;
@@ -288,68 +234,6 @@ const StorageSetupModal = ({
       }
     })();
   }, [isVisible, showWorkspaceRow]);
-
-  // git-connect step: process any pending OAuth/App redirect callback
-  // (single-flight — safe alongside the panel), then check for an existing App
-  // install so we never prompt an install the user already has. Also re-detect
-  // on tab focus (covers install-in-another-tab).
-  useEffect(() => {
-    if (!isVisible || step !== 'git-connect') return undefined;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const { oauth, app } = await runPendingCallbacks();
-        if (cancelled) return;
-        if (oauth.error || app.error) {
-          setAuthNotice({ type: 'error', message: oauth.error || app.error });
-        }
-        refreshAuthStatus();
-      } catch (err) {
-        console.warn('[StorageSetupModal] Pending auth callback processing failed:', err?.message || err);
-      }
-    })();
-
-    const onVisibilityChange = async () => {
-      try {
-        const { detected } = await recheckAppOnFocus();
-        if (detected && !cancelled) {
-          refreshAuthStatus();
-          setAuthNotice({ type: 'info', message: 'GitHub App detected and linked.' });
-        }
-      } catch { /* quiet */ }
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-
-    return () => {
-      cancelled = true;
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, [isVisible, step, refreshAuthStatus]);
-
-  // Auto-detect an existing GitHub App install once OAuth is connected, using
-  // forceAppDiscovery (same path as the manual "Detect install" button, which
-  // clears any stale sticky-disconnect flag — correct during onboarding). On
-  // Electron discovery needs a device-flow token, so this no-ops there.
-  const appDiscoveryTriedRef = useRef(false);
-  useEffect(() => {
-    if (!isVisible || step !== 'git-connect' || !hasOAuth || hasApp) {
-      appDiscoveryTriedRef.current = false;
-      return undefined;
-    }
-    if (appDiscoveryTriedRef.current) return undefined;
-    appDiscoveryTriedRef.current = true;
-    let cancelled = false;
-    (async () => {
-      try {
-        await persistentAuth.forceAppDiscovery?.();
-        if (!cancelled) refreshAuthStatus();
-      } catch (err) {
-        console.warn('[StorageSetupModal] App auto-discovery failed:', err?.message || err);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isVisible, step, hasOAuth, hasApp, refreshAuthStatus]);
 
   // --- Workspace folder handlers (mirror UniversesList) ---
 
@@ -420,7 +304,12 @@ const StorageSetupModal = ({
     } catch { /* ignore */ }
     setAuthNotice(null);
     // Already fully connected from a prior slot fill this session? Skip to repo.
-    setStep((hasOAuth && hasApp) ? 'git-repo' : 'git-connect');
+    // Read fresh: the hook only tracks auth while the connect step is showing.
+    // A token GitHub hasn't vouched for yet goes through the connect step,
+    // which verifies it, rather than straight to a repo list that would 401.
+    const now = persistentAuth.getAuthStatus();
+    const readyToSkip = now?.hasOAuthTokens && now?.hasGitHubApp && now?.oauthVerification === 'valid';
+    setStep(readyToSkip ? 'git-repo' : 'git-connect');
   };
 
   const handleAddLocalFile = async () => {
@@ -463,78 +352,6 @@ const StorageSetupModal = ({
       setSourceOfTruth(type);
     } catch (err) {
       console.warn('[StorageSetupModal] Failed to set source of truth:', err?.message || err);
-    }
-  };
-
-  // --- GitHub wizard handlers (thin wrappers over githubAuthFlows) ---
-
-  const handleWizardGitHubAuth = async () => {
-    try {
-      setIsConnecting(true);
-      setAuthNotice(null);
-      const result = await ghConnectOAuth({ runDeviceFlow });
-      if (result?.connected) refreshAuthStatus();
-    } catch (err) {
-      setAuthNotice({ type: 'error', message: `OAuth authentication failed: ${err.message}` });
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
-  const handleWizardGitHubApp = async () => {
-    try {
-      setIsConnecting(true);
-      setAuthNotice(null);
-      const result = await ghConnectApp({ runDeviceFlow });
-      refreshAuthStatus();
-      if (result?.connected) {
-        setAuthNotice({ type: 'info', message: 'GitHub App linked — it was already installed on your account.' });
-      } else if (result?.installPending) {
-        setAuthNotice({ type: 'warning', message: 'Install the GitHub App in your browser, then come back — Redstring will detect it.' });
-      }
-    } catch (err) {
-      setAuthNotice({ type: 'error', message: `GitHub App connection failed: ${err.message}` });
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
-  const handleWizardAppDetect = async () => {
-    try {
-      setIsConnecting(true);
-      setAuthNotice(null);
-      const result = await ghDetectAppInstall({ runDeviceFlow });
-      refreshAuthStatus();
-      if (result?.found) {
-        setAuthNotice({ type: 'info', message: 'GitHub App detected and linked.' });
-      } else {
-        setAuthNotice({
-          type: 'warning',
-          message: `No GitHub App install found for ${persistentAuth.oauthCache?.user?.login || 'your account'} yet. Install the App, then tap Detect install again.`
-        });
-      }
-    } catch (err) {
-      setAuthNotice({ type: 'error', message: `App detection failed: ${err.message}` });
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
-  const handleWizardOAuthDisconnect = async () => {
-    try {
-      await ghDisconnectOAuth();
-      refreshAuthStatus();
-    } catch (err) {
-      setAuthNotice({ type: 'error', message: `Failed to disconnect: ${err.message}` });
-    }
-  };
-
-  const handleWizardAppDisconnect = async () => {
-    try {
-      await ghDisconnectApp();
-      refreshAuthStatus();
-    } catch (err) {
-      setAuthNotice({ type: 'error', message: `Failed to disconnect App: ${err.message}` });
     }
   };
 
@@ -626,21 +443,6 @@ const StorageSetupModal = ({
         zIndex: 10
       }}
     />
-  );
-
-  const noticeBanner = authNotice && (
-    <div style={{
-      marginTop: '12px',
-      padding: '8px 12px',
-      borderRadius: '6px',
-      fontSize: '0.8rem',
-      fontFamily: "'EmOne', sans-serif",
-      border: `1px solid ${theme.canvas.border}`,
-      color: authNotice.type === 'error' ? statusColors.error : theme.canvas.textPrimary,
-      backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA'
-    }}>
-      {authNotice.message}
-    </div>
   );
 
   const cardBadge = (label, tone) => (
@@ -978,62 +780,26 @@ const StorageSetupModal = ({
   const renderGitConnectStep = () => (
     <>
       {backButton(leaveGitFlow)}
-      <div style={{ textAlign: 'center', marginBottom: (usesDeviceFlowAuth() && deviceFlowState) ? '10px' : '16px', flexShrink: 0 }}>
+      <div style={{ textAlign: 'center', marginBottom: deviceFlowShowing ? '10px' : '16px', flexShrink: 0 }}>
         <h2 style={{
-          margin: (usesDeviceFlowAuth() && deviceFlowState) ? 0 : '0 0 8px 0',
+          margin: deviceFlowShowing ? 0 : '0 0 8px 0',
           color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '1.2rem' : '1.5rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
-          {(usesDeviceFlowAuth() && deviceFlowState) ? (deviceFlowState.title || 'Connect GitHub') : 'Connect GitHub'}
+          {deviceFlowShowing ? (github.deviceFlowState.title || 'Connect GitHub') : 'Connect GitHub'}
         </h2>
-        {!(usesDeviceFlowAuth() && deviceFlowState) && (
+        {!deviceFlowShowing && (
           <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: isCompactLayout ? '0.8rem' : '0.9rem' }}>
             Redstring uses GitHub OAuth to browse your repositories and the GitHub App to sync your universes.
           </p>
         )}
       </div>
 
-      {/* Electron device flow embeds inline here rather than as a stacked
-          modal (which would render behind this wizard's overlay). */}
-      {usesDeviceFlowAuth() && deviceFlowState ? (
-        <GitHubDeviceFlowPanel
-          compact
-          onCancel={cancelDeviceFlow}
-          title={deviceFlowState.title || 'Connect to GitHub'}
-          subtitle={deviceFlowState.subtitle}
-          userCode={deviceFlowState.userCode}
-          verificationUri={deviceFlowState.verificationUri}
-          verificationUriComplete={deviceFlowState.verificationUriComplete}
-          expiresAt={deviceFlowState.expiresAt}
-          status={deviceFlowState.status}
-          errorMessage={deviceFlowState.errorMessage}
-        />
-      ) : (
-        <AuthSection
-          statusBadge={statusBadge}
-          hasApp={hasApp}
-          hasOAuth={hasOAuth}
-          oauthAccount={oauthAccount}
-          appAccount={appAccount}
-          dataAuthMethod={hasOAuth ? 'oauth' : (hasApp ? 'github-app' : null)}
-          isConnecting={isConnecting}
-          allowOAuthBackup={allowOAuthBackup}
-          onSetAllowOAuthBackup={setAllowOAuthBackup}
-          onGitHubAuth={handleWizardGitHubAuth}
-          onGitHubDisconnect={handleWizardOAuthDisconnect}
-          onGitHubApp={handleWizardGitHubApp}
-          onGitHubAppDisconnect={handleWizardAppDisconnect}
-          onGitHubAppDetect={handleWizardAppDetect}
-          isSlim={isCompactLayout}
-          minimal
-        />
-      )}
+      <GitHubConnectPanel connection={github} compact={isCompactLayout} />
 
-      {noticeBanner}
-
-      {!(usesDeviceFlowAuth() && deviceFlowState) && (
+      {!deviceFlowShowing && (
       <div style={{ marginTop: '16px' }}>
         {primaryCta({ label: 'Continue', onClick: () => setStep('git-repo'), disabled: !(hasOAuth && hasApp) })}
         {!(hasOAuth && hasApp) && (

@@ -61,7 +61,9 @@ import {
   connectApp as ghConnectApp,
   detectAppInstall as ghDetectAppInstall,
   disconnectOAuth as ghDisconnectOAuth,
-  disconnectApp as ghDisconnectApp
+  disconnectApp as ghDisconnectApp,
+  appDetectionRequiresOAuth,
+  APP_NEEDS_OAUTH_MESSAGE
 } from './services/githubAuthFlows.js';
 import ConnectionStats from './components/universe-manager/ConnectionStats.jsx';
 import AuthSection from './components/universe-manager/AuthSection.jsx';
@@ -614,6 +616,13 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     persistentAuth.on('authExpired', listener);
     persistentAuth.on('appInstallationStored', reauthListener);
     persistentAuth.on('appInstallationCleared', listener);
+    persistentAuth.on('oauthVerification', listener);
+
+    // A stored token is not a working one. Ask GitHub when the panel opens so
+    // "Connected" means connected (verifyOAuth caches for a minute).
+    if (persistentAuth.hasValidTokens()) {
+      persistentAuth.verifyOAuth().catch(() => {});
+    }
 
     return () => {
       persistentAuth.off('tokenStored', reauthListener);
@@ -621,6 +630,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       persistentAuth.off('authExpired', listener);
       persistentAuth.off('appInstallationStored', reauthListener);
       persistentAuth.off('appInstallationCleared', listener);
+      persistentAuth.off('oauthVerification', listener);
     };
   }, [refreshAuth]);
 
@@ -3782,7 +3792,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       const result = await ghDetectAppInstall({ runDeviceFlow });
       const auth = await universeManagerService.refreshAuth();
       setServiceState((prev) => ({ ...prev, ...auth }));
-      if (result?.found) {
+      if (result?.needsOAuth) {
+        setSyncStatus({ type: 'warning', message: APP_NEEDS_OAUTH_MESSAGE });
+      } else if (result?.found) {
         setSyncStatus({
           type: 'success',
           message: `GitHub App linked (install ${result.installationId})`
@@ -3821,7 +3833,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       setIsConnecting(true);
       setOauthConnectFailure(null);
       const result = await ghConnectApp({ runDeviceFlow });
-      if (result?.connected) {
+      if (result?.needsOAuth) {
+        const auth = await universeManagerService.refreshAuth();
+        setServiceState((prev) => ({ ...prev, ...auth }));
+        setSyncStatus({ type: 'warning', message: APP_NEEDS_OAUTH_MESSAGE });
+      } else if (result?.connected) {
         const auth = await universeManagerService.refreshAuth();
         setServiceState((prev) => ({ ...prev, ...auth }));
         setSyncStatus({
@@ -4090,6 +4106,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onGitHubApp={handleGitHubApp}
         onGitHubAppDisconnect={handleGitHubAppDisconnect}
         onGitHubAppDetect={handleGitHubAppDetect}
+        oauthVerification={serviceState.authStatus?.oauthVerification || null}
+        appNeedsOAuth={appDetectionRequiresOAuth() && !hasOAuth}
         activeUniverse={activeUniverse}
         syncStatus={activeUniverse ? syncStatusFor(activeUniverse.slug) : null}
         isSlim={isSlim}

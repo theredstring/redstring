@@ -26,7 +26,13 @@ const AuthSection = ({
   requiresLogin = false,
   syncStatus,
   isSlim = false,
-  minimal = false
+  minimal = false,
+  // persistentAuth's OAuth verification state; 'verifying' shows as checking
+  // rather than as a connection nobody has confirmed.
+  oauthVerification = null,
+  // Web: the App is found through OAuth, so without it Install/Detect can't
+  // work. The card says so instead of offering a loop.
+  appNeedsOAuth = false
 }) => {
   const theme = useTheme();
 
@@ -88,7 +94,11 @@ const AuthSection = ({
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontWeight: 600 }}>GitHub OAuth</div>
-            {hasOAuth ? (
+            {hasOAuth && oauthVerification === 'verifying' ? (
+              <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> Checking
+              </span>
+            ) : hasOAuth ? (
               <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.success, fontWeight: 700 }}>Connected</span>
             ) : (
                <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.error, fontWeight: 700 }}>Not connected</span>
@@ -173,6 +183,10 @@ const AuthSection = ({
             >
               @{appLogin}
             </div>
+          ) : (!hasApp && appNeedsOAuth) ? (
+            <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
+              Connect OAuth first — Redstring finds the App through it
+            </div>
           ) : (
             <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Enables secure auto-sync with Git</div>
           )}
@@ -181,8 +195,8 @@ const AuthSection = ({
               icon={Settings}
               onClick={onGitHubApp}
               label={hasApp ? 'Manage' : 'Install App'}
-              variant={isConnecting ? 'disabled' : 'solid'}
-              disabled={isConnecting}
+              variant={(isConnecting || (!hasApp && appNeedsOAuth)) ? 'disabled' : 'solid'}
+              disabled={isConnecting || (!hasApp && appNeedsOAuth)}
             />
             {!hasApp && hasOAuth && onGitHubAppDetect && (
               <PanelIconButton

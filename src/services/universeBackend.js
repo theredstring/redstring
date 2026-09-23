@@ -3865,6 +3865,42 @@ class UniverseBackend {
   }
 
   /**
+   * Retry the active universe's load after it failed, for the reconnect modal.
+   *
+   * Unlike reloadActiveUniverse this throws, so the modal can say why it
+   * failed again rather than just that it did. It takes the same path as
+   * boot (loadUniverseData → loadUniverseFromFile), so a success clears
+   * universeLoadingError and re-arms saves exactly as a clean boot would.
+   */
+  async retryActiveUniverseLoad() {
+    const universe = this.getActiveUniverse();
+    if (!universe) throw new Error('There is no active universe to load.');
+
+    // A background read from boot may still be settling; it must not land on
+    // top of this one.
+    this.pendingBackgroundLoadId = null;
+
+    const storeState = await this.loadUniverseData(universe);
+    if (!storeState) throw new Error(`Could not load ${universe.name}.`);
+    if (!this.storeOperations?.loadUniverseFromFile) {
+      throw new Error('The app is still starting up. Try again in a moment.');
+    }
+    const errorBefore = this.storeOperations.getState?.()?.universeLoadingError || null;
+    this.storeOperations.loadUniverseFromFile(storeState);
+
+    const errorAfter = this.storeOperations.getState?.()?.universeLoadingError || null;
+    if (errorAfter) {
+      // Unchanged means the store refused the apply (it rejects a load while
+      // another is in flight) rather than failing on this data.
+      throw new Error(errorAfter === errorBefore
+        ? 'Another load was still finishing. Try again in a moment.'
+        : errorAfter);
+    }
+    this.notifyStatus('success', `Loaded ${universe.name}`);
+    return true;
+  }
+
+  /**
    * Get all universes
    */
   getAllUniverses() {

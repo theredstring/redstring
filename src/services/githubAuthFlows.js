@@ -33,6 +33,35 @@ const gaWarn = (...args) => __nativeWarn.call(console, '[GitHubAuthFlows]', ...a
 export const GITHUB_OAUTH_SCOPES = 'repo read:org';
 
 /**
+ * On web, the App install is found THROUGH the OAuth token: the oauth-server
+ * scopes the install list to the account that token belongs to, and refuses
+ * without one. So a missing or revoked OAuth token makes the App undetectable
+ * however many times it's installed. Native shells find the install with the
+ * App's own device-flow token and don't have this dependency.
+ */
+export const appDetectionRequiresOAuth = () => !usesDeviceFlowAuth();
+
+export const APP_NEEDS_OAUTH_MESSAGE =
+  'Redstring finds your GitHub App install through your OAuth sign-in, which isn’t working right now. Reconnect OAuth first — the App is picked up automatically after that.';
+
+/**
+ * Web only: make sure the OAuth token is live before App discovery leans on
+ * it. Returns true when discovery can't work and the caller should ask for
+ * OAuth instead. 'unknown' (couldn't reach GitHub) is let through so an
+ * offline check doesn't block a user whose token is fine.
+ */
+async function oauthBlocksAppDiscovery() {
+  if (!appDetectionRequiresOAuth()) return false;
+  if (!persistentAuth.oauthCache?.accessToken) return true;
+  const state = await persistentAuth.verifyOAuth?.().catch(() => 'unknown');
+  return state === 'invalid';
+}
+
+const discoveryFailedOnOAuth = () =>
+  persistentAuth.lastAppDiscoveryFailure?.reason === 'oauth_invalid'
+  || persistentAuth.lastAppDiscoveryFailure?.reason === 'oauth_missing';
+
+/**
  * Query api.github.com/user/installations with a user-to-server token and
  * pick the best matching install. Returns null if the App hasn't been
  * installed on any account this user has access to.
@@ -170,6 +199,8 @@ export async function connectOAuth({ runDeviceFlow } = {}) {
  *   { managing: true }                   — already linked; opened management page
  *   { installRedirect: true }            — sent the user to the install page
  *   { installPending: true }             — Electron: install page opened externally
+ *   { needsOAuth: true }                 — web: OAuth is missing/revoked, so an
+ *                                          install couldn't be detected anyway
  */
 export async function connectApp({ runDeviceFlow } = {}) {
   const existingInstallationId = persistentAuth.hasAppInstallation?.()
@@ -246,6 +277,13 @@ export async function connectApp({ runDeviceFlow } = {}) {
     return { managing: true };
   }
 
+  // Without working OAuth, sending the user to the install page is a loop:
+  // they install (or already have), come back, and nothing can see it.
+  if (await oauthBlocksAppDiscovery()) {
+    gaWarn('App connect blocked: OAuth is missing or revoked, so the install could not be detected');
+    return { needsOAuth: true };
+  }
+
   // Discovery FIRST: the user may already have the App installed (from
   // another device or a direct GitHub install). The oauth-server's
   // /api/github/app/installations is the standard source of truth — surface
@@ -258,6 +296,7 @@ export async function connectApp({ runDeviceFlow } = {}) {
         gaLog('Existing App install discovered — no install redirect needed', installationId);
         return { connected: true, installationId };
       }
+      if (discoveryFailedOnOAuth()) return { needsOAuth: true };
     } catch (discoveryErr) {
       gaWarn('Pre-install App discovery failed (continuing to install page):', discoveryErr?.message || discoveryErr);
     }
@@ -282,7 +321,8 @@ export async function connectApp({ runDeviceFlow } = {}) {
 
 /**
  * Explicit App-install detection (the manual "Detect install" button).
- * Returns { found, installationId? }.
+ * Returns { found, installationId?, needsOAuth? } — needsOAuth means the
+ * search couldn't run, which is different from "not installed".
  */
 export async function detectAppInstall({ runDeviceFlow } = {}) {
   gaLog('User-triggered App install detection');
@@ -331,12 +371,16 @@ export async function detectAppInstall({ runDeviceFlow } = {}) {
     return { found: false };
   }
 
+  if (await oauthBlocksAppDiscovery()) {
+    return { found: false, needsOAuth: true };
+  }
+
   const ok = await persistentAuth.forceAppDiscovery?.();
   if (ok && persistentAuth.hasAppInstallation?.()) {
     try { sessionStorage.removeItem('github_app_pending'); } catch { /* best effort */ }
     return { found: true, installationId: persistentAuth.githubAppCache?.installationId };
   }
-  return { found: false };
+  return { found: false, needsOAuth: discoveryFailedOnOAuth() };
 }
 
 export async function disconnectOAuth() {

@@ -22,6 +22,14 @@ const gcLog = (...args) => __nativeLog.call(console, '[GitHubAuthCallbacks]', ..
 const gcWarn = (...args) => __nativeWarn.call(console, '[GitHubAuthCallbacks]', ...args);
 const gcError = (...args) => __nativeError.call(console, '[GitHubAuthCallbacks]', ...args);
 
+/**
+ * Set by GitReconnectModal before a web OAuth/App redirect. On return,
+ * NodeCanvas finishes the callback itself rather than opening the Universes
+ * panel (the panel-initiated path) — the user was fixing a failed load, not
+ * managing accounts.
+ */
+export const RECONNECT_RESUME_KEY = 'redstring_reconnect_resume';
+
 const safeSessionGet = (key) => {
   try {
     return sessionStorage.getItem(key);

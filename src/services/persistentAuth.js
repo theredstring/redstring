@@ -123,6 +123,14 @@ export class PersistentAuth {
     this.authStateLoaded = false;
     this.authStateLoadingPromise = null;
     this.readyPromise = null;
+    // What GitHub last said about the stored OAuth token. hasValidTokens()
+    // only knows a token is present and not past a locally-set expiry — a
+    // revoked token passes that forever. See verifyOAuth().
+    this.oauthVerification = { state: 'unverified', checkedAt: 0 };
+    this.oauthVerifyPromise = null;
+    // Why the last web App discovery came up empty, so the UI can say
+    // "reconnect OAuth" instead of "install the App" when that's the cause.
+    this.lastAppDiscoveryFailure = null;
 
     this.readyPromise = this.ensureAuthStateLoaded().catch(error => {
       console.warn('[PersistentAuth] Initial auth state load failed:', error);
@@ -428,6 +436,12 @@ export class PersistentAuth {
       console.log('[PersistentAuth] Trying GitHub App auto-connect...');
       const appConnected = await this.attemptAppAutoConnect();
       if (appConnected) {
+        // The App working says nothing about the OAuth token. Without this,
+        // a revoked OAuth token behind a working App shows "Connected" until
+        // something else happens to trip over it.
+        if (this.oauthCache?.accessToken) {
+          this.verifyOAuth({ maxAgeMs: 0 }).catch(() => {});
+        }
         console.log('[PersistentAuth] ===== Successfully auto-connected via GitHub App =====');
         console.log('[PersistentAuth] Emitting autoConnected event...');
         this.emit('autoConnected', { method: 'github-app' });
@@ -531,11 +545,30 @@ export class PersistentAuth {
         const userOauthToken = this.oauthCache?.accessToken || null;
         if (!userOauthToken) {
           console.log('[PersistentAuth] App auto-connect skipped — no OAuth token available to scope install discovery');
+          this.lastAppDiscoveryFailure = { reason: 'oauth_missing', at: Date.now() };
           return false;
         }
+        this.lastAppDiscoveryFailure = null;
         const listResp = await oauthFetch('/api/github/app/installations', {
           headers: { 'Authorization': `token ${userOauthToken}` }
         }).catch(() => null);
+        if (!listResp) {
+          this.lastAppDiscoveryFailure = { reason: 'unreachable', at: Date.now() };
+        }
+        if (listResp && listResp.status === 401) {
+          // Discovery is scoped by the OAuth token, so a rejected token means
+          // the App can't be found no matter how many times it's installed.
+          // Confirm with GitHub; verifyOAuth clears the token if it's dead,
+          // which flips the UI to "reconnect OAuth".
+          const state = await this.verifyOAuth({ maxAgeMs: 0 }).catch(() => 'unknown');
+          this.lastAppDiscoveryFailure = {
+            reason: state === 'invalid' ? 'oauth_invalid' : 'discovery_failed',
+            status: 401,
+            at: Date.now()
+          };
+        } else if (listResp && !listResp.ok) {
+          this.lastAppDiscoveryFailure = { reason: 'discovery_failed', status: listResp.status, at: Date.now() };
+        }
         if (listResp && !listResp.ok) {
           // Surface the real GitHub error message instead of failing silently.
           // 403 here is usually one of: (a) OAuth App needs SAML SSO
@@ -558,6 +591,9 @@ export class PersistentAuth {
         }
         if (listResp && listResp.ok) {
           const installations = await listResp.json();
+          if (!Array.isArray(installations) || installations.length === 0) {
+            this.lastAppDiscoveryFailure = { reason: 'not_installed', at: Date.now() };
+          }
           if (Array.isArray(installations) && installations.length > 0) {
             // The server returns installs for this App across ALL accounts,
             // sorted by created_at DESC. Picking installations[0] blindly
@@ -740,22 +776,105 @@ export class PersistentAuth {
 
     console.log('[PersistentAuth] Validating OAuth tokens...');
 
-    try {
-      // Test token validity
-      const isValid = await this.testTokenValidity();
-      if (isValid) {
-        console.log('[PersistentAuth] OAuth tokens validated successfully');
-        return true;
-      } else {
-        throw new Error('OAuth token validation failed');
-      }
-
-    } catch (error) {
-      console.error('[PersistentAuth] OAuth auto-connect failed:', error);
-      // Clear invalid tokens
-      await this.clearTokens();
+    // Only a definite rejection clears the token. This used to clear on any
+    // failed check, so a network blip at boot signed the user out.
+    const state = await this.verifyOAuth({ maxAgeMs: 0 });
+    if (state === 'valid') {
+      console.log('[PersistentAuth] OAuth tokens validated successfully');
+      return true;
+    }
+    if (state === 'invalid') {
+      console.warn('[PersistentAuth] OAuth auto-connect: token rejected by GitHub');
       return false;
     }
+    console.warn('[PersistentAuth] OAuth auto-connect: could not reach GitHub to validate; keeping token');
+    return false;
+  }
+
+  /**
+   * Ask GitHub whether the stored OAuth token still works.
+   * Returns 'valid' | 'invalid' | 'unknown' — 'unknown' means we couldn't
+   * find out (offline, server down, rate limited), which is NOT a reason to
+   * throw the token away.
+   */
+  async checkOAuthToken() {
+    const accessToken = this.oauthCache?.accessToken || null;
+    if (!accessToken) return 'invalid';
+
+    // Web: the oauth-server can introspect against the OAuth App. Its answer
+    // is only trusted when positive — a negative can mean the token belongs
+    // to the other (dev/prod) client ID, so /user decides that case.
+    if (!usesDeviceFlowAuth()) {
+      try {
+        const validateResp = await oauthFetch('/api/github/oauth/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ access_token: accessToken })
+        });
+        if (validateResp.ok) {
+          const data = await validateResp.json().catch(() => null);
+          if (data?.valid) return 'valid';
+        }
+      } catch {
+        // Fall through to GitHub directly.
+      }
+    }
+
+    try {
+      const response = await fetch('https://api.github.com/user', {
+        headers: {
+          'Authorization': `token ${accessToken}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      });
+      if (response.ok) return 'valid';
+      if (response.status === 401) return 'invalid';
+      return 'unknown';
+    } catch (err) {
+      console.warn('[PersistentAuth] OAuth token check could not reach GitHub:', err?.message || err);
+      return 'unknown';
+    }
+  }
+
+  /**
+   * Verify the OAuth token against GitHub and act on the answer. An 'invalid'
+   * answer clears the token, so every "Connected" badge stops claiming a
+   * connection that doesn't exist. Results are reused for `maxAgeMs`, and
+   * concurrent callers share one request.
+   */
+  async verifyOAuth({ maxAgeMs = 60 * 1000 } = {}) {
+    await this.ensureAuthStateLoaded().catch(() => {});
+    if (!this.oauthCache?.accessToken) return 'invalid';
+
+    const { state, checkedAt } = this.oauthVerification;
+    if (maxAgeMs > 0 && state !== 'unverified' && Date.now() - checkedAt < maxAgeMs) {
+      return state;
+    }
+    if (this.oauthVerifyPromise) return this.oauthVerifyPromise;
+
+    const token = this.oauthCache.accessToken;
+    this.oauthVerification = { ...this.oauthVerification, state: 'verifying' };
+    this.emit('oauthVerification', { state: 'verifying' });
+
+    this.oauthVerifyPromise = (async () => {
+      const result = await this.checkOAuthToken();
+      // A reconnect may have stored a different token while we were checking.
+      if (this.oauthCache?.accessToken !== token) {
+        return this.oauthVerification.state;
+      }
+      this.oauthVerification = { state: result, checkedAt: Date.now() };
+      if (result === 'invalid') {
+        console.warn('[PersistentAuth] Stored OAuth token was rejected by GitHub — clearing it');
+        await this.clearTokens();
+        this.emit('authExpired', new Error('GitHub OAuth token is invalid or revoked'));
+      }
+      this.emit('oauthVerification', { state: result });
+      return result;
+    })().finally(() => {
+      this.oauthVerifyPromise = null;
+    });
+
+    return this.oauthVerifyPromise;
   }
 
   /**
@@ -931,6 +1050,10 @@ export class PersistentAuth {
       // User tracking is optional, don't fail if it's not available
       console.debug('[PersistentAuth] User tracking update skipped:', error.message);
     }
+
+    // Every storeTokens caller has just used this token against /user.
+    this.oauthVerification = { state: 'valid', checkedAt: Date.now() };
+    this.lastAppDiscoveryFailure = null;
 
     this.emit('tokenStored', { tokenData, userData });
     this.dispatchAuthEvent('oauth', { user: userData?.login || null });
@@ -1175,14 +1298,17 @@ export class PersistentAuth {
     
     this.healthCheckInterval = setInterval(async () => {
       try {
-        const isValid = await this.testTokenValidity();
-        
+        // verifyOAuth clears a rejected token, so the UI stops showing
+        // "Connected" instead of this check failing silently every 5 minutes.
+        const state = await this.verifyOAuth({ maxAgeMs: 0 });
+        const isValid = state !== 'invalid';
+
         this.emit('healthCheck', {
           isValid,
           timestamp: new Date().toISOString(),
           hasTokens: this.hasValidTokens()
         });
-        
+
         if (!isValid) {
           console.warn('[PersistentAuth] Health check failed - tokens invalid');
           this.emit('authDegraded', { reason: 'Token validation failed' });
@@ -1267,7 +1393,10 @@ export class PersistentAuth {
       timeToExpiry: expiryTime ? Math.max(0, expiryTime - Date.now()) : 0,
       authMethod: hasTokens ? 'oauth' : (hasApp ? 'github-app' : null),
       userData: this.getUserData(),
-      isRefreshing: this.isRefreshing
+      isRefreshing: this.isRefreshing,
+      // 'unverified' | 'verifying' | 'valid' | 'invalid' | 'unknown'
+      oauthVerification: hasTokens ? this.oauthVerification.state : null,
+      appDiscoveryFailure: this.lastAppDiscoveryFailure
     };
   }
 

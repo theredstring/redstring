@@ -297,13 +297,13 @@ export const DEFAULT_CONNECTION_LABEL_SPRITES = true;
  * - 'large': fade only once there are enough labels on screen for it to be
  *   worth anything — see CONNECTION_LABEL_MOVE_FADE_MIN_COUNT.
  *
- * 'large' is the default because on a small web the saving is not measurable
- * and the labels leaving is, so the trade only starts paying at scale. Animated
+ * 'off' is the default: labels leaving mid-gesture is a visible cost every
+ * user pays, so the fade is opt-in for those whose webs need it. Animated
  * camera moves are exempt in every mode; see LABEL SUPPRESSION in
  * useCanvasTransform.
  */
 export const CONNECTION_LABEL_MOVE_FADE_MODES = ['off', 'large', 'always'];
-export const DEFAULT_CONNECTION_LABEL_MOVE_FADE = 'large';
+export const DEFAULT_CONNECTION_LABEL_MOVE_FADE = 'off';
 
 /**
  * How many connection labels must be on screen before 'large' fades them.

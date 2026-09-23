@@ -178,6 +178,8 @@ import { candidateToConcept, conceptToPrototypeFields, backfillConceptLinks } fr
 import { enrichPrototypeFromLinks } from './services/conceptEnrichment.js';
 import { formatPredicate } from './utils/predicateFormatter.js';
 import StorageSetupModal from './components/StorageSetupModal.jsx';
+import GitReconnectModal from './components/modals/GitReconnectModal.jsx';
+import { runPendingCallbacks, RECONNECT_RESUME_KEY } from './services/githubAuthCallbacks.js';
 import HelpModal from './components/HelpModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import MergeThingsModal from './components/merge/MergeThingsModal.jsx';
@@ -2254,6 +2256,51 @@ function NodeCanvas() {
   // Onboarding / Storage Setup state
   const [showStorageSetupModal, setShowStorageSetupModal] = useState(false);
 
+  // GitHub reconnect: when the active universe is Git-backed and its load
+  // failed, this names it (and its repo) for GitReconnectModal. Null for any
+  // other failure, which keeps the plain error card.
+  const [reconnectTarget, setReconnectTarget] = useState(null);
+  const [reconnectDismissed, setReconnectDismissed] = useState(false);
+  useEffect(() => {
+    if (!universeLoadingError || isUniverseLoading) {
+      setReconnectTarget(null);
+      // A later failure is a new problem and gets the modal again.
+      if (!universeLoadingError) setReconnectDismissed(false);
+      return undefined;
+    }
+    let cancelled = false;
+    import('./services/universeBackend.js').then(({ default: universeBackend }) => {
+      if (cancelled) return;
+      const universe = universeBackend.getActiveUniverse?.();
+      const linked = universe?.gitRepo?.enabled ? universe.gitRepo.linkedRepo : null;
+      if (!linked) {
+        setReconnectTarget(null);
+        return;
+      }
+      const owner = linked.user || linked.owner || null;
+      const repo = linked.repo || linked.name || null;
+      setReconnectTarget({
+        name: universe.name || 'this universe',
+        repoLabel: owner && repo ? `${owner}/${repo}` : null
+      });
+    }).catch(() => { /* keep the plain error card */ });
+    return () => { cancelled = true; };
+  }, [universeLoadingError, isUniverseLoading]);
+
+  const retryUniverseLoad = useCallback(async () => {
+    const { default: universeBackend } = await import('./services/universeBackend.js');
+    await universeBackend.retryActiveUniverseLoad();
+  }, []);
+
+  const openUniversesPanel = useCallback(() => {
+    storeActions.setLeftPanelExpanded(true);
+    setTimeout(() => {
+      if (leftPanelRef.current) {
+        leftPanelRef.current.setActiveView('federation');
+      }
+    }, 100);
+  }, [storeActions]);
+
   // Help modal state
   const [showHelpModal, setShowHelpModal] = useState(false);
 
@@ -2602,6 +2649,10 @@ function NodeCanvas() {
   // Resume Git flow after OAuth/App redirects.
   // - Onboarding wizard resume: re-open StorageSetupModal (it reads the
   //   resume flags and lands on its git-connect step). Do NOT open the panel.
+  // - Reconnect resume (GitReconnectModal sent the user to GitHub): finish
+  //   the callback here and stay on the canvas. Storing the token fires the
+  //   auth event that reloads the universe from Git; if it still fails, the
+  //   load error brings the reconnect modal back on its own.
   // - Panel-initiated connect (pending flags without the onboarding resume):
   //   open the Federation panel so its callback handler runs, as before.
   useEffect(() => {
@@ -2610,9 +2661,16 @@ function NodeCanvas() {
       const pendingOAuth = sessionStorage.getItem('github_oauth_pending') === 'true';
       const pendingApp = sessionStorage.getItem('github_app_pending') === 'true';
       const resumeOnboarding = sessionStorage.getItem('redstring_onboarding_resume') === 'true';
+      const resumeReconnect = sessionStorage.getItem(RECONNECT_RESUME_KEY) === 'true';
       if (resumeOnboarding) {
         setShowOnboardingModal(false);
         setShowStorageSetupModal(true);
+      } else if (resumeReconnect) {
+        sessionStorage.removeItem(RECONNECT_RESUME_KEY);
+        setShowOnboardingModal(false);
+        runPendingCallbacks().catch((err) => {
+          console.warn('[NodeCanvas] Reconnect callback processing failed:', err?.message || err);
+        });
       } else if (pendingOAuth || pendingApp) {
         storeActions.setLeftPanelExpanded(true);
         setLeftPanelInitialView('federation');
@@ -15918,17 +15976,35 @@ function NodeCanvas() {
                   // toggle button (HEADER_HEIGHT + its 10px margin) when it isn't.
                   marginBottom: `${(typeListVisible ? HEADER_HEIGHT : 0) + HEADER_HEIGHT + 20}px`,
                   textAlign: 'center',
-                  color: '#d32f2f',
+                  // Neutral, not alarm-red: nothing has been lost (saves are
+                  // blocked while a load has failed), and red on a screen with
+                  // no next step only made that harder to believe.
+                  color: theme.canvas.textPrimary,
                   fontSize: '14px',
                   fontFamily: "'EmOne', sans-serif",
                   // Load failures name file paths and URLs, which carry no break
                   // opportunities of their own and otherwise run past the card.
                   overflowWrap: 'anywhere',
-                  backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                  border: '1px solid rgba(211, 47, 47, 0.3)',
+                  backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
+                  border: `1px solid ${theme.canvas.border}`,
                   borderRadius: '8px'
                 }}>
-                  {universeLoadingError}
+                  {reconnectTarget ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                      <div>
+                        {reconnectTarget.name} couldn&rsquo;t load from GitHub. Nothing has been changed.
+                      </div>
+                      <PanelIconButton
+                        icon={RefreshCw}
+                        size={14}
+                        label="Reconnect"
+                        labelFontSize={13}
+                        variant="solid"
+                        onClick={() => setReconnectDismissed(false)}
+                        style={{ pointerEvents: 'auto' }}
+                      />
+                    </div>
+                  ) : universeLoadingError}
                 </div>
               )}
             </div>
@@ -18571,6 +18647,21 @@ function NodeCanvas() {
 
 
 
+
+      {/* GitHub reconnect — a Git-backed universe failed to load. Yields to
+          onboarding, which owns the screen when it's up. */}
+      <GitReconnectModal
+        isVisible={!!reconnectTarget && !!universeLoadingError && !reconnectDismissed && !showStorageSetupModal}
+        onClose={() => setReconnectDismissed(true)}
+        universeName={reconnectTarget?.name}
+        repoLabel={reconnectTarget?.repoLabel}
+        errorMessage={universeLoadingError}
+        onRetry={retryUniverseLoad}
+        onOpenUniverses={() => {
+          setReconnectDismissed(true);
+          openUniversesPanel();
+        }}
+      />
 
       {/* Storage Setup Modal */}
       <StorageSetupModal
