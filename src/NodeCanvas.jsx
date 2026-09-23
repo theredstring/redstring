@@ -804,6 +804,22 @@ const decodeThumbnail = (src, timeoutMs = 600) => {
   return Promise.race([decoded, new Promise(resolve => setTimeout(() => resolve(false), timeoutMs))]);
 };
 
+// Resolves with a prototype's imageCache entry once its fetch lands, or null if the
+// fetch fails or `timeoutMs` passes first.
+const waitForCachedImage = (protoId, timeoutMs) => new Promise((resolve) => {
+  const existing = useImageCache.getState().images[protoId];
+  if (existing) { resolve(existing); return; }
+  let timer = null;
+  const unsubscribe = useImageCache.subscribe((state) => {
+    const entry = state.images[protoId];
+    if (!entry && !state.failed[protoId]) return;
+    clearTimeout(timer);
+    unsubscribe();
+    resolve(entry || null);
+  });
+  timer = setTimeout(() => { unsubscribe(); resolve(null); }, timeoutMs);
+});
+
 function NodeCanvas() {
   // ORBIT DIM — the scrim behind the orbit overlay. Set false to drop it
   // entirely (the rect stays, transparent and static at full canvas size, so
@@ -12679,7 +12695,15 @@ function NodeCanvas() {
   const handleNodeSelection = (nodePrototype) => {
     if (!plusSign || !activeGraphId) return;
 
+    const proto = nodePrototypesMap.get(nodePrototype.id) || nodePrototype;
     const { thumbnailSrc } = getPlusSignMorphNode({ selectedPrototype: nodePrototype });
+    // A Wikipedia image lives in imageCache, which is only filled for prototypes
+    // already placed in the active web. Picked from anywhere else, the cache is
+    // empty here — so the morph sized itself as a text node and the image arrived
+    // as a second stage after the add. Start that fetch now instead.
+    const wikiThumb = !thumbnailSrc && !proto.thumbnailSrc
+      ? proto.semanticMetadata?.wikipediaThumbnail
+      : null;
     // Only 'appear' / 'preparing' may morph — a plus sign dismissed while its image
     // decoded must stay dismissed.
     const startMorph = (imageReady) => setPlusSign(ps => (ps && (ps.mode === 'appear' || ps.mode === 'preparing')) ? {
@@ -12691,13 +12715,25 @@ function NodeCanvas() {
       imageReady,
     } : ps);
 
-    if (thumbnailSrc) {
-      // Decode the image BEFORE the morph starts. Mounting an undecoded <image>
-      // mid-animation stalls the frames it decodes on, so the growth stutters
-      // exactly where the image enters. The bounds don't need the load — they come
-      // from the stored aspect ratio, the same one the real node will size itself by.
+    if (thumbnailSrc || wikiThumb) {
+      // Fetch (if needed) and decode the image BEFORE the morph starts, so the
+      // morph targets the node's real image size and carries the image from its
+      // first frame. Mounting an undecoded <image> mid-animation stalls the frames
+      // it decodes on. One budget covers both steps; past it the morph goes ahead
+      // and targets whatever the real node will render at that moment.
       setPlusSign(ps => ps && { ...ps, mode: 'preparing' });
-      decodeThumbnail(thumbnailSrc).then(startMorph);
+      const PREPARE_BUDGET_MS = 1200;
+      const deadline = performance.now() + PREPARE_BUDGET_MS;
+      (async () => {
+        let src = thumbnailSrc;
+        if (!src) {
+          queueThumbnailFetch(proto.id, wikiThumb, proto.semanticMetadata?.imageAspectRatio || 1, proto.name || '');
+          src = (await waitForCachedImage(proto.id, PREPARE_BUDGET_MS))?.thumbnailSrc ?? null;
+        }
+        const remaining = deadline - performance.now();
+        const ok = src && remaining > 0 ? await decodeThumbnail(src, remaining) : false;
+        startMorph(ok);
+      })();
     } else {
       startMorph(false);
     }
@@ -12722,8 +12758,10 @@ function NodeCanvas() {
       ? (nodePrototypesMap.get(ps.selectedPrototype.id) || ps.selectedPrototype)
       : null;
     if (!proto) return { name: ps.tempName };
-    // Mirrors the image resolution in the `nodes` memo.
-    const cached = imageCacheMap[proto.id];
+    // Mirrors the image resolution in the `nodes` memo. Read live, not from the
+    // render-time imageCacheMap: the fetch in handleNodeSelection can land after
+    // the render whose closures the morph callbacks captured.
+    const cached = useImageCache.getState().images[proto.id];
     const thumbnailSrc = (cached && !proto.thumbnailSrc) ? cached.thumbnailSrc : (proto.thumbnailSrc || null);
     const imageAspectRatio = (cached && !proto.thumbnailSrc)
       ? cached.imageAspectRatio
