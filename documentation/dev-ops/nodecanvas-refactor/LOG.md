@@ -13,6 +13,31 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-23: Answers recorded; wave 1 started (Claude, orchestrator)
+
+**Warning about commit 34649b4.** Its message, "Refactor NodeCanvas into a modular architecture", lists Phases 2–5 as done. **They are not done.** That commit contains only these plan docs. Trust the phase board and the cards, not that message.
+
+**Decisions recorded:**
+- Q1 → D-13: nobody hand-edits `NodeCanvas.jsx` while agents work on it.
+- Q2 → D-15: Claude's Chambers becomes the local-only representative fixture.
+- Q3 → D-12: Playwright approved.
+- Q4 → D-14: parallel worktrees with an orchestrator.
+
+**New finding F-66.** The real universe has 197 graphs and 1,913 prototypes, but its largest graph has only 54 nodes. The slowness comes from breadth, not from graph size.
+
+**Fixture.** Copied the snapshot to `test/fixtures/canvas/local/claudes-chambers.redstring`. The copy is byte-identical and the original is untouched. Added that folder to `.gitignore`.
+
+**Wave 1 launched in worktrees.** Each agent writes its report to `reports/<TASK>.md` on its own branch.
+- **Lane A** (the only `NodeCanvas.jsx` editor): P1.01 → P1.07 → P1.02 → P1.13
+- **Lane B:** P0.01 (render probe and profile build)
+- **Lane B:** P0.02 + P0.03 (fixtures, loader, Playwright flows)
+- **Lane B:** P0.05 + P0.07 (render-contract test, size ratchet)
+- **Lane C:** P1.09 + P1.11 (no-op store guards, stable keyboard listener)
+
+**Next:** review and merge each branch into `main` once Grant OKs committing to `main`. Then run wave 2: P0.04 baseline, P0.06 CI, P1.03–P1.06, P1.08, P1.10, P1.12.
+
+---
+
 ## 2026-09-23: Audit and plan (Claude, initial session)
 
 - **Audit.** Read-only audit of `NodeCanvas.jsx` @1e6ab02 (19,255 lines). Five analyses ran in parallel:

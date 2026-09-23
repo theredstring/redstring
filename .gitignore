@@ -69,3 +69,6 @@ CHANGELOG.md
 
 # Cloudflare Pages local dev secrets
 .dev.vars
+
+# Local-only canvas perf fixtures (real universes, never committed; see documentation/dev-ops/nodecanvas-refactor/)
+test/fixtures/canvas/local/

@@ -312,6 +312,22 @@ This state is used across clusters and must move to a store before the clusters 
 - The smoke test shows how to keep `WorkspaceService.initialize` inert.
 - `window.__diag` already exists for DOM and frame audits.
 
+**F-66. What a real universe looks like.** VERIFIED on 2026-09-23 against "Claude's Chambers", Grant's largest universe.
+- Size: 7.2 MB, 197 graphs, 1,913 prototypes, 1,266 instances in total.
+- **The largest graph has only 54 instances.** The top graphs, as instances / edges / groups:
+  - 54 / 6 / 13
+  - 54 / 40 / 13
+  - 37 / 49 / 0
+  - 36 / 51 / 6
+- No graph has 100 or more instances.
+- Implication: in real use the slowness isn't caused by huge graphs. It comes from **breadth**:
+  - whole-universe subscriptions: F-07 across 197 graphs and 1,913 prototypes
+  - the shell re-rendering (F-13)
+  - labels and groups being recomputed (F-21, F-22)
+- Consequences for measurement:
+  - Weight S10b, S11, S6 and S7 heavily.
+  - Use the synthetic stress fixture only to find scaling cliffs, not to represent real use.
+
 ---
 
 ## Bugs found along the way (B-)

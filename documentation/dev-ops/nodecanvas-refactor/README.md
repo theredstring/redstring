@@ -108,8 +108,37 @@ Name NodeCanvas changes honestly in the message. Past messages such as "MaroonSl
 
 This keeps Lane A turns short, so the single-file bottleneck doesn't serialise everything.
 
+### Parallel mode (D-14)
+One **orchestrating session** starts agents in git worktrees, reviews what they produce, merges it, and is the only writer of the shared plan docs.
+
+**Worktree agents:**
+- Edit only inside their own worktree. The main checkout is read-only to them.
+- Commit each task separately on their own branch.
+- Never merge, push, rebase `main`, or run `git stash`.
+- Do **not** edit the shared docs: this README, LOG, METRICS, MAP, FINDINGS, DECISIONS, and the phase files.
+- Instead, write one report per task to `reports/<TASK-ID>.md` and commit it on their branch. A report contains:
+  - status and commits
+  - what changed
+  - verification evidence
+  - measurements
+  - new findings, labelled `NEW-n`
+  - any deviations from the card
+  - a handoff note
+- **node_modules:** a new worktree has none. Symlink it from the main checkout (`ln -s /Users/granteubanks/Code/redstringuireact/node_modules node_modules`). If your task adds a dependency, delete the symlink and run a real `npm install` in the worktree instead.
+- **Dev servers:** use a non-default port (e.g. `--port 48xx`). Grant's dev server may be on 4001.
+
+**The orchestrator, after each agent finishes:**
+1. Reviews the branch and runs its verification.
+2. Merges it into `main`.
+3. Folds the report into the card, LOG, METRICS, FINDINGS and MAP.
+4. Updates **In flight**.
+
 **In flight** (edit this when you claim or finish a task):
-- *(none)*
+- **Lane A:** P1.01 → P1.07 → P1.02 → P1.13, worktree agent, started 2026-09-23
+- **Lane B:** P0.01, worktree agent, started 2026-09-23
+- **Lane B:** P0.02 + P0.03, worktree agent, started 2026-09-23
+- **Lane B:** P0.05 + P0.07, worktree agent, started 2026-09-23
+- **Lane C:** P1.09 + P1.11, worktree agent, started 2026-09-23
 
 ## Rules carried over from project memory
 
@@ -150,15 +179,15 @@ Worktree agents may not see Grant's memory, so these are repeated here.
 - MAP is updated.
 - A LOG entry summarises the phase.
 
-## Open questions for Grant
+## Questions for Grant
 
 Answer them here; the answer becomes a DECISION.
 
-- **Q1: Feature freeze.** While the refactor runs, are new canvas features paused, or do they continue in new modules only?
-- **Q2: Fixture universe.** Can one of your real universes (with names scrubbed if needed) serve as the medium and large perf fixtures? Which one is representative?
-- **Q3: Playwright.** Is it OK to add `@playwright/test` as a devDependency for the interaction and perf harness?
-- **Q4: Concurrency.** One agent at a time, or several in parallel worktrees? This decides how much Lane B pre-staging is worth.
-- **Q5 (needed by P4.01): touch constants.** `useCanvasTouch` uses different zoom limits and movement thresholds from NodeCanvas (F-44). Which values are intended?
+- ~~Q1: Feature freeze.~~ Explained to Grant 2026-09-23. Working rule D-13: Grant doesn't edit `NodeCanvas.jsx` while agents are working on it; canvas feature ideas get queued or built in the new structure.
+- ~~Q2: Fixture universe.~~ Answered: use Claude's Chambers. See D-15 and F-66.
+- ~~Q3: Playwright.~~ Answered: yes. See D-12.
+- ~~Q4: Concurrency.~~ Answered: parallel worktrees, Claude's call. See D-14.
+- **Q5 (needed by P4.01): touch constants.** `useCanvasTouch` uses different zoom limits and movement thresholds from NodeCanvas (F-44). Which values are intended? Ask when P4 starts.
 
 ## Files in this folder
 

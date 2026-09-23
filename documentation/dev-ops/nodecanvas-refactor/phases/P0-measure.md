@@ -57,21 +57,23 @@ Right now neither can be answered (F-60 to F-63).
 
 ### P0.02: Fixture universes and a dev-only fixture loader
 - **Status:** todo
-- **Lane:** B · **Size:** M · **Depends:** Q2 (whether a real universe can be used)
-- **Findings:** F-65
+- **Lane:** B · **Size:** M · **Depends:** none (Q2 answered, D-15)
+- **Findings:** F-65, F-66
 - **Change:**
-  - Add three fixtures under `test/fixtures/canvas/`:
-    - **small:** about the smoke-test size
-    - **medium:** about 150 nodes and 250 edges, with nested groups, node-groups, self-loops, parallel edges and connection labels on
-    - **large:** about 600 nodes and 1,000 edges
-  - Prefer deriving medium and large from one of Grant's real universes, with names scrubbed.
+  - Fixtures, per D-15:
+    - **small**, committed: about the smoke-test size.
+    - **stress**, committed: produced by a deterministic generator script (e.g. `scripts/gen-stress-fixture.mjs`). About 600 nodes and 1,000 edges, with nested groups, node-groups, self-loops, parallel edges and connection labels on.
+    - **chambers**, local only: `test/fixtures/canvas/local/claudes-chambers.redstring`. It's gitignored, so from a worktree use the absolute path or `REDSTRING_LOCAL_FIXTURE`. Skip when absent. **Never commit it and never quote its content.**
+  - Chambers is a real `.redstring` file (JSON-LD, 7.2 MB). The loader has to go through the same import path as opening a real file. Find it; don't hand-convert.
   - Add a dev/test-only loader: `?fixture=<name>` skips onboarding and calls `useGraphStore.getState().loadUniverseFromFile(data)`.
     - It must be compiled out of production builds (guard with `import.meta.env.DEV` or a dedicated mode).
     - Leads: `window.useGraphStore` (App.jsx:17); `?test=true` storage isolation (TESTING_ONBOARDING.md); how the smoke test stubs `WorkspaceService`.
 - **Don't:**
   - Touch real universe storage.
   - Ship the loader.
-- **Accept:** `npm run dev` with `?fixture=medium` opens straight into an interactive canvas on the fixture's graph.
+- **Accept:**
+  - `npm run dev` with `?fixture=stress` (or `small`) opens straight into an interactive canvas on the fixture's graph.
+  - A test-only hook, e.g. `window.__loadFixture(json)`, loads the chambers file when the test injects it.
 - **Verify:** Load all three fixtures. Pan, zoom and select work in each.
 - **Handoff:**
 

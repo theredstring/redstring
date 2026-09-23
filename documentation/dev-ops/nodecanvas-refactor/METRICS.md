@@ -6,6 +6,10 @@
 - max commit ms
 - once layers exist, commits per layer
 
+**Fixtures (D-15).**
+- **"medium" means `chambers`:** the local snapshot of Claude's Chambers. Run on its graph with 54 instances, 40 edges and 13 groups. Where a scenario needs a different graph (e.g. S11), it names one. When the local file is absent, fall back to `stress` and note the fallback.
+- **"large" means `stress`:** the synthetic ~600-node graph, used to find scaling cliffs.
+
 **How to measure.** Use a **profiling production build** with the medium fixture, unless the scenario says otherwise. Take the median of 5 runs. Until P0.04 lands, do it manually:
 1. Open React DevTools Profiler.
 2. Record the scenario.

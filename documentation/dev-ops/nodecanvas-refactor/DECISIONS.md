@@ -75,10 +75,30 @@ This file records calls that nobody should re-argue mid-task.
 - Pure logic → `src/utils/canvas/` (`input/` for the camera and gesture code)
 - `src/NodeCanvas.jsx` stays where it is until P6. See MAP.md for the target tree.
 
-**D-12. Testing stack.** *Proposed, 2026-09-23; waiting on Grant for Q3.*
+**D-12. Testing stack.** *Decided (Grant approved Playwright), 2026-09-23.*
 - **Playwright:** browser interaction flows and perf scenarios.
 - **vitest + jsdom:** unit tests and the render-contract smoke test.
 - Mac trackpad, iOS/Android hardware and gamepad are covered by a manual device checklist, because they can't be automated faithfully.
 
-**D-13. New canvas features go in new modules during the refactor.** *Proposed, 2026-09-23; waiting on Grant for Q1.*
-- If a change *must* touch `NodeCanvas.jsx`, log it in LOG.md so the task in flight can account for it.
+**D-13. Nobody else edits `NodeCanvas.jsx` while agents are working on it.** *Proposed, 2026-09-23. Explained to Grant; stands unless he objects.*
+- Grant doesn't hand-edit `NodeCanvas.jsx` during the refactor. Canvas feature ideas are either queued or built in the new structure.
+- Why: the worry is merge conflicts, and edits to the file being taken apart are what cause them.
+- If a change *must* touch `NodeCanvas.jsx`, log it in LOG.md so the Lane A task in flight can account for it.
+
+**D-14. Parallel worktrees with an orchestrating session.** *Decided (Grant left it to Claude), 2026-09-23.*
+- The orchestrating session starts agents in git worktrees:
+  - at most one Lane A agent, which edits `NodeCanvas.jsx`, at a time
+  - Lane B and Lane C agents in parallel when their files don't overlap
+- The orchestrator is the only writer of the shared plan docs. Agents write `reports/<TASK-ID>.md` instead (see README → Parallel mode).
+- Why: this is faster, and conflicts can only happen in small shared files (`package.json`, `App.jsx`), which the orchestrator resolves at merge time.
+- Merging into `main`: the orchestrator does it only after verification, with Grant's permission to commit to `main`. It never force-pushes, and never merges while Grant has uncommitted changes to the same files.
+
+**D-15. Fixtures: a real universe stays local; synthetic stress data is committed.** *Decided (Grant: "use Claude's Chambers"), 2026-09-23.*
+- **Representative fixture ("chambers"):** a snapshot copy of `~/Documents/Redstring/Claude's Chambers.redstring`, stored at `test/fixtures/canvas/local/claudes-chambers.redstring`.
+  - That folder is gitignored and **must never be committed**, because the repo is open source and this is personal content. Never quote its contents in docs, logs or artifacts.
+  - Worktrees don't contain gitignored files. Reach it by the absolute path `/Users/granteubanks/Code/redstringuireact/test/fixtures/canvas/local/claudes-chambers.redstring`, or through `REDSTRING_LOCAL_FIXTURE`. Tests that need it **skip when it's absent** (CI won't have it).
+  - Refresh the snapshot by copying the original again. Never modify the original.
+- **Committed fixtures:**
+  - **small:** smoke-test sized
+  - **stress:** a synthetic ~600-node / ~1,000-edge graph with groups, produced by a deterministic generator script
+- Why: the real universe is representative (F-66), but it's personal, 7.2 MB, and has no single large graph.
