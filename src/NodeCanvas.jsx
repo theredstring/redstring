@@ -2945,7 +2945,6 @@ function NodeCanvas() {
   }, []);
   // setPanOffset alias is defined after useCanvasTransform initialization (see below canvasSize)
 
-  const [recentlyPanned, setRecentlyPanned] = useState(false);
   const orbitClickDownPos = useRef(null); // Track mousedown position for orbit overlay pan detection
 
   const [selectionRect, setSelectionRect] = useState(null);
@@ -5996,8 +5995,6 @@ function NodeCanvas() {
     return () => clearInterval(id);
   }, [debugMode, refreshSyncDebug]);
 
-  const [isPaused, setIsPaused] = useState(false);
-  const [lastInteractionType, setLastInteractionType] = useState(null);
   const [isViewReady, setIsViewReady] = useState(false);
 
   const [plusSign, setPlusSign] = useState(null);
@@ -6453,7 +6450,6 @@ function NodeCanvas() {
   const [edgeColorPickerVisible, setEdgeColorPickerVisible] = useState(false);
   const [edgeColorPickerPosition, setEdgeColorPickerPosition] = useState({ x: 0, y: 0 });
   const [activeEdgeColorPrototypeId, setActiveEdgeColorPrototypeId] = useState(null);
-  const [nodeSelectionGrid, setNodeSelectionGrid] = useState({ visible: false, position: { x: 0, y: 0 } });
   // Pie-menu "Swap": UnifiedSelector prompt to re-point this instance at an existing
   // prototype or a brand-new Thing.
   const [swapPrompt, setSwapPrompt] = useState({ visible: false, instanceId: null, name: '', color: null });
@@ -6498,7 +6494,6 @@ function NodeCanvas() {
     document.addEventListener('touchstart', dismissOnOutsideTouch, true);
     return () => document.removeEventListener('touchstart', dismissOnOutsideTouch, true);
   }, [editingGroupId]);
-  const [hasMouseMovedSinceDown, setHasMouseMovedSinceDown] = useState(false);
   const [hoveredEdgeInfo, setHoveredEdgeInfo] = useState(null); // Track hovered edge and which end
   // Mirror the nearest-hovered edge into a ref so click selection can pick the
   // nearest of several overlapping connections (matching the hover highlight)
@@ -7144,7 +7139,6 @@ function NodeCanvas() {
   const [headerAllThingsSearchVisible, setHeaderAllThingsSearchVisible] = useState(false);
   const [autoGraphModalVisible, setAutoGraphModalVisible] = useState(false);
   const [forceSimModalVisible, setForceSimModalVisible] = useState(false);
-  const [autoLayoutRunning, setAutoLayoutRunning] = useState(false);
 
   // Opened from the Debug settings page, which has no way to reach this state.
   useEffect(() => {
@@ -7744,7 +7738,6 @@ function NodeCanvas() {
     setTempGroupName('');
     setPlusSign(null);
     setNodeNamePrompt({ visible: false, name: '' });
-    setNodeSelectionGrid({ visible: false, position: { x: 0, y: 0 } });
     setSelectionRect(null);
     setSelectionStart(null);
     setDrawingConnectionFrom(null);
@@ -8508,7 +8501,6 @@ function NodeCanvas() {
   // Middle-click on a node (no drag) opens its right-panel tab.
   // Uses Pointer Lock so the cursor stays pinned at the click point instead of drifting off-canvas.
   const middleMouseZoomRef = useRef(null);
-  const [middleZoomAnchor, setMiddleZoomAnchor] = useState(null);
 
   // If pointer lock exits unexpectedly (e.g. Escape, focus loss), abort the gesture cleanly.
   useEffect(() => {
@@ -8516,7 +8508,6 @@ function NodeCanvas() {
       if (!document.pointerLockElement && middleMouseZoomRef.current) {
         middleMouseZoomRef.current = null;
         isPanningOrZooming.current = false;
-        setMiddleZoomAnchor(null);
       }
     };
     document.addEventListener('pointerlockchange', onLockChange);
@@ -10749,7 +10740,7 @@ function NodeCanvas() {
     if (e && e.button === 1 && middleMouseZoomEnabled) {
       try { e.preventDefault(); } catch { }
       stopPanMomentum();
-      if (isPaused || !activeGraphId) return;
+      if (!activeGraphId) return;
       middleMouseZoomRef.current = {
         anchorX: e.clientX,
         anchorY: e.clientY,
@@ -10758,16 +10749,14 @@ function NodeCanvas() {
         nodeName: nodeData.name,
       };
       isPanningOrZooming.current = true;
-      setMiddleZoomAnchor({ x: e.clientX, y: e.clientY });
       try { containerRef.current?.requestPointerLock?.({ unadjustedMovement: true }); } catch { }
       return;
     }
     stopPanMomentum();
-    if (isPaused || !activeGraphId) return;
+    if (!activeGraphId) return;
 
     const instanceId = nodeData.id; // This is the instance ID
     const prototypeId = nodeData.prototypeId;
-    setHasMouseMovedSinceDown(false);
 
     // --- Double-click ---
     // Gated on the previous press, not on e.detail alone — see lastPressRef.
@@ -11419,7 +11408,6 @@ function NodeCanvas() {
     // node drag unless it sees movement, and mouseup reads the same flag to tell
     // a drag from a click.
     mouseMoved.current = true;
-    setHasMouseMovedSinceDown(true);
     if (clickTimeoutIdRef.current) {
       clearTimeout(clickTimeoutIdRef.current);
       clickTimeoutIdRef.current = null;
@@ -11454,7 +11442,7 @@ function NodeCanvas() {
     // Update mouse position for edge panning
     mousePositionRef.current = { x: e.clientX, y: e.clientY };
 
-    if (isPaused || !activeGraphId) return;
+    if (!activeGraphId) return;
 
     // Middle-mouse zoom: vertical drag → zoom, anchored at the original mousedown point.
     // Pointer-locked, so use raw movementY (clientY is frozen) and drive zoom anchored at anchorX/Y.
@@ -11616,7 +11604,6 @@ function NodeCanvas() {
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist > MOVEMENT_THRESHOLD) {
         mouseMoved.current = true;
-        setHasMouseMovedSinceDown(true); // Set state for useEffect
         if (clickTimeoutIdRef.current) { clearTimeout(clickTimeoutIdRef.current); clickTimeoutIdRef.current = null; potentialClickNodeRef.current = null; }
         // REMOVED: setSelectedNodeIdForPieMenu(null); 
 
@@ -11791,7 +11778,7 @@ function NodeCanvas() {
     if (e && e.button === 1 && middleMouseZoomEnabled) {
       try { e.preventDefault(); e.stopPropagation(); } catch { }
       stopPanMomentum();
-      if (isPaused || !activeGraphId || abstractionCarouselVisible) return;
+      if (!activeGraphId || abstractionCarouselVisible) return;
       middleMouseZoomRef.current = {
         anchorX: e.clientX,
         anchorY: e.clientY,
@@ -11800,12 +11787,11 @@ function NodeCanvas() {
         nodeName: null,
       };
       isPanningOrZooming.current = true;
-      setMiddleZoomAnchor({ x: e.clientX, y: e.clientY });
       try { containerRef.current?.requestPointerLock?.({ unadjustedMovement: true }); } catch { }
       return;
     }
     stopPanMomentum();
-    if (isPaused || !activeGraphId || abstractionCarouselVisible) return;
+    if (!activeGraphId || abstractionCarouselVisible) return;
     // On touch/mobile: allow two-finger pan to bypass resizer/canvas checks
     if (e.touches && e.touches.length >= 2) {
       return;
@@ -11828,7 +11814,7 @@ function NodeCanvas() {
     // turn out to be a pan, and killing the selection on press made the pie menu
     // vanish the instant you tried to drag the view around it. Click-off dismissal
     // now lives in handleCanvasClick, which runs on release and can tell a pan from
-    // a click (recentlyPanned / ignoreCanvasClick).
+    // a click (ignoreCanvasClick).
 
     // Clear a stale ignoreCanvasClick left over from a previous element-claimed
     // click. Edge hitboxes (and the group title) raise the flag *and*
@@ -11854,7 +11840,6 @@ function NodeCanvas() {
     mouseMoved.current = false;
     // PERFORMANCE: Clear all hover states once at interaction start instead of every frame during drag
     clearHoverImmediate();
-    setLastInteractionType('mouse_down');
 
     if ((isMac && e.metaKey) || (!isMac && e.ctrlKey)) {
       e.preventDefault();
@@ -11901,7 +11886,6 @@ function NodeCanvas() {
       const state = middleMouseZoomRef.current;
       middleMouseZoomRef.current = null;
       isPanningOrZooming.current = false;
-      setMiddleZoomAnchor(null);
       try { document.exitPointerLock?.(); } catch { }
       if (!state.moved && state.nodePrototypeId) {
         storeActions.openRightPanelNodeTab(state.nodePrototypeId, state.nodeName);
@@ -11917,7 +11901,7 @@ function NodeCanvas() {
     handleMouseUpInProgressRef.current = true;
     try {
 
-      if (isPaused || !activeGraphId) return;
+      if (!activeGraphId) return;
       clearTimeout(longPressTimeout.current);
       setLongPressingInstanceId(null); // Clear ID
       mouseInsideNode.current = false;
@@ -12282,8 +12266,8 @@ function NodeCanvas() {
       (e.target.tagName === 'svg' && e.target.classList.contains('canvas')) ||
       (e.target.tagName === 'DIV' && e.target.classList.contains('canvas-area'))
     );
-    if (isBareCanvasTarget && !ignoreCanvasClick.current && !isPaused && !draggingNodeInfo
-      && !drawingConnectionFrom && !recentlyPanned && !nodeNamePrompt.visible && activeGraphId) {
+    if (isBareCanvasTarget && !ignoreCanvasClick.current && !draggingNodeInfo
+      && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId) {
       const clickedEdgeId = hoveredEdgeInfoRef.current?.edgeId
         || findEdgeAtClientPoint(e.clientX, e.clientY, 'mouse')?.edgeId;
       const alreadySoleSelection = clickedEdgeId
@@ -12299,7 +12283,7 @@ function NodeCanvas() {
     // below, so clicking off always dismisses them. Not before the pan guards though —
     // the synthetic click that ends a pan must leave the connection selected.
     if (connectionControlPanelShouldShow || connectionControlPanelVisible || edgePieMenuVisible || edgePieMenuRendered || selectedEdgeId || selectedEdgeIds.size > 0) {
-      if (recentlyPanned || ignoreCanvasClick.current) {
+      if (ignoreCanvasClick.current) {
         ignoreCanvasClick.current = false;
         return;
       }
@@ -12335,8 +12319,7 @@ function NodeCanvas() {
 
     // For canvas clicks, we don't need to wait for the CLICK_DELAY since we're not dealing with double-click detection
     // Only check if we're in a state that should block canvas interactions
-    if (isPaused || draggingNodeInfo || drawingConnectionFrom || recentlyPanned || nodeNamePrompt.visible || !activeGraphId) {
-      setLastInteractionType('blocked_click');
+    if (draggingNodeInfo || drawingConnectionFrom || nodeNamePrompt.visible || !activeGraphId) {
       return;
     }
     if (ignoreCanvasClick.current) {
@@ -12414,7 +12397,6 @@ function NodeCanvas() {
     // Prevent plus sign if pie menu is active or about to become active or hovering an edge
     if (!plusSign && selectedInstanceIds.size === 0 && !hoveredEdgeInfo) {
       setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '' });
-      setLastInteractionType('plus_sign_shown');
     } else {
       if (nodeNamePrompt.visible) return;
       // A plus sign that's morphing into a node is committed — don't let a
@@ -12424,7 +12406,6 @@ function NodeCanvas() {
       // flips the morph to 'disappear' and the node is silently lost.
       if (plusSign && (plusSign.mode === 'morph' || plusSign.mode === 'preparing' || plusSign.mode === 'landed')) return;
       setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
-      setLastInteractionType('plus_sign_hidden');
     }
   };
 
@@ -12441,18 +12422,6 @@ function NodeCanvas() {
     }
 
     setNodeNamePrompt({ visible: true, name: '' });
-
-    // Calculate position for the node selection grid (below the dialog)
-    const dialogTop = HEADER_HEIGHT + 25;
-    const dialogHeight = 120; // Approximate height of the dialog
-    const gridTop = dialogTop + dialogHeight + 10; // 10px spacing below dialog
-    const dialogWidth = 300; // Match dialog width
-    const gridLeft = window.innerWidth / 2 - dialogWidth / 2; // Center to match dialog
-
-    setNodeSelectionGrid({
-      visible: true,
-      position: { x: gridLeft, y: gridTop }
-    });
   };
 
   const handleClosePrompt = () => {
@@ -12460,7 +12429,6 @@ function NodeCanvas() {
       setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
     }
     setNodeNamePrompt({ visible: false, name: '', color: null });
-    setNodeSelectionGrid({ visible: false, position: { x: 0, y: 0 } });
     setDialogColorPickerVisible(false); // Close color picker when closing prompt
   };
 
@@ -12626,7 +12594,6 @@ function NodeCanvas() {
       setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
     }
     setNodeNamePrompt({ visible: false, name: '', color: null });
-    setNodeSelectionGrid({ visible: false, position: { x: 0, y: 0 } });
     setDialogColorPickerVisible(false); // Close color picker when submitting
   };
   const handleNodeSelection = (nodePrototype) => {
@@ -12677,13 +12644,11 @@ function NodeCanvas() {
 
     // Clean up UI state
     setNodeNamePrompt({ visible: false, name: '' });
-    setNodeSelectionGrid({ visible: false, position: { x: 0, y: 0 } });
   };
 
   const handleNodeSelectionGridClose = () => {
     // Close the grid and trigger disappear animation like hitting X
     setNodeNamePrompt({ visible: false, name: '' });
-    setNodeSelectionGrid({ visible: false, position: { x: 0, y: 0 } });
     setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
   };
 
@@ -13198,8 +13163,6 @@ function NodeCanvas() {
   // Ref mirrors of the values the controller tick reads every frame. They exist
   // so the tick never has to be rebuilt (and so the rAF that calls it never has
   // to re-subscribe) when any of these change.
-  const isPausedRef = useRef(isPaused);
-  isPausedRef.current = isPaused;
   const activeGraphIdRef = useRef(activeGraphId);
   activeGraphIdRef.current = activeGraphId;
   const pieMenuButtonsRef = useRef(targetPieMenuButtons);
@@ -13260,14 +13223,12 @@ function NodeCanvas() {
       const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
       const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
       setPlusSign({ x, y, mode: 'appear', tempName: '' });
-      setLastInteractionType('plus_sign_shown');
     },
     activate: () => handlePlusSignClick(),
     dismiss: () => {
       // Same guard the canvas click path uses: a morphing plus is committed.
       if (!plusSign || plusSign.mode === 'morph' || plusSign.mode === 'preparing' || plusSign.mode === 'landed') return;
       setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
-      setLastInteractionType('plus_sign_hidden');
     },
   };
 
@@ -13469,7 +13430,6 @@ function NodeCanvas() {
     driftingRef: gamepadDriftingRef,
     semanticOrbitActiveRef,
     orbitControlRef,
-    isPausedRef,
     activeGraphIdRef,
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
@@ -13513,7 +13473,6 @@ function NodeCanvas() {
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
     gamepadTickRef,
-    isPaused,
     nodeNamePrompt,
     connectionNamePrompt,
     abstractionPrompt,
@@ -16919,7 +16878,7 @@ function NodeCanvas() {
                               style={{ cursor: 'default', pointerEvents: 'auto' }}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (isPaused || draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || recentlyPanned || nodeNamePrompt.visible || !activeGraphId) return;
+                                if (draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || nodeNamePrompt.visible || !activeGraphId) return;
                                 if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
                                   if (groupControlPanelShouldShow || groupControlPanelVisible) setGroupControlPanelVisible(false);
                                   if (selectedGroup) setSelectedGroup(null);
@@ -19029,15 +18988,11 @@ function NodeCanvas() {
 
       {/* Force Simulation Modal */}
       <ForceSimulationModal
-        isOpen={forceSimModalVisible || autoLayoutRunning}
+        isOpen={forceSimModalVisible}
         onClose={() => {
           setForceSimModalVisible(false);
-          setAutoLayoutRunning(false);
         }}
-        autoStart={autoLayoutRunning}
-        invisible={autoLayoutRunning && !forceSimModalVisible}
         onSimulationComplete={() => {
-          setAutoLayoutRunning(false);
           navigateAfterLayout(activeGraphId, hydratedNodes?.length || 0);
         }}
         // Safety ceiling only — the sim stops itself on alpha convergence
