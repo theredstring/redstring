@@ -164,13 +164,16 @@ const SaveStatusDisplay = ({ hidden = false }) => {
 
         // The decision itself lives in resolveSaveStatus, so what each state
         // is allowed to CLAIM can be asserted in a test. See saveStatus.js.
+        const gitAuth = persistentAuth.getAuthStatus();
         const status = resolveSaveStatus({
           hasUniverse: true,
           hasStorage: true,
-          // Git-linked with nobody signed in: the sync engine will never
-          // start, so "Syncing..." would never end. (A local file, if any,
-          // still saves — but the Git side is stuck either way.)
-          needsGitAuth: hasGit && !persistentAuth.getAuthStatus()?.isAuthenticated,
+          // Git-linked without the GitHub App. With nobody signed in the sync
+          // engine never starts, so "Syncing..." would never end; with only
+          // OAuth it syncs on the fallback. Either way the App is missing,
+          // and this is the way back to the modal after "not now".
+          needsGitAuth: hasGit && !gitAuth?.hasGitHubApp,
+          gitAuthLabel: gitAuth?.isAuthenticated ? 'Link App' : 'Reconnect',
           isInErrorBackoff: !!engine?.isInErrorBackoff,
           isUnhealthy: engine?.isHealthy === false,
           isPaused: !!engine?.isPaused,

@@ -2280,6 +2280,7 @@ function NodeCanvas() {
     const owner = linked.user || linked.owner || null;
     const repo = linked.repo || linked.name || null;
     return {
+      slug: universe.slug,
       name: universe.name || 'this universe',
       repoLabel: owner && repo ? `${owner}/${repo}` : null
     };
@@ -2303,52 +2304,67 @@ function NodeCanvas() {
     return () => { cancelled = true; };
   }, [universeLoadingError, isUniverseLoading, reconnectDismissed, resolveGitReconnectTarget]);
 
-  // Loaded, but the GitHub connection is incomplete. Two ways in:
-  // - The save pill's Reconnect CTA (a Git universe with nobody signed in).
-  // - A connection LOST this session — OAuth or the App, disconnected on
-  //   purpose, revoked by GitHub, or dropped when a refresh failed. OAuth
-  //   alone still syncs, so losing only the App isn't an outage, but it's a
-  //   step down the user should get to undo from where they are.
+  // Loaded, but the GitHub App isn't linked. The App is how a Git universe is
+  // meant to sync — OAuth carrying it (the "Allow OAuth as backup" setting)
+  // is a fallback, not a substitute — so a Git universe without the App
+  // always gets the modal. That covers nobody signed in at all, too.
   //
-  // Only losses count, never a state that was already there: someone who
-  // chose "Continue with OAuth only" in onboarding isn't asked about the App
-  // every time the app starts.
-  useEffect(() => {
-    const open = async () => {
-      const target = await resolveGitReconnectTarget().catch(() => null);
-      if (!target) return;
-      const failed = !!useGraphStore.getState().universeLoadingError;
-      if (failed) setReconnectDismissed(false);
-      setReconnect((current) => current || { mode: failed ? 'load' : 'sync', ...target });
-    };
-
-    const snapshot = () => {
-      const s = persistentAuth.getAuthStatus() || {};
-      return { oauth: !!s.hasOAuthTokens, app: !!s.hasGitHubApp };
-    };
-    let last = snapshot();
-    // Disconnect flows emit several events in a row (tokens cleared, auth
-    // expired, installation cleared); settle before judging.
-    let settleTimer = null;
-    const onAuthChanged = () => {
-      clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => {
-        const now = snapshot();
-        const lost = (last.oauth && !now.oauth) || (last.app && !now.app);
-        last = now;
-        if (lost) open();
-      }, 250);
-    };
-    const LOSS_EVENTS = ['tokensCleared', 'authExpired', 'appInstallationCleared', 'tokenStored', 'appInstallationStored'];
-
-    window.addEventListener('redstring:open-git-reconnect', open);
-    LOSS_EVENTS.forEach((ev) => persistentAuth.on(ev, onAuthChanged));
-    return () => {
-      clearTimeout(settleTimer);
-      window.removeEventListener('redstring:open-git-reconnect', open);
-      LOSS_EVENTS.forEach((ev) => persistentAuth.off(ev, onAuthChanged));
-    };
+  // Closing it means "not now" for that universe, for the rest of the
+  // session. Linking the App wipes those, so losing it again prompts again.
+  const appPromptDismissedRef = useRef(new Set());
+  const openReconnect = useCallback(async ({ force = false } = {}) => {
+    const target = await resolveGitReconnectTarget().catch(() => null);
+    if (!target) return;
+    const failed = !!useGraphStore.getState().universeLoadingError;
+    if (failed) {
+      // The load-failure effect owns this case.
+      if (force) setReconnectDismissed(false);
+      setReconnect((current) => current || { mode: 'load', ...target });
+      return;
+    }
+    if (!force && appPromptDismissedRef.current.has(target.slug)) return;
+    setReconnect((current) => current || { mode: 'sync', ...target });
   }, [resolveGitReconnectTarget]);
+
+  const isUniverseLoadedForPrompt = useGraphStore(state => state.isUniverseLoaded);
+  useEffect(() => {
+    let cancelled = false;
+    let settleTimer = null;
+
+    const evaluate = () => {
+      clearTimeout(settleTimer);
+      // Settle before judging: boot auto-connect may still be discovering the
+      // App, and disconnect flows emit several events in a row. If the App
+      // does turn up after this, the modal closes itself once it confirms.
+      settleTimer = setTimeout(async () => {
+        if (cancelled) return;
+        await persistentAuth.readyPromise?.catch?.(() => {});
+        const store = useGraphStore.getState();
+        if (store.isUniverseLoading || !store.isUniverseLoaded || store.universeLoadingError) return;
+        if (persistentAuth.getAuthStatus()?.hasGitHubApp) {
+          appPromptDismissedRef.current.clear();
+          return;
+        }
+        openReconnect();
+      }, 1500);
+    };
+
+    evaluate();
+    const AUTH_EVENTS = ['tokensCleared', 'authExpired', 'appInstallationCleared', 'tokenStored', 'appInstallationStored'];
+    AUTH_EVENTS.forEach((ev) => persistentAuth.on(ev, evaluate));
+    return () => {
+      cancelled = true;
+      clearTimeout(settleTimer);
+      AUTH_EVENTS.forEach((ev) => persistentAuth.off(ev, evaluate));
+    };
+  }, [isUniverseLoading, isUniverseLoadedForPrompt, universeLoadingError, openReconnect]);
+
+  // The save pill's Reconnect CTA — an explicit ask, so it ignores "not now".
+  useEffect(() => {
+    const onOpen = () => openReconnect({ force: true });
+    window.addEventListener('redstring:open-git-reconnect', onOpen);
+    return () => window.removeEventListener('redstring:open-git-reconnect', onOpen);
+  }, [openReconnect]);
 
   const retryUniverseLoad = useCallback(async () => {
     const { default: universeBackend } = await import('./services/universeBackend.js');
@@ -2726,18 +2742,15 @@ function NodeCanvas() {
       const resumeOnboarding = sessionStorage.getItem('redstring_onboarding_resume') === 'true';
       const resumeReconnect = sessionStorage.getItem(RECONNECT_RESUME_KEY) === 'true';
       if (resumeOnboarding) {
-        setShowOnboardingModal(false);
         setShowStorageSetupModal(true);
       } else if (resumeReconnect) {
         sessionStorage.removeItem(RECONNECT_RESUME_KEY);
-        setShowOnboardingModal(false);
         runPendingCallbacks().catch((err) => {
           console.warn('[NodeCanvas] Reconnect callback processing failed:', err?.message || err);
         });
       } else if (pendingOAuth || pendingApp) {
         storeActions.setLeftPanelExpanded(true);
         setLeftPanelInitialView('federation');
-        setShowOnboardingModal(false);
         setShowStorageSetupModal(false);
       }
     } catch (e) {
@@ -18722,6 +18735,7 @@ function NodeCanvas() {
         loaded={!universeLoadingError && !isUniverseLoading}
         onClose={() => {
           if (universeLoadingError) setReconnectDismissed(true);
+          else if (reconnect?.slug) appPromptDismissedRef.current.add(reconnect.slug);
           setReconnect(null);
         }}
         onResolved={() => setReconnect(null)}
@@ -18731,6 +18745,7 @@ function NodeCanvas() {
         onRetry={retryUniverseLoad}
         onOpenUniverses={() => {
           if (universeLoadingError) setReconnectDismissed(true);
+          else if (reconnect?.slug) appPromptDismissedRef.current.add(reconnect.slug);
           setReconnect(null);
           openUniversesPanel();
         }}

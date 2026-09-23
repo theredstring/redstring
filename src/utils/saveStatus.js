@@ -18,10 +18,11 @@
  * Priority: no universe > no storage > needs auth > error > paused > loading >
  * writing > stalled > debouncing > git behind > never loaded > saved.
  *
- * `needsGitAuth`: the universe syncs to Git but nothing is signed in. The sync
- * summary calls that 'standby', same as "engine not started yet", so it used
- * to read as "Syncing..." — forever, since nothing was going to start it. It
- * is a thing the user can fix, so it's a CTA.
+ * `needsGitAuth`: the universe syncs to Git but the GitHub App isn't linked.
+ * With nobody signed in, the sync summary calls that 'standby', same as
+ * "engine not started yet", so it used to read as "Syncing..." — forever,
+ * since nothing was going to start it. It is a thing the user can fix, so
+ * it's a CTA (`gitAuthLabel`: 'Reconnect', or 'Link App' when OAuth is on).
  *
  * @returns {{text: string|null, isCTA: boolean}} `text: null` means show
  *   nothing — the honest report for the normal debounce window.
@@ -30,6 +31,7 @@ export const resolveSaveStatus = ({
   hasUniverse = true,
   hasStorage = true,
   needsGitAuth = false,
+  gitAuthLabel = 'Reconnect',
   isInErrorBackoff = false,
   isUnhealthy = false,
   isPaused = false,
@@ -42,7 +44,7 @@ export const resolveSaveStatus = ({
 } = {}) => {
   if (!hasUniverse) return { text: 'No universe', isCTA: false };
   if (!hasStorage) return { text: 'Connect', isCTA: true };
-  if (needsGitAuth) return { text: 'Reconnect', isCTA: true, action: 'reconnect' };
+  if (needsGitAuth) return { text: gitAuthLabel, isCTA: true, action: 'reconnect' };
   if (isInErrorBackoff || isUnhealthy) return { text: 'Error', isCTA: false };
   if (isPaused) return { text: 'Paused', isCTA: false };
   if (isLoadingFromRepo) return { text: 'Syncing...', isCTA: false };

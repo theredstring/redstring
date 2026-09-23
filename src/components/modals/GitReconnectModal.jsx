@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { RefreshCw, Globe, X, ChevronDown, Check } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { RefreshCw, Globe, ChevronDown, Check, X } from 'lucide-react';
 import CanvasModal from '../CanvasModal';
+import { MODAL_CLOSE_ICON_SIZE } from '../../constants.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import GitHubConnectPanel from '../shared/GitHubConnectPanel.jsx';
 import { useGitHubConnection, isGitHubDeviceFlowShowing } from '../../hooks/useGitHubConnection.js';
 import { appDetectionRequiresOAuth } from '../../services/githubAuthFlows.js';
 import { RECONNECT_RESUME_KEY } from '../../services/githubAuthCallbacks.js';
 import { useTheme } from '../../hooks/useTheme.js';
-import { MODAL_CLOSE_ICON_SIZE } from '../../constants.js';
 
 /**
  * Reconnect a GitHub-backed universe.
@@ -16,8 +16,14 @@ import { MODAL_CLOSE_ICON_SIZE } from '../../constants.js';
  *   'load' — the universe couldn't load. The canvas used to show the raw
  *            error in a red card whose only action, Reload, re-ran the same
  *            failing load.
- *   'sync' — it loaded, but nobody is signed in, so it can't sync. The save
- *            pill used to sit on "Syncing..." indefinitely.
+ *   'sync' — it loaded, but the GitHub App isn't linked: either nobody is
+ *            signed in (the save pill used to sit on "Syncing..."
+ *            indefinitely) or it's riding the OAuth fallback. NodeCanvas opens
+ *            it whenever a Git universe is without the App.
+ *
+ * Framed like Settings and onboarding (full-screen CanvasModal): it's about
+ * the app's link to GitHub, so it centers on the window, ignores the panels,
+ * and stacks above them.
  *
  * It says which cause it is (not signed in here, OAuth revoked, GitHub
  * unreachable), puts the connect controls — the same ones onboarding uses —
@@ -72,12 +78,38 @@ const GitReconnectModal = ({
   const [retryError, setRetryError] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1200));
+  const [viewportHeight, setViewportHeight] = useState(() => (typeof window !== 'undefined' ? window.innerHeight : 900));
 
   useEffect(() => {
-    const onResize = () => setViewportWidth(window.innerWidth);
+    const onResize = () => {
+      setViewportWidth(window.innerWidth);
+      setViewportHeight(window.innerHeight);
+    };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  // Natural height of the content, so the modal is sized to it. A
+  // ResizeObserver because it changes in place: the device-flow panel
+  // swapping in, a notice appearing, details expanding.
+  const contentRef = useRef(null);
+  const [measuredHeight, setMeasuredHeight] = useState(0);
+  useLayoutEffect(() => {
+    const el = contentRef.current;
+    if (!isVisible || !el) {
+      setMeasuredHeight(0);
+      return undefined;
+    }
+    const measure = () => {
+      const next = Math.ceil(el.getBoundingClientRect().height);
+      setMeasuredHeight((prev) => (Math.abs(prev - next) > 1 ? next : prev));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isVisible]);
 
   useEffect(() => {
     if (!isVisible) {
@@ -159,7 +191,6 @@ const GitReconnectModal = ({
   })();
 
   const isCompact = viewportWidth <= 500;
-  const width = isCompact ? Math.min(Math.max(viewportWidth - 24, 300), 540) : 560;
   const text = (size, extra = {}) => ({
     fontFamily: "'EmOne', sans-serif",
     color: theme.canvas.textPrimary,
@@ -186,17 +217,34 @@ const GitReconnectModal = ({
     return null;
   })();
 
+  // Same frame as Settings and onboarding: a full-screen CanvasModal, which
+  // centers on the window, ignores the panels, and stacks above them
+  // (20200+, over panels at 10000 and the TypeList at ~20000). Sized to its
+  // content by measurement, as StorageSetupModal does — CanvasModal centers
+  // an 'auto' height as though it were 720px, which parks short content high.
+  const modalMargin = isCompact ? 12 : 20;
+  const padX = isCompact ? 20 : 32;
+  const padTop = isCompact ? 44 : 52;
+  const padBottom = isCompact ? 22 : 28;
+  const maxModalHeight = Math.max(280, viewportHeight - modalMargin * 2 - 8);
+  const modalHeight = measuredHeight > 0
+    ? Math.min(Math.max(measuredHeight + padTop + padBottom, 240), maxModalHeight)
+    : Math.min(480, maxModalHeight);
+  const modalWidth = isCompact ? Math.min(Math.max(viewportWidth - 24, 300), 540) : 560;
+
   return (
     <CanvasModal
       isVisible={isVisible}
       onClose={onClose}
       title=""
-      width={width}
+      width={modalWidth}
+      height={modalHeight}
       position="center"
-      margin={isCompact ? 12 : 20}
-      contentStyle={{ padding: 0 }}
+      margin={modalMargin}
+      fullScreenOverlay={true}
+      contentStyle={{ overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column' }}
     >
-      <div style={{ position: 'relative', padding: isCompact ? '44px 20px 22px' : '52px 32px 28px', boxSizing: 'border-box' }}>
+      <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <PanelIconButton
           icon={X}
           onClick={onClose}
@@ -204,12 +252,23 @@ const GitReconnectModal = ({
           size={MODAL_CLOSE_ICON_SIZE}
           style={{ position: 'absolute', top: isCompact ? 12 : 16, right: isCompact ? 12 : 16, zIndex: 10 }}
         />
-
+        <div style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          overscrollBehavior: 'contain',
+          padding: `${padTop}px ${padX}px ${padBottom}px`,
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+      <div ref={contentRef} style={{ margin: 'auto 0', width: '100%' }}>
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
           <h2 style={text(isCompact ? '1.2rem' : '1.45rem', { margin: '0 0 8px 0', color: theme.accent.primary, fontWeight: 600 })}>
             {deviceFlowShowing ? (github.deviceFlowState.title || 'Connect GitHub') : `Reconnect ${universeName}`}
           </h2>
-          {!deviceFlowShowing && (
+          {!deviceFlowShowing && (repoLabel || (mode === 'load' && !loaded)) && (
             <p style={text(isCompact ? '0.8rem' : '0.88rem', { margin: 0, opacity: 0.8, lineHeight: 1.45 })}>
               {repoLabel ? <>It lives in <strong>@{repoLabel}</strong>. </> : null}
               {mode === 'load' && !loaded
@@ -304,6 +363,8 @@ const GitReconnectModal = ({
             )}
           </>
         )}
+      </div>
+        </div>
       </div>
     </CanvasModal>
   );
