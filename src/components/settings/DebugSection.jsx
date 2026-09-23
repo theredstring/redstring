@@ -4,6 +4,7 @@ import { getStorageKey } from '../../utils/storageUtils.js';
 import debugConfig from '../../utils/debugConfig.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import DialogGallery from './DialogGallery.jsx';
+import PaletteEditor from './PaletteEditor.jsx';
 
 /**
  * Debug settings, moved here from the Debug submenu in RedstringMenu.
@@ -233,6 +234,11 @@ const DebugSection = ({ onCloseSettings, onRelock }) => {
         Opening one here uses stand-in data and changes nothing.
       </div>
       <DialogGallery />
+
+      <hr className="settings-section-divider" />
+
+      <div className="settings-section-subtitle">Palettes</div>
+      <PaletteEditor />
 
       <hr className="settings-section-divider" />
 
