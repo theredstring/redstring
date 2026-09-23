@@ -17,8 +17,8 @@ export const PALETTES = {
         colors: {
             "navy-blue": "#0B2D72",
             "blue": "#1b70b5",
-            "sky-blue": "#98d6ed",
-            "tan": "#cfb469"
+            "sky-blue": "#a7cedd",
+            "tan": "#948251"
         }
     },
     "safari": {
@@ -44,7 +44,7 @@ export const PALETTES = {
         colors: {
             "dark-green": "#263d11",
             "olive": "#4C4B16",
-            "tan": "#5e442a",
+            "tan": "#715232",
             "orange": "#b0563a"
         }
     },
@@ -52,7 +52,7 @@ export const PALETTES = {
         name: "Retro",
         colors: {
             "teal": "#26b5a7",
-            "yellow": "#E9B825",
+            "yellow": "#e0b01f",
             "orange": "#EE9322",
             "red": "#f24738"
         }
@@ -60,10 +60,10 @@ export const PALETTES = {
     "beige-gradient": {
         name: "Beige Gradient",
         colors: {
-            "darkest": "#453f32",
+            "darkest": "#4b4534",
             "dark": "#615745",
             "mid": "#786c59",
-            "light": "#d1bc9b"
+            "light": "#e1cdad"
         }
     },
     "brown-rainbow": {
@@ -87,17 +87,17 @@ export const PALETTES = {
     "sunset": {
         name: "Sunset",
         colors: {
-            "blue": "#1b1b4a",
+            "blue": "#111132",
             "purple": "#660a66",
             "pink": "#b01a4c",
-            "orange": "#F78D60"
+            "orange": "#d66b3d"
         }
     },
     "tropical": {
         name: "Tropical",
         colors: {
             "green": "#3d6921",
-            "lime": "#a4d600",
+            "lime": "#81a607",
             "orange": "#d46d00",
             "red": "#bd2626"
         }
@@ -108,7 +108,7 @@ export const PALETTES = {
             "purple": "#543d4e",
             "mud": "#735557",
             "sage": "#82725b",
-            "tan": "#D29F80"
+            "tan": "#be8d6f"
         }
     },
     "purple-gradient": {
