@@ -3360,14 +3360,23 @@ const LeftAIView = ({ compact = false,
     setConversations(prev => [newConv, ...prev]);
     setActiveConversationId(newId);
 
-    // Deferred: swap the message content in a transition so unmounting the old
-    // conversation's (possibly heavy) list doesn't block the selection paint.
-    // Old cards are React.memo'd, so the urgent commit above stays cheap.
-    // Keep lastMessagesRef on the CURRENT messages so the save-effect guard
-    // (lastMessagesRef.current === messages) stays true and doesn't write the
-    // old tab's messages into the new conversation before the transition fires.
-    lastMessagesRef.current = messages;
-    React.startTransition(() => { setMessages([]); });
+    // Urgent, NOT a transition. This used to be wrapped in startTransition so
+    // unmounting a heavy old list wouldn't delay the tab-selection paint. But
+    // every Ask The Wizard prompt opens a tab here and sends its ask on the
+    // very next tick, so the run's per-event setMessages updates queued up
+    // BEHIND this pending transition. React's rule for a pending lower-priority
+    // update is that every update after it is re-applied from base state on
+    // each render until it commits — and a streaming run never gives it a
+    // quiet moment to commit. Measured: 36 events → ~770k updater calls, and
+    // ~425k more in 8s of idle after the run finished. That is the
+    // "hundreds of thousands of [Wizard] logs" freeze and the silent battery
+    // drain after those logs were removed. It is also the likely source of
+    // doubled messages: until the transition commits, renders show the OLD
+    // tab's messages with the new run appended, and the save effect copies
+    // that into the new conversation. Clearing synchronously costs one heavier
+    // commit on tab open.
+    lastMessagesRef.current = [];
+    setMessages([]);
   };
 
   const handleCloseConversation = (id, e) => {
