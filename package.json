@@ -37,6 +37,8 @@
     "free:4000": "node scripts/free-port-4000.js",
     "build": "vite build",
     "build:cap": "vite build --mode capacitor",
+    "build:profile": "vite build --mode profile",
+    "preview:profile": "vite preview --mode profile --port 4830 --strictPort",
     "cap:sync": "npm run build:cap && npx cap sync ios",
     "cap:ios": "npm run cap:sync && npx cap open ios",
     "cap:sync:android": "npm run build:cap && npx cap sync android",

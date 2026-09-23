@@ -11,8 +11,15 @@ export default defineConfig(({ mode }) => ({
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(packageJson.version)
   },
   plugins: [react()],
+  // `npm run build:profile` (mode "profile") swaps in React's profiling build so
+  // <Profiler onRender> fires in an optimised bundle (P0.01, renderProbe.js).
+  // React 18 dropped scheduler/tracing, so react-dom is the only alias needed.
+  resolve: {
+    alias: mode === 'profile' ? [{ find: /^react-dom$/, replacement: 'react-dom/profiling' }] : [],
+  },
   base: './', // Required for Electron to load assets correctly
   build: {
+    outDir: mode === 'profile' ? 'dist-profile' : 'dist',
     // Sourcemaps double the shipped asset size; skip them in the iOS app bundle
     sourcemap: mode !== 'capacitor',
     rollupOptions: {
