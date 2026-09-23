@@ -171,6 +171,19 @@ async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName
       if (_epochs.get(protoId) !== epoch) return;
 
       const blobUrl = URL.createObjectURL(blob);
+      // Decode before publishing. The node grows to fit the image the moment this
+      // lands, and an undecoded <image> decodes on the main thread during that
+      // resize — a dropped frame mid-grow. img.decode() does it off-thread and
+      // warms the decoded-image cache the canvas <image> then paints from.
+      try {
+        const img = new Image();
+        img.src = blobUrl;
+        await img.decode();
+      } catch { /* undecodable here — let the <image> try; it shows the failure */ }
+      if (_epochs.get(protoId) !== epoch) {
+        URL.revokeObjectURL(blobUrl);
+        return;
+      }
       useImageCache.getState().setImage(protoId, { thumbnailSrc: blobUrl, imageAspectRatio });
       console.log(`[ImageCache] Cached "${nodeName}" (blob ${(blob.size / 1024).toFixed(0)}KB)`);
       return;

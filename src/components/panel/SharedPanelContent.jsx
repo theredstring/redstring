@@ -646,10 +646,11 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
       wikipediaEnrichedAt: new Date().toISOString()
     };
 
-    if (pageData.thumbnail) {
-      updates.semanticMetadata.wikipediaThumbnail = pageData.thumbnail;
-      console.log(`[Wikipedia Images] 🖼️ Storing thumbnail: ${pageData.thumbnail}`);
-    }
+    // wikipediaThumbnail is deliberately NOT written here. setWikipediaImageFromUrl
+    // below writes it together with the measured aspect ratio. Writing it early made
+    // the canvas's image-cache reconcile fetch it at ratio 1 while the ratio was still
+    // being measured — the node grew square, then collapsed when the real write
+    // cleared the cache, then grew again: a visible stutter-and-replay.
     if (pageData.originalImage) {
       updates.semanticMetadata.wikipediaOriginalImage = pageData.originalImage;
       console.log(`[Wikipedia Images] 📸 Storing original image: ${pageData.originalImage}`);
@@ -723,6 +724,12 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
       // Clear any legacy imageSrc/thumbnailSrc so NodeCanvas's imageCache override activates.
       // imageRef goes too: a Wikipedia image replaces whatever was here, and a
       // surviving ref would keep pointing the panel at the previous picture.
+      //
+      // Metadata is read live from the store: `nodeData` is this render's copy, and
+      // applyWikipediaData has just written wikipediaUrl/Title/Enriched ahead of this
+      // call — spreading the stale copy silently dropped them.
+      const liveMetadata = useGraphStore.getState().nodePrototypes.get(nodeData.id)?.semanticMetadata
+        ?? nodeData.semanticMetadata;
       await onUpdateNode({
         imageSrc: null,
         thumbnailSrc: null,
@@ -730,7 +737,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
         imageRefExt: null,
         imageAspectRatio: aspectRatio,
         semanticMetadata: {
-          ...(nodeData.semanticMetadata || {}),
+          ...(liveMetadata || {}),
           wikipediaThumbnail: imageUrl,
           imageAspectRatio: aspectRatio
         }
