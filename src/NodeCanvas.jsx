@@ -2955,24 +2955,24 @@ function NodeCanvas() {
   const keyboardPanTravelRef = useRef(null);
 
   const [isPanning, _setIsPanningState] = useState(false);
-  const [panStart, _setPanStartState] = useState({ x: 0, y: 0 });
-  // Refs mirror the state synchronously. Critical for touch flow: React 18 batches
+  // The ref mirrors isPanning synchronously. Critical for touch flow: React 18 batches
   // state updates and may not flush before the next browser event fires. Without
-  // these refs, the touchmove/touchend handlers immediately following a pinch→1-finger
-  // transition would close over stale `isPanning=false`/`panStart=null`, causing the
-  // pan branch in handleMouseMove and the momentum-launch block in handleMouseUp to
-  // skip entirely on fast continuous gestures.
+  // it, the touchmove/touchend handlers immediately following a pinch→1-finger
+  // transition would close over a stale `isPanning=false`, causing the pan branch in
+  // handleMouseMove and the momentum-launch block in handleMouseUp to skip entirely
+  // on fast continuous gestures.
   const isPanningRef = useRef(false);
-  const panStartRef = useRef({ x: 0, y: 0 });
   const setIsPanning = useCallback((value) => {
     const next = typeof value === 'function' ? value(isPanningRef.current) : value;
     isPanningRef.current = next;
     _setIsPanningState(next);
   }, []);
+  // The pan anchor is ref-only: nothing renders from it, and the drag-pan rAF
+  // rewrites it on every frame the view moves. (It used to be mirrored into React
+  // state as well, which re-rendered all of NodeCanvas once per pan frame.)
+  const panStartRef = useRef({ x: 0, y: 0 });
   const setPanStart = useCallback((value) => {
-    const next = typeof value === 'function' ? value(panStartRef.current) : value;
-    panStartRef.current = next;
-    _setPanStartState(next);
+    panStartRef.current = typeof value === 'function' ? value(panStartRef.current) : value;
   }, []);
   // setPanOffset alias is defined after useCanvasTransform initialization (see below canvasSize)
 
@@ -11793,6 +11793,8 @@ function NodeCanvas() {
           const minY = viewportSize.height - canvasSize.height * zoomLevelRef.current;
           let appliedDx = 0;
           let appliedDy = 0;
+          // setPanOffset (transform.setPan) runs this updater synchronously, so
+          // appliedDx/appliedDy are final once it returns. Keep the updater pure.
           setPanOffset(prev => {
             const targetX = prev.x + dxInput;
             const targetY = prev.y + dyInput;
@@ -11800,11 +11802,11 @@ function NodeCanvas() {
             const clampedY = Math.min(Math.max(targetY, minY), maxY);
             appliedDx = clampedX - prev.x;
             appliedDy = clampedY - prev.y;
-            if (appliedDx !== 0 || appliedDy !== 0) {
-              setPanStart({ x: e.clientX, y: e.clientY });
-            }
             return { x: clampedX, y: clampedY };
           });
+          if (appliedDx !== 0 || appliedDy !== 0) {
+            setPanStart({ x: e.clientX, y: e.clientY });
+          }
 
           if (Math.abs(appliedDx) > 0.01 || Math.abs(appliedDy) > 0.01) {
             // Calculate instantaneous velocity for reference
