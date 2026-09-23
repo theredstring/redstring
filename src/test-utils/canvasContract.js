@@ -314,7 +314,9 @@ export const assertSpriteLabelContract = (root, routingStyle) => {
         expect(perLayer[0], `${edgeId}: empty glyph layer`).toBeGreaterThan(0);
         expect(new Set(perLayer).size, `${edgeId}: glyph layers disagree on glyph count ${perLayer}`).toBe(1);
         layers.forEach((l) => all(l, 'image').forEach((img) => {
-          expect(Number.isInteger(Number(img.getAttribute('data-gi'))), `${edgeId}: data-gi`).toBe(true);
+          // A regex, not Number.isInteger(Number(…)): a MISSING attribute is
+          // null, and Number(null) is 0, which is an integer.
+          expect(img.getAttribute('data-gi'), `${edgeId}: data-gi`).toMatch(/^\d+$/);
           expect(parseFloat(img.getAttribute('data-advance')), `${edgeId}: data-advance`).toBeGreaterThan(0);
           expect(Number.isFinite(parseFloat(img.getAttribute('data-oy'))), `${edgeId}: data-oy`).toBe(true);
           expect(img.getAttribute('data-gframe'), `${edgeId}: data-gframe`).toMatch(GLYPH_FRAME);
@@ -346,7 +348,7 @@ export const assertGroupContract = (root, { regularGroupId, nodeGroupId }) => {
   expect(regularLabel[0].querySelector('rect'), 'regular group: .group-label has no <rect>').toBeTruthy();
   expect(regularLabel[0].querySelector('text'), 'regular group: .group-label has no <text>').toBeTruthy();
   // A wrapped title is one <text> of <tspan> lines, each with its own absolute
-  // x. The drag re-centres every one of them (setLabelTextX, useNodeDrag.js:1741-1745).
+  // x. The drag re-centres every one of them (setLabelTextX, useNodeDrag.js:1742-1745).
   const lines = all(regularLabel[0], 'text tspan');
   expect(lines.length, 'regular group: long title did not wrap into <tspan> lines').toBeGreaterThan(1);
   lines.forEach((span) => expect(span.getAttribute('x'), 'regular group: title <tspan> has no x').toBeTruthy());
