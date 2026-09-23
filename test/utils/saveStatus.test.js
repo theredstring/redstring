@@ -69,6 +69,13 @@ describe('resolveSaveStatus', () => {
     expect(status).toEqual({ text: 'Connect', isCTA: true });
   });
 
+  it('asks to reconnect, not "Syncing...", when a Git universe has no auth', () => {
+    // The sync summary reports this as standby, which also drives
+    // isLoadingFromRepo — the combination used to read "Syncing..." forever.
+    const status = resolveSaveStatus({ needsGitAuth: true, isLoadingFromRepo: true, universeReady: true });
+    expect(status).toEqual({ text: 'Reconnect', isCTA: true, action: 'reconnect' });
+  });
+
   it('reports no universe first of all', () => {
     expect(resolveSaveStatus({ hasUniverse: false, hasStorage: false }).text).toBe('No universe');
   });

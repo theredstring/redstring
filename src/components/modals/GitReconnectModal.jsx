@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { RefreshCw, Globe, X, ChevronDown } from 'lucide-react';
+import { RefreshCw, Globe, X, ChevronDown, Check } from 'lucide-react';
 import CanvasModal from '../CanvasModal';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import GitHubConnectPanel from '../shared/GitHubConnectPanel.jsx';
@@ -10,26 +10,37 @@ import { useTheme } from '../../hooks/useTheme.js';
 import { MODAL_CLOSE_ICON_SIZE } from '../../constants.js';
 
 /**
- * Shown when a GitHub-backed universe can't load.
+ * Reconnect a GitHub-backed universe.
  *
- * The canvas used to show the raw error in a red card with nothing to do
- * about it but reload — which re-ran the same failing load. Nearly every
- * cause is closable from here: not signed in on this device, an OAuth token
- * GitHub has revoked, or a transient read failure. So this modal says which
- * one it is, puts the connect controls (the same ones onboarding uses) right
- * there, and retries the load itself — automatically, the moment a
- * connection comes back.
+ * Two modes, one job — get the universe and GitHub talking again:
+ *   'load' — the universe couldn't load. The canvas used to show the raw
+ *            error in a red card whose only action, Reload, re-ran the same
+ *            failing load.
+ *   'sync' — it loaded, but nobody is signed in, so it can't sync. The save
+ *            pill used to sit on "Syncing..." indefinitely.
  *
- * It also says the thing the red card left the user to wonder about: the
- * universe hasn't been touched. Saves are blocked while a load has failed
+ * It says which cause it is (not signed in here, OAuth revoked, GitHub
+ * unreachable), puts the connect controls — the same ones onboarding uses —
+ * right there, and retries the load itself the moment a connection appears.
+ *
+ * It closes itself only once BOTH OAuth and the App are confirmed, after a
+ * beat so the user sees them land. OAuth alone is often enough for the load
+ * to succeed, and closing then used to cut the user off while the App was
+ * still being detected. Loaded with the App still missing, it stays up with a
+ * "Done for now" button instead.
+ *
+ * In 'load' mode it also says what the red card left the user to wonder:
+ * nothing has been touched. Saves are blocked while a load has failed
  * (SaveCoordinator + universeBackend both refuse), so that's a promise the
- * code keeps, not just reassurance.
+ * code keeps.
  *
  * Web OAuth/App redirects unload the page. `beforeRedirect` leaves the
  * `redstring_reconnect_resume` flag so NodeCanvas finishes the callback on
  * return instead of opening the Universes panel; if the load still fails
  * after that, this modal simply opens again.
  */
+const AUTO_CLOSE_DELAY_MS = 600;
+
 const armReconnectResume = () => {
   try { sessionStorage.setItem(RECONNECT_RESUME_KEY, 'true'); } catch { /* ignore */ }
 };
@@ -37,6 +48,9 @@ const armReconnectResume = () => {
 const GitReconnectModal = ({
   isVisible,
   onClose,
+  onResolved = null, // () => void — everything's connected; host closes us
+  mode = 'load', // 'load' | 'sync'
+  loaded = false, // the universe is in the store
   universeName = 'this universe',
   repoLabel = null,
   errorMessage = null,
@@ -44,7 +58,13 @@ const GitReconnectModal = ({
   onOpenUniverses = null
 }) => {
   const theme = useTheme();
-  const github = useGitHubConnection({ active: isVisible, beforeRedirect: armReconnectResume });
+  // Can open right after the user disconnects the App — don't re-link it
+  // behind their back. Their own Install/Detect click still does.
+  const github = useGitHubConnection({
+    active: isVisible,
+    beforeRedirect: armReconnectResume,
+    respectAppDisconnect: true
+  });
   const { hasOAuth, hasApp, oauthVerification } = github;
   const deviceFlowShowing = isGitHubDeviceFlowShowing(github);
 
@@ -70,6 +90,8 @@ const GitReconnectModal = ({
   // OAuth is what finds the App on web, so without it the connection is only
   // half there even if an App install is cached.
   const needsOAuth = !hasOAuth && appDetectionRequiresOAuth();
+  const checking = oauthVerification === 'verifying';
+  const fullyConnected = hasOAuth && hasApp && !checking;
 
   const retry = async () => {
     if (retrying) return;
@@ -77,7 +99,6 @@ const GitReconnectModal = ({
     setRetryError(null);
     try {
       await onRetry?.();
-      // Success clears the load error, and the host closes us.
     } catch (err) {
       setRetryError(err?.message || 'It still couldn’t be loaded.');
     } finally {
@@ -86,7 +107,7 @@ const GitReconnectModal = ({
   };
 
   // Close the loop without another click: when a connection appears while
-  // the modal is open, that's the user having just fixed it.
+  // the universe is still unloaded, that's the user having just fixed it.
   const hadConnectionRef = useRef(hasConnection);
   useEffect(() => {
     if (!isVisible) {
@@ -95,24 +116,46 @@ const GitReconnectModal = ({
     }
     const gained = hasConnection && !hadConnectionRef.current;
     hadConnectionRef.current = hasConnection;
-    if (gained) retry();
+    if (gained && !loaded) retry();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVisible, hasConnection]);
 
+  // Done: loaded and both halves confirmed. Wait a beat so the user sees the
+  // App card flip to Installed rather than the modal vanishing mid-thought.
+  // The callback rides a ref: hosts pass it inline, and a fresh identity on
+  // every render would keep restarting the timer.
+  const onResolvedRef = useRef(onResolved);
+  onResolvedRef.current = onResolved;
+  useEffect(() => {
+    if (!isVisible || !loaded || !fullyConnected || deviceFlowShowing) return undefined;
+    const timer = setTimeout(() => onResolvedRef.current?.(), AUTO_CLOSE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [isVisible, loaded, fullyConnected, deviceFlowShowing]);
+
+  const repoRef = repoLabel ? `@${repoLabel}` : 'the repository';
+
   const diagnosis = (() => {
-    if (oauthVerification === 'verifying') {
-      return 'Checking your GitHub connection…';
+    if (checking) return 'Checking your GitHub connection…';
+    if (loaded && fullyConnected) {
+      return mode === 'sync' ? `Connected. ${universeName} will sync again.` : `Connected — ${universeName} is loaded.`;
+    }
+    if (loaded && hasOAuth && !hasApp) {
+      return mode === 'sync'
+        ? `The GitHub App isn’t linked. ${universeName} still syncs through OAuth, but the App is the more reliable path — link it below.`
+        : `${universeName} is loaded. The GitHub App isn’t linked yet — it’s the more reliable path for sync, so link it below.`;
     }
     if (!hasConnection) {
-      return 'This device isn’t signed in to GitHub. Connect below and it will load.';
+      return mode === 'sync'
+        ? `Nobody is signed in to GitHub, so ${universeName} can’t sync to ${repoRef}. Connect below.`
+        : 'This device isn’t signed in to GitHub. Connect below and it will load.';
     }
     if (needsOAuth) {
-      return 'Your GitHub sign-in (OAuth) has expired or was revoked. Reconnect it and Redstring will try again.';
+      return 'Your GitHub sign-in (OAuth) has expired or was revoked. Reconnect it and Redstring will pick up from there.';
     }
     if (oauthVerification === 'unknown') {
       return 'Redstring couldn’t reach GitHub. If you’re offline, try again once you’re back.';
     }
-    return `You’re signed in, but ${repoLabel ? `@${repoLabel}` : 'the repository'} couldn’t be read. That’s usually temporary — try again.`;
+    return `You’re signed in, but ${repoRef} couldn’t be read. That’s usually temporary — try again.`;
   })();
 
   const isCompact = viewportWidth <= 500;
@@ -123,6 +166,25 @@ const GitReconnectModal = ({
     fontSize: size,
     ...extra
   });
+
+  // One primary action, whichever moves things forward from here.
+  const primary = (() => {
+    if (!loaded) {
+      return {
+        icon: RefreshCw,
+        label: retrying ? 'Loading…' : `Load ${universeName}`,
+        onClick: retry,
+        disabled: retrying || !hasConnection
+      };
+    }
+    if (fullyConnected) {
+      return { icon: Check, label: 'Done', onClick: () => onResolved?.(), disabled: false };
+    }
+    if (hasConnection && !needsOAuth) {
+      return { icon: Check, label: 'Done for now', onClick: onClose, disabled: false };
+    }
+    return null;
+  })();
 
   return (
     <CanvasModal
@@ -150,7 +212,9 @@ const GitReconnectModal = ({
           {!deviceFlowShowing && (
             <p style={text(isCompact ? '0.8rem' : '0.88rem', { margin: 0, opacity: 0.8, lineHeight: 1.45 })}>
               {repoLabel ? <>It lives in <strong>@{repoLabel}</strong>. </> : null}
-              Nothing has been changed or saved while it couldn&rsquo;t load.
+              {mode === 'load' && !loaded
+                ? <>Nothing has been changed or saved while it couldn&rsquo;t load.</>
+                : null}
             </p>
           )}
         </div>
@@ -172,21 +236,23 @@ const GitReconnectModal = ({
 
         {!deviceFlowShowing && (
           <>
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 18 }}>
-              <PanelIconButton
-                icon={RefreshCw}
-                label={retrying ? 'Loading…' : `Load ${universeName}`}
-                labelPosition="right"
-                size={16}
-                labelFontSize={14}
-                variant="solid"
-                disabled={retrying || !hasConnection}
-                onClick={retry}
-                style={{ padding: '9px 20px' }}
-              />
-            </div>
+            {primary && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 18 }}>
+                <PanelIconButton
+                  icon={primary.icon}
+                  label={primary.label}
+                  labelPosition="right"
+                  size={16}
+                  labelFontSize={14}
+                  variant="solid"
+                  disabled={primary.disabled}
+                  onClick={primary.onClick}
+                  style={{ padding: '9px 20px' }}
+                />
+              </div>
+            )}
 
-            {retryError && (
+            {retryError && !loaded && (
               <div style={text('0.78rem', { marginTop: 10, textAlign: 'center', lineHeight: 1.45, overflowWrap: 'anywhere' })}>
                 Still couldn&rsquo;t load: {retryError}
               </div>
@@ -209,7 +275,7 @@ const GitReconnectModal = ({
                   onClick={onOpenUniverses}
                 />
               )}
-              {errorMessage && (
+              {errorMessage && !loaded && (
                 <PanelIconButton
                   icon={ChevronDown}
                   label={showDetails ? 'Hide details' : 'Details'}
@@ -221,7 +287,7 @@ const GitReconnectModal = ({
               )}
             </div>
 
-            {showDetails && errorMessage && (
+            {showDetails && errorMessage && !loaded && (
               <div style={text('0.72rem', {
                 marginTop: 8,
                 padding: '8px 10px',

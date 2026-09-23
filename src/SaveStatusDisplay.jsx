@@ -5,6 +5,7 @@ import saveCoordinator from './services/SaveCoordinator';
 import { resolveSaveStatus } from './utils/saveStatus.js';
 import { useViewportBounds } from './hooks/useViewportBounds';
 import useGraphStore from './store/graphStore.js';
+import { persistentAuth } from './services/persistentAuth.js';
 
 // How long changes may sit un-written before the indicator says so. The normal
 // pipeline dispatches ~3.5s after an edit (500ms worker debounce + 3s save
@@ -21,6 +22,9 @@ const SaveStatusDisplay = ({ hidden = false }) => {
   // it was saving for many seconds.
   const [statusText, setStatusText] = useState('Loading...');
   const [isCTA, setIsCTA] = useState(false);
+  // What the CTA does: 'reconnect' opens GitReconnectModal (a Git universe
+  // with nobody signed in); anything else opens the Universes panel.
+  const [ctaAction, setCtaAction] = useState(null);
   const [isVisible, setIsVisible] = useState(true);
 
   // Timestamp the coordinator first went dirty with no write in flight.
@@ -29,7 +33,9 @@ const SaveStatusDisplay = ({ hidden = false }) => {
   const openFederation = () => {
     if (!isCTA) return;
     try {
-      window.dispatchEvent(new CustomEvent('redstring:open-federation'));
+      window.dispatchEvent(new CustomEvent(
+        ctaAction === 'reconnect' ? 'redstring:open-git-reconnect' : 'redstring:open-federation'
+      ));
     } catch { }
   };
 
@@ -161,6 +167,10 @@ const SaveStatusDisplay = ({ hidden = false }) => {
         const status = resolveSaveStatus({
           hasUniverse: true,
           hasStorage: true,
+          // Git-linked with nobody signed in: the sync engine will never
+          // start, so "Syncing..." would never end. (A local file, if any,
+          // still saves — but the Git side is stuck either way.)
+          needsGitAuth: hasGit && !persistentAuth.getAuthStatus()?.isAuthenticated,
           isInErrorBackoff: !!engine?.isInErrorBackoff,
           isUnhealthy: engine?.isHealthy === false,
           isPaused: !!engine?.isPaused,
@@ -185,6 +195,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
         });
         setStatusText(status.text);
         setIsCTA(status.isCTA);
+        setCtaAction(status.action || null);
       } catch (error) {
         if (!cancelled) {
           console.warn('[SaveStatusDisplay] Failed to get sync status:', error);

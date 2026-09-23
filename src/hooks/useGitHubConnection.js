@@ -39,8 +39,14 @@ export const isGitHubDeviceFlowShowing = (connection) =>
  *
  * `beforeRedirect` runs before a web flow unloads the page, so the caller
  * can leave itself a note to resume from.
+ *
+ * `respectAppDisconnect`: automatic App discovery normally clears the
+ * "user disconnected the App" flag (right for onboarding, where the user is
+ * here to connect). A surface that can open right after that disconnect must
+ * not quietly undo it, so it discovers without clearing; the Install/Detect
+ * buttons still override, since those are the user asking.
  */
-export function useGitHubConnection({ active = true, beforeRedirect = null } = {}) {
+export function useGitHubConnection({ active = true, beforeRedirect = null, respectAppDisconnect = false } = {}) {
   const theme = useTheme();
   const statusColors = getStatusColors(theme.darkMode);
 
@@ -152,14 +158,18 @@ export function useGitHubConnection({ active = true, beforeRedirect = null } = {
     let cancelled = false;
     (async () => {
       try {
-        await persistentAuth.forceAppDiscovery?.();
+        if (respectAppDisconnect) {
+          await persistentAuth.attemptAppAutoConnect?.();
+        } else {
+          await persistentAuth.forceAppDiscovery?.();
+        }
         if (!cancelled) refreshAuthStatus();
       } catch (err) {
         console.warn('[useGitHubConnection] App auto-discovery failed:', err?.message || err);
       }
     })();
     return () => { cancelled = true; };
-  }, [active, hasOAuth, hasApp, oauthVerification, refreshAuthStatus]);
+  }, [active, hasOAuth, hasApp, oauthVerification, respectAppDisconnect, refreshAuthStatus]);
 
   const noteRedirect = () => {
     if (!usesDeviceFlowAuth() && typeof beforeRedirect === 'function') {

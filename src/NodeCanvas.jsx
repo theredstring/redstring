@@ -180,6 +180,7 @@ import { formatPredicate } from './utils/predicateFormatter.js';
 import StorageSetupModal from './components/StorageSetupModal.jsx';
 import GitReconnectModal from './components/modals/GitReconnectModal.jsx';
 import { runPendingCallbacks, RECONNECT_RESUME_KEY } from './services/githubAuthCallbacks.js';
+import { persistentAuth } from './services/persistentAuth.js';
 import HelpModal from './components/HelpModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import MergeThingsModal from './components/merge/MergeThingsModal.jsx';
@@ -2256,11 +2257,34 @@ function NodeCanvas() {
   // Onboarding / Storage Setup state
   const [showStorageSetupModal, setShowStorageSetupModal] = useState(false);
 
-  // GitHub reconnect: when the active universe is Git-backed and its load
-  // failed, this names it (and its repo) for GitReconnectModal. Null for any
-  // other failure, which keeps the plain error card.
+  // GitHub reconnect.
+  //
+  // `reconnectTarget` names the active universe (and its repo) when it is
+  // Git-backed and its load failed — the canvas error card uses it. Null for
+  // any other failure, which keeps the plain card.
+  //
+  // `reconnect` is the modal itself: { mode: 'load' | 'sync', name, repoLabel }.
+  // It's latched rather than derived from the load error, because the error
+  // clearing is not the end of the job — OAuth connecting makes the load
+  // succeed while the App is still being detected, and closing then cut the
+  // user off halfway. The modal closes itself once both are confirmed.
   const [reconnectTarget, setReconnectTarget] = useState(null);
   const [reconnectDismissed, setReconnectDismissed] = useState(false);
+  const [reconnect, setReconnect] = useState(null);
+
+  const resolveGitReconnectTarget = useCallback(async () => {
+    const { default: universeBackend } = await import('./services/universeBackend.js');
+    const universe = universeBackend.getActiveUniverse?.();
+    const linked = universe?.gitRepo?.enabled ? universe.gitRepo.linkedRepo : null;
+    if (!linked) return null;
+    const owner = linked.user || linked.owner || null;
+    const repo = linked.repo || linked.name || null;
+    return {
+      name: universe.name || 'this universe',
+      repoLabel: owner && repo ? `${owner}/${repo}` : null
+    };
+  }, []);
+
   useEffect(() => {
     if (!universeLoadingError || isUniverseLoading) {
       setReconnectTarget(null);
@@ -2269,23 +2293,62 @@ function NodeCanvas() {
       return undefined;
     }
     let cancelled = false;
-    import('./services/universeBackend.js').then(({ default: universeBackend }) => {
+    resolveGitReconnectTarget().then((target) => {
       if (cancelled) return;
-      const universe = universeBackend.getActiveUniverse?.();
-      const linked = universe?.gitRepo?.enabled ? universe.gitRepo.linkedRepo : null;
-      if (!linked) {
-        setReconnectTarget(null);
-        return;
+      setReconnectTarget(target);
+      if (target && !reconnectDismissed) {
+        setReconnect((open) => open || { mode: 'load', ...target });
       }
-      const owner = linked.user || linked.owner || null;
-      const repo = linked.repo || linked.name || null;
-      setReconnectTarget({
-        name: universe.name || 'this universe',
-        repoLabel: owner && repo ? `${owner}/${repo}` : null
-      });
     }).catch(() => { /* keep the plain error card */ });
     return () => { cancelled = true; };
-  }, [universeLoadingError, isUniverseLoading]);
+  }, [universeLoadingError, isUniverseLoading, reconnectDismissed, resolveGitReconnectTarget]);
+
+  // Loaded, but the GitHub connection is incomplete. Two ways in:
+  // - The save pill's Reconnect CTA (a Git universe with nobody signed in).
+  // - A connection LOST this session — OAuth or the App, disconnected on
+  //   purpose, revoked by GitHub, or dropped when a refresh failed. OAuth
+  //   alone still syncs, so losing only the App isn't an outage, but it's a
+  //   step down the user should get to undo from where they are.
+  //
+  // Only losses count, never a state that was already there: someone who
+  // chose "Continue with OAuth only" in onboarding isn't asked about the App
+  // every time the app starts.
+  useEffect(() => {
+    const open = async () => {
+      const target = await resolveGitReconnectTarget().catch(() => null);
+      if (!target) return;
+      const failed = !!useGraphStore.getState().universeLoadingError;
+      if (failed) setReconnectDismissed(false);
+      setReconnect((current) => current || { mode: failed ? 'load' : 'sync', ...target });
+    };
+
+    const snapshot = () => {
+      const s = persistentAuth.getAuthStatus() || {};
+      return { oauth: !!s.hasOAuthTokens, app: !!s.hasGitHubApp };
+    };
+    let last = snapshot();
+    // Disconnect flows emit several events in a row (tokens cleared, auth
+    // expired, installation cleared); settle before judging.
+    let settleTimer = null;
+    const onAuthChanged = () => {
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        const now = snapshot();
+        const lost = (last.oauth && !now.oauth) || (last.app && !now.app);
+        last = now;
+        if (lost) open();
+      }, 250);
+    };
+    const LOSS_EVENTS = ['tokensCleared', 'authExpired', 'appInstallationCleared', 'tokenStored', 'appInstallationStored'];
+
+    window.addEventListener('redstring:open-git-reconnect', open);
+    LOSS_EVENTS.forEach((ev) => persistentAuth.on(ev, onAuthChanged));
+    return () => {
+      clearTimeout(settleTimer);
+      window.removeEventListener('redstring:open-git-reconnect', open);
+      LOSS_EVENTS.forEach((ev) => persistentAuth.off(ev, onAuthChanged));
+    };
+  }, [resolveGitReconnectTarget]);
 
   const retryUniverseLoad = useCallback(async () => {
     const { default: universeBackend } = await import('./services/universeBackend.js');
@@ -16000,7 +16063,10 @@ function NodeCanvas() {
                         label="Reconnect"
                         labelFontSize={13}
                         variant="solid"
-                        onClick={() => setReconnectDismissed(false)}
+                        onClick={() => {
+                          setReconnectDismissed(false);
+                          setReconnect({ mode: 'load', ...reconnectTarget });
+                        }}
                         style={{ pointerEvents: 'auto' }}
                       />
                     </div>
@@ -18651,14 +18717,21 @@ function NodeCanvas() {
       {/* GitHub reconnect — a Git-backed universe failed to load. Yields to
           onboarding, which owns the screen when it's up. */}
       <GitReconnectModal
-        isVisible={!!reconnectTarget && !!universeLoadingError && !reconnectDismissed && !showStorageSetupModal}
-        onClose={() => setReconnectDismissed(true)}
-        universeName={reconnectTarget?.name}
-        repoLabel={reconnectTarget?.repoLabel}
+        isVisible={!!reconnect && !showStorageSetupModal}
+        mode={reconnect?.mode || 'load'}
+        loaded={!universeLoadingError && !isUniverseLoading}
+        onClose={() => {
+          if (universeLoadingError) setReconnectDismissed(true);
+          setReconnect(null);
+        }}
+        onResolved={() => setReconnect(null)}
+        universeName={reconnect?.name}
+        repoLabel={reconnect?.repoLabel}
         errorMessage={universeLoadingError}
         onRetry={retryUniverseLoad}
         onOpenUniverses={() => {
-          setReconnectDismissed(true);
+          if (universeLoadingError) setReconnectDismissed(true);
+          setReconnect(null);
           openUniversesPanel();
         }}
       />
